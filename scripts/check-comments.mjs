@@ -31364,6 +31364,8 @@ const allowed = new Map([
     "/** Playlist references whose track row no longer exists. */",
     "/** Playable tracks, kept for callers written before the diagnostic breakdown existed. */",
     "/** True when the signed-in account is not the owner the public blog reads. */",
+    "/** Why the owner library produced no playable tracks; absent for non-library providers. */",
+    "/** True when the deployment can sign the short-lived audio and cover links. */",
   ]],
   ["src/shared/blog/renderer.ts", [
     "/**\n * The renderer generation a snapshot was produced with.\n *\n * A published snapshot is a *still* of the note body, but the reading runtime re-renders the same\n * markdown through the same pipeline. The number is part of the runtime URL and is written into every\n * snapshot, so a reader can only ever load the runtime that matches the markup it is given: after a\n * renderer change old snapshots keep their still until they are rebuilt, instead of silently swapping\n * in a different renderer.\n */",
@@ -31470,6 +31472,8 @@ const allowed = new Map([
     "/** The credential combinations that satisfy authentication; empty means no authentication. */",
     "/** `clouddrive.driver.reason.<id>` when an implemented driver has a platform limit. */",
     "/** `directLink` is the one capability whose id is not already a message-key segment. */",
+    "/**\n * The drivers that complete authorization through the shared OAuth callback. The list is duplicated\n * from the worker provider table on purpose: the client only needs to know which buttons to show and\n * which callback path to print, never a client secret or a token endpoint.\n */",
+    "/** Batch A schemas. Secrets live in the credential vault, never in `config`. */",
   ]],
   ["src/shared/clouddrive/model.test.ts", [
     "// The transport decoded the value once: `%25` in a URL is `%` here. Decoding again would either",
@@ -37101,13 +37105,13 @@ const allowed = new Map([
   ]],
   ["src/worker/blog/music-library.ts", [
     "/**\n * The blog's read-only view of the owner's music library.\n *\n * Only tracks this account actually stored in R2 are publishable: a provider snapshot without bytes\n * would make the public page ask the music provider for a stream, which is neither the blog's data\n * nor a stable public source. Playlists are owner-scoped by their query, and a playlist id from\n * another account resolves to an empty list instead of a different owner's rows.\n *\n * Audio and covers never expose an R2 key. Each listed track gets a short-lived HMAC token bound to\n * the owner, the object kind and the track id; the public audio/cover routes verify it before reading\n * the bucket. The token is refreshed whenever `/api/blog/site` is rebuilt.\n */",
-    "// A playlist that was deleted, renamed away or belongs to another account resolves to nothing;",
-    "// it must never widen into \"all tracks\", because the owner asked to publish one selection only.",
     "/** Replace the owner-library projection with real tracks and tokenised public addresses. */",
     "/** A fixed local-development secret: the proxy guard already lets dev run without BLOG_PROXY_KEY. */",
     "// Production compiles `DEV` to false and therefore fails closed; local development may omit both",
     "// secrets, the same way `requireBlogProxy` permits it, so the library is still playable there.",
     "/**\n * The library the admin picker may read.\n *\n * The public blog always reads the site owner's tracks. A signed-in owner of another account must not\n * see that account's library (the picker would also publish something they cannot preview), and must\n * not see their own library either, because it would never reach the blog. Answer with an explicit\n * mismatch instead of a misleading zero.\n */",
+    "/**\n * Whether this deployment can sign a music link.\n *\n * `requireBlogProxy` accepts any non-empty proxy key, so the signer must accept the same key: a length\n * check here once rejected a real deployment's short key and silently dropped every R2 track while the\n * admin still counted them as playable.\n */",
+    "/**\n * Resolve the configured scope and say why it has no tracks.\n *\n * The counts come from the same predicates the public list uses, so the status cannot disagree with\n * the entries the admin card counted.\n */",
   ]],
   ["src/worker/blog/public-routes.ts", [
     "// Friend links moved to the nav app; only its dedicated projection above may serve them.",
@@ -37404,6 +37408,12 @@ const allowed = new Map([
     "// A share needs no session bootstrap; only the resolved ids are worth dropping after a forced login.",
     "// `count` is the snapshot's own total; an empty page or a short read ends the walk early.",
   ]],
+  ["src/worker/clouddrive/drivers/115open.ts", [
+    "/**\n * 115 Cloud Drive open-platform driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/115open` and the upstream 115 SDK. Listings\n * page by offset, paths are resolved by walking directories, downloads resolve a `pick_code` into\n * a short-lived URL, and writes use the open platform's instant-upload handshake followed by a\n * single signed OSS PUT.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/123-open.ts", [
+    "/**\n * 123 Cloud Drive open-platform driver.\n *\n * Ported from the reference at `OpenList-Worker/src/backend/drivers/123_open` and the upstream\n * OpenList Go driver. Authentication is a bearer token obtained from `client_id`/`client_secret`\n * (or an existing token); listings page by `lastFileId`; uploads create a session and POST every\n * slice as multipart form data before completing it.\n */",
+  ]],
   ["src/worker/clouddrive/drivers/123_share.ts", [
     "/**\n * 123Pan share-link driver (read-only).\n *\n * Ported from `OpenList-Worker/src/backend/drivers/123_share`: every request carries the CRC32 path\n * signature the web client adds, listings walk `Page` while watching the `Next` cursor, and a\n * download address is requested with the share key, the share password and the file's S3 metadata.\n */",
     "/** The query signature 123Pan's web client adds to every API path. */",
@@ -37437,6 +37447,14 @@ const allowed = new Map([
     "// ---- Mail/password sign-in ----------------------------------------------------------------",
     "/** 139 Mail password sign-in; the result is the `pc:<account>:<token>` Authorization value. */",
   ]],
+  ["src/worker/clouddrive/drivers/189-tv.ts", [
+    "/**\n * China Telecom Cloud TV / family-cloud driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/189_tv`:\n * the TV client signs every request with the session key it obtains from the access token, and the\n * family variant uses a separate family session. The access token is issued out of band, so this\n * driver never runs a refresh flow; a rejected token marks the storage for re-authorization instead.\n */",
+    "// The API returns int64 ids as bare numbers; JSON.parse would round them past 2^53.",
+    "// The reference uses GET for family-cloud renames and POST for the personal cloud.",
+    "// The reference polls with the personal session key, even when the task ran in family mode.",
+    "// A matched md5 means the service already holds the bytes: the session is complete without a PUT.",
+    "// The copy endpoint keeps the source name; a differing destination is renamed afterwards.",
+  ]],
   ["src/worker/clouddrive/drivers/189.ts", [
     "/**\n * Tianyi Cloud Drive (189) account driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/189`: the Cookie-first sign-in, the\n * open.e.189.cn OAuth password flow (with the slider CAPTCHA fallback), the page based\n * `fileListAO` listing, the `upload.cloud.189.cn` encrypted multipart protocol and the\n * `createBatchTask` move/copy/delete contract follow the reference.\n */",
     "/** RSA PKCS#1 v1.5 encryption, used by the 189 OAuth form. */",
@@ -37457,10 +37475,31 @@ const allowed = new Map([
     "// ---- Mutations -------------------------------------------------------------------------",
     "// ---- Upload ----------------------------------------------------------------------------",
   ]],
+  ["src/worker/clouddrive/drivers/alias.ts", [
+    "/**\n * Alias driver — exposes several mounted storages under one virtual path tree.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/alias`. `paths` is a newline-separated list of\n * `aliasSubPath:mountReference` pairs; a line without a colon maps the root `/` to that mount, and\n * several lines may name the same alias sub-path (or all name `/`) to merge their listings.\n *\n * Conflict policies decide what happens when one virtual path maps to several mounts:\n *\n * - `read`: `first` uses (and merges in favour of) the first target; `random` picks a target with a\n *   hash of the path, so repeated reads keep landing on the same one; `all` tries every target in\n *   order. Listings always query every target, and duplicate names are resolved by the policy\n *   rather than silently overwritten.\n * - `write` / `put`: `disabled` refuses; `first` (and `deterministic*`) writes to the first target;\n *   `all` writes to every target and fails only when every write failed; `all_strict` fails the\n *   whole operation as soon as one target fails.\n */",
+    "/** AList's convention: folders first, then the requested key, ascending by default. */",
+    "/**\n   * `alias[:target]` per line. A line without a colon maps `/` to the target, matching the\n   * reference parser. A line whose colon is the first character is also treated as a bare target\n   * because the reference only splits at `indexOf(\":\") > 0`.\n   */",
+    "/** The reference's `getTargetsForPath`, adapted to resolve mount-relative paths. */",
+    "/** Resolves every mapping, so an invalid/unauthorised/cyclic mount fails the whole operation. */",
+    "/** Calls the chosen read targets and returns the first success; `all` keeps trying. */",
+    "// Keep the target order inside each name group: it is what \"first occurrence wins\" and",
+    "// the stable random pick both index into.",
+    "// `first` and `all` both keep the first occurrence. `all` still queried every target",
+    "// above; the duplicate is returned once with the first target's entry.",
+    "/** Pairs the source and destination selections; a short side reuses its last target. */",
+  ]],
   ["src/worker/clouddrive/drivers/alidoc.ts", [
     "/**\n * AliDoc (DingTalk Docs) driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/alidoc`.\n * Directories are `dentryUuid` values, listing answers up to 1000 children per call, and a\n * pre-signed `raw_url` only works when it is fetched with the browser Cookie, Referer and Origin.\n * The reference exposes no upload endpoint, so upload is reported as unsupported instead of\n * pretending a write exists.\n */",
     "// The upstream list answers at most 1000 children, so the driver paginates its single answer.",
     "// AliDoc's move keeps the name; a move that changes the name renames first.",
+  ]],
+  ["src/worker/clouddrive/drivers/alist_v3.ts", [
+    "/**\n * AList V3 driver: mounts another AList / OpenList instance through its HTTP API.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/alist_v3`:\n * `/api/me` token validation (and the username mismatch re-login), `/auth/login`, the `/api/fs/*`\n * endpoints and the `File-Path` PUT upload all follow it. Pagination uses the real `page`/`per_page`\n * fields of `/api/fs/list`.\n */",
+    "// The token could not be verified; a configured account can still sign in below.",
+    "// A stream cannot be replayed, so a retry would send a partially consumed body.",
+  ]],
+  ["src/worker/clouddrive/drivers/aliyundrive-open.ts", [
+    "/**\n * Aliyundrive open-platform driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/aliyundrive_open` and the upstream OpenList\n * driver. OAuth tokens rotate through the registered `aliyundrive_open` provider; files are\n * addressed by `file_id`; uploads create a multipart session, PUT each 20 MiB part and complete it.\n */",
   ]],
   ["src/worker/clouddrive/drivers/aliyundrive_share.ts", [
     "/**\n * Aliyundrive (Alipan) share-link driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/aliyundrive_share`.\n * A share token (`x-share-token`) is anonymous and expires after roughly two hours; the optional\n * refresh token identifies the visitor when the share is not public, so it is exchanged for an\n * access token that accompanies the share token. Listing is marker based and the download URL still\n * requires the Alipan Referer when it is fetched.\n */",
@@ -37468,18 +37507,72 @@ const allowed = new Map([
     "/** Exchanges the optional refresh token for the visitor access token, persisting any rotation. */",
     "// The token endpoint is anonymous; it must not call `ensureShareToken` or it would recurse.",
   ]],
+  ["src/worker/clouddrive/drivers/autoindex.ts", [
+    "/**\n * AutoIndex driver — a read-only adapter for Nginx/Apache style directory listings.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/autoindex`. The reference used an XPath engine\n * on a DOM; Workers have neither, so this keeps the same semantics with a small HTML scan:\n * `itemXpath` either names the common `//pre/a` / `//a` templates or is treated as a regular\n * expression whose first three groups are `href`, `name text` and the trailing metadata text.\n * Size and modified time are read from the text following the anchor, which covers both the\n * Apache (`date size`) and the Nginx (`size date`) orders.\n */",
+    "/** A small, dependency-free HTML scan; the built-in templates cover Apache and Nginx indexes. */",
+    "/** The text after each anchor up to the next anchor, which holds the size/date columns. */",
+    "// The reference defaults are text()[1]/text()[2]; real indexes put the date first on Apache",
+    "// and the size first on Nginx, so the defaults fall back to the order-aware scan below.",
+    "// An empty directory is absent from its parent's anchor list but still lists successfully.",
+  ]],
+  ["src/worker/clouddrive/drivers/azure_blob.ts", [
+    "/**\n * Azure Blob Storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/azure_blob`: a container is addressed through\n * the Blob REST API with SharedKey HMAC-SHA256 authentication. Directories are virtual (blob names\n * separated by `/`, `delimiter=/` in listings) and are backed by a zero-byte marker blob.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/baidu-netdisk.ts", [
+    "/**\n * Baidu Netdisk driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/baidu_netdisk`.\n * Listing uses the web folder endpoint, a download is resolved from `filemetas` and either follows\n * the official redirect or uses the third-party dlink. Writes go through the documented xpan\n * `create`/`filemanager` methods, and uploads follow the reference flow: an md5 rapid-upload probe,\n * `precreate`, one multipart POST per slice to `superfile2`, then `create` to merge. Every path is\n * mapped to the account root; Baidu has no path lookup, so a stat walks the parent listing.\n */",
+    "/** Reference defaults: a non-VIP account uploads 4 MiB slices with three workers. */",
+    "/** errno values that mean the access token is missing, expired or refused. */",
+    "/** `filemetas` answers under `list`, the third-party endpoint under `info`. */",
+    "/** `create` also answers `precreate`; `return_type` 2 means the content already exists. */",
+    "/** A non-zero id means the server queued the operation despite `async=0`. */",
+    "/** The upload id expired, so the whole slice set must be prepared again. */",
+    "/** The dlink is forwarded without the bearer token; the resolved address is already signed. */",
+    "/** Maps an API errno to the driver contract; HTTP statuses are already mapped by `request`. */",
+    "/** One form-encoded POST with an explicit token, parsed but not errno-checked. */",
+    "/** `filemanager` with `async=0`; a task id still counts as accepted by the server. */",
+    "/** Baidu has no path lookup, so the parent listing decides whether the path exists. */",
+    "/** Uploads through the reference flow: rapid md5 probe, precreate, slices, create. */",
+    "// Step 0: rapid upload. A successful `create` with the content md5 means the file already exists",
+    "// on the server, so no slice is uploaded at all.",
+    "// Any other errno means \"no matching content\"; fall through to the chunked upload.",
+    "// Step 1: precreate. The server answers the parts that are still missing.",
+    "// The reference restarts precreate without the md5 hints when the upload id expires.",
+    "// Step 3: merge the uploaded slices into the final file.",
+    "/** A slice is retried three times with the reference's exponential backoff. */",
+    "/** The new file name must stay a single path segment. */",
+  ]],
   ["src/worker/clouddrive/drivers/baidu_photo.ts", [
     "/**\n * Baidu Photo (photo.baidu.com) driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/baidu_photo`.\n * The root shows albums and/or loose photos depending on `showType`; a configured `albumId` mounts\n * one album as the root. Album photos are deleted without touching the original (`delete_origin=0`),\n * and uploads use the superfile2 precreate/part/create flow in 4 MiB chunks.\n */",
     "// Moving is a copy followed by removing the album membership, never the original photo.",
+  ]],
+  ["src/worker/clouddrive/drivers/bunny_storage.ts", [
+    "/**\n * Bunny Storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/bunny_storage`: a storage zone is addressed over\n * the Bunny Storage API (`storage.bunnycdn.com`) with the zone's `AccessKey`. Listing is one flat\n * `GET /<zone>/<path>/` request; directories are virtual and marked by a zero-byte placeholder.\n * MOVE/COPY are implemented by streaming the object from the storage endpoint to its destination.\n */",
   ]],
   ["src/worker/clouddrive/drivers/chaoxing.ts", [
     "/**\n * ChaoXing group cloud drive driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/chaoxing`: the AES-CBC `fanyalogin` password\n * login, the `getResourceList` folder/file split, the `pan-yz.chaoxing.com` multipart upload with a\n * short-lived token, and the `noteyd.chaoxing.com` download-link endpoint all follow it.\n *\n * Authentication is two-factor in practice: the group (`bbsId`) plus either a pasted cookie or the\n * account/password pair. When the cookie is rejected the base re-runs `login(true)`, which falls\n * back to the password login if one is configured and otherwise marks the storage for review.\n */",
     "/** The login fields are AES-128-CBC with the key itself as IV, PKCS#7 applied by WebCrypto. */",
   ]],
+  ["src/worker/clouddrive/drivers/chunk.ts", [
+    "/**\n * Chunk driver — stores a large file as numbered parts inside a `<chunkPrefix><name>/` directory\n * under another mount, and presents the directory back as one virtual file.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/chunk`: `remotePath` is resolved through\n * `ctx.resolveMount` (so the factory still enforces ownership, enabled status and cycles), the\n * virtual path is mirrored below `rootPath`, listings fold part directories into files, reads join\n * the parts in order while honouring Range, and uploads beyond `partSize` are split part by part.\n */",
+    "/** The same path inside the resolved mount: local path → remote mount-relative path. */",
+    "/** A real entry at the same path always shadows a chunk directory, as in the reference. */",
+  ]],
   ["src/worker/clouddrive/drivers/cloudflare_imgbed.ts", [
     "/**\n * CloudFlare-ImgBed driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/cloudflare_imgbed`: uploads go through\n * `POST /upload` (channel + folder query, Bearer) and the public link is `/file/<id>`; the manage\n * list endpoint (`/api/manage/list?dir=&start=&count=`) is the only way to learn what a directory\n * holds, so `stat` resolves the parent listing instead of assuming every path is a file.\n */",
     "/** The user path mapped into the image bed's own folder tree. */",
     "// A malformed publicUrl keeps the default address-based link.",
+  ]],
+  ["src/worker/clouddrive/drivers/cloudreve_v3.ts", [
+    "/**\n * Cloudreve V3 storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/cloudreve_v3`: session-cookie login through\n * `POST /api/v3/user/session`, path-addressed directory listings, download-link resolution through\n * `PUT /api/v3/file/download/<id>`, and the object endpoints for mkdir/rename/move/copy/delete.\n * Cloudreve V3 has no stateless upload endpoint, so uploading is reported as unsupported.\n */",
+    "// HttpOptions only names the four methods the JSON APIs use; Cloudreve's object mutations",
+    "// are PATCH, so that one goes through a local fetch with the same error mapping.",
+  ]],
+  ["src/worker/clouddrive/drivers/cloudreve_v4.ts", [
+    "/**\n * Cloudreve V4 storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/cloudreve_v4`: bearer-token session login,\n * cursor-paginated `/api/v4/file` listings, `/api/v4/file/url` download resolution, and the\n * `/api/v4/file/*` mutation endpoints. Cloudreve V4 has no stateless upload endpoint, so uploading\n * is reported as unsupported.\n */",
+    "/**\n   * Walks the cursor until the requested one-based page (or the end) is reached. A request without\n   * a page collects the whole listing, which is what folder-size and stat use.\n   */",
+  ]],
+  ["src/worker/clouddrive/drivers/cnb_releases.ts", [
+    "/**\n * CNB (cnb.cool) Releases driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/cnb_releases`: a release is a virtual folder at\n * the mount root and its assets are the files inside it. The API is addressed by release/asset id,\n * so names from the mount path are resolved against the release list before any write. Downloads\n * use the public web URL of the asset (`https://cnb.cool<asset.path>`).\n */",
   ]],
   ["src/worker/clouddrive/drivers/contract.ts", [
     "/**\n * The driver contract every CloudDrive storage implementation speaks.\n *\n * A driver only knows paths relative to its mount (\"/photos/2024.jpg\"), never D1 rows or HTTP. The\n * worker layer owns visibility, quotas and meta rules; a driver owns one upstream service.\n */",
@@ -37490,6 +37583,15 @@ const allowed = new Map([
     "/** Marks the storage as needing the owner's attention instead of retrying forever. */",
     "/** A streaming response with the upstream Range answer, or a 200 body. */",
     "/** A reachability/auth probe used by the admin \"test\" button. */",
+    "/** Another mount owned by the same user, already checked for status and cycles. */",
+    "/**\n * The compare-and-swap contract for rotating credentials.\n *\n * `expect` carries the values this request observed before it refreshed. The vault only writes when\n * the stored row still matches, so two requests that both refreshed cannot let the slower one\n * overwrite the token the faster one just persisted. The returned map is the credential set that is\n * effective after the write attempt; a caller that lost the race receives the winner's values.\n */",
+    "/** Seconds a direct link stays valid, taken from the mount's `signExpires`. */",
+    "/** Resolves one of this user's enabled mounts by mount path or mount id. */",
+    "/** Writes declared `config` fields back to the current storage row. */",
+    "/** The deployment's primary R2 binding, used by the `r2` binding mode. */",
+    "/** The mount this driver instance is serving, when the caller knows it. */",
+    "/**\n   * A cross-request lease so concurrent refreshes of one storage hit the token endpoint once. The\n   * factory backs it with a D1 compare-and-swap on the row version; a hand-built context in a test\n   * may omit it, in which case the in-process single flight still applies.\n   */",
+    "/** Re-reads the newest vault snapshot after another request won the lease. */",
   ]],
   ["src/worker/clouddrive/drivers/cookies.ts", [
     "/**\n * Cookie plumbing for the drivers that authenticate with a browser session.\n *\n * Workers expose `Set-Cookie` either through the standard `getSetCookie()` accessor or through the\n * legacy multi-value `getAll('set-cookie')`. Neither a Node `cookie` package nor a DOM are available\n * in the worker, so the small parser every session driver needs lives here once.\n */",
@@ -37500,6 +37602,24 @@ const allowed = new Map([
     "// upstream services send one header per cookie, and `getSetCookie` handles that case.",
     "/** Applies every `Set-Cookie` name/value pair to the jar, ignoring attributes such as Path. */",
     "/** A bare Bearer token, a JWT, or a cookie jar that stores the token under a known name. */",
+  ]],
+  ["src/worker/clouddrive/drivers/crypt.ts", [
+    "/**\n * Crypt driver — an rclone-crypt-v1 compatible envelope over another mounted storage.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/crypt`. The reference only implements\n * `filename_encryption=off`, so this driver refuses `standard` / `obfuscate` by name instead of\n * pretending to support them. Names keep their suffix (`.bin` by default); contents are encrypted\n * with AES-256-CTR under a key derived by scrypt.\n *\n * File format (v1): `[nonce: 16 bytes][reserved: 16 bytes][ciphertext]`, so the encrypted size is\n * always the plaintext size plus 32. The scrypt parameters are the rclone ones:\n * `N=16384, r=8, p=1, dkLen=64`; the first 32 bytes are the data key and the rest is the (unused)\n * file-name key.\n *\n * The 16-byte nonce is the AES-CTR initial counter, so a byte range can be answered by decrypting\n * only the 16-byte-aligned ciphertext blocks that cover it, advancing the 128-bit counter by the\n * block count before the first requested block.\n */",
+    "/** A byte range in the decrypted stream. */",
+    "/** Advances a 128-bit big-endian counter by `blocks` AES blocks. */",
+    "/** `null` means \"ignore the header\", `'unsatisfiable'` means \"answer 416\". */",
+    "/** Raw bytes at the front of the source that must not reach AES (the 32-byte header). */",
+    "/** Decrypted bytes to drop before emitting (the partial block before a Range start). */",
+    "/** Emit at most this many plaintext bytes. */",
+    "/**\n * Streams a ciphertext body through block-wise AES-CTR.\n *\n * Chunks are accumulated up to 1 MiB and only complete 16-byte blocks are decrypted before the\n * stream ends, so the counter stays aligned across chunk boundaries. The final partial block is\n * decrypted once the source is done.\n */",
+    "/**\n   * Derives the rclone keys and proves the password with a key check stored in the vault.\n   *\n   * The check is what turns AES-CTR's silent garbage into an \"auth\" error: CTR has no MAC, so a\n   * wrong key decrypts to plausible-looking bytes. The first successful derivation writes the\n   * check back so later attempts (and other mounts on the same storage) can verify it.\n   */",
+    "/** Reads exactly the first 32 bytes of the ciphertext and cancels the rest of the body. */",
+    "// Files live under the encrypted suffix; folders keep their virtual name. Try the file first,",
+    "// because a virtual file name never carries the suffix, then fall back to the folder path.",
+    "// A malformed or multi-range header is ignored, as HTTP allows.",
+    "// Decrypt whole 16-byte blocks: the counter can only be advanced block by block.",
+    "// A honouring upstream starts at cipherStart; one that ignores Range starts at byte zero and",
+    "// still contains the header.",
   ]],
   ["src/worker/clouddrive/drivers/ctfile.ts", [
     "/**\n * CtFile cloud drive driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/ctfile`: the\n * single POST-JSON OpenAPI surface, the `d`/`f` id-prefix fallback (400/404), the `start`-offset\n * file pagination with a hard page cap, and the `md5-size` checksum that turns an upload into an\n * instant-transfer hit all follow it.\n *\n * The open-api session is a long-lived token pasted from the CtFile console; a 401 means the owner\n * has to regenerate it, so the driver marks the storage for review instead of logging in again.\n */",
@@ -37512,16 +37632,76 @@ const allowed = new Map([
     "/** Walks `file/list` with the `start` offset, capped at 500 upstream pages. */",
     "// A duplicate name answers 403 with the existing folder id; that is a successful mkdir.",
   ]],
+  ["src/worker/clouddrive/drivers/degoo.ts", [
+    "/**\n * Degoo driver.\n *\n * Degoo authenticates with a username/password that yields a JWT plus a refresh token, then serves\n * everything through the AppSync GraphQL endpoint. Paths are resolved by walking directory ids, and\n * a file's download address comes from the `getOverlay4` query. Mutations create folders, rename,\n * move and delete entries; uploads and copies stay unsupported.\n */",
+  ]],
   ["src/worker/clouddrive/drivers/doubao.ts", [
     "/**\n * Doubao cloud storage driver, cookie authenticated.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/doubao`: every call is a JSON POST and success\n * is `code === 0`, so an auth-shaped code forces one re-login and a retry before the storage is\n * marked for review. The node tree is only addressable by id, which is resolved segment by segment\n * and cached for the duration of one driver instance.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/dropbox.ts", [
+    "/**\n * Dropbox driver.\n *\n * Dropbox splits its API in two hosts: RPC endpoints under `api.dropboxapi.com` carry JSON, content\n * endpoints under `content.dropboxapi.com` carry the bytes plus a `Dropbox-API-Arg` header. The mount\n * root maps to Dropbox's empty path `\"\"`. Uploads use the single-shot endpoint up to 150 MB and a\n * session above that.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/emby.ts", [
+    "/**\n * Emby driver: read-only browsing of an Emby media library.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/emby`: `/Users/{userId}/Items` listings,\n * `/Items/{id}/Download` for the download link method and `/Videos/{id}/stream` for the stream\n * method. Emby has no pagination and is read-only, so the write methods are absent by design.\n */",
+    "// The stream link still works without a media source; the reference ignores this failure too.",
+    "// Emby is read-only; the write operations are intentionally absent (undefined at runtime).",
   ]],
   ["src/worker/clouddrive/drivers/errors.ts", [
     "/** One place where a driver's failure becomes the API's status and code. */",
     "/** Re-throws a non-driver failure untouched so bugs keep their original stack. */",
   ]],
   ["src/worker/clouddrive/drivers/factory.ts", [
-    "/**\n * The worker-side driver factory. It joins the shared definition, the decrypted vault and the\n * per-storage persistence callback that a driver uses to write a rotated token back.\n */",
     "/** Builds the driver for a storage row, or null when its type is not ported yet. */",
+    "/**\n * The worker-side driver factory. It joins the shared definition, the decrypted vault and the\n * per-storage persistence callbacks that a driver uses to write a rotated token or its own config\n * back. It also builds the controlled cross-mount resolver that wrapper drivers (strm, chunk,\n * crypt, alias) use instead of touching D1 themselves.\n *\n * Credential writes are compare-and-swap on the encrypted row: a driver passes the values it\n * observed, and a write only lands while the stored ciphertext is still the one this driver read.\n * Concurrent refreshes therefore cannot overwrite each other; the loser re-reads the winner's\n * credentials and adopts them.\n */",
+    "/** The row version used as the cross-request refresh lease. */",
+    "/** The mount that is calling the driver; its id seeds the cycle guard. */",
+    "/** The declared config schema is the only key set `saveConfig` may write. */",
+    "/** Builds the context a driver receives, including the vault and the cross-mount resolver. */",
+    "// Another request persisted first. Adopt its credentials instead of clobbering them.",
+  ]],
+  ["src/worker/clouddrive/drivers/febbox.ts", [
+    "/**\n * FebBox driver.\n *\n * FebBox uses an OAuth token endpoint (`client_credentials` or `refresh_token` grant) and a single\n * form-based API host. A `-10001` response means the access token expired: the driver refreshes once\n * and retries; a second one is an authorization failure. Mutations (create/move/rename/copy/delete)\n * use the same form API; uploads stay unsupported because the reference client has no upload path.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/github.ts", [
+    "/**\n * GitHub repository driver.\n *\n * Reads use the Contents API: it lists one directory at a time, reads a file with\n * `Accept: application/vnd.github.raw`, and returns a short-lived `download_url`. Writes that only\n * touch one path (upload) keep using the Contents API, while operations that need a tree rewrite\n * (mkdir/remove/rename/move/copy) use the Git Data API: blob/tree objects are created without\n * touching the branch, one commit ties them together, and the branch ref is moved once. Every\n * write is serialized per driver and re-reads the branch head when GitHub answers a stale base with\n * 409/422, so two concurrent operations cannot overwrite each other's ref update.\n */",
+    "/** A single entry in the request body of `POST /git/trees`. */",
+    "/** `null` deletes the entry from the base tree; omitted when `content` creates the blob. */",
+    "/** Inline content for a blob that does not exist yet (the `.gitkeep` placeholder). */",
+    "/** A 409 is a stale base tree; a 422 is a ref update that lost the compare-and-swap race. */",
+    "/** Serializes every write made through this driver instance. */",
+    "/**\n   * GitHub has no login endpoint: the PAT is proved by the first Contents call. Validation here is\n   * deliberately offline so a listing does not cost an extra `/repos` request.\n   */",
+    "/** Reads the current blob sha so an overwrite PUT can use GitHub's compare-and-swap. */",
+    "// A stale sha is answered with 409 Conflict (or 422 on some GitHub-compatible hosts). Re-read",
+    "// the current sha and retry once, which is the only way the Contents API allows an overwrite.",
+    "/** Runs `work` after the previous write on this driver has finished. */",
+    "// The Git Data ref update needs PATCH; the shared HttpOptions union predates that caller but",
+    "// fetch accepts it, so the narrow cast keeps the retry/error mapping in HttpDriverBase.",
+    "/** Resolves the head commit and the sha of its root tree in two calls. */",
+    "/** Walks the repository tree to a directory, relative to the mount's configured root. */",
+    "/**\n   * Applies edits bottom-up: each edited directory gets a new tree object whose base is its old\n   * tree, and every changed child directory is substituted into its parent. The recursion rebuilds\n   * only the edited branches, so unrelated trees are untouched.\n   */",
+    "/**\n   * Runs one tree-rewriting operation under the driver lock. A 409/422 means the branch moved\n   * between reading the head and updating the ref, so the operation is rebuilt from the new head\n   * and retried once.\n   */",
+    "/** A new-name argument is one path segment, never a path. */",
+    "// Keep a directory visible after its last real entry is deleted.",
+    "// Git cannot store an empty tree through the Contents API; a .gitkeep blob keeps the folder.",
+  ]],
+  ["src/worker/clouddrive/drivers/github_releases.ts", [
+    "/**\n * GitHub Releases driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/github_releases`: `repoStructure` declares one or\n * more `[path:]org/repo` mounts, the mount root shows the latest release assets (or one folder per\n * tag when `showAllVersion` is on) plus README/LICENSE and optional source bundles. Release lists are\n * walked page by page with `per_page`/`page`, stopping at `maxPage` when it is non-zero.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/google-drive.ts", [
+    "/**\n * Google Drive driver.\n *\n * Drive has no path API: a folder is found by querying children of its parent for the exact name.\n * Downloads stream through `files/{id}?alt=media`, and uploads use the multipart endpoint below\n * 5 MiB or a resumable session above it. Google issues no durable anonymous download address, so the\n * driver does not claim `directLink` and every read is proxied.\n */",
+    "/** Keeps the path helper available to the shared registry tests. */",
+  ]],
+  ["src/worker/clouddrive/drivers/google-photo.ts", [
+    "/**\n * Google Photos driver.\n *\n * The Photos Library has no folder hierarchy: the mount root lists the account's media items and a\n * first-level path segment names an album. `mediaItems:search` is the only listing endpoint and it\n * paginates with a `pageToken`. Reads stream from the item's `baseUrl` with the `=d` suffix; the same\n * signed address is what the reference implementation returns as `raw_url`, so it is the direct link.\n */",
+    "/** Resolves one folder segment (an album title) to its album id. */",
+  ]],
+  ["src/worker/clouddrive/drivers/guangyapan.ts", [
+    "/**\n * GuangYaPan driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/guangyapan`.\n * A stored access token wins; otherwise a refresh token is rotated through the account endpoint.\n * When the owner has neither token, the SMS verification handshake (`captcha init` → send code →\n * verify code → sign in) completes the login. Writes use the resource API and uploads go through\n * the instant-upload handshake followed by signed OSS requests.\n */",
+    "/**\n * Verifies the SMS code, signs in and persists the access/refresh token pair. The verification id\n * comes from `ctx.credentials`, which `requestGuangYaPanVerification` just wrote.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/halalcloud-open.ts", [
+    "/**\n * HalalCloud Open driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/halalcloud_open`. Every request is a JSON POST\n * signed with the HL6-HMAC-SHA256 variant of AWS SigV4 (WebCrypto). The access token is rotated from\n * the refresh token; concurrent callers share one single flight and write back with a compare-and-swap.\n */",
+    "/** HL6-HMAC-SHA256, the AWS SigV4 variant the HalalCloud SDK publishes. */",
   ]],
   ["src/worker/clouddrive/drivers/http.ts", [
     "/**\n * Shared HTTP plumbing for the JSON APIs most CloudDrive drivers speak.\n *\n * The base owns the parts every driver gets wrong the same way: bounded time, a small retry budget\n * for 429/5xx, error bodies that keep their upstream message, one forced re-authentication after a\n * 401, and credential rotation written back through the vault callback. A driver only supplies its\n * login/refresh hooks and the actual endpoints.\n */",
@@ -37529,6 +37709,17 @@ const allowed = new Map([
     "/** Performs the driver's login sequence and persists any rotated token. */",
     "/** One attempt, then a forced re-login on auth failures, then mark the storage for review. */",
     "/**\n * The three pagination shapes the reference drivers use. `page` is one-based; `cursor`/`offset`\n * pass the previous `next` token back to the fetcher unchanged.\n */",
+    "/** Pass a `Request` as the first fetch argument instead of a URL plus init. */",
+    "// IPFS answers with a capitalised `Message`; the other APIs use the lower-case spellings.",
+    "// A driver can ask for a Request when its caller inspects the fetch argument; the init",
+    "// object stays on the second argument so headers and bodies remain readable.",
+  ]],
+  ["src/worker/clouddrive/drivers/ipfs_api.ts", [
+    "/**\n * IPFS node API driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/ipfs_api`:\n * `ipfs` and `ipns` mounts browse an immutable DAG through `/api/v0/ls`, while `mfs` mounts browse\n * and mutate the node's mutable filesystem through `/api/v0/files/*`. Downloads are always served\n * from the configured gateway as `/ipfs/<cid>` so a Range request reaches the gateway untouched.\n */",
+    "/** The `/ipfs/<cid>` or `/ipns/<name>` path an immutable or mutable root resolves to. */",
+  ]],
+  ["src/worker/clouddrive/drivers/kodbox.ts", [
+    "/**\n * KodBox storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/kodbox`: form-based login that returns an\n * `accessToken`, explorer form endpoints for listing and mutations, the `fileOut` download URL,\n * and multipart uploads. KodBox answers HTTP 200 with a JSON `code`, so token expiry and request\n * failures are classified from the body as well as the status.\n */",
   ]],
   ["src/worker/clouddrive/drivers/lanzou.ts", [
     "/**\n * Lanzou cloud drive driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/lanzou`: the personal-disk `doupload.php` task\n * protocol, the share-page HTML/JS scraping (`filemoreajax.php`, `ajaxfile.php`, the `/fn?` iframe),\n * and the Alibaba WAF `acw_sc__v2` challenge solver all follow it.\n *\n * The WAF cookie is domain scoped, so it is kept per host and replayed; the personal cookie is\n * merged from every `Set-Cookie` and written back through the vault. Lanzou has no upload API a\n * Worker can use, so `upload` is explicitly unsupported.\n */",
@@ -37538,6 +37729,15 @@ const allowed = new Map([
     "/** Reads the `data: { ... }` / `data: 'a=b&c=d'` object a Lanzou page hands to its ajax calls. */",
     "// A bare share id in shareUrl is accepted below.",
     "/**\n   * One text request with WAF handling: replay the per-host acw_sc__v2 cookie, solve a fresh\n   * challenge and retry, persist rotated cookies, and fail over between the share domains when a\n   * CDN edge blocks the worker's egress IP.\n   */",
+  ]],
+  ["src/worker/clouddrive/drivers/lenovonas_share.ts", [
+    "/**\n * Lenovo personal NAS share driver (read-only).\n *\n * Ported from the reference implementation at\n * `OpenList-Worker/src/backend/drivers/lenovonas_share`: the share code and password are exchanged\n * for a short-lived `stoken`, which then authorizes the folder listing and the file download link.\n */",
+    "/** `dir` for a folder; anything else is a file. */",
+    "/** Throwing here makes `withAuth` refresh the token exactly once before it gives up. */",
+  ]],
+  ["src/worker/clouddrive/drivers/mediafire.ts", [
+    "/**\n * MediaFire driver.\n *\n * MediaFire authenticates with a login cookie: the cookie is exchanged once for a `session_token`\n * that every API call carries in its form body. Folder listings page by `chunk`, which this driver\n * exposes as the mount page. Downloads are two-step (ask `file/get_links.php` for a direct URL, then\n * stream against it), so `directLink` returns that URL.\n */",
+    "/** Walks the path segments, listing each parent folder until the child is found. */",
   ]],
   ["src/worker/clouddrive/drivers/mediatrack.ts", [
     "/**\n * MediaTrack asset library driver, Bearer (`access_token`) authenticated.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/mediatrack`: assets live in a project-scoped\n * folder tree (`/v4/assets/<parent>/children`), uploads reserve a COS object through\n * `/v3/storage/tokens/asset` and then register the resulting child, and downloads are resolved\n * through a short-lived token plus its redirect.\n */",
@@ -37561,6 +37761,10 @@ const allowed = new Map([
     "// An attribute block we cannot open stays visible under its handle instead of hiding the",
     "// node entirely; reads of such a node fail explicitly below.",
   ]],
+  ["src/worker/clouddrive/drivers/misskey.ts", [
+    "/**\n * Misskey driver: the Misskey drive API.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/misskey`: `/api/drive/files` and\n * `/api/drive/folders` listings, `folders/create`, `folders/update`, `folders/delete`,\n * `files/update`, `files/delete` and `files/show` for a download address. Misskey's drive has no\n * pagination, and the reference does not implement a multipart upload, so `upload` stays absent.\n */",
+    "// The reference sends a multipart `drive/files/create` upload, which is not ported.",
+  ]],
   ["src/worker/clouddrive/drivers/mopan.ts", [
     "/**\n * MoPan (China Mobile HeCaiYun) driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/mopan`: every API call is a POST whose body and\n * device fingerprint are AES-128-CBC encrypted under a per-request secret key, listing pages by\n * `pageNum`, move/copy are batch tasks that are polled to completion, and uploads use the prefixed\n * multipart endpoints. The cipher lives in WebCrypto so the driver runs on Workers unchanged.\n */",
     "/** RFC 1321 MD5; SubtleCrypto has no MD5 and the upload endpoints require it. */",
@@ -37571,6 +37775,52 @@ const allowed = new Map([
     "/**\n * NetEase Cloud Music cloud drive driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/netease_music`: the `weapi` envelope (two\n * AES-128-CBC passes plus raw RSA), the `linuxapi` AES-ECB envelope used for the player URL, and the\n * `cloud/get` / `cloud/del` endpoints all follow it.\n *\n * The cloud is a flat song list: there are no folders, no upload and no rename. Only `read`,\n * `delete`, `directLink` and Range are advertised, and everything else is explicitly unavailable.\n */",
     "/**\n * WebCrypto has no ECB mode. Encrypting each padded block with AES-CBC and a zero IV yields\n * `E(block)` as the first 16 bytes, which is exactly the ECB ciphertext.\n */",
     "/** NetEase's raw RSA: no padding, the 16-byte secret sits at the end of a 128-byte block. */",
+  ]],
+  ["src/worker/clouddrive/drivers/oauth.ts", [
+    "/**\n * OAuth 2.0 plumbing shared by the authorization-code drivers.\n *\n * The Workers runtime cannot listen on a localhost port, so every driver registers one real callback\n * on this deployment: `/api/clouddrive/oauth/<driver>/callback`. The authorize step stores a random\n * state in `OAUTH_KV`; the callback reads it back, exchanges the code and writes the rotated tokens\n * through the credential vault.\n */",
+    "/** Extra query parameters an authorize request needs (`access_type=offline`, `prompt=consent`). */",
+    "/** Sent with both the code exchange and the refresh, e.g. a Dropbox token access type. */",
+    "/** `body` posts client credentials as form fields; `basic` uses an Authorization header. */",
+    "/** Aliyun's open OAuth endpoint accepts a JSON object rather than a form. */",
+    "/** Some providers publish a application used by the reference implementation. */",
+    "// A non-JSON body is already the best message available.",
+  ]],
+  ["src/worker/clouddrive/drivers/onedrive-app.ts", [
+    "/**\n * OneDrive application-identity driver.\n *\n * An app-only token is requested with the `client_credentials` grant, so there is no user to refresh\n * and no `/me` endpoint: the drive belongs to a configured user (`/users/{email}/drive`) or is\n * addressed directly by id (`/drives/{driveId}`). Everything else is the shared OneDrive logic.\n */",
+    "/**\n * Presents the `token`/`withToken` surface OneDriveDriver expects on top of a client-credentials\n * session. There is no refresh token, so an auth failure re-requests the application token and only\n * marks the storage for review when that request is refused.\n */",
+    "// The client-credentials session keeps its own expiry; nothing to drop here.",
+  ]],
+  ["src/worker/clouddrive/drivers/onedrive.ts", [
+    "/**\n * OneDrive / SharePoint driver.\n *\n * Graph addresses items by id, and it also accepts a colon path (`root:/docs/a.txt`), which is what\n * this driver uses to resolve a mount path without walking every ancestor. Downloads come from the\n * short-lived `@microsoft.graph.downloadUrl` Graph returns with the item; uploads use the resumable\n * session for anything larger than the simple 4 MiB PUT.\n *\n * The `region` config selects the sovereign cloud host pair (global/cn/us/de): the same region is\n * used for Graph calls and for token rotation. A SharePoint mount uses `/sites/{siteId}/drive`\n * instead of `/me/drive` or `/drives/{driveId}`.\n */",
+    "/** The sovereign-cloud host pairs from the reference implementation's `onedriveHostMap`. */",
+    "// The authorization callback still starts from the global Microsoft endpoint; only token",
+    "// rotation follows the selected sovereign cloud.",
+    "// Graph's search endpoint is drive-wide; a folder listing has no upstream filter, so the",
+    "// search runs over the pages this call already fetched.",
+    "/** The child path helper stays exported so the application-identity variant can reuse it. */",
+  ]],
+  ["src/worker/clouddrive/drivers/onedrive_sharelink.ts", [
+    "/**\n * OneDrive / SharePoint share-link driver (read-only).\n *\n * Ported from the reference implementation at\n * `OpenList-Worker/src/backend/drivers/onedrive_sharelink`: the share URL is resolved to the real\n * SharePoint folder, the folder listing is read through `renderListDataAsStream`, and bind items\n * are downloaded from `@microsoft.graph.downloadUrl` or the share's own `download.aspx` endpoint.\n * Pagination follows the `ListData.NextHref` cursor the same way the reference driver does.\n *\n * A password-protected link is unlocked through the share page's `inputForm` (VIEWSTATE +\n * EVENTVALIDATION + txtPassword), and the resulting `FedAuth` cookie is reused for every request.\n */",
+    "/** Reads a named cookie pair from a response, including a multi-value `Set-Cookie` header. */",
+  ]],
+  ["src/worker/clouddrive/drivers/openlist.ts", [
+    "/**\n * OpenList driver: mounts another OpenList instance through its HTTP API.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/openlist`. It is a separate implementation from\n * the AList V3 driver on purpose: the reference keeps the two clients apart, and the OpenList client\n * sends the meta password as a `Meta-Password` header. `raw_url` from `/api/fs/get` is passed through\n * to `directLink`.\n */",
+    "// The token could not be verified; a configured account can still sign in below.",
+    "// The reference treats a directory as an entry even when `/fs/get` cannot answer for it.",
+  ]],
+  ["src/worker/clouddrive/drivers/openlist_share.ts", [
+    "/**\n * OpenList share driver: read-only mount of an OpenList share link.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/openlist_share`: the share root is addressed as\n * `/@s/{sid}` and the download link is `/sd/{sid}{path}?pwd=…`. The share is read-only, so no write\n * method exists at all.\n */",
+    "/** The download address uses `/sd/{sid}` rather than the `/@s/{sid}` API prefix. */",
+    "// A share link has no login; the call still validates the two required configuration values.",
+    "// A share link is read-only; these operations are intentionally absent (undefined at runtime).",
+  ]],
+  ["src/worker/clouddrive/drivers/pikpak-share.ts", [
+    "/**\n * PikPak share driver (read-only).\n *\n * A share is addressed by `share_id` plus an optional pass code. The first listing may return a\n * `pass_code_token`, which every later request carries as `X-Share-Token`; no token ever rotates,\n * so there is no refresh path.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/pikpak.ts", [
+    "/**\n * PikPak account driver.\n *\n * Ported from the reference implementation (`OpenList-Worker/src/backend/drivers/pikpak`). PikPak\n * rotates a refresh token on every refresh, so refreshes run through the shared single flight and a\n * compare-and-swap write-back; the device header set and captcha sign match the reference client.\n */",
+    "// The MD5 chain the PikPak web client uses to sign its captcha request.",
+    "// HttpOptions has no PATCH; this one call does its own status mapping.",
   ]],
   ["src/worker/clouddrive/drivers/proton_drive.ts", [
     "// ---------- SRP-6a (Proton variant) ----------",
@@ -37596,6 +37846,12 @@ const allowed = new Map([
     "/**\n * Proton Drive account driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/proton_drive`, but without the `openpgp`\n * dependency: Proton's trust chain is implemented with WebCrypto and the pure-JS primitives that\n * this application already ships (`@noble/ciphers`, `@noble/hashes`, `bcryptjs`).\n *\n * Trust chain:\n *   user private key  <- bcrypt(password, KeySalt) passphrase\n *     -> address private keys (Token is an OpenPGP message encrypted to the user keys)\n *       -> share private key (Passphrase is an OpenPGP message encrypted to the address keys)\n *         -> root node key (NodePassphrase encrypted to the share keys)\n *           -> child node keys (NodePassphrase encrypted to the parent node keys)\n *             -> file name / ContentKeyPacket / block payloads\n *\n * Supported: SRP-6a sign-in, 2FA, reusable credential + refresh-token rotation, listing, stat,\n * decrypted downloads, trashing, and the reference implementation's OpenPGP-encrypted mkdir/rename.\n * Move, copy and upload stay unsupported because the reference driver does not implement them.\n */",
     "/** Node-key creation is the only place that needs the full OpenPGP encoder; keep it off the boot path. */",
   ]],
+  ["src/worker/clouddrive/drivers/provisioning.ts", [
+    "/**\n * Provisioning actions a driver performs before it has usable credentials. Today only the phone\n * verification handshake needs one; the route reads this table by storage type so it never names a\n * driver itself.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/quark-open.ts", [
+    "/**\n * Quark Cloud Drive open-platform driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/quark_open` and the upstream OpenList driver.\n * Every call is signed with `sha256(method&path&tm&signKey)`; listings page by cursor. Directory\n * create/rename/move/delete use the signed open-platform endpoints, while uploads and copies stay\n * unsupported and downloads resolve a fid into a URL that needs the signed-in cookie.\n */",
+  ]],
   ["src/worker/clouddrive/drivers/quark.ts", [
     "/**\n * Quark / UC Cloud Drive driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/quark`: the two variants share one API shape but\n * differ in host, cookie/session headers and Referer. Listing is a page-based `/file/sort` walk,\n * download links are short-lived and require the same Cookie/UA/Referer pair, and the upstream API\n * refreshes `__puus`/`__pus` through `Set-Cookie` while the session is in use.\n */",
     "/** Quark reports timestamps in seconds; a few endpoints answer in milliseconds. */",
@@ -37605,21 +37861,89 @@ const allowed = new Map([
     "/**\n * Quark / UC TV Cloud Drive driver (read-only).\n *\n * Ported from `OpenList-Worker/src/backend/drivers/quark_uc_tv`: the TV API signs every request\n * (`x-pan-tm`, `x-pan-token`, `x-pan-client-id`), exchanges a long-lived refresh token for a short\n * access token at `codeApi/token`, and resolves a file either through `method=download` or\n * `method=streaming`. It never exposes write endpoints.\n */",
     "/**\n   * One signed TV call. The body can invalidate the access token (`errno 10001/11001`); that is\n   * retried exactly once after a refresh, and a second failure is handed to `withAuth`.\n   */",
   ]],
+  ["src/worker/clouddrive/drivers/r2.ts", [
+    "/**\n * Cloudflare R2 driver.\n *\n * R2 is an S3-compatible object store, so the `s3` driver core is reused for the API mode. The\n * binding mode talks to the Worker's own `R2Bucket`, which has no presigned URLs and no server-side\n * multipart session: uploads stream through `put`, and a direct link is always null.\n */",
+    "/** Binding mode for the built-in primary storage and for internal mount resolution. */",
+  ]],
+  ["src/worker/clouddrive/drivers/registry.ts", [
+    "/**\n * The driver factory table for the ported providers. Keeping it in one module lets `factory.ts`\n * stay about the vault, the compare-and-swap and the re-authorization signal.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/s3.ts", [
+    "/**\n * S3-compatible object storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/s3`: ListObjectsV2/v1 pagination, HEAD/GET\n * object reads (Range forwarded untouched), PUT + multipart upload, server-side COPY, DELETE,\n * presigned GET links and a zero-byte placeholder object for directories. Bucket keys are prefixed\n * with the configured `rootPath`; every public method validates the mount path first.\n */",
+    "// Keep the already-encoded path when it contains a stray percent sign.",
+    "/** Lists every object key below a prefix (no delimiter), following continuation pages. */",
+  ]],
+  ["src/worker/clouddrive/drivers/seafile.ts", [
+    "/**\n * Seafile storage driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/seafile`:\n * `POST /api2/auth-token/` for credentials, `/api2/repos/<id>/dir/` to list, `/file/` to download,\n * upload and mutate, and `/upload-link/` to obtain the upload endpoint. A configured `repoId` pins\n * one library; without it the root lists the account's libraries and the first path segment picks\n * one, exactly as the reference does.\n */",
+    "/** The mount root without a pinned repo lists libraries instead of a directory. */",
+  ]],
+  ["src/worker/clouddrive/drivers/strm.ts", [
+    "/**\n * STRM driver — exposes another mount's media files as virtual `.strm` files whose body is a\n * playable URL.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/strm`: `paths` is a newline-separated list of\n * mappings (`alias:/mount` or `/mount`), a single mapping is flattened into the mount root, media\n * extensions become `.strm` entries while download-only extensions pass through, and a path that\n * escapes the mount is refused by the shared path normaliser. Mounts are resolved through\n * `ctx.resolveMount`, so the factory keeps the ownership, enabled-status and cycle checks.\n */",
+    "/** A mount path, a mount id, or a mount path followed by a sub path. */",
+    "/** The reference part past the mount root: `/media/shows` on mount `/media` is `shows`. */",
+    "/**\n   * Resolves a reference to an enabled mount plus an optional sub path. The longest prefix wins,\n   * so `/mount/shows` is mount `/mount` with `shows` beneath it. Cycle and authorization errors\n   * raised by the resolver are never swallowed.\n   */",
+    "/** The alias and the path below it; the flattened form has one implicit alias. */",
+  ]],
   ["src/worker/clouddrive/drivers/teambition.ts", [
     "/**\n * Teambition (project collections/works) driver, cookie authenticated.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/teambition`: folders are `/api/collections`\n * and files are `/api/works`, both paged with `_parentId`/`_projectId`; download URLs come from the\n * work row and are resolved through their 302 before streaming. The upstream offers no upload\n * endpoint, so `upload` stays unsupported instead of pretending otherwise.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/teldrive.ts", [
+    "/**\n * TelDrive driver: a self-hosted Telegram drive behind a Bearer JWT.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/teldrive`: `/api/files` listing by path,\n * `/api/files/{id}` download, `mkdir`, `move` and `DELETE /api/files/{id}` removal. Renaming is not\n * exposed by the reference API, and a direct upload needs a resumable session, so both stay absent.\n */",
+    "// A direct upload needs a resumable session and renaming has no endpoint.",
   ]],
   ["src/worker/clouddrive/drivers/terabox.ts", [
     "/**\n * TeraBox driver (official endpoints only).\n *\n * Ported from `OpenList-Worker/src/backend/drivers/terabox`: requests carry the browser cookie and\n * the `app_id`/`web`/`channel` query envelope, listings page by `page`/`num`, download links are\n * signed from `home/info` (`sign` + `timestamp`) and resolved through their first redirect, and\n * uploads use `precreate` → `superfile2` parts → `create`. The reference's `crack` channel is\n * deliberately not ported because the registry declares `downloadApi=official` only.\n */",
     "/** RFC 1321 MD5; SubtleCrypto has no MD5 and the upload manifest requires it. */",
     "/** The RC4-shaped obfuscation TeraBox uses for its download signature. */",
   ]],
+  ["src/worker/clouddrive/drivers/thunder.ts", [
+    "/**\n * Xunlei / Thunder driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/thunder`. The\n * access token is renewable through the `xluser` token endpoint, or through the account/password\n * handshake when the owner supplies credentials. Refresh is single-flighted and written back with\n * the observed access/refresh pair so concurrent rotations cannot clobber each other.\n */",
+    "/**\n * The Xunlei content hash: SHA1 over the per-chunk SHA1 digests, with the chunk size doubling\n * between 256 KiB and 2 MiB so that a large file does not produce an unbounded digest list.\n */",
+    "/**\n   * Resolves the presigned S3 object URL the upload task hands back. Some accounts report an\n   * endpoint that already carries the bucket as its first label, so that prefix is removed before\n   * the bucket path is appended.\n   */",
+    "/**\n   * One PUT attempt with a single retry, because a dropped connection mid-part is expected on a\n   * long upload while an auth or not-found answer must surface immediately.\n   */",
+    "// A create answer without a resumable session is Thunder's instant upload.",
+  ]],
+  ["src/worker/clouddrive/drivers/token.ts", [
+    "/**\n * Token lifecycle for the refresh/rotation drivers.\n *\n * Two layers keep a rotation from firing twice: an in-process single flight keyed by the storage id,\n * and a cross-request lease that the factory backs with a D1 compare-and-swap on the storage row.\n * The write-back is a compare-and-swap too, so the loser of a race adopts the winner's token instead\n * of overwriting it with a token that the provider has already rotated away.\n */",
+    "/**\n * Runs `work` once per storage even when several requests need a token at the same time. A caller\n * that cannot claim the cross-request lease waits for the winner's credentials to appear; only after\n * the wait budget is exhausted does it fall through and refresh itself, so a stale lease cannot\n * wedge the storage forever.\n */",
+    "/** An access token shorter than this is refreshed before use. */",
+    "/**\n   * Overrides the registered provider, e.g. OneDrive's regional token endpoint. Authorization\n   * still starts from the global provider; only token refresh/rotation follows this override.\n   */",
+    "/** The credential keys an OAuth session reads and writes. */",
+    "/**\n * An access/refresh pair stored in the vault. The session never persists a token without the\n * caller's previous values, so a compare-and-swap write can tell a concurrent refresh from its own.\n */",
+    "/** True when the cached token is usable without touching the provider. */",
+    "/** Returns a usable access token, refreshing once when it is missing or explicitly invalidated. */",
+    "/** Drops the cached access token so the next call refreshes; the refresh token is kept. */",
+    "/** Runs an API call with an access token, refreshing once when the provider rejects it. */",
+    "/**\n * An application-identity token (`client_credentials`): there is no refresh token to rotate, the\n * token is simply requested again before its expiry. OneDrive application mounts and FeBBox use it.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/url_tree.ts", [
+    "/**\n * URL Tree driver — a virtual file system described by deeply-indented text.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/url_tree`. Each line is indented by two spaces\n * per level; a line ending in `:` is a folder, and every other line is `[name][:size][:mtime]:URL`.\n * A file's content is the URL itself.\n *\n * The upstream keeps the structure writable by persisting the edited text back to the driver's\n * config. That callback is now part of `DriverContext` (`saveConfig`), so `writable=true` edits are\n * serialised through the shared schema validation instead of being thrown away.\n */",
+    "/** The same textual form the reference driver writes back for `writable=true`. */",
+  ]],
+  ["src/worker/clouddrive/drivers/uss.ts", [
+    "/**\n * Upyun USS driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/uss`: requests go to `v0.api.upyun.com` and are\n * authenticated with the Upyun HMAC-SHA1 signature (`UPYUN <operator>:<signature>`). The listing\n * endpoint is paginated with the `x-list-iter` / `x-list-limit` headers, and MOVE/COPY are real\n * Upyun operations (they only apply to files, matching the upstream API).\n */",
+    "// The text form below is what older Upyun endpoints return.",
+  ]],
+  ["src/worker/clouddrive/drivers/virtual.ts", [
+    "/**\n * Virtual driver — a placeholder storage used to exercise the CloudDrive surface.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/virtual`. It has no upstream: listings are\n * synthesised from `numFile` / `numFolder`, and each read streams random bytes. Sizes are derived\n * deterministically from the path so a `stat` and the following `read` agree on the length.\n */",
+  ]],
   ["src/worker/clouddrive/drivers/weiyun.ts", [
     "/**\n * Tencent Weiyun driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/weiyun`: the API is a JSON envelope posted to\n * `weiyunQdisk`/`weiyunQdiskClient` endpoints, folders are listed with `start`/`count` offsets,\n * download URLs come with their own cookie pair, and uploads use the FTN protocol (pre-upload with\n * SHA-1 block state, `UploadPiece` chunks, and the server's own completion state).\n */",
     "/** A pure-TS SHA-1 whose intermediate state is exposed for the FTN block manifest. */",
   ]],
+  ["src/worker/clouddrive/drivers/wopan.ts", [
+    "/**\n * China Unicom WoPan driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/wopan`. Its API\n * is a single encrypted dispatcher: every call posts an MD5-signed header plus an AES-CBC encrypted\n * `param`, and the answer's `DATA` may itself be encrypted. The access token is rotated through the\n * `api-user` `AppRefreshToken` method; the write-back is a compare-and-swap on both tokens so two\n * concurrent rotations cannot overwrite each other.\n */",
+    "// 9999 is WoPan's \"the access token is no longer valid\" answer.",
+    "/** The upload host is account-specific; a failed lookup falls back to the reference default. */",
+    "/** The classification rule maps an extension to the numeric type WoPan expects on writes. */",
+    "/** One multipart form POST with a single retry when the connection breaks mid-part. */",
+  ]],
   ["src/worker/clouddrive/drivers/wps.ts", [
     "/**\n * WPS (Kingsoft Docs) drive driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/wps`: a `wps_sid` browser Cookie is validated at\n * `account.kdocs.cn/api/v3/islogin`, Personal accounts use `drive.wps.cn` while Business accounts\n * use `365.kdocs.cn/3rd/drive`, file listings page by `offset`/`next_offset`, and download links are\n * short-lived ks3 URLs that keep working only with the WPS UA and Referer.\n */",
     "/** Maps a mount-relative path onto the path under an optional `rootFolderPath`. */",
+  ]],
+  ["src/worker/clouddrive/drivers/yandex.ts", [
+    "/**\n * Yandex Disk driver.\n *\n * Paths are absolute (`/photos`). Listing is offset based; downloads and uploads are two-step: ask\n * `resources/download|upload` for a short-lived href, then stream against that href. The temporary\n * download href is what `directLink` returns.\n */",
   ]],
   ["src/worker/clouddrive/exif.test.ts", [
     "/**\n * Assembles a JPEG whose APP1 holds a real (if minimal) TIFF: one IFD0 and, when asked, one ExifSubIFD\n * reachable through tag 0x8769. ASCII values longer than four bytes go after the IFDs, which is what a\n * camera does, so the reader has to follow the pointer rather than read the field inline.\n */",
@@ -37829,6 +38153,12 @@ const allowed = new Map([
     "// The lock answers with a scrypt derivation, so an unlocked browser on a shared device must not be",
     "// able to spend the worker guessing: the budget is per client and per folder.",
     "/**\n * The same check for a caller that already resolved the effective metadata, so one request pays for\n * one scan of the meta table instead of two.\n */",
+  ]],
+  ["src/worker/clouddrive/routes-mounts.ts", [
+    "/** The config fields a batch-A driver cannot work without; credentials are checked by the driver. */",
+  ]],
+  ["src/worker/clouddrive/routes-oauth.ts", [
+    "/**\n * The single OAuth callback every authorization-code driver shares.\n *\n * Workers cannot bind a localhost redirect, so the address registered with each provider is this\n * deployment's own `/api/clouddrive/oauth/<driver>/callback`. A random state in `OAUTH_KV` binds the\n * callback to the storage that started the flow, and the code exchange writes tokens through the\n * credential vault exactly like a manual token edit would.\n */",
   ]],
   ["src/worker/clouddrive/routes-requests.ts", [
     "/** How many files one visitor may hand to one request link inside the window. */",
@@ -45394,11 +45724,28 @@ const allowed = new Map([
     "// A refresh that names no Timeout restarts the clock at the server default, not at the",
     "// 60 seconds the original lock asked for.",
   ]],
+  ["tests/clouddrive-driver-alias.test.ts", [
+    "/** An in-memory MountDriver the alias driver can dispatch to. */",
+  ]],
+  ["tests/clouddrive-driver-baidu-netdisk.test.ts", [
+    "// The first create is the rapid probe; it misses and the chunked flow continues.",
+  ]],
   ["tests/clouddrive-driver-chaoxing.test.ts", [
     "/** Resource list fixture keyed by recType and offset. */",
   ]],
+  ["tests/clouddrive-driver-crypt.test.ts", [
+    "/** An in-memory MountDriver the crypt driver can wrap. */",
+  ]],
   ["tests/clouddrive-driver-ctfile.test.ts", [
     "/** Folder listing plus a `start`-offset file listing that needs three rounds. */",
+  ]],
+  ["tests/clouddrive-driver-github.test.ts", [
+    "/** A tiny Git Data API state machine: trees by sha, an immutable branch head and failed ref moves. */",
+    "// base_tree preserves the untouched docs entry; only the changed archive entry is sent.",
+  ]],
+  ["tests/clouddrive-driver-google-photo.test.ts", [
+    "// Each page restarts the token walk, so page 2 costs two search calls and the full walk costs",
+    "// three: one for page 1 plus two for page 2.",
   ]],
   ["tests/clouddrive-driver-lanzou.test.ts", [
     "/** Personal-disk fixture: mydisk bootstrap plus the task 47/5 task protocol. */",
