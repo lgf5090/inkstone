@@ -178,7 +178,7 @@ async function aesDecrypt(data: Uint8Array, key: string): Promise<Uint8Array> {
 }
 
 /** RFC 1321 MD5; SubtleCrypto has no MD5 and the upload endpoints require it. */
-function md5Hex(input: Uint8Array | string): string {
+export function md5Hex(input: Uint8Array | string): string {
   const message = typeof input === 'string' ? new TextEncoder().encode(input) : input
   const bitLength = message.length * 8
   const padLength = (56 - ((message.length + 1) % 64) + 64) % 64

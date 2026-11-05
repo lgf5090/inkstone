@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createMopanDriver } from '../src/worker/clouddrive/drivers/mopan'
+import { createMopanDriver, md5Hex } from '../src/worker/clouddrive/drivers/mopan'
 import { DriverError, type DriverContext } from '../src/worker/clouddrive/drivers/contract'
 import { findCloudDriveDriver } from '../src/shared/clouddrive/drivers'
 
@@ -185,11 +185,17 @@ describe('MoPan driver', () => {
     expect(committed).toBe(true)
   })
 
+  it('computes RFC 1321 MD5 vectors used by the upload checksum', () => {
+    expect(md5Hex('')).toBe('d41d8cd98f00b204e9800998ecf8427e')
+    expect(md5Hex('abc')).toBe('900150983cd24fb0d6963f7d28e17f72')
+    expect(md5Hex('The quick brown fox jumps over the lazy dog')).toBe('9e107d9d372bb6826bd81d3542a419d6')
+  })
+
   it('keeps its capability bits in step with the registry', () => {
     const driver = createMopanDriver(context())
     expect(driver.definition).toBe(findCloudDriveDriver('mopan'))
     expect(driver.capabilities.copy).toBe(true)
     expect(driver.copy).toBeTypeOf('function')
-    expect(driver.directLink).toBeTypeOf('function')
+    expect(driver.capabilities.directLink).toBe(false)
   })
 })

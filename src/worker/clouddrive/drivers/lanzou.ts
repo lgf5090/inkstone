@@ -756,7 +756,7 @@ class LanzouDriver extends HttpDriverBase implements MountDriver {
     try {
       payload = JSON.parse(text) as { zt?: number; text?: unknown }
     } catch {
-      return { items: [], next: null }
+      throw DriverError.upstream('Lanzou share pagination returned HTML instead of JSON (WAF challenge or page template change)')
     }
     if (Number(payload.zt) !== 1 || !Array.isArray(payload.text) || payload.text.length === 0) {
       return { items: [], next: null }
