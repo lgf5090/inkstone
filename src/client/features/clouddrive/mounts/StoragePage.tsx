@@ -366,6 +366,10 @@ export function StoragePage() {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Storage | null>(null)
   const [form, setForm] = useState<StorageForm>(blankForm())
+  const [smsStorage, setSmsStorage] = useState<Storage | null>(null)
+  const [smsCode, setSmsCode] = useState('')
+  const [smsBusy, setSmsBusy] = useState(false)
+  const [smsSent, setSmsSent] = useState(false)
   const callbackOrigin = typeof window === 'undefined' ? '' : window.location.origin
 
   const load = async () => {
@@ -510,6 +514,37 @@ export function StoragePage() {
     }
   }
 
+  const sendSmsCode = async () => {
+    if (!smsStorage) return
+    setSmsBusy(true)
+    try {
+      await clouddriveApi.storageAction(smsStorage.id, 'send-code')
+      setSmsSent(true)
+      toast({ title: t('clouddrive.driver.sms.sent') })
+    } catch (error) {
+      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+    } finally {
+      setSmsBusy(false)
+    }
+  }
+
+  const verifySmsCode = async () => {
+    if (!smsStorage) return
+    setSmsBusy(true)
+    try {
+      await clouddriveApi.storageAction(smsStorage.id, 'verify-code', { code: smsCode })
+      toast({ title: t('clouddrive.driver.sms.done') })
+      setSmsStorage(null)
+      setSmsCode('')
+      setSmsSent(false)
+      await refreshAll()
+    } catch (error) {
+      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+    } finally {
+      setSmsBusy(false)
+    }
+  }
+
   const typeBadge = (storage: Storage) => {
     const provider = typeof storage.config.provider === 'string' ? storage.config.provider : ''
     return provider && storage.type === 's3' ? `${storageTypeLabel(storage.type)} · ${storageProviderLabel(provider)}` : storageTypeLabel(storage.type)
@@ -608,6 +643,11 @@ export function StoragePage() {
                   {isCloudDriveOAuthDriver(storage.type) && (
                     <Button size="sm" variant="ghost" onClick={() => void authorize(storage)}>
                       {storage.lastTestStatus === 'reauth' ? t('clouddrive.driver.oauth.authorize') : t('clouddrive.driver.oauth.start')}
+                    </Button>
+                  )}
+                  {storage.type === 'guangyapan' && (
+                    <Button size="sm" variant="ghost" onClick={() => { setSmsStorage(storage); setSmsCode(''); setSmsSent(false) }}>
+                      {t('clouddrive.driver.sms.login')}
                     </Button>
                   )}
                   <Button size="sm" variant="ghost" icon={<Pencil size={13} />} onClick={() => openEdit(storage)}>{t('clouddrive.admin.edit')}</Button>
@@ -778,6 +818,11 @@ export function StoragePage() {
                     onChange={(value) => set({ driverValues: { ...form.driverValues, [field.key]: value } })}
                   />
                 ))}
+                {definition.noteKey && (
+                  <p className="rounded-[var(--r-md)] bg-[var(--bg-inset)] p-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                    {t(definition.noteKey as Parameters<typeof t>[0])}
+                  </p>
+                )}
                 {!driverAuthSatisfied(definition, form.driverValues, editing?.hasCredentials ?? false) && (
                   <p role="alert" className="text-[length:var(--text-11)] text-[var(--danger)]">{t('clouddrive.driver.auth_required')}</p>
                 )}
@@ -816,6 +861,32 @@ export function StoragePage() {
           <Checkbox checked={form.isDefault} label={t('clouddrive.storage.set_default')} onChange={(next) => set({ isDefault: next })} />
           <p className="-mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.storage.default_hint')}</p>
           <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.storage.credentials_hint')}</p>
+        </div>
+      </Modal>
+
+      <Modal
+        open={smsStorage !== null}
+        onClose={() => setSmsStorage(null)}
+        title={t('clouddrive.driver.sms.title')}
+        width={420}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setSmsStorage(null)}>{t('clouddrive.dialog.cancel')}</Button>
+            <Button variant="primary" loading={smsBusy} disabled={!smsCode.trim()} onClick={() => void verifySmsCode()}>
+              {t('clouddrive.driver.sms.verify')}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-2">
+          <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('clouddrive.driver.sms.desc')}</p>
+          <Button size="sm" variant="ghost" loading={smsBusy} onClick={() => void sendSmsCode()}>
+            {t('clouddrive.driver.sms.send')}
+          </Button>
+          {smsSent && <p className="text-[length:var(--text-11)] text-[var(--accent)]">{t('clouddrive.driver.sms.sent')}</p>}
+          <Field label={t('clouddrive.driver.sms.code')}>
+            <Input value={smsCode} onChange={(event) => setSmsCode(event.target.value)} />
+          </Field>
         </div>
       </Modal>
     </div>

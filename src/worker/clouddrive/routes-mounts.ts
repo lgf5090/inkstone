@@ -10,6 +10,8 @@ import { s3RequestUrl, webdavCollectionUrl } from './storage-urls'
 import { invalidateExternalListing } from './external'
 import { findCloudDriveDriver, writableCloudDriveDriver } from '@shared/clouddrive/drivers'
 import { createStorageDriver } from './drivers/factory'
+import { runDriverAction } from './drivers/provisioning'
+import { rethrowDriver } from './drivers/errors'
 
 export const clouddriveMountRoutes = new Hono<AppBindings>()
 
@@ -134,6 +136,19 @@ clouddriveMountRoutes.patch('/storages/:id', async (c) => {
   ]
   await c.env.DB.batch(statements)
   return c.json({ storage: toStorageView((await storageById(c, row.id))!) })
+})
+
+clouddriveMountRoutes.post('/storages/:id/action', async (c) => {
+  const row = await storageById(c, c.req.param('id'))
+  if (!row) throw ApiError.notFound('Storage not found')
+  const body = await readJson(c)
+  const action = typeof body.action === 'string' ? body.action : ''
+  if (!action) throw ApiError.badRequest('An action is required')
+  try {
+    return c.json({ ok: true, ...await runDriverAction(c.env, row, action, body) })
+  } catch (error) {
+    rethrowDriver(error)
+  }
 })
 
 clouddriveMountRoutes.post('/storages/:id/default', async (c) => {

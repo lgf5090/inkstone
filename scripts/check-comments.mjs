@@ -37400,7 +37400,7 @@ const allowed = new Map([
     "/**\n * The lock that stands between a client and a write, or null when the path is open.\n *\n * Every covering lock has to be accounted for: a write that carries one token but sits under two\n * locks still belongs to somebody else.\n */",
   ]],
   ["src/worker/clouddrive/drivers/115open.ts", [
-    "/**\n * 115 Cloud Drive open-platform driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/115open` and the upstream 115 SDK. The mount\n * is read-only here; listings page by offset, paths are resolved by walking directories, and\n * downloads resolve a `pick_code` into a short-lived URL.\n */",
+    "/**\n * 115 Cloud Drive open-platform driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/115open` and the upstream 115 SDK. Listings\n * page by offset, paths are resolved by walking directories, downloads resolve a `pick_code` into\n * a short-lived URL, and writes use the open platform's instant-upload handshake followed by a\n * single signed OSS PUT.\n */",
   ]],
   ["src/worker/clouddrive/drivers/123-open.ts", [
     "/**\n * 123 Cloud Drive open-platform driver.\n *\n * Ported from the reference at `OpenList-Worker/src/backend/drivers/123_open` and the upstream\n * OpenList Go driver. Authentication is a bearer token obtained from `client_id`/`client_secret`\n * (or an existing token); listings page by `lastFileId`; uploads create a session and POST every\n * slice as multipart form data before completing it.\n */",
@@ -37417,16 +37417,36 @@ const allowed = new Map([
   ["src/worker/clouddrive/drivers/189-tv.ts", [
     "/**\n * China Telecom Cloud TV / family-cloud driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/189_tv`:\n * the TV client signs every request with the session key it obtains from the access token, and the\n * family variant uses a separate family session. The access token is issued out of band, so this\n * driver never runs a refresh flow; a rejected token marks the storage for re-authorization instead.\n */",
     "// The API returns int64 ids as bare numbers; JSON.parse would round them past 2^53.",
+    "// The reference uses GET for family-cloud renames and POST for the personal cloud.",
+    "// The reference polls with the personal session key, even when the task ran in family mode.",
+    "// A matched md5 means the service already holds the bytes: the session is complete without a PUT.",
+    "// The copy endpoint keeps the source name; a differing destination is renamed afterwards.",
   ]],
   ["src/worker/clouddrive/drivers/aliyundrive-open.ts", [
     "/**\n * Aliyundrive open-platform driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/aliyundrive_open` and the upstream OpenList\n * driver. OAuth tokens rotate through the registered `aliyundrive_open` provider; files are\n * addressed by `file_id`; uploads create a multipart session, PUT each 20 MiB part and complete it.\n */",
   ]],
   ["src/worker/clouddrive/drivers/baidu-netdisk.ts", [
-    "/**\n * Baidu Netdisk driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/baidu_netdisk`.\n * The account is read-only: listing uses the web folder endpoint, a download is resolved from\n * `filemetas` and either follows the official redirect or uses the third-party dlink. Every path is\n * mapped to the account root; Baidu has no path lookup, so a stat walks the parent listing.\n */",
     "/** errno values that mean the access token is missing, expired or refused. */",
     "/** `filemetas` answers under `list`, the third-party endpoint under `info`. */",
     "/** The dlink is forwarded without the bearer token; the resolved address is already signed. */",
     "/** Baidu has no path lookup, so the parent listing decides whether the path exists. */",
+    "/**\n * Baidu Netdisk driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/baidu_netdisk`.\n * Listing uses the web folder endpoint, a download is resolved from `filemetas` and either follows\n * the official redirect or uses the third-party dlink. Writes go through the documented xpan\n * `create`/`filemanager` methods, and uploads follow the reference flow: an md5 rapid-upload probe,\n * `precreate`, one multipart POST per slice to `superfile2`, then `create` to merge. Every path is\n * mapped to the account root; Baidu has no path lookup, so a stat walks the parent listing.\n */",
+    "/** Reference defaults: a non-VIP account uploads 4 MiB slices with three workers. */",
+    "/** `create` also answers `precreate`; `return_type` 2 means the content already exists. */",
+    "/** A non-zero id means the server queued the operation despite `async=0`. */",
+    "/** The upload id expired, so the whole slice set must be prepared again. */",
+    "/** Maps an API errno to the driver contract; HTTP statuses are already mapped by `request`. */",
+    "/** One form-encoded POST with an explicit token, parsed but not errno-checked. */",
+    "/** `filemanager` with `async=0`; a task id still counts as accepted by the server. */",
+    "/** Uploads through the reference flow: rapid md5 probe, precreate, slices, create. */",
+    "// Step 0: rapid upload. A successful `create` with the content md5 means the file already exists",
+    "// on the server, so no slice is uploaded at all.",
+    "// Any other errno means \"no matching content\"; fall through to the chunked upload.",
+    "// Step 1: precreate. The server answers the parts that are still missing.",
+    "// The reference restarts precreate without the md5 hints when the upload id expires.",
+    "// Step 3: merge the uploaded slices into the final file.",
+    "/** A slice is retried three times with the reference's exponential backoff. */",
+    "/** The new file name must stay a single path segment. */",
   ]],
   ["src/worker/clouddrive/drivers/contract.ts", [
     "/**\n * The driver contract every CloudDrive storage implementation speaks.\n *\n * A driver only knows paths relative to its mount (\"/photos/2024.jpg\"), never D1 rows or HTTP. The\n * worker layer owns visibility, quotas and meta rules; a driver owns one upstream service.\n */",
@@ -37442,7 +37462,7 @@ const allowed = new Map([
     "/** Re-reads the newest vault snapshot after another request won the lease. */",
   ]],
   ["src/worker/clouddrive/drivers/degoo.ts", [
-    "/**\n * Degoo driver (read-only).\n *\n * Degoo authenticates with a username/password that yields a JWT plus a refresh token, then serves\n * everything through the AppSync GraphQL endpoint. Paths are resolved by walking directory ids, and\n * a file's download address comes from the `getOverlay4` query.\n */",
+    "/**\n * Degoo driver.\n *\n * Degoo authenticates with a username/password that yields a JWT plus a refresh token, then serves\n * everything through the AppSync GraphQL endpoint. Paths are resolved by walking directory ids, and\n * a file's download address comes from the `getOverlay4` query. Mutations create folders, rename,\n * move and delete entries; uploads and copies stay unsupported.\n */",
   ]],
   ["src/worker/clouddrive/drivers/dropbox.ts", [
     "/**\n * Dropbox driver.\n *\n * Dropbox splits its API in two hosts: RPC endpoints under `api.dropboxapi.com` carry JSON, content\n * endpoints under `content.dropboxapi.com` carry the bytes plus a `Dropbox-API-Arg` header. The mount\n * root maps to Dropbox's empty path `\"\"`. Uploads use the single-shot endpoint up to 150 MB and a\n * session above that.\n */",
@@ -37457,25 +37477,41 @@ const allowed = new Map([
     "// Another request persisted first. Adopt its credentials instead of clobbering them.",
   ]],
   ["src/worker/clouddrive/drivers/febbox.ts", [
-    "/**\n * FebBox driver (read-only).\n *\n * FebBox uses an OAuth token endpoint (`client_credentials` or `refresh_token` grant) and a single\n * form-based API host. A `-10001` response means the access token expired: the driver refreshes once\n * and retries; a second one is an authorization failure.\n */",
+    "/**\n * FebBox driver.\n *\n * FebBox uses an OAuth token endpoint (`client_credentials` or `refresh_token` grant) and a single\n * form-based API host. A `-10001` response means the access token expired: the driver refreshes once\n * and retries; a second one is an authorization failure. Mutations (create/move/rename/copy/delete)\n * use the same form API; uploads stay unsupported because the reference client has no upload path.\n */",
   ]],
   ["src/worker/clouddrive/drivers/github.ts", [
-    "/**\n * GitHub repository driver.\n *\n * A repository is a flat object store with commits: the Contents API lists one directory at a time,\n * reads a file with `Accept: application/vnd.github.raw`, and writes a file with one PUT carrying the\n * base64 body and, when overwriting, the previous blob sha. Directories are only implicitly created\n * by writing a file inside them, so `mkdir`/rename/move/copy are not part of the capability set.\n */",
     "/**\n   * GitHub has no login endpoint: the PAT is proved by the first Contents call. Validation here is\n   * deliberately offline so a listing does not cost an extra `/repos` request.\n   */",
     "/** Reads the current blob sha so an overwrite PUT can use GitHub's compare-and-swap. */",
     "// A stale sha is answered with 409 Conflict (or 422 on some GitHub-compatible hosts). Re-read",
     "// the current sha and retry once, which is the only way the Contents API allows an overwrite.",
+    "/**\n * GitHub repository driver.\n *\n * Reads use the Contents API: it lists one directory at a time, reads a file with\n * `Accept: application/vnd.github.raw`, and returns a short-lived `download_url`. Writes that only\n * touch one path (upload) keep using the Contents API, while operations that need a tree rewrite\n * (mkdir/remove/rename/move/copy) use the Git Data API: blob/tree objects are created without\n * touching the branch, one commit ties them together, and the branch ref is moved once. Every\n * write is serialized per driver and re-reads the branch head when GitHub answers a stale base with\n * 409/422, so two concurrent operations cannot overwrite each other's ref update.\n */",
+    "/** A single entry in the request body of `POST /git/trees`. */",
+    "/** `null` deletes the entry from the base tree; omitted when `content` creates the blob. */",
+    "/** Inline content for a blob that does not exist yet (the `.gitkeep` placeholder). */",
+    "/** A 409 is a stale base tree; a 422 is a ref update that lost the compare-and-swap race. */",
+    "/** Serializes every write made through this driver instance. */",
+    "/** Runs `work` after the previous write on this driver has finished. */",
+    "// The Git Data ref update needs PATCH; the shared HttpOptions union predates that caller but",
+    "// fetch accepts it, so the narrow cast keeps the retry/error mapping in HttpDriverBase.",
+    "/** Resolves the head commit and the sha of its root tree in two calls. */",
+    "/** Walks the repository tree to a directory, relative to the mount's configured root. */",
+    "/**\n   * Applies edits bottom-up: each edited directory gets a new tree object whose base is its old\n   * tree, and every changed child directory is substituted into its parent. The recursion rebuilds\n   * only the edited branches, so unrelated trees are untouched.\n   */",
+    "/**\n   * Runs one tree-rewriting operation under the driver lock. A 409/422 means the branch moved\n   * between reading the head and updating the ref, so the operation is rebuilt from the new head\n   * and retried once.\n   */",
+    "/** A new-name argument is one path segment, never a path. */",
+    "// Keep a directory visible after its last real entry is deleted.",
+    "// Git cannot store an empty tree through the Contents API; a .gitkeep blob keeps the folder.",
   ]],
   ["src/worker/clouddrive/drivers/google-drive.ts", [
     "/**\n * Google Drive driver.\n *\n * Drive has no path API: a folder is found by querying children of its parent for the exact name.\n * Downloads stream through `files/{id}?alt=media`, and uploads use the multipart endpoint below\n * 5 MiB or a resumable session above it. Google issues no durable anonymous download address, so the\n * driver does not claim `directLink` and every read is proxied.\n */",
     "/** Keeps the path helper available to the shared registry tests. */",
   ]],
   ["src/worker/clouddrive/drivers/google-photo.ts", [
-    "/**\n * Google Photos driver.\n *\n * The Photos Library has no folder hierarchy: the mount root lists the account's media items and a\n * first-level path segment names an album. `mediaItems:search` is the only listing endpoint and it\n * paginates with a `pageToken`. Reads stream from the item's `baseUrl` with the `=d` suffix, which is\n * why the driver does not claim `directLink`.\n */",
     "/** Resolves one folder segment (an album title) to its album id. */",
+    "/**\n * Google Photos driver.\n *\n * The Photos Library has no folder hierarchy: the mount root lists the account's media items and a\n * first-level path segment names an album. `mediaItems:search` is the only listing endpoint and it\n * paginates with a `pageToken`. Reads stream from the item's `baseUrl` with the `=d` suffix; the same\n * signed address is what the reference implementation returns as `raw_url`, so it is the direct link.\n */",
   ]],
   ["src/worker/clouddrive/drivers/guangyapan.ts", [
-    "/**\n * GuangYaPan driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/guangyapan`.\n * A stored access token wins; when the owner also stored a phone number and a refresh token the\n * token is rotated through the account endpoint. The SMS verification flow is deliberately absent:\n * an owner who has neither token has to supply one out of band.\n */",
+    "/**\n * GuangYaPan driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/guangyapan`.\n * A stored access token wins; otherwise a refresh token is rotated through the account endpoint.\n * When the owner has neither token, the SMS verification handshake (`captcha init` → send code →\n * verify code → sign in) completes the login. Writes use the resource API and uploads go through\n * the instant-upload handshake followed by signed OSS requests.\n */",
+    "/**\n * Verifies the SMS code, signs in and persists the access/refresh token pair. The verification id\n * comes from `ctx.credentials`, which `requestGuangYaPanVerification` just wrote.\n */",
   ]],
   ["src/worker/clouddrive/drivers/halalcloud-open.ts", [
     "/**\n * HalalCloud Open driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/halalcloud_open`. Every request is a JSON POST\n * signed with the HL6-HMAC-SHA256 variant of AWS SigV4 (WebCrypto). The access token is rotated from\n * the refresh token; concurrent callers share one single flight and write back with a compare-and-swap.\n */",
@@ -37507,10 +37543,13 @@ const allowed = new Map([
     "// The client-credentials session keeps its own expiry; nothing to drop here.",
   ]],
   ["src/worker/clouddrive/drivers/onedrive.ts", [
-    "/**\n * OneDrive / SharePoint driver.\n *\n * Graph addresses items by id, and it also accepts a colon path (`root:/docs/a.txt`), which is what\n * this driver uses to resolve a mount path without walking every ancestor. Downloads come from the\n * short-lived `@microsoft.graph.downloadUrl` Graph returns with the item; uploads use the resumable\n * session for anything larger than the simple 4 MiB PUT.\n */",
     "// Graph's search endpoint is drive-wide; a folder listing has no upstream filter, so the",
     "// search runs over the pages this call already fetched.",
     "/** The child path helper stays exported so the application-identity variant can reuse it. */",
+    "/**\n * OneDrive / SharePoint driver.\n *\n * Graph addresses items by id, and it also accepts a colon path (`root:/docs/a.txt`), which is what\n * this driver uses to resolve a mount path without walking every ancestor. Downloads come from the\n * short-lived `@microsoft.graph.downloadUrl` Graph returns with the item; uploads use the resumable\n * session for anything larger than the simple 4 MiB PUT.\n *\n * The `region` config selects the sovereign cloud host pair (global/cn/us/de): the same region is\n * used for Graph calls and for token rotation. A SharePoint mount uses `/sites/{siteId}/drive`\n * instead of `/me/drive` or `/drives/{driveId}`.\n */",
+    "/** The sovereign-cloud host pairs from the reference implementation's `onedriveHostMap`. */",
+    "// The authorization callback still starts from the global Microsoft endpoint; only token",
+    "// rotation follows the selected sovereign cloud.",
   ]],
   ["src/worker/clouddrive/drivers/pikpak-share.ts", [
     "/**\n * PikPak share driver (read-only).\n *\n * A share is addressed by `share_id` plus an optional pass code. The first listing may return a\n * `pass_code_token`, which every later request carries as `X-Share-Token`; no token ever rotates,\n * so there is no refresh path.\n */",
@@ -37520,14 +37559,21 @@ const allowed = new Map([
     "// The MD5 chain the PikPak web client uses to sign its captcha request.",
     "// HttpOptions has no PATCH; this one call does its own status mapping.",
   ]],
+  ["src/worker/clouddrive/drivers/provisioning.ts", [
+    "/**\n * Provisioning actions a driver performs before it has usable credentials. Today only the phone\n * verification handshake needs one; the route reads this table by storage type so it never names a\n * driver itself.\n */",
+  ]],
   ["src/worker/clouddrive/drivers/quark-open.ts", [
-    "/**\n * Quark Cloud Drive open-platform driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/quark_open` and the upstream OpenList driver.\n * Every call is signed with `sha256(method&path&tm&signKey)`; listings page by cursor; the mount is\n * read-only and downloads resolve a fid into a URL that needs the signed-in cookie.\n */",
+    "/**\n * Quark Cloud Drive open-platform driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/quark_open` and the upstream OpenList driver.\n * Every call is signed with `sha256(method&path&tm&signKey)`; listings page by cursor. Directory\n * create/rename/move/delete use the signed open-platform endpoints, while uploads and copies stay\n * unsupported and downloads resolve a fid into a URL that needs the signed-in cookie.\n */",
   ]],
   ["src/worker/clouddrive/drivers/registry.ts", [
     "/**\n * The driver factory table for the ported providers. Keeping it in one module lets `factory.ts`\n * stay about the vault, the compare-and-swap and the re-authorization signal.\n */",
   ]],
   ["src/worker/clouddrive/drivers/thunder.ts", [
     "/**\n * Xunlei / Thunder driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/thunder`. The\n * access token is renewable through the `xluser` token endpoint, or through the account/password\n * handshake when the owner supplies credentials. Refresh is single-flighted and written back with\n * the observed access/refresh pair so concurrent rotations cannot clobber each other.\n */",
+    "/**\n * The Xunlei content hash: SHA1 over the per-chunk SHA1 digests, with the chunk size doubling\n * between 256 KiB and 2 MiB so that a large file does not produce an unbounded digest list.\n */",
+    "/**\n   * Resolves the presigned S3 object URL the upload task hands back. Some accounts report an\n   * endpoint that already carries the bucket as its first label, so that prefix is removed before\n   * the bucket path is appended.\n   */",
+    "/**\n   * One PUT attempt with a single retry, because a dropped connection mid-part is expected on a\n   * long upload while an auth or not-found answer must surface immediately.\n   */",
+    "// A create answer without a resumable session is Thunder's instant upload.",
   ]],
   ["src/worker/clouddrive/drivers/token.ts", [
     "/**\n * Token lifecycle for the refresh/rotation drivers.\n *\n * Two layers keep a rotation from firing twice: an in-process single flight keyed by the storage id,\n * and a cross-request lease that the factory backs with a D1 compare-and-swap on the storage row.\n * The write-back is a compare-and-swap too, so the loser of a race adopts the winner's token instead\n * of overwriting it with a token that the provider has already rotated away.\n */",
@@ -37540,10 +37586,14 @@ const allowed = new Map([
     "/** Drops the cached access token so the next call refreshes; the refresh token is kept. */",
     "/** Runs an API call with an access token, refreshing once when the provider rejects it. */",
     "/**\n * An application-identity token (`client_credentials`): there is no refresh token to rotate, the\n * token is simply requested again before its expiry. OneDrive application mounts and FeBBox use it.\n */",
+    "/**\n   * Overrides the registered provider, e.g. OneDrive's regional token endpoint. Authorization\n   * still starts from the global provider; only token refresh/rotation follows this override.\n   */",
   ]],
   ["src/worker/clouddrive/drivers/wopan.ts", [
     "/**\n * China Unicom WoPan driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/wopan`. Its API\n * is a single encrypted dispatcher: every call posts an MD5-signed header plus an AES-CBC encrypted\n * `param`, and the answer's `DATA` may itself be encrypted. The access token is rotated through the\n * `api-user` `AppRefreshToken` method; the write-back is a compare-and-swap on both tokens so two\n * concurrent rotations cannot overwrite each other.\n */",
     "// 9999 is WoPan's \"the access token is no longer valid\" answer.",
+    "/** The upload host is account-specific; a failed lookup falls back to the reference default. */",
+    "/** The classification rule maps an extension to the numeric type WoPan expects on writes. */",
+    "/** One multipart form POST with a single retry when the connection breaks mid-part. */",
   ]],
   ["src/worker/clouddrive/drivers/yandex.ts", [
     "/**\n * Yandex Disk driver.\n *\n * Paths are absolute (`/photos`). Listing is offset based; downloads and uploads are two-step: ask\n * `resources/download|upload` for a short-lived href, then stream against that href. The temporary\n * download href is what `directLink` returns.\n */",
@@ -45323,6 +45373,13 @@ const allowed = new Map([
   ["tests/clouddrive-dav-locks.test.ts", [
     "// A refresh that names no Timeout restarts the clock at the server default, not at the",
     "// 60 seconds the original lock asked for.",
+  ]],
+  ["tests/clouddrive-driver-baidu-netdisk.test.ts", [
+    "// The first create is the rapid probe; it misses and the chunked flow continues.",
+  ]],
+  ["tests/clouddrive-driver-github.test.ts", [
+    "/** A tiny Git Data API state machine: trees by sha, an immutable branch head and failed ref moves. */",
+    "// base_tree preserves the untouched docs entry; only the changed archive entry is sent.",
   ]],
   ["tests/clouddrive-driver-google-photo.test.ts", [
     "// Each page restarts the token walk, so page 2 costs two search calls and the full walk costs",

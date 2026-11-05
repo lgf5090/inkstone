@@ -167,6 +167,17 @@ const TELEGRAM_FIELDS = [
 
 const ONEDRIVE_FIELDS = [
   field('driveId', 'text', 'config'),
+  field('region', 'select', 'config', {
+    defaultValue: 'global',
+    options: [
+      { value: 'global', labelKey: 'clouddrive.driver.field.region_global' },
+      { value: 'cn', labelKey: 'clouddrive.driver.field.region_cn' },
+      { value: 'us', labelKey: 'clouddrive.driver.field.region_us' },
+      { value: 'de', labelKey: 'clouddrive.driver.field.region_de' },
+    ],
+  }),
+  field('isSharepoint', 'boolean', 'config', { defaultValue: false }),
+  field('siteId', 'text', 'config', { hintKey: 'clouddrive.driver.field.site_id_hint' }),
   field('rootPath', 'text', 'config', { placeholder: '/' }),
   field('accessToken', 'password', 'credentials', { secret: true }),
   field('refreshToken', 'password', 'credentials', { secret: true }),
@@ -509,7 +520,7 @@ const ROOT_FOLDER_FIELD = field('rootFolderId', 'text', 'config', { hintKey: 'cl
 export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   {
     id: '115open', nameKey: 'clouddrive.driver.115open', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: [field('rootId', 'text', 'config', { defaultValue: '0' }), ...ACCESS_REFRESH_FIELDS],
     authAnyOf: [['accessToken'], ['accessToken', 'refreshToken']],
   },
@@ -532,7 +543,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: '189pc', nameKey: 'clouddrive.driver.189pc', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   {
     id: '189_tv', nameKey: 'clouddrive.driver.189_tv', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: [
       field('accessToken', 'password', 'credentials', { secret: true, hintKey: 'clouddrive.driver.field.access_token_hint' }),
       ROOT_FOLDER_FIELD,
@@ -569,7 +580,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: 'aliyundrive_share', nameKey: 'clouddrive.driver.aliyundrive_share', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   {
     id: 'baidu_netdisk', nameKey: 'clouddrive.driver.baidu_netdisk', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: [
       field('downloadApi', 'select', 'config', {
         defaultValue: 'official',
@@ -603,7 +614,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: 'doubao', nameKey: 'clouddrive.driver.doubao', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   {
     id: 'guangyapan', nameKey: 'clouddrive.driver.guangyapan', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: [
       field('phoneNumber', 'text', 'config'),
       field('accessToken', 'password', 'credentials', { secret: true }),
@@ -664,11 +675,12 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
       ROOT_FOLDER_FIELD,
     ],
     authAnyOf: [['shareId']],
+    noteKey: 'clouddrive.driver.reason.pikpak_share',
   },
   { id: 'quark', nameKey: 'clouddrive.driver.quark', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   {
     id: 'quark_open', nameKey: 'clouddrive.driver.quark_open', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, delete: true, range: true }),
     fields: [
       field('appId', 'text', 'credentials'),
       field('signKey', 'password', 'credentials', { secret: true }),
@@ -677,13 +689,14 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
       ROOT_FOLDER_FIELD,
     ],
     authAnyOf: [['refreshToken'], ['accessToken']],
+    noteKey: 'clouddrive.driver.reason.quark_open',
   },
   { id: 'quark_uc_tv', nameKey: 'clouddrive.driver.quark_uc_tv', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'teambition', nameKey: 'clouddrive.driver.teambition', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'terabox', nameKey: 'clouddrive.driver.terabox', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   {
     id: 'thunder', nameKey: 'clouddrive.driver.thunder', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: [
       field('username', 'text', 'config'),
       field('password', 'password', 'credentials', { secret: true }),
@@ -697,7 +710,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: 'weiyun', nameKey: 'clouddrive.driver.weiyun', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   {
     id: 'wopan', nameKey: 'clouddrive.driver.wopan', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: [
       ...ACCESS_REFRESH_FIELDS,
       ROOT_FOLDER_FIELD,
@@ -715,7 +728,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'degoo', nameKey: 'clouddrive.driver.degoo', group: 'international', implemented: true, mountable: true,
-    capabilities: capabilities({ range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, delete: true, directLink: true, range: true }),
     fields: [
       field('username', 'text', 'config'),
       field('password', 'password', 'credentials', { secret: true }),
@@ -724,6 +737,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
       ROOT_FOLDER_FIELD,
     ],
     authAnyOf: [['username', 'password'], ['refreshToken'], ['accessToken']],
+    noteKey: 'clouddrive.driver.reason.degoo',
   },
   {
     id: 'dropbox', nameKey: 'clouddrive.driver.dropbox', group: 'international', implemented: true, mountable: true,
@@ -733,38 +747,42 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'febbox', nameKey: 'clouddrive.driver.febbox', group: 'international', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: [ROOT_FOLDER_FIELD, ...CLIENT_TOKEN_FIELDS],
     authAnyOf: [['clientId', 'clientSecret'], ['refreshToken']],
+    noteKey: 'clouddrive.driver.reason.febbox',
   },
   {
     id: 'google_photo', nameKey: 'clouddrive.driver.google_photo', group: 'international', implemented: true, mountable: true,
-    capabilities: capabilities({ range: true }),
+    capabilities: capabilities({ directLink: true, range: true }),
     fields: [
       field('showArchive', 'boolean', 'config', { defaultValue: false }),
       ...CLIENT_TOKEN_FIELDS,
     ],
     authAnyOf: [['refreshToken'], ['accessToken']],
+    noteKey: 'clouddrive.driver.reason.google_photo',
   },
   {
     id: 'halalcloud_open', nameKey: 'clouddrive.driver.halalcloud_open', group: 'international', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: [
       field('host', 'text', 'config', { placeholder: 'openapi.halalcloud.com' }),
       ROOT_FOLDER_FIELD,
       ...CLIENT_TOKEN_FIELDS,
     ],
     authAnyOf: [['clientId', 'clientSecret', 'refreshToken'], ['refreshToken']],
+    noteKey: 'clouddrive.driver.reason.halalcloud_open',
   },
   {
     id: 'mediafire', nameKey: 'clouddrive.driver.mediafire', group: 'international', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: [
       field('cookie', 'password', 'credentials', { secret: true }),
       field('sessionToken', 'password', 'credentials', { secret: true }),
       field('chunkSize', 'number', 'config'),
     ],
     authAnyOf: [['cookie'], ['sessionToken']],
+    noteKey: 'clouddrive.driver.reason.mediafire',
   },
   { id: 'mega', nameKey: 'clouddrive.driver.mega', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   {
@@ -917,7 +935,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'github', nameKey: 'clouddrive.driver.github', group: 'protocol', implemented: true, mountable: true,
-    capabilities: capabilities({ write: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: GITHUB_FIELDS,
   },
   {
@@ -964,7 +982,10 @@ export function implementedCloudDriveDrivers(): readonly CloudDriveDriverDefinit
 }
 
 export function writableCloudDriveDriver(type: string): boolean {
-  return findCloudDriveDriver(type)?.capabilities.write === true
+  const capabilities = findCloudDriveDriver(type)?.capabilities
+  if (!capabilities) return false
+  return capabilities.write || capabilities.mkdir || capabilities.rename
+    || capabilities.move || capabilities.copy || capabilities.delete
 }
 
 export function driverCapabilityLabels(driver: CloudDriveDriverDefinition | null): CloudDriveDriverCapability[] {
