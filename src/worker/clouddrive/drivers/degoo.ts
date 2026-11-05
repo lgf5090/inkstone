@@ -1,9 +1,10 @@
 /**
- * Degoo driver (read-only).
+ * Degoo driver.
  *
  * Degoo authenticates with a username/password that yields a JWT plus a refresh token, then serves
  * everything through the AppSync GraphQL endpoint. Paths are resolved by walking directory ids, and
- * a file's download address comes from the `getOverlay4` query.
+ * a file's download address comes from the `getOverlay4` query. Mutations create folders, rename,
+ * move and delete entries; uploads and copies stay unsupported.
  */
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
 import {
@@ -36,6 +37,11 @@ const REFRESH_LEAD_MS = 5 * 60 * 1000
 const LIST_QUERY = `query GetFileChildren5($Token: String! $ParentID: String $AllParentIDs: [String] $Limit: Int! $Order: Int! $NextToken: String ) { getFileChildren5(Token: $Token ParentID: $ParentID AllParentIDs: $AllParentIDs Limit: $Limit Order: $Order NextToken: $NextToken) { Items { ID ParentID Name Category Size CreationTime LastModificationTime LastUploadTime FilePath IsInRecycleBin DeviceID MetadataID } NextToken } }`
 const ROOT_QUERY = `query GetFileChildren5($Token: String! $ParentID: String $AllParentIDs: [String] $Limit: Int! $Order: Int! $NextToken: String ) { getFileChildren5(Token: $Token ParentID: $ParentID AllParentIDs: $AllParentIDs Limit: $Limit Order: $Order NextToken: $NextToken) { Items { ParentID } NextToken } }`
 const OVERLAY_QUERY = `query GetOverlay4($Token: String!, $ID: IDType!) { getOverlay4(Token: $Token, ID: $ID) { ID ParentID Name Category Size CreationTime LastModificationTime LastUploadTime URL FilePath IsInRecycleBin DeviceID MetadataID } }`
+const MKDIR_MUTATION = `mutation SetUploadFile3($Token: String!, $FileInfos: [FileInfoUpload3]!) { setUploadFile3(Token: $Token, FileInfos: $FileInfos) }`
+const RENAME_MUTATION = `mutation SetRenameFile($Token: String!, $FileRenames: [FileRenameInfo]!) { setRenameFile(Token: $Token, FileRenames: $FileRenames) }`
+const MOVE_MUTATION = `mutation SetMoveFile($Token: String!, $Copy: Boolean, $NewParentID: String!, $FileIDs: [String]!) { setMoveFile(Token: $Token, Copy: $Copy, NewParentID: $NewParentID, FileIDs: $FileIDs) }`
+const DELETE_MUTATION = `mutation SetDeleteFile5($Token: String!, $IsInRecycleBin: Boolean!, $IDs: [IDType]!) { setDeleteFile5(Token: $Token, IsInRecycleBin: $IsInRecycleBin, IDs: $IDs) }`
+const FOLDER_CHECKSUM = 'CgAQAg'
 
 interface DegooItem {
   ID: string
@@ -345,14 +351,24 @@ export class DegooDriver extends HttpDriverBase implements MountDriver {
     return fileEntry(await this.resolveEntry(clean))
   }
 
+  private async overlayUrl(item: DegooItem): Promise<string> {
+    const data = await this.graphql<DegooOverlay>('GetOverlay4', OVERLAY_QUERY, { ID: { FileID: item.ID } })
+    const url = data.getOverlay4?.URL ?? ''
+    if (!url) throw DriverError.notFound('Degoo returned no download address')
+    return url
+  }
+
+  async directLink(path: string): Promise<string | null> {
+    const entry = await this.stat(path)
+    if (entry.kind === 'folder') return null
+    return await this.overlayUrl(await this.resolveEntry(driverPath(path)))
+  }
+
   async read(path: string, range?: string | null): Promise<Response> {
     const clean = driverPath(path)
     const entry = await this.stat(clean)
     if (entry.kind === 'folder') throw DriverError.unsupported('A folder cannot be read as a file')
-    const item = await this.resolveEntry(clean)
-    const data = await this.graphql<DegooOverlay>('GetOverlay4', OVERLAY_QUERY, { ID: { FileID: item.ID } })
-    const url = data.getOverlay4?.URL ?? ''
-    if (!url) throw DriverError.notFound('Degoo returned no download address')
+    const url = await this.overlayUrl(await this.resolveEntry(clean))
     const response = await fetch(url, {
       headers: range ? { Range: range } : {},
       redirect: 'follow',
@@ -367,28 +383,61 @@ export class DegooDriver extends HttpDriverBase implements MountDriver {
 
   async upload(path: string, _body: Uint8Array | ReadableStream, _options: DriverUploadOptions): Promise<void> {
     driverPath(path)
-    throw DriverError.unsupported('Degoo is read-only')
+    throw DriverError.unsupported('Degoo upload is not supported in a stateless environment')
   }
 
   async mkdir(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('Degoo is read-only')
+    const clean = driverPath(path)
+    if (clean === '/') return
+    const parentId = await this.resolveFolder(driverParentPath(clean))
+    await this.graphql<unknown>('SetUploadFile3', MKDIR_MUTATION, {
+      FileInfos: [
+        {
+          Checksum: FOLDER_CHECKSUM,
+          Name: driverFileName(clean),
+          CreationTime: Date.now(),
+          ParentID: parentId,
+          Size: 0,
+        },
+      ],
+    })
+    this.pathIds.clear()
   }
 
-  async rename(path: string, _newName: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('Degoo is read-only')
+  async rename(path: string, newName: string): Promise<void> {
+    const entry = await this.resolveEntry(driverPath(path))
+    await this.graphql<unknown>('SetRenameFile', RENAME_MUTATION, {
+      FileRenames: [{ ID: entry.ID, NewName: newName }],
+    })
+    this.pathIds.clear()
   }
 
   async move(fromPath: string, toPath: string): Promise<void> {
-    driverPath(fromPath)
-    driverPath(toPath)
-    throw DriverError.unsupported('Degoo is read-only')
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    const entry = await this.resolveEntry(from)
+    const parentId = await this.resolveFolder(driverParentPath(to))
+    await this.graphql<unknown>('SetMoveFile', MOVE_MUTATION, {
+      Copy: false,
+      NewParentID: parentId,
+      FileIDs: [entry.ID],
+    })
+    this.pathIds.clear()
   }
 
   async remove(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('Degoo is read-only')
+    const entry = await this.resolveEntry(driverPath(path))
+    await this.graphql<unknown>('SetDeleteFile5', DELETE_MUTATION, {
+      IsInRecycleBin: false,
+      IDs: [{ FileID: entry.ID }],
+    })
+    this.pathIds.clear()
+  }
+
+  async copy(fromPath: string, toPath: string): Promise<void> {
+    driverPath(fromPath)
+    driverPath(toPath)
+    throw DriverError.unsupported('Degoo copy is not supported')
   }
 
   async test(): Promise<{ ok: boolean; message: string }> {

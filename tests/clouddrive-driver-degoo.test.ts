@@ -157,4 +157,115 @@ describe('Degoo driver', () => {
     expect(response.status).toBe(206)
     expect(await response.text()).toBe('cdef')
   })
+
+  it('creates a folder through the SetUploadFile3 mutation', async () => {
+    const seen: Array<{ operation: string; variables: Record<string, unknown> }> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (url.hostname !== GRAPHQL_HOST) throw new Error(`unexpected ${url}`)
+      const body = await bodyOf(init)
+      seen.push({ operation: String(body.operationName), variables: body.variables as Record<string, unknown> })
+      return json({ data: { setUploadFile3: true } })
+    })
+    await createDegooDriver(context()).mkdir('/docs')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.operation).toBe('SetUploadFile3')
+    expect(seen[0]!.variables.FileInfos).toEqual([
+      { Checksum: 'CgAQAg', Name: 'docs', CreationTime: expect.any(Number), ParentID: 'root', Size: 0 },
+    ])
+  })
+
+  it('renames an entry through the SetRenameFile mutation', async () => {
+    const renames: unknown[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (url.hostname !== GRAPHQL_HOST) throw new Error(`unexpected ${url}`)
+      const body = await bodyOf(init)
+      if (body.operationName === 'GetFileChildren5') return children([FILE_A, FOLDER])
+      if (body.operationName !== 'SetRenameFile') throw new Error(`unexpected operation ${String(body.operationName)}`)
+      renames.push((body.variables as Record<string, unknown>).FileRenames)
+      return json({ data: { setRenameFile: true } })
+    })
+    await createDegooDriver(context()).rename('/a.txt', 'b.txt')
+    expect(renames).toEqual([[{ ID: 'f1', NewName: 'b.txt' }]])
+  })
+
+  it('moves an entry through the SetMoveFile mutation', async () => {
+    const moves: Array<Record<string, unknown>> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (url.hostname !== GRAPHQL_HOST) throw new Error(`unexpected ${url}`)
+      const body = await bodyOf(init)
+      if (body.operationName === 'GetFileChildren5') return children([FILE_A, FOLDER])
+      if (body.operationName !== 'SetMoveFile') throw new Error(`unexpected operation ${String(body.operationName)}`)
+      moves.push(body.variables as Record<string, unknown>)
+      return json({ data: { setMoveFile: true } })
+    })
+    await createDegooDriver(context()).move('/a.txt', '/docs/a.txt')
+    expect(moves).toHaveLength(1)
+    expect(moves[0]).toMatchObject({ Copy: false, NewParentID: 'd1', FileIDs: ['f1'] })
+  })
+
+  it('deletes an entry through the SetDeleteFile5 mutation', async () => {
+    const deletes: unknown[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (url.hostname !== GRAPHQL_HOST) throw new Error(`unexpected ${url}`)
+      const body = await bodyOf(init)
+      if (body.operationName === 'GetFileChildren5') return children([FILE_A, FOLDER])
+      if (body.operationName !== 'SetDeleteFile5') throw new Error(`unexpected operation ${String(body.operationName)}`)
+      deletes.push((body.variables as Record<string, unknown>).IDs)
+      return json({ data: { setDeleteFile5: true } })
+    })
+    await createDegooDriver(context()).remove('/a.txt')
+    expect(deletes).toEqual([[{ FileID: 'f1' }]])
+  })
+
+  it('maps a throttled write call to rate_limit', async () => {
+    vi.stubGlobal('fetch', async () => new Response('', { status: 429, headers: { 'retry-after': '0.01' } }))
+    await expect(createDegooDriver(context()).mkdir('/docs')).rejects.toMatchObject({ kind: 'rate_limit' })
+  })
+
+  it('maps a 401 on a write call to auth and marks the storage', async () => {
+    const mark = vi.fn(async () => undefined)
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === TOKEN_URL) return new Response('', { status: 401 })
+      return new Response('', { status: 401 })
+    })
+    const ctx = context({ refreshToken: 'r1' })
+    ctx.markNeedsReauth = mark
+    const driver = createDegooDriver(ctx)
+    await expect(driver.mkdir('/docs')).rejects.toMatchObject({ kind: 'auth' })
+    expect(mark).toHaveBeenCalled()
+  })
+
+  it('refuses an escaping write path before any request', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const driver = createDegooDriver(context())
+    await expect(driver.mkdir('/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.rename('/docs/../secret', 'b.txt')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.move('/docs/../secret', '/docs')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.remove('/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps upload and copy unsupported', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const driver = createDegooDriver(context())
+    expect(driver.capabilities).toMatchObject({
+      write: false,
+      mkdir: true,
+      rename: true,
+      move: true,
+      copy: false,
+      delete: true,
+      range: true,
+    })
+    await expect(driver.upload('/a.txt', new Uint8Array(1), { size: 1 })).rejects.toMatchObject({ kind: 'unsupported' })
+    await expect(driver.copy!('/a.txt', '/b.txt')).rejects.toMatchObject({ kind: 'unsupported' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })
