@@ -11,6 +11,7 @@ import { createCipheriv, createDecipheriv, createHash } from 'node:crypto'
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
 import {
   DriverError,
+  asBytes,
   driverEntryMime,
   type DriverContext,
   type DriverEntry,
@@ -35,10 +36,15 @@ const CRYPTO_IV = 'wNSOYIB1k1DjY5lA'
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.37'
 const CHANNEL_USER = 'api-user'
 const CHANNEL_HOME = 'wohome'
+const CHANNEL_CLOUD = 'wocloud'
+const APP_ID = '10000001'
+const DEFAULT_ZONE_URL = 'https://tjupload.pan.wo.cn'
+const PART_SIZE = 8 * 1024 * 1024
 const SPACE_PERSONAL = '0'
 const SPACE_FAMILY = '1'
 const PAGE_SIZE = 100
 const MAX_LIST_PAGES = 50
+const UPLOAD_TIMEOUT_MS = 120_000
 
 interface WoPanFile {
   fid?: string
@@ -62,6 +68,20 @@ interface WoPanDownload {
 interface WoPanRefresh {
   access_token?: string
   refresh_token?: string
+}
+
+interface WoPanZone {
+  url?: string
+}
+
+interface WoPanClassifyRule {
+  fileTypes?: Record<string, { type?: string }>
+}
+
+interface WoPanUploadResult {
+  code?: string
+  msg?: string
+  data?: { fid?: string }
 }
 
 interface DispatchResponse {
@@ -136,12 +156,36 @@ function downloadError(status: number): DriverError {
   return DriverError.upstream(`WoPan download failed (HTTP ${status})`)
 }
 
+function uploadError(status: number, label: string): DriverError {
+  if (status === 401 || status === 403) return DriverError.auth(`WoPan refused ${label} (HTTP ${status})`)
+  if (status === 404) return DriverError.notFound(`WoPan could not find ${label} (HTTP 404)`)
+  if (status === 429) return DriverError.rateLimited(`WoPan is rate limiting ${label}`)
+  return DriverError.upstream(`WoPan rejected ${label} (HTTP ${status})`)
+}
+
+function randomChars(length: number): string {
+  const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  let result = ''
+  for (let index = 0; index < length; index++) {
+    result += charset.charAt(Math.floor(Math.random() * charset.length))
+  }
+  return result
+}
+
+function uploadBatchNo(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+}
+
 export class WoPanDriver extends HttpDriverBase implements MountDriver {
   readonly definition = findCloudDriveDriver('wopan')!
   readonly capabilities = this.definition.capabilities
   private token: string
   private refreshTokenValue: string
   private readonly pathIds = new Map<string, string>()
+  private zoneURL = ''
+  private classifyLoaded = false
+  private classifyTypes: Record<string, { type?: string }> = {}
 
   constructor(ctx: DriverContext) {
     super(ctx)
@@ -340,6 +384,89 @@ export class WoPanDriver extends HttpDriverBase implements MountDriver {
     return url
   }
 
+  /** The upload host is account-specific; a failed lookup falls back to the reference default. */
+  private async zoneUrl(): Promise<string> {
+    if (this.zoneURL) return this.zoneURL
+    try {
+      const zone = await this.dispatch<WoPanZone>(CHANNEL_HOME, 'GetZoneInfo', { appId: APP_ID }, { key: true })
+      this.zoneURL = (zone?.url ?? '').trim() || DEFAULT_ZONE_URL
+    } catch {
+      this.zoneURL = DEFAULT_ZONE_URL
+    }
+    return this.zoneURL
+  }
+
+  /** The classification rule maps an extension to the numeric type WoPan expects on writes. */
+  private async detectFileType(name: string): Promise<string> {
+    if (!this.classifyLoaded) {
+      this.classifyLoaded = true
+      try {
+        const rules = await this.dispatch<WoPanClassifyRule>(CHANNEL_HOME, 'ClassifyRule', {}, { key: true })
+        this.classifyTypes = rules?.fileTypes ?? {}
+      } catch {
+        this.classifyTypes = {}
+      }
+    }
+    const dot = name.lastIndexOf('.')
+    if (dot < 0) return '5'
+    const extension = name.slice(dot + 1).toLowerCase()
+    return this.classifyTypes[extension]?.type || '5'
+  }
+
+  /** One multipart form POST with a single retry when the connection breaks mid-part. */
+  private async uploadPart(
+    url: string,
+    fields: Record<string, string>,
+    chunk: Uint8Array,
+    partIndex: number,
+    totalPart: number,
+    fileName: string,
+  ): Promise<WoPanUploadResult> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const form = new FormData()
+        for (const [key, value] of Object.entries(fields)) form.append(key, value)
+        form.append('file', new Blob([chunk], { type: 'application/octet-stream' }), fileName)
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            Origin: 'https://pan.wo.cn',
+            Referer: 'https://pan.wo.cn/',
+            'User-Agent': USER_AGENT,
+          },
+          body: form,
+          signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+        })
+        if (!response.ok) {
+          const error = uploadError(response.status, `upload part ${partIndex}/${totalPart}`)
+          await response.body?.cancel().catch(() => undefined)
+          if (attempt === 0 && (response.status === 429 || response.status >= 500)) {
+            lastError = error
+            continue
+          }
+          throw error
+        }
+        const payload = await response.json().catch(() => ({})) as WoPanUploadResult
+        if (String(payload.code) !== '0000') {
+          throw DriverError.upstream(
+            `WoPan rejected upload part ${partIndex}/${totalPart}: ${payload.code ?? ''} ${payload.msg ?? ''}`,
+          )
+        }
+        return payload
+      } catch (error) {
+        if (attempt === 0 && !(error instanceof DriverError)) {
+          lastError = error
+          continue
+        }
+        throw error
+      }
+    }
+    throw lastError instanceof DriverError
+      ? lastError
+      : DriverError.upstream(`WoPan upload failed: ${lastError instanceof Error ? lastError.message : 'unknown error'}`)
+  }
+
   async list(path: string, options: DriverListOptions = {}): Promise<DriverListResult> {
     const clean = driverPath(path)
     return await this.withAuth(async () => {
@@ -412,24 +539,149 @@ export class WoPanDriver extends HttpDriverBase implements MountDriver {
     })
   }
 
-  async upload(_path: string, _body: Uint8Array | ReadableStream, _options: DriverUploadOptions): Promise<void> {
-    throw DriverError.unsupported('This WoPan mount is read-only')
+  async upload(path: string, body: Uint8Array | ReadableStream, options: DriverUploadOptions): Promise<void> {
+    const clean = driverPath(path)
+    const bytes = await asBytes(body)
+    if (bytes.byteLength !== options.size) throw DriverError.invalid('The upload body does not match the declared size')
+    return await this.withAuth(async () => {
+      const name = driverFileName(clean)
+      const parentId = await this.resolveFolderId(driverParentPath(clean))
+      const url = `${await this.zoneUrl()}/openapi/client/upload2C`
+      const fileType = await this.detectFileType(name)
+      const fileInfo: Record<string, unknown> = {
+        spaceType: this.spaceType(),
+        directoryId: parentId,
+        batchNo: uploadBatchNo(),
+        fileName: name,
+        fileSize: bytes.byteLength,
+        fileType,
+      }
+      if (this.spaceType() === SPACE_FAMILY) fileInfo.familyId = this.familyId()
+      const fileInfoStr = encryptParam(JSON.stringify(fileInfo), CHANNEL_CLOUD, this.token)
+      const uniqueId = `${Date.now()}_${randomChars(6)}`
+      const totalPart = Math.max(1, Math.ceil(bytes.byteLength / PART_SIZE))
+      let finished = 0
+      for (let part = 1; part <= totalPart; part++) {
+        const start = (part - 1) * PART_SIZE
+        const partSize = part === totalPart ? bytes.byteLength - start : PART_SIZE
+        const chunk = bytes.subarray(start, start + partSize)
+        const fields = {
+          uniqueId,
+          accessToken: this.token,
+          fileName: name,
+          psToken: 'undefined',
+          fileSize: String(bytes.byteLength),
+          totalPart: String(totalPart),
+          channel: CHANNEL_CLOUD,
+          directoryId: parentId,
+          fileInfo: fileInfoStr,
+          partSize: String(partSize),
+          partIndex: String(part),
+        }
+        await this.uploadPart(url, fields, chunk, part, totalPart, name)
+        finished += partSize
+        options.onProgress?.(finished, bytes.byteLength)
+      }
+      this.pathIds.clear()
+    })
   }
 
-  async mkdir(_path: string): Promise<void> {
-    throw DriverError.unsupported('This WoPan mount is read-only')
+  async mkdir(path: string): Promise<void> {
+    const clean = driverPath(path)
+    if (clean === '/') return
+    return await this.withAuth(async () => {
+      const parentId = await this.resolveFolderId(driverParentPath(clean))
+      await this.dispatch(CHANNEL_HOME, 'CreateDirectory', {
+        spaceType: this.spaceType(),
+        familyId: this.familyId(),
+        parentDirectoryId: parentId,
+        directoryName: driverFileName(clean),
+        clientId: CLIENT_ID,
+      }, { secret: true })
+      this.pathIds.clear()
+    })
   }
 
-  async rename(_path: string, _newName: string): Promise<void> {
-    throw DriverError.unsupported('This WoPan mount is read-only')
+  async rename(path: string, newName: string): Promise<void> {
+    const clean = driverPath(path)
+    return await this.withAuth(async () => {
+      const file = await this.resolveItem(clean)
+      const fileType = file.type === 0 ? '0' : await this.detectFileType(newName)
+      const param: Record<string, unknown> = {
+        spaceType: this.spaceType(),
+        type: file.type,
+        fileType,
+        id: file.id,
+        name: newName,
+        clientId: CLIENT_ID,
+      }
+      if (this.spaceType() === SPACE_FAMILY) param.familyId = this.familyId()
+      await this.dispatch(CHANNEL_HOME, 'RenameFileOrDirectory', param, { secret: true })
+      this.pathIds.clear()
+    })
   }
 
-  async move(_fromPath: string, _toPath: string): Promise<void> {
-    throw DriverError.unsupported('This WoPan mount is read-only')
+  async move(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    return await this.withAuth(async () => {
+      const file = await this.resolveItem(from)
+      const targetDirId = await this.resolveFolderId(driverParentPath(to))
+      const param: Record<string, unknown> = {
+        targetDirId,
+        sourceType: this.spaceType(),
+        targetType: this.spaceType(),
+        dirList: file.type === 0 ? [file.id] : [],
+        fileList: file.type === 0 ? [] : [file.id],
+        secret: false,
+        clientId: CLIENT_ID,
+      }
+      if (this.spaceType() === SPACE_FAMILY) {
+        param.fromFamilyId = this.familyId()
+        param.familyId = this.familyId()
+      }
+      await this.dispatch(CHANNEL_HOME, 'MoveFile', param, { secret: true })
+      this.pathIds.clear()
+    })
   }
 
-  async remove(_path: string): Promise<void> {
-    throw DriverError.unsupported('This WoPan mount is read-only')
+  async copy(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    return await this.withAuth(async () => {
+      const file = await this.resolveItem(from)
+      const targetDirId = await this.resolveFolderId(driverParentPath(to))
+      const param: Record<string, unknown> = {
+        targetDirId,
+        sourceType: this.spaceType(),
+        targetType: this.spaceType(),
+        dirList: file.type === 0 ? [file.id] : [],
+        fileList: file.type === 0 ? [] : [file.id],
+        secret: false,
+        clientId: CLIENT_ID,
+      }
+      if (this.spaceType() === SPACE_FAMILY) {
+        param.fromFamilyId = this.familyId()
+        param.familyId = this.familyId()
+      }
+      await this.dispatch(CHANNEL_HOME, 'CopyFile', param, { secret: true })
+      this.pathIds.clear()
+    })
+  }
+
+  async remove(path: string): Promise<void> {
+    const clean = driverPath(path)
+    return await this.withAuth(async () => {
+      const file = await this.resolveItem(clean)
+      await this.dispatch(CHANNEL_HOME, 'DeleteFile', {
+        spaceType: this.spaceType(),
+        vipLevel: '0',
+        dirList: file.type === 0 ? [file.id] : [],
+        fileList: file.type === 0 ? [] : [file.id],
+        clientId: CLIENT_ID,
+      }, { secret: true })
+      this.pathIds.clear()
+    })
   }
 
   async test(): Promise<{ ok: boolean; message: string }> {
