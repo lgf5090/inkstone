@@ -36,6 +36,7 @@ import { runCompareRetention } from './tools/compare/retention'
 import { runDueCloudflareTasks } from './cloudflare/tasks'
 import { runDueCloudDriveJobs } from './clouddrive/routes-jobs'
 import { resumeCloudDriveIndexTasks } from './clouddrive/routes-admin'
+import { resumeCloudDriveRemoteTasks } from './clouddrive/remote'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -132,6 +133,9 @@ export default {
       // holds R2 bytes that nothing else can release until its session row is closed.
       resumeCloudDriveIndexTasks(env, event.scheduledTime).catch((error) => {
         console.warn('[clouddrive] a queued index task could not resume:', error)
+      })
+      resumeCloudDriveRemoteTasks(env, event.scheduledTime).catch((error) => {
+        console.warn('[clouddrive] a queued remote upload could not resume:', error)
       })
       const clouddriveTick = runDueCloudDriveJobs(env, event.scheduledTime, 10).catch((error) => {
         console.warn('[inkstone] CloudDrive scheduled jobs failed:', (error as Error).message)

@@ -24,6 +24,7 @@ export interface Mount {
   mountPath: string
   readOnly: boolean
   cacheTtl: number
+  signExpires: number | null
   sortOrder: number
   enabled: boolean
   remark: string

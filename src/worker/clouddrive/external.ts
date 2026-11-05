@@ -94,7 +94,40 @@ function safeExternalPath(path: string): boolean {
   return true
 }
 
-export async function listExternal(
+/**
+ * Per-isolate listing cache and request coalescing.
+ *
+ * OpenList deduplicates concurrent listings of the same directory so one page view cannot fan out
+ * into several upstream requests. The mount's `cache_ttl` turns that into a short-lived cache as
+ * well: an external driver is queried again only after the window the reader configured. The cache
+ * never crosses isolates, so it is a saving, not a consistency promise; a write clears the mount's
+ * entries in the isolate that performed it.
+ */
+interface CachedListing {
+  expires: number
+  value: ExternalListing
+}
+
+const LISTING_CACHE_MAX = 32
+const LISTING_CACHE_MAX_ENTRIES = 2000
+const listingCache = new Map<string, CachedListing>()
+const listingInflight = new Map<string, Promise<ExternalListing>>()
+
+function listingKey(mount: CloudDriveMountInfo, path: string): string {
+  return `${mount.storageId}\0${mount.id}\0${path}`
+}
+
+export function invalidateExternalListing(mountId?: string): void {
+  if (!mountId) {
+    listingCache.clear()
+    return
+  }
+  for (const key of listingCache.keys()) {
+    if (key.includes(`\0${mountId}\0`)) listingCache.delete(key)
+  }
+}
+
+async function loadExternal(
   env: Env,
   db: D1Database,
   mount: CloudDriveMountInfo,
@@ -107,6 +140,42 @@ export async function listExternal(
   const folders = entries.filter((entry) => entry.kind === 'folder').map((entry) => toEntry(mount, path, entry))
   const files = entries.filter((entry) => entry.kind === 'file').map((entry) => toEntry(mount, path, entry))
   return { mountId: mount.id, path, folders, files, cursor: null, total: null, foldersTruncated: listed.truncated }
+}
+
+export async function listExternal(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  path: string,
+): Promise<ExternalListing> {
+  const key = listingKey(mount, path)
+  const ttl = Math.max(0, mount.cacheTtl ?? 0)
+  if (ttl > 0) {
+    const cached = listingCache.get(key)
+    if (cached && cached.expires > Date.now()) return cached.value
+  }
+  const running = listingInflight.get(key)
+  if (running) return await running
+
+  const pending = loadExternal(env, db, mount, path)
+    .then((value) => {
+      if (ttl > 0) {
+        const entries = value.folders.length + value.files.length
+        // A pathologically large listing is served but not kept: one cached page must not hold
+        // millions of objects for every reader in this isolate.
+        if (entries <= LISTING_CACHE_MAX_ENTRIES) {
+          if (listingCache.size >= LISTING_CACHE_MAX) {
+            const oldest = listingCache.keys().next().value
+            if (oldest !== undefined) listingCache.delete(oldest)
+          }
+          listingCache.set(key, { expires: Date.now() + ttl * 1000, value })
+        }
+      }
+      return value
+    })
+    .finally(() => listingInflight.delete(key))
+  listingInflight.set(key, pending)
+  return await pending
 }
 
 export async function readExternal(
@@ -152,7 +221,8 @@ export async function externalDirectUrl(
     service: 's3',
   })
   const url = s3RequestUrl(target.url, config, key)
-  url.searchParams.set('X-Amz-Expires', '300')
+  const expires = Math.min(86_400, Math.max(60, Math.round(mount.signExpires ?? 300)))
+  url.searchParams.set('X-Amz-Expires', String(expires))
   const signed = await aws.sign(url.toString(), { method: 'GET', aws: { signQuery: true } })
   return signed.url
 }

@@ -11,7 +11,7 @@ import { CLOUDDRIVE_LIMITS, categoryFor, foldedName, parentPathOf, type CloudDri
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { deleteExternalPath, externalCapacityBytes, externalFolderSize, listExternal, mkdirExternal, moveExternalPath, parseExternalEntryId, writeExternalFile } from './external'
+import { deleteExternalPath, externalCapacityBytes, externalFolderSize, invalidateExternalListing, listExternal, mkdirExternal, moveExternalPath, parseExternalEntryId, writeExternalFile } from './external'
 import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import {
@@ -327,6 +327,7 @@ cloudDriveFilesRoutes.post('/external/:mountId/upload', async (c) => {
   }
   const mime = (c.req.header('content-type') ?? 'application/octet-stream').split(';')[0]!.trim().slice(0, 120) || 'application/octet-stream'
   await writeExternalFile(c.env, c.env.DB, mount, path, bytes, mime)
+  invalidateExternalListing(mount.id)
   return c.json({ ok: true, path, size: bytes.byteLength }, 201)
 })
 
@@ -337,6 +338,7 @@ cloudDriveFilesRoutes.post('/external/:mountId/folders', async (c) => {
   const path = parsePath(body.path ?? '', { allowRoot: false })
   await assertMetaAccess(c, userId, mount.id, parentPathOf(path))
   await mkdirExternal(c.env, c.env.DB, mount, path)
+  invalidateExternalListing(mount.id)
   return c.json({ ok: true, path }, 201)
 })
 
@@ -350,6 +352,7 @@ cloudDriveFilesRoutes.post('/external/:mountId/move', async (c) => {
   await assertMetaAccess(c, userId, mount.id, parentPathOf(from))
   await assertMetaAccess(c, userId, mount.id, parentPathOf(to))
   await moveExternalPath(c.env, c.env.DB, mount, from, to)
+  invalidateExternalListing(mount.id)
   return c.json({ ok: true, from, to })
 })
 
@@ -373,6 +376,7 @@ cloudDriveFilesRoutes.delete('/external/:mountId/files', async (c) => {
       console.warn('[inkstone] CloudDrive external delete failed', error)
     }
   }
+  invalidateExternalListing(mount.id)
   return c.json({ deleted, failed }, failed > 0 ? 207 : 200)
 })
 

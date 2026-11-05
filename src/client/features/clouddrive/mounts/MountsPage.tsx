@@ -26,6 +26,7 @@ interface MountForm {
   mountPath: string
   remark: string
   cacheTtl: string
+  signExpires: string
   sortOrder: string
   enabled: boolean
   readOnly: boolean
@@ -37,7 +38,7 @@ interface MountForm {
 
 function blankMount(storageId = 'primary'): MountForm {
   return {
-    name: '', storageId, mountPath: '', remark: '', cacheTtl: '300', sortOrder: '0', enabled: true,
+    name: '', storageId, mountPath: '', remark: '', cacheTtl: '300', signExpires: '300', sortOrder: '0', enabled: true,
     readOnly: false, folderSummary: false, webProxy: false, webdavPolicy: 'native_proxy', storageTypeFilter: 'all',
   }
 }
@@ -57,6 +58,7 @@ function formFromMount(mount: Mount, storages: readonly Storage[]): MountForm {
     mountPath: mount.mountPath,
     remark: mount.remark,
     cacheTtl: String(mount.cacheTtl),
+    signExpires: String(mount.signExpires ?? 300),
     sortOrder: String(mount.sortOrder),
     enabled: mount.enabled,
     readOnly: mount.readOnly,
@@ -164,6 +166,7 @@ export function MountsPage() {
         mountPath: form.mountPath.trim(),
         remark: form.remark.trim(),
         cacheTtl: Number(form.cacheTtl || 300),
+        signExpires: Number(form.signExpires || 300),
         sortOrder: Number(form.sortOrder || 0),
         enabled: form.enabled,
         storageId: form.storageId,
@@ -405,6 +408,11 @@ export function MountsPage() {
             <Field label={t('clouddrive.mounts.cache_ttl')} hint={t('clouddrive.admin.mount.cache_hint')}>
               <Input type="number" value={form.cacheTtl} onChange={(event) => set({ cacheTtl: event.target.value })} />
             </Field>
+            <Field label={t('clouddrive.mounts.sign_expires')} hint={t('clouddrive.admin.mount.sign_expires_hint')}>
+              <Input type="number" min={60} max={86400} value={form.signExpires} disabled={selectedType !== 's3'} onChange={(event) => set({ signExpires: event.target.value })} />
+            </Field>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
             <Field label={t('clouddrive.mounts.sort_order')} hint={t('clouddrive.admin.mount.sort_hint')}>
               <Input type="number" value={form.sortOrder} onChange={(event) => set({ sortOrder: event.target.value })} />
             </Field>
