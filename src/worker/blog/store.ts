@@ -68,6 +68,7 @@ export async function blogCounts(db: D1Database, userId: string): Promise<BlogSi
       `SELECT
          (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1
             AND status IN ('published','scheduled') AND deleted_at IS NULL
+            AND encrypted = 0
             AND published_at IS NOT NULL AND published_at <= (strftime('%s','now') * 1000)) AS posts,
          (SELECT COUNT(*) FROM blog_categories WHERE user_id = ?1) AS categories,
          (SELECT COUNT(*) FROM blog_tags WHERE user_id = ?1) AS tags,
@@ -274,6 +275,7 @@ export async function blogArchive(
               COUNT(*) AS total
        FROM blog_posts p
        WHERE p.user_id = ? AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL
+         AND p.encrypted = 0
          AND p.published_at IS NOT NULL AND p.published_at <= ?
        GROUP BY year, month
        ORDER BY year DESC, month DESC`,
@@ -300,6 +302,7 @@ export async function findAdjacentPosts(
     LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
     LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id
     WHERE p.user_id = ? AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL
+      AND p.encrypted = 0
       AND p.published_at IS NOT NULL AND p.published_at <= ?`
   const [previous, next] = await Promise.all([
     db.prepare(`${base} AND (p.published_at < ? OR (p.published_at = ? AND p.id < ?))
@@ -384,12 +387,44 @@ export async function findPublishedPostByPermalink(
     .prepare(
       `SELECT p.slug FROM blog_posts p
        WHERE p.user_id = ?1 AND p.permalink = ?2 AND p.status IN ('published','scheduled')
+         AND p.encrypted = 0
          AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= ?3
        LIMIT 1`,
     )
     .bind(userId, permalink, Date.now())
     .first<{ slug: string }>()
   return row ?? null
+}
+
+/**
+ * Finds a published article by its public alias, which is a site-relative path stored without a
+ * leading slash. Legacy rows may still carry a slash, so both spellings are compared. A protected
+ * article has no public alias: resolving it would hand out the link the unlock page hides. When two
+ * published articles still share an alias (possible before the admin conflict check existed), the
+ * newest one wins deterministically and the collision is logged instead of silently guessing.
+ */
+export async function findPublishedPostByAlias(
+  db: D1Database,
+  userId: string,
+  alias: string,
+): Promise<{ slug: string; permalink: string } | null> {
+  const normalized = alias.replace(/^\/+|\/+$/g, '')
+  if (!normalized) return null
+  const { results } = await db
+    .prepare(
+      `SELECT p.slug, p.permalink FROM blog_posts p
+       WHERE p.user_id = ?1 AND p.encrypted = 0 AND p.status IN ('published','scheduled')
+         AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= ?2
+         AND (p.alias = ?3 OR p.alias = ?4 OR trim(p.alias, '/') = ?3)
+       ORDER BY p.published_at DESC, p.id DESC
+       LIMIT 2`,
+    )
+    .bind(userId, Date.now(), normalized, `/${normalized}`)
+    .all<{ slug: string; permalink: string }>()
+  if (results.length > 1) {
+    console.warn('[inkstone] blog alias resolves to more than one published post', normalized)
+  }
+  return results[0] ?? null
 }
 
 export async function listPostTags(db: D1Database, userId: string, postIds: string[]): Promise<Map<string, string[]>> {
@@ -538,6 +573,20 @@ export async function syncBlogPostFromNote(
   const publishedAt = meta.isPublished
     ? (scheduledAt ?? existing?.published_at ?? now)
     : (existing?.published_at ?? null)
+  // A fresh frontmatter alias must not steal another article's path. The admin update rejects the
+  // collision outright; note sync is automatic, so it keeps the article but leaves the alias empty
+  // and says so instead of failing the whole sync.
+  let alias = (existing?.alias || meta.alias || '').trim().replace(/^\/+|\/+$/g, '').slice(0, 200)
+  if (!existing?.alias && alias) {
+    const conflict = await db
+      .prepare(`SELECT id FROM blog_posts WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND trim(alias, '/') = ?3 LIMIT 1`)
+      .bind(userId, postId, alias)
+      .first<{ id: string }>()
+    if (conflict) {
+      console.warn('[inkstone] blog alias is already used by another post; leaving it empty', alias)
+      alias = ''
+    }
+  }
 
   const postBinds: unknown[] = [
     postId, userId, note.id, slug, note.title, excerpt, meta.description || excerpt,
@@ -548,7 +597,7 @@ export async function syncBlogPostFromNote(
     existing?.language || meta.language, existing?.license || meta.license || '{}',
     existing?.encrypted ?? (meta.protected ? 1 : 0), existing?.password_hint || meta.passwordHint,
     existing?.hide_home_content ?? (meta.hideHomeContent ? 1 : 0),
-    existing?.alias || meta.alias, existing?.permalink || meta.permalink,
+    alias, existing?.permalink || meta.permalink,
     words, minutes, contentHash, renderStatus, publishedAt, now,
   ]
   const insertPost = () => db
@@ -1117,7 +1166,17 @@ export async function updateAdminPostMeta(
   if (patch.commentsEnabled !== undefined) set('comments_enabled', patch.commentsEnabled ? 1 : 0)
   if (patch.language !== undefined) set('language', patch.language.slice(0, 20))
   if (patch.license !== undefined) set('license', patch.license.slice(0, 500))
-  if (patch.alias !== undefined) set('alias', patch.alias.slice(0, 200))
+  if (patch.alias !== undefined) {
+    const alias = patch.alias.trim().replace(/^\/+|\/+$/g, '').slice(0, 200)
+    if (alias) {
+      const conflict = await db
+        .prepare(`SELECT id FROM blog_posts WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND trim(alias, '/') = ?3 LIMIT 1`)
+        .bind(userId, postId, alias)
+        .first<{ id: string }>()
+      if (conflict) throw new Error('blog_alias_conflict')
+    }
+    set('alias', alias)
+  }
   if (patch.permalink !== undefined) set('permalink', patch.permalink.slice(0, 300))
   if (patch.hideHomeContent !== undefined) set('hide_home_content', patch.hideHomeContent ? 1 : 0)
   if (patch.clearPassword === true) {

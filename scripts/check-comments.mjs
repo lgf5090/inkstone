@@ -37117,6 +37117,13 @@ const allowed = new Map([
     "// Friend links moved to the nav app; only its dedicated projection above may serve them.",
     "/**\n * The owner's audio, read through a short-lived token instead of an R2 key.\n *\n * `serveMusicStream` keeps its Range/ETag handling, so the browser seeks normally; the response stays\n * private because the token is per-track rather than a public object address.\n */",
     "/** A cover image behind the same token; an uploaded cover is the only image read from R2 here. */",
+    "/** The canonical address an alias should land on, mirroring the blog's own `postUrl`. */",
+    "// The reading runtime replays this endpoint to re-render a body over the snapshot that the page",
+    "// already fetched. A body read is not another visit, so an internal caller sets `x-blog-view: none`",
+    "// and the endpoint answers with the stored count without writing. Only the SSR page open counts.",
+    "// An explicit redirect always wins; an article alias is the fallback for paths the redirect table",
+    "// does not own. Both are site-relative, so the blog can append its own query and stay on origin.",
+    "// A malformed escape must not become a 500: the raw path simply will not match an alias.",
   ]],
   ["src/worker/blog/runtime-routes.ts", [
     "/**\n * Serves the versioned reading runtime the blog loads for published articles.\n *\n * The files are ordinary build assets, but the path is claimed by the Worker for two reasons: a\n * version that no longer exists must answer 404 rather than the SPA's `index.html` (a module script\n * cannot recover from HTML), and the blog reads them through a proxy, so the response states the\n * immutable caching the content-hashed names already justify.\n */",
@@ -37137,6 +37144,10 @@ const allowed = new Map([
     "// result must not hand a reader the first lines the unlock page is protecting.",
     "/** Inclusive bounds on the post's own date: publication when it has one, the last update otherwise. */",
     "/**\n * Removes trashed posts for good, with everything the row pinned while it existed.\n *\n * `blog_post_assets` is what the media library reads to decide whether a file is still used, so a\n * deleted post that keeps its rows makes its images impossible to delete. The render snapshot lives in\n * R2 under `render_key`; removing the post without it would leave an unreachable object for the life\n * of the bucket. Cleanup is best-effort after the rows are gone: a storage failure must be logged, not\n * turned into a delete that pretends it did not happen.\n */",
+    "/**\n * Finds a published article by its public alias, which is a site-relative path stored without a\n * leading slash. Legacy rows may still carry a slash, so both spellings are compared. A protected\n * article has no public alias: resolving it would hand out the link the unlock page hides. When two\n * published articles still share an alias (possible before the admin conflict check existed), the\n * newest one wins deterministically and the collision is logged instead of silently guessing.\n */",
+    "// A fresh frontmatter alias must not steal another article's path. The admin update rejects the",
+    "// collision outright; note sync is automatic, so it keeps the article but leaves the alias empty",
+    "// and says so instead of failing the whole sync.",
   ]],
   ["src/worker/blog/unlock.ts", [
     "/**\n * Password gate for a published, protected article.\n *\n * The blog never sees the stored hash: it asks this API with the reader's password, and receives a\n * short-lived token signed with a deployment secret. The token is bound to one post, so unlocking one\n * article cannot be replayed to read another, and it carries an expiry so a copied cookie dies on its\n * own. The secret is optional; with it unset the gate answers 503 instead of issuing unsigned tokens.\n */",
@@ -45475,6 +45486,13 @@ const allowed = new Map([
     "/**\n * Migration 270 adds the asset-side index the media library asks for.\n *\n * The migration is one `CREATE INDEX IF NOT EXISTS`, so the interesting part is not that a fresh\n * database has it — schema statements already build it — but that a database which ran the blog\n * schema before the index existed records the number once and stays correct on every later boot.\n */",
     "// A new wrapper is a new `initializeDatabase` cache key, which is what makes this a boot.",
     "// The shape of a database that ran the blog schema at 204 and stopped before 270.",
+  ]],
+  ["tests/blog-content-boundary.test.ts", [
+    "/**\n * A protected article is not a public listing entry: the title and the link are the finding. The\n * public routes must omit it, while the article page still answers its own slug so a direct link\n * can reach the unlock form.\n */",
+    "// The production app maps ApiError to its own status; the harness needs the same answer so a",
+    "// protected read is distinguishable from a crash.",
+    "// The first post owns the path, so assigning it to the second one is an explicit conflict.",
+    "// Re-setting an alias a post already owns stays allowed.",
   ]],
   ["tests/blog-purge-posts.test.ts", [
     "/**\n * A trashed post is the only row the delete path may see, and it owns two things the row alone does\n * not show: the assets it pinned in `blog_post_assets` and the R2 render snapshot under `render_key`.\n * Leaving either behind makes the media library refuse to delete the file and keeps paying for storage.\n */",
