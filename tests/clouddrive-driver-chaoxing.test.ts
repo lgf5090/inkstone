@@ -95,7 +95,7 @@ describe('Chaoxing driver', () => {
     }))
     await driver.list('/')
     expect(cookieSent).toContain('JSESSIONID=fresh')
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ cookie: expect.stringContaining('JSESSIONID=fresh') }))
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ cookie: expect.stringContaining('JSESSIONID=fresh') }), undefined)
   })
 
   it('marks the storage for re-authorization when the cookie is rejected', async () => {

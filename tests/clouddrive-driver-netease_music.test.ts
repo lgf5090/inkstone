@@ -152,6 +152,6 @@ describe('NetEase Cloud Music driver', () => {
     const driver = createNeteaseMusicDriver(context({ saveCredentials: save }))
     await driver.remove('/a.mp3')
     expect(deleted).toContain('/weapi/cloud/del')
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ cookie: expect.stringContaining('MUSIC_U=music-refresh') }))
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ cookie: expect.stringContaining('MUSIC_U=music-refresh') }), undefined)
   })
 })

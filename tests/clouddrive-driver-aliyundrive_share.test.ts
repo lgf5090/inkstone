@@ -154,7 +154,7 @@ describe('Aliyundrive Share driver', () => {
     }))
     const listing = await driver.list('/')
     expect(listing.entries.map((entry) => entry.name)).toEqual(['a.txt'])
-    expect(save).toHaveBeenCalledWith({ refreshToken: 'rotated' })
+    expect(save).toHaveBeenCalledWith({ refreshToken: 'rotated' }, undefined)
     expect(authorization).toEqual(['Bearer visitor-token'])
     expect(driver.copy).toBeUndefined()
     expect(driver.capabilities.write).toBe(false)
