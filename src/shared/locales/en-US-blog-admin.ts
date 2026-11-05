@@ -169,6 +169,7 @@ export const EN_US_BLOG_ADMIN = {
   "blog.admin.music_library_diagnostic_none": "Found {total} track(s), 0 usable in the blog: none has an R2 audio file. Online-only sources are never published — download or upload them to R2 in the Music app, then refresh.",
   "blog.admin.music_library_diagnostic_partial": "Found {total} tracks, {playable} usable in the blog; the other {excluded} have no R2 audio file. Online-only sources are never published.",
   "blog.admin.music_library_owner_mismatch": "The signed-in account is not the site owner. The blog publishes the site owner's music library, so this picker stays empty instead of reading another account; sign in as the site owner to choose tracks.",
+  "blog.admin.music_library_signing_missing": "The deployment cannot sign music links (BLOG_PROXY_KEY / BLOG_UNLOCK_SECRET is empty), so even R2 tracks cannot be published. Set a signing secret and redeploy.",
   "blog.admin.music_library_empty": "No R2-backed tracks yet. Upload or download tracks in the Music app first.",
   "blog.admin.music_library_failed": "Could not load the music library",
   "blog.admin.music_library_hint": "Reads the site owner's R2 tracks from the Music app; no JSON needed. Changes appear after the site cache refreshes.",

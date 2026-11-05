@@ -1,6 +1,7 @@
 import type { MusicArtist } from '@shared/music/model'
 import type {
   BlogMusicConfig,
+  BlogMusicLibraryStatus,
   BlogMusicLibrarySummary,
   BlogMusicTrack,
   BlogSitePublic,
@@ -52,12 +53,23 @@ function fromBase64Url(value: string): Uint8Array | null {
 
 function mediaSecret(env: Env): string | null {
   const unlock = typeof env.BLOG_UNLOCK_SECRET === 'string' ? env.BLOG_UNLOCK_SECRET : ''
-  if (unlock.length >= 16) return unlock
+  if (unlock) return unlock
   const proxy = typeof env.BLOG_PROXY_KEY === 'string' ? env.BLOG_PROXY_KEY : ''
-  if (proxy.length >= 16) return proxy
+  if (proxy) return proxy
   // Production compiles `DEV` to false and therefore fails closed; local development may omit both
   // secrets, the same way `requireBlogProxy` permits it, so the library is still playable there.
   return import.meta.env?.DEV === true ? DEV_MEDIA_SECRET : null
+}
+
+/**
+ * Whether this deployment can sign a music link.
+ *
+ * `requireBlogProxy` accepts any non-empty proxy key, so the signer must accept the same key: a length
+ * check here once rejected a real deployment's short key and silently dropped every R2 track while the
+ * admin still counted them as playable.
+ */
+export function blogMediaSigningReady(env: Env): boolean {
+  return mediaSecret(env) !== null
 }
 
 async function sign(secret: string, payload: string): Promise<Uint8Array> {
@@ -145,6 +157,7 @@ const PLAYABLE_COLUMNS = 'id, title, artists, duration_ms, cover_url, cover_key,
 export async function listBlogMusicLibrary(
   db: D1Database,
   userId: string,
+  mediaSigningReady = true,
 ): Promise<BlogMusicLibrarySummary> {
   const [totalTracks, playableTracks, otherOwner, other, playlists] = await Promise.all([
     db.prepare(
@@ -214,6 +227,7 @@ export async function listBlogMusicLibrary(
       hidden: 0,
       other: other?.n ?? 0,
     },
+    mediaSigningReady,
     ownerMismatch: false,
     playlists: playlists.results.map((row) => ({
       id: row.id,
@@ -240,6 +254,7 @@ export async function resolveBlogMusicLibrary(
   db: D1Database,
   viewerId: string,
   siteOwnerId: string | null,
+  mediaSigningReady = true,
 ): Promise<BlogMusicLibrarySummary> {
   if (siteOwnerId && siteOwnerId !== viewerId) {
     return {
@@ -247,11 +262,12 @@ export async function resolveBlogMusicLibrary(
       totalTracks: 0,
       playableTracks: 0,
       excluded: { noR2: 0, otherOwner: 0, hidden: 0, other: 0 },
+      mediaSigningReady,
       ownerMismatch: true,
       playlists: [],
     }
   }
-  return listBlogMusicLibrary(db, siteOwnerId ?? viewerId)
+  return listBlogMusicLibrary(db, siteOwnerId ?? viewerId, mediaSigningReady)
 }
 
 async function playlistTracks(
@@ -285,22 +301,83 @@ async function allTracks(db: D1Database, userId: string): Promise<PlayableTrackR
   return results
 }
 
-async function publicTracks(
-  env: Env,
+interface LibrarySelection {
+  rows: PlayableTrackRow[]
+  total: number
+  playable: number
+  status: Exclude<BlogMusicLibraryStatus, 'signing-unavailable'>
+}
+
+async function countTracks(db: D1Database, userId: string): Promise<{ total: number; playable: number }> {
+  const [total, playable] = await Promise.all([
+    db.prepare(`SELECT COUNT(*) AS n FROM music_track WHERE user_id = ?1`).bind(userId).first<{ n: number }>(),
+    db.prepare(
+      `SELECT COUNT(*) AS n FROM music_track
+       WHERE user_id = ?1 AND r2_key IS NOT NULL AND r2_key <> ''`,
+    ).bind(userId).first<{ n: number }>(),
+  ])
+  return { total: total?.n ?? 0, playable: playable?.n ?? 0 }
+}
+
+async function countPlaylist(db: D1Database, userId: string, playlistId: string): Promise<{ total: number; playable: number }> {
+  const [total, playable] = await Promise.all([
+    db.prepare(
+      `SELECT COUNT(*) AS n FROM music_playlist_item
+       WHERE user_id = ?1 AND playlist_id = ?2`,
+    ).bind(userId, playlistId).first<{ n: number }>(),
+    db.prepare(
+      `SELECT COUNT(*) AS n
+         FROM music_playlist_item i
+         JOIN music_track t ON t.user_id = i.user_id AND t.id = i.track_id
+        WHERE i.user_id = ?1 AND i.playlist_id = ?2
+          AND t.r2_key IS NOT NULL AND t.r2_key <> ''`,
+    ).bind(userId, playlistId).first<{ n: number }>(),
+  ])
+  return { total: total?.n ?? 0, playable: playable?.n ?? 0 }
+}
+
+/**
+ * Resolve the configured scope and say why it has no tracks.
+ *
+ * The counts come from the same predicates the public list uses, so the status cannot disagree with
+ * the entries the admin card counted.
+ */
+async function selectLibraryTracks(
   db: D1Database,
   userId: string,
   music: BlogMusicConfig,
+): Promise<LibrarySelection> {
+  if (music.libraryScope === 'playlist') {
+    if (!music.libraryPlaylistId) {
+      return { rows: [], total: 0, playable: 0, status: 'playlist-missing' }
+    }
+    const playlist = await db.prepare(
+      `SELECT id FROM music_playlist WHERE user_id = ?1 AND id = ?2`,
+    ).bind(userId, music.libraryPlaylistId).first<{ id: string }>()
+    if (!playlist) return { rows: [], total: 0, playable: 0, status: 'playlist-missing' }
+    const counts = await countPlaylist(db, userId, music.libraryPlaylistId)
+    if (counts.playable === 0) {
+      return { rows: [], ...counts, status: 'playlist-empty' }
+    }
+    return {
+      rows: await playlistTracks(db, userId, music.libraryPlaylistId),
+      ...counts,
+      status: 'ready',
+    }
+  }
+  const counts = await countTracks(db, userId)
+  if (counts.total === 0) return { rows: [], ...counts, status: 'empty' }
+  if (counts.playable === 0) return { rows: [], ...counts, status: 'no-r2' }
+  return { rows: await allTracks(db, userId), ...counts, status: 'ready' }
+}
+
+async function publicTracks(
+  env: Env,
+  userId: string,
+  rows: readonly PlayableTrackRow[],
 ): Promise<BlogMusicTrack[]> {
-  if (music.provider !== 'library') return music.tracks
-  // A playlist that was deleted, renamed away or belongs to another account resolves to nothing;
-  // it must never widen into "all tracks", because the owner asked to publish one selection only.
-  const scope = music.libraryScope === 'playlist'
-    ? music.libraryPlaylistId
-      ? await playlistTracks(db, userId, music.libraryPlaylistId)
-      : []
-    : await allTracks(db, userId)
   const out: BlogMusicTrack[] = []
-  for (const row of scope) {
+  for (const row of rows) {
     const audioToken = await issueBlogMediaToken(env, 'audio', userId, row.id)
     if (!audioToken) continue
     const coverToken = row.cover_key
@@ -332,7 +409,12 @@ export async function resolvePublicBlogMusic(
 ): Promise<BlogSitePublic> {
   const music = site.integrations.music
   if (music.provider !== 'library') return site
-  const tracks = await publicTracks(env, db, userId, music)
+  const selection = await selectLibraryTracks(db, userId, music)
+  const signingReady = blogMediaSigningReady(env)
+  const tracks = signingReady ? await publicTracks(env, userId, selection.rows) : []
+  const status: BlogMusicLibraryStatus = selection.status === 'ready' && tracks.length === 0
+    ? 'signing-unavailable'
+    : selection.status
   return {
     ...site,
     integrations: {
@@ -341,6 +423,7 @@ export async function resolvePublicBlogMusic(
         ...music,
         enabled: tracks.length > 0,
         tracks,
+        libraryStatus: status,
       },
     },
   }

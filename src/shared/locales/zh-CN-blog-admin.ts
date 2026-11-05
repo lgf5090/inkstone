@@ -169,6 +169,7 @@ export const ZH_CN_BLOG_ADMIN = {
   "blog.admin.music_library_diagnostic_none": "共 {total} 首，0 首可用于博客：这些曲目没有 R2 音频（在线源不会被博客公开）。请在音乐 App 中下载到 R2 或上传本地文件后刷新。",
   "blog.admin.music_library_diagnostic_partial": "共 {total} 首，{playable} 首可用于博客；其余 {excluded} 首没有 R2 音频（在线源不会被博客公开）。",
   "blog.admin.music_library_owner_mismatch": "当前登录账号不是站点所有者。博客发布的是站点所有者的音乐库，因此这里不显示曲目，也不会跨账号读取；请用站点所有者账号登录后台。",
+  "blog.admin.music_library_signing_missing": "服务端缺少音乐签名密钥（BLOG_PROXY_KEY / BLOG_UNLOCK_SECRET 为空），即使有 R2 曲目也无法在博客播放。请配置密钥后重新部署。",
   "blog.admin.music_library_empty": "还没有 R2 曲目，请先在音乐 App 中上传或下载歌曲。",
   "blog.admin.music_library_failed": "无法读取音乐库",
   "blog.admin.music_library_hint": "从音乐 App 读取站点所有者的 R2 曲目，无需填写 JSON；改动会在站点缓存刷新后生效。",
