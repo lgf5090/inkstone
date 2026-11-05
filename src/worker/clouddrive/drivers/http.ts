@@ -165,8 +165,8 @@ export abstract class HttpDriverBase {
     return await response.json() as T
   }
 
-  protected async saveCredential(patch: Record<string, string>): Promise<void> {
-    await this.ctx.saveCredentials(patch)
+  protected async saveCredential(patch: Record<string, string>, expect?: Record<string, string>): Promise<Record<string, string>> {
+    return await this.ctx.saveCredentials(patch, expect ? { expect } : undefined)
   }
 
   protected configText(key: string, fallback = ''): string {

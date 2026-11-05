@@ -3,6 +3,11 @@
  * per-storage persistence callbacks that a driver uses to write a rotated token or its own config
  * back. It also builds the controlled cross-mount resolver that wrapper drivers (strm, chunk,
  * crypt, alias) use instead of touching D1 themselves.
+ *
+ * Credential writes are compare-and-swap on the encrypted row: a driver passes the values it
+ * observed, and a write only lands while the stored ciphertext is still the one this driver read.
+ * Concurrent refreshes therefore cannot overwrite each other; the loser re-reads the winner's
+ * credentials and adopts them.
  */
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
 import type { Env } from '../../env'
@@ -35,6 +40,7 @@ import { createTeldriveDriver } from './teldrive'
 import { createUrlTreeDriver } from './url_tree'
 import { createUssDriver } from './uss'
 import { createVirtualDriver } from './virtual'
+import { driverFactories } from './registry'
 import { DriverError, type DriverContext, type MountDriver, type ResolvedMount } from './contract'
 
 export interface StorageDriverRow {
@@ -43,6 +49,8 @@ export interface StorageDriverRow {
   type: string
   config: string
   credentials: string
+  /** The row version used as the cross-request refresh lease. */
+  updated_at?: number
 }
 
 /** The mount that is calling the driver; its id seeds the cycle guard. */
@@ -83,6 +91,7 @@ const FACTORIES: Readonly<Record<string, DriverFactory>> = {
   'chunk': createChunkDriver,
   'crypt': createCryptDriver,
   'alias': createAliasDriver,
+  ...driverFactories,
 }
 
 export function driverFactory(type: string): DriverFactory | null {
@@ -142,18 +151,36 @@ function validateConfigPatch(row: StorageDriverRow, patch: Record<string, unknow
   }
 }
 
-/** Builds the driver for a storage row, or null when its type is not ported yet. */
-export async function createStorageDriver(
+/** Builds the context a driver receives, including the vault and the cross-mount resolver. */
+export async function createDriverContext(
   env: Env,
   row: StorageDriverRow,
   mount?: DriverMountContext,
   ancestors: readonly string[] = [],
-): Promise<MountDriver | null> {
-  const factory = driverFactory(row.type)
-  if (!factory) return null
+): Promise<DriverContext> {
   const credentials = await credentialsOf(env, row)
   const config = configOf(row)
   const chain = mount?.id ? [...ancestors, mount.id] : [...ancestors]
+  let snapshot = row.credentials
+  let version = row.updated_at ?? 0
+
+  async function reload(): Promise<Record<string, string>> {
+    const latest = await env.DB.prepare(
+      `SELECT credentials, updated_at FROM CloudDrive_storages WHERE user_id = ?1 AND id = ?2`,
+    ).bind(row.user_id, row.id).first<{ credentials: string; updated_at: number }>()
+    if (!latest) return credentials
+    snapshot = latest.credentials
+    version = latest.updated_at ?? version
+    if (latest.credentials) {
+      const decrypted = await decryptCloudDriveCredentials(env, row.id, latest.credentials).catch(() => null)
+      if (decrypted) {
+        Object.assign(credentials, Object.fromEntries(
+          Object.entries(decrypted).map(([key, value]) => [key, String(value)]),
+        ))
+      }
+    }
+    return credentials
+  }
 
   const resolveMount = async (reference: string): Promise<ResolvedMount> => {
     const ref = reference.trim()
@@ -208,15 +235,36 @@ export async function createStorageDriver(
     type: row.type,
     config,
     credentials,
-    saveCredentials: async (patch) => {
-      Object.assign(credentials, patch)
-      const ciphertext = await encryptCloudDriveCredentials(env, row.id, credentials)
-      row.credentials = ciphertext
+    saveCredentials: async (patch, options) => {
+      const merged = { ...credentials, ...patch }
+      const ciphertext = await encryptCloudDriveCredentials(env, row.id, merged)
+      const now = Date.now()
+      if (options?.expect) {
+        const result = await env.DB.prepare(
+          `UPDATE CloudDrive_storages
+              SET credentials = ?, last_used_at = ?, updated_at = ?
+            WHERE user_id = ? AND id = ? AND credentials = ?`,
+        ).bind(ciphertext, now, now, row.user_id, row.id, snapshot).run()
+        if ((result.meta?.changes ?? 0) === 0) {
+          // Another request persisted first. Adopt its credentials instead of clobbering them.
+          return await reload()
+        }
+        snapshot = ciphertext
+        row.credentials = ciphertext
+        version = now
+        Object.assign(credentials, patch)
+        return credentials
+      }
       await env.DB.prepare(
         `UPDATE CloudDrive_storages
             SET credentials = ?, last_used_at = ?, updated_at = ?
           WHERE user_id = ? AND id = ?`,
-      ).bind(ciphertext, Date.now(), Date.now(), row.user_id, row.id).run()
+      ).bind(ciphertext, now, now, row.user_id, row.id).run()
+      snapshot = ciphertext
+      row.credentials = ciphertext
+      version = now
+      Object.assign(credentials, patch)
+      return credentials
     },
     markNeedsReauth: async (message) => {
       await env.DB.prepare(
@@ -240,10 +288,48 @@ export async function createStorageDriver(
     },
     r2: env.FILES,
     ...(mount ? { mountId: mount.id, mountPath: mount.mountPath } : {}),
+    refreshLock: {
+      claim: async () => {
+        const now = Date.now()
+        const result = await env.DB.prepare(
+          `UPDATE CloudDrive_storages
+              SET updated_at = ?
+            WHERE user_id = ? AND id = ? AND updated_at = ?`,
+        ).bind(now, row.user_id, row.id, version).run()
+        if ((result.meta?.changes ?? 0) > 0) {
+          version = now
+          return true
+        }
+        await reload()
+        return false
+      },
+      release: async () => {
+        const now = Date.now()
+        await env.DB.prepare(
+          `UPDATE CloudDrive_storages
+              SET updated_at = ?
+            WHERE user_id = ? AND id = ?`,
+        ).bind(now, row.user_id, row.id).run()
+        version = now
+      },
+    },
+    reloadCredentials: reload,
   }
 
-  const context: DriverContext = primary
-  return row.type === 'r2' && String(config.mode ?? '').toLowerCase() === 'binding'
+  return primary
+}
+
+/** Builds the driver for a storage row, or null when its type is not ported yet. */
+export async function createStorageDriver(
+  env: Env,
+  row: StorageDriverRow,
+  mount?: DriverMountContext,
+  ancestors: readonly string[] = [],
+): Promise<MountDriver | null> {
+  const factory = driverFactory(row.type)
+  if (!factory) return null
+  const context = await createDriverContext(env, row, mount, ancestors)
+  return row.type === 'r2' && String(context.config.mode ?? '').toLowerCase() === 'binding'
     ? createR2BindingDriver(context)
     : factory(context)
 }

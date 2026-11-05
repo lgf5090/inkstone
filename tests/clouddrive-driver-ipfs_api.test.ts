@@ -19,7 +19,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: overrides.type ?? 'ipfs_api',
     config: { endpoint: ENDPOINT, gateway: GATEWAY, mode: 'mfs', rootPath: '/', ...(overrides.config ?? {}) },
     credentials: { ...(overrides.credentials ?? {}) },
-    saveCredentials: overrides.saveCredentials ?? vi.fn(async () => undefined),
+    saveCredentials: overrides.saveCredentials ?? vi.fn(async () => ({})),
     markNeedsReauth: overrides.markNeedsReauth ?? vi.fn(async () => undefined),
   }
 }

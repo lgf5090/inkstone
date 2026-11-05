@@ -19,7 +19,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: 'kodbox',
     config: { address: 'https://kod.example.com', rootPath: '/root', ...(overrides.config ?? {}) },
     credentials,
-    saveCredentials: vi.fn(async () => undefined),
+    saveCredentials: vi.fn(async () => ({})),
     markNeedsReauth: vi.fn(async () => undefined),
     ...overrides,
   }

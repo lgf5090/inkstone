@@ -19,7 +19,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: 'url_tree',
     config: { urlStructure: STRUCTURE, writable: false, headSize: false, rootPath: '/', ...(overrides.config ?? {}) },
     credentials,
-    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch) }),
+    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch); return { ...credentials } }),
     markNeedsReauth: vi.fn(async () => undefined),
     ...overrides,
   }

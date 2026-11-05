@@ -42,7 +42,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: overrides.type ?? 'openlist',
     config,
     credentials,
-    saveCredentials: overrides.saveCredentials ?? vi.fn(async (patch) => { Object.assign(credentials, patch) }),
+    saveCredentials: overrides.saveCredentials ?? vi.fn(async (patch) => { Object.assign(credentials, patch); return { ...credentials } }),
     markNeedsReauth: overrides.markNeedsReauth ?? vi.fn(async () => undefined),
   }
 }

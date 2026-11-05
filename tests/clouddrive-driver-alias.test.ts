@@ -207,7 +207,7 @@ function context(
       ...config,
     },
     credentials: {},
-    saveCredentials: vi.fn(async () => undefined),
+    saveCredentials: vi.fn(async () => ({})),
     markNeedsReauth: vi.fn(async () => undefined),
     resolveMount,
   }

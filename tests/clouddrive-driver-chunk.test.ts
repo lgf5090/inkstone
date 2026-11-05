@@ -229,7 +229,7 @@ function context(config: Record<string, unknown>, resolveMount?: DriverContext['
     type: 'chunk',
     config,
     credentials: {},
-    saveCredentials: async () => undefined,
+    saveCredentials: async () => ({}),
     markNeedsReauth: async () => undefined,
     ...(resolveMount ? { resolveMount } : {}),
   }

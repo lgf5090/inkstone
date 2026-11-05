@@ -198,7 +198,7 @@ describe('cloud drive mounts', () => {
     })
     expect((await call('POST', '/api/clouddrive/mounts', {
       name: 'gh', storageId: github.body.storage.id, mountPath: '/gh', readOnly: false,
-    })).body.mount.readOnly).toBe(true)
+    })).body.mount.readOnly).toBe(false)
   })
 
   it('accepts a public storage with no credentials', async () => {
