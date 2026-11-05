@@ -479,12 +479,14 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
     capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: CLOUDREVE_FIELDS,
     authAnyOf: [['token'], ['username', 'password']],
+    noteKey: 'clouddrive.driver.reason.cloudreve_v3',
   },
   {
     id: 'cloudreve_v4', nameKey: 'clouddrive.driver.cloudreve_v4', group: 'china', implemented: true, mountable: true,
     capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: CLOUDREVE_FIELDS,
     authAnyOf: [['token'], ['username', 'password']],
+    noteKey: 'clouddrive.driver.reason.cloudreve_v4',
   },
   { id: 'ctfile', nameKey: 'clouddrive.driver.ctfile', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'doubao', nameKey: 'clouddrive.driver.doubao', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
@@ -510,6 +512,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
     capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: OPENLIST_FIELDS,
     authAnyOf: [['token'], ['username', 'password']],
+    noteKey: 'clouddrive.driver.reason.openlist',
   },
   {
     id: 'openlist_share', nameKey: 'clouddrive.driver.openlist_share', group: 'china', implemented: true, mountable: true,
@@ -543,9 +546,10 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: 'mega', nameKey: 'clouddrive.driver.mega', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   {
     id: 'misskey', nameKey: 'clouddrive.driver.misskey', group: 'international', implemented: true, mountable: true,
-    capabilities: capabilities({ mkdir: true, rename: true, move: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: MISSKEY_FIELDS,
     authAnyOf: [['accessToken']],
+    noteKey: 'clouddrive.driver.reason.misskey',
   },
   {
     id: 'onedrive', nameKey: 'clouddrive.driver.onedrive', group: 'international', implemented: true, mountable: true,
@@ -571,6 +575,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
     capabilities: capabilities({ mkdir: true, move: true, delete: true, directLink: true, range: true }),
     fields: TELDRIVE_FIELDS,
     authAnyOf: [['accessToken']],
+    noteKey: 'clouddrive.driver.reason.teldrive',
   },
   { id: 'yandex', nameKey: 'clouddrive.driver.yandex', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   {
@@ -590,6 +595,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
     capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: R2_FIELDS,
     authAnyOf: [['accessKeyId', 'secretAccessKey']],
+    noteKey: 'clouddrive.driver.reason.r2',
   },
   {
     id: 'azure_blob', nameKey: 'clouddrive.driver.azure_blob', group: 'object', implemented: true, mountable: true,
@@ -684,6 +690,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
     capabilities: capabilities({ mkdir: true, rename: true, delete: true, range: true }),
     fields: CNB_FIELDS,
     authAnyOf: [['token']],
+    noteKey: 'clouddrive.driver.reason.cnb_releases',
   },
 
   {

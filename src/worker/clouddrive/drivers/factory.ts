@@ -123,8 +123,6 @@ interface ResolvedMountRow {
   status: string | null
 }
 
-const PRIMARY_STORAGE_ROW = JSON.stringify({ mode: 'binding', rootPath: '/' })
-
 /** The declared config schema is the only key set `saveConfig` may write. */
 function validateConfigPatch(row: StorageDriverRow, patch: Record<string, unknown>): void {
   const definition = findCloudDriveDriver(row.type)
@@ -173,24 +171,21 @@ export async function createStorageDriver(
     if (chain.includes(target.mount_id)) {
       throw DriverError.invalid(`Circular mount reference detected: ${ref}`)
     }
-    if (target.storage_id !== 'primary' && target.status !== 'enabled') {
+    if (target.storage_id === 'primary') {
+      throw DriverError.unsupported(
+        'The primary mount is a logical D1 view; wrapper drivers must reference an external mount so they do not expose raw R2 object keys.',
+      )
+    }
+    if (target.status !== 'enabled') {
       throw DriverError.notFound(`The mount ${ref} points at a disabled storage`)
     }
-    const targetRow: StorageDriverRow = target.storage_id === 'primary'
-      ? {
-          id: 'primary',
-          user_id: target.owner_id ?? row.user_id,
-          type: 'r2',
-          config: PRIMARY_STORAGE_ROW,
-          credentials: '',
-        }
-      : {
-          id: target.storage_id,
-          user_id: target.owner_id ?? row.user_id,
-          type: target.type ?? '',
-          config: target.config ?? '{}',
-          credentials: target.credentials ?? '',
-        }
+    const targetRow: StorageDriverRow = {
+      id: target.storage_id,
+      user_id: target.owner_id ?? row.user_id,
+      type: target.type ?? '',
+      config: target.config ?? '{}',
+      credentials: target.credentials ?? '',
+    }
     const driver = await createStorageDriver(
       env,
       targetRow,

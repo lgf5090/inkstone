@@ -159,6 +159,31 @@ describe('cross-mount resolver', () => {
     expect(result.message).toContain('No enabled mount')
   })
 
+  it('refuses the primary mount so wrapper drivers never expose raw R2 keys', async () => {
+    const owner = 'user-a'
+    const now = Date.now()
+    await db.prepare(
+      `INSERT INTO CloudDrive_mounts
+         (user_id, id, storage_id, name, mount_path, read_only, cache_ttl, web_proxy, webdav_policy, weight,
+          sort_order, enabled, created_at, updated_at)
+       VALUES (?, 'primary', 'primary', 'Primary', '/', 0, 300, 0, 'native_proxy', 1, 0, 1, ?, ?)`,
+    ).bind(owner, now, now).run()
+    const chunk = await insertMount({
+      userId: owner,
+      type: 'chunk',
+      config: { remotePath: '/', partSize: 1024, rootPath: '/' },
+      mountPath: '/chunk-primary',
+    })
+    const driver = await createStorageDriver(
+      env,
+      rowOf(chunk.storageId, owner, 'chunk', { remotePath: '/', partSize: 1024, rootPath: '/' }),
+      { id: chunk.mountId, mountPath: '/chunk-primary' },
+    )
+    const result = await driver!.test()
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('logical D1 view')
+  })
+
   it('refuses a mount whose storage is disabled', async () => {
     const owner = 'user-a'
     await insertMount({
