@@ -28,7 +28,7 @@ import { useUi } from '../../store/ui'
 import { useScriptsHub, folderPathOf } from './store'
 import { LanguageIcon } from './language-icon'
 import { TagPickerDialog } from './tag-picker'
-import { asNotebookFolders } from './sidebar'
+import { asNotebookFolders, SNIPPET_DRAG } from './sidebar'
 import { scriptshubApi } from './api'
 import { TagPills } from './tag-pill'
 import { exportCodeCard } from './code-image'
@@ -328,7 +328,10 @@ export function SnippetList({ searchRef, onOpenDetail, onOpenPanel, expanded = f
               onOpen={open}
               onToggle={toggle}
               onOpenPanel={onOpenPanel}
-              onListChanged={() => void loadList()}
+              onListChanged={() => {
+                void loadList()
+                void useScriptsHub.getState().refreshOverview()
+              }}
             />
             {total > snippets.length && (
               <div className="p-3 text-center">
@@ -779,6 +782,12 @@ function SnippetRow({ snippet, layout, density, on, folders, tags, onOpen, onTog
         <div
           role="listitem"
           tabIndex={0}
+          data-scriptshub-snippet-drag
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.setData(SNIPPET_DRAG, snippet.id)
+            event.dataTransfer.effectAllowed = 'move'
+          }}
           onClick={openRow}
           onContextMenu={onContext}
           onTouchStart={beginLongPress}
@@ -831,6 +840,12 @@ function SnippetRow({ snippet, layout, density, on, folders, tags, onOpen, onTog
         role="listitem"
         tabIndex={0}
         data-scriptshub-row
+        data-scriptshub-snippet-drag
+        draggable
+        onDragStart={(event) => {
+          event.dataTransfer.setData(SNIPPET_DRAG, snippet.id)
+          event.dataTransfer.effectAllowed = 'move'
+        }}
         onClick={openRow}
         onContextMenu={onContext}
         onTouchStart={beginLongPress}

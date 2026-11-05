@@ -14,11 +14,11 @@ import { copyText } from '../../lib/clipboard'
 import { cn } from '../../lib/cn'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
-import { ColorWellField } from '../../components/color-field'
-import { Menu, Modal, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
+import { Menu, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useScriptsHub } from './store'
 import { tagColorFor, tagPillStyle } from './tag-color'
+import { TagColorMenu } from './tag-color-menu'
 
 export function TagPills({ tags, max = 3, onFilter }: {
   tags: readonly ScriptTag[]
@@ -59,8 +59,6 @@ export function TagPill({ tag, onFilter }: { tag: ScriptTag; onFilter: (tagId: s
   const menu = useContextMenu()
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(tag.name)
-  const [coloring, setColoring] = useState(false)
-  const [color, setColor] = useState<string | null>(tag.color)
   const style = useMemo(() => tagPillStyle(tag.name, tag.color), [tag.color, tag.name])
   const colorValue = tagColorFor(tag.name, tag.color)
 
@@ -75,8 +73,7 @@ export function TagPill({ tag, onFilter }: { tag: ScriptTag; onFilter: (tagId: s
     }
   }
 
-  const commitColor = async () => {
-    setColoring(false)
+  const pickColor = async (color: string | null) => {
     try {
       await updateTag(tag.id, { color })
     } catch (error) {
@@ -87,7 +84,7 @@ export function TagPill({ tag, onFilter }: { tag: ScriptTag; onFilter: (tagId: s
   const remove = async () => {
     const agreed = await confirm({
       title: t('scriptshub.confirm.delete_tag_title', { name: tag.name }),
-      description: t('scriptshub.confirm.delete_tag_body'),
+      description: t('scriptshub.confirm.delete_tag_counts', { snippets: tag.snippetCount }),
       confirmLabel: t('scriptshub.common.delete'),
       tone: 'danger',
     })
@@ -100,7 +97,20 @@ export function TagPill({ tag, onFilter }: { tag: ScriptTag; onFilter: (tagId: s
       void copyText(`#${tag.name}`).then((ok) => toast({ title: ok ? t('scriptshub.tag.copied') : t('scriptshub.common.copy_failed'), tone: ok ? 'success' : 'danger' }))
     } },
     { id: 'rename', label: t('scriptshub.common.rename'), icon: <Pencil size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => { setName(tag.name); setRenaming(true) } },
-    { id: 'color', label: t('scriptshub.tag.color'), icon: <Palette size={13} aria-hidden="true" />, onSelect: () => { setColor(tag.color); setColoring(true) } },
+    {
+      id: 'color',
+      label: t('scriptshub.tag.color'),
+      icon: <Palette size={13} aria-hidden="true" />,
+      submenu: ({ closeMenu }) => (
+        <TagColorMenu
+          color={tag.color}
+          onSelectColor={(color) => {
+            void pickColor(color)
+            closeMenu()
+          }}
+        />
+      ),
+    },
     { id: 'delete', label: t('scriptshub.common.delete'), icon: <Trash2 size={13} aria-hidden="true" />, tone: 'danger', separatorBefore: true, onSelect: () => void remove() },
   ]
 
@@ -163,24 +173,6 @@ export function TagPill({ tag, onFilter }: { tag: ScriptTag; onFilter: (tagId: s
       </span>
 
       {menu.point && <Menu anchor={menu.point} open onClose={menu.close} items={items} />}
-
-      <Modal
-        open={coloring}
-        onClose={() => setColoring(false)}
-        title={t('scriptshub.tag.color_title', { name: tag.name })}
-        width={360}
-        footer={(
-          <>
-            <Button variant="ghost" onClick={() => setColoring(false)}>{t('scriptshub.common.cancel')}</Button>
-            <Button variant="primary" onClick={() => void commitColor()}>{t('scriptshub.common.save')}</Button>
-          </>
-        )}
-      >
-        <div className="flex items-center gap-3">
-          <ColorWellField value={color} label={t('scriptshub.tag.color')} onChange={setColor} />
-          <span className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('scriptshub.tag.color_hint')}</span>
-        </div>
-      </Modal>
     </>
   )
 }

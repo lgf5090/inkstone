@@ -58,7 +58,7 @@ scriptshubRoutes.post('/folders', async (c) => {
 })
 
 scriptshubRoutes.patch('/folders/:id', async (c) => {
-  const body = await readJson<{ name?: string; parentId?: string | null; icon?: string | null; color?: string | null }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ name?: string; parentId?: string | null; icon?: string | null; color?: string | null; position?: number }>(c, JSON_BODY_LIMITS.small)
   return c.json(await store(c).updateFolder(c.req.param('id'), body))
 })
 
