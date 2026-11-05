@@ -174,4 +174,172 @@ describe('FebBox driver', () => {
     expect(response.status).toBe(206)
     expect(await response.text()).toBe('cdef')
   })
+
+  it('creates a folder through the create_dir form', async () => {
+    const forms: FormData[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === TOKEN_URL) throw new Error('the access token should be reused')
+      if (url !== API_URL) throw new Error(`unexpected ${url}`)
+      const form = formOf(init)
+      if (form.get('module') !== 'create_dir') throw new Error(`unexpected module ${String(form.get('module'))}`)
+      forms.push(form)
+      return json({ code: 1, msg: 'ok' })
+    })
+
+    await createFebBoxDriver(context()).mkdir('/docs')
+    expect(forms).toHaveLength(1)
+    expect(forms[0]!.get('parent_id')).toBe('0')
+    expect(forms[0]!.get('name')).toBe('docs')
+  })
+
+  it('renames an entry through the file_rename form', async () => {
+    const forms: FormData[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === TOKEN_URL) throw new Error('the access token should be reused')
+      if (url !== API_URL) throw new Error(`unexpected ${url}`)
+      const form = formOf(init)
+      if (form.get('module') === 'file_list') return fileList([FILE_A])
+      if (form.get('module') !== 'file_rename') throw new Error(`unexpected module ${String(form.get('module'))}`)
+      forms.push(form)
+      return json({ code: 1, msg: 'ok' })
+    })
+
+    await createFebBoxDriver(context()).rename('/a.txt', 'b.txt')
+    expect(forms).toHaveLength(1)
+    expect(forms[0]!.get('fid')).toBe('1')
+    expect(forms[0]!.get('name')).toBe('b.txt')
+  })
+
+  it('moves an entry into the resolved destination folder through the file_move form', async () => {
+    const forms: FormData[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === TOKEN_URL) throw new Error('the access token should be reused')
+      if (url !== API_URL) throw new Error(`unexpected ${url}`)
+      const form = formOf(init)
+      if (form.get('module') === 'file_list') return fileList([FILE_A, FOLDER])
+      if (form.get('module') !== 'file_move') throw new Error(`unexpected module ${String(form.get('module'))}`)
+      forms.push(form)
+      return json({ code: 1, msg: 'ok' })
+    })
+
+    await createFebBoxDriver(context()).move('/a.txt', '/docs/a.txt')
+    expect(forms).toHaveLength(1)
+    expect(forms[0]!.get('fids[]')).toBe('1')
+    expect(forms[0]!.get('to')).toBe('3')
+  })
+
+  it('copies an entry into the resolved destination folder through the file_copy form', async () => {
+    const forms: FormData[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === TOKEN_URL) throw new Error('the access token should be reused')
+      if (url !== API_URL) throw new Error(`unexpected ${url}`)
+      const form = formOf(init)
+      if (form.get('module') === 'file_list') return fileList([FILE_A, FOLDER])
+      if (form.get('module') !== 'file_copy') throw new Error(`unexpected module ${String(form.get('module'))}`)
+      forms.push(form)
+      return json({ code: 1, msg: 'ok' })
+    })
+
+    await createFebBoxDriver(context()).copy!('/a.txt', '/docs/a.txt')
+    expect(forms).toHaveLength(1)
+    expect(forms[0]!.get('fids[]')).toBe('1')
+    expect(forms[0]!.get('to')).toBe('3')
+  })
+
+  it('removes an entry through the file_delete form', async () => {
+    const forms: FormData[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === TOKEN_URL) throw new Error('the access token should be reused')
+      if (url !== API_URL) throw new Error(`unexpected ${url}`)
+      const form = formOf(init)
+      if (form.get('module') === 'file_list') return fileList([FILE_A])
+      if (form.get('module') !== 'file_delete') throw new Error(`unexpected module ${String(form.get('module'))}`)
+      forms.push(form)
+      return json({ code: 1, msg: 'ok' })
+    })
+
+    await createFebBoxDriver(context()).remove('/a.txt')
+    expect(forms).toHaveLength(1)
+    expect(forms[0]!.get('fids[]')).toBe('1')
+  })
+
+  it('maps a throttled write call to rate_limit', async () => {
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === TOKEN_URL) throw new Error('the access token should be reused')
+      if (url !== API_URL) throw new Error(`unexpected ${url}`)
+      const form = formOf(init)
+      if (form.get('module') === 'create_dir') {
+        return new Response('', { status: 429, headers: { 'retry-after': '0.01' } })
+      }
+      throw new Error(`unexpected module ${String(form.get('module'))}`)
+    })
+
+    await expect(createFebBoxDriver(context()).mkdir('/docs')).rejects.toMatchObject({ kind: 'rate_limit' })
+  })
+
+  it('maps a 401 on a write call to auth, refreshing once and marking the storage', async () => {
+    const mark = vi.fn(async () => undefined)
+    let tokenCalls = 0
+    let writeCalls = 0
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === TOKEN_URL) {
+        tokenCalls++
+        return tokenResponse()
+      }
+      if (url !== API_URL) throw new Error(`unexpected ${url}`)
+      const form = formOf(init)
+      if (form.get('module') === 'file_list') return fileList([FILE_A])
+      if (form.get('module') === 'file_rename') {
+        writeCalls++
+        return new Response('', { status: 401 })
+      }
+      throw new Error(`unexpected module ${String(form.get('module'))}`)
+    })
+
+    const ctx = context()
+    ctx.markNeedsReauth = mark
+    await expect(createFebBoxDriver(ctx).rename('/a.txt', 'b.txt')).rejects.toMatchObject({ kind: 'auth' })
+    expect(tokenCalls).toBe(1)
+    expect(writeCalls).toBe(2)
+    expect(mark).toHaveBeenCalled()
+  })
+
+  it('refuses an escaping write path before any request', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const driver = createFebBoxDriver(context())
+    await expect(driver.mkdir('/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.rename('/docs/../secret', 'b.txt')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.move('/docs/../secret', '/docs')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.move('/a.txt', '/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.copy!('/a.txt', '/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.remove('/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('declares the write capabilities while keeping upload unsupported', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const driver = createFebBoxDriver(context())
+    expect(driver.capabilities).toMatchObject({
+      write: false,
+      mkdir: true,
+      rename: true,
+      move: true,
+      copy: true,
+      delete: true,
+      directLink: true,
+      range: true,
+    })
+    await expect(driver.upload('/a.txt', new Uint8Array([1]), { size: 1 }))
+      .rejects.toMatchObject({ kind: 'unsupported', message: expect.stringContaining('reference client') })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })

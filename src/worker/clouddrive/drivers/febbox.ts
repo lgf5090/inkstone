@@ -1,9 +1,10 @@
 /**
- * FebBox driver (read-only).
+ * FebBox driver.
  *
  * FebBox uses an OAuth token endpoint (`client_credentials` or `refresh_token` grant) and a single
  * form-based API host. A `-10001` response means the access token expired: the driver refreshes once
- * and retries; a second one is an authorization failure.
+ * and retries; a second one is an authorization failure. Mutations (create/move/rename/copy/delete)
+ * use the same form API; uploads stay unsupported because the reference client has no upload path.
  */
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
 import {
@@ -317,28 +318,70 @@ export class FebBoxDriver extends HttpDriverBase implements MountDriver {
 
   async upload(path: string, _body: Uint8Array | ReadableStream, _options: DriverUploadOptions): Promise<void> {
     driverPath(path)
-    throw DriverError.unsupported('FebBox is read-only')
+    throw DriverError.unsupported('FebBox upload is not supported: the reference client throws upload not supported')
   }
 
   async mkdir(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('FebBox is read-only')
+    const clean = driverPath(path)
+    if (clean === '/') return
+    const parentId = await this.resolveFolder(driverParentPath(clean))
+    await this.api<unknown>({
+      module: 'create_dir',
+      parent_id: parentId,
+      name: driverFileName(clean),
+    })
+    this.pathIds.clear()
   }
 
-  async rename(path: string, _newName: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('FebBox is read-only')
+  async rename(path: string, newName: string): Promise<void> {
+    const clean = driverPath(path)
+    if (clean === '/') throw DriverError.invalid('The root cannot be renamed')
+    const entry = await this.resolveEntry(clean)
+    await this.api<unknown>({
+      module: 'file_rename',
+      fid: String(entry.fid),
+      name: newName,
+    })
+    this.pathIds.clear()
   }
 
   async move(fromPath: string, toPath: string): Promise<void> {
-    driverPath(fromPath)
-    driverPath(toPath)
-    throw DriverError.unsupported('FebBox is read-only')
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    if (from === '/') throw DriverError.invalid('The root cannot be moved')
+    const entry = await this.resolveEntry(from)
+    const destinationId = await this.resolveFolder(driverParentPath(to))
+    await this.api<unknown>({
+      module: 'file_move',
+      'fids[]': String(entry.fid),
+      to: destinationId,
+    })
+    this.pathIds.clear()
+  }
+
+  async copy(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    if (from === '/') throw DriverError.invalid('The root cannot be copied')
+    const entry = await this.resolveEntry(from)
+    const destinationId = await this.resolveFolder(driverParentPath(to))
+    await this.api<unknown>({
+      module: 'file_copy',
+      'fids[]': String(entry.fid),
+      to: destinationId,
+    })
+    this.pathIds.clear()
   }
 
   async remove(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('FebBox is read-only')
+    const clean = driverPath(path)
+    if (clean === '/') throw DriverError.invalid('The root cannot be removed')
+    const entry = await this.resolveEntry(clean)
+    await this.api<unknown>({
+      module: 'file_delete',
+      'fids[]': String(entry.fid),
+    })
+    this.pathIds.clear()
   }
 
   async test(): Promise<{ ok: boolean; message: string }> {
