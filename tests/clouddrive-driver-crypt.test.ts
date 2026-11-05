@@ -190,6 +190,7 @@ function context(
     credentials: vault,
     saveCredentials: vi.fn(async (patch) => {
       Object.assign(vault, patch)
+      return { ...vault }
     }),
     markNeedsReauth: vi.fn(async () => undefined),
     resolveMount: vi.fn(async () => ({

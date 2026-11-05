@@ -41,7 +41,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: overrides.type ?? 'emby',
     config,
     credentials,
-    saveCredentials: overrides.saveCredentials ?? vi.fn(async () => undefined),
+    saveCredentials: overrides.saveCredentials ?? vi.fn(async () => ({})),
     markNeedsReauth: overrides.markNeedsReauth ?? vi.fn(async () => undefined),
   }
 }

@@ -18,7 +18,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: 'cloudreve_v4',
     config: { address: 'https://crv4.example.com', rootPath: '/root', ...(overrides.config ?? {}) },
     credentials,
-    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch) }),
+    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch); return { ...credentials } }),
     markNeedsReauth: vi.fn(async () => undefined),
     ...overrides,
   }

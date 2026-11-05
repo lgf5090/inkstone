@@ -18,7 +18,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: 'seafile',
     config: { address: 'https://seafile.example.com', repoId: 'repo-1', rootPath: '/team', ...(overrides.config ?? {}) },
     credentials,
-    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch) }),
+    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch); return { ...credentials } }),
     markNeedsReauth: vi.fn(async () => undefined),
     ...overrides,
   }
@@ -99,7 +99,7 @@ describe('Seafile driver', () => {
   })
 
   it('signs in with username and password and persists the rotated token', async () => {
-    const saved = vi.fn(async () => undefined)
+    const saved = vi.fn(async () => ({}))
     let loginBody = ''
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
