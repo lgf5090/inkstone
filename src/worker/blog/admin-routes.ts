@@ -122,6 +122,8 @@ function mapBlogError(error: unknown): never {
       throw ApiError.badRequest('The snapshot belongs to another note')
     case 'blog_r2_unavailable':
       throw new ApiError(503, 'storage_unavailable', 'Blog storage is not configured')
+    case 'blog_alias_conflict':
+      throw ApiError.conflict('Another post already uses this alias')
     default:
       throw error
   }

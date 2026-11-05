@@ -39,6 +39,7 @@ import {
   blogOwnerUserId,
   findAdjacentPosts,
   findPublishedPost,
+  findPublishedPostByAlias,
   findPublishedPostByPermalink,
   incrementPostView,
   listPostTags,
@@ -77,6 +78,15 @@ function pageQuery(c: Context<AppBindings>): { page: number; limit: number } {
   }
 }
 
+/** The canonical address an alias should land on, mirroring the blog's own `postUrl`. */
+function aliasTarget(row: { slug: string; permalink: string }, permalinkEnabled: boolean): string {
+  if (permalinkEnabled && row.permalink) {
+    const path = row.permalink.trim().replace(/^\/+|\/+$/g, '')
+    if (path && !path.includes('..')) return '/' + path.split('/').map(encodeURIComponent).join('/')
+  }
+  return `/posts/${encodeURIComponent(row.slug)}`
+}
+
 blogPublicRoutes.get('/site', async (c) => {
   const userId = await ownerId(c)
   const [settings, counts] = await Promise.all([
@@ -101,6 +111,7 @@ blogPublicRoutes.get('/posts', async (c) => {
     q: c.req.query('q')?.trim().slice(0, 200) || undefined,
     year: Number.isFinite(year) && year > 0 ? Math.trunc(year) : undefined,
     pinned: c.req.query('pinned') === 'true',
+    excludeEncrypted: true,
   })
   const tags = await listPostTags(c.env.DB, userId, rows.map((row) => row.id))
   return c.json({
@@ -146,7 +157,7 @@ blogPublicRoutes.get('/feeds', async (c) => {
     loadBlogSettings(c.env.DB, userId),
     blogCounts(c.env.DB, userId),
   ])
-  const { rows } = await listPublishedPostsFiltered(c.env.DB, userId, { page: 1, limit: 100 })
+  const { rows } = await listPublishedPostsFiltered(c.env.DB, userId, { page: 1, limit: 100, excludeEncrypted: true })
   const tags = await listPostTags(c.env.DB, userId, rows.map((row) => row.id))
   return c.json({
     site: await resolvePublicBlogMusic(c.env, c.env.DB, userId, publicSite(settings, counts)),
@@ -294,6 +305,10 @@ blogPublicRoutes.get('/posts/:slug', async (c) => {
     protected: true,
     hint: row.password_hint,
   })
+  // The reading runtime replays this endpoint to re-render a body over the snapshot that the page
+  // already fetched. A body read is not another visit, so an internal caller sets `x-blog-view: none`
+  // and the endpoint answers with the stored count without writing. Only the SSR page open counts.
+  const countView = c.req.header('x-blog-view') !== 'none' && row.encrypted !== 1
   const tags = await listPostTags(c.env.DB, userId, [row.id])
   const render = await readRenderSnapshot(c.env.FILES, row)
   const detail: BlogPostDetail = {
@@ -306,9 +321,9 @@ blogPublicRoutes.get('/posts/:slug', async (c) => {
     license: row.license,
     alias: row.alias,
     permalink: row.permalink,
-    viewCount: row.view_count + (row.encrypted === 1 ? 0 : 1),
+    viewCount: row.view_count + (countView ? 1 : 0),
   }
-  if (row.encrypted !== 1) await incrementPostView(c.env.DB, userId, row.id)
+  if (countView) await incrementPostView(c.env.DB, userId, row.id)
   return c.json(detail, 200, {
     'Cache-Control': row.encrypted === 1
       ? 'private, no-store'
@@ -347,7 +362,8 @@ blogPublicRoutes.get('/categories', async (c) => {
       `SELECT c.id, c.name, c.slug, c.description, c.position, COUNT(p.id) AS count
        FROM blog_categories c
        LEFT JOIN blog_posts p ON p.category_id = c.id AND p.user_id = c.user_id
-         AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)
+         AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.encrypted = 0
+         AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)
        WHERE c.user_id = ?1
        GROUP BY c.id
        ORDER BY c.position, c.name`,
@@ -365,7 +381,8 @@ blogPublicRoutes.get('/tags', async (c) => {
        FROM blog_tags t
        LEFT JOIN blog_post_tags pt ON pt.tag_id = t.id AND pt.user_id = t.user_id
        LEFT JOIN blog_posts p ON p.id = pt.post_id AND p.user_id = pt.user_id
-         AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)
+         AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.encrypted = 0
+         AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)
        WHERE t.user_id = ?1
        GROUP BY t.id
        ORDER BY t.position, t.name`,
@@ -383,7 +400,8 @@ blogPublicRoutes.get('/series', async (c) => {
               COUNT(p.id) AS count
        FROM blog_series s
        LEFT JOIN blog_posts p ON p.series_id = s.id AND p.user_id = s.user_id
-         AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)
+         AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.encrypted = 0
+         AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)
        WHERE s.user_id = ?1
        GROUP BY s.id
        ORDER BY s.position, s.title`,
@@ -423,6 +441,7 @@ blogPublicRoutes.get('/calendar', async (c) => {
       `SELECT p.slug, p.title, p.published_at AS publishedAt
        FROM blog_posts p
        WHERE p.user_id = ?1 AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL
+         AND p.encrypted = 0
          AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)
        ORDER BY p.published_at ASC
        LIMIT 2000`,
@@ -457,11 +476,28 @@ blogPublicRoutes.get('/redirect', async (c) => {
   const userId = await ownerId(c)
   const from = c.req.query('path') ?? ''
   if (!from.startsWith('/')) return c.json({ found: false })
+  const path = from.split('?')[0]
   const row = await c.env.DB.prepare(
     `SELECT to_slug, status FROM blog_redirects WHERE user_id = ?1 AND from_slug = ?2`,
-  ).bind(userId, from.split('?')[0]).first<{ to_slug: string; status: number }>()
-  if (!row) return c.json({ found: false })
-  return c.json({ found: true, to: row.to_slug, status: row.status }, 200, { 'Cache-Control': 'public, max-age=0, s-maxage=60' })
+  ).bind(userId, path).first<{ to_slug: string; status: number }>()
+  // An explicit redirect always wins; an article alias is the fallback for paths the redirect table
+  // does not own. Both are site-relative, so the blog can append its own query and stay on origin.
+  if (row) return c.json({ found: true, to: row.to_slug, status: row.status }, 200, { 'Cache-Control': 'public, max-age=0, s-maxage=60' })
+  let aliasPath = path
+  try {
+    aliasPath = decodeURIComponent(path)
+  } catch {
+    // A malformed escape must not become a 500: the raw path simply will not match an alias.
+  }
+  const aliasRow = await findPublishedPostByAlias(c.env.DB, userId, aliasPath)
+  if (!aliasRow) return c.json({ found: false })
+  const settings = await loadBlogSettings(c.env.DB, userId)
+  const permalinkEnabled = (settings.permalink as { enable?: boolean }).enable === true
+  return c.json(
+    { found: true, to: aliasTarget(aliasRow, permalinkEnabled), status: 301 },
+    200,
+    { 'Cache-Control': 'public, max-age=0, s-maxage=60' },
+  )
 })
 
 blogPublicRoutes.post('/collections/albums/:slug/unlock', async (c) => {
