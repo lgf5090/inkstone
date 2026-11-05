@@ -186,7 +186,15 @@ const PAN123_FIELDS = [
 
 /** Batch A schemas. Secrets live in the credential vault, never in `config`. */
 const R2_FIELDS = [
-  field('accountId', 'text', 'config', { required: true, hintKey: 'clouddrive.driver.field.account_id_hint' }),
+  field('mode', 'select', 'config', {
+    defaultValue: 'auto',
+    options: [
+      { value: 'auto', labelKey: 'clouddrive.driver.field.r2_mode_auto' },
+      { value: 'binding', labelKey: 'clouddrive.driver.field.r2_mode_binding' },
+    ],
+  }),
+  field('bucketBinding', 'text', 'config', { placeholder: 'FILES' }),
+  field('accountId', 'text', 'config', { hintKey: 'clouddrive.driver.field.account_id_hint' }),
   field('bucket', 'text', 'config', { required: true }),
   field('endpoint', 'url', 'config', { placeholder: 'https://<account>.r2.cloudflarestorage.com' }),
   field('region', 'text', 'config', { defaultValue: 'auto' }),
@@ -369,6 +377,82 @@ const URL_TREE_FIELDS = [
   field('rootPath', 'text', 'config'),
 ] as const
 
+const STRM_FIELDS = [
+  field('paths', 'text', 'config', { required: true, placeholder: '/mnt:video' }),
+  field('siteUrl', 'url', 'config'),
+  field('pathPrefix', 'text', 'config', { defaultValue: '/d' }),
+  field('downloadFileTypes', 'text', 'config', { defaultValue: 'ass,srt,vtt,sub,strm' }),
+  field('filterFileTypes', 'text', 'config', { defaultValue: 'mp4,mkv,flv,avi,wmv,ts,rmvb,webm,mp3,flac,aac,wav,ogg,m4a,wma,alac' }),
+  field('encodePath', 'boolean', 'config', { defaultValue: false }),
+  field('withoutUrl', 'boolean', 'config', { defaultValue: false }),
+  field('withSign', 'boolean', 'config', { defaultValue: false }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const CHUNK_FIELDS = [
+  field('remotePath', 'text', 'config', { required: true, hintKey: 'clouddrive.driver.field.remote_path_hint' }),
+  field('partSize', 'number', 'config', { required: true, defaultValue: 4_194_304 }),
+  field('chunkLargeFileOnly', 'boolean', 'config', { defaultValue: false }),
+  field('chunkPrefix', 'text', 'config', { defaultValue: '[openlist_chunk]' }),
+  field('customExt', 'text', 'config'),
+  field('storeHash', 'boolean', 'config', { defaultValue: false }),
+  field('numListWorkers', 'number', 'config'),
+  field('showHidden', 'boolean', 'config', { defaultValue: false }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const CRYPT_FIELDS = [
+  field('remotePath', 'text', 'config', { required: true, hintKey: 'clouddrive.driver.field.remote_path_hint' }),
+  field('password', 'password', 'credentials', { secret: true, required: true }),
+  field('salt', 'password', 'credentials', { secret: true }),
+  field('filenameEncryption', 'select', 'config', {
+    defaultValue: 'off',
+    options: [
+      { value: 'off', labelKey: 'clouddrive.driver.field.filename_encryption_off' },
+      { value: 'standard', labelKey: 'clouddrive.driver.field.filename_encryption_standard' },
+      { value: 'obfuscate', labelKey: 'clouddrive.driver.field.filename_encryption_obfuscate' },
+    ],
+  }),
+  field('encryptedSuffix', 'text', 'config', { defaultValue: '.bin' }),
+  field('showHidden', 'boolean', 'config', { defaultValue: false }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const ALIAS_FIELDS = [
+  field('paths', 'text', 'config', { required: true, placeholder: 'video:/nas/video' }),
+  field('readConflictPolicy', 'select', 'config', {
+    defaultValue: 'first',
+    options: [
+      { value: 'first', labelKey: 'clouddrive.driver.field.conflict_first' },
+      { value: 'random', labelKey: 'clouddrive.driver.field.conflict_random' },
+      { value: 'all', labelKey: 'clouddrive.driver.field.conflict_all' },
+    ],
+  }),
+  field('writeConflictPolicy', 'select', 'config', {
+    defaultValue: 'first',
+    options: [
+      { value: 'disabled', labelKey: 'clouddrive.driver.field.conflict_disabled' },
+      { value: 'first', labelKey: 'clouddrive.driver.field.conflict_first' },
+      { value: 'deterministic', labelKey: 'clouddrive.driver.field.conflict_deterministic' },
+      { value: 'all', labelKey: 'clouddrive.driver.field.conflict_all' },
+      { value: 'all_strict', labelKey: 'clouddrive.driver.field.conflict_all_strict' },
+    ],
+  }),
+  field('putConflictPolicy', 'select', 'config', {
+    defaultValue: 'first',
+    options: [
+      { value: 'disabled', labelKey: 'clouddrive.driver.field.conflict_disabled' },
+      { value: 'first', labelKey: 'clouddrive.driver.field.conflict_first' },
+      { value: 'deterministic', labelKey: 'clouddrive.driver.field.conflict_deterministic' },
+      { value: 'all', labelKey: 'clouddrive.driver.field.conflict_all' },
+      { value: 'all_strict', labelKey: 'clouddrive.driver.field.conflict_all_strict' },
+      { value: 'random', labelKey: 'clouddrive.driver.field.conflict_random' },
+    ],
+  }),
+  field('orderBy', 'text', 'config', { defaultValue: 'name' }),
+  field('orderDirection', 'text', 'config', { defaultValue: 'asc' }),
+] as const
+
 export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: '115open', nameKey: 'clouddrive.driver.115open', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: '115_share', nameKey: 'clouddrive.driver.115_share', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
@@ -532,18 +616,35 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   { id: 'cloudflare_imgbed', nameKey: 'clouddrive.driver.cloudflare_imgbed', group: 'object', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
 
-  { id: 'alias', nameKey: 'clouddrive.driver.alias', group: 'virtual', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   {
     id: 'autoindex', nameKey: 'clouddrive.driver.autoindex', group: 'virtual', implemented: true, mountable: true,
     capabilities: capabilities({ range: true }),
     fields: AUTOINDEX_FIELDS,
   },
-  { id: 'chunk', nameKey: 'clouddrive.driver.chunk', group: 'virtual', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'crypt', nameKey: 'clouddrive.driver.crypt', group: 'virtual', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'strm', nameKey: 'clouddrive.driver.strm', group: 'virtual', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'strm', nameKey: 'clouddrive.driver.strm', group: 'virtual', implemented: true, mountable: true,
+    capabilities: capabilities({ range: true }),
+    fields: STRM_FIELDS,
+  },
+  {
+    id: 'chunk', nameKey: 'clouddrive.driver.chunk', group: 'virtual', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
+    fields: CHUNK_FIELDS,
+  },
+  {
+    id: 'crypt', nameKey: 'clouddrive.driver.crypt', group: 'virtual', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
+    fields: CRYPT_FIELDS,
+    authAnyOf: [['password']],
+  },
+  {
+    id: 'alias', nameKey: 'clouddrive.driver.alias', group: 'virtual', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    fields: ALIAS_FIELDS,
+  },
   {
     id: 'url_tree', nameKey: 'clouddrive.driver.url_tree', group: 'virtual', implemented: true, mountable: true,
-    capabilities: capabilities({ range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: URL_TREE_FIELDS,
   },
   {
