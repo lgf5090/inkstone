@@ -25,6 +25,15 @@ const TOKEN_URL = `${HOST}/application/get_session_token.php`
 const API = `${HOST}/api/1.5`
 const CONTENT = `${API}/folder/get_content.php`
 const LINKS = `${API}/file/get_links.php`
+const CREATE_FOLDER = `${API}/folder/create.php`
+const UPDATE_FOLDER = `${API}/folder/update.php`
+const UPDATE_FILE = `${API}/file/update.php`
+const MOVE_FOLDER = `${API}/folder/move.php`
+const MOVE_FILE = `${API}/file/move.php`
+const COPY_FOLDER = `${API}/folder/copy.php`
+const COPY_FILE = `${API}/file/copy.php`
+const DELETE_FOLDER = `${API}/folder/delete.php`
+const DELETE_FILE = `${API}/file/delete.php`
 const FILE = { quickkey: 'q1', filename: 'a.txt', size: '10', created: '2026-01-01T00:00:00Z' }
 const FOLDER = { folderkey: 'f1', name: 'docs', created: '2026-01-02T00:00:00Z' }
 
@@ -34,6 +43,10 @@ function form(init?: RequestInit): URLSearchParams {
 
 function sessionToken(): Response {
   return json({ response: { session_token: 's1', result: 'Success' } })
+}
+
+function folderContent(folders: unknown[] = [], files: unknown[] = []): Response {
+  return json({ response: { result: 'Success', folder_content: { folders, files, more_chunks: 'no' } } })
 }
 
 afterEach(() => {
@@ -137,5 +150,137 @@ describe('MediaFire driver', () => {
     vi.stubGlobal('fetch', fetchMock)
     await expect(createMediaFireDriver(context()).list('/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('creates a folder with the parent key and folder name', async () => {
+    const bodies: URLSearchParams[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === CREATE_FOLDER) {
+        bodies.push(form(init))
+        return json({ response: { result: 'Success', folder_key: 'f-new' } })
+      }
+      throw new Error(`unexpected ${String(input)}`)
+    })
+    await createMediaFireDriver(context({ sessionToken: 's1' })).mkdir('/docs')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]!.get('parent_key')).toBe('')
+    expect(bodies[0]!.get('foldername')).toBe('docs')
+    expect(bodies[0]!.get('session_token')).toBe('s1')
+  })
+
+  it('renames a file through file/update', async () => {
+    const bodies: URLSearchParams[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === CONTENT) return folderContent([], [FILE])
+      if (url === UPDATE_FILE) {
+        bodies.push(form(init))
+        return json({ response: { result: 'Success' } })
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    await createMediaFireDriver(context({ sessionToken: 's1' })).rename('/a.txt', 'b.txt')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]!.get('quick_key')).toBe('q1')
+    expect(bodies[0]!.get('filename')).toBe('b.txt')
+  })
+
+  it('moves a file into the destination folder key', async () => {
+    const bodies: URLSearchParams[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === CONTENT) return folderContent([FOLDER], [FILE])
+      if (url === MOVE_FILE) {
+        bodies.push(form(init))
+        return json({ response: { result: 'Success' } })
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    await createMediaFireDriver(context({ sessionToken: 's1' })).move('/a.txt', '/docs/a.txt')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]!.get('quick_key')).toBe('q1')
+    expect(bodies[0]!.get('folder_key')).toBe('f1')
+  })
+
+  it('copies a file into the destination folder key', async () => {
+    const bodies: URLSearchParams[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === CONTENT) return folderContent([FOLDER], [FILE])
+      if (url === COPY_FILE) {
+        bodies.push(form(init))
+        return json({ response: { result: 'Success' } })
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    await createMediaFireDriver(context({ sessionToken: 's1' })).copy!('/a.txt', '/docs/a.txt')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]!.get('quick_key')).toBe('q1')
+    expect(bodies[0]!.get('folder_key')).toBe('f1')
+  })
+
+  it('removes a folder through folder/delete', async () => {
+    const bodies: URLSearchParams[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === CONTENT) return folderContent([FOLDER])
+      if (url === DELETE_FOLDER) {
+        bodies.push(form(init))
+        return json({ response: { result: 'Success' } })
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    await createMediaFireDriver(context({ sessionToken: 's1' })).remove('/docs')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]!.get('folder_key')).toBe('f1')
+  })
+
+  it('maps a throttled write to rate_limit', async () => {
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === CONTENT) return folderContent([], [FILE])
+      if (url === DELETE_FILE) return new Response('', { status: 429 })
+      throw new Error(`unexpected ${url}`)
+    })
+    await expect(createMediaFireDriver(context({ sessionToken: 's1' })).remove('/a.txt'))
+      .rejects.toMatchObject({ kind: 'rate_limit' })
+  })
+
+  it('maps a refused write to auth and marks the storage for re-authorization', async () => {
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === CONTENT) return folderContent([], [FILE])
+      if (url === DELETE_FILE) return new Response('', { status: 401 })
+      if (url === TOKEN_URL) return new Response('', { status: 401 })
+      throw new Error(`unexpected ${url}`)
+    })
+    const ctx = context({ sessionToken: 's1' })
+    await expect(createMediaFireDriver(ctx).remove('/a.txt')).rejects.toMatchObject({ kind: 'auth' })
+    expect(ctx.markNeedsReauth).toHaveBeenCalled()
+  })
+
+  it('refuses an escaping write path before any request', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const driver = createMediaFireDriver(context({ sessionToken: 's1' }))
+    await expect(driver.mkdir('/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.move('/docs/../secret', '/a.txt')).rejects.toMatchObject({ kind: 'invalid' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('declares write capabilities while keeping upload unsupported', async () => {
+    const driver = createMediaFireDriver(context({ sessionToken: 's1' }))
+    expect(driver.capabilities).toMatchObject({
+      mkdir: true,
+      rename: true,
+      move: true,
+      copy: true,
+      delete: true,
+      directLink: true,
+      range: true,
+      write: false,
+    })
+    await expect(driver.upload('/a.bin', new Uint8Array([1]), { size: 1 }))
+      .rejects.toMatchObject({ kind: 'unsupported' })
   })
 })

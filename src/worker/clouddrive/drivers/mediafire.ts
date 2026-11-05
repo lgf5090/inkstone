@@ -20,6 +20,7 @@ import {
 import {
   HttpDriverBase,
   collectPages,
+  driverChildPath,
   driverFileName,
   driverParentPath,
   driverPath,
@@ -51,6 +52,7 @@ interface MediaFireResponse {
     folder_content?: MediaFireFolderContent
     links?: { direct_download?: string; normal_download?: string }[]
     session_token?: string
+    folder_key?: string
     message?: string
   }
 }
@@ -293,27 +295,115 @@ export class MediaFireDriver extends HttpDriverBase implements MountDriver {
 
   async upload(path: string, _body: Uint8Array | ReadableStream, _options: DriverUploadOptions): Promise<void> {
     driverPath(path)
-    throw DriverError.unsupported('MediaFire is read only')
+    throw DriverError.unsupported('MediaFire direct upload is not supported by the reference client')
+  }
+
+  private forget(prefix: string): void {
+    for (const key of [...this.pathIds.keys()]) {
+      if (key === prefix || key.startsWith(`${prefix}/`)) this.pathIds.delete(key)
+    }
   }
 
   async mkdir(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('MediaFire is read only')
+    const clean = driverPath(path)
+    if (clean === '/') return
+    await this.withAuth(async () => {
+      const parentKey = await this.resolveFolder(driverParentPath(clean))
+      const payload = await this.post<MediaFireResponse>('/folder/create.php', {
+        parent_key: parentKey,
+        foldername: driverFileName(clean),
+      })
+      this.checkResult(payload.response?.result)
+      const key = payload.response?.folder_key
+      if (key) this.pathIds.set(clean, key)
+    })
   }
 
-  async rename(path: string, _newName: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('MediaFire is read only')
+  async rename(path: string, newName: string): Promise<void> {
+    const clean = driverPath(path)
+    await this.withAuth(async () => {
+      const entry = await this.resolveEntry(clean)
+      if (entry.isDir) {
+        const payload = await this.post<MediaFireResponse>('/folder/update.php', {
+          folder_key: entry.id,
+          foldername: newName,
+        })
+        this.checkResult(payload.response?.result)
+      } else {
+        const payload = await this.post<MediaFireResponse>('/file/update.php', {
+          quick_key: entry.id,
+          filename: newName,
+        })
+        this.checkResult(payload.response?.result)
+      }
+      this.forget(clean)
+      this.pathIds.set(driverChildPath(driverParentPath(clean), newName), entry.id)
+    })
   }
 
-  async move(fromPath: string, _toPath: string): Promise<void> {
-    driverPath(fromPath)
-    throw DriverError.unsupported('MediaFire is read only')
+  async move(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    await this.withAuth(async () => {
+      const entry = await this.resolveEntry(from)
+      const destinationKey = await this.resolveFolder(driverParentPath(to))
+      if (entry.isDir) {
+        const payload = await this.post<MediaFireResponse>('/folder/move.php', {
+          folder_key_src: entry.id,
+          folder_key_dst: destinationKey,
+        })
+        this.checkResult(payload.response?.result)
+      } else {
+        const payload = await this.post<MediaFireResponse>('/file/move.php', {
+          quick_key: entry.id,
+          folder_key: destinationKey,
+        })
+        this.checkResult(payload.response?.result)
+      }
+      this.forget(from)
+      this.pathIds.set(to, entry.id)
+    })
+  }
+
+  async copy(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    await this.withAuth(async () => {
+      const entry = await this.resolveEntry(from)
+      const destinationKey = await this.resolveFolder(driverParentPath(to))
+      if (entry.isDir) {
+        const payload = await this.post<MediaFireResponse>('/folder/copy.php', {
+          folder_key_src: entry.id,
+          folder_key_dst: destinationKey,
+        })
+        this.checkResult(payload.response?.result)
+      } else {
+        const payload = await this.post<MediaFireResponse>('/file/copy.php', {
+          quick_key: entry.id,
+          folder_key: destinationKey,
+        })
+        this.checkResult(payload.response?.result)
+      }
+    })
   }
 
   async remove(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('MediaFire is read only')
+    const clean = driverPath(path)
+    await this.withAuth(async () => {
+      const entry = await this.resolveEntry(clean)
+      if (entry.isDir) {
+        const payload = await this.post<MediaFireResponse>('/folder/delete.php', {
+          folder_key: entry.id,
+        })
+        this.checkResult(payload.response?.result)
+      } else {
+        const payload = await this.post<MediaFireResponse>('/file/delete.php', {
+          quick_key: entry.id,
+        })
+        this.checkResult(payload.response?.result)
+      }
+      this.forget(clean)
+    })
   }
 
   async test(): Promise<{ ok: boolean; message: string }> {
