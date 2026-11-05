@@ -146,11 +146,38 @@ export async function listBlogMusicLibrary(
   db: D1Database,
   userId: string,
 ): Promise<BlogMusicLibrarySummary> {
-  const [total, playlists] = await Promise.all([
+  const [totalTracks, playableTracks, otherOwner, other, playlists] = await Promise.all([
     db.prepare(
-      `SELECT COUNT(*) AS total FROM music_track
+      `SELECT COUNT(*) AS n FROM music_track WHERE user_id = ?1`,
+    ).bind(userId).first<{ n: number }>(),
+    db.prepare(
+      `SELECT COUNT(*) AS n FROM music_track
        WHERE user_id = ?1 AND r2_key IS NOT NULL AND r2_key <> ''`,
-    ).bind(userId).first<{ total: number }>(),
+    ).bind(userId).first<{ n: number }>(),
+    db.prepare(
+      `SELECT COUNT(*) AS n
+         FROM music_playlist_item i
+         JOIN music_playlist p ON p.user_id = i.user_id AND p.id = i.playlist_id
+        WHERE i.user_id = ?1
+          AND NOT EXISTS (
+            SELECT 1 FROM music_track t WHERE t.user_id = i.user_id AND t.id = i.track_id
+          )
+          AND EXISTS (
+            SELECT 1 FROM music_track o WHERE o.id = i.track_id AND o.user_id <> i.user_id
+          )`,
+    ).bind(userId).first<{ n: number }>(),
+    db.prepare(
+      `SELECT COUNT(*) AS n
+         FROM music_playlist_item i
+         JOIN music_playlist p ON p.user_id = i.user_id AND p.id = i.playlist_id
+        WHERE i.user_id = ?1
+          AND NOT EXISTS (
+            SELECT 1 FROM music_track t WHERE t.user_id = i.user_id AND t.id = i.track_id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM music_track o WHERE o.id = i.track_id AND o.user_id <> i.user_id
+          )`,
+    ).bind(userId).first<{ n: number }>(),
     db.prepare(
       `SELECT p.id, p.name, p.description, p.cover_url,
               (p.cover_key IS NOT NULL AND p.cover_key <> '') AS has_cover,
@@ -175,8 +202,19 @@ export async function listBlogMusicLibrary(
       updated_at: number
     }>(),
   ])
+  const playable = playableTracks?.n ?? 0
+  const total = totalTracks?.n ?? 0
   return {
-    total: total?.total ?? 0,
+    total: playable,
+    totalTracks: total,
+    playableTracks: playable,
+    excluded: {
+      noR2: total - playable,
+      otherOwner: otherOwner?.n ?? 0,
+      hidden: 0,
+      other: other?.n ?? 0,
+    },
+    ownerMismatch: false,
     playlists: playlists.results.map((row) => ({
       id: row.id,
       name: row.name,
@@ -188,6 +226,32 @@ export async function listBlogMusicLibrary(
       updatedAt: row.updated_at,
     })),
   }
+}
+
+/**
+ * The library the admin picker may read.
+ *
+ * The public blog always reads the site owner's tracks. A signed-in owner of another account must not
+ * see that account's library (the picker would also publish something they cannot preview), and must
+ * not see their own library either, because it would never reach the blog. Answer with an explicit
+ * mismatch instead of a misleading zero.
+ */
+export async function resolveBlogMusicLibrary(
+  db: D1Database,
+  viewerId: string,
+  siteOwnerId: string | null,
+): Promise<BlogMusicLibrarySummary> {
+  if (siteOwnerId && siteOwnerId !== viewerId) {
+    return {
+      total: 0,
+      totalTracks: 0,
+      playableTracks: 0,
+      excluded: { noR2: 0, otherOwner: 0, hidden: 0, other: 0 },
+      ownerMismatch: true,
+      playlists: [],
+    }
+  }
+  return listBlogMusicLibrary(db, siteOwnerId ?? viewerId)
 }
 
 async function playlistTracks(

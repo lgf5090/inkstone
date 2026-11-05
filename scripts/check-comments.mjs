@@ -31352,7 +31352,12 @@ const allowed = new Map([
     "/** Which owner library the public page reads: every R2-backed track or one playlist. */",
     "/** Denormalised for the admin picker; the resolver still checks ownership before reading. */",
     "/** The admin picker's view of the owner's music library; no R2 keys or track snapshots leave here. */",
-    "/** Tracks with an R2 object in this account's library. */",
+    "/** Owner tracks without an R2 object: only an online provider can play them in the music app. */",
+    "/** Playlist references excluded because the row belongs to another account. */",
+    "/** Reserved: the track table has no hidden flag today, so this is always zero. */",
+    "/** Playlist references whose track row no longer exists. */",
+    "/** Playable tracks, kept for callers written before the diagnostic breakdown existed. */",
+    "/** True when the signed-in account is not the owner the public blog reads. */",
   ]],
   ["src/shared/blog/renderer.ts", [
     "/**\n * The renderer generation a snapshot was produced with.\n *\n * A published snapshot is a *still* of the note body, but the reading runtime re-renders the same\n * markdown through the same pipeline. The number is part of the runtime URL and is written into every\n * snapshot, so a reader can only ever load the runtime that matches the markup it is given: after a\n * renderer change old snapshots keep their still until they are rebuilt, instead of silently swapping\n * in a different renderer.\n */",
@@ -37084,6 +37089,7 @@ const allowed = new Map([
     "/** A fixed local-development secret: the proxy guard already lets dev run without BLOG_PROXY_KEY. */",
     "// Production compiles `DEV` to false and therefore fails closed; local development may omit both",
     "// secrets, the same way `requireBlogProxy` permits it, so the library is still playable there.",
+    "/**\n * The library the admin picker may read.\n *\n * The public blog always reads the site owner's tracks. A signed-in owner of another account must not\n * see that account's library (the picker would also publish something they cannot preview), and must\n * not see their own library either, because it would never reach the blog. Answer with an explicit\n * mismatch instead of a misleading zero.\n */",
   ]],
   ["src/worker/blog/public-routes.ts", [
     "// Friend links moved to the nav app; only its dedicated projection above may serve them.",

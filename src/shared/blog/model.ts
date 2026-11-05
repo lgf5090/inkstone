@@ -406,9 +406,25 @@ export interface BlogMusicLibraryPlaylist {
   updatedAt: number
 }
 
+export interface BlogMusicLibraryExcluded {
+  /** Owner tracks without an R2 object: only an online provider can play them in the music app. */
+  noR2: number
+  /** Playlist references excluded because the row belongs to another account. */
+  otherOwner: number
+  /** Reserved: the track table has no hidden flag today, so this is always zero. */
+  hidden: number
+  /** Playlist references whose track row no longer exists. */
+  other: number
+}
+
 export interface BlogMusicLibrarySummary {
-  /** Tracks with an R2 object in this account's library. */
+  /** Playable tracks, kept for callers written before the diagnostic breakdown existed. */
   total: number
+  totalTracks: number
+  playableTracks: number
+  excluded: BlogMusicLibraryExcluded
+  /** True when the signed-in account is not the owner the public blog reads. */
+  ownerMismatch: boolean
   playlists: BlogMusicLibraryPlaylist[]
 }
 
