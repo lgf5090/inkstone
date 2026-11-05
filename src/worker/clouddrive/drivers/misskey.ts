@@ -257,6 +257,32 @@ class MisskeyDriver extends HttpDriverBase implements MountDriver {
     this.folderIds.clear()
   }
 
+  async copy(fromPath: string, toPath: string): Promise<void> {
+    const fromLogical = driverPath(fromPath)
+    const toLogical = driverPath(toPath)
+    if (fromLogical === '/' || toLogical === '/') throw DriverError.invalid('The mount root cannot be copied')
+    const fromPhysical = this.physical(fromLogical)
+    const toPhysical = this.physical(toLogical)
+    await this.withAuth(async () => {
+      const resolved = await this.resolveEntry(fromPhysical)
+      if (resolved.isDir) throw DriverError.unsupported('Misskey folder copy is not supported')
+      const file = await this.showFile(resolved.id)
+      const url = (file.url ?? '').trim()
+      if (!url) throw DriverError.upstream('Misskey returned no source URL for the copy')
+      const folderId = await this.resolveFolderId(driverParentPath(toPhysical))
+      const uploaded = await this.post<MisskeyFile>('/files/upload-from-url', {
+        url,
+        ...(folderId ? { folderId } : {}),
+      })
+      await this.post('/files/update', {
+        fileId: uploaded.id,
+        name: driverFileName(toPhysical),
+        folderId: folderId ?? null,
+      })
+    })
+    this.folderIds.clear()
+  }
+
   async remove(path: string): Promise<void> {
     const logical = driverPath(path)
     if (logical === '/') throw DriverError.invalid('The mount root cannot be removed')

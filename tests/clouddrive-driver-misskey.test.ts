@@ -160,9 +160,30 @@ describe('Misskey driver', () => {
     expect(del!.body).toEqual({ fileId: 'file-1' })
   })
 
-  it('has no upload or copy capability', async () => {
+  it('copies a file through upload-from-url and rejects folder copies', async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = []
+    stubFetch((url, init) => {
+      requests.push({ url, body: driveBody(init) })
+      if (url.endsWith('/api/drive/folders')) return json([FOLDER])
+      if (url.endsWith('/api/drive/files')) return json([FILE])
+      if (url.endsWith('/api/drive/files/show')) return json(FILE)
+      if (url.endsWith('/api/drive/files/upload-from-url')) return json({ ...FILE, id: 'file-2' })
+      return json({})
+    })
+    const driver = createMisskeyDriver(context())
+    await driver.copy!('/a.bin', '/b.bin')
+    const upload = requests.find((request) => request.url.endsWith('/api/drive/files/upload-from-url'))
+    expect(upload!.body).toEqual({ url: 'https://cdn.example/a.bin' })
+    const update = requests.find((request) => request.url.endsWith('/api/drive/files/update'))
+    expect(update!.body).toEqual({ fileId: 'file-2', name: 'b.bin', folderId: null })
+
+    await expect(driver.copy!('/docs', '/docs-copy')).rejects.toMatchObject({ kind: 'unsupported' })
+  })
+
+  it('has no upload capability but exposes copy', async () => {
     const driver = createMisskeyDriver(context())
     expect(driver.upload).toBeUndefined()
-    expect(driver.copy).toBeUndefined()
+    expect(driver.copy).toBeTypeOf('function')
+    expect(driver.capabilities.copy).toBe(true)
   })
 })
