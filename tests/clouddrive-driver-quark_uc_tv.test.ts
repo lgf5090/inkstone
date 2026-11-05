@@ -19,7 +19,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: 'quark_uc_tv',
     config: { variant: 'quark', deviceId: 'device-1', linkMethod: 'download', ...(overrides.config ?? {}) },
     credentials,
-    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch) }),
+    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch); return { ...credentials } }),
     markNeedsReauth: vi.fn(async () => undefined),
     ...overrides,
   }

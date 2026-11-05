@@ -21,7 +21,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: 'netease_music',
     config: { songLimit: 200, ...(overrides.config ?? {}) },
     credentials,
-    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch) }),
+    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch); return { ...credentials } }),
     markNeedsReauth: vi.fn(async () => undefined),
     ...overrides,
   }
@@ -137,7 +137,7 @@ describe('NetEase Cloud Music driver', () => {
 
   it('deletes a song with weapi/cloud/del and persists a rotated cookie', async () => {
     let deleted = ''
-    const save = vi.fn(async () => undefined)
+    const save = vi.fn(async () => ({}))
     vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.startsWith(`${MUSIC}/weapi/v1/cloud/get`)) {

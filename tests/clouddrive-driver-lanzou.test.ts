@@ -29,7 +29,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: 'lanzou',
     config: { type: 'cookie', baseUrl: BASE, shareUrl: SHARE, rootFolderId: '-1', ...(overrides.config ?? {}) },
     credentials,
-    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch) }),
+    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch); return { ...credentials } }),
     markNeedsReauth: vi.fn(async () => undefined),
     ...overrides,
   }
@@ -160,7 +160,7 @@ describe('Lanzou driver', () => {
   it('solves the WAF challenge, replays the acw cookie and persists refreshed cookies', async () => {
     const cookies: string[] = []
     let mydiskCalls = 0
-    const save = vi.fn(async () => undefined)
+    const save = vi.fn(async () => ({}))
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/mydisk.php')) {

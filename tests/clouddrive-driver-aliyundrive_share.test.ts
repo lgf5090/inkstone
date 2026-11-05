@@ -21,7 +21,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: 'aliyundrive_share',
     config: { shareId: 'share-1', ...(overrides.config ?? {}) },
     credentials,
-    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch) }),
+    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch); return { ...credentials } }),
     markNeedsReauth: vi.fn(async () => undefined),
     ...overrides,
   }
@@ -131,7 +131,7 @@ describe('Aliyundrive Share driver', () => {
   })
 
   it('uses the refresh token as the visitor identity and persists its rotation', async () => {
-    const save = vi.fn(async () => undefined)
+    const save = vi.fn(async () => ({}))
     const authorization: Array<string | null> = []
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input))

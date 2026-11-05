@@ -24,7 +24,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: '189',
     config: { username: '', rootFolderId: '-11', pageSize: '60', ...(overrides.config ?? {}) },
     credentials,
-    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch) }),
+    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch); return { ...credentials } }),
     markNeedsReauth: vi.fn(async () => undefined),
     ...overrides,
   }

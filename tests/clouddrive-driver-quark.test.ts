@@ -22,7 +22,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: 'quark',
     config: { variant: 'Quark', rootFolderId: '0', ...(overrides.config ?? {}) },
     credentials,
-    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch) }),
+    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch); return { ...credentials } }),
     markNeedsReauth: vi.fn(async () => undefined),
     ...overrides,
   }
@@ -128,7 +128,7 @@ describe('Quark driver', () => {
   })
 
   it('persists a rotated cookie from upstream Set-Cookie', async () => {
-    const save = vi.fn(async (_patch: Record<string, string>) => undefined)
+    const save = vi.fn(async (_patch: Record<string, string>) => ({}))
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ status: 200, code: 0, data: { list: [] }, metadata: { total: 0 } }), {
       status: 200,
       headers: { 'content-type': 'application/json', 'set-cookie': '__puus=rotated; Path=/; HttpOnly' },

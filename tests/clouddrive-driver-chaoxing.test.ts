@@ -24,7 +24,7 @@ function context(overrides: Partial<DriverContext> = {}): DriverContext {
     type: 'chaoxing',
     config: { userName: 'reader', bbsId: '123456', rootFolderId: '-1', ...(overrides.config ?? {}) },
     credentials,
-    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch) }),
+    saveCredentials: vi.fn(async (patch) => { Object.assign(credentials, patch); return { ...credentials } }),
     markNeedsReauth: vi.fn(async () => undefined),
     ...overrides,
   }
@@ -75,7 +75,7 @@ describe('Chaoxing driver', () => {
   })
 
   it('signs in with AES-encrypted fields and stores the returned cookie', async () => {
-    const save = vi.fn(async () => undefined)
+    const save = vi.fn(async () => ({}))
     let cookieSent = ''
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
