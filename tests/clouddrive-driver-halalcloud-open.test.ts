@@ -6,6 +6,11 @@ import type { DriverContext } from '../src/worker/clouddrive/drivers/contract'
 const HOST = 'openapi.2dland.cn'
 const LIST_URL = `https://${HOST}/v6/userfile/list`
 const DOWNLOAD_URL = `https://${HOST}/v6/userfile/get_direct_download_address`
+const CREATE_URL = `https://${HOST}/v6/userfile/create`
+const RENAME_URL = `https://${HOST}/v6/userfile/rename`
+const MOVE_URL = `https://${HOST}/v6/userfile/move`
+const COPY_URL = `https://${HOST}/v6/userfile/copy`
+const DELETE_URL = `https://${HOST}/v6/userfile/delete`
 const REFRESH_URL = `https://${HOST}/v6/oauth/refresh_token`
 
 function json(body: unknown, status = 200): Response {
@@ -206,10 +211,132 @@ describe('HalalCloud Open driver', () => {
     )
   })
 
-  it('declares read-only capabilities and refuses writes', async () => {
+  it('creates a folder through the signed create endpoint', async () => {
+    const bodies: Record<string, any>[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === CREATE_URL) {
+        bodies.push(parseBody(init))
+        return json({})
+      }
+      throw new Error(`unexpected ${String(input)}`)
+    })
+    await createHalalCloudOpenDriver(context().ctx).mkdir('/docs')
+    expect(bodies).toEqual([{ parent: '/', path: '/docs', name: 'docs', dir: true }])
+  })
+
+  it('renames through the signed rename endpoint', async () => {
+    const bodies: Record<string, any>[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === RENAME_URL) {
+        bodies.push(parseBody(init))
+        return json({})
+      }
+      throw new Error(`unexpected ${String(input)}`)
+    })
+    await createHalalCloudOpenDriver(context().ctx).rename('/a.txt', 'b.txt')
+    expect(bodies).toEqual([{ path: '/a.txt', name: 'b.txt' }])
+  })
+
+  it('moves a file with a batch source and destination', async () => {
+    const bodies: Record<string, any>[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === LIST_URL) return listBody([FILE], '')
+      if (url === MOVE_URL) {
+        bodies.push(parseBody(init))
+        return json({})
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    await createHalalCloudOpenDriver(context().ctx).move('/a.txt', '/docs/a.txt')
+    expect(bodies).toEqual([{
+      source: [{ path: '/a.txt', identity: 'id-1' }],
+      dest: { path: '/docs/a.txt' },
+    }])
+  })
+
+  it('copies a file with a batch source and destination', async () => {
+    const bodies: Record<string, any>[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === LIST_URL) return listBody([FILE], '')
+      if (url === COPY_URL) {
+        bodies.push(parseBody(init))
+        return json({})
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    await createHalalCloudOpenDriver(context().ctx).copy!('/a.txt', '/docs/a.txt')
+    expect(bodies).toEqual([{
+      source: [{ path: '/a.txt', identity: 'id-1' }],
+      dest: { path: '/docs/a.txt' },
+    }])
+  })
+
+  it('removes a folder with the batch delete endpoint and its dir flag', async () => {
+    const bodies: Record<string, any>[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === LIST_URL) return listBody([FOLDER], '')
+      if (url === DELETE_URL) {
+        bodies.push(parseBody(init))
+        return json({})
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    await createHalalCloudOpenDriver(context().ctx).remove('/docs')
+    expect(bodies).toEqual([{ source: [{ path: '/docs', identity: 'id-2', dir: true }] }])
+  })
+
+  it('maps a throttled write to rate_limit', async () => {
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      if (String(input) === RENAME_URL) return new Response('', { status: 429, headers: { 'retry-after': '0' } })
+      throw new Error(`unexpected ${String(input)}`)
+    })
+    await expect(createHalalCloudOpenDriver(context().ctx).rename('/a.txt', 'b.txt'))
+      .rejects.toMatchObject({ kind: 'rate_limit' })
+  })
+
+  it('maps a refused write to auth and marks the storage for re-authorization', async () => {
+    let refreshCalls = 0
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === REFRESH_URL) {
+        refreshCalls++
+        return json({ access_token: 'tok-1', expires_in: 3600 })
+      }
+      if (url === RENAME_URL) return new Response('', { status: 401 })
+      throw new Error(`unexpected ${url}`)
+    })
+    const { ctx, markNeedsReauth } = context()
+    await expect(createHalalCloudOpenDriver(ctx).rename('/a.txt', 'b.txt'))
+      .rejects.toMatchObject({ kind: 'auth' })
+    expect(refreshCalls).toBe(1)
+    expect(markNeedsReauth).toHaveBeenCalled()
+  })
+
+  it('refuses an escaping write path before any request', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
     const driver = createHalalCloudOpenDriver(context().ctx)
-    expect(driver.capabilities.write).toBe(false)
-    await expect(driver.rename('/a.txt', 'b.txt')).rejects.toMatchObject({ kind: 'unsupported' })
-    await expect(driver.remove('/a.txt')).rejects.toMatchObject({ kind: 'unsupported' })
+    await expect(driver.mkdir('/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.move('/a.txt', '/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('declares write capabilities while keeping upload unsupported', async () => {
+    const driver = createHalalCloudOpenDriver(context().ctx)
+    expect(driver.capabilities).toMatchObject({
+      mkdir: true,
+      rename: true,
+      move: true,
+      copy: true,
+      delete: true,
+      directLink: true,
+      range: true,
+      write: false,
+    })
+    await expect(driver.upload('/a.bin', new Uint8Array([1]), { size: 1 }))
+      .rejects.toMatchObject({ kind: 'unsupported' })
   })
 })

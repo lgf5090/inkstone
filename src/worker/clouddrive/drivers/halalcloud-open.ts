@@ -28,6 +28,11 @@ import { singleFlightRefresh } from './token'
 const DEFAULT_HOST = 'openapi.2dland.cn'
 const LIST_PATH = '/v6/userfile/list'
 const DOWNLOAD_ADDRESS_PATH = '/v6/userfile/get_direct_download_address'
+const CREATE_PATH = '/v6/userfile/create'
+const RENAME_PATH = '/v6/userfile/rename'
+const MOVE_PATH = '/v6/userfile/move'
+const COPY_PATH = '/v6/userfile/copy'
+const DELETE_PATH = '/v6/userfile/delete'
 const REFRESH_PATH = '/v6/oauth/refresh_token'
 const SIGN_ALGORITHM = 'HL6-HMAC-SHA256'
 const SIGN_PREFIX = 'HL6'
@@ -486,23 +491,58 @@ export class HalalCloudOpenDriver extends HttpDriverBase implements MountDriver 
   }
 
   async upload(_path: string, _body: Uint8Array | ReadableStream, _options: DriverUploadOptions): Promise<void> {
-    throw DriverError.unsupported()
+    throw DriverError.unsupported('HalalCloud direct upload is not supported: the reference client has no stateless upload path')
   }
 
-  async mkdir(_path: string): Promise<void> {
-    throw DriverError.unsupported()
+  async mkdir(path: string): Promise<void> {
+    const clean = driverPath(path)
+    if (clean === '/') return
+    const full = this.fullPath(clean)
+    const parent = driverParentPath(full)
+    const name = driverFileName(full)
+    await this.api(CREATE_PATH, { parent, path: full, name, dir: true })
   }
 
-  async rename(_path: string, _newName: string): Promise<void> {
-    throw DriverError.unsupported()
+  async rename(path: string, newName: string): Promise<void> {
+    const clean = driverPath(path)
+    if (clean === '/') throw DriverError.invalid('The root cannot be renamed')
+    const full = this.fullPath(clean)
+    await this.api(RENAME_PATH, { path: full, name: newName })
   }
 
-  async move(_fromPath: string, _toPath: string): Promise<void> {
-    throw DriverError.unsupported()
+  async move(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    if (from === '/' || to === '/') throw DriverError.invalid('The root cannot be moved')
+    const entry = await this.resolve(from)
+    await this.api(MOVE_PATH, {
+      source: [{ path: entry.path || this.fullPath(from), identity: entry.identity || '' }],
+      dest: { path: this.fullPath(to) },
+    })
   }
 
-  async remove(_path: string): Promise<void> {
-    throw DriverError.unsupported()
+  async copy(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    if (from === '/' || to === '/') throw DriverError.invalid('The root cannot be copied')
+    const entry = await this.resolve(from)
+    await this.api(COPY_PATH, {
+      source: [{ path: entry.path || this.fullPath(from), identity: entry.identity || '' }],
+      dest: { path: this.fullPath(to) },
+    })
+  }
+
+  async remove(path: string): Promise<void> {
+    const clean = driverPath(path)
+    if (clean === '/') throw DriverError.invalid('The root cannot be removed')
+    const entry = await this.resolve(clean)
+    await this.api(DELETE_PATH, {
+      source: [{
+        path: entry.path || this.fullPath(clean),
+        identity: entry.identity || '',
+        dir: entry.dir === true,
+      }],
+    })
   }
 
   async test(): Promise<{ ok: boolean; message: string }> {
