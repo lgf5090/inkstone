@@ -212,7 +212,7 @@ export async function externalDirectUrl(
   const driver = await createStorageDriver(env, storage, driverMountContext(mount))
   if (driver) {
     try {
-      return driver.directLink ? await driver.directLink(path) : null
+      return driver.capabilities.directLink && driver.directLink ? await driver.directLink(path) : null
     } catch (error) {
       rethrowDriver(error)
     }
