@@ -799,6 +799,19 @@ export function StoragePage() {
             </>
           )}
 
+          {form.type === 'googledrive' && (
+            <>
+              <Field label={t('clouddrive.storage.folder_id')}><Input value={form.folderId} onChange={(event) => set({ folderId: event.target.value })} placeholder="root" /></Field>
+              <Field label={t('clouddrive.storage.root_path')}><Input value={form.rootPath} onChange={(event) => set({ rootPath: event.target.value })} placeholder={t('clouddrive.storage.root_path_placeholder')} /></Field>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Field label={t('clouddrive.storage.token')}><Input type="password" value={form.token} onChange={(event) => set({ token: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>
+                <Field label={t('clouddrive.storage.refresh_token')}><Input type="password" value={form.refreshToken} onChange={(event) => set({ refreshToken: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>
+                <Field label={t('clouddrive.storage.client_id')}><Input value={form.clientId} onChange={(event) => set({ clientId: event.target.value })} /></Field>
+                <Field label={t('clouddrive.storage.client_secret')}><Input type="password" value={form.clientSecret} onChange={(event) => set({ clientSecret: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>
+              </div>
+            </>
+          )}
+
           {(() => {
             const definition = findCloudDriveDriver(form.type)
             if (!definition || LEGACY_FORM_TYPES.has(form.type)) return null
