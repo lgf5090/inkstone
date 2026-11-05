@@ -9,6 +9,7 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { CLOUDDRIVE_LIMITS, categoryFor, foldedName, parentPathOf, type CloudDriveCategory, type CloudDriveEntry, type CloudDriveListing } from '@shared/clouddrive/model'
 import { organizerColorOrNull } from '@shared/organizer-colors'
+import { writableCloudDriveDriver } from '@shared/clouddrive/drivers'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { deleteExternalPath, externalCapacityBytes, externalFolderSize, invalidateExternalListing, listExternal, mkdirExternal, moveExternalPath, parseExternalEntryId, writeExternalFile } from './external'
@@ -84,6 +85,7 @@ const NO_META: EffectiveCloudDriveMeta = {
 }
 const EXTERNAL_UPLOAD_MAX_BYTES = 90 * 1024 * 1024
 const EXTERNAL_WRITE_TYPES: ReadonlySet<string> = new Set(['s3', 'webdav'])
+const externalWritable = (type: string): boolean => EXTERNAL_WRITE_TYPES.has(type) || writableCloudDriveDriver(type)
 
 function userIdOf(c: Context<AppBindings>): string {
   return c.get('userId')
@@ -101,7 +103,7 @@ async function writableExternalMount(c: Context<AppBindings>, userId: string, mo
   const mount = await mountFor(c, userId, mountId)
   if (mount.storageId === 'primary') throw ApiError.badRequest('This is not an external mount')
   if (mount.readOnly) throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
-  if (!EXTERNAL_WRITE_TYPES.has(mount.storageType)) throw new ApiError(403, 'clouddrive_read_only', 'This storage type does not support writes')
+  if (!externalWritable(mount.storageType)) throw new ApiError(403, 'clouddrive_read_only', 'This storage type does not support writes')
   return mount
 }
 

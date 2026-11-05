@@ -7,6 +7,8 @@ import { decryptCloudDriveCredentials, encryptCloudDriveCredentials } from '../l
 import { checkTarget } from '../lib/outbound'
 import type { CloudDriveMountInfo } from './lib'
 import { s3RequestUrl } from './storage-urls'
+import { createStorageDriver } from './drivers/factory'
+import { rethrowDriver } from './drivers/errors'
 
 interface StorageRow {
   id: string
@@ -198,7 +200,16 @@ export async function externalDirectUrl(
   path: string,
 ): Promise<string | null> {
   const storage = await storageFor(db, mount.id, mount.storageId)
-  if (!storage || storage.type !== 's3') return null
+  if (!storage) return null
+  const driver = await createStorageDriver(env, storage)
+  if (driver) {
+    try {
+      return driver.directLink ? await driver.directLink(path) : null
+    } catch (error) {
+      rethrowDriver(error)
+    }
+  }
+  if (storage.type !== 's3') return null
   const config = configOf(storage)
   const key = joinPath(String(config.rootPath ?? ''), path)
   const customHost = stringValue(config.customHost)
@@ -270,6 +281,30 @@ export async function externalFolderSize(
 ): Promise<{ bytes: number; truncated: boolean }> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  const driver = await createStorageDriver(env, storage)
+  if (driver) {
+    try {
+      const queue = [path]
+      const visited = new Set<string>()
+      let bytes = 0
+      let entries = 0
+      while (queue.length > 0) {
+        const current = queue.shift()!
+        if (visited.has(current)) continue
+        visited.add(current)
+        const listed = await driver.list(current)
+        entries += listed.entries.length
+        if (entries > MAX_DRIVER_ENTRIES) return { bytes, truncated: true }
+        for (const entry of listed.entries) {
+          if (entry.kind === 'folder') queue.push(current === '/' ? `/${entry.name}` : `${current}/${entry.name}`)
+          else bytes += entry.size
+        }
+      }
+      return { bytes, truncated: false }
+    } catch (error) {
+      rethrowDriver(error)
+    }
+  }
   const queue = [path]
   const visited = new Set<string>()
   let bytes = 0
@@ -304,6 +339,15 @@ async function listStorage(
   storage: StorageRow,
   path: string,
 ): Promise<DriverList> {
+  const driver = await createStorageDriver(env, storage)
+  if (driver) {
+    try {
+      const result = await driver.list(path)
+      return { entries: result.entries, truncated: result.truncated }
+    } catch (error) {
+      rethrowDriver(error)
+    }
+  }
   if (storage.type === 's3') return await listS3(env, storage, mount, path)
   if (storage.type === 'webdav') return await listWebdav(env, storage, mount, path)
   // The remaining drivers hand back a whole listing in one answer, so they cannot be truncated.
@@ -327,6 +371,14 @@ async function readStorage(
   range: string | null,
   ref: string | null,
 ): Promise<Response | null> {
+  const driver = await createStorageDriver(env, storage)
+  if (driver) {
+    try {
+      return await driver.read(path, range)
+    } catch (error) {
+      rethrowDriver(error)
+    }
+  }
   if (storage.type === 's3') return await readS3(env, storage, mount, path, range)
   if (storage.type === 'webdav') return await readWebdav(env, storage, mount, path, range)
   if (storage.type === 'github') return await readGithub(env, storage, path, range)
@@ -1199,6 +1251,15 @@ export async function writeExternalFile(
 ): Promise<void> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  const driver = await createStorageDriver(env, storage)
+  if (driver) {
+    try {
+      await driver.upload(path, bytes, { size: bytes.byteLength, contentType })
+      return
+    } catch (error) {
+      rethrowDriver(error)
+    }
+  }
   if (storage.type === 's3') {
     const config = configOf(storage)
     const key = joinPath(String(config.rootPath ?? ''), path)
@@ -1223,6 +1284,15 @@ export async function mkdirExternal(
 ): Promise<void> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  const driver = await createStorageDriver(env, storage)
+  if (driver) {
+    try {
+      await driver.mkdir(path)
+      return
+    } catch (error) {
+      rethrowDriver(error)
+    }
+  }
   if (storage.type === 's3') {
     const config = configOf(storage)
     const key = `${joinPath(String(config.rootPath ?? ''), path)}/`.replace(/^\/+/, '')
@@ -1351,6 +1421,15 @@ export async function deleteExternalPath(
 ): Promise<void> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  const driver = await createStorageDriver(env, storage)
+  if (driver) {
+    try {
+      await driver.remove(path)
+      return
+    } catch (error) {
+      rethrowDriver(error)
+    }
+  }
   if (storage.type === 's3') {
     const config = configOf(storage)
     const key = joinPath(String(config.rootPath ?? ''), path)
@@ -1380,6 +1459,15 @@ export async function moveExternalPath(
 ): Promise<void> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  const driver = await createStorageDriver(env, storage)
+  if (driver) {
+    try {
+      await driver.move(from, to)
+      return
+    } catch (error) {
+      rethrowDriver(error)
+    }
+  }
   if (storage.type === 's3') {
     const config = configOf(storage)
     const root = String(config.rootPath ?? '')

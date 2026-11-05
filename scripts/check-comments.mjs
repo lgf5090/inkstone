@@ -6193,6 +6193,12 @@ const allowed = new Map([
   ["src/client/features/clouddrive/media-i18n.ts", [
     "/**\n * Translation lookup for the CloudDrive media/settings shards.\n *\n * The core catalog and the new shards are merged by the locale loader; until that import lands the\n * keys are outside `MessageKey`, so this helper widens the type once instead of every call site\n * casting. Runtime lookup is the ordinary `t()`.\n */",
   ]],
+  ["src/client/features/clouddrive/mounts/StoragePage.tsx", [
+    "/** Values of the fields a driver declares in the shared registry, keyed by field key. */",
+  ]],
+  ["src/client/features/clouddrive/mounts/shared.ts", [
+    "/** The selectable types come from the shared driver registry, never from a local list. */",
+  ]],
   ["src/client/features/clouddrive/offline/OfflinePage.tsx", [
     "/** Hand the local copy to the same preview layer the drive uses, rather than a bare browser tab. */",
   ]],
@@ -31453,6 +31459,18 @@ const allowed = new Map([
     "/** Lunar date, solar term and festival names in the month grid; `auto` follows the language. */",
     "/** Print the day-off and makeup-workday marks for statutory days. */",
   ]],
+  ["src/shared/clouddrive/drivers.ts", [
+    "/**\n * The single declaration of every storage driver the CloudDrive can mount.\n *\n * The admin UI and the worker read this table, so a driver cannot appear as an option without a\n * definition and a configuration schema. `implemented` gates the dropdown: the 70 drivers that are\n * still to be ported are listed in the roadmap view with the reason instead of becoming dead options.\n *\n * Field labels and driver names are i18n keys. A driver's `fields` describe where each value lives:\n * `config` is returned to the client, `credentials` is encrypted in the vault and never echoed.\n */",
+    "/** `clouddrive.driver.field.<key>` */",
+    "/** A secret is stored through the credential vault and never returned to the client. */",
+    "/** `clouddrive.driver.field.<key>_hint` */",
+    "/** `clouddrive.driver.<id>` */",
+    "/** False means the id is declared for the roadmap but cannot be selected yet. */",
+    "/** False for a driver that exists only as the built-in primary mount (R2). */",
+    "/** The credential combinations that satisfy authentication; empty means no authentication. */",
+    "/** `clouddrive.driver.reason.<id>` when an implemented driver has a platform limit. */",
+    "/** `directLink` is the one capability whose id is not already a message-key segment. */",
+  ]],
   ["src/shared/clouddrive/model.test.ts", [
     "// The transport decoded the value once: `%25` in a URL is `%` here. Decoding again would either",
     "// throw on a lone percent or turn an encoded slash into a real separator.",
@@ -37379,6 +37397,40 @@ const allowed = new Map([
     "/** Extend the lock a client already holds. Returns null when that token is not held here. */",
     "/** Release a lock. Returns false when no live lock on this path carries that token. */",
     "/**\n * The lock that stands between a client and a write, or null when the path is open.\n *\n * Every covering lock has to be accounted for: a write that carries one token but sits under two\n * locks still belongs to somebody else.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/123pan.ts", [
+    "/**\n * 123 Cloud Drive (123Pan) account driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/123pan`:\n * the path signature, login precedence (token → cookie → password), pagination, download-link\n * resolution, trash/move/rename/mkdir and the S3-presigned multipart upload flow all follow it.\n */",
+    "/** The CRC32 path signature 123Pan expects on every API request. */",
+    "/** A bare Bearer, a JWT, or a cookie that carries one of the three known token fields. */",
+    "/**\n   * One signed call. An expired token forces one re-login and a retry; a second failure marks the\n   * storage as needing re-authorization instead of looping.\n   */",
+    "// A concurrent upload may have created it; the lookup below decides either way.",
+    "// A URL without the params wrapper is already the real address.",
+    "// Login once before the first call; the reference driver does this in init().",
+  ]],
+  ["src/worker/clouddrive/drivers/contract.ts", [
+    "/**\n * The driver contract every CloudDrive storage implementation speaks.\n *\n * A driver only knows paths relative to its mount (\"/photos/2024.jpg\"), never D1 rows or HTTP. The\n * worker layer owns visibility, quotas and meta rules; a driver owns one upstream service.\n */",
+    "/** The driver's native id, used to read without resolving the display path again. */",
+    "/** One-based page; omitted means \"walk pages until the cap\". */",
+    "/** The cursor for the next page when the driver has one, or null at the end. */",
+    "/** Persists a rotated token or cookie; the caller re-encrypts it in the vault. */",
+    "/** Marks the storage as needing the owner's attention instead of retrying forever. */",
+    "/** A streaming response with the upstream Range answer, or a 200 body. */",
+    "/** A reachability/auth probe used by the admin \"test\" button. */",
+  ]],
+  ["src/worker/clouddrive/drivers/errors.ts", [
+    "/** One place where a driver's failure becomes the API's status and code. */",
+    "/** Re-throws a non-driver failure untouched so bugs keep their original stack. */",
+  ]],
+  ["src/worker/clouddrive/drivers/factory.ts", [
+    "/**\n * The worker-side driver factory. It joins the shared definition, the decrypted vault and the\n * per-storage persistence callback that a driver uses to write a rotated token back.\n */",
+    "/** Builds the driver for a storage row, or null when its type is not ported yet. */",
+  ]],
+  ["src/worker/clouddrive/drivers/http.ts", [
+    "/**\n * Shared HTTP plumbing for the JSON APIs most CloudDrive drivers speak.\n *\n * The base owns the parts every driver gets wrong the same way: bounded time, a small retry budget\n * for 429/5xx, error bodies that keep their upstream message, one forced re-authentication after a\n * 401, and credential rotation written back through the vault callback. A driver only supplies its\n * login/refresh hooks and the actual endpoints.\n */",
+    "/** Redirects are followed by hand only when a driver asks; the default refuses them. */",
+    "/** Performs the driver's login sequence and persists any rotated token. */",
+    "/** One attempt, then a forced re-login on auth failures, then mark the storage for review. */",
+    "/**\n * The three pagination shapes the reference drivers use. `page` is one-based; `cursor`/`offset`\n * pass the previous `next` token back to the fetcher unchanged.\n */",
   ]],
   ["src/worker/clouddrive/exif.test.ts", [
     "/**\n * Assembles a JPEG whose APP1 holds a real (if minimal) TIFF: one IFD0 and, when asked, one ExifSubIFD\n * reachable through tag 0x8769. ASCII values longer than four bytes go after the IFDs, which is what a\n * camera does, so the reader has to follow the pointer rather than read the field inline.\n */",

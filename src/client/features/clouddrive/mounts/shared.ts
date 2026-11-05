@@ -1,4 +1,5 @@
 import { t } from '../../../lib/i18n'
+import { implementedCloudDriveDrivers, writableCloudDriveDriver } from '@shared/clouddrive/drivers'
 
 export interface Storage {
   id: string
@@ -34,24 +35,16 @@ export interface Mount {
   createdAt: number
 }
 
-const TYPE_KEYS = {
-  s3: 'clouddrive.storage.type_s3',
-  webdav: 'clouddrive.storage.type_webdav',
-  github: 'clouddrive.storage.type_github',
-  huggingface: 'clouddrive.storage.type_huggingface',
-  discord: 'clouddrive.storage.type_discord',
-  telegram: 'clouddrive.storage.type_telegram',
-  onedrive: 'clouddrive.storage.type_onedrive',
-  googledrive: 'clouddrive.storage.type_googledrive',
-} as const
-
-export type StorageType = keyof typeof TYPE_KEYS
-export const STORAGE_TYPE_VALUES = Object.keys(TYPE_KEYS) as StorageType[]
-export const WRITABLE_EXTERNAL_TYPES: ReadonlySet<string> = new Set(['s3', 'webdav'])
+export type StorageType = string
+/** The selectable types come from the shared driver registry, never from a local list. */
+export const STORAGE_TYPE_VALUES: readonly StorageType[] = implementedCloudDriveDrivers().map((driver) => driver.id)
+export const WRITABLE_EXTERNAL_TYPES: ReadonlySet<string> = new Set(
+  STORAGE_TYPE_VALUES.filter((type) => writableCloudDriveDriver(type)),
+)
 
 export function storageTypeLabel(type: string): string {
-  const key = TYPE_KEYS[type as StorageType]
-  return key ? t(key) : type.toUpperCase()
+  const definition = implementedCloudDriveDrivers().find((driver) => driver.id === type)
+  return definition ? t(definition.nameKey as Parameters<typeof t>[0]) : type.toUpperCase()
 }
 
 const PROVIDER_KEYS = {
