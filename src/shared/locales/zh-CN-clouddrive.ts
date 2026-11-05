@@ -293,6 +293,7 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.driver.reason.halalcloud_open': '参考实现不支持直传上传；可新建文件夹、重命名、移动、复制与删除。',
   'clouddrive.driver.reason.mediafire': '参考实现不支持直传上传；可新建文件夹、重命名、移动、复制与删除。',
   'clouddrive.driver.reason.degoo': '参考实现不支持上传与复制；可新建文件夹、重命名、移动与删除。',
+  'clouddrive.driver.reason.protocol_gateway': 'Workers 无文件系统与裸 TCP，无法直连该协议；请用 rclone 等网关暴露为 WebDAV/S3 后通过对应驱动接入。',
   'app.tabs.clouddrive': '云盘',
   'clouddrive.title': '云盘',
   'clouddrive.demo_unavailable': '演示模式下不提供云盘',

@@ -293,6 +293,7 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.driver.reason.halalcloud_open': 'The reference implementation does not upload directly; it can still create folders, rename, move, copy and delete.',
   'clouddrive.driver.reason.mediafire': 'The reference implementation does not upload directly; it can still create folders, rename, move, copy and delete.',
   'clouddrive.driver.reason.degoo': 'The reference implementation does not upload or copy; it can still create folders, rename, move and delete.',
+  'clouddrive.driver.reason.protocol_gateway': 'Workers has no filesystem or raw TCP, so this protocol cannot be reached directly; expose it through rclone as WebDAV/S3 and mount it with that driver.',
   'app.tabs.clouddrive': 'Cloud Drive',
   'clouddrive.title': 'Cloud Drive',
   'clouddrive.demo_unavailable': 'Cloud Drive is not available in demo mode',

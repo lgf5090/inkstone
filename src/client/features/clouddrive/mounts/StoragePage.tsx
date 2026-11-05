@@ -581,6 +581,11 @@ export function StoragePage() {
               <span className="text-[var(--text-tertiary)]">
                 {driverCapabilityLabels(driver).map((capability) => t(`clouddrive.driver.cap.${driverCapabilityKey(capability)}` as Parameters<typeof t>[0])).join(' · ')}
               </span>
+              {driver.noteKey && (
+                <span className="basis-full text-[var(--text-quaternary)]">
+                  {t(driver.noteKey as Parameters<typeof t>[0])}
+                </span>
+              )}
             </div>
           ))}
         </div>
