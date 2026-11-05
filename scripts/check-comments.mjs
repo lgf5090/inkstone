@@ -18448,6 +18448,7 @@ const allowed = new Map([
     "// The path is part of the state, not a side effect of it: a new tab, a bookmark or the back button",
     "// has to land on the module the address names, and the next visit starts from what the URL says.",
     "/* Seventh submodule: Compare (tools/compare) */",
+    "/* Eighth submodule: Network Panel (tools/network_panel) */",
   ]],
   ["src/client/features/tools/calculator/api.ts", [
     "// The status is still a usable message when the body is not JSON.",
@@ -19154,6 +19155,57 @@ const allowed = new Map([
     "// Export Settings",
     "// View toggles",
     "// A draft is a convenience, so a device whose storage refuses does not break the studio.",
+  ]],
+  ["src/client/features/tools/network-panel/FullscreenScreen.tsx", [
+    "/**\n * The full-screen clock the reference panel called Screensaver.\n *\n * It is a real fullscreen request on this element, so the browser's own escape works, plus a screen\n * wake lock while it is up. Neither is guaranteed — a phone may refuse the lock and a browser may\n * refuse fullscreen — and both failures leave the same usable overlay rather than an error.\n */",
+    "// A refused wake lock only means the screen may sleep; the overlay still works.",
+    "// The overlay fills the viewport even without the browser's fullscreen mode.",
+  ]],
+  ["src/client/features/tools/network-panel/HistoryView.tsx", [
+    "/**\n * The ledger of measurements.\n *\n * Rows are what the server kept, not what this tab remembers: a run survives a reload, a browser and\n * a device. The summary above the list is counted server-side over the whole ledger rather than the\n * page on screen, so \"average\" means every run, not the last thirty.\n */",
+  ]],
+  ["src/client/features/tools/network-panel/NetworkInfoView.tsx", [
+    "/**\n * What this deployment can say about the reader's connection.\n *\n * The address, country and network come from Cloudflare's own reading of the request, so nothing is\n * fetched from a third party and no arbitrary URL is involved. The latency is a round trip to this\n * deployment — the same origin the speed test measures — rather than to a foreign check endpoint the\n * page's security policy would refuse.\n */",
+  ]],
+  ["src/client/features/tools/network-panel/NetworkPanelApp.tsx", [
+    "/**\n * The module's shell.\n *\n * Loading, visibility and paste live here rather than in each screen: the test has to keep counting\n * while the reader looks at the history, and a pasted address has to become a node whichever screen\n * is open. Leaving the module is the same question as hiding the tab — the background switch answers\n * it once.\n */",
+    "// The chart library is shared with note charts and is loaded lazily. A running test keeps every",
+    "// connection busy (and a bandwidth cap keeps each one busy for seconds), so the first chart's",
+    "// import would queue behind the downloads and draw nothing. Warming it here happens before Start.",
+  ]],
+  ["src/client/features/tools/network-panel/SettingsView.tsx", [
+    "/**\n * Every switch on this screen writes the same settings row the speed test reads, so a change here is\n * the next test's behaviour rather than a preference this tab shows and forgets. The two ceilings\n * reuse the dialog the speed screen opens; the reset puts every field back to the shipped default.\n */",
+  ]],
+  ["src/client/features/tools/network-panel/SpeedTestView.tsx", [
+    "/**\n * The speed screen.\n *\n * One measurement at a time, drawn as the three numbers the reference panel showed — bytes moved,\n * speed, bandwidth — plus the same controls around them: a node list, a thread slider, two ceilings,\n * the live chart and the full-screen clock. Nothing here invents its data: every number is read from\n * the response stream the worker generates.\n */",
+  ]],
+  ["src/client/features/tools/network-panel/api.ts", [
+    "/**\n * API client for `/api/tools/network-panel/*`.\n *\n * The speed test itself is not here: its payload is read straight from the response stream by the\n * engine, because a JSON helper would have to buffer exactly the bytes the measurement is counting.\n */",
+    "/** Round-trip to this deployment, measured by the caller around this call. */",
+  ]],
+  ["src/client/features/tools/network-panel/components/CapDialog.tsx", [
+    "/**\n * The two ceilings, in one dialog shape.\n *\n * A data cap and a bandwidth cap are both \"a number and a unit\", and both leave blank for no ceiling.\n * The stored value is always a byte count or a byte rate; the unit is only what the reader typed.\n */",
+    "/** The stored ceiling: bytes for data, bytes per second for a speed. */",
+  ]],
+  ["src/client/features/tools/network-panel/components/NodeManagerModal.tsx", [
+    "/**\n * The saved addresses, managed in the dialog the reference panel used for the same job.\n *\n * A same-origin path is the address a deployment can offer without touching its security policy; an\n * absolute URL is accepted because a deployment that has widened `connect-src` itself can use one, and\n * the hint says so rather than pretending every address will answer.\n */",
+  ]],
+  ["src/client/features/tools/network-panel/speed-engine.test.ts", [
+    "/**\n * The measurement loop, driven by a stream the test owns.\n *\n * A fake reader and a fake clock are the whole surface: what is pinned is the contract the panel\n * relies on — one request per thread, a cap that stops the run, a failure streak that gives up, and a\n * stop that reports what actually arrived.\n */",
+  ]],
+  ["src/client/features/tools/network-panel/speed-engine.ts", [
+    "/**\n * The download test, as an object rather than a screen.\n *\n * A test is N loops reading one response stream each, restarting the request when a stream ends, and\n * counting the bytes that arrived. The reader owns the fetch and the clock so the loop can be driven\n * with a fake stream in a test; the arithmetic it shares with the panel lives in the shared engine.\n *\n * None of this touches React. The panel subscribes through callbacks, which is what lets a test keep\n * running while another screen is open.\n */",
+    "/** `0` means no data ceiling. */",
+    "/** Bytes per second; `0` means no bandwidth ceiling. */",
+    "// A server that answers with an empty stream would otherwise be re-requested in a hot loop.",
+    "// A reader whose stream is already closed refuses the cancel; the loop is done either way.",
+    "/** The reference panel's slider: adding threads starts loops, removing them lets loops retire. */",
+    "// The browser delivers bytes in whatever sizes it likes, so a chunk can be far larger than one",
+    "// second's budget. Waiting once per chunk is not a cap: the loop re-asks until the shared",
+    "// budget covers the whole chunk, and only then does it count the bytes it just accepted.",
+  ]],
+  ["src/client/features/tools/network-panel/store.ts", [
+    "/**\n * The network panel's page state: the saved settings, the address list and the running test.\n *\n * The engine lives outside React on purpose. The sidebar opens four screens over one panel, and a\n * measurement that stopped every time the reader looked at the history would be the reference project's\n * one behaviour this port does not need; leaving the panel is handled by the background setting instead.\n */",
   ]],
   ["src/client/features/tools/password/AccountArea.tsx", [
     "/* Desktop side-by-side view */",
@@ -33529,6 +33581,35 @@ const allowed = new Map([
     "// px",
     "// degrees -180 to 180",
   ]],
+  ["src/shared/tools/network-panel/engine.test.ts", [
+    "/**\n * The arithmetic the panel shows: units, addresses, forecasts, the capped bandwidth and the series\n * that thins itself. Each case is a number a reader could check by hand.\n */",
+  ]],
+  ["src/shared/tools/network-panel/engine.ts", [
+    "/**\n * The arithmetic behind the network panel, kept away from the browser so it can be measured directly.\n *\n * Three things live here: how a node address is read, how a byte count becomes a sentence, and the\n * series the chart draws. The measurement itself — fetch, reader, stop, discard — is the client's,\n * because those are browser objects with no meaning in a test.\n */",
+    "/**\n * One node address, from what the reader typed.\n *\n * A same-origin path is the form a deployment can offer without changing its own security policy, so\n * a leading `/` is accepted and kept relative. Anything else has to parse as http(s): `javascript:`\n * and `data:` are exactly the strings a protocol check exists to stop, and a relative `//host` would\n * quietly become another origin under the page's own scheme.\n */",
+    "/**\n * A byte count or a rate, in the unit a person reads it in.\n *\n * The reference panel printed a different number of decimals per unit (`0` for B, `2` for MB), which\n * is why the precision is a callback rather than one fixed number: a count of five bytes is not\n * `5.00 B`, and a speed of 12.5 MB/s is not `13 MB/s`.\n */",
+    "/** A duration as a person says it: seconds under a minute, then minutes and seconds. */",
+    "/** What the present speed would move over the four windows the panel predicts. */",
+    "/**\n * A capped bandwidth, the reference panel's way.\n *\n * The browser decides when bytes arrive, so a hard per-frame limit is not possible; what is possible\n * is letting a thread wait until the shared budget has caught up. The wait is computed against the\n * whole test's bytes rather than one thread's, which is what keeps eight threads from each taking a\n * full share of the cap.\n */",
+    "/**\n * The chart's series, thinned as it grows.\n *\n * One point per second would be ten thousand points after three hours, which a line chart cannot draw\n * usefully and a reader cannot read anyway. Past the ceiling the oldest pairs are averaged in place\n * and every later pair is added the same way, so the series keeps its whole time range while its\n * resolution halves — the reference panel's own behaviour, spelled out here so it can be tested.\n */",
+    "/** A copy, so a store subscriber cannot mutate the series in place. */",
+    "/** The per-request payload, bounded on both sides so a hand-edited query cannot ask for a byte or a terabyte. */",
+    "/** The label a pasted address is filed under: its host, never the whole URL. */",
+  ]],
+  ["src/shared/tools/network-panel/schemas.ts", [
+    "/**\n * Zod schemas for `/api/tools/network-panel/*`, shared with the client so both ends read the same\n * field names and the same bounds.\n */",
+    "/** The settings a reader may change; every field is optional so a toggle sends one key. */",
+    "/** Turns a stored values object into the shape the settings screen reads, with every bound applied. */",
+  ]],
+  ["src/shared/tools/network-panel/types.ts", [
+    "/**\n * The network panel's vocabulary, shared by the browser and the worker.\n *\n * The panel measures download throughput against this deployment. Its payload is generated by the\n * Worker itself, so the measurement needs no third-party host, no CORS grant and no relaxation of the\n * page's `connect-src`. Custom addresses stay available for a deployment that has widened that policy\n * itself; the client and the route validate them with the same function.\n */",
+    "/** Which node is the deployment's own download endpoint rather than a row the reader saved. */",
+    "/** What this deployment can honestly say about the reader's connection. */",
+    "/** False when the request carried no edge metadata (a local `wrangler`/Vite run, mostly). */",
+    "/** Unix time in seconds. */",
+    "/** Bytes per second. */",
+    "/** The live reading the view draws while a test is running. */",
+  ]],
   ["src/shared/tools/password/schemas.ts", [
     "/** Ciphertext is hex of the plaintext, so these caps are roughly two bytes per character. */",
     "// Every field is optional on purpose: the store reads \"absent\" as \"keep what is stored\", and a",
@@ -38601,6 +38682,9 @@ const allowed = new Map([
     "// The importance half of the Eisenhower matrix, NULL while the matrix derives it. The column is",
     "// nullable on purpose: \"not classified\" and \"classified not important\" are different answers.",
     "// The urgency half of the same pair, with the same tri-state.",
+    "// The network panel is a new surface: three tables, none of them changing a table an older",
+    "// database already has, so this version states them as they are. They are also in",
+    "// `SCHEMA_STATEMENTS` for a fresh database, where `IF NOT EXISTS` makes running them here harmless.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -41531,6 +41615,13 @@ const allowed = new Map([
     "/**\n * A storage object is only really gone once R2 confirms it. The record row is dropped first, so a\n * key whose delete refused goes on the queue and the next archive read retries it instead of leaving\n * the bytes billed forever.\n */",
     "// Opening the archive is the cheapest moment to finish an interrupted delete.",
   ]],
+  ["src/worker/routes/tools-network-panel.ts", [
+    "/**\n * Network panel API (`/api/tools/network-panel/*`).\n *\n * The speed test's payload is generated here rather than fetched from a CDN: the browser stays inside\n * the page's `connect-src`, the measurement is the reader's own downlink to this deployment, and no\n * request carries a URL the server would have to trust. The only network metadata this file reads is\n * the one Cloudflare already attached to the request, so there is no SSRF surface at all.\n */",
+    "/** Cloudflare's own reading of the request. A local run has none, which the screen says out loud. */",
+    "/** A clock the browser measures round-trip against; the body carries no data of its own. */",
+    "/**\n * The measured payload.\n *\n * One block is generated once per isolate and streamed until the requested byte count is reached, so\n * a request costs no randomness per chunk and no allocation per read. The block is incompressible\n * (random bytes) and the response forbids caching and compression, or a CDN would answer the second\n * thread from its cache and the test would measure the network that is not there.\n */",
+    "/** One incompressible block per isolate, reused by every chunk and every reader of this isolate. */",
+  ]],
   ["src/worker/routes/tools-password.ts", [
     "/**\n * Password Manager API routes (`/api/tools/password/*`).\n */",
     "// ---------------------------------------------------------------- Vault",
@@ -42842,6 +42933,12 @@ const allowed = new Map([
     "// fallback",
     "// Each batch item needs its own prepared statement: binding one statement twice leaves every",
     "// row bound to the last value.",
+  ]],
+  ["src/worker/tools/network-panel/schema.ts", [
+    "/**\n * D1 statements and invariants for the network panel (`tools_NetworkPanel_*`).\n *\n * Three tables, one job each: `settings` is one row per reader and the panel's defaults, `nodes`\n * remembers addresses the reader added, and `runs` is the ledger the history screen counts. No bytes\n * are stored anywhere — a run is a measurement, not a download — so this tool needs no R2 bucket.\n */",
+  ]],
+  ["src/worker/tools/network-panel/store.ts", [
+    "/**\n * D1 storage for the network panel, scoped by `user_id` on every statement.\n *\n * Settings are one row per reader, written on every change and read with the defaults applied; the\n * node list is bounded and the ledger is pruned on write, so neither can grow without a ceiling the\n * reader did not ask for.\n */",
   ]],
   ["src/worker/tools/password/favicon.ts", [
     "/**\n * The host a favicon may be fetched for: a bare DNS name, nothing else.\n *\n * Accepting a URL would let the caller pick a scheme, a path or a port, and the point of this\n * endpoint is that it only ever asks one host for `/favicon.ico`. `checkTarget` then applies the\n * same private-address refusal the rest of the deployment uses.\n */",
@@ -46335,6 +46432,12 @@ const allowed = new Map([
     "// The twenty with the furthest expiry, not the twenty unlocked first: the server takes the head of the",
     "// list it is sent, so keeping the oldest silently dropped whichever folder had just been opened.",
     "// The scan cache holds bookmark URLs, so it has to go with the session rather than outlive it.",
+  ]],
+  ["tests/network-panel-routes.test.ts", [
+    "/**\n * The panel's routes, against a real Hono app and a real D1 double.\n *\n * The download endpoint is the one that matters most: it is the only route that answers with bytes, and\n * its bounds are the difference between a measurement and a server asked to stream a terabyte.\n */",
+  ]],
+  ["tests/network-panel-store.test.ts", [
+    "/**\n * The panel's three tables, scoped by the reader.\n *\n * What matters is that a change is a change of behaviour: the settings row is read back with the defaults\n * applied, an address belongs to one account, and the history counts every run rather than the page\n * being drawn.\n */",
   ]],
   ["tests/no-native-dialogs.test.ts", [
     "// A method carries a body and a property carries an initializer; asking the union for both is what",

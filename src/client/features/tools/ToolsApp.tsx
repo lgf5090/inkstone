@@ -18,6 +18,7 @@ const ColorApp = lazy(() => import('./color/ColorApp').then((m) => ({ default: m
 const ShortlinksApp = lazy(() => import('./shortlinks/ShortlinksApp').then((m) => ({ default: m.ShortlinksApp })))
 const CalculatorApp = lazy(() => import('./calculator/CalculatorApp').then((m) => ({ default: m.CalculatorApp })))
 const CompareApp = lazy(() => import('./compare/CompareApp').then((m) => ({ default: m.CompareApp })))
+const NetworkPanelApp = lazy(() => import('./network-panel/NetworkPanelApp').then((m) => ({ default: m.NetworkPanelApp })))
 
 export function ToolsApp() {
   const breakpoint = useBreakpoint()
@@ -74,7 +75,9 @@ export function ToolsApp() {
                         ? t('tools.calculator.module_name')
                         : activeSubmodule === 'compare'
                           ? t('tools.compare.module_name')
-                          : t('tools.shortlinks.module_name')}
+                          : activeSubmodule === 'network_panel'
+                            ? t('tools.network_panel.module_name')
+                            : t('tools.shortlinks.module_name')}
             </span>
           </div>
         </header>
@@ -115,6 +118,7 @@ export function ToolsApp() {
             {activeSubmodule === 'shortlinks' && <ShortlinksApp />}
             {activeSubmodule === 'calculator' && <CalculatorApp />}
             {activeSubmodule === 'compare' && <CompareApp />}
+            {activeSubmodule === 'network_panel' && <NetworkPanelApp />}
           </Suspense>
         </main>
       </div>
