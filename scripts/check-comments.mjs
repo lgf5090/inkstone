@@ -37499,6 +37499,7 @@ const allowed = new Map([
     "/** `body` posts client credentials as form fields; `basic` uses an Authorization header. */",
     "/** Some providers publish a application used by the reference implementation. */",
     "// A non-JSON body is already the best message available.",
+    "/** Aliyun's open OAuth endpoint accepts a JSON object rather than a form. */",
   ]],
   ["src/worker/clouddrive/drivers/onedrive-app.ts", [
     "/**\n * OneDrive application-identity driver.\n *\n * An app-only token is requested with the `client_credentials` grant, so there is no user to refresh\n * and no `/me` endpoint: the drive belongs to a configured user (`/users/{email}/drive`) or is\n * addressed directly by id (`/drives/{driveId}`). Everything else is the shared OneDrive logic.\n */",

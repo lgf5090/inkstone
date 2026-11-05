@@ -151,15 +151,13 @@ function validateConfigPatch(row: StorageDriverRow, patch: Record<string, unknow
   }
 }
 
-/** Builds the driver for a storage row, or null when its type is not ported yet. */
-export async function createStorageDriver(
+/** Builds the context a driver receives, including the vault and the cross-mount resolver. */
+export async function createDriverContext(
   env: Env,
   row: StorageDriverRow,
   mount?: DriverMountContext,
   ancestors: readonly string[] = [],
-): Promise<MountDriver | null> {
-  const factory = driverFactory(row.type)
-  if (!factory) return null
+): Promise<DriverContext> {
   const credentials = await credentialsOf(env, row)
   const config = configOf(row)
   const chain = mount?.id ? [...ancestors, mount.id] : [...ancestors]
@@ -318,8 +316,20 @@ export async function createStorageDriver(
     reloadCredentials: reload,
   }
 
-  const context: DriverContext = primary
-  return row.type === 'r2' && String(config.mode ?? '').toLowerCase() === 'binding'
+  return primary
+}
+
+/** Builds the driver for a storage row, or null when its type is not ported yet. */
+export async function createStorageDriver(
+  env: Env,
+  row: StorageDriverRow,
+  mount?: DriverMountContext,
+  ancestors: readonly string[] = [],
+): Promise<MountDriver | null> {
+  const factory = driverFactory(row.type)
+  if (!factory) return null
+  const context = await createDriverContext(env, row, mount, ancestors)
+  return row.type === 'r2' && String(context.config.mode ?? '').toLowerCase() === 'binding'
     ? createR2BindingDriver(context)
     : factory(context)
 }

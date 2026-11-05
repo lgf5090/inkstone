@@ -19,6 +19,8 @@ export interface OAuthProvider {
   tokenParams?: Readonly<Record<string, string>>
   /** `body` posts client credentials as form fields; `basic` uses an Authorization header. */
   tokenAuth?: 'body' | 'basic'
+  /** Aliyun's open OAuth endpoint accepts a JSON object rather than a form. */
+  tokenJson?: boolean
   pkce?: boolean
   /** Some providers publish a application used by the reference implementation. */
   defaultClientId?: string
@@ -81,6 +83,7 @@ export const OAUTH_PROVIDERS: Readonly<Record<string, OAuthProvider>> = {
     tokenUrl: 'https://openapi.alipan.com/oauth/access_token',
     scopes: ['user:base', 'file:all:read', 'file:all:write'],
     tokenAuth: 'body',
+    tokenJson: true,
     defaultClientId: '25ab4837190e48718a28f80073574a4d',
   },
   baidu_netdisk: {
@@ -218,16 +221,20 @@ async function readTokenSet(response: Response): Promise<OAuthTokenSet> {
 }
 
 async function postToken(provider: OAuthProvider, form: URLSearchParams, headers: Record<string, string> = {}): Promise<OAuthTokenSet> {
+  const json = provider.tokenJson === true
+  const body = json
+    ? JSON.stringify(Object.fromEntries(form.entries()))
+    : form.toString()
   let response: Response
   try {
     response = await fetch(provider.tokenUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': json ? 'application/json' : 'application/x-www-form-urlencoded',
         Accept: 'application/json',
         ...headers,
       },
-      body: form.toString(),
+      body,
       signal: AbortSignal.timeout(20_000),
     })
   } catch (error) {
