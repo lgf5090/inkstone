@@ -6,10 +6,12 @@
  * family variant uses a separate family session. The access token is issued out of band, so this
  * driver never runs a refresh flow; a rejected token marks the storage for re-authorization instead.
  */
-import { createHmac, randomUUID } from 'node:crypto'
+import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
+import { cloudDriveNameProblem } from '@shared/clouddrive/model'
 import {
   DriverError,
+  asBytes,
   driverEntryMime,
   type DriverContext,
   type DriverEntry,
@@ -72,6 +74,27 @@ interface TvSession {
   familySessionKey?: string
   familySessionSecret?: string
   accessToken?: string
+}
+
+interface TvUploadSession {
+  uploadFileId?: number | string
+  fileUploadUrl?: string
+  fileCommitUrl?: string
+  fileDataExists?: number
+}
+
+interface TvBatchTask {
+  taskId?: number | string
+}
+
+interface TvBatchState {
+  taskStatus?: number
+}
+
+interface TvBatchInfo {
+  fileId: string
+  fileName: string
+  isFolder: number
 }
 
 interface TvPage {
@@ -219,18 +242,18 @@ class Tv189Driver extends HttpDriverBase implements MountDriver {
     return this.isFamily() ? FAMILY_API : API
   }
 
-  private sessionKey(): string {
-    return (this.isFamily() ? this.session?.familySessionKey : this.session?.sessionKey) ?? ''
+  private sessionKey(family = this.isFamily()): string {
+    return (family ? this.session?.familySessionKey : this.session?.sessionKey) ?? ''
   }
 
-  private sessionSecret(): string {
-    return (this.isFamily() ? this.session?.familySessionSecret : this.session?.sessionSecret) ?? ''
+  private sessionSecret(family = this.isFamily()): string {
+    return (family ? this.session?.familySessionSecret : this.session?.sessionSecret) ?? ''
   }
 
-  private sessionHeaders(url: string, method: string): Record<string, string> {
+  private sessionHeaders(url: string, method: string, family = this.isFamily()): Record<string, string> {
     const date = new Date().toUTCString()
-    const key = this.sessionKey()
-    const secret = this.sessionSecret()
+    const key = this.sessionKey(family)
+    const secret = this.sessionSecret(family)
     const data = `SessionKey=${key}&Operate=${method}&RequestURI=${new URL(url).pathname}&Date=${date}`
     return {
       Date: date,
@@ -254,7 +277,12 @@ class Tv189Driver extends HttpDriverBase implements MountDriver {
   private async api<T>(
     url: string,
     method: 'GET' | 'POST',
-    options: { query?: Record<string, string>; isFamily?: boolean; isAppKey?: boolean } = {},
+    options: {
+      query?: Record<string, string>
+      form?: Record<string, string>
+      isFamily?: boolean
+      isAppKey?: boolean
+    } = {},
   ): Promise<T> {
     const target = new URL(url)
     for (const [key, value] of Object.entries(clientSuffix())) target.searchParams.set(key, value)
@@ -265,9 +293,14 @@ class Tv189Driver extends HttpDriverBase implements MountDriver {
       'User-Agent': USER_AGENT,
       ...(options.isAppKey
         ? this.appKeyHeaders(url, method)
-        : this.sessionHeaders(url, method)),
+        : this.sessionHeaders(url, method, options.isFamily ?? this.isFamily())),
     }
-    const response = await this.request(target.toString(), { method, headers })
+    let body: string | undefined
+    if (options.form) {
+      headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
+      body = new URLSearchParams(options.form).toString()
+    }
+    const response = await this.request(target.toString(), { method, headers, body })
     const text = await response.text()
     if (/userSessionBO is null|InvalidSessionKey/i.test(text)) {
       throw DriverError.auth('189 TV reports that the session has expired')
@@ -450,24 +483,233 @@ class Tv189Driver extends HttpDriverBase implements MountDriver {
     })
   }
 
-  async upload(_path: string, _body: Uint8Array | ReadableStream, _options: DriverUploadOptions): Promise<void> {
-    throw DriverError.unsupported('This 189 TV mount is read-only')
+  private async createFolder(parentId: string, name: string): Promise<void> {
+    const query: Record<string, string> = { folderName: name, relativePath: '' }
+    if (this.isFamily()) {
+      query.familyId = this.familyId()
+      query.parentId = parentId
+    } else {
+      query.parentFolderId = parentId
+    }
+    await this.api(`${this.baseUrl()}/createFolder.action`, 'POST', { query, isFamily: this.isFamily() })
   }
 
-  async mkdir(_path: string): Promise<void> {
-    throw DriverError.unsupported('This 189 TV mount is read-only')
+  private async renameItem(item: TvItem, newName: string): Promise<void> {
+    const folder = isFolder(item)
+    const query: Record<string, string> = {}
+    if (this.isFamily()) query.familyId = this.familyId()
+    if (folder) {
+      query.folderId = item.id
+      query.destFolderName = newName
+    } else {
+      query.fileId = item.id
+      query.destFileName = newName
+    }
+    // The reference uses GET for family-cloud renames and POST for the personal cloud.
+    const method = this.isFamily() ? 'GET' : 'POST'
+    const suffix = folder ? '/renameFolder.action' : '/renameFile.action'
+    await this.api(`${this.baseUrl()}${suffix}`, method, { query, isFamily: this.isFamily() })
   }
 
-  async rename(_path: string, _newName: string): Promise<void> {
-    throw DriverError.unsupported('This 189 TV mount is read-only')
+  private async createBatchTask(type: string, targetFolderId: string, infos: TvBatchInfo[]): Promise<string> {
+    const form: Record<string, string> = { type, taskInfos: JSON.stringify(infos) }
+    if (targetFolderId) form.targetFolderId = targetFolderId
+    const familyId = this.isFamily() ? this.familyId() : ''
+    if (familyId) form.familyId = familyId
+    const payload = await this.api<TvBatchTask>(`${API}/batch/createBatchTask.action`, 'POST', {
+      form,
+      isFamily: familyId !== '',
+    })
+    const taskId = payload.taskId === undefined || payload.taskId === null ? '' : String(payload.taskId)
+    if (!taskId) throw DriverError.upstream('189 TV did not create the batch task')
+    return taskId
   }
 
-  async move(_fromPath: string, _toPath: string): Promise<void> {
-    throw DriverError.unsupported('This 189 TV mount is read-only')
+  private async waitBatchTask(type: string, taskId: string): Promise<void> {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      // The reference polls with the personal session key, even when the task ran in family mode.
+      const payload = await this.api<TvBatchState>(`${API}/batch/checkBatchTask.action`, 'POST', {
+        form: { type, taskId },
+        isFamily: false,
+      })
+      if (payload.taskStatus === 4) return
+      if (payload.taskStatus === 2) {
+        throw DriverError.upstream('189 TV refused the batch task: the target already has an item with the same name')
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
+    throw DriverError.upstream('189 TV batch task timed out')
   }
 
-  async remove(_path: string): Promise<void> {
-    throw DriverError.unsupported('This 189 TV mount is read-only')
+  private async runBatchTask(type: string, targetFolderId: string, info: TvBatchInfo): Promise<void> {
+    const taskId = await this.createBatchTask(type, targetFolderId, [info])
+    await this.waitBatchTask(type, taskId)
+  }
+
+  async upload(path: string, body: Uint8Array | ReadableStream, options: DriverUploadOptions): Promise<void> {
+    const clean = driverPath(path)
+    const name = driverFileName(clean)
+    if (!name) throw DriverError.invalid('A file name is required')
+    const bytes = await asBytes(body)
+    if (bytes.byteLength !== options.size) throw DriverError.invalid('The upload body does not match the declared size')
+    await this.withAuth(async () => {
+      const parentId = await this.pathToId(driverParentPath(clean))
+      const md5 = createHash('md5').update(bytes).digest('hex')
+      const fileSize = String(bytes.byteLength)
+      let create: TvUploadSession
+      if (this.isFamily()) {
+        create = await this.api<TvUploadSession>(`${FAMILY_API}/createFamilyFile.action`, 'POST', {
+          query: {
+            familyId: this.familyId(),
+            parentId,
+            fileMd5: md5,
+            fileName: name,
+            fileSize,
+            resumePolicy: '1',
+          },
+          isFamily: true,
+        })
+      } else {
+        create = await this.api<TvUploadSession>(`${API}/createUploadFile.action`, 'POST', {
+          form: {
+            parentFolderId: parentId,
+            fileName: name,
+            size: fileSize,
+            md5,
+            opertype: '3',
+            flag: '1',
+            resumePolicy: '1',
+            isLog: '0',
+          },
+          isFamily: false,
+        })
+      }
+      // A matched md5 means the service already holds the bytes: the session is complete without a PUT.
+      if (create.fileDataExists === 1) {
+        this.pathIds.clear()
+        options.onProgress?.(bytes.byteLength, bytes.byteLength)
+        return
+      }
+      const uploadFileId = create.uploadFileId === undefined || create.uploadFileId === null
+        ? ''
+        : String(create.uploadFileId)
+      const uploadUrl = create.fileUploadUrl ?? ''
+      const commitUrl = create.fileCommitUrl ?? ''
+      if (!uploadFileId || !uploadUrl || !commitUrl) {
+        throw DriverError.upstream('189 TV did not create an upload session')
+      }
+
+      const putHeaders: Record<string, string> = {
+        ResumePolicy: '1',
+        Expect: '100-continue',
+        'User-Agent': USER_AGENT,
+        ...this.sessionHeaders(uploadUrl, 'PUT', this.isFamily()),
+      }
+      if (this.isFamily()) {
+        putHeaders.FamilyId = this.familyId()
+        putHeaders.UploadFileId = uploadFileId
+      } else {
+        putHeaders['Edrive-UploadFileId'] = uploadFileId
+      }
+      const put = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: putHeaders,
+        body: bytes,
+        signal: AbortSignal.timeout(60_000),
+      })
+      if (put.status !== 200) {
+        await put.body?.cancel().catch(() => undefined)
+        throw DriverError.upstream(`189 TV rejected the upload (HTTP ${put.status})`)
+      }
+
+      if (this.isFamily()) {
+        await this.api(commitUrl, 'POST', {
+          query: { ResumePolicy: '1', UploadFileId: uploadFileId, FamilyId: this.familyId() },
+          isFamily: true,
+        })
+      } else {
+        await this.api(commitUrl, 'POST', {
+          form: { opertype: '3', resumePolicy: '1', uploadFileId, isLog: '0' },
+          isFamily: false,
+        })
+      }
+      this.pathIds.clear()
+      options.onProgress?.(bytes.byteLength, bytes.byteLength)
+    })
+  }
+
+  async mkdir(path: string): Promise<void> {
+    const clean = driverPath(path)
+    const name = driverFileName(clean)
+    if (!name) throw DriverError.invalid('A folder name is required')
+    await this.withAuth(async () => {
+      await this.createFolder(await this.pathToId(driverParentPath(clean)), name)
+      this.pathIds.clear()
+    })
+  }
+
+  async rename(path: string, newName: string): Promise<void> {
+    const clean = driverPath(path)
+    if (clean === '/') throw DriverError.invalid('The root cannot be renamed')
+    const problem = cloudDriveNameProblem(newName)
+    if (problem) throw DriverError.invalid(problem)
+    await this.withAuth(async () => {
+      await this.renameItem(await this.resolveItem(clean), newName)
+      this.pathIds.clear()
+    })
+  }
+
+  async move(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    if (from === '/') throw DriverError.invalid('The root cannot be moved')
+    const targetName = driverFileName(to)
+    if (!targetName) throw DriverError.invalid('A destination name is required')
+    await this.withAuth(async () => {
+      const entry = await this.resolveItem(from)
+      if (targetName !== entry.name) await this.renameItem(entry, targetName)
+      await this.runBatchTask('MOVE', await this.pathToId(driverParentPath(to)), {
+        fileId: entry.id,
+        fileName: targetName,
+        isFolder: isFolder(entry) ? 1 : 0,
+      })
+      this.pathIds.clear()
+    })
+  }
+
+  async copy(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    if (from === '/') throw DriverError.invalid('The root cannot be copied')
+    const targetName = driverFileName(to)
+    if (!targetName) throw DriverError.invalid('A destination name is required')
+    await this.withAuth(async () => {
+      const entry = await this.resolveItem(from)
+      await this.runBatchTask('COPY', await this.pathToId(driverParentPath(to)), {
+        fileId: entry.id,
+        fileName: entry.name,
+        isFolder: isFolder(entry) ? 1 : 0,
+      })
+      // The copy endpoint keeps the source name; a differing destination is renamed afterwards.
+      if (targetName !== entry.name) {
+        await this.renameItem(await this.resolveItem(to), targetName)
+      }
+      this.pathIds.clear()
+    })
+  }
+
+  async remove(path: string): Promise<void> {
+    const clean = driverPath(path)
+    if (clean === '/') throw DriverError.invalid('The root cannot be removed')
+    await this.withAuth(async () => {
+      const entry = await this.resolveItem(clean)
+      await this.runBatchTask('DELETE', '', {
+        fileId: entry.id,
+        fileName: entry.name,
+        isFolder: isFolder(entry) ? 1 : 0,
+      })
+      this.pathIds.clear()
+    })
   }
 
   async test(): Promise<{ ok: boolean; message: string }> {
