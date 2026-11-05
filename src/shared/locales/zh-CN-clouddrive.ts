@@ -139,8 +139,11 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.driver.field.chat_id': '会话 ID',
   'clouddrive.driver.field.drive_id': 'Drive ID',
   'clouddrive.driver.field.refresh_token': 'Refresh Token',
+  'clouddrive.driver.field.refresh_token_hint': '用于自动续期；授权后由回调写入，通常无需手填。',
   'clouddrive.driver.field.client_id': 'Client ID',
+  'clouddrive.driver.field.client_id_hint': '在服务商开放平台登记应用后获得；回调地址见上方提示。',
   'clouddrive.driver.field.client_secret': 'Client Secret',
+  'clouddrive.driver.field.root_path_hint': '挂载内看到的根目录，默认 /。',
   'clouddrive.driver.field.folder_id': '文件夹 ID',
 
   'clouddrive.driver.field.account_id': '账号 ID',
@@ -233,6 +236,15 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.driver.field.order_direction': '排序方向',
   'clouddrive.driver.field.r2_mode_auto': '自动（S3 API）',
   'clouddrive.driver.field.r2_mode_binding': 'R2 Binding（内部）',
+
+  'clouddrive.driver.oauth.title': 'OAuth 授权',
+  'clouddrive.driver.oauth.callback': '回调地址',
+  'clouddrive.driver.oauth.callback_hint': '请先在服务商后台登记这个回调地址（必须在授权发起前配置）。',
+  'clouddrive.driver.oauth.start': '开始授权',
+  'clouddrive.driver.oauth.authorize': '重新授权',
+  'clouddrive.driver.oauth.ok': '授权完成，凭据已写入。',
+  'clouddrive.driver.oauth.error': '授权未完成，请重试或检查客户端配置。',
+
   'clouddrive.driver.reason.telegram': 'Telegram Bot API 无法枚举历史消息，仅支持连接测试。',
   'clouddrive.driver.reason.cloudreve_v3': '参考实现不支持直传上传（put），其余目录操作可用。',
   'clouddrive.driver.reason.cloudreve_v4': '参考实现不支持直传上传（put），其余目录操作可用。',

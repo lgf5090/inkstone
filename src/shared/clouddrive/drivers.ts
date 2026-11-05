@@ -16,6 +16,23 @@ export const CLOUDDRIVE_DRIVER_CAPABILITIES = [
 ] as const
 export type CloudDriveDriverCapability = (typeof CLOUDDRIVE_DRIVER_CAPABILITIES)[number]
 
+/**
+ * The drivers that complete authorization through the shared OAuth callback. The list is duplicated
+ * from the worker provider table on purpose: the client only needs to know which buttons to show and
+ * which callback path to print, never a client secret or a token endpoint.
+ */
+export const CLOUDDRIVE_OAUTH_DRIVER_IDS = [
+  'onedrive', 'dropbox', 'google_drive', 'google_photo', 'yandex', 'aliyundrive_open', 'baidu_netdisk',
+] as const
+
+export function cloudDriveOAuthCallbackPath(driverId: string): string {
+  return `/api/clouddrive/oauth/${driverId}/callback`
+}
+
+export function isCloudDriveOAuthDriver(driverId: string): boolean {
+  return (CLOUDDRIVE_OAUTH_DRIVER_IDS as readonly string[]).includes(driverId)
+}
+
 export type CloudDriveDriverCapabilities = Readonly<Record<CloudDriveDriverCapability, boolean>>
 
 export const CLOUDDRIVE_DRIVER_FIELD_TYPES = ['text', 'password', 'url', 'number', 'boolean', 'select'] as const
@@ -453,6 +470,29 @@ const ALIAS_FIELDS = [
   field('orderDirection', 'text', 'config', { defaultValue: 'asc' }),
 ] as const
 
+const OAUTH_TOKEN_FIELDS = [
+  field('accessToken', 'password', 'credentials', {
+    secret: true,
+    hintKey: 'clouddrive.driver.field.access_token_hint',
+  }),
+  field('refreshToken', 'password', 'credentials', {
+    secret: true,
+    hintKey: 'clouddrive.driver.field.refresh_token_hint',
+  }),
+  field('clientId', 'text', 'credentials', { hintKey: 'clouddrive.driver.field.client_id_hint' }),
+  field('clientSecret', 'password', 'credentials', { secret: true }),
+] as const
+
+const DROPBOX_FIELDS = [
+  field('rootPath', 'text', 'config', { placeholder: '/', hintKey: 'clouddrive.driver.field.root_path_hint' }),
+  ...OAUTH_TOKEN_FIELDS,
+] as const
+
+const YANDEX_FIELDS = [
+  field('rootPath', 'text', 'config', { placeholder: '/', hintKey: 'clouddrive.driver.field.root_path_hint' }),
+  ...OAUTH_TOKEN_FIELDS,
+] as const
+
 export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: '115open', nameKey: 'clouddrive.driver.115open', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: '115_share', nameKey: 'clouddrive.driver.115_share', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
@@ -538,7 +578,12 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
     authAnyOf: [['token'], ['username', 'password']],
   },
   { id: 'degoo', nameKey: 'clouddrive.driver.degoo', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'dropbox', nameKey: 'clouddrive.driver.dropbox', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'dropbox', nameKey: 'clouddrive.driver.dropbox', group: 'international', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    fields: DROPBOX_FIELDS,
+    authAnyOf: [['refreshToken'], ['accessToken']],
+  },
   { id: 'febbox', nameKey: 'clouddrive.driver.febbox', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'google_photo', nameKey: 'clouddrive.driver.google_photo', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'halalcloud_open', nameKey: 'clouddrive.driver.halalcloud_open', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
@@ -553,7 +598,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'onedrive', nameKey: 'clouddrive.driver.onedrive', group: 'international', implemented: true, mountable: true,
-    capabilities: capabilities({ range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: ONEDRIVE_FIELDS,
     authAnyOf: [['refreshToken'], ['accessToken']],
   },
@@ -577,10 +622,15 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
     authAnyOf: [['accessToken']],
     noteKey: 'clouddrive.driver.reason.teldrive',
   },
-  { id: 'yandex', nameKey: 'clouddrive.driver.yandex', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'yandex', nameKey: 'clouddrive.driver.yandex', group: 'international', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    fields: YANDEX_FIELDS,
+    authAnyOf: [['refreshToken'], ['accessToken']],
+  },
   {
     id: 'google_drive', nameKey: 'clouddrive.driver.google_drive', group: 'international', implemented: true, mountable: true,
-    capabilities: capabilities({ range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: GOOGLE_DRIVE_FIELDS,
     authAnyOf: [['refreshToken'], ['accessToken']],
   },

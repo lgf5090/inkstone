@@ -11,9 +11,11 @@ import { useCloudDriveStore } from '../store'
 import { formatEntryDate } from '../files/format'
 import {
   CLOUDDRIVE_DRIVERS,
+  cloudDriveOAuthCallbackPath,
   driverCapabilityKey,
   driverCapabilityLabels,
   findCloudDriveDriver,
+  isCloudDriveOAuthDriver,
   type CloudDriveDriverDefinition,
   type CloudDriveDriverField,
 } from '@shared/clouddrive/drivers'
@@ -71,7 +73,7 @@ interface StorageForm {
 }
 
 const LEGACY_FORM_TYPES: ReadonlySet<string> = new Set([
-  's3', 'webdav', 'github', 'huggingface', 'discord', 'telegram', 'onedrive', 'googledrive',
+  's3', 'webdav', 'huggingface', 'discord', 'telegram',
 ])
 
 function schemaDefaults(definition: CloudDriveDriverDefinition | null): Record<string, string> {
@@ -364,6 +366,7 @@ export function StoragePage() {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Storage | null>(null)
   const [form, setForm] = useState<StorageForm>(blankForm())
+  const callbackOrigin = typeof window === 'undefined' ? '' : window.location.origin
 
   const load = async () => {
     setLoading(true)
@@ -377,6 +380,20 @@ export function StoragePage() {
     }
   }
   useEffect(() => { void load() }, [])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const result = params.get('oauth')
+    if (!result) return
+    toast({
+      title: result === 'ok' ? t('clouddrive.driver.oauth.ok') : t('clouddrive.driver.oauth.error'),
+      tone: result === 'ok' ? 'default' : 'danger',
+    })
+    params.delete('oauth')
+    params.delete('driver')
+    const search = params.toString()
+    window.history.replaceState(null, '', `${window.location.pathname}${search ? `?${search}` : ''}`)
+  }, [toast])
 
   const refreshAll = async () => {
     await load()
@@ -484,6 +501,15 @@ export function StoragePage() {
     }
   }
 
+  const authorize = async (storage: Storage) => {
+    try {
+      const result = await clouddriveApi.oauthStart(storage.type, storage.id)
+      window.location.assign(result.url)
+    } catch (error) {
+      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+    }
+  }
+
   const typeBadge = (storage: Storage) => {
     const provider = typeof storage.config.provider === 'string' ? storage.config.provider : ''
     return provider && storage.type === 's3' ? `${storageTypeLabel(storage.type)} · ${storageProviderLabel(provider)}` : storageTypeLabel(storage.type)
@@ -579,6 +605,11 @@ export function StoragePage() {
                 </dl>
                 <div className="mt-auto flex flex-wrap gap-1 pt-2">
                   <Button size="sm" variant="ghost" onClick={() => void test(storage)}>{t('clouddrive.admin.test')}</Button>
+                  {isCloudDriveOAuthDriver(storage.type) && (
+                    <Button size="sm" variant="ghost" onClick={() => void authorize(storage)}>
+                      {storage.lastTestStatus === 'reauth' ? t('clouddrive.driver.oauth.authorize') : t('clouddrive.driver.oauth.start')}
+                    </Button>
+                  )}
                   <Button size="sm" variant="ghost" icon={<Pencil size={13} />} onClick={() => openEdit(storage)}>{t('clouddrive.admin.edit')}</Button>
                   {!storage.isDefault && <Button size="sm" variant="ghost" icon={<Star size={13} />} onClick={() => void setDefault(storage)}>{t('clouddrive.storage.set_default')}</Button>}
                   <Button size="sm" variant="ghost" onClick={() => void toggleStatus(storage)}>{storage.status === 'enabled' ? t('clouddrive.admin.disable') : t('clouddrive.admin.enable')}</Button>
@@ -697,22 +728,18 @@ export function StoragePage() {
             </>
           )}
 
-          {(form.type === 'github' || form.type === 'huggingface') && (
+          {(form.type === 'huggingface') && (
             <>
               <Field label={t('clouddrive.storage.repo')} required><Input value={form.repo} onChange={(event) => set({ repo: event.target.value })} placeholder={t('clouddrive.storage.repo_placeholder')} /></Field>
-              {form.type === 'github' ? (
-                <Field label={t('clouddrive.storage.branch')}><Input value={form.branch} onChange={(event) => set({ branch: event.target.value })} placeholder="main" /></Field>
-              ) : (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Field label={t('clouddrive.storage.repo_type')}>
-                    <Select value={form.repoType} onChange={(event) => set({ repoType: event.target.value === 'dataset' ? 'dataset' : 'model' })}>
-                      <option value="model">{t('clouddrive.storage.repo_type_model')}</option>
-                      <option value="dataset">{t('clouddrive.storage.repo_type_dataset')}</option>
-                    </Select>
-                  </Field>
-                  <Field label={t('clouddrive.storage.revision')}><Input value={form.revision} onChange={(event) => set({ revision: event.target.value })} placeholder="main" /></Field>
-                </div>
-              )}
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Field label={t('clouddrive.storage.repo_type')}>
+                  <Select value={form.repoType} onChange={(event) => set({ repoType: event.target.value === 'dataset' ? 'dataset' : 'model' })}>
+                    <option value="model">{t('clouddrive.storage.repo_type_model')}</option>
+                    <option value="dataset">{t('clouddrive.storage.repo_type_dataset')}</option>
+                  </Select>
+                </Field>
+                <Field label={t('clouddrive.storage.revision')}><Input value={form.revision} onChange={(event) => set({ revision: event.target.value })} placeholder="main" /></Field>
+              </div>
               <Field label={t('clouddrive.storage.root_path')}><Input value={form.rootPath} onChange={(event) => set({ rootPath: event.target.value })} placeholder={t('clouddrive.storage.root_path_placeholder')} /></Field>
               <Field label={t('clouddrive.storage.token')}><Input type="password" value={form.token} onChange={(event) => set({ token: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>
             </>
@@ -727,27 +754,21 @@ export function StoragePage() {
             </>
           )}
 
-          {(form.type === 'onedrive' || form.type === 'googledrive') && (
-            <>
-              {form.type === 'onedrive'
-                ? <Field label={t('clouddrive.storage.drive_id')}><Input value={form.driveId} onChange={(event) => set({ driveId: event.target.value })} /></Field>
-                : <Field label={t('clouddrive.storage.folder_id')}><Input value={form.folderId} onChange={(event) => set({ folderId: event.target.value })} placeholder="root" /></Field>}
-              <Field label={t('clouddrive.storage.root_path')}><Input value={form.rootPath} onChange={(event) => set({ rootPath: event.target.value })} placeholder={t('clouddrive.storage.root_path_placeholder')} /></Field>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Field label={t('clouddrive.storage.token')}><Input type="password" value={form.token} onChange={(event) => set({ token: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>
-                <Field label={t('clouddrive.storage.refresh_token')}><Input type="password" value={form.refreshToken} onChange={(event) => set({ refreshToken: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>
-                <Field label={t('clouddrive.storage.client_id')}><Input value={form.clientId} onChange={(event) => set({ clientId: event.target.value })} /></Field>
-                <Field label={t('clouddrive.storage.client_secret')}><Input type="password" value={form.clientSecret} onChange={(event) => set({ clientSecret: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>
-              </div>
-            </>
-          )}
-
           {(() => {
             const definition = findCloudDriveDriver(form.type)
             if (!definition || LEGACY_FORM_TYPES.has(form.type)) return null
             return (
               <>
                 <p className="pt-1 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('clouddrive.driver.form_title')}</p>
+                {isCloudDriveOAuthDriver(form.type) && (
+                  <div className="space-y-1 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2.5">
+                    <p className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('clouddrive.driver.oauth.title')}</p>
+                    <p className="break-all text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                      {t('clouddrive.driver.oauth.callback')}: <code className="text-[var(--text-secondary)]">{callbackOrigin}{cloudDriveOAuthCallbackPath(form.type)}</code>
+                    </p>
+                    <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.driver.oauth.callback_hint')}</p>
+                  </div>
+                )}
                 {definition.fields.map((field) => (
                   <DriverFieldInput
                     key={field.key}

@@ -139,8 +139,11 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.driver.field.chat_id': 'Chat id',
   'clouddrive.driver.field.drive_id': 'Drive id',
   'clouddrive.driver.field.refresh_token': 'Refresh token',
+  'clouddrive.driver.field.refresh_token_hint': 'Used for automatic renewal; the OAuth callback writes it, so it rarely needs a manual value.',
   'clouddrive.driver.field.client_id': 'Client id',
+  'clouddrive.driver.field.client_id_hint': 'Issued by the provider once an application is registered; the callback address is shown above.',
   'clouddrive.driver.field.client_secret': 'Client secret',
+  'clouddrive.driver.field.root_path_hint': 'The root the mount exposes; / by default.',
   'clouddrive.driver.field.folder_id': 'Folder id',
 
   'clouddrive.driver.field.account_id': 'Account id',
@@ -233,6 +236,15 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.driver.field.order_direction': 'Order direction',
   'clouddrive.driver.field.r2_mode_auto': 'Automatic (S3 API)',
   'clouddrive.driver.field.r2_mode_binding': 'R2 binding (internal)',
+
+  'clouddrive.driver.oauth.title': 'OAuth authorization',
+  'clouddrive.driver.oauth.callback': 'Callback address',
+  'clouddrive.driver.oauth.callback_hint': 'Register this callback with the provider before starting authorization.',
+  'clouddrive.driver.oauth.start': 'Authorize',
+  'clouddrive.driver.oauth.authorize': 'Re-authorize',
+  'clouddrive.driver.oauth.ok': 'Authorization completed; the credentials were saved.',
+  'clouddrive.driver.oauth.error': 'Authorization did not complete; retry or check the client configuration.',
+
   'clouddrive.driver.reason.telegram': 'Telegram Bot API cannot list chat history; this mount is connection-only.',
   'clouddrive.driver.reason.cloudreve_v3': 'The reference implementation has no direct put; all other folder operations are available.',
   'clouddrive.driver.reason.cloudreve_v4': 'The reference implementation has no direct put; all other folder operations are available.',

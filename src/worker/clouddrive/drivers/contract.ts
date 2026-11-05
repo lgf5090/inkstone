@@ -83,6 +83,19 @@ export interface ResolvedMount {
   driver: MountDriver
 }
 
+/**
+ * The compare-and-swap contract for rotating credentials.
+ *
+ * `expect` carries the values this request observed before it refreshed. The vault only writes when
+ * the stored row still matches, so two requests that both refreshed cannot let the slower one
+ * overwrite the token the faster one just persisted. The returned map is the credential set that is
+ * effective after the write attempt; a caller that lost the race receives the winner's values.
+ */
+export interface SaveCredentialsOptions {
+  expect?: Record<string, string>
+}
+
+
 export interface DriverContext {
   userId: string
   storageId: string
@@ -90,7 +103,7 @@ export interface DriverContext {
   config: Record<string, unknown>
   credentials: Record<string, string>
   /** Persists a rotated token or cookie; the caller re-encrypts it in the vault. */
-  saveCredentials: (patch: Record<string, string>) => Promise<void>
+  saveCredentials: (patch: Record<string, string>, options?: SaveCredentialsOptions) => Promise<Record<string, string>>
   /** Marks the storage as needing the owner's attention instead of retrying forever. */
   markNeedsReauth: (message: string) => Promise<void>
   /** Seconds a direct link stays valid, taken from the mount's `signExpires`. */
@@ -104,6 +117,17 @@ export interface DriverContext {
   /** The mount this driver instance is serving, when the caller knows it. */
   mountId?: string
   mountPath?: string
+  /**
+   * A cross-request lease so concurrent refreshes of one storage hit the token endpoint once. The
+   * factory backs it with a D1 compare-and-swap on the row version; a hand-built context in a test
+   * may omit it, in which case the in-process single flight still applies.
+   */
+  refreshLock?: {
+    claim: () => Promise<boolean>
+    release: () => Promise<void>
+  }
+  /** Re-reads the newest vault snapshot after another request won the lease. */
+  reloadCredentials?: () => Promise<Record<string, string>>
 }
 
 export interface MountDriver {

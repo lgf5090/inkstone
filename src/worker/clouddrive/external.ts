@@ -433,7 +433,7 @@ function mimeFor(name: string): string {
 
 async function storageFor(db: D1Database, mountId: string, storageId: string): Promise<StorageRow | null> {
   return await db.prepare(
-    `SELECT s.id, s.user_id, s.type, s.config, s.credentials
+    `SELECT s.id, s.user_id, s.type, s.config, s.credentials, s.updated_at
        FROM CloudDrive_storages s
        JOIN CloudDrive_mounts m ON m.user_id = s.user_id AND m.storage_id = s.id
       WHERE s.id = ?1 AND m.id = ?2 LIMIT 1`,
