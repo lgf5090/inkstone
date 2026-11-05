@@ -72,10 +72,12 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
   },
   article: { showLastUpdated: true, lastUpdatedDays: 90, relatedCount: 3, randomCount: 2, share: true },
   comment: { provider: 'local' },
-  // A fresh site still shows the music entrance: `local` with no tracks renders the configuration
-  // note instead of hiding the feature. A stored provider — including an explicit `none` — wins.
+  // The owner's R2 library is the default source: no hand-written track list, and an empty library
+  // still renders the entrance with its empty note. A stored provider — including `none` or a
+  // hand-written `local` list — wins.
   music: {
-    provider: 'local',
+    provider: 'library',
+    libraryScope: 'all',
     tracks: [],
     meting: { server: 'netease', type: 'playlist', id: '', api: '' },
     defaultVolume: 0.7,
@@ -184,7 +186,7 @@ function publicProfileLinks(value: unknown): BlogSitePublic['profile']['links'] 
 const FAB_ITEMS = new Set(['home', 'toc', 'comment', 'top'])
 const COMMENT_PROVIDERS = new Set(['none', 'local', 'twikoo', 'giscus', 'waline'])
 const CONTEXT_ACTIONS = ['copySelection', 'copyLink', 'openImage', 'copyImage', 'backToTop']
-const MUSIC_PROVIDERS = new Set(['none', 'local', 'meting', 'custom', 'mixed'])
+const MUSIC_PROVIDERS = new Set(['none', 'local', 'meting', 'custom', 'mixed', 'library'])
 const METING_SERVERS = new Set(['netease', 'tencent', 'kugou', 'xiami', 'baidu'])
 const METING_TYPES = new Set(['playlist', 'song', 'album', 'artist'])
 const PLAYBACK_MODES = new Set(['sequence', 'repeat-one', 'shuffle'])
@@ -247,8 +249,30 @@ function publicMusic(value: unknown): BlogMusicConfig {
   const mode = typeof raw.defaultMode === 'string' && PLAYBACK_MODES.has(raw.defaultMode)
     ? raw.defaultMode as BlogMusicConfig['defaultMode']
     : 'sequence'
-  const enabled = provider !== 'none' && (tracks.length > 0 || Boolean(meting))
-  return { enabled, provider, tracks, ...(meting ? { meting } : {}), defaultVolume: volume, defaultMode: mode }
+  const libraryScope = raw.libraryScope === 'playlist' ? 'playlist' as const : 'all' as const
+  const libraryPlaylistId = typeof raw.libraryPlaylistId === 'string' ? raw.libraryPlaylistId.trim().slice(0, 120) : ''
+  const libraryPlaylistName = typeof raw.libraryPlaylistName === 'string' ? raw.libraryPlaylistName.trim().slice(0, 200) : ''
+  // The owner library is resolved after this pure projection: its tracks live in D1 and its bytes in
+  // R2, neither of which this function may read. `enabled` starts false and the resolver flips it
+  // when at least one playable track survives.
+  const enabled = provider === 'none' || provider === 'library'
+    ? false
+    : tracks.length > 0 || Boolean(meting)
+  return {
+    enabled,
+    provider,
+    tracks,
+    ...(meting ? { meting } : {}),
+    ...(provider === 'library'
+      ? {
+          libraryScope,
+          ...(libraryScope === 'playlist' && libraryPlaylistId ? { libraryPlaylistId } : {}),
+          ...(libraryPlaylistName ? { libraryPlaylistName } : {}),
+        }
+      : {}),
+    defaultVolume: volume,
+    defaultMode: mode,
+  }
 }
 
 export function publicBlogSite(

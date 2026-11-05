@@ -8,7 +8,11 @@ import { publicBlogSite } from '@shared/blog/settings'
 import { normalizeLinkUrl } from '@shared/nav/model'
 import type { BlogPostDetail } from '@shared/blog/model'
 import { verifyPassword } from '../lib/password'
+import { MusicStore } from '../music/store'
+import { MUSIC_COVER_CACHE_CONTROL, readMusicObjectStream } from '../music/storage'
+import { serveMusicStream } from '../music/stream'
 import { requireBlogProxy } from './guard'
+import { resolvePublicBlogMusic, verifyBlogMediaToken } from './music-library'
 import {
   clearUnlockAttempts,
   guardUnlockAttempt,
@@ -79,7 +83,7 @@ blogPublicRoutes.get('/site', async (c) => {
     loadBlogSettings(c.env.DB, userId),
     blogCounts(c.env.DB, userId),
   ])
-  return c.json(publicSite(settings, counts), 200, {
+  return c.json(await resolvePublicBlogMusic(c.env, c.env.DB, userId, publicSite(settings, counts)), 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })
 })
@@ -145,7 +149,7 @@ blogPublicRoutes.get('/feeds', async (c) => {
   const { rows } = await listPublishedPostsFiltered(c.env.DB, userId, { page: 1, limit: 100 })
   const tags = await listPostTags(c.env.DB, userId, rows.map((row) => row.id))
   return c.json({
-    site: publicSite(settings, counts),
+    site: await resolvePublicBlogMusic(c.env, c.env.DB, userId, publicSite(settings, counts)),
     posts: rows.map((row) => toBlogSummary(row, tags.get(row.id) ?? [])),
   }, 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
@@ -603,6 +607,61 @@ blogPublicRoutes.get('/friends/qr', async (c) => {
       'content-type': 'image/svg+xml; charset=utf-8',
       'cache-control': 'public, max-age=300',
       'x-content-type-options': 'nosniff',
+    },
+  })
+})
+
+const MUSIC_COVER_MIME: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+}
+
+async function publicMusicTrack(c: Context<AppBindings>, kind: 'audio' | 'cover') {
+  const userId = await ownerId(c)
+  const trackId = c.req.param('trackId') ?? ''
+  if (!trackId || !(await verifyBlogMediaToken(c.env, kind, userId, trackId, c.req.query('t')))) {
+    throw ApiError.forbidden('The music link is invalid or has expired')
+  }
+  const track = await new MusicStore(c.env.DB, userId).getTrack(trackId)
+  if (!track || !track.r2Key) throw ApiError.notFound('Track not found')
+  return track
+}
+
+/**
+ * The owner's audio, read through a short-lived token instead of an R2 key.
+ *
+ * `serveMusicStream` keeps its Range/ETag handling, so the browser seeks normally; the response stays
+ * private because the token is per-track rather than a public object address.
+ */
+blogPublicRoutes.get('/music/audio/:trackId', async (c) => {
+  const track = await publicMusicTrack(c, 'audio')
+  return serveMusicStream(c.env, track, c.req.raw)
+})
+
+/** A cover image behind the same token; an uploaded cover is the only image read from R2 here. */
+blogPublicRoutes.get('/music/cover/:trackId', async (c) => {
+  const track = await publicMusicTrack(c, 'cover')
+  if (!track.coverKey) throw ApiError.notFound('This track has no stored cover')
+  const object = await readMusicObjectStream(c.env, track.coverKey)
+  if (!object) throw ApiError.notFound('This track cover is no longer stored')
+  const extension = track.coverKey.split('.').pop()?.toLowerCase() ?? ''
+  const etag = object.etag
+  if (etag && c.req.header('if-none-match')?.split(',').some((tag) => tag.trim() === etag)) {
+    return c.body(null, 304, { ETag: etag })
+  }
+  return new Response(object.body, {
+    status: 200,
+    headers: {
+      'Content-Type': object.contentType ?? MUSIC_COVER_MIME[extension] ?? 'application/octet-stream',
+      'Content-Disposition': 'inline',
+      'Cache-Control': MUSIC_COVER_CACHE_CONTROL,
+      'X-Content-Type-Options': 'nosniff',
+      ...(etag ? { ETag: etag } : {}),
+      ...(object.size === null ? {} : { 'Content-Length': String(object.size) }),
     },
   })
 })

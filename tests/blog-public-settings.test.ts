@@ -58,11 +58,12 @@ describe('the public site projection exposes the settings the frontend renders',
     expect(site.llms).toEqual({ enable: false, excludeTags: ['secret', 'private'] })
   })
 
-  it('defaults a fresh music setting to the visible local provider while stored choices win', () => {
+  it('defaults a fresh music setting to the visible owner library while stored choices win', () => {
     const fresh = mergeBlogSettings([])
-    expect(fresh.music.provider).toBe('local')
+    expect(fresh.music.provider).toBe('library')
     expect(publicBlogSite(fresh, counts).integrations.music).toMatchObject({
-      provider: 'local',
+      provider: 'library',
+      libraryScope: 'all',
       enabled: false,
       tracks: [],
     })
@@ -71,7 +72,7 @@ describe('the public site projection exposes the settings the frontend renders',
     expect(explicitNone.music.provider).toBe('none')
 
     const partial = mergeBlogSettings([{ key: 'music', value: JSON.stringify({ tracks: [] }) }])
-    expect(partial.music.provider).toBe('local')
+    expect(partial.music.provider).toBe('library')
   })
 
   it('migrates the legacy native comment provider from none to local', () => {

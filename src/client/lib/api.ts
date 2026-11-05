@@ -46,6 +46,7 @@ import type {
   BlogDashboard,
   BlogHealth,
   BlogMediaItem,
+  BlogMusicLibrarySummary,
   BlogPageItem,
   BlogPostAdminDetail,
   BlogPostAdminItem,
@@ -978,6 +979,7 @@ export const api = {
       patch: (key: BlogSettingKey, value: unknown) =>
         request<BlogSettings>('/api/blog/admin/settings', { method: 'PATCH', body: { key, value } }),
     },
+    musicLibrary: () => request<BlogMusicLibrarySummary>('/api/blog/admin/music/library'),
     comments: {
       list: (params: { status?: string; q?: string; postId?: string; page?: number; limit?: number } = {}) =>
         request<{ items: AdminBlogComment[]; total: number; counts: Record<BlogCommentStatus, number> }>(
