@@ -13,7 +13,7 @@ const DEFAULT_TIMEOUT_MS = 20_000
 const DEFAULT_RETRIES = 2
 
 export interface HttpOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   headers?: Record<string, string>
   body?: BodyInit
   timeoutMs?: number
@@ -38,10 +38,16 @@ async function errorFromResponse(response: Response): Promise<DriverError> {
   const text = await response.text().catch(() => '')
   let message = ''
   try {
-    const parsed = JSON.parse(text) as { message?: unknown; msg?: unknown; error?: unknown }
+    // IPFS answers with a capitalised `Message`; the other APIs use the lower-case spellings.
+    const parsed = JSON.parse(text) as { message?: unknown; msg?: unknown; error?: unknown; Message?: unknown }
     if (typeof parsed.message === 'string') message = parsed.message
     else if (typeof parsed.msg === 'string') message = parsed.msg
     else if (typeof parsed.error === 'string') message = parsed.error
+    else if (parsed.error && typeof parsed.error === 'object') {
+      const nested = parsed.error as { message?: unknown; msg?: unknown }
+      if (typeof nested.message === 'string') message = nested.message
+      else if (typeof nested.msg === 'string') message = nested.msg
+    } else if (typeof parsed.Message === 'string') message = parsed.Message
   } catch {
     message = text.slice(0, 200)
   }

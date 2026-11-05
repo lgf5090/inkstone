@@ -184,6 +184,191 @@ const PAN123_FIELDS = [
   }),
 ] as const
 
+/** Batch A schemas. Secrets live in the credential vault, never in `config`. */
+const R2_FIELDS = [
+  field('accountId', 'text', 'config', { required: true, hintKey: 'clouddrive.driver.field.account_id_hint' }),
+  field('bucket', 'text', 'config', { required: true }),
+  field('endpoint', 'url', 'config', { placeholder: 'https://<account>.r2.cloudflarestorage.com' }),
+  field('region', 'text', 'config', { defaultValue: 'auto' }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+  field('accessKeyId', 'text', 'credentials', { required: true }),
+  field('secretAccessKey', 'password', 'credentials', { secret: true, required: true }),
+  field('sessionToken', 'password', 'credentials', { secret: true }),
+] as const
+
+const AZURE_BLOB_FIELDS = [
+  field('endpoint', 'url', 'config', { required: true, placeholder: 'https://account.blob.core.windows.net' }),
+  field('accessKey', 'password', 'credentials', { secret: true, required: true }),
+  field('containerName', 'text', 'config', { required: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const USS_FIELDS = [
+  field('bucket', 'text', 'config', { required: true }),
+  field('endpoint', 'url', 'config', { defaultValue: 'https://v0.api.upyun.com' }),
+  field('operatorName', 'text', 'config', { required: true }),
+  field('operatorPassword', 'password', 'credentials', { secret: true, required: true }),
+  field('antiTheftChainToken', 'password', 'credentials', { secret: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const BUNNY_FIELDS = [
+  field('storageZoneName', 'text', 'config', { required: true }),
+  field('accessKey', 'password', 'credentials', { secret: true, required: true }),
+  field('endpoint', 'url', 'config', { defaultValue: 'https://storage.bunnycdn.com' }),
+  field('cdnBaseUrl', 'url', 'config'),
+  field('cdnTokenKey', 'password', 'credentials', { secret: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const SEAFILE_FIELDS = [
+  field('address', 'url', 'config', { required: true }),
+  field('username', 'text', 'config'),
+  field('password', 'password', 'credentials', { secret: true }),
+  field('token', 'password', 'credentials', { secret: true }),
+  field('repoId', 'text', 'config'),
+  field('repoPwd', 'password', 'credentials', { secret: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const CLOUDREVE_FIELDS = [
+  field('address', 'url', 'config', { required: true }),
+  field('username', 'text', 'config'),
+  field('password', 'password', 'credentials', { secret: true }),
+  field('token', 'password', 'credentials', { secret: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const KODBOX_FIELDS = [
+  field('address', 'url', 'config', { required: true }),
+  field('username', 'text', 'config'),
+  field('password', 'password', 'credentials', { secret: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const ALIST_FIELDS = [
+  field('url', 'url', 'config', { required: true }),
+  field('username', 'text', 'config'),
+  field('password', 'password', 'credentials', { secret: true }),
+  field('token', 'password', 'credentials', { secret: true }),
+  field('metaPassword', 'password', 'credentials', { secret: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const OPENLIST_FIELDS = [
+  field('url', 'url', 'config', { required: true }),
+  field('username', 'text', 'config'),
+  field('password', 'password', 'credentials', { secret: true }),
+  field('token', 'password', 'credentials', { secret: true }),
+  field('metaPassword', 'password', 'credentials', { secret: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const OPENLIST_SHARE_FIELDS = [
+  field('url', 'url', 'config', { required: true }),
+  field('sid', 'text', 'config', { required: true }),
+  field('pwd', 'password', 'credentials', { secret: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const TELDRIVE_FIELDS = [
+  field('url', 'url', 'config', { required: true }),
+  field('accessToken', 'password', 'credentials', { secret: true, required: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const MISSKEY_FIELDS = [
+  field('endpoint', 'url', 'config', { required: true }),
+  field('accessToken', 'password', 'credentials', { secret: true, required: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+] as const
+
+const EMBY_FIELDS = [
+  field('url', 'url', 'config', { required: true }),
+  field('apiKey', 'password', 'credentials', { secret: true }),
+  field('userId', 'text', 'config', { hintKey: 'clouddrive.driver.field.user_id_hint' }),
+  field('username', 'text', 'config'),
+  field('password', 'password', 'credentials', { secret: true }),
+  field('linkMethod', 'select', 'config', {
+    defaultValue: 'stream',
+    options: [
+      { value: 'stream', labelKey: 'clouddrive.driver.field.link_method_stream' },
+      { value: 'download', labelKey: 'clouddrive.driver.field.link_method_download' },
+    ],
+  }),
+  field('rootFolderId', 'text', 'config', { defaultValue: '1' }),
+] as const
+
+const IPFS_FIELDS = [
+  field('endpoint', 'url', 'config', { required: true, placeholder: 'http://127.0.0.1:5001' }),
+  field('mode', 'select', 'config', {
+    defaultValue: 'ipfs',
+    options: [
+      { value: 'ipfs', labelKey: 'clouddrive.driver.field.mode_ipfs' },
+      { value: 'ipns', labelKey: 'clouddrive.driver.field.mode_ipns' },
+      { value: 'mfs', labelKey: 'clouddrive.driver.field.mode_mfs' },
+    ],
+  }),
+  field('gateway', 'url', 'config', { placeholder: 'https://ipfs.example.com' }),
+  field('rootPath', 'text', 'config'),
+] as const
+
+const CNB_FIELDS = [
+  field('repo', 'text', 'config', { required: true, placeholder: 'org/repo' }),
+  field('token', 'password', 'credentials', { secret: true, required: true }),
+  field('useTagName', 'boolean', 'config', { defaultValue: false }),
+  field('defaultBranch', 'text', 'config', { defaultValue: 'main' }),
+] as const
+
+const GITHUB_RELEASES_FIELDS = [
+  field('repoStructure', 'text', 'config', { required: true, placeholder: 'releases:owner/name' }),
+  field('token', 'password', 'credentials', { secret: true }),
+  field('rootPath', 'text', 'config', { placeholder: '/' }),
+  field('showReadme', 'boolean', 'config', { defaultValue: true }),
+  field('showSourceCode', 'boolean', 'config', { defaultValue: false }),
+  field('showAllVersion', 'boolean', 'config', { defaultValue: false }),
+  field('perPage', 'number', 'config', { defaultValue: 30 }),
+  field('maxPage', 'number', 'config', { defaultValue: 0 }),
+  field('ghProxy', 'url', 'config'),
+] as const
+
+const LENOVO_FIELDS = [
+  field('shareId', 'text', 'config', { required: true }),
+  field('sharePwd', 'password', 'credentials', { secret: true, required: true }),
+  field('host', 'url', 'config'),
+  field('rootPath', 'text', 'config'),
+] as const
+
+const SHARELINK_FIELDS = [
+  field('url', 'url', 'config', { required: true }),
+  field('password', 'password', 'credentials', { secret: true }),
+  field('rootPath', 'text', 'config'),
+] as const
+
+const AUTOINDEX_FIELDS = [
+  field('url', 'url', 'config', { required: true }),
+  field('rootPath', 'text', 'config'),
+  field('itemXpath', 'text', 'config'),
+  field('nameXpath', 'text', 'config'),
+  field('sizeXpath', 'text', 'config'),
+  field('modifiedXpath', 'text', 'config'),
+] as const
+
+const VIRTUAL_FIELDS = [
+  field('numFile', 'number', 'config', { defaultValue: 100 }),
+  field('numFolder', 'number', 'config', { defaultValue: 10 }),
+  field('minFileSize', 'number', 'config', { defaultValue: 0 }),
+  field('maxFileSize', 'number', 'config', { defaultValue: 1_048_576 }),
+  field('rootPath', 'text', 'config'),
+] as const
+
+const URL_TREE_FIELDS = [
+  field('urlStructure', 'text', 'config', { required: true }),
+  field('writable', 'boolean', 'config', { defaultValue: false }),
+  field('headSize', 'boolean', 'config', { defaultValue: false }),
+  field('rootPath', 'text', 'config'),
+] as const
+
 export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: '115open', nameKey: 'clouddrive.driver.115open', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: '115_share', nameKey: 'clouddrive.driver.115_share', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
@@ -205,19 +390,48 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: 'baidu_netdisk', nameKey: 'clouddrive.driver.baidu_netdisk', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'baidu_photo', nameKey: 'clouddrive.driver.baidu_photo', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'chaoxing', nameKey: 'clouddrive.driver.chaoxing', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'cloudreve_v3', nameKey: 'clouddrive.driver.cloudreve_v3', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'cloudreve_v4', nameKey: 'clouddrive.driver.cloudreve_v4', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'cloudreve_v3', nameKey: 'clouddrive.driver.cloudreve_v3', group: 'china', implemented: true, mountable: true,
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
+    fields: CLOUDREVE_FIELDS,
+    authAnyOf: [['token'], ['username', 'password']],
+  },
+  {
+    id: 'cloudreve_v4', nameKey: 'clouddrive.driver.cloudreve_v4', group: 'china', implemented: true, mountable: true,
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
+    fields: CLOUDREVE_FIELDS,
+    authAnyOf: [['token'], ['username', 'password']],
+  },
   { id: 'ctfile', nameKey: 'clouddrive.driver.ctfile', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'doubao', nameKey: 'clouddrive.driver.doubao', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'guangyapan', nameKey: 'clouddrive.driver.guangyapan', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'kodbox', nameKey: 'clouddrive.driver.kodbox', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'kodbox', nameKey: 'clouddrive.driver.kodbox', group: 'china', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
+    fields: KODBOX_FIELDS,
+    authAnyOf: [['username', 'password']],
+  },
   { id: 'lanzou', nameKey: 'clouddrive.driver.lanzou', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'lenovonas_share', nameKey: 'clouddrive.driver.lenovonas_share', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'lenovonas_share', nameKey: 'clouddrive.driver.lenovonas_share', group: 'china', implemented: true, mountable: true,
+    capabilities: capabilities({ range: true }),
+    fields: LENOVO_FIELDS,
+    authAnyOf: [['shareId', 'sharePwd']],
+  },
   { id: 'mediatrack', nameKey: 'clouddrive.driver.mediatrack', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'mopan', nameKey: 'clouddrive.driver.mopan', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'netease_music', nameKey: 'clouddrive.driver.netease_music', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'openlist', nameKey: 'clouddrive.driver.openlist', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'openlist_share', nameKey: 'clouddrive.driver.openlist_share', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'openlist', nameKey: 'clouddrive.driver.openlist', group: 'china', implemented: true, mountable: true,
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    fields: OPENLIST_FIELDS,
+    authAnyOf: [['token'], ['username', 'password']],
+  },
+  {
+    id: 'openlist_share', nameKey: 'clouddrive.driver.openlist_share', group: 'china', implemented: true, mountable: true,
+    capabilities: capabilities({ directLink: true, range: true }),
+    fields: OPENLIST_SHARE_FIELDS,
+  },
   { id: 'pikpak', nameKey: 'clouddrive.driver.pikpak', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'pikpak_share', nameKey: 'clouddrive.driver.pikpak_share', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'quark', nameKey: 'clouddrive.driver.quark', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
@@ -230,7 +444,12 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: 'wopan', nameKey: 'clouddrive.driver.wopan', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'wps', nameKey: 'clouddrive.driver.wps', group: 'china', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
 
-  { id: 'alist_v3', nameKey: 'clouddrive.driver.alist_v3', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'alist_v3', nameKey: 'clouddrive.driver.alist_v3', group: 'international', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    fields: ALIST_FIELDS,
+    authAnyOf: [['token'], ['username', 'password']],
+  },
   { id: 'degoo', nameKey: 'clouddrive.driver.degoo', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'dropbox', nameKey: 'clouddrive.driver.dropbox', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'febbox', nameKey: 'clouddrive.driver.febbox', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
@@ -238,7 +457,12 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: 'halalcloud_open', nameKey: 'clouddrive.driver.halalcloud_open', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'mediafire', nameKey: 'clouddrive.driver.mediafire', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'mega', nameKey: 'clouddrive.driver.mega', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'misskey', nameKey: 'clouddrive.driver.misskey', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'misskey', nameKey: 'clouddrive.driver.misskey', group: 'international', implemented: true, mountable: true,
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, delete: true, directLink: true, range: true }),
+    fields: MISSKEY_FIELDS,
+    authAnyOf: [['accessToken']],
+  },
   {
     id: 'onedrive', nameKey: 'clouddrive.driver.onedrive', group: 'international', implemented: true, mountable: true,
     capabilities: capabilities({ range: true }),
@@ -246,10 +470,24 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
     authAnyOf: [['refreshToken'], ['accessToken']],
   },
   { id: 'onedrive_app', nameKey: 'clouddrive.driver.onedrive_app', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'onedrive_sharelink', nameKey: 'clouddrive.driver.onedrive_sharelink', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'onedrive_sharelink', nameKey: 'clouddrive.driver.onedrive_sharelink', group: 'international', implemented: true, mountable: true,
+    capabilities: capabilities({ range: true }),
+    fields: SHARELINK_FIELDS,
+  },
   { id: 'proton_drive', nameKey: 'clouddrive.driver.proton_drive', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'seafile', nameKey: 'clouddrive.driver.seafile', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'teldrive', nameKey: 'clouddrive.driver.teldrive', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'seafile', nameKey: 'clouddrive.driver.seafile', group: 'international', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
+    fields: SEAFILE_FIELDS,
+    authAnyOf: [['token'], ['username', 'password']],
+  },
+  {
+    id: 'teldrive', nameKey: 'clouddrive.driver.teldrive', group: 'international', implemented: true, mountable: true,
+    capabilities: capabilities({ mkdir: true, move: true, delete: true, directLink: true, range: true }),
+    fields: TELDRIVE_FIELDS,
+    authAnyOf: [['accessToken']],
+  },
   { id: 'yandex', nameKey: 'clouddrive.driver.yandex', group: 'international', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   {
     id: 'google_drive', nameKey: 'clouddrive.driver.google_drive', group: 'international', implemented: true, mountable: true,
@@ -263,20 +501,56 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
     capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
     fields: S3_FIELDS,
   },
-  { id: 'r2', nameKey: 'clouddrive.driver.r2', group: 'object', implemented: true, mountable: false, capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }), fields: [] },
-  { id: 'azure_blob', nameKey: 'clouddrive.driver.azure_blob', group: 'object', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'bunny_storage', nameKey: 'clouddrive.driver.bunny_storage', group: 'object', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'uss', nameKey: 'clouddrive.driver.uss', group: 'object', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'ipfs_api', nameKey: 'clouddrive.driver.ipfs_api', group: 'object', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'r2', nameKey: 'clouddrive.driver.r2', group: 'object', implemented: true, mountable: false,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    fields: R2_FIELDS,
+    authAnyOf: [['accessKeyId', 'secretAccessKey']],
+  },
+  {
+    id: 'azure_blob', nameKey: 'clouddrive.driver.azure_blob', group: 'object', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    fields: AZURE_BLOB_FIELDS,
+    authAnyOf: [['accessKey']],
+  },
+  {
+    id: 'bunny_storage', nameKey: 'clouddrive.driver.bunny_storage', group: 'object', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    fields: BUNNY_FIELDS,
+    authAnyOf: [['accessKey']],
+  },
+  {
+    id: 'uss', nameKey: 'clouddrive.driver.uss', group: 'object', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    fields: USS_FIELDS,
+    authAnyOf: [['operatorName', 'operatorPassword']],
+  },
+  {
+    id: 'ipfs_api', nameKey: 'clouddrive.driver.ipfs_api', group: 'object', implemented: true, mountable: true,
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    fields: IPFS_FIELDS,
+  },
   { id: 'cloudflare_imgbed', nameKey: 'clouddrive.driver.cloudflare_imgbed', group: 'object', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
 
   { id: 'alias', nameKey: 'clouddrive.driver.alias', group: 'virtual', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'autoindex', nameKey: 'clouddrive.driver.autoindex', group: 'virtual', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'autoindex', nameKey: 'clouddrive.driver.autoindex', group: 'virtual', implemented: true, mountable: true,
+    capabilities: capabilities({ range: true }),
+    fields: AUTOINDEX_FIELDS,
+  },
   { id: 'chunk', nameKey: 'clouddrive.driver.chunk', group: 'virtual', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'crypt', nameKey: 'clouddrive.driver.crypt', group: 'virtual', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'strm', nameKey: 'clouddrive.driver.strm', group: 'virtual', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'url_tree', nameKey: 'clouddrive.driver.url_tree', group: 'virtual', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'virtual', nameKey: 'clouddrive.driver.virtual', group: 'virtual', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'url_tree', nameKey: 'clouddrive.driver.url_tree', group: 'virtual', implemented: true, mountable: true,
+    capabilities: capabilities({ range: true }),
+    fields: URL_TREE_FIELDS,
+  },
+  {
+    id: 'virtual', nameKey: 'clouddrive.driver.virtual', group: 'virtual', implemented: true, mountable: true,
+    capabilities: capabilities({ range: true }),
+    fields: VIRTUAL_FIELDS,
+  },
 
   {
     id: 'webdav', nameKey: 'clouddrive.driver.webdav', group: 'protocol', implemented: true, mountable: true,
@@ -288,14 +562,28 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   { id: 'sftp', nameKey: 'clouddrive.driver.sftp', group: 'protocol', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'smb', nameKey: 'clouddrive.driver.smb', group: 'protocol', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
   { id: 'local', nameKey: 'clouddrive.driver.local', group: 'protocol', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'emby', nameKey: 'clouddrive.driver.emby', group: 'protocol', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'emby', nameKey: 'clouddrive.driver.emby', group: 'protocol', implemented: true, mountable: true,
+    capabilities: capabilities({ directLink: true, range: true }),
+    fields: EMBY_FIELDS,
+    authAnyOf: [['apiKey', 'userId'], ['username', 'password']],
+  },
   {
     id: 'github', nameKey: 'clouddrive.driver.github', group: 'protocol', implemented: true, mountable: true,
     capabilities: capabilities({ range: true }),
     fields: GITHUB_FIELDS,
   },
-  { id: 'github_releases', nameKey: 'clouddrive.driver.github_releases', group: 'protocol', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
-  { id: 'cnb_releases', nameKey: 'clouddrive.driver.cnb_releases', group: 'protocol', implemented: false, mountable: true, capabilities: READ_ONLY, fields: [] },
+  {
+    id: 'github_releases', nameKey: 'clouddrive.driver.github_releases', group: 'protocol', implemented: true, mountable: true,
+    capabilities: capabilities({ range: true }),
+    fields: GITHUB_RELEASES_FIELDS,
+  },
+  {
+    id: 'cnb_releases', nameKey: 'clouddrive.driver.cnb_releases', group: 'protocol', implemented: true, mountable: true,
+    capabilities: capabilities({ mkdir: true, rename: true, delete: true, range: true }),
+    fields: CNB_FIELDS,
+    authAnyOf: [['token']],
+  },
 
   {
     id: 'huggingface', nameKey: 'clouddrive.driver.huggingface', group: 'protocol', implemented: true, mountable: true,

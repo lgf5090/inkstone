@@ -6,6 +6,28 @@ import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
 import type { Env } from '../../env'
 import { decryptCloudDriveCredentials, encryptCloudDriveCredentials } from '../../lib/crypto'
 import { create123PanDriver } from './123pan'
+import { createAlistV3Driver } from './alist_v3'
+import { createAutoIndexDriver } from './autoindex'
+import { createAzureBlobDriver } from './azure_blob'
+import { createBunnyStorageDriver } from './bunny_storage'
+import { createCloudreveV3Driver } from './cloudreve_v3'
+import { createCloudreveV4Driver } from './cloudreve_v4'
+import { createCnbReleasesDriver } from './cnb_releases'
+import { createEmbyDriver } from './emby'
+import { createGithubReleasesDriver } from './github_releases'
+import { createIpfsApiDriver } from './ipfs_api'
+import { createKodboxDriver } from './kodbox'
+import { createLenovoNasShareDriver } from './lenovonas_share'
+import { createMisskeyDriver } from './misskey'
+import { createOneDriveShareLinkDriver } from './onedrive_sharelink'
+import { createOpenListDriver } from './openlist'
+import { createOpenListShareDriver } from './openlist_share'
+import { createR2Driver } from './r2'
+import { createSeafileDriver } from './seafile'
+import { createTeldriveDriver } from './teldrive'
+import { createUrlTreeDriver } from './url_tree'
+import { createUssDriver } from './uss'
+import { createVirtualDriver } from './virtual'
 import type { DriverContext, MountDriver } from './contract'
 
 export interface StorageDriverRow {
@@ -20,6 +42,28 @@ type DriverFactory = (ctx: DriverContext) => MountDriver
 
 const FACTORIES: Readonly<Record<string, DriverFactory>> = {
   '123pan': create123PanDriver,
+  'r2': createR2Driver,
+  'azure_blob': createAzureBlobDriver,
+  'uss': createUssDriver,
+  'bunny_storage': createBunnyStorageDriver,
+  'seafile': createSeafileDriver,
+  'cloudreve_v3': createCloudreveV3Driver,
+  'cloudreve_v4': createCloudreveV4Driver,
+  'kodbox': createKodboxDriver,
+  'alist_v3': createAlistV3Driver,
+  'openlist': createOpenListDriver,
+  'openlist_share': createOpenListShareDriver,
+  'teldrive': createTeldriveDriver,
+  'misskey': createMisskeyDriver,
+  'emby': createEmbyDriver,
+  'ipfs_api': createIpfsApiDriver,
+  'cnb_releases': createCnbReleasesDriver,
+  'github_releases': createGithubReleasesDriver,
+  'virtual': createVirtualDriver,
+  'url_tree': createUrlTreeDriver,
+  'lenovonas_share': createLenovoNasShareDriver,
+  'onedrive_sharelink': createOneDriveShareLinkDriver,
+  'autoindex': createAutoIndexDriver,
 }
 
 export function driverFactory(type: string): DriverFactory | null {

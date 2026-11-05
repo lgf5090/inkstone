@@ -31472,6 +31472,7 @@ const allowed = new Map([
     "/** The credential combinations that satisfy authentication; empty means no authentication. */",
     "/** `clouddrive.driver.reason.<id>` when an implemented driver has a platform limit. */",
     "/** `directLink` is the one capability whose id is not already a message-key segment. */",
+    "/** Batch A schemas. Secrets live in the credential vault, never in `config`. */",
   ]],
   ["src/shared/clouddrive/model.test.ts", [
     "// The transport decoded the value once: `%25` in a URL is `%` here. Decoding again would either",
@@ -37409,6 +37410,37 @@ const allowed = new Map([
     "// A URL without the params wrapper is already the real address.",
     "// Login once before the first call; the reference driver does this in init().",
   ]],
+  ["src/worker/clouddrive/drivers/alist_v3.ts", [
+    "/**\n * AList V3 driver: mounts another AList / OpenList instance through its HTTP API.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/alist_v3`:\n * `/api/me` token validation (and the username mismatch re-login), `/auth/login`, the `/api/fs/*`\n * endpoints and the `File-Path` PUT upload all follow it. Pagination uses the real `page`/`per_page`\n * fields of `/api/fs/list`.\n */",
+    "// The token could not be verified; a configured account can still sign in below.",
+    "// A stream cannot be replayed, so a retry would send a partially consumed body.",
+  ]],
+  ["src/worker/clouddrive/drivers/autoindex.ts", [
+    "/**\n * AutoIndex driver — a read-only adapter for Nginx/Apache style directory listings.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/autoindex`. The reference used an XPath engine\n * on a DOM; Workers have neither, so this keeps the same semantics with a small HTML scan:\n * `itemXpath` either names the common `//pre/a` / `//a` templates or is treated as a regular\n * expression whose first three groups are `href`, `name text` and the trailing metadata text.\n * Size and modified time are read from the text following the anchor, which covers both the\n * Apache (`date size`) and the Nginx (`size date`) orders.\n */",
+    "/** A small, dependency-free HTML scan; the built-in templates cover Apache and Nginx indexes. */",
+    "/** The text after each anchor up to the next anchor, which holds the size/date columns. */",
+    "// The reference defaults are text()[1]/text()[2]; real indexes put the date first on Apache",
+    "// and the size first on Nginx, so the defaults fall back to the order-aware scan below.",
+    "// An empty directory is absent from its parent's anchor list but still lists successfully.",
+  ]],
+  ["src/worker/clouddrive/drivers/azure_blob.ts", [
+    "/**\n * Azure Blob Storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/azure_blob`: a container is addressed through\n * the Blob REST API with SharedKey HMAC-SHA256 authentication. Directories are virtual (blob names\n * separated by `/`, `delimiter=/` in listings) and are backed by a zero-byte marker blob.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/bunny_storage.ts", [
+    "/**\n * Bunny Storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/bunny_storage`: a storage zone is addressed over\n * the Bunny Storage API (`storage.bunnycdn.com`) with the zone's `AccessKey`. Listing is one flat\n * `GET /<zone>/<path>/` request; directories are virtual and marked by a zero-byte placeholder.\n * MOVE/COPY are implemented by streaming the object from the storage endpoint to its destination.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/cloudreve_v3.ts", [
+    "/**\n * Cloudreve V3 storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/cloudreve_v3`: session-cookie login through\n * `POST /api/v3/user/session`, path-addressed directory listings, download-link resolution through\n * `PUT /api/v3/file/download/<id>`, and the object endpoints for mkdir/rename/move/copy/delete.\n * Cloudreve V3 has no stateless upload endpoint, so uploading is reported as unsupported.\n */",
+    "// HttpOptions only names the four methods the JSON APIs use; Cloudreve's object mutations",
+    "// are PATCH, so that one goes through a local fetch with the same error mapping.",
+  ]],
+  ["src/worker/clouddrive/drivers/cloudreve_v4.ts", [
+    "/**\n * Cloudreve V4 storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/cloudreve_v4`: bearer-token session login,\n * cursor-paginated `/api/v4/file` listings, `/api/v4/file/url` download resolution, and the\n * `/api/v4/file/*` mutation endpoints. Cloudreve V4 has no stateless upload endpoint, so uploading\n * is reported as unsupported.\n */",
+    "/**\n   * Walks the cursor until the requested one-based page (or the end) is reached. A request without\n   * a page collects the whole listing, which is what folder-size and stat use.\n   */",
+  ]],
+  ["src/worker/clouddrive/drivers/cnb_releases.ts", [
+    "/**\n * CNB (cnb.cool) Releases driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/cnb_releases`: a release is a virtual folder at\n * the mount root and its assets are the files inside it. The API is addressed by release/asset id,\n * so names from the mount path are resolved against the release list before any write. Downloads\n * use the public web URL of the asset (`https://cnb.cool<asset.path>`).\n */",
+  ]],
   ["src/worker/clouddrive/drivers/contract.ts", [
     "/**\n * The driver contract every CloudDrive storage implementation speaks.\n *\n * A driver only knows paths relative to its mount (\"/photos/2024.jpg\"), never D1 rows or HTTP. The\n * worker layer owns visibility, quotas and meta rules; a driver owns one upstream service.\n */",
     "/** The driver's native id, used to read without resolving the display path again. */",
@@ -37419,6 +37451,11 @@ const allowed = new Map([
     "/** A streaming response with the upstream Range answer, or a 200 body. */",
     "/** A reachability/auth probe used by the admin \"test\" button. */",
   ]],
+  ["src/worker/clouddrive/drivers/emby.ts", [
+    "/**\n * Emby driver: read-only browsing of an Emby media library.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/emby`: `/Users/{userId}/Items` listings,\n * `/Items/{id}/Download` for the download link method and `/Videos/{id}/stream` for the stream\n * method. Emby has no pagination and is read-only, so the write methods are absent by design.\n */",
+    "// The stream link still works without a media source; the reference ignores this failure too.",
+    "// Emby is read-only; the write operations are intentionally absent (undefined at runtime).",
+  ]],
   ["src/worker/clouddrive/drivers/errors.ts", [
     "/** One place where a driver's failure becomes the API's status and code. */",
     "/** Re-throws a non-driver failure untouched so bugs keep their original stack. */",
@@ -37427,12 +37464,73 @@ const allowed = new Map([
     "/**\n * The worker-side driver factory. It joins the shared definition, the decrypted vault and the\n * per-storage persistence callback that a driver uses to write a rotated token back.\n */",
     "/** Builds the driver for a storage row, or null when its type is not ported yet. */",
   ]],
+  ["src/worker/clouddrive/drivers/github_releases.ts", [
+    "/**\n * GitHub Releases driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/github_releases`: `repoStructure` declares one or\n * more `[path:]org/repo` mounts, the mount root shows the latest release assets (or one folder per\n * tag when `showAllVersion` is on) plus README/LICENSE and optional source bundles. Release lists are\n * walked page by page with `per_page`/`page`, stopping at `maxPage` when it is non-zero.\n */",
+  ]],
   ["src/worker/clouddrive/drivers/http.ts", [
     "/**\n * Shared HTTP plumbing for the JSON APIs most CloudDrive drivers speak.\n *\n * The base owns the parts every driver gets wrong the same way: bounded time, a small retry budget\n * for 429/5xx, error bodies that keep their upstream message, one forced re-authentication after a\n * 401, and credential rotation written back through the vault callback. A driver only supplies its\n * login/refresh hooks and the actual endpoints.\n */",
     "/** Redirects are followed by hand only when a driver asks; the default refuses them. */",
     "/** Performs the driver's login sequence and persists any rotated token. */",
     "/** One attempt, then a forced re-login on auth failures, then mark the storage for review. */",
     "/**\n * The three pagination shapes the reference drivers use. `page` is one-based; `cursor`/`offset`\n * pass the previous `next` token back to the fetcher unchanged.\n */",
+    "// IPFS answers with a capitalised `Message`; the other APIs use the lower-case spellings.",
+  ]],
+  ["src/worker/clouddrive/drivers/ipfs_api.ts", [
+    "/**\n * IPFS node API driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/ipfs_api`:\n * `ipfs` and `ipns` mounts browse an immutable DAG through `/api/v0/ls`, while `mfs` mounts browse\n * and mutate the node's mutable filesystem through `/api/v0/files/*`. Downloads are always served\n * from the configured gateway as `/ipfs/<cid>` so a Range request reaches the gateway untouched.\n */",
+    "/** The `/ipfs/<cid>` or `/ipns/<name>` path an immutable or mutable root resolves to. */",
+  ]],
+  ["src/worker/clouddrive/drivers/kodbox.ts", [
+    "/**\n * KodBox storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/kodbox`: form-based login that returns an\n * `accessToken`, explorer form endpoints for listing and mutations, the `fileOut` download URL,\n * and multipart uploads. KodBox answers HTTP 200 with a JSON `code`, so token expiry and request\n * failures are classified from the body as well as the status.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/lenovonas_share.ts", [
+    "/**\n * Lenovo personal NAS share driver (read-only).\n *\n * Ported from the reference implementation at\n * `OpenList-Worker/src/backend/drivers/lenovonas_share`: the share code and password are exchanged\n * for a short-lived `stoken`, which then authorizes the folder listing and the file download link.\n */",
+    "/** `dir` for a folder; anything else is a file. */",
+    "/** Throwing here makes `withAuth` refresh the token exactly once before it gives up. */",
+  ]],
+  ["src/worker/clouddrive/drivers/misskey.ts", [
+    "/**\n * Misskey driver: the Misskey drive API.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/misskey`: `/api/drive/files` and\n * `/api/drive/folders` listings, `folders/create`, `folders/update`, `folders/delete`,\n * `files/update`, `files/delete` and `files/show` for a download address. Misskey's drive has no\n * pagination, and the reference does not implement a multipart upload, so `upload` stays absent.\n */",
+    "// The reference sends a multipart `drive/files/create` upload, which is not ported.",
+  ]],
+  ["src/worker/clouddrive/drivers/onedrive_sharelink.ts", [
+    "/**\n * OneDrive / SharePoint share-link driver (read-only).\n *\n * Ported from the reference implementation at\n * `OpenList-Worker/src/backend/drivers/onedrive_sharelink`: the share URL is resolved to the real\n * SharePoint folder, the folder listing is read through `renderListDataAsStream`, and bind items\n * are downloaded from `@microsoft.graph.downloadUrl` or the share's own `download.aspx` endpoint.\n * Pagination follows the `ListData.NextHref` cursor the same way the reference driver does.\n *\n * A password-protected link is unlocked through the share page's `inputForm` (VIEWSTATE +\n * EVENTVALIDATION + txtPassword), and the resulting `FedAuth` cookie is reused for every request.\n */",
+    "/** Reads a named cookie pair from a response, including a multi-value `Set-Cookie` header. */",
+  ]],
+  ["src/worker/clouddrive/drivers/openlist.ts", [
+    "/**\n * OpenList driver: mounts another OpenList instance through its HTTP API.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/openlist`. It is a separate implementation from\n * the AList V3 driver on purpose: the reference keeps the two clients apart, and the OpenList client\n * sends the meta password as a `Meta-Password` header. `raw_url` from `/api/fs/get` is passed through\n * to `directLink`.\n */",
+    "// The token could not be verified; a configured account can still sign in below.",
+    "// The reference treats a directory as an entry even when `/fs/get` cannot answer for it.",
+  ]],
+  ["src/worker/clouddrive/drivers/openlist_share.ts", [
+    "/**\n * OpenList share driver: read-only mount of an OpenList share link.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/openlist_share`: the share root is addressed as\n * `/@s/{sid}` and the download link is `/sd/{sid}{path}?pwd=…`. The share is read-only, so no write\n * method exists at all.\n */",
+    "/** The download address uses `/sd/{sid}` rather than the `/@s/{sid}` API prefix. */",
+    "// A share link has no login; the call still validates the two required configuration values.",
+    "// A share link is read-only; these operations are intentionally absent (undefined at runtime).",
+  ]],
+  ["src/worker/clouddrive/drivers/r2.ts", [
+    "/**\n * Cloudflare R2 driver.\n *\n * R2 is an S3-compatible object store, so this driver reuses the S3 core in `s3.ts`: the same\n * ListObjectsV2 flow, placeholder directories and multipart upload. A Workers R2 *binding* is only\n * reachable from `env`, which `DriverContext` deliberately does not expose, so the mount always uses\n * the S3 API (`accountId` derives the endpoint when no explicit one is given).\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/s3.ts", [
+    "/**\n * S3-compatible object storage driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/s3`: ListObjectsV2/v1 pagination, HEAD/GET\n * object reads (Range forwarded untouched), PUT + multipart upload, server-side COPY, DELETE,\n * presigned GET links and a zero-byte placeholder object for directories. Bucket keys are prefixed\n * with the configured `rootPath`; every public method validates the mount path first.\n */",
+    "// Keep the already-encoded path when it contains a stray percent sign.",
+    "/** Lists every object key below a prefix (no delimiter), following continuation pages. */",
+  ]],
+  ["src/worker/clouddrive/drivers/seafile.ts", [
+    "/**\n * Seafile storage driver.\n *\n * Ported from the reference implementation at `OpenList-Worker/src/backend/drivers/seafile`:\n * `POST /api2/auth-token/` for credentials, `/api2/repos/<id>/dir/` to list, `/file/` to download,\n * upload and mutate, and `/upload-link/` to obtain the upload endpoint. A configured `repoId` pins\n * one library; without it the root lists the account's libraries and the first path segment picks\n * one, exactly as the reference does.\n */",
+    "/** The mount root without a pinned repo lists libraries instead of a directory. */",
+  ]],
+  ["src/worker/clouddrive/drivers/teldrive.ts", [
+    "/**\n * TelDrive driver: a self-hosted Telegram drive behind a Bearer JWT.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/teldrive`: `/api/files` listing by path,\n * `/api/files/{id}` download, `mkdir`, `move` and `DELETE /api/files/{id}` removal. Renaming is not\n * exposed by the reference API, and a direct upload needs a resumable session, so both stay absent.\n */",
+    "// A direct upload needs a resumable session and renaming has no endpoint.",
+  ]],
+  ["src/worker/clouddrive/drivers/url_tree.ts", [
+    "/**\n * URL Tree driver — a virtual file system described by deeply-indented text.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/url_tree`. Each line is indented by two spaces\n * per level; a line ending in `:` is a folder, and every other line is `[name][:size][:mtime]:URL`.\n * A file's content is the URL itself.\n *\n * The upstream keeps the structure writable by persisting the edited text back to the driver's\n * config. A MountDriver has no such callback — only `saveCredentials` — so a write can never be\n * stored. Every write operation therefore fails with `unsupported` instead of reporting success\n * for an edit that would disappear with the next request.\n */",
+  ]],
+  ["src/worker/clouddrive/drivers/uss.ts", [
+    "/**\n * Upyun USS driver.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/uss`: requests go to `v0.api.upyun.com` and are\n * authenticated with the Upyun HMAC-SHA1 signature (`UPYUN <operator>:<signature>`). The listing\n * endpoint is paginated with the `x-list-iter` / `x-list-limit` headers, and MOVE/COPY are real\n * Upyun operations (they only apply to files, matching the upstream API).\n */",
+    "// The text form below is what older Upyun endpoints return.",
+  ]],
+  ["src/worker/clouddrive/drivers/virtual.ts", [
+    "/**\n * Virtual driver — a placeholder storage used to exercise the CloudDrive surface.\n *\n * Ported from `OpenList-Worker/src/backend/drivers/virtual`. It has no upstream: listings are\n * synthesised from `numFile` / `numFolder`, and each read streams random bytes. Sizes are derived\n * deterministically from the path so a `stat` and the following `read` agree on the length.\n */",
   ]],
   ["src/worker/clouddrive/exif.test.ts", [
     "/**\n * Assembles a JPEG whose APP1 holds a real (if minimal) TIFF: one IFD0 and, when asked, one ExifSubIFD\n * reachable through tag 0x8769. ASCII values longer than four bytes go after the IFDs, which is what a\n * camera does, so the reader has to follow the pointer rather than read the field inline.\n */",
@@ -37642,6 +37740,9 @@ const allowed = new Map([
     "// The lock answers with a scrypt derivation, so an unlocked browser on a shared device must not be",
     "// able to spend the worker guessing: the budget is per client and per folder.",
     "/**\n * The same check for a caller that already resolved the effective metadata, so one request pays for\n * one scan of the meta table instead of two.\n */",
+  ]],
+  ["src/worker/clouddrive/routes-mounts.ts", [
+    "/** The config fields a batch-A driver cannot work without; credentials are checked by the driver. */",
   ]],
   ["src/worker/clouddrive/routes-requests.ts", [
     "/** How many files one visitor may hand to one request link inside the window. */",
