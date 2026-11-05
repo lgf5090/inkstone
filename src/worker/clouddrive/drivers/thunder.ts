@@ -10,6 +10,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
 import {
   DriverError,
+  asBytes,
   driverEntryMime,
   type DriverContext,
   type DriverEntry,
@@ -24,6 +25,8 @@ import {
   driverFileName,
   driverParentPath,
   driverPath,
+  uploadInParts,
+  type HttpOptions,
 } from './http'
 import { singleFlightRefresh } from './token'
 
@@ -38,8 +41,11 @@ const APP_ID = '40'
 const APP_KEY = '34a062aaa22f906fca4fefe9fb3a3021'
 const SIGN_PROVIDER = 'access_end_point_token'
 const FOLDER = 'drive#folder'
+const FILE = 'drive#file'
+const UPLOAD_TYPE_RESUMABLE = 'UPLOAD_TYPE_RESUMABLE'
 const PAGE_LIMIT = 100
 const MAX_LIST_PAGES = 50
+const UPLOAD_TIMEOUT_MS = 120_000
 const AUTH_ERROR_CODES = new Set([9, 10, 16, 4121, 4122])
 
 interface ThunderFile {
@@ -61,6 +67,24 @@ interface ThunderFile {
 interface ThunderFileList {
   next_page_token?: string
   files?: ThunderFile[]
+}
+
+interface ThunderResumableParams {
+  endpoint?: string
+  bucket?: string
+  key?: string
+  security_token?: string
+  part_size?: number | string
+  upload_id?: string
+  uploadId?: string
+}
+
+interface ThunderUploadTask {
+  upload_type?: string
+  file?: ThunderFile
+  resumable?: {
+    params?: ThunderResumableParams
+  }
 }
 
 interface ThunderToken {
@@ -128,6 +152,29 @@ function downloadError(status: number): DriverError {
   if (status === 404) return DriverError.notFound('Thunder returned no download resource (HTTP 404)')
   if (status === 429) return DriverError.rateLimited('Thunder is rate limiting downloads')
   return DriverError.upstream(`Thunder download failed (HTTP ${status})`)
+}
+
+function uploadError(status: number, label: string): DriverError {
+  if (status === 401 || status === 403) return DriverError.auth(`Thunder refused ${label} (HTTP ${status})`)
+  if (status === 404) return DriverError.notFound(`Thunder could not find ${label} (HTTP 404)`)
+  if (status === 429) return DriverError.rateLimited(`Thunder is rate limiting ${label}`)
+  return DriverError.upstream(`Thunder rejected ${label} (HTTP ${status})`)
+}
+
+/**
+ * The Xunlei content hash: SHA1 over the per-chunk SHA1 digests, with the chunk size doubling
+ * between 256 KiB and 2 MiB so that a large file does not produce an unbounded digest list.
+ */
+function calcGcid(data: Uint8Array): string {
+  const size = data.byteLength
+  let partSize = 0x40000
+  while (size / partSize > 0x200 && partSize < 0x200000) partSize <<= 1
+  const digests: Buffer[] = []
+  for (let offset = 0; offset < size; offset += partSize) {
+    const chunk = data.subarray(offset, Math.min(offset + partSize, size))
+    digests.push(createHash('sha1').update(chunk).digest())
+  }
+  return createHash('sha1').update(Buffer.concat(digests)).digest('hex')
 }
 
 export class ThunderDriver extends HttpDriverBase implements MountDriver {
@@ -352,11 +399,11 @@ export class ThunderDriver extends HttpDriverBase implements MountDriver {
 
   private async api<T>(
     url: string,
-    options: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown } = {},
+    options: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown } = {},
   ): Promise<T> {
     if (!this.token) throw DriverError.auth('Thunder needs an access token')
     const response = await this.request(url, {
-      method: (options.method ?? 'GET') as 'GET' | 'POST' | 'DELETE',
+      method: (options.method ?? 'GET') as HttpOptions['method'],
       headers: {
         ...this.baseHeaders(),
         Authorization: `${this.tokenType} ${this.token}`,
@@ -527,26 +574,215 @@ export class ThunderDriver extends HttpDriverBase implements MountDriver {
     })
   }
 
-  async upload(_path: string, _body: Uint8Array | ReadableStream, _options: DriverUploadOptions): Promise<void> {
-    throw DriverError.unsupported('This Thunder mount is read-only')
+  /**
+   * Resolves the presigned S3 object URL the upload task hands back. Some accounts report an
+   * endpoint that already carries the bucket as its first label, so that prefix is removed before
+   * the bucket path is appended.
+   */
+  private resumableUrl(params: ThunderResumableParams): string {
+    const bucket = params.bucket ?? ''
+    const key = params.key ?? ''
+    const raw = params.endpoint ?? ''
+    if (!bucket || !key || !raw) {
+      throw DriverError.upstream('Thunder returned incomplete upload information')
+    }
+    let endpoint = raw
+    if (endpoint.startsWith(`${bucket}.`)) endpoint = endpoint.slice(bucket.length + 1)
+    if (!endpoint.startsWith('http://') && !endpoint.startsWith('https://')) endpoint = `https://${endpoint}`
+    return `${endpoint.replace(/\/$/, '')}/${bucket}/${key}`
   }
 
-  async mkdir(_path: string): Promise<void> {
-    throw DriverError.unsupported('This Thunder mount is read-only')
+  /**
+   * One PUT attempt with a single retry, because a dropped connection mid-part is expected on a
+   * long upload while an auth or not-found answer must surface immediately.
+   */
+  private async putWithRetry(
+    url: string,
+    bytes: Uint8Array,
+    headers: Record<string, string>,
+    label: string,
+  ): Promise<Response> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: 'PUT',
+          headers: { ...headers, 'Content-Length': String(bytes.byteLength) },
+          body: bytes,
+          signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+        })
+        if (!response.ok) {
+          const error = uploadError(response.status, label)
+          await response.body?.cancel().catch(() => undefined)
+          if (attempt === 0 && (response.status === 429 || response.status >= 500)) {
+            lastError = error
+            continue
+          }
+          throw error
+        }
+        return response
+      } catch (error) {
+        if (attempt === 0 && !(error instanceof DriverError)) {
+          lastError = error
+          continue
+        }
+        throw error
+      }
+    }
+    throw lastError instanceof DriverError
+      ? lastError
+      : DriverError.upstream(`Thunder upload failed: ${lastError instanceof Error ? lastError.message : 'unknown error'}`)
   }
 
-  async rename(_path: string, _newName: string): Promise<void> {
-    throw DriverError.unsupported('This Thunder mount is read-only')
+  async upload(path: string, body: Uint8Array | ReadableStream, options: DriverUploadOptions): Promise<void> {
+    const clean = driverPath(path)
+    const bytes = await asBytes(body)
+    if (bytes.byteLength !== options.size) throw DriverError.invalid('The upload body does not match the declared size')
+    return await this.withAuth(async () => {
+      const parentId = await this.resolveFolderId(driverParentPath(clean))
+      const task = await this.api<ThunderUploadTask>(FILES, {
+        method: 'POST',
+        body: {
+          kind: FILE,
+          parent_id: parentId,
+          name: driverFileName(clean),
+          size: String(bytes.byteLength),
+          hash: calcGcid(bytes),
+          upload_type: UPLOAD_TYPE_RESUMABLE,
+          space: this.configText('space'),
+        },
+      })
+      const params = task.resumable?.params
+      if (!params) {
+        // A create answer without a resumable session is Thunder's instant upload.
+        options.onProgress?.(bytes.byteLength, bytes.byteLength)
+        return
+      }
+      const uploadUrl = this.resumableUrl(params)
+      const headers: Record<string, string> = { 'x-amz-security-token': params.security_token ?? '' }
+      const partSize = Number(params.part_size) || 0
+      const uploadId = params.upload_id || params.uploadId || ''
+      if (partSize > 0 && uploadId) {
+        const parts: Array<{ number: number; etag: string }> = []
+        await uploadInParts({
+          size: bytes.byteLength,
+          partSize,
+          concurrency: 1,
+          uploadPart: async (partNumber, start, end) => {
+            const response = await this.putWithRetry(
+              `${uploadUrl}?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId)}`,
+              bytes.subarray(start, end),
+              headers,
+              `upload part ${partNumber}`,
+            )
+            parts.push({ number: partNumber, etag: response.headers.get('etag') ?? '' })
+            await response.body?.cancel().catch(() => undefined)
+            options.onProgress?.(end, bytes.byteLength)
+          },
+          complete: async () => {
+            const xml = `<CompleteMultipartUpload>${parts
+              .sort((left, right) => left.number - right.number)
+              .map((part) => `<Part><PartNumber>${part.number}</PartNumber><ETag>${part.etag}</ETag></Part>`)
+              .join('')}</CompleteMultipartUpload>`
+            const response = await fetch(`${uploadUrl}?uploadId=${encodeURIComponent(uploadId)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/xml', ...headers },
+              body: xml,
+              signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+            })
+            if (!response.ok) {
+              const error = uploadError(response.status, 'the upload commit')
+              await response.body?.cancel().catch(() => undefined)
+              throw error
+            }
+            await response.body?.cancel().catch(() => undefined)
+          },
+        })
+        return
+      }
+      await this.putWithRetry(uploadUrl, bytes, headers, 'the upload')
+      options.onProgress?.(bytes.byteLength, bytes.byteLength)
+    })
   }
 
-  async move(_fromPath: string, _toPath: string): Promise<void> {
-    throw DriverError.unsupported('This Thunder mount is read-only')
+  async mkdir(path: string): Promise<void> {
+    const clean = driverPath(path)
+    if (clean === '/') return
+    return await this.withAuth(async () => {
+      const parentId = await this.resolveFolderId(driverParentPath(clean))
+      await this.api(FILES, {
+        method: 'POST',
+        body: {
+          kind: FOLDER,
+          name: driverFileName(clean),
+          parent_id: parentId,
+          space: this.configText('space'),
+        },
+      })
+      this.pathIds.clear()
+    })
   }
 
-  async remove(_path: string): Promise<void> {
-    throw DriverError.unsupported('This Thunder mount is read-only')
+  async rename(path: string, newName: string): Promise<void> {
+    const clean = driverPath(path)
+    return await this.withAuth(async () => {
+      const file = await this.resolveItem(clean)
+      await this.api(`${FILES}/${encodeURIComponent(file.id)}`, {
+        method: 'PATCH',
+        body: { name: newName, space: this.configText('space') },
+      })
+      this.pathIds.clear()
+    })
   }
 
+  async move(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    return await this.withAuth(async () => {
+      const file = await this.resolveItem(from)
+      const targetName = driverFileName(to)
+      if (targetName !== driverFileName(from)) await this.rename(from, targetName)
+      const parentId = await this.resolveFolderId(driverParentPath(to))
+      await this.api(`${FILES}:batchMove`, {
+        method: 'POST',
+        body: {
+          to: { parent_id: parentId },
+          ids: [file.id],
+          space: this.configText('space'),
+        },
+      })
+      this.pathIds.clear()
+    })
+  }
+
+  async copy(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    return await this.withAuth(async () => {
+      const file = await this.resolveItem(from)
+      const parentId = await this.resolveFolderId(driverParentPath(to))
+      await this.api(`${FILES}:batchCopy`, {
+        method: 'POST',
+        body: {
+          to: { parent_id: parentId },
+          ids: [file.id],
+          space: this.configText('space'),
+        },
+      })
+      this.pathIds.clear()
+    })
+  }
+
+  async remove(path: string): Promise<void> {
+    const clean = driverPath(path)
+    return await this.withAuth(async () => {
+      const file = await this.resolveItem(clean)
+      const url = new URL(`${FILES}/${encodeURIComponent(file.id)}/trash`)
+      url.searchParams.set('space', this.configText('space'))
+      await this.api(url.toString(), { method: 'PATCH', body: {} })
+      this.pathIds.clear()
+    })
+  }
   async test(): Promise<{ ok: boolean; message: string }> {
     try {
       await this.authenticate(false)
