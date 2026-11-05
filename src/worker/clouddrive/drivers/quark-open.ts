@@ -2,8 +2,9 @@
  * Quark Cloud Drive open-platform driver.
  *
  * Ported from `OpenList-Worker/src/backend/drivers/quark_open` and the upstream OpenList driver.
- * Every call is signed with `sha256(method&path&tm&signKey)`; listings page by cursor; the mount is
- * read-only and downloads resolve a fid into a URL that needs the signed-in cookie.
+ * Every call is signed with `sha256(method&path&tm&signKey)`; listings page by cursor. Directory
+ * create/rename/move/delete use the signed open-platform endpoints, while uploads and copies stay
+ * unsupported and downloads resolve a fid into a URL that needs the signed-in cookie.
  */
 import { createHash } from 'node:crypto'
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
@@ -362,28 +363,57 @@ export class QuarkOpenDriver extends HttpDriverBase implements MountDriver {
 
   async upload(path: string, _body: Uint8Array | ReadableStream, _options: DriverUploadOptions): Promise<void> {
     driverPath(path)
-    throw DriverError.unsupported('Quark is mounted read-only')
+    throw DriverError.unsupported('Quark upload is not supported in a stateless environment')
   }
 
   async mkdir(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('Quark is mounted read-only')
+    const clean = driverPath(path)
+    if (clean === '/') return
+    const parentId = await this.resolveDir(driverParentPath(clean))
+    await this.api('/open/v1/dir', 'POST', {
+      dir_path: driverFileName(clean),
+      pdir_fid: parentId,
+    })
+    this.pathIds.clear()
   }
 
-  async rename(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('Quark is mounted read-only')
+  async rename(path: string, newName: string): Promise<void> {
+    const clean = driverPath(path)
+    const entry = await this.resolveEntry(clean)
+    await this.api('/open/v1/file/rename', 'POST', {
+      fid: entry.fid,
+      file_name: newName,
+      conflict_mode: 'REUSE',
+    })
+    this.pathIds.clear()
   }
 
   async move(fromPath: string, toPath: string): Promise<void> {
-    driverPath(fromPath)
-    driverPath(toPath)
-    throw DriverError.unsupported('Quark is mounted read-only')
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    const entry = await this.resolveEntry(from)
+    const parentId = await this.resolveDir(driverParentPath(to))
+    await this.api('/open/v1/file/move', 'POST', {
+      action_type: 1,
+      fid_list: [entry.fid],
+      to_pdir_fid: parentId,
+    })
+    this.pathIds.clear()
   }
 
   async remove(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('Quark is mounted read-only')
+    const entry = await this.resolveEntry(driverPath(path))
+    await this.api('/open/v1/file/delete', 'POST', {
+      action_type: 1,
+      fid_list: [entry.fid],
+    })
+    this.pathIds.clear()
+  }
+
+  async copy(fromPath: string, toPath: string): Promise<void> {
+    driverPath(fromPath)
+    driverPath(toPath)
+    throw DriverError.unsupported('Quark copy is not supported')
   }
 
   async test(): Promise<{ ok: boolean; message: string }> {

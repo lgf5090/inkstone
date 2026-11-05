@@ -5,6 +5,10 @@ import type { DriverContext } from '../src/worker/clouddrive/drivers/contract'
 
 const API = 'https://open-api-drive.quark.cn'
 const LIST = `${API}/open/v1/file/list`
+const DIR = `${API}/open/v1/dir`
+const RENAME = `${API}/open/v1/file/rename`
+const MOVE = `${API}/open/v1/file/move`
+const DELETE = `${API}/open/v1/file/delete`
 const RENEW = 'https://api.oplist.org/quarkyun/renewapi'
 
 function json(body: unknown, status = 200): Response {
@@ -122,13 +126,116 @@ describe('Quark Open driver', () => {
     expect(tokenCalls).toBe(1)
   })
 
-  it('keeps mutations unsupported on the read-only mount', async () => {
+  it('creates a folder through the signed dir endpoint', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (!url.startsWith(DIR)) throw new Error(`unexpected ${url}`)
+      bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+      return json({ status: 200, errno: 0, data: {} })
+    })
+    await createQuarkOpenDriver(context()).mkdir('/docs')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toEqual({ dir_path: 'docs', pdir_fid: '0' })
+  })
+
+  it('renames an entry through the signed rename endpoint', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith(LIST)) {
+        return json({ status: 200, errno: 0, data: { file_list: [FILE, FOLDER], last_page: true } })
+      }
+      if (!url.startsWith(RENAME)) throw new Error(`unexpected ${url}`)
+      bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+      return json({ status: 200, errno: 0, data: {} })
+    })
+    await createQuarkOpenDriver(context()).rename('/a.txt', 'b.txt')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toEqual({ fid: 'f1', file_name: 'b.txt', conflict_mode: 'REUSE' })
+  })
+
+  it('moves an entry into the destination folder', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith(LIST)) {
+        return json({ status: 200, errno: 0, data: { file_list: [FILE, FOLDER], last_page: true } })
+      }
+      if (!url.startsWith(MOVE)) throw new Error(`unexpected ${url}`)
+      bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+      return json({ status: 200, errno: 0, data: {} })
+    })
+    await createQuarkOpenDriver(context()).move('/a.txt', '/docs/a.txt')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toEqual({ action_type: 1, fid_list: ['f1'], to_pdir_fid: 'd1' })
+  })
+
+  it('deletes an entry through the signed delete endpoint', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith(LIST)) {
+        return json({ status: 200, errno: 0, data: { file_list: [FILE, FOLDER], last_page: true } })
+      }
+      if (!url.startsWith(DELETE)) throw new Error(`unexpected ${url}`)
+      bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+      return json({ status: 200, errno: 0, data: {} })
+    })
+    await createQuarkOpenDriver(context()).remove('/a.txt')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toEqual({ action_type: 1, fid_list: ['f1'] })
+  })
+
+  it('maps a throttled write call to rate_limit', async () => {
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith(DIR)) return new Response('', { status: 429, headers: { 'retry-after': '0.01' } })
+      throw new Error(`unexpected ${url}`)
+    })
+    await expect(createQuarkOpenDriver(context()).mkdir('/docs')).rejects.toMatchObject({ kind: 'rate_limit' })
+  })
+
+  it('maps a 401 on a write call to auth and marks the storage', async () => {
+    const mark = vi.fn(async () => undefined)
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith(RENEW)) return json({ text: 'refresh rejected' })
+      if (url.startsWith(DIR)) return new Response('', { status: 401 })
+      throw new Error(`unexpected ${url}`)
+    })
+    const driver = createQuarkOpenDriver(context({ accessToken: 'stale' }, 'storage-quark-write-auth', mark))
+    await expect(driver.mkdir('/docs')).rejects.toMatchObject({ kind: 'auth' })
+    expect(mark).toHaveBeenCalled()
+  })
+
+  it('refuses an escaping write path before any request', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const driver = createQuarkOpenDriver(context())
-    expect(driver.capabilities.write).toBe(false)
+    await expect(driver.mkdir('/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.rename('/docs/../secret', 'b.txt')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.move('/docs/../secret', '/docs')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.remove('/docs/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps upload and copy unsupported', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const driver = createQuarkOpenDriver(context())
+    expect(driver.capabilities).toMatchObject({
+      write: false,
+      mkdir: true,
+      rename: true,
+      move: true,
+      copy: false,
+      delete: true,
+      directLink: false,
+      range: true,
+    })
     await expect(driver.upload('/a.txt', new Uint8Array(1), { size: 1 })).rejects.toMatchObject({ kind: 'unsupported' })
-    await expect(driver.mkdir('/new')).rejects.toMatchObject({ kind: 'unsupported' })
+    await expect(driver.copy!('/a.txt', '/b.txt')).rejects.toMatchObject({ kind: 'unsupported' })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
