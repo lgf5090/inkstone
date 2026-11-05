@@ -143,6 +143,7 @@
     "moment": "2.31.0",
     "moment-parseformat": "^4.0.0",
     "music-metadata": "^12.2.3",
+    "openpgp": "^6.3.2",
     "pdfjs-dist": "^6.4.299",
     "pele": "1.8.0",
     "pinyin-pro": "^3.29.5",

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createProtonDriveDriver } from '../src/worker/clouddrive/drivers/proton_drive'
 import { DriverError, type DriverContext } from '../src/worker/clouddrive/drivers/contract'
@@ -124,6 +125,8 @@ function stubProton(overrides: FixtureOverrides = {}): { fetch: typeof fetch; ca
       return ok({ Revisions: [{ ID: 'REV1', Size: 12, State: 1, Blocks: [{ Index: 0, BareURL: 'https://block.example/0', Token: 'block-token' }] }] })
     }
     if (path === '/api/drive/volumes/VOL1/links/FILELINK/trash') return ok({})
+    if (path === '/api/drive/shares/SHARE1/folders') return ok({})
+    if (path === '/api/drive/volumes/VOL1/links/FILELINK/rename') return ok({})
     throw new Error(`unexpected Proton request: ${method} ${url}`)
   }
   return { fetch: fetch as typeof fetch, calls, blockCalls }
@@ -287,18 +290,45 @@ describe('Proton Drive driver', () => {
     expect(stub.calls.some((call) => call.url.endsWith('/auth/v4/2fa'))).toBe(false)
   })
 
-  it('trashes a resolved node and keeps mkdir/rename/upload/move unsupported', async () => {
+  it('creates a folder and renames a file with OpenPGP encryption', async () => {
+    const stub = stubProton()
+    vi.stubGlobal('fetch', stub.fetch)
+    const driver = createProtonDriveDriver(context())
+
+    await driver.mkdir('/docs')
+    const created = stub.calls.find((call) => call.url.endsWith('/drive/shares/SHARE1/folders'))!
+    const body = JSON.parse(created.body) as Record<string, string>
+    expect(created.method).toBe('POST')
+    expect(body.ParentLinkID).toBe('ROOTLINK')
+    expect(body.Name).toContain('BEGIN PGP MESSAGE')
+    expect(body.NodeKey).toContain('BEGIN PGP PUBLIC KEY BLOCK')
+    expect(body.NodePassphrase).toContain('BEGIN PGP MESSAGE')
+    expect(body.Hash).toBe(base64OfBytes(sha256Bytes('docs')))
+    expect(body.SignatureAddress).toBe('ADDR1')
+
+    await driver.rename('/hello.txt', 'renamed.txt')
+    const renamed = stub.calls.find((call) => call.url.endsWith('/links/FILELINK/rename'))!
+    const renameBody = JSON.parse(renamed.body) as Record<string, string>
+    expect(renamed.method).toBe('PUT')
+    expect(renameBody.Name).toContain('BEGIN PGP MESSAGE')
+    expect(renameBody.Hash).toBe(base64OfBytes(sha256Bytes('renamed.txt')))
+    expect(renameBody.OriginalHash).toBe('')
+  })
+
+  it('trashes a resolved node and keeps upload/move/copy unsupported', async () => {
     const stub = stubProton()
     vi.stubGlobal('fetch', stub.fetch)
     const driver = createProtonDriveDriver(context())
 
     await driver.remove('/hello.txt')
     expect(stub.calls.some((call) => call.url.endsWith('/trash') && call.method === 'POST')).toBe(true)
-    expect(driver.capabilities).toMatchObject({ read: true, write: false, mkdir: false, rename: false, move: false, copy: false, delete: true, directLink: false, range: false })
+    expect(driver.capabilities).toMatchObject({ read: true, write: false, mkdir: true, rename: true, move: false, copy: false, delete: true, directLink: false, range: false })
     await expect(driver.upload('/x.bin', new Uint8Array(0), { size: 0 })).rejects.toMatchObject({ kind: 'unsupported' })
-    await expect(driver.mkdir('/new')).rejects.toMatchObject({ kind: 'unsupported' })
-    await expect(driver.rename('/hello.txt', 'new.txt')).rejects.toMatchObject({ kind: 'unsupported' })
     await expect(driver.move('/hello.txt', '/other.txt')).rejects.toMatchObject({ kind: 'unsupported' })
     expect(await driver.directLink!('/hello.txt')).toBeNull()
   })
 })
+
+function sha256Bytes(value: string): Uint8Array {
+  return new Uint8Array(createHash('sha256').update(value).digest())
+}

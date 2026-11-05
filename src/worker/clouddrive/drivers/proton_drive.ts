@@ -14,8 +14,8 @@
  *             -> file name / ContentKeyPacket / block payloads
  *
  * Supported: SRP-6a sign-in, 2FA, reusable credential + refresh-token rotation, listing, stat,
- * decrypted downloads, and trashing. Node creation (mkdir/rename) needs OpenPGP *encryption* and
- * a fresh Curve25519 node key; that is reported as unsupported instead of faking a result.
+ * decrypted downloads, trashing, and the reference implementation's OpenPGP-encrypted mkdir/rename.
+ * Move, copy and upload stay unsupported because the reference driver does not implement them.
  */
 import { aeskw, cfb, gcm } from '@noble/ciphers/aes.js'
 import bcrypt from 'bcryptjs'
@@ -34,7 +34,13 @@ import {
   type DriverUploadOptions,
   type MountDriver,
 } from './contract'
-import { HttpDriverBase, driverPath } from './http'
+import {
+  HttpDriverBase,
+  driverChildPath,
+  driverFileName,
+  driverParentPath,
+  driverPath,
+} from './http'
 
 const ACCOUNT_API = 'https://account.proton.me/api'
 const DRIVE_API = 'https://drive.proton.me/api'
@@ -85,6 +91,7 @@ interface ProtonShare {
   AddressID: string
   Key: string
   Passphrase: string
+  Creator?: string
 }
 
 interface ProtonFileProperties {
@@ -101,6 +108,7 @@ interface ProtonLink {
   CreateTime: number
   NodeKey: string
   NodePassphrase: string
+  Hash?: string
   XAttr?: string
   FileProperties?: ProtonFileProperties
 }
@@ -202,6 +210,34 @@ function base64Encode(bytes: Uint8Array): string {
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)
   return btoa(binary)
+}
+
+let openpgpPromise: Promise<typeof import('openpgp')> | null = null
+
+/** Node-key creation is the only place that needs the full OpenPGP encoder; keep it off the boot path. */
+function loadOpenpgp(): Promise<typeof import('openpgp')> {
+  openpgpPromise ??= import('openpgp')
+  return openpgpPromise
+}
+
+async function encryptProtonText(text: string, publicKeyArmored: string): Promise<string> {
+  const pgp = await loadOpenpgp()
+  let key: import('openpgp').PublicKey
+  try {
+    key = (await pgp.readPrivateKey({ armoredKey: publicKeyArmored })).toPublic()
+  } catch {
+    key = await pgp.readKey({ armoredKey: publicKeyArmored }) as import('openpgp').PublicKey
+  }
+  const message = await pgp.createMessage({ text })
+  return await pgp.encrypt({ message, encryptionKeys: key, format: 'armored' }) as string
+}
+
+function protonNameHash(name: string): string {
+  return base64Encode(sha256(utf8.encode(name)))
+}
+
+function randomProtonPassphrase(): string {
+  return base64Encode(crypto.getRandomValues(new Uint8Array(16)))
 }
 
 function xorBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
@@ -1498,7 +1534,9 @@ class ProtonDriveDriver extends HttpDriverBase implements MountDriver {
         ? decryptSeipd(dataPacket.body, session)
         : decryptAeadPacket(dataPacket.body, session)
     } catch (error) {
-      throw DriverError.upstream(error instanceof Error ? error.message : 'Proton Drive could not decrypt a file block')
+      const message = error instanceof Error ? error.message : 'Proton Drive could not decrypt a file block'
+      if (/AEAD mode|SEIPD v2/i.test(message)) throw DriverError.unsupported(message)
+      throw DriverError.upstream(message)
     }
     if (!plain) throw DriverError.upstream('Proton Drive could not decrypt a file block')
     const literal = extractLiteral(parsePackets(plain))
@@ -1546,17 +1584,60 @@ class ProtonDriveDriver extends HttpDriverBase implements MountDriver {
   }
 
   async mkdir(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported(
-      'Proton Drive mkdir needs OpenPGP encryption and a fresh Curve25519 node key; this driver only decrypts existing nodes',
-    )
+    const clean = driverPath(path)
+    if (clean === '/') throw DriverError.invalid('The root folder already exists')
+    return await this.run(async () => {
+      await this.ensureKeys()
+      const parent = await this.resolveLink(driverParentPath(clean))
+      const name = driverFileName(clean)
+      const encryptedName = await encryptProtonText(name, parent.NodeKey)
+      const nodePassphrase = randomProtonPassphrase()
+      const encryptedPassphrase = await encryptProtonText(nodePassphrase, parent.NodeKey)
+      const pgp = await loadOpenpgp()
+      const { publicKey } = await pgp.generateKey({
+        type: 'ecc',
+        curve: 'curve25519Legacy',
+        userIDs: [{ name, email: this.share?.Creator ?? '' }],
+        format: 'armored',
+      })
+      if (!this.share) throw DriverError.upstream('Proton Drive share is not ready')
+      await this.api(`/drive/shares/${this.share.ShareID}/folders`, {
+        method: 'POST',
+        body: {
+          ParentLinkID: parent.LinkID,
+          Name: encryptedName,
+          Hash: protonNameHash(name),
+          NodeKey: publicKey,
+          NodePassphrase: encryptedPassphrase,
+          NodePassphraseSignature: '',
+          SignatureAddress: this.share.AddressID,
+          NameSignatureEmail: this.share.Creator ?? '',
+        },
+      })
+      this.cacheInvalidate(parent.LinkID)
+    })
   }
 
-  async rename(path: string, _newName: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported(
-      'Proton Drive rename needs OpenPGP encryption for the new name and its hash; this driver only decrypts existing nodes',
-    )
+  async rename(path: string, newName: string): Promise<void> {
+    const clean = driverPath(path)
+    driverPath(driverChildPath(driverParentPath(clean), newName))
+    return await this.run(async () => {
+      await this.ensureKeys()
+      const link = await this.resolveLink(clean)
+      const parent = await this.fetchLink(link.ParentLinkID ?? this.rootLinkId)
+      if (!this.share) throw DriverError.upstream('Proton Drive share is not ready')
+      const encryptedName = await encryptProtonText(newName, parent.NodeKey)
+      await this.api(`/drive/volumes/${this.share.VolumeID}/links/${link.LinkID}/rename`, {
+        method: 'PUT',
+        body: {
+          Name: encryptedName,
+          NameSignatureEmail: this.share.Creator ?? '',
+          Hash: protonNameHash(newName),
+          OriginalHash: link.Hash ?? '',
+        },
+      })
+      this.cacheInvalidate(link.LinkID)
+    })
   }
 
   async move(fromPath: string, toPath: string): Promise<void> {
