@@ -7,7 +7,10 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 }
 
-function context(credentials: Record<string, string> = {}): DriverContext {
+function context(
+  credentials: Record<string, string> = {},
+  config: Record<string, unknown> = {},
+): DriverContext {
   const stored = {
     refreshToken: 'r1', clientId: 'client-1', clientSecret: 'secret', ...credentials,
   }
@@ -15,7 +18,7 @@ function context(credentials: Record<string, string> = {}): DriverContext {
     userId: 'user-a',
     storageId: 'storage-od',
     type: 'onedrive',
-    config: {},
+    config,
     credentials: stored,
     saveCredentials: vi.fn(async (patch) => { Object.assign(stored, patch); return { ...stored } }),
     markNeedsReauth: vi.fn(async () => undefined),
@@ -139,5 +142,75 @@ describe('OneDrive driver', () => {
   it('maps an unexpected upstream status through DriverError', async () => {
     vi.stubGlobal('fetch', async () => new Response('', { status: 500 }))
     await expect(createOneDriveDriver(context()).list('/')).rejects.toBeInstanceOf(DriverError)
+  })
+
+  it('uses the China sovereign cloud for both Graph and token refresh', async () => {
+    const tokenUrl = 'https://login.partner.microsoftonline.cn/common/oauth2/v2.0/token'
+    const root = 'https://microsoftgraph.chinacloudapi.cn/v1.0/me/drive/root'
+    const calls: string[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push(url)
+      if (url === tokenUrl && init?.method === 'POST') return tokenResponse()
+      if (url.startsWith(`${root}/children`)) return json({ value: [FILE] })
+      throw new Error(`unexpected ${url}`)
+    })
+    const result = await createOneDriveDriver(context({}, { region: 'cn' })).list('/')
+    expect(result.entries.map((entry) => entry.name)).toEqual(['a.txt'])
+    expect(calls).toContain(tokenUrl)
+    expect(calls).toContain(`${root}/children?$top=200`)
+    expect(calls.some((url) => url.startsWith('https://graph.microsoft.com'))).toBe(false)
+  })
+
+  it('addresses a SharePoint site drive when isSharepoint is set', async () => {
+    const base = 'https://graph.microsoft.com/v1.0/sites/site-1/drive'
+    const calls: string[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input)
+      calls.push(url)
+      if (url === TOKEN_URL) return tokenResponse()
+      if (url.startsWith(`${base}/root/children`)) return json({ value: [FOLDER] })
+      throw new Error(`unexpected ${url}`)
+    })
+    const result = await createOneDriveDriver(
+      context({}, { isSharepoint: true, siteId: 'site-1' }),
+    ).list('/')
+    expect(result.entries.map((entry) => entry.name)).toEqual(['docs'])
+    expect(calls).toContain(`${base}/root/children?$top=200`)
+    expect(calls.some((url) => url.includes('/me/drive'))).toBe(false)
+  })
+
+  it('refuses a SharePoint mount without a site id before any request', () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    expect(() => createOneDriveDriver(context({}, { isSharepoint: true }))).toThrow(/site id/)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('refreshes through the regional token endpoint after a rejected access token', async () => {
+    const tokenUrl = 'https://login.microsoftonline.us/common/oauth2/v2.0/token'
+    const root = 'https://graph.microsoft.us/v1.0/me/drive/root'
+    let tokenCalls = 0
+    let graphCalls = 0
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === tokenUrl) {
+        tokenCalls++
+        return json({ access_token: 'fresh-us', refresh_token: 'r2', expires_in: 3600 })
+      }
+      if (url.startsWith(`${root}/children`)) {
+        graphCalls++
+        const authorization = new Headers(init?.headers).get('Authorization')
+        if (authorization === 'Bearer expired') return json({ error: { code: 'InvalidAuthenticationToken' } }, 401)
+        return json({ value: [FILE] })
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    const result = await createOneDriveDriver(
+      context({ accessToken: 'expired', expiresAt: String(Date.now() + 3_600_000), refreshToken: 'r1' }, { region: 'us' }),
+    ).list('/')
+    expect(result.entries.map((entry) => entry.name)).toEqual(['a.txt'])
+    expect(tokenCalls).toBe(1)
+    expect(graphCalls).toBe(2)
   })
 })

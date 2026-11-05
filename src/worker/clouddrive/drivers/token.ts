@@ -70,6 +70,11 @@ export async function singleFlightRefresh<T>(
 export interface OAuthSessionOptions {
   /** An access token shorter than this is refreshed before use. */
   refreshLeadMs?: number
+  /**
+   * Overrides the registered provider, e.g. OneDrive's regional token endpoint. Authorization
+   * still starts from the global provider; only token refresh/rotation follows this override.
+   */
+  provider?: OAuthProvider
 }
 
 /** The credential keys an OAuth session reads and writes. */
@@ -89,7 +94,7 @@ export class OAuthSession {
     providerId: string,
     private readonly options: OAuthSessionOptions = {},
   ) {
-    const provider = oauthProvider(providerId)
+    const provider = options.provider ?? oauthProvider(providerId)
     if (!provider) throw new Error(`No OAuth provider is registered for ${providerId}`)
     this.provider = provider
   }

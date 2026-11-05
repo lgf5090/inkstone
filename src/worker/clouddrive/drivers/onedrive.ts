@@ -5,6 +5,10 @@
  * this driver uses to resolve a mount path without walking every ancestor. Downloads come from the
  * short-lived `@microsoft.graph.downloadUrl` Graph returns with the item; uploads use the resumable
  * session for anything larger than the simple 4 MiB PUT.
+ *
+ * The `region` config selects the sovereign cloud host pair (global/cn/us/de): the same region is
+ * used for Graph calls and for token rotation. A SharePoint mount uses `/sites/{siteId}/drive`
+ * instead of `/me/drive` or `/drives/{driveId}`.
  */
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
 import {
@@ -26,9 +30,17 @@ import {
   driverParentPath,
   driverPath,
 } from './http'
+import { oauthProvider } from './oauth'
 import { OAuthSession } from './token'
 
-const GRAPH = 'https://graph.microsoft.com/v1.0'
+/** The sovereign-cloud host pairs from the reference implementation's `onedriveHostMap`. */
+const ONEDRIVE_HOSTS: Readonly<Record<string, { oauth: string; api: string }>> = {
+  global: { oauth: 'https://login.microsoftonline.com', api: 'https://graph.microsoft.com' },
+  cn: { oauth: 'https://login.partner.microsoftonline.cn', api: 'https://microsoftgraph.chinacloudapi.cn' },
+  us: { oauth: 'https://login.microsoftonline.us', api: 'https://graph.microsoft.us' },
+  de: { oauth: 'https://login.microsoftonline.de', api: 'https://graph.microsoft.de' },
+}
+
 const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024
 const UPLOAD_CHUNK = 10 * 1024 * 1024
 const PAGE_SIZE = 200
@@ -66,6 +78,17 @@ function encodedPath(path: string): string {
   return path.split('/').filter(Boolean).map((segment) => encodeURIComponent(segment)).join('/')
 }
 
+function configBool(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
+  return Boolean(value)
+}
+
+function regionHosts(config: Record<string, unknown>): { oauth: string; api: string } {
+  const region = String(config.region ?? '').trim().toLowerCase() || 'global'
+  return ONEDRIVE_HOSTS[region] ?? ONEDRIVE_HOSTS.global
+}
+
 export class OneDriveDriver extends HttpDriverBase implements MountDriver {
   readonly definition = findCloudDriveDriver('onedrive')!
   readonly capabilities = this.definition.capabilities
@@ -74,9 +97,25 @@ export class OneDriveDriver extends HttpDriverBase implements MountDriver {
 
   constructor(ctx: DriverContext, options: { definitionId?: string; base?: string; session?: OAuthSession } = {}) {
     super(ctx)
-    const driveId = String(ctx.config.driveId ?? '')
-    this.base = options.base ?? (driveId ? `${GRAPH}/drives/${driveId}` : `${GRAPH}/me/drive`)
-    this.session = options.session ?? new OAuthSession(ctx, 'onedrive')
+    const hosts = regionHosts(ctx.config)
+    const graph = `${hosts.api}/v1.0`
+    const driveId = String(ctx.config.driveId ?? '').trim()
+    const sharepoint = configBool(ctx.config.isSharepoint)
+    const siteId = String(ctx.config.siteId ?? '').trim()
+    if (options.base) {
+      this.base = options.base
+    } else if (sharepoint) {
+      if (!siteId) throw DriverError.auth('A SharePoint mount needs a site id')
+      this.base = `${graph}/sites/${encodeURIComponent(siteId)}/drive`
+    } else {
+      this.base = driveId ? `${graph}/drives/${driveId}` : `${graph}/me/drive`
+    }
+    const provider = oauthProvider('onedrive')
+    this.session = options.session ?? new OAuthSession(ctx, 'onedrive', {
+      // The authorization callback still starts from the global Microsoft endpoint; only token
+      // rotation follows the selected sovereign cloud.
+      provider: provider ? { ...provider, tokenUrl: `${hosts.oauth}/common/oauth2/v2.0/token` } : undefined,
+    })
     if (options.definitionId) {
       const definition = findCloudDriveDriver(options.definitionId)
       if (definition) Object.assign(this, { definition })
