@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createBaiduNetdiskDriver } from '../src/worker/clouddrive/drivers/baidu-netdisk'
 import type { DriverContext } from '../src/worker/clouddrive/drivers/contract'
@@ -6,12 +7,23 @@ import type { DriverContext } from '../src/worker/clouddrive/drivers/contract'
 const TOKEN_URL = 'https://openapi.baidu.com/oauth/2.0/token'
 const LIST_URL = 'https://pan.baidu.com/api/list'
 const FILE_METAS_URL = 'https://pan.baidu.com/rest/2.0/xpan/multimedia'
+const XPAN_FILE_URL = 'https://pan.baidu.com/rest/2.0/xpan/file'
+const SUPERFILE_URL = 'https://d.pcs.baidu.com/rest/2.0/pcs/superfile2'
+const SLICE_SIZE = 4 * 1024 * 1024
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'content-type': 'application/json' },
   })
+}
+
+function formOf(init?: RequestInit): URLSearchParams {
+  return new URLSearchParams(typeof init?.body === 'string' ? init.body : '')
+}
+
+function md5(bytes: Uint8Array): string {
+  return createHash('md5').update(bytes).digest('hex')
 }
 
 function tokenResponse(): Response {
@@ -261,10 +273,237 @@ describe('Baidu Netdisk driver', () => {
     )
   })
 
-  it('declares read-only capabilities and refuses writes', async () => {
+  it('declares the write capabilities', () => {
     const driver = createBaiduNetdiskDriver(context().ctx)
-    expect(driver.capabilities.write).toBe(false)
-    await expect(driver.mkdir('/x')).rejects.toMatchObject({ kind: 'unsupported' })
-    await expect(driver.upload('/x', new Uint8Array(), { size: 0 })).rejects.toMatchObject({ kind: 'unsupported' })
+    expect(driver.capabilities.write).toBe(true)
+    expect(driver.capabilities.mkdir).toBe(true)
+    expect(driver.capabilities.rename).toBe(true)
+    expect(driver.capabilities.move).toBe(true)
+    expect(driver.capabilities.copy).toBe(true)
+    expect(driver.capabilities.delete).toBe(true)
+  })
+
+  it('creates a folder through the xpan create method', async () => {
+    const requests: Array<{ params: URLSearchParams; form: URLSearchParams }> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      expect(`${url.origin}${url.pathname}`).toBe(XPAN_FILE_URL)
+      requests.push({ params: url.searchParams, form: formOf(init) })
+      return json({ errno: 0 })
+    })
+
+    await createBaiduNetdiskDriver(context().ctx).mkdir('/docs')
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.params.get('method')).toBe('create')
+    expect(requests[0]!.params.get('access_token')).toBe('a0')
+    expect(requests[0]!.form.get('path')).toBe('/docs')
+    expect(requests[0]!.form.get('isdir')).toBe('1')
+    expect(requests[0]!.form.get('rtype')).toBe('3')
+  })
+
+  it('renames a path through filemanager', async () => {
+    const requests: Array<{ params: URLSearchParams; form: URLSearchParams }> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      expect(`${url.origin}${url.pathname}`).toBe(XPAN_FILE_URL)
+      requests.push({ params: url.searchParams, form: formOf(init) })
+      return json({ errno: 0 })
+    })
+
+    await createBaiduNetdiskDriver(context().ctx).rename('/docs/a.txt', 'b.txt')
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.params.get('method')).toBe('filemanager')
+    expect(requests[0]!.params.get('opera')).toBe('rename')
+    expect(requests[0]!.form.get('async')).toBe('0')
+    expect(requests[0]!.form.get('ondup')).toBe('fail')
+    expect(JSON.parse(requests[0]!.form.get('filelist')!)).toEqual([
+      { path: '/docs/a.txt', newname: 'b.txt' },
+    ])
+  })
+
+  it('moves a path into its destination folder', async () => {
+    const requests: URLSearchParams[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      expect(`${url.origin}${url.pathname}`).toBe(XPAN_FILE_URL)
+      expect(url.searchParams.get('opera')).toBe('move')
+      requests.push(formOf(init))
+      return json({ errno: 0 })
+    })
+
+    await createBaiduNetdiskDriver(context().ctx).move('/docs/a.txt', '/target/a.txt')
+    expect(JSON.parse(requests[0]!.get('filelist')!)).toEqual([
+      { path: '/docs/a.txt', dest: '/target', newname: 'a.txt' },
+    ])
+  })
+
+  it('copies a path into its destination folder', async () => {
+    const requests: URLSearchParams[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      expect(`${url.origin}${url.pathname}`).toBe(XPAN_FILE_URL)
+      expect(url.searchParams.get('opera')).toBe('copy')
+      requests.push(formOf(init))
+      return json({ errno: 0 })
+    })
+
+    await createBaiduNetdiskDriver(context().ctx).copy!('/docs/a.txt', '/target/a.txt')
+    expect(JSON.parse(requests[0]!.get('filelist')!)).toEqual([
+      { path: '/docs/a.txt', dest: '/target', newname: 'a.txt' },
+    ])
+  })
+
+  it('removes a path and accepts an asynchronous task id', async () => {
+    let filelist: unknown
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      expect(`${url.origin}${url.pathname}`).toBe(XPAN_FILE_URL)
+      expect(url.searchParams.get('opera')).toBe('delete')
+      filelist = JSON.parse(formOf(init).get('filelist')!)
+      return json({ errno: 0, taskid: 17 })
+    })
+
+    await createBaiduNetdiskDriver(context().ctx).remove('/docs/a.txt')
+    expect(filelist).toEqual(['/docs/a.txt'])
+  })
+
+  it('completes an upload when the rapid md5 probe hits', async () => {
+    const bytes = new Uint8Array(16).fill(7)
+    const creates: URLSearchParams[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      expect(`${url.origin}${url.pathname}`).toBe(XPAN_FILE_URL)
+      expect(url.searchParams.get('method')).toBe('create')
+      creates.push(formOf(init))
+      return json({ errno: 0 })
+    })
+
+    await createBaiduNetdiskDriver(context().ctx).upload('/docs/hit.bin', bytes, { size: bytes.byteLength })
+    expect(creates).toHaveLength(1)
+    expect(creates[0]!.get('uploadid')).toBeNull()
+    expect(JSON.parse(creates[0]!.get('block_list')!)).toEqual([md5(bytes)])
+  })
+
+  it('uploads every missing slice and merges them with create', async () => {
+    const bytes = new Uint8Array(SLICE_SIZE + 1024).fill(3)
+    const expectedSliceMd5 = md5(bytes.subarray(0, 256 * 1024))
+    const sliceCalls: Array<Record<string, string>> = []
+    const createForms: URLSearchParams[] = []
+    let precreateCalls = 0
+
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (`${url.origin}${url.pathname}` === SUPERFILE_URL) {
+        expect(init?.method).toBe('POST')
+        expect(init?.body).toBeInstanceOf(FormData)
+        sliceCalls.push(Object.fromEntries(url.searchParams.entries()))
+        return json({ error_code: 0 })
+      }
+      expect(`${url.origin}${url.pathname}`).toBe(XPAN_FILE_URL)
+      const method = url.searchParams.get('method')
+      const form = formOf(init)
+      if (method === 'create') {
+        createForms.push(form)
+        // The first create is the rapid probe; it misses and the chunked flow continues.
+        return createForms.length === 1 ? json({ errno: 31390 }) : json({ errno: 0 })
+      }
+      if (method === 'precreate') {
+        precreateCalls++
+        expect(form.get('content-md5')).toBe(md5(bytes))
+        expect(form.get('slice-md5')).toBe(expectedSliceMd5)
+        expect(form.get('autoinit')).toBe('1')
+        return json({ errno: 0, return_type: 1, uploadid: 'up-1', block_list: [0, 1] })
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+
+    await createBaiduNetdiskDriver(context().ctx).upload('/docs/big.bin', bytes, { size: bytes.byteLength })
+
+    expect(precreateCalls).toBe(1)
+    expect(sliceCalls.map((call) => call.partseq)).toEqual(['0', '1'])
+    for (const call of sliceCalls) {
+      expect(call.method).toBe('upload')
+      expect(call.type).toBe('tmpfile')
+      expect(call.uploadid).toBe('up-1')
+      expect(call.path).toBe('/docs/big.bin')
+    }
+    expect(createForms).toHaveLength(2)
+    expect(createForms[1]!.get('uploadid')).toBe('up-1')
+    expect(JSON.parse(createForms[1]!.get('block_list')!)).toEqual([
+      md5(bytes.subarray(0, SLICE_SIZE)),
+      md5(bytes.subarray(SLICE_SIZE)),
+    ])
+  })
+
+  it('retries a failed slice once, then merges', async () => {
+    const bytes = new Uint8Array(1024).fill(9)
+    let sliceAttempts = 0
+    let createCalls = 0
+
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      if (`${url.origin}${url.pathname}` === SUPERFILE_URL) {
+        sliceAttempts++
+        return sliceAttempts === 1 ? json({ error_code: 1 }) : json({ error_code: 0 })
+      }
+      expect(`${url.origin}${url.pathname}`).toBe(XPAN_FILE_URL)
+      const method = url.searchParams.get('method')
+      if (method === 'create') {
+        createCalls++
+        return createCalls === 1 ? json({ errno: 31390 }) : json({ errno: 0 })
+      }
+      if (method === 'precreate') {
+        return json({ errno: 0, return_type: 1, uploadid: 'up-2', block_list: [0] })
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+
+    await createBaiduNetdiskDriver(context().ctx).upload('/docs/retry.bin', bytes, { size: bytes.byteLength })
+    expect(sliceAttempts).toBe(2)
+    expect(createCalls).toBe(2)
+  })
+
+  it('maps a throttled write to rate_limit', async () => {
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      expect(`${url.origin}${url.pathname}`).toBe(XPAN_FILE_URL)
+      return new Response('', { status: 429, headers: { 'retry-after': '0' } })
+    })
+
+    await expect(createBaiduNetdiskDriver(context().ctx).mkdir('/docs'))
+      .rejects.toMatchObject({ kind: 'rate_limit' })
+  })
+
+  it('marks the storage for re-authorization when a write is refused', async () => {
+    let tokenCalls = 0
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === TOKEN_URL) {
+        tokenCalls++
+        return tokenResponse()
+      }
+      const parsed = new URL(url)
+      expect(`${parsed.origin}${parsed.pathname}`).toBe(XPAN_FILE_URL)
+      return new Response('', { status: 401 })
+    })
+
+    const { ctx, markNeedsReauth } = context()
+    await expect(createBaiduNetdiskDriver(ctx).mkdir('/docs'))
+      .rejects.toMatchObject({ kind: 'auth' })
+    expect(tokenCalls).toBe(1)
+    expect(markNeedsReauth).toHaveBeenCalled()
+  })
+
+  it('rejects invalid write paths before any request', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const driver = createBaiduNetdiskDriver(context().ctx)
+
+    await expect(driver.mkdir('/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.move('/a.txt', '/../secret')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.rename('/a.txt', 'bad/name')).rejects.toMatchObject({ kind: 'invalid' })
+    await expect(driver.upload('/../secret', new Uint8Array([1]), { size: 1 }))
+      .rejects.toMatchObject({ kind: 'invalid' })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
