@@ -213,6 +213,14 @@ export const clouddriveApi = {
     entryPath: string
     existing?: CloudDriveEntry
   }>('/api/clouddrive/uploads', json(body)),
+  uploadUrl: (body: { url: string; parentPath: string; name?: string; conflict?: string }) => request<{
+    taskId?: string
+    sessionId?: string
+    entryPath?: string
+    strategy?: string
+    skipped?: boolean
+    existing?: CloudDriveEntry
+  }>('/api/clouddrive/uploads/url', json(body)),
   completeUpload: (id: string) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}/complete`, json({})),
   abortUpload: (id: string) => request<{ ok: true }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}/abort`, json({})),
 
@@ -269,7 +277,7 @@ export const clouddriveApi = {
   addTag: (id: string, body: { tag: string; color: string }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}/tags`, json(body)),
   removeTag: (id: string, tag: string) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' }),
 
-  mounts: () => request<{ mounts: { id: string; storageId: string; name: string; mountPath: string; readOnly: boolean; cacheTtl: number; sortOrder: number; enabled: boolean; remark: string; folderSummary: boolean; webProxy: boolean; webdavPolicy: string; createdAt: number }[] }>('/api/clouddrive/mounts'),
+  mounts: () => request<{ mounts: { id: string; storageId: string; name: string; mountPath: string; readOnly: boolean; cacheTtl: number; signExpires: number | null; sortOrder: number; enabled: boolean; remark: string; folderSummary: boolean; webProxy: boolean; webdavPolicy: string; createdAt: number }[] }>('/api/clouddrive/mounts'),
   createMount: (body: unknown) => request<{ mount: unknown }>('/api/clouddrive/mounts', json(body)),
   patchMount: (id: string, body: unknown) => request<{ mount: unknown }>(`/api/clouddrive/mounts/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteMount: (id: string) => request<{ ok: true }>(`/api/clouddrive/mounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),

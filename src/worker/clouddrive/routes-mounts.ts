@@ -7,6 +7,7 @@ import { encryptCloudDriveCredentials, decryptCloudDriveCredentials } from '../l
 import { checkTarget } from '../lib/outbound'
 import { requireOwner } from '../middleware/auth'
 import { s3RequestUrl, webdavCollectionUrl } from './storage-urls'
+import { invalidateExternalListing } from './external'
 
 export const clouddriveMountRoutes = new Hono<AppBindings>()
 
@@ -186,13 +187,14 @@ clouddriveMountRoutes.post('/mounts', async (c) => {
   try {
     await c.env.DB.prepare(
       `INSERT INTO CloudDrive_mounts
-         (user_id, id, storage_id, name, mount_path, read_only, cache_ttl, web_proxy, webdav_policy, weight, sort_order, enabled, remark, folder_summary, created_at, updated_at)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,1,?10,?11,?12,?13,?14,?14)`,
+         (user_id, id, storage_id, name, mount_path, read_only, cache_ttl, web_proxy, webdav_policy, weight, sort_order, enabled, remark, folder_summary, sign_expires, created_at, updated_at)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,1,?10,?11,?12,?13,?15,?14,?14)`,
     ).bind(
       userId, id, storageId, name, mountPath, readOnly,
       clampInt(body.cacheTtl, 0, 86400, 300), body.webProxy ? 1 : 0, webdavPolicy(body.webdavPolicy),
       clampInt(body.sortOrder, -10000, 10000, 0),
-      body.enabled === false ? 0 : 1, cleanRemark(body.remark), body.folderSummary ? 1 : 0, now,
+      body.enabled === false ? 0 : 1, cleanRemark(body.remark), body.folderSummary ? 1 : 0,
+      now, clampInt(body.signExpires, 60, 86400, 300),
     ).run()
   } catch (error) {
     if (String(error).includes('UNIQUE')) throw ApiError.conflict('That mount path is already used')
@@ -211,7 +213,7 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
     if (body.storageId !== undefined && body.storageId !== 'primary') throw ApiError.badRequest('The primary mount storage cannot change')
     await c.env.DB.prepare(
       `UPDATE CloudDrive_mounts SET name = ?3, read_only = ?4, cache_ttl = ?5, sort_order = ?6, remark = ?7,
-              web_proxy = ?8, webdav_policy = ?9, folder_summary = ?10, updated_at = ?11
+              web_proxy = ?8, webdav_policy = ?9, folder_summary = ?10, sign_expires = ?12, updated_at = ?11
         WHERE user_id = ?1 AND id = ?2`,
     ).bind(
       userId, row.id,
@@ -224,7 +226,9 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
       body.webdavPolicy === undefined ? row.webdav_policy : webdavPolicy(body.webdavPolicy),
       body.folderSummary === undefined ? row.folder_summary : (body.folderSummary ? 1 : 0),
       Date.now(),
+      body.signExpires === undefined ? row.sign_expires : clampInt(body.signExpires, 60, 86400, 300),
     ).run()
+    invalidateExternalListing(row.id)
     return c.json({ mount: toMountView((await mountById(c, row.id))!) })
   }
   const sets: string[] = []
@@ -272,6 +276,7 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
     put('read_only = ?', readOnly)
   }
   if (body.cacheTtl !== undefined) put('cache_ttl = ?', clampInt(body.cacheTtl, 0, 86400, 300))
+  if (body.signExpires !== undefined) put('sign_expires = ?', clampInt(body.signExpires, 60, 86400, 300))
   if (body.sortOrder !== undefined) put('sort_order = ?', clampInt(body.sortOrder, -10000, 10000, 0))
   if (body.enabled !== undefined) put('enabled = ?', body.enabled ? 1 : 0)
   if (body.remark !== undefined) put('remark = ?', cleanRemark(body.remark))
@@ -286,6 +291,7 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
     if (String(error).includes('UNIQUE')) throw ApiError.conflict('That mount path is already used')
     throw error
   }
+  invalidateExternalListing(row.id)
   return c.json({ mount: toMountView((await mountById(c, row.id))!) })
 })
 
@@ -394,6 +400,7 @@ function toMountView(row: MountRow) {
     mountPath: row.mount_path,
     readOnly: row.read_only === 1,
     cacheTtl: row.cache_ttl,
+    signExpires: row.sign_expires,
     sortOrder: row.sort_order,
     enabled: row.enabled === 1,
     remark: row.remark,

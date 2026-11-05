@@ -162,7 +162,11 @@ export function TransfersPage() {
                 <li key={task.id} className="flex min-w-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
                   <Server size={14} className="text-[var(--text-tertiary)]" aria-hidden />
                   <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
-                    {task.type === 'reindex' ? ct('clouddrive.tasks.type_reindex') : task.type}
+                    {task.type === 'reindex'
+                      ? ct('clouddrive.tasks.type_reindex')
+                      : task.type === 'url_upload'
+                        ? ct('clouddrive.tasks.type_url_upload')
+                        : task.type}
                   </span>
                   <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                     {ct(taskStatusKey(task.status))}{total > 0 ? ` · ${done}/${total}` : ''}

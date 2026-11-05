@@ -27,6 +27,7 @@ import {
   GalleryHorizontal,
   Globe,
   LayoutGrid,
+  Link2,
   List,
   PanelRight,
   Replace,
@@ -68,6 +69,7 @@ import { ContextMenu, type ContextMenuTarget } from './ContextMenu'
 import { BatchRenameDialog, ConfirmDeleteDialog, MoveDialog, NameDialog, RenameDialog } from './Dialogs'
 import { Inspector } from './Inspector'
 import { SelectionBar } from './SelectionBar'
+import { RemoteUploadDialog } from './RemoteUploadDialog'
 import { ShareDialog } from './ShareDialog'
 import { VersionsDialog } from './VersionsDialog'
 import { useFileActions, type FileListChange, type ShareOptions } from './useFileActions'
@@ -128,6 +130,7 @@ type DialogState =
   | { kind: 'delete'; ids: string[]; entries: CloudDriveEntry[] }
   | { kind: 'share'; entries: CloudDriveEntry[] }
   | { kind: 'versions'; entry: CloudDriveEntry }
+  | { kind: 'remoteUpload' }
   | null
 
 export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = false, external = false, folderSummary = false, onPreview }: FilesPageProps) {
@@ -811,6 +814,16 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
             <span className="hidden sm:inline">{t('clouddrive.toolbar.upload')}</span>
           </Button>
           <Button
+            size="sm"
+            variant="secondary"
+            icon={<Link2 size={13} />}
+            aria-label={t('clouddrive.toolbar.upload_url')}
+            disabled={!writable || actions.busy}
+            onClick={() => setDialog({ kind: 'remoteUpload' })}
+          >
+            <span className="hidden sm:inline">{t('clouddrive.toolbar.upload_url')}</span>
+          </Button>
+          <Button
             ref={conflictButtonRef}
             size="sm"
             variant="secondary"
@@ -1199,6 +1212,13 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         entry={dialog?.kind === 'versions' ? dialog.entry : null}
         onClose={() => setDialog(null)}
         onRestored={(entry) => applyLocalChange({ type: 'replace', entry })}
+      />
+      <RemoteUploadDialog
+        open={dialog?.kind === 'remoteUpload'}
+        path={path}
+        conflict={prefs.uploadConflict}
+        onClose={() => setDialog(null)}
+        onStarted={() => useCloudDriveStore.getState().bumpRefresh()}
       />
       <ShareDialog
         open={dialog?.kind === 'share'}

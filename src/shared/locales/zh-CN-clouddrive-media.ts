@@ -60,8 +60,11 @@ export const ZH_CN_CLOUDDRIVE_MEDIA = {
   'clouddrive.tasks.status_completed': '已完成',
   'clouddrive.tasks.status_failed': '失败',
   'clouddrive.tasks.type_reindex': '重建索引',
+  'clouddrive.tasks.type_url_upload': '链接下载',
 
   'clouddrive.settings.title': '云盘设置',
+  'clouddrive.settings.display_quota': '容量显示上限（字节）',
+  'clouddrive.settings.display_quota_hint': '仅在未配置强制配额时用于容量卡显示；留空表示不限。',
   'clouddrive.settings.load_failed': '设置加载失败',
   'clouddrive.settings.save_failed': '设置保存失败',
   'clouddrive.settings.upload_section': '上传',

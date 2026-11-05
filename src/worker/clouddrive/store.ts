@@ -120,7 +120,9 @@ export async function cloudDriveUsage(db: D1Database, userId: string, env: Env):
   return {
     usedBytes: (live?.bytes ?? 0) + (liveParts?.bytes ?? 0),
     trashBytes: (trash?.bytes ?? 0) + (trashParts?.bytes ?? 0),
-    quotaBytes: settings.quotaDefaultBytes,
+    // A deployment that does not enforce a quota can still publish a display ceiling; otherwise the
+    // capacity card would read "unlimited" for every account on a quota-less install.
+    quotaBytes: settings.quotaDefaultBytes ?? settings.storageDisplayQuotaBytes,
     primaryAvailable: Boolean(env.FILES),
   }
 }

@@ -28,6 +28,7 @@ export function CloudDriveSettingsPage({ owner }: { owner: boolean }) {
         shareDefaultExpiryDays: result.settings.shareDefaultExpiryDays,
         shareMaxExpiryDays: result.settings.shareMaxExpiryDays,
         trashRetentionDays: result.settings.trashRetentionDays,
+        storageDisplayQuotaBytes: result.settings.storageDisplayQuotaBytes,
         webdavEnabled: result.settings.webdavEnabled,
         webdavUsername: result.settings.webdavUsername,
         adminOwnerCanViewMemberFiles: result.settings.adminOwnerCanViewMemberFiles,
@@ -74,6 +75,18 @@ export function CloudDriveSettingsPage({ owner }: { owner: boolean }) {
           <Field label={ct('clouddrive.settings.part_size')}><Input type="number" readOnly={locked} value={number(draft.uploadPartSizeBytes)} onChange={(event) => setDraft({ ...draft, uploadPartSizeBytes: Number(event.target.value) })} /></Field>
           <Field label={ct('clouddrive.settings.concurrency')}><Input type="number" readOnly={locked} value={number(draft.uploadConcurrentParts)} onChange={(event) => setDraft({ ...draft, uploadConcurrentParts: Number(event.target.value) })} /></Field>
           <Field label={ct('clouddrive.settings.distributed_threshold')}><Input type="number" readOnly={locked} value={number(draft.uploadDistributedMinBytes)} onChange={(event) => setDraft({ ...draft, uploadDistributedMinBytes: Number(event.target.value) })} /></Field>
+          <Field label={ct('clouddrive.settings.display_quota')} hint={ct('clouddrive.settings.display_quota_hint')}>
+            <Input
+              type="number"
+              min={0}
+              readOnly={locked}
+              value={draft.storageDisplayQuotaBytes ?? ''}
+              onChange={(event) => setDraft({
+                ...draft,
+                storageDisplayQuotaBytes: event.target.value === '' ? null : Number(event.target.value),
+              })}
+            />
+          </Field>
         </div>
       </section>
       <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">

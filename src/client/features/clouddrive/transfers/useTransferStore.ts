@@ -60,10 +60,12 @@ interface TransferState {
 
 const HISTORY_VERSION = 'v1'
 const HISTORY_LIMIT = 100
-/** The reader's own ceiling on parts in flight, clamped to what the settings allow. */
+/** The reader's own ceiling on parts in flight, clamped to the deployment's policy as well. */
 function concurrencyLimit(): number {
   const wanted = useCloudDriveStore.getState().prefs.uploadConcurrency
-  return Math.min(8, Math.max(1, Math.round(wanted)))
+  const policy = Number(useCloudDriveStore.getState().bootstrap?.settings.uploadConcurrentParts)
+  const serverCap = Number.isFinite(policy) && policy >= 1 ? Math.min(8, Math.round(policy)) : 8
+  return Math.min(serverCap, Math.max(1, Math.round(wanted)))
 }
 
 const controllers = new Map<string, AbortController>()

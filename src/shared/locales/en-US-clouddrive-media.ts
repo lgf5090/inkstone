@@ -60,8 +60,11 @@ export const EN_US_CLOUDDRIVE_MEDIA = {
   'clouddrive.tasks.status_completed': 'Completed',
   'clouddrive.tasks.status_failed': 'Failed',
   'clouddrive.tasks.type_reindex': 'Index rebuild',
+  'clouddrive.tasks.type_url_upload': 'URL download',
 
   'clouddrive.settings.title': 'Cloud Drive settings',
+  'clouddrive.settings.display_quota': 'Displayed capacity ceiling (bytes)',
+  'clouddrive.settings.display_quota_hint': 'Used by the capacity card only when no enforced quota exists; blank means unlimited.',
   'clouddrive.settings.load_failed': 'Could not load settings',
   'clouddrive.settings.save_failed': 'Could not save settings',
   'clouddrive.settings.upload_section': 'Uploads',

@@ -69,6 +69,10 @@ export interface CloudDriveMountInfo {
   webProxy?: boolean
   webdavPolicy?: string
   folderSummary?: boolean
+  /** Seconds an external listing stays cached in this isolate; zero disables the cache. */
+  cacheTtl?: number
+  /** Seconds a direct external link stays valid; null falls back to the driver default. */
+  signExpires?: number | null
 }
 
 interface MountRow {
@@ -81,6 +85,8 @@ interface MountRow {
   web_proxy: number
   webdav_policy: string
   folder_summary: number
+  cache_ttl: number
+  sign_expires: number | null
 }
 
 export const PRIMARY_MOUNT = 'primary'
@@ -134,7 +140,8 @@ export async function resolveMount(
   mountId: string,
 ): Promise<CloudDriveMountInfo> {
   const row = await db.prepare(
-    `SELECT id, storage_id, name, mount_path, read_only, enabled, web_proxy, webdav_policy, folder_summary
+    `SELECT id, storage_id, name, mount_path, read_only, enabled, web_proxy, webdav_policy, folder_summary,
+            cache_ttl, sign_expires
        FROM CloudDrive_mounts
       WHERE user_id = ? AND id = ? AND enabled = 1`,
   ).bind(userId, mountId).first<MountRow>()
@@ -162,6 +169,8 @@ export async function resolveMount(
     webProxy: row.web_proxy === 1,
     webdavPolicy: row.webdav_policy,
     folderSummary: row.folder_summary === 1,
+    cacheTtl: row.cache_ttl,
+    signExpires: row.sign_expires,
   }
 }
 

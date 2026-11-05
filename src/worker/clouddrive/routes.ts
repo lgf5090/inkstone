@@ -7,6 +7,7 @@ import { ApiError } from '../lib/errors'
 import { cloudDriveFilesRoutes } from './routes-files'
 import { cloudDriveSettingsRoutes } from './routes-settings'
 import { clouddriveUploadRoutes } from './routes-upload'
+import { clouddriveUploadUrlRoutes } from './routes-upload-url'
 import { clouddriveContentRoutes } from './routes-content'
 import { clouddrivePublicShareRoutes, clouddriveShareRoutes } from './routes-shares'
 import { clouddriveMountRoutes } from './routes-mounts'
@@ -60,6 +61,7 @@ clouddriveRoutes.get('/health', async (c) => {
 clouddriveRoutes.route('/', cloudDriveFilesRoutes)
 clouddriveRoutes.route('/', cloudDriveSettingsRoutes)
 clouddriveRoutes.route('/', clouddriveUploadRoutes)
+clouddriveRoutes.route('/', clouddriveUploadUrlRoutes)
 clouddriveRoutes.route('/', clouddriveContentRoutes)
 clouddriveRoutes.route('/', clouddriveShareRoutes)
 clouddriveRoutes.route('/', clouddriveMountRoutes)

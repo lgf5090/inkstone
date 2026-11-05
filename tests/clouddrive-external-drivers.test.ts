@@ -9,6 +9,7 @@ import {
   externalEntryId,
   externalFolderSize,
   externalProxyLocation,
+  invalidateExternalListing,
   listExternal,
   mkdirExternal,
   moveExternalPath,
@@ -360,6 +361,48 @@ describe('S3 driver', () => {
   })
 })
 
+describe('external listing cache', () => {
+  const listXml = `<?xml version="1.0" encoding="UTF-8"?>
+    <ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+      <Contents><Key>root/readme.txt</Key><LastModified>2026-10-01T10:00:00.000Z</LastModified><Size>7</Size></Contents>
+    </ListBucketResult>`
+
+  it('serves a repeated listing from the mount cache within its TTL', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', region: 'auto', pathStyle: true,
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    mount.cacheTtl = 300
+    fetchMock.mockImplementation(async () => new Response(listXml, { status: 200 }))
+    const first = await listExternal(env, db, mount, '/')
+    const second = await listExternal(env, db, mount, '/')
+    expect(second.files.map((entry) => entry.name)).toEqual(first.files.map((entry) => entry.name))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not cache when the mount asks for zero seconds', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', region: 'auto', pathStyle: true,
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    mount.cacheTtl = 0
+    fetchMock.mockImplementation(async () => new Response(listXml, { status: 200 }))
+    await listExternal(env, db, mount, '/')
+    await listExternal(env, db, mount, '/')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('forgets a mount listing when its write path clears the mount', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', region: 'auto', pathStyle: true,
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    mount.cacheTtl = 300
+    fetchMock.mockImplementation(async () => new Response(listXml, { status: 200 }))
+    await listExternal(env, db, mount, '/')
+    invalidateExternalListing(mount.id)
+    await listExternal(env, db, mount, '/')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('direct and proxied external links', () => {
   it('prefers a custom host for an S3 direct link', async () => {
     const mount = await mountWith('s3', {
@@ -376,6 +419,16 @@ describe('direct and proxied external links', () => {
     const url = await externalDirectUrl(env, db, mount, '/readme.txt')
     expect(url).toContain('https://s3.example.com/bucket/root/readme.txt?')
     expect(url).toContain('X-Amz-Signature=')
+    expect(url).toContain('X-Amz-Expires=300')
+  })
+
+  it('uses the mount direct-link lifetime for the S3 signature', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', rootPath: 'root',
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    mount.signExpires = 900
+    const url = await externalDirectUrl(env, db, mount, '/readme.txt')
+    expect(url).toContain('X-Amz-Expires=900')
   })
 
   it('wraps an S3 direct link in the configured proxy URL', async () => {
