@@ -12,6 +12,7 @@
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
 import type { Env } from '../../env'
 import { decryptCloudDriveCredentials, encryptCloudDriveCredentials } from '../../lib/crypto'
+import { create115ShareDriver } from './115_share'
 import { create123PanDriver } from './123pan'
 import { createAlistV3Driver } from './alist_v3'
 import { createAliasDriver } from './alias'
@@ -40,6 +41,29 @@ import { createTeldriveDriver } from './teldrive'
 import { createUrlTreeDriver } from './url_tree'
 import { createUssDriver } from './uss'
 import { createVirtualDriver } from './virtual'
+import { create123ShareDriver } from './123_share'
+import { create139Driver } from './139'
+import { create189Driver } from './189'
+import { create189PCDriver } from './189pc'
+import { createAlidocDriver } from './alidoc'
+import { createAliyundriveShareDriver } from './aliyundrive_share'
+import { createBaiduPhotoDriver } from './baidu_photo'
+import { createChaoxingDriver } from './chaoxing'
+import { createCloudflareImgbedDriver } from './cloudflare_imgbed'
+import { createCtfileDriver } from './ctfile'
+import { createDoubaoDriver } from './doubao'
+import { createLanzouDriver } from './lanzou'
+import { createMegaDriver } from './mega'
+import { createMediatrackDriver } from './mediatrack'
+import { createMopanDriver } from './mopan'
+import { createNeteaseMusicDriver } from './netease_music'
+import { createProtonDriveDriver } from './proton_drive'
+import { createQuarkDriver } from './quark'
+import { createQuarkUcTvDriver } from './quark_uc_tv'
+import { createTeambitionDriver } from './teambition'
+import { createTeraboxDriver } from './terabox'
+import { createWeiyunDriver } from './weiyun'
+import { createWpsDriver } from './wps'
 import { driverFactories } from './registry'
 import { DriverError, type DriverContext, type MountDriver, type ResolvedMount } from './contract'
 
@@ -63,6 +87,7 @@ export interface DriverMountContext {
 type DriverFactory = (ctx: DriverContext) => MountDriver
 
 const FACTORIES: Readonly<Record<string, DriverFactory>> = {
+  '115_share': create115ShareDriver,
   '123pan': create123PanDriver,
   's3': createS3Driver,
   'r2': createR2Driver,
@@ -91,6 +116,29 @@ const FACTORIES: Readonly<Record<string, DriverFactory>> = {
   'chunk': createChunkDriver,
   'crypt': createCryptDriver,
   'alias': createAliasDriver,
+  '123_share': create123ShareDriver,
+  '139': create139Driver,
+  '189': create189Driver,
+  '189pc': create189PCDriver,
+  'alidoc': createAlidocDriver,
+  'aliyundrive_share': createAliyundriveShareDriver,
+  'baidu_photo': createBaiduPhotoDriver,
+  'chaoxing': createChaoxingDriver,
+  'cloudflare_imgbed': createCloudflareImgbedDriver,
+  'ctfile': createCtfileDriver,
+  'doubao': createDoubaoDriver,
+  'lanzou': createLanzouDriver,
+  'mega': createMegaDriver,
+  'mediatrack': createMediatrackDriver,
+  'mopan': createMopanDriver,
+  'netease_music': createNeteaseMusicDriver,
+  'proton_drive': createProtonDriveDriver,
+  'quark': createQuarkDriver,
+  'quark_uc_tv': createQuarkUcTvDriver,
+  'teambition': createTeambitionDriver,
+  'terabox': createTeraboxDriver,
+  'weiyun': createWeiyunDriver,
+  'wps': createWpsDriver,
   ...driverFactories,
 }
 
