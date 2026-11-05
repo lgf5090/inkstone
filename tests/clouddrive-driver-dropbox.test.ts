@@ -93,7 +93,7 @@ describe('Dropbox driver', () => {
     })
     const driver = createDropboxDriver(context())
     expect((await driver.read('/a.txt', 'bytes=2-5')).status).toBe(206)
-    expect(await driver.directLink('/a.txt')).toBe('https://dl.example/a.txt')
+    expect(await driver.directLink?.('/a.txt')).toBe('https://dl.example/a.txt')
   })
 
   it('refreshes once on a rejected token', async () => {

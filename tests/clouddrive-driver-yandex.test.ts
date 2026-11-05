@@ -92,7 +92,7 @@ describe('Yandex Disk driver', () => {
     })
     const driver = createYandexDriver(context())
     expect((await driver.read('/a.txt', 'bytes=2-5')).status).toBe(206)
-    expect(await driver.directLink('/a.txt')).toBe('https://down.example/a.txt')
+    expect(await driver.directLink?.('/a.txt')).toBe('https://down.example/a.txt')
   })
 
   it('refreshes once when the API rejects the token', async () => {
