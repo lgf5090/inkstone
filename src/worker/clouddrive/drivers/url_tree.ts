@@ -6,22 +6,25 @@
  * A file's content is the URL itself.
  *
  * The upstream keeps the structure writable by persisting the edited text back to the driver's
- * config. A MountDriver has no such callback — only `saveCredentials` — so a write can never be
- * stored. Every write operation therefore fails with `unsupported` instead of reporting success
- * for an edit that would disappear with the next request.
+ * config. That callback is now part of `DriverContext` (`saveConfig`), so `writable=true` edits are
+ * serialised through the shared schema validation instead of being thrown away.
  */
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
 import {
   DriverError,
+  asBytes,
   driverEntryMime,
   type DriverEntry,
   type DriverContext,
   type DriverListOptions,
   type DriverListResult,
+  type DriverUploadOptions,
   type MountDriver,
 } from './contract'
 import {
   HttpDriverBase,
+  driverFileName,
+  driverParentPath,
   driverPath,
 } from './http'
 
@@ -121,6 +124,44 @@ function calculateSize(node: TreeNode): number {
   for (const child of node.children) total += calculateSize(child)
   node.size = total
   return total
+}
+
+/** The same textual form the reference driver writes back for `writable=true`. */
+function stringifyTree(root: TreeNode): string {
+  const walk = (node: TreeNode): string => {
+    if (node.level === -1) return node.children.map(walk).join('\n')
+    const indent = '  '.repeat(node.level)
+    if (!node.url) {
+      const children = node.children.map(walk).join('\n')
+      return `${indent}${node.name}:${children ? `\n${children}` : ''}`
+    }
+    let baseName = ''
+    try {
+      const parsed = new URL(node.url)
+      baseName = parsed.pathname.split('/').filter(Boolean).pop() ?? ''
+    } catch {
+      baseName = ''
+    }
+    if (node.size === 0 && node.modified === 0) {
+      return `${indent}${baseName === node.name ? node.url : `${node.name}:${node.url}`}`
+    }
+    let info = node.name
+    if (node.size !== 0 || node.modified !== 0) info += `:${node.size}`
+    if (node.modified !== 0) info += `:${node.modified}`
+    return `${indent}${info}:${node.url}`
+  }
+  return walk(root)
+}
+
+function deepCopy(node: TreeNode, level: number): TreeNode {
+  return {
+    url: node.url,
+    name: node.name,
+    level,
+    modified: node.modified,
+    size: node.size,
+    children: node.children.map((child) => deepCopy(child, level + 1)),
+  }
 }
 
 function splitPath(path: string): string[] {
@@ -280,31 +321,100 @@ class UrlTreeDriver extends HttpDriverBase implements MountDriver {
     return new Response(chunk, { status: 206, headers })
   }
 
-  private unsupportedWrite(): never {
-    const mode = this.writable() ? 'writable' : 'read-only'
-    throw DriverError.unsupported(
-      `URL Tree ${mode} mode cannot persist edits: a MountDriver has no config write-back, only saveCredentials.`,
-    )
+  private requireWritable(): void {
+    if (!this.writable()) throw DriverError.unsupported('URL Tree is read-only; set writable=true to edit it')
+    if (!this.ctx.saveConfig) throw DriverError.unsupported('URL Tree cannot persist edits without a config write-back callback')
   }
 
-  async upload(): Promise<void> {
-    this.unsupportedWrite()
+  private async persist(): Promise<void> {
+    const tree = await this.tree()
+    await this.ctx.saveConfig!({ urlStructure: stringifyTree(tree) })
   }
 
-  async mkdir(): Promise<void> {
-    this.unsupportedWrite()
+  private async parentNode(path: string): Promise<TreeNode> {
+    const tree = await this.tree()
+    const parent = nodeByPath(tree, driverParentPath(this.treePath(path)))
+    if (!parent) throw DriverError.notFound(`URL Tree has no folder at ${driverParentPath(path)}`)
+    if (parent.url) throw DriverError.invalid(`URL Tree entry "${path}" is not a folder.`)
+    return parent
   }
 
-  async rename(): Promise<void> {
-    this.unsupportedWrite()
+  async upload(
+    path: string,
+    body: Uint8Array | ReadableStream,
+    options: DriverUploadOptions,
+  ): Promise<void> {
+    this.requireWritable()
+    const parent = await this.parentNode(path)
+    const bytes = await asBytes(body)
+    if (bytes.byteLength !== options.size) throw DriverError.invalid('The upload body does not match the declared size')
+    const name = driverFileName(driverPath(path))
+    const data = new TextDecoder().decode(bytes).trim()
+    const node = parseFileLine(`${name}:${data}`)
+    node.level = parent.level + 1
+    parent.children = parent.children.filter((child) => child.name !== name)
+    parent.children.push(node)
+    if (this.headSize()) node.size = await this.resolveSize(node)
+    calculateSize((await this.tree()))
+    await this.persist()
+    options.onProgress?.(bytes.byteLength, bytes.byteLength)
   }
 
-  async move(): Promise<void> {
-    this.unsupportedWrite()
+  async mkdir(path: string): Promise<void> {
+    this.requireWritable()
+    const parent = await this.parentNode(path)
+    const name = driverFileName(driverPath(path))
+    if (parent.children.some((child) => child.name === name)) throw DriverError.invalid(`URL Tree already has "${name}"`)
+    parent.children.push({ url: '', name, level: parent.level + 1, modified: 0, size: 0, children: [] })
+    await this.persist()
   }
 
-  async remove(): Promise<void> {
-    this.unsupportedWrite()
+  async rename(path: string, newName: string): Promise<void> {
+    this.requireWritable()
+    const node = await this.node(driverPath(path))
+    if (node === (await this.tree())) throw DriverError.invalid('The URL Tree root cannot be renamed')
+    node.name = newName
+    await this.persist()
+  }
+
+  async remove(path: string): Promise<void> {
+    this.requireWritable()
+    const parent = await this.parentNode(path)
+    const name = driverFileName(driverPath(path))
+    const index = parent.children.findIndex((child) => child.name === name)
+    if (index < 0) throw DriverError.notFound(`URL Tree has no entry "${name}"`)
+    parent.children.splice(index, 1)
+    calculateSize(await this.tree())
+    await this.persist()
+  }
+
+  async move(fromPath: string, toPath: string): Promise<void> {
+    this.requireWritable()
+    const sourceParent = await this.parentNode(fromPath)
+    const sourceName = driverFileName(driverPath(fromPath))
+    const index = sourceParent.children.findIndex((child) => child.name === sourceName)
+    if (index < 0) throw DriverError.notFound(`URL Tree has no entry "${sourceName}"`)
+    const destinationParent = await this.parentNode(toPath)
+    const [node] = sourceParent.children.splice(index, 1)
+    node!.name = driverFileName(driverPath(toPath))
+    node!.level = destinationParent.level + 1
+    destinationParent.children.push(node!)
+    calculateSize(await this.tree())
+    await this.persist()
+  }
+
+  async copy(fromPath: string, toPath: string): Promise<void> {
+    this.requireWritable()
+    const sourceParent = await this.parentNode(fromPath)
+    const sourceName = driverFileName(driverPath(fromPath))
+    const source = sourceParent.children.find((child) => child.name === sourceName)
+    if (!source) throw DriverError.notFound(`URL Tree has no entry "${sourceName}"`)
+    const destinationParent = await this.parentNode(toPath)
+    const copy = deepCopy(source, destinationParent.level + 1)
+    copy.name = driverFileName(driverPath(toPath))
+    destinationParent.children.push(copy)
+    calculateSize(await this.tree())
+    await this.persist()
   }
 
   async test(): Promise<{ ok: boolean; message: string }> {

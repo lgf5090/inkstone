@@ -708,6 +708,10 @@ const STORAGE_REQUIRED_CONFIG: Readonly<Record<string, readonly string[]>> = {
   onedrive_sharelink: ['url'],
   autoindex: ['url'],
   url_tree: ['urlStructure'],
+  strm: ['paths'],
+  chunk: ['remotePath'],
+  crypt: ['remotePath'],
+  alias: ['paths'],
 }
 
 function cleanRootPath(value: unknown): string {

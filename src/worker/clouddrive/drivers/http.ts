@@ -21,6 +21,8 @@ export interface HttpOptions {
   /** Redirects are followed by hand only when a driver asks; the default refuses them. */
   redirect?: RequestInit['redirect']
   signal?: AbortSignal
+  /** Pass a `Request` as the first fetch argument instead of a URL plus init. */
+  asRequest?: boolean
 }
 
 function retryDelay(response: Response | null, attempt: number): number {
@@ -117,13 +119,18 @@ export abstract class HttpDriverBase {
     for (let attempt = 0; attempt <= retries; attempt++) {
       let response: Response
       try {
-        response = await fetch(url, {
+        const init: RequestInit = {
           method: options.method ?? 'GET',
           headers: options.headers,
           body: options.body,
           redirect: options.redirect ?? 'manual',
           signal: options.signal ?? AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-        })
+        }
+        // A driver can ask for a Request when its caller inspects the fetch argument; the init
+        // object stays on the second argument so headers and bodies remain readable.
+        response = options.asRequest
+          ? await fetch(new Request(url, init), init)
+          : await fetch(url, init)
       } catch (error) {
         lastError = DriverError.upstream(`The upstream service could not be reached: ${error instanceof Error ? error.message : String(error)}`)
         if (attempt === retries) throw lastError

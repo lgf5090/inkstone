@@ -238,6 +238,11 @@ async function presignS3Url(options: {
   return url.toString()
 }
 
+function listingName(key: string, prefix: string): string {
+  const relative = prefix && key.startsWith(prefix) ? key.slice(prefix.length) : key
+  return relative.replace(/\/+$/, '').split('/').filter(Boolean).pop() ?? ''
+}
+
 function parseListing(xml: string, prefix: string, placeholder: string, version: 'v1' | 'v2'): ParsedListing {
   const entries: DriverEntry[] = []
   const seen = new Set<string>()
@@ -246,32 +251,27 @@ function parseListing(xml: string, prefix: string, placeholder: string, version:
     const raw = xmlTag(block, 'Prefix')
     if (!raw) continue
     const decoded = xmlUnescape(raw)
-    if (!decoded.startsWith(prefix)) continue
-    const relative = decoded.slice(prefix.length).replace(/\/+$/, '')
-    if (!relative || relative.includes('/')) continue
-    if (!seen.has(relative)) {
-      seen.add(relative)
-      entries.push({ name: relative, kind: 'folder', size: 0, modifiedAt: 0, ref: decoded })
-    }
+    const name = listingName(decoded, prefix)
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    entries.push({ name, kind: 'folder', size: 0, modifiedAt: 0, ref: decoded })
   }
 
   for (const block of xmlBlocks(xml, 'Contents')) {
     const raw = xmlTag(block, 'Key')
     if (!raw) continue
     const key = xmlUnescape(raw)
-    if (key.endsWith('/') || !key.startsWith(prefix)) continue
-    const relative = key.slice(prefix.length)
-    if (!relative || relative.includes('/')) continue
-    if (relative === placeholder) continue
-    if (seen.has(relative)) continue
-    seen.add(relative)
+    if (key.endsWith('/')) continue
+    const name = listingName(key, prefix)
+    if (!name || name === placeholder || seen.has(name)) continue
+    seen.add(name)
     entries.push({
-      name: relative,
+      name,
       kind: 'file',
       size: Number.parseInt(xmlTag(block, 'Size') ?? '0', 10) || 0,
       modifiedAt: Date.parse(xmlTag(block, 'LastModified') ?? '') || 0,
       ref: key,
-      mime: driverEntryMime(relative),
+      mime: driverEntryMime(name),
     })
   }
 
@@ -410,6 +410,7 @@ export class S3Driver extends HttpDriverBase implements MountDriver {
       method: method as unknown as HttpOptions['method'],
       headers: signed,
       body: body ?? undefined,
+      asRequest: true,
     })
   }
 
@@ -435,22 +436,27 @@ export class S3Driver extends HttpDriverBase implements MountDriver {
     return xml.includes('<Contents>') || xml.includes('<CommonPrefixes>')
   }
 
-  private async listPage(prefix: string, targetPage: number, pageSize: number): Promise<ListPage> {
+  private listParams(prefix: string, pageSize: number, cursor: string | null): Record<string, string> {
     const version = this.listVersion()
+    const params: Record<string, string> = {}
+    if (version === 'v2') params['list-type'] = '2'
+    params.delimiter = '/'
+    params['max-keys'] = String(pageSize)
+    if (prefix) params.prefix = prefix
+    if (cursor) {
+      if (version === 'v2') params['continuation-token'] = cursor
+      else params.marker = cursor
+    }
+    return params
+  }
+
+  private async listPage(prefix: string, targetPage: number, pageSize: number): Promise<ListPage> {
     let cursor: string | null = null
     for (let page = 1; page <= Math.max(1, targetPage); page++) {
-      const params: Record<string, string> = {
-        prefix,
-        delimiter: '/',
-        'max-keys': String(pageSize),
-        ...(version === 'v2' ? { 'list-type': '2' } : {}),
-        ...(cursor
-          ? version === 'v2' ? { 'continuation-token': cursor } : { marker: cursor }
-          : {}),
-      }
+      const params = this.listParams(prefix, pageSize, cursor)
       const response = await this.send('GET', this.urlFor('', params))
       const xml = await response.text()
-      const parsed = parseListing(xml, prefix, this.placeholder(), version)
+      const parsed = parseListing(xml, prefix, this.placeholder(), this.listVersion())
       if (page === targetPage) return parsed
       if (!parsed.next) return { entries: [], next: null }
       cursor = parsed.next
@@ -463,16 +469,7 @@ export class S3Driver extends HttpDriverBase implements MountDriver {
     const version = this.listVersion()
     let cursor: string | null = null
     for (let page = 1; page <= MAX_LIST_PAGES; page++) {
-      const params: Record<string, string> = {
-        prefix,
-        delimiter: '/',
-        'max-keys': String(pageSize),
-        ...(version === 'v2' ? { 'list-type': '2' } : {}),
-        ...(cursor
-          ? version === 'v2' ? { 'continuation-token': cursor } : { marker: cursor }
-          : {}),
-      }
-      const response = await this.send('GET', this.urlFor('', params))
+      const response = await this.send('GET', this.urlFor('', this.listParams(prefix, pageSize, cursor)))
       const parsed = parseListing(await response.text(), prefix, this.placeholder(), version)
       entries.push(...parsed.entries)
       if (!parsed.next) return { entries, truncated: false }
@@ -631,9 +628,8 @@ export class S3Driver extends HttpDriverBase implements MountDriver {
 
   async directLink(path: string): Promise<string | null> {
     const clean = driverPath(path)
-    await this.authenticate()
-    if (clean === '/') return null
     const key = this.objectKey(clean)
+    if (clean === '/') return null
     const customHost = this.customHost()
     if (customHost) {
       const raw = customHost.startsWith('http://') || customHost.startsWith('https://')
@@ -641,17 +637,18 @@ export class S3Driver extends HttpDriverBase implements MountDriver {
         : `https://${customHost}`
       const url = new URL(raw)
       const base = url.pathname.replace(/\/+$/, '')
-      const path = this.pathStyle() ? `/${this.bucket()}/${encodeKey(key)}` : `/${encodeKey(key)}`
-      url.pathname = `${base}${path}`
+      url.pathname = `${base}/${encodeKey(key)}`
       return url.toString()
     }
+    await this.authenticate()
+    const expires = Math.min(86_400, Math.max(60, Math.round(this.ctx.directLinkExpires ?? 300)))
     return await presignS3Url({
       url: this.urlFor(key),
       region: this.region(),
       accessKeyId: this.accessKeyId(),
       secretAccessKey: this.secretAccessKey(),
       sessionToken: this.sessionToken() || undefined,
-      expiresSeconds: 4 * 3600,
+      expiresSeconds: expires,
     })
   }
 

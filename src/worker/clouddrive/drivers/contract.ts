@@ -74,6 +74,15 @@ export interface DriverUploadOptions {
   onProgress?: (uploadedBytes: number, totalBytes: number) => void
 }
 
+/** Another mount owned by the same user, already checked for status and cycles. */
+export interface ResolvedMount {
+  mountId: string
+  mountName: string
+  mountPath: string
+  readOnly: boolean
+  driver: MountDriver
+}
+
 export interface DriverContext {
   userId: string
   storageId: string
@@ -84,6 +93,17 @@ export interface DriverContext {
   saveCredentials: (patch: Record<string, string>) => Promise<void>
   /** Marks the storage as needing the owner's attention instead of retrying forever. */
   markNeedsReauth: (message: string) => Promise<void>
+  /** Seconds a direct link stays valid, taken from the mount's `signExpires`. */
+  directLinkExpires?: number
+  /** Resolves one of this user's enabled mounts by mount path or mount id. */
+  resolveMount?: (reference: string) => Promise<ResolvedMount>
+  /** Writes declared `config` fields back to the current storage row. */
+  saveConfig?: (patch: Record<string, unknown>) => Promise<void>
+  /** The deployment's primary R2 binding, used by the `r2` binding mode. */
+  r2?: R2Bucket
+  /** The mount this driver instance is serving, when the caller knows it. */
+  mountId?: string
+  mountPath?: string
 }
 
 export interface MountDriver {

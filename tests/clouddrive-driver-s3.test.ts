@@ -303,6 +303,15 @@ describe('S3 driver', () => {
     expect(url.searchParams.get('X-Amz-Signature')).toBeTruthy()
   })
 
+  it('uses and clamps the mount direct-link lifetime', async () => {
+    const short = await createS3Driver(context({ directLinkExpires: 30 })).directLink!('/a.txt')
+    expect(new URL(short!).searchParams.get('X-Amz-Expires')).toBe('60')
+    const long = await createS3Driver(context({ directLinkExpires: 999_999 })).directLink!('/a.txt')
+    expect(new URL(long!).searchParams.get('X-Amz-Expires')).toBe('86400')
+    const exact = await createS3Driver(context({ directLinkExpires: 900 })).directLink!('/a.txt')
+    expect(new URL(exact!).searchParams.get('X-Amz-Expires')).toBe('900')
+  })
+
   it('does not expose capabilities it does not implement', () => {
     const driver = createS3Driver(context())
     expect(driver.capabilities.copy).toBe(true)

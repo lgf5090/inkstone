@@ -85,16 +85,45 @@ describe('URL Tree driver', () => {
     await expect(empty.list('/')).rejects.toMatchObject({ kind: 'invalid' })
   })
 
-  it('refuses every write because config cannot be persisted, even when writable=true', async () => {
-    const driver = createUrlTreeDriver(context({ config: { urlStructure: STRUCTURE, writable: true, rootPath: '/' } }))
-    expect(driver.capabilities.write).toBe(false)
+  it('refuses writes when writable is off', async () => {
+    const driver = createUrlTreeDriver(context())
     await expect(driver.mkdir('/New')).rejects.toMatchObject({ kind: 'unsupported' })
     await expect(driver.rename('/Movies', 'Films')).rejects.toMatchObject({ kind: 'unsupported' })
     await expect(driver.remove('/Movies')).rejects.toMatchObject({ kind: 'unsupported' })
     await expect(driver.move('/Movies', '/Archive')).rejects.toMatchObject({ kind: 'unsupported' })
     await expect(driver.upload('/New/file.txt', new Uint8Array(), { size: 0 })).rejects.toMatchObject({ kind: 'unsupported' })
-    expect(driver.copy).toBeUndefined()
-    expect(driver.directLink).toBeUndefined()
+  })
+
+  it('persists writable edits through saveConfig', async () => {
+    const saveConfig = vi.fn(async () => undefined)
+    const driver = createUrlTreeDriver(context({
+      config: { urlStructure: STRUCTURE, writable: true, headSize: false, rootPath: '/' },
+      saveConfig,
+    }))
+    expect(driver.capabilities.write).toBe(true)
+    await driver.mkdir('/Archive')
+    expect(await driver.list('/')).toEqual({
+      entries: expect.arrayContaining([expect.objectContaining({ name: 'Archive', kind: 'folder' })]),
+      cursor: null,
+      truncated: false,
+    })
+    expect(saveConfig).toHaveBeenCalledWith(expect.objectContaining({ urlStructure: expect.stringContaining('Archive:') }))
+
+    const body = new TextEncoder().encode('https://cdn.example/new.txt')
+    await driver.upload('/Archive/link.txt', body, { size: body.byteLength })
+    const file = await driver.stat('/Archive/link.txt')
+    expect(file.ref).toBe('https://cdn.example/new.txt')
+    await driver.rename('/Archive', 'Films')
+    await driver.copy!('/Movies/Trailers/trailer.mp4', '/Films/trailer.mp4')
+    await driver.move('/Films/trailer.mp4', '/Movies/Trailers/moved.mp4')
+    await driver.remove('/Films')
+    expect(saveConfig).toHaveBeenCalledTimes(6)
+    expect(await driver.list('/')).toEqual({ entries: expect.arrayContaining([expect.objectContaining({ name: 'Movies' })]), cursor: null, truncated: false })
+  })
+
+  it('refuses writable edits when the context has no config callback', async () => {
+    const driver = createUrlTreeDriver(context({ config: { urlStructure: STRUCTURE, writable: true, rootPath: '/' } }))
+    await expect(driver.mkdir('/New')).rejects.toMatchObject({ kind: 'unsupported' })
   })
 
   it('reports readiness through test()', async () => {
