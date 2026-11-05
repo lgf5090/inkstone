@@ -172,7 +172,7 @@ describe('CtFile driver', () => {
     const driver = createCtfileDriver(context())
     expect(driver.capabilities.copy).toBe(false)
     expect(driver.copy).toBeUndefined()
-    expect(driver.capabilities.directLink).toBe(true)
+    expect(driver.capabilities.directLink).toBe(false)
     expect(typeof driver.directLink).toBe('function')
   })
 

@@ -226,7 +226,7 @@ describe('Lanzou driver', () => {
     expect(driver.capabilities.write).toBe(false)
     expect(driver.capabilities.copy).toBe(false)
     expect(driver.copy).toBeUndefined()
-    expect(driver.capabilities.directLink).toBe(true)
+    expect(driver.capabilities.directLink).toBe(false)
   })
 
   it('keeps folder rename and move unsupported', async () => {

@@ -778,7 +778,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: '115_share', nameKey: 'clouddrive.driver.115_share', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ range: true }),
     fields: SHARE_CODE_FIELDS,
     authAnyOf: [['shareCode', 'receiveCode']],
   },
@@ -797,28 +797,28 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: '123_share', nameKey: 'clouddrive.driver.123_share', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ range: true }),
     fields: SHARE123_FIELDS,
     authAnyOf: [['shareKey']],
   },
 
   {
     id: '139', nameKey: 'clouddrive.driver.139', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: YUN139_FIELDS,
     authAnyOf: [['authorization'], ['username', 'password']],
   },
 
   {
     id: '189', nameKey: 'clouddrive.driver.189', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: YUN189_FIELDS,
     authAnyOf: [['username', 'password'], ['cookie']],
   },
 
   {
     id: '189pc', nameKey: 'clouddrive.driver.189pc', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: YUN189PC_FIELDS,
     authAnyOf: [['username', 'password'], ['sessionKey', 'sessionSecret']],
   },
@@ -842,7 +842,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'alidoc', nameKey: 'clouddrive.driver.alidoc', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: ALIDOC_FIELDS,
     authAnyOf: [['cookie']],
   },
@@ -867,7 +867,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'aliyundrive_share', nameKey: 'clouddrive.driver.aliyundrive_share', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ range: true }),
     fields: ALIYUNDRIVE_SHARE_FIELDS,
     authAnyOf: [['shareId']],
   },
@@ -890,14 +890,14 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'baidu_photo', nameKey: 'clouddrive.driver.baidu_photo', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ write: true, rename: true, move: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ write: true, rename: true, move: true, delete: true, range: true }),
     fields: BAIDU_PHOTO_FIELDS,
     authAnyOf: [['cookie']],
   },
 
   {
     id: 'chaoxing', nameKey: 'clouddrive.driver.chaoxing', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ write: true, mkdir: true, move: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, move: true, delete: true, range: true }),
     fields: CHAOXING_FIELDS,
     authAnyOf: [['userName', 'password'], ['cookie']],
   },
@@ -918,14 +918,14 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'ctfile', nameKey: 'clouddrive.driver.ctfile', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, delete: true, range: true }),
     fields: CTFILE_FIELDS,
     authAnyOf: [['session']],
   },
 
   {
     id: 'doubao', nameKey: 'clouddrive.driver.doubao', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ mkdir: true, rename: true, move: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, delete: true, range: true }),
     fields: DOUBAO_FIELDS,
     authAnyOf: [['cookie']],
   },
@@ -951,7 +951,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'lanzou', nameKey: 'clouddrive.driver.lanzou', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ mkdir: true, rename: true, move: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, delete: true, range: true }),
     fields: LANZOU_FIELDS,
     authAnyOf: [['cookie'], ['account', 'password']],
   },
@@ -971,14 +971,14 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
 
   {
     id: 'mopan', nameKey: 'clouddrive.driver.mopan', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: MOPAN_FIELDS,
     authAnyOf: [['phone', 'password'], ['phone', 'smsCode']],
   },
 
   {
     id: 'netease_music', nameKey: 'clouddrive.driver.netease_music', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ delete: true, range: true }),
     fields: NETEASE_MUSIC_FIELDS,
     authAnyOf: [['cookie']],
   },
@@ -1021,7 +1021,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'quark', nameKey: 'clouddrive.driver.quark', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: QUARK_FIELDS,
     authAnyOf: [['cookie']],
   },
@@ -1041,21 +1041,21 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'quark_uc_tv', nameKey: 'clouddrive.driver.quark_uc_tv', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ directLink: true, range: true }),
+    capabilities: capabilities({ range: true }),
     fields: QUARK_UC_TV_FIELDS,
     authAnyOf: [['refreshToken']],
   },
 
   {
     id: 'teambition', nameKey: 'clouddrive.driver.teambition', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: TEAMBITION_FIELDS,
     authAnyOf: [['cookie']],
   },
 
   {
     id: 'terabox', nameKey: 'clouddrive.driver.terabox', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: TERABOX_FIELDS,
     authAnyOf: [['cookie']],
   },
@@ -1075,7 +1075,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'weiyun', nameKey: 'clouddrive.driver.weiyun', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ write: true, mkdir: true, rename: true, move: true, delete: true, range: true }),
     fields: WEIYUN_FIELDS,
     authAnyOf: [['cookies']],
   },
@@ -1092,7 +1092,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'wps', nameKey: 'clouddrive.driver.wps', group: 'china', implemented: true, mountable: true,
-    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, directLink: true, range: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, move: true, copy: true, delete: true, range: true }),
     fields: WPS_FIELDS,
     authAnyOf: [['cookie']],
   },
@@ -1202,7 +1202,7 @@ export const CLOUDDRIVE_DRIVERS: readonly CloudDriveDriverDefinition[] = [
   },
   {
     id: 'proton_drive', nameKey: 'clouddrive.driver.proton_drive', group: 'international', implemented: true, mountable: true,
-    capabilities: capabilities({ delete: true }),
+    capabilities: capabilities({ mkdir: true, rename: true, delete: true }),
     fields: PROTON_DRIVE_FIELDS,
     authAnyOf: [['email', 'password'], ['reusableCredential']],
   },
