@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
-import { DEFAULT_BLOG_SETTINGS, publicBlogSite } from '../src/shared/blog/settings'
+import { DEFAULT_BLOG_SETTINGS, mergeBlogSettings, publicBlogSite } from '../src/shared/blog/settings'
 import { sanitizeBlogHtml } from '../src/worker/blog/sanitize'
 import type { BlogSettings } from '../src/shared/blog/settings'
 
@@ -56,6 +56,22 @@ describe('the public site projection exposes the settings the frontend renders',
     })
     expect(site.announcement).toEqual({ enable: true, text: 'Server maintenance on Sunday', closable: false, linkText: '', linkUrl: '' })
     expect(site.llms).toEqual({ enable: false, excludeTags: ['secret', 'private'] })
+  })
+
+  it('defaults a fresh music setting to the visible local provider while stored choices win', () => {
+    const fresh = mergeBlogSettings([])
+    expect(fresh.music.provider).toBe('local')
+    expect(publicBlogSite(fresh, counts).integrations.music).toMatchObject({
+      provider: 'local',
+      enabled: false,
+      tracks: [],
+    })
+
+    const explicitNone = mergeBlogSettings([{ key: 'music', value: JSON.stringify({ provider: 'none' }) }])
+    expect(explicitNone.music.provider).toBe('none')
+
+    const partial = mergeBlogSettings([{ key: 'music', value: JSON.stringify({ tracks: [] }) }])
+    expect(partial.music.provider).toBe('local')
   })
 
   it('migrates the legacy native comment provider from none to local', () => {
