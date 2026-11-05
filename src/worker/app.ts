@@ -77,6 +77,7 @@ import { toolsShortlinksRedirectRoutes } from './routes/tools-shortlinks-redirec
 import { toolsCalculatorRoutes } from './routes/tools-calculator'
 import { toolsCompareRoutes } from './routes/tools-compare'
 import { comparePublicPageRoutes, comparePublicRoutes } from './routes/tools-compare-public'
+import { toolsNetworkPanelRoutes } from './routes/tools-network-panel'
 import { developmentDatabaseRoutes } from './routes/development-database'
 import { developmentXgetRoutes } from './routes/development-xget'
 import { isXgetProxyPath } from './development/xget/paths'
@@ -306,6 +307,7 @@ export function createApp() {
   app.route('/api/tools/calculator', toolsCalculatorRoutes)
   app.route('/api/tools/compare', comparePublicRoutes)
   app.route('/api/tools/compare', toolsCompareRoutes)
+  app.route('/api/tools/network-panel', toolsNetworkPanelRoutes)
   app.route('/api/development/database', developmentDatabaseRoutes)
   app.route('/api/development/xget', developmentXgetRoutes)
   app.route('/api/development/api-tester', developmentApiTesterRoutes)

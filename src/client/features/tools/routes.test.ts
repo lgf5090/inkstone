@@ -22,7 +22,7 @@ describe('tools submodule routing', () => {
   })
 
   it('links every module back with the address it can be read from', () => {
-    for (const submodule of ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator'] as const) {
+    for (const submodule of ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator', 'compare', 'network_panel'] as const) {
       expect(toolsSubmoduleFromPath(toolsPathForSubmodule(submodule))).toBe(submodule)
     }
   })

@@ -6,9 +6,9 @@ export const TOOLS_NAV_WIDTH = {
   default: 260,
 } as const
 
-export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color' | 'shortlinks' | 'calculator' | 'compare'
+export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color' | 'shortlinks' | 'calculator' | 'compare' | 'network_panel'
 
-const TOOLS_SUBMODULES: readonly ToolsSubmodule[] = ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator', 'compare']
+const TOOLS_SUBMODULES: readonly ToolsSubmodule[] = ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator', 'compare', 'network_panel']
 
 /**
  * The module a Tools address names, or null when the address does not name one.
@@ -104,6 +104,8 @@ export function calculatorViewFromSearch(search: string): CalculatorNavView | nu
 
 export type CompareNavView = 'text' | 'files' | 'folders' | 'images' | 'projects' | 'stats' | 'shortcuts'
 
+export type NetworkPanelNavView = 'speed' | 'info' | 'history' | 'settings'
+
 const STORAGE_KEY = 'inkstone.tools.layout'
 
 interface PersistedLayout {
@@ -119,6 +121,8 @@ interface PersistedLayout {
   calculatorViewChosen?: boolean
   compareModuleExpanded?: boolean
   activeCompareView?: CompareNavView
+  networkPanelModuleExpanded?: boolean
+  activeNetworkPanelView?: NetworkPanelNavView
   activeSubmodule?: ToolsSubmodule
 }
 
@@ -163,6 +167,8 @@ export interface ToolsState {
   calculatorViewChosen: boolean
   compareModuleExpanded: boolean
   activeCompareView: CompareNavView
+  networkPanelModuleExpanded: boolean
+  activeNetworkPanelView: NetworkPanelNavView
 
   setToolsNavWidth: (width: number) => void
   toggleToolsNav: () => void
@@ -191,6 +197,9 @@ export interface ToolsState {
   setCompareModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
   toggleCompareModuleExpanded: () => void
   setActiveCompareView: (view: CompareNavView) => void
+  setNetworkPanelModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
+  toggleNetworkPanelModuleExpanded: () => void
+  setActiveNetworkPanelView: (view: NetworkPanelNavView) => void
 }
 
 const initialPersisted = loadPersistedLayout()
@@ -223,6 +232,8 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
   calculatorViewChosen: initialPersisted.calculatorViewChosen ?? false,
   compareModuleExpanded: initialPersisted.compareModuleExpanded ?? true,
   activeCompareView: initialPersisted.activeCompareView ?? 'text',
+  networkPanelModuleExpanded: initialPersisted.networkPanelModuleExpanded ?? true,
+  activeNetworkPanelView: initialPersisted.activeNetworkPanelView ?? 'speed',
 
   setToolsNavWidth: (width: number) => {
     const clamped = Math.min(
@@ -507,6 +518,41 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavCollapsed: get().toolsNavCollapsed,
       compareModuleExpanded: get().compareModuleExpanded,
       activeCompareView: view,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  setNetworkPanelModuleExpanded: (expanded) => {
+    const next = typeof expanded === 'function' ? expanded(get().networkPanelModuleExpanded) : expanded
+    set({ networkPanelModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      networkPanelModuleExpanded: next,
+      activeNetworkPanelView: get().activeNetworkPanelView,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  toggleNetworkPanelModuleExpanded: () => {
+    const next = !get().networkPanelModuleExpanded
+    set({ networkPanelModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      networkPanelModuleExpanded: next,
+      activeNetworkPanelView: get().activeNetworkPanelView,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  setActiveNetworkPanelView: (view) => {
+    set({ activeNetworkPanelView: view })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      networkPanelModuleExpanded: get().networkPanelModuleExpanded,
+      activeNetworkPanelView: view,
       activeSubmodule: get().activeSubmodule,
     })
   },

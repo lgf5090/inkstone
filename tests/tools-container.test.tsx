@@ -158,6 +158,7 @@ describe('Tools container architecture and collapsible sidebar', () => {
         t('tools.shortlinks.module_name'),
         t('tools.calculator.module_name'),
         t('tools.compare.module_name'),
+        t('tools.network_panel.module_name'),
       ]
       expect([...railLabels].sort()).toEqual([t('tools.sidebar.expand'), ...moduleLabels].sort())
 

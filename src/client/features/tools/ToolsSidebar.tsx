@@ -18,6 +18,8 @@ import {
   FolderArchive,
   FolderOpen,
   FolderTree,
+  Gauge,
+  Globe,
   Heart,
   History,
   Image,
@@ -59,6 +61,7 @@ import {
   type ColorNavView,
   type CompareNavView,
   type IdPhotoNavView,
+  type NetworkPanelNavView,
   type PasswordNavView,
   type QrCodeNavView,
   type ShortlinksNavView,
@@ -124,6 +127,13 @@ const COMPARE_NAV_SLOTS: readonly { id: CompareNavView; labelKey: MessageKey; ic
   { id: 'projects', labelKey: 'tools.compare.nav.projects', icon: FolderArchive },
   { id: 'stats', labelKey: 'tools.compare.nav.stats', icon: LineChart },
   { id: 'shortcuts', labelKey: 'tools.compare.nav.shortcuts', icon: Keyboard },
+]
+
+const NETWORK_PANEL_NAV_SLOTS: readonly { id: NetworkPanelNavView; labelKey: MessageKey; icon: ComponentType<{ size?: number; className?: string }> }[] = [
+  { id: 'speed', labelKey: 'tools.network_panel.nav.speed', icon: Gauge },
+  { id: 'info', labelKey: 'tools.network_panel.nav.info', icon: Globe },
+  { id: 'history', labelKey: 'tools.network_panel.nav.history', icon: History },
+  { id: 'settings', labelKey: 'tools.network_panel.nav.settings', icon: Settings },
 ]
 
 const COLOR_NAV_SLOTS: readonly ColorNavSlot[] = [
@@ -211,6 +221,10 @@ export function ToolsSidebar({
   const toggleCompareModuleExpanded = useToolsStore((s) => s.toggleCompareModuleExpanded)
   const activeCompareView = useToolsStore((s) => s.activeCompareView)
   const setActiveCompareView = useToolsStore((s) => s.setActiveCompareView)
+  const networkPanelModuleExpanded = useToolsStore((s) => s.networkPanelModuleExpanded)
+  const toggleNetworkPanelModuleExpanded = useToolsStore((s) => s.toggleNetworkPanelModuleExpanded)
+  const activeNetworkPanelView = useToolsStore((s) => s.activeNetworkPanelView)
+  const setActiveNetworkPanelView = useToolsStore((s) => s.setActiveNetworkPanelView)
   const shortlinksModuleExpanded = useToolsStore((s) => s.shortlinksModuleExpanded)
   const toggleShortlinksModuleExpanded = useToolsStore((s) => s.toggleShortlinksModuleExpanded)
   const activeShortlinksView = useToolsStore((s) => s.activeShortlinksView)
@@ -266,6 +280,12 @@ export function ToolsSidebar({
   const handleCompareSlotClick = (slotId: CompareNavView) => {
     openSubmodule('compare')
     setActiveCompareView(slotId)
+    onNavigate?.()
+  }
+
+  const handleNetworkPanelSlotClick = (slotId: NetworkPanelNavView) => {
+    openSubmodule('network_panel')
+    setActiveNetworkPanelView(slotId)
     onNavigate?.()
   }
 
@@ -384,6 +404,19 @@ export function ToolsSidebar({
               }}
             >
               <Diff size={16} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('tools.network_panel.module_name')} side="right">
+            <IconButton
+              label={t('tools.network_panel.module_name')}
+              size="sm"
+              active={activeSubmodule === 'network_panel'}
+              onClick={() => {
+                openSubmodule('network_panel')
+                onExpand?.()
+              }}
+            >
+              <Gauge size={16} />
             </IconButton>
           </Tooltip>
         </div>
@@ -808,6 +841,61 @@ export function ToolsSidebar({
                     type="button"
                     aria-current={isSelected ? 'page' : undefined}
                     onClick={() => handleCompareSlotClick(slot.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
+                      'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                      'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                      isSelected &&
+                        'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]',
+                    )}
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    <span className="truncate">{t(slot.labelKey)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Eighth submodule: Network Panel (tools/network_panel) */}
+        <div>
+          <button
+            type="button"
+            aria-expanded={networkPanelModuleExpanded}
+            onClick={toggleNetworkPanelModuleExpanded}
+            className={cn(
+              'flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
+              'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+              activeSubmodule === 'network_panel' && 'text-[var(--text-primary)]',
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  'transition-transform duration-[var(--dur-fast)]',
+                  networkPanelModuleExpanded ? 'rotate-90' : 'rotate-0',
+                )}
+              >
+                <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+              </span>
+              <Gauge size={16} className="shrink-0 text-[var(--accent)]" />
+              <span className="truncate">{t('tools.network_panel.module_name')}</span>
+            </div>
+          </button>
+
+          {networkPanelModuleExpanded && (
+            <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
+              {NETWORK_PANEL_NAV_SLOTS.map((slot) => {
+                const Icon = slot.icon
+                const isSelected = activeSubmodule === 'network_panel' && activeNetworkPanelView === slot.id
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    aria-current={isSelected ? 'page' : undefined}
+                    onClick={() => handleNetworkPanelSlotClick(slot.id)}
                     className={cn(
                       'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
                       'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
