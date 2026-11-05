@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { MessageKey } from '@shared/locales/en-US'
+import type { BlogMusicLibraryPlaylist, BlogMusicLibrarySummary } from '@shared/blog/model'
 import type { BlogSettings } from '@shared/blog/settings'
 import { BLOG_SETTING_KEYS, type BlogSettingKey } from '@shared/blog/settings'
 import { Button } from '../../components/primitives'
@@ -39,6 +40,13 @@ function strList(value: unknown): string {
   return Array.isArray(value) ? value.map((item) => String(item)).join(', ') : ''
 }
 
+function playlistCover(playlist: BlogMusicLibraryPlaylist): string {
+  if (playlist.coverUrl) return playlist.coverUrl
+  return playlist.hasCover
+    ? `/api/music/media/cover/playlist/${encodeURIComponent(playlist.id)}?v=${playlist.updatedAt}`
+    : ''
+}
+
 export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | null; onSaved?: () => Promise<void> }) {
   const toast = useUi((state) => state.toast)
   const [tab, setTab] = useState<SettingsTab>('general')
@@ -53,6 +61,9 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
   const [license, setLicense] = useState<Record<string, unknown>>({})
   const [music, setMusic] = useState<Record<string, unknown>>({})
   const [musicTracksText, setMusicTracksText] = useState('[]')
+  const [musicLibrary, setMusicLibrary] = useState<BlogMusicLibrarySummary | null>(null)
+  const [musicLibraryError, setMusicLibraryError] = useState('')
+  const [musicLibraryLoading, setMusicLibraryLoading] = useState(false)
   const [umami, setUmami] = useState<Record<string, unknown>>({})
   const [fab, setFab] = useState<Record<string, unknown>>({})
   const [contextMenu, setContextMenu] = useState<Record<string, unknown>>({})
@@ -61,6 +72,22 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
   const [advancedDomain, setAdvancedDomain] = useState<BlogSettingKey>('nav')
   const [advancedJson, setAdvancedJson] = useState('{}')
   const [advancedError, setAdvancedError] = useState('')
+
+  const loadMusicLibrary = async () => {
+    setMusicLibraryLoading(true)
+    setMusicLibraryError('')
+    try {
+      setMusicLibrary(await api.blog.musicLibrary())
+    } catch (error) {
+      setMusicLibraryError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setMusicLibraryLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadMusicLibrary()
+  }, [])
 
   useEffect(() => {
     if (!settings) return
@@ -289,15 +316,102 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
             </Section>
             <Section title={t('blog.admin.settings_integrations')} onSave={() => void saveMusic()} saving={saving}>
               <Field label={t('blog.admin.music_provider')}>
-                <Select value={text(music.provider) || 'none'} onChange={(event) => setMusic({ ...music, provider: event.target.value })}>
+                <Select
+                  value={text(music.provider) || 'none'}
+                  onChange={(event) => setMusic({
+                    ...music,
+                    provider: event.target.value,
+                    ...(event.target.value === 'library' ? { libraryScope: text(music.libraryScope) || 'all' } : {}),
+                  })}
+                >
                   <option value="none">{t('blog.admin.comment_none')}</option>
+                  <option value="library">{t('blog.admin.music_library')}</option>
                   <option value="local">{t('blog.admin.music_local')}</option>
                   <option value="custom">{t('blog.admin.music_custom')}</option>
                   <option value="meting">{t('blog.admin.music_meting')}</option>
                   <option value="mixed">{t('blog.admin.music_mixed')}</option>
                 </Select>
               </Field>
-              {text(music.provider) !== 'none' && (
+              {text(music.provider) === 'library' && (
+                <>
+                  <Field label={t('blog.admin.music_library_scope')} hint={t('blog.admin.music_library_hint')}>
+                    <Select
+                      value={text(music.libraryScope) === 'playlist' ? 'playlist' : 'all'}
+                      onChange={(event) => setMusic({
+                        ...music,
+                        libraryScope: event.target.value === 'playlist' ? 'playlist' : 'all',
+                        ...(event.target.value === 'all' ? { libraryPlaylistId: undefined, libraryPlaylistName: undefined } : {}),
+                      })}
+                    >
+                      <option value="all">{t('blog.admin.music_library_all')}</option>
+                      <option value="playlist">{t('blog.admin.music_library_playlist')}</option>
+                    </Select>
+                  </Field>
+                  {musicLibraryError ? (
+                    <div role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-3 text-[length:var(--text-12)] text-[var(--danger)]">
+                      <p>{t('blog.admin.music_library_failed')}</p>
+                      <p className="mt-1 break-words opacity-80">{musicLibraryError}</p>
+                      <Button size="sm" className="mt-2" loading={musicLibraryLoading} onClick={() => void loadMusicLibrary()}>{t('blog.admin.music_library_refresh')}</Button>
+                    </div>
+                  ) : musicLibraryLoading && !musicLibrary ? (
+                    <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('blog.admin.music_library_loading')}</p>
+                  ) : musicLibrary ? (
+                    <>
+                      {musicLibrary.total === 0 && (
+                        <p role="status" className="rounded-[var(--r-md)] bg-[var(--bg-inset)] p-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('blog.admin.music_library_empty')}</p>
+                      )}
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          aria-pressed={text(music.libraryScope) !== 'playlist'}
+                          onClick={() => setMusic({ ...music, libraryScope: 'all', libraryPlaylistId: undefined, libraryPlaylistName: undefined })}
+                          className={text(music.libraryScope) !== 'playlist'
+                            ? 'flex items-center gap-3 rounded-[var(--r-md)] border border-[var(--accent)] bg-[var(--accent-soft)] p-2.5 text-left'
+                            : 'flex items-center gap-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5 text-left hover:bg-[var(--bg-hover)]'}
+                        >
+                          <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-[var(--r-sm)] bg-[var(--bg-raised)] text-[length:var(--text-16)]">♪</span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{t('blog.admin.music_library_all')}</span>
+                            <span className="block text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('blog.admin.music_library_count', { playable: musicLibrary.total, total: musicLibrary.total })}</span>
+                          </span>
+                        </button>
+                        {musicLibrary.playlists.map((playlist) => {
+                          const selected = text(music.libraryScope) === 'playlist' && text(music.libraryPlaylistId) === playlist.id
+                          return (
+                            <button
+                              key={playlist.id}
+                              type="button"
+                              aria-pressed={selected}
+                              onClick={() => setMusic({ ...music, libraryScope: 'playlist', libraryPlaylistId: playlist.id, libraryPlaylistName: playlist.name })}
+                              className={selected
+                                ? 'flex items-center gap-3 rounded-[var(--r-md)] border border-[var(--accent)] bg-[var(--accent-soft)] p-2.5 text-left'
+                                : 'flex items-center gap-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5 text-left hover:bg-[var(--bg-hover)]'}
+                            >
+                              <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-[var(--r-sm)] bg-[var(--bg-raised)] text-[length:var(--text-16)]">
+                                {playlistCover(playlist)
+                                  ? <img src={playlistCover(playlist)} alt="" loading="lazy" className="size-full object-cover" />
+                                  : playlist.name.slice(0, 1)}
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{playlist.name}</span>
+                                <span className="block text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('blog.admin.music_library_count', { playable: playlist.playableCount, total: playlist.trackCount })}</span>
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {text(music.libraryScope) === 'playlist'
+                        && !musicLibrary.playlists.some((playlist) => playlist.id === text(music.libraryPlaylistId)) && (
+                          <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{t('blog.admin.music_library_missing')}</p>
+                        )}
+                      {text(music.libraryScope) === 'playlist' && musicLibrary.playlists.length === 0 && (
+                        <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('blog.admin.music_library_no_playlists')}</p>
+                      )}
+                    </>
+                  ) : null}
+                </>
+              )}
+              {text(music.provider) !== 'none' && text(music.provider) !== 'library' && (
                 <>
                   <Field label={t('blog.admin.music_tracks')} hint={t('blog.admin.music_tracks_hint')}>
                     <Textarea rows={6} className="font-mono" value={musicTracksText} onChange={(event) => setMusicTracksText(event.target.value)} />
@@ -328,19 +442,21 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
                       </Field>
                     </div>
                   )}
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label={t('blog.admin.music_default_volume')}>
-                      <Input type="number" min={0} max={1} step={0.05} value={num(music.defaultVolume, 0.7)} onChange={(event) => setMusic({ ...music, defaultVolume: Number(event.target.value) })} />
-                    </Field>
-                    <Field label={t('blog.admin.music_default_mode')}>
-                      <Select value={text(music.defaultMode) || 'sequence'} onChange={(event) => setMusic({ ...music, defaultMode: event.target.value })}>
-                        <option value="sequence">{t('blog.admin.music_mode_sequence')}</option>
-                        <option value="repeat-one">{t('blog.admin.music_mode_repeat_one')}</option>
-                        <option value="shuffle">{t('blog.admin.music_mode_shuffle')}</option>
-                      </Select>
-                    </Field>
-                  </div>
                 </>
+              )}
+              {text(music.provider) !== 'none' && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label={t('blog.admin.music_default_volume')}>
+                    <Input type="number" min={0} max={1} step={0.05} value={num(music.defaultVolume, 0.7)} onChange={(event) => setMusic({ ...music, defaultVolume: Number(event.target.value) })} />
+                  </Field>
+                  <Field label={t('blog.admin.music_default_mode')}>
+                    <Select value={text(music.defaultMode) || 'sequence'} onChange={(event) => setMusic({ ...music, defaultMode: event.target.value })}>
+                      <option value="sequence">{t('blog.admin.music_mode_sequence')}</option>
+                      <option value="repeat-one">{t('blog.admin.music_mode_repeat_one')}</option>
+                      <option value="shuffle">{t('blog.admin.music_mode_shuffle')}</option>
+                    </Select>
+                  </Field>
+                </div>
               )}
               <Checkbox checked={bool(umami.enable)} onChange={(value) => setUmami({ ...umami, enable: value })} label={t('blog.admin.umami_enable')} />
               {bool(umami.enable) && <Field label={t('blog.admin.umami_website_id')}><Input value={text(umami.websiteId)} onChange={(event) => setUmami({ ...umami, websiteId: event.target.value })} /></Field>}

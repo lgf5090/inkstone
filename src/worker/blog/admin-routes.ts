@@ -21,6 +21,7 @@ import {
   setCommentStatus,
 } from './comments'
 import { createTaxonomy, deleteTaxonomy, listTaxonomy, updateTaxonomy } from './taxonomy'
+import { listBlogMusicLibrary } from './music-library'
 import { friendAdminConfig } from './friends'
 import { deleteMedia, listMedia, MEDIA_MAX_BYTES, uploadMedia } from './media'
 import {
@@ -416,6 +417,10 @@ blogAdminRoutes.post('/posts/:postId/unpublish', async (c) => {
 
 blogAdminRoutes.get('/settings', async (c) => {
   return c.json(await loadBlogSettings(c.env.DB, userId(c)))
+})
+
+blogAdminRoutes.get('/music/library', async (c) => {
+  return c.json(await listBlogMusicLibrary(c.env.DB, userId(c)))
 })
 
 blogAdminRoutes.patch('/settings', async (c) => {

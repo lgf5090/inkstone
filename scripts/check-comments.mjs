@@ -31283,13 +31283,21 @@ const allowed = new Map([
     "/** Blog records, public projections and the render snapshot contract shared by every surface. */",
     "/**\n * A published note an article embeds.\n *\n * Only published targets are captured: the runtime resolves `![[…]]` from this map exactly as the\n * note app resolves it from its store, so an article can never pull a private note into a public page\n * by embedding it. The body is the raw markdown the shared renderer turns into the same HTML.\n */",
     "/** The name an attachment embed (`![[name]]`) is looked up by on a public surface. */",
+    "/** Which owner library the public page reads: every R2-backed track or one playlist. */",
+    "/** Denormalised for the admin picker; the resolver still checks ownership before reading. */",
+    "/** The admin picker's view of the owner's music library; no R2 keys or track snapshots leave here. */",
+    "/** Tracks with an R2 object in this account's library. */",
   ]],
   ["src/shared/blog/renderer.ts", [
     "/**\n * The renderer generation a snapshot was produced with.\n *\n * A published snapshot is a *still* of the note body, but the reading runtime re-renders the same\n * markdown through the same pipeline. The number is part of the runtime URL and is written into every\n * snapshot, so a reader can only ever load the runtime that matches the markup it is given: after a\n * renderer change old snapshots keep their still until they are rebuilt, instead of silently swapping\n * in a different renderer.\n */",
   ]],
   ["src/shared/blog/settings.ts", [
-    "// A fresh site still shows the music entrance: `local` with no tracks renders the configuration",
-    "// note instead of hiding the feature. A stored provider — including an explicit `none` — wins.",
+    "// The owner's R2 library is the default source: no hand-written track list, and an empty library",
+    "// still renders the entrance with its empty note. A stored provider — including `none` or a",
+    "// hand-written `local` list — wins.",
+    "// The owner library is resolved after this pure projection: its tracks live in D1 and its bytes in",
+    "// R2, neither of which this function may read. `enabled` starts false and the resolver flips it",
+    "// when at least one playable track survives.",
   ]],
   ["src/shared/byte-format.ts", [
     "/**\n * The one place a byte count is turned into the text a reader reads.\n *\n * Four copies of this lived on the worker side alone, each rounding differently: one kept bytes,\n * one printed `Math.ceil` of KB and MB, two printed `toFixed(1)` of MB only, and the interface had\n * two more. A quota warning and the row beside it could therefore disagree about the same number.\n * This is the version the interface already used for attachments, versions and storage stats, so a\n * server-side limit and the client-side bar under it say the same thing.\n */",
@@ -36973,8 +36981,19 @@ const allowed = new Map([
     "// The object key is derived from the type the worker verified, never from the name the client",
     "// sent: a file called `payload.html` must not decide what the bucket stores.",
   ]],
+  ["src/worker/blog/music-library.ts", [
+    "/**\n * The blog's read-only view of the owner's music library.\n *\n * Only tracks this account actually stored in R2 are publishable: a provider snapshot without bytes\n * would make the public page ask the music provider for a stream, which is neither the blog's data\n * nor a stable public source. Playlists are owner-scoped by their query, and a playlist id from\n * another account resolves to an empty list instead of a different owner's rows.\n *\n * Audio and covers never expose an R2 key. Each listed track gets a short-lived HMAC token bound to\n * the owner, the object kind and the track id; the public audio/cover routes verify it before reading\n * the bucket. The token is refreshed whenever `/api/blog/site` is rebuilt.\n */",
+    "// A playlist that was deleted, renamed away or belongs to another account resolves to nothing;",
+    "// it must never widen into \"all tracks\", because the owner asked to publish one selection only.",
+    "/** Replace the owner-library projection with real tracks and tokenised public addresses. */",
+    "/** A fixed local-development secret: the proxy guard already lets dev run without BLOG_PROXY_KEY. */",
+    "// Production compiles `DEV` to false and therefore fails closed; local development may omit both",
+    "// secrets, the same way `requireBlogProxy` permits it, so the library is still playable there.",
+  ]],
   ["src/worker/blog/public-routes.ts", [
     "// Friend links moved to the nav app; only its dedicated projection above may serve them.",
+    "/**\n * The owner's audio, read through a short-lived token instead of an R2 key.\n *\n * `serveMusicStream` keeps its Range/ETag handling, so the browser seeks normally; the response stays\n * private because the token is per-track rather than a public object address.\n */",
+    "/** A cover image behind the same token; an uploaded cover is the only image read from R2 here. */",
   ]],
   ["src/worker/blog/runtime-routes.ts", [
     "/**\n * Serves the versioned reading runtime the blog loads for published articles.\n *\n * The files are ordinary build assets, but the path is claimed by the Worker for two reasons: a\n * version that no longer exists must answer 404 rather than the SPA's `index.html` (a module script\n * cannot recover from HTML), and the blog reads them through a proxy, so the response states the\n * immutable caching the content-hashed names already justify.\n */",

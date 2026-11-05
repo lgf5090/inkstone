@@ -382,11 +382,34 @@ export interface BlogMusicMeting {
 
 export interface BlogMusicConfig {
   enabled: boolean
-  provider: 'none' | 'local' | 'meting' | 'custom' | 'mixed'
+  provider: 'none' | 'local' | 'meting' | 'custom' | 'mixed' | 'library'
   tracks: BlogMusicTrack[]
   meting?: BlogMusicMeting
+  /** Which owner library the public page reads: every R2-backed track or one playlist. */
+  libraryScope?: 'all' | 'playlist'
+  libraryPlaylistId?: string
+  /** Denormalised for the admin picker; the resolver still checks ownership before reading. */
+  libraryPlaylistName?: string
   defaultVolume: number
   defaultMode: 'sequence' | 'repeat-one' | 'shuffle'
+}
+
+/** The admin picker's view of the owner's music library; no R2 keys or track snapshots leave here. */
+export interface BlogMusicLibraryPlaylist {
+  id: string
+  name: string
+  description: string
+  coverUrl: string
+  hasCover: boolean
+  trackCount: number
+  playableCount: number
+  updatedAt: number
+}
+
+export interface BlogMusicLibrarySummary {
+  /** Tracks with an R2 object in this account's library. */
+  total: number
+  playlists: BlogMusicLibraryPlaylist[]
 }
 
 export interface BlogSitePublic {
