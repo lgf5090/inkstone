@@ -1,8 +1,9 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
 import { createDriverContext } from '../src/worker/clouddrive/drivers/factory'
+import { completeGuangYaPanLogin } from '../src/worker/clouddrive/drivers/guangyapan'
 import { encryptCloudDriveCredentials, decryptCloudDriveCredentials } from '../src/worker/lib/crypto'
 import { newId } from '../src/worker/lib/id'
 import { isCredentialRecord, isScope } from '../src/worker/durable/credential-vault'
@@ -113,5 +114,46 @@ describe('credential compare-and-swap and refresh lease', () => {
     expect(isScope(`clouddrive:${storageId}`)).toBe(true)
     expect(isCredentialRecord(`clouddrive:${storageId}`, decrypted)).toBe(true)
     expect(decrypted?.refreshToken).toBe('r1')
+  })
+
+  it('writes SMS sign-in tokens back through the encrypted vault', async () => {
+    const id = newId()
+    const ciphertext = await encryptCloudDriveCredentials(env, id, {
+      clientId: 'gyp-client',
+      deviceId: '0123456789abcdef0123456789abcdef',
+      verificationId: 'verification-1',
+    })
+    sqlite.prepare(
+      `INSERT INTO CloudDrive_storages (user_id, id, name, type, config, credentials, created_at, updated_at)
+       VALUES (?, ?, 'gyp', 'guangyapan', ?, ?, 2, 6000)`,
+    ).run(USER, id, JSON.stringify({ phoneNumber: '+86 13800000000' }), ciphertext)
+    const row = sqlite.prepare('SELECT credentials, updated_at FROM CloudDrive_storages WHERE id = ?').get(id)!
+    const ctx = await createDriverContext(env, {
+      id,
+      user_id: USER,
+      type: 'guangyapan',
+      config: JSON.stringify({ phoneNumber: '+86 13800000000' }),
+      credentials: String(row.credentials),
+      updated_at: Number(row.updated_at),
+    })
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/v1/auth/verification/verify')) {
+        return Response.json({ verification_token: 'verification-token' })
+      }
+      if (url.endsWith('/v1/auth/signin')) {
+        return Response.json({ access_token: 'sms-access', refresh_token: 'sms-refresh', expires_in: 3600 })
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    const tokens = await completeGuangYaPanLogin(ctx, '123456')
+    expect(tokens.accessToken).toBe('sms-access')
+    const stored = await decryptCloudDriveCredentials(env, id, String(
+      sqlite.prepare('SELECT credentials FROM CloudDrive_storages WHERE id = ?').get(id)!.credentials,
+    ))
+    expect(stored?.accessToken).toBe('sms-access')
+    expect(stored?.refreshToken).toBe('sms-refresh')
+    expect(stored?.verificationId).toBe('')
+    vi.unstubAllGlobals()
   })
 })
