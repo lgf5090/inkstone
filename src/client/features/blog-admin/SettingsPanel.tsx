@@ -355,10 +355,24 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
                     </div>
                   ) : musicLibraryLoading && !musicLibrary ? (
                     <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('blog.admin.music_library_loading')}</p>
+                  ) : musicLibrary?.ownerMismatch ? (
+                    <p role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-3 text-[length:var(--text-12)] text-[var(--danger)]">
+                      {t('blog.admin.music_library_owner_mismatch')}
+                    </p>
                   ) : musicLibrary ? (
                     <>
-                      {musicLibrary.total === 0 && (
+                      {musicLibrary.totalTracks === 0 ? (
                         <p role="status" className="rounded-[var(--r-md)] bg-[var(--bg-inset)] p-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('blog.admin.music_library_empty')}</p>
+                      ) : (
+                        <p role="status" className="rounded-[var(--r-md)] bg-[var(--bg-inset)] p-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+                          {musicLibrary.playableTracks === 0
+                            ? t('blog.admin.music_library_diagnostic_none', { total: musicLibrary.totalTracks })
+                            : t('blog.admin.music_library_diagnostic_partial', {
+                                total: musicLibrary.totalTracks,
+                                playable: musicLibrary.playableTracks,
+                                excluded: Math.max(0, musicLibrary.totalTracks - musicLibrary.playableTracks),
+                              })}
+                        </p>
                       )}
                       <div className="grid gap-2 sm:grid-cols-2">
                         <button
@@ -372,7 +386,7 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
                           <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-[var(--r-sm)] bg-[var(--bg-raised)] text-[length:var(--text-16)]">♪</span>
                           <span className="min-w-0">
                             <span className="block truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{t('blog.admin.music_library_all')}</span>
-                            <span className="block text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('blog.admin.music_library_count', { playable: musicLibrary.total, total: musicLibrary.total })}</span>
+                            <span className="block text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('blog.admin.music_library_count', { playable: musicLibrary.playableTracks, total: musicLibrary.totalTracks })}</span>
                           </span>
                         </button>
                         {musicLibrary.playlists.map((playlist) => {

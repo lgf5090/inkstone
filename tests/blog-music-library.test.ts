@@ -7,6 +7,7 @@ import { publicBlogSite, mergeBlogSettings } from '../src/shared/blog/settings'
 import {
   issueBlogMediaToken,
   listBlogMusicLibrary,
+  resolveBlogMusicLibrary,
   resolvePublicBlogMusic,
   verifyBlogMediaToken,
 } from '../src/worker/blog/music-library'
@@ -88,8 +89,52 @@ describe('the blog music library projection', () => {
 
     const summary = await listBlogMusicLibrary(dbOf(sqlite), 'u1')
     expect(summary.total).toBe(1)
+    expect(summary.totalTracks).toBe(2)
+    expect(summary.playableTracks).toBe(1)
+    expect(summary.excluded).toEqual({ noR2: 1, otherOwner: 0, hidden: 0, other: 0 })
+    expect(summary.ownerMismatch).toBe(false)
     expect(summary.playlists.map((entry) => entry.id)).toEqual(['p-owner'])
     expect(summary.playlists[0]).toMatchObject({ trackCount: 2, playableCount: 1, hasCover: false })
+  })
+
+  it('explains online-only tracks and separates foreign or orphan playlist rows', async () => {
+    const sqlite = await installed()
+    track(sqlite, { userId: 'u1', id: 'r2-1', title: 'Owner R2' })
+    track(sqlite, { userId: 'u1', id: 'online-1', title: 'Owner online only', r2Key: null })
+    track(sqlite, { userId: 'u2', id: 'other-1', title: 'Other account' })
+    playlist(sqlite, 'u1', 'p-owner', 'Owner playlist')
+    item(sqlite, 'u1', 'p-owner', 'r2-1', 0)
+    item(sqlite, 'u1', 'p-owner', 'online-1', 1)
+    item(sqlite, 'u1', 'p-owner', 'other-1', 2)
+    item(sqlite, 'u1', 'p-owner', 'gone-1', 3)
+
+    const summary = await listBlogMusicLibrary(dbOf(sqlite), 'u1')
+    expect(summary.totalTracks).toBe(2)
+    expect(summary.playableTracks).toBe(1)
+    expect(summary.excluded).toEqual({ noR2: 1, otherOwner: 1, hidden: 0, other: 1 })
+    expect(summary.playlists[0]).toMatchObject({ trackCount: 4, playableCount: 1 })
+
+    const site = await resolvePublicBlogMusic(secretEnv, dbOf(sqlite), 'u1', publicBlogSite(librarySettings('all'), counts))
+    expect(site.integrations.music.tracks.map((entry) => entry.id)).toEqual(['r2-1'])
+  })
+
+  it('refuses to read another owner library and reports the mismatch', async () => {
+    const sqlite = await installed()
+    track(sqlite, { userId: 'site-owner', id: 'r2-1', title: 'Site owner track' })
+
+    const mismatch = await resolveBlogMusicLibrary(dbOf(sqlite), 'viewer', 'site-owner')
+    expect(mismatch).toMatchObject({
+      total: 0,
+      totalTracks: 0,
+      playableTracks: 0,
+      ownerMismatch: true,
+      playlists: [],
+    })
+    expect(mismatch.excluded).toEqual({ noR2: 0, otherOwner: 0, hidden: 0, other: 0 })
+
+    const same = await resolveBlogMusicLibrary(dbOf(sqlite), 'site-owner', 'site-owner')
+    expect(same.ownerMismatch).toBe(false)
+    expect(same.totalTracks).toBe(1)
   })
 
   it('resolves all-tracks scope to owner R2 tracks with verifiable short tokens', async () => {
