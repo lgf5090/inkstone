@@ -32,7 +32,7 @@ describe('network panel settings', () => {
       threads: 8,
       autoStart: false,
       background: false,
-      showChart: true,
+      showChart: false,
       saveHistory: true,
       autoRefreshInfo: true,
       maxDataBytes: 0,
@@ -45,7 +45,7 @@ describe('network panel settings', () => {
     const store = new NetworkPanelStore(db, USER)
     const afterThreads = await store.saveSettings({ threads: 32 })
     expect(afterThreads.threads).toBe(32)
-    expect(afterThreads.showChart).toBe(true)
+    expect(afterThreads.showChart).toBe(false)
     const afterCap = await store.saveSettings({ maxDataBytes: 1024 ** 3, background: true })
     expect(afterCap).toMatchObject({ threads: 32, maxDataBytes: 1024 ** 3, background: true })
     expect((await store.getSettings()).maxDataBytes).toBe(1024 ** 3)

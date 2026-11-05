@@ -14,6 +14,7 @@ import { NETWORK_PANEL_LIMITS } from '@shared/tools/network-panel/types'
 import { parseNodeUrl } from '@shared/tools/network-panel/engine'
 import { t } from '../../../../lib/i18n'
 import { useNetworkPanelStore } from '../store'
+import { probeAddress } from '../api'
 
 export function NodeManagerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const nodes = useNetworkPanelStore((s) => s.nodes)
@@ -41,6 +42,21 @@ export function NodeManagerModal({ open, onClose }: { open: boolean; onClose: ()
     }
     setError(null)
     setAdding(true)
+    const reachable = await probeAddress(parsed.url)
+    if (!reachable) {
+      const answer = await confirm({
+        title: t('tools.network_panel.nodes.unreachable_title'),
+        description: t('tools.network_panel.nodes.unreachable'),
+        confirmLabel: t('tools.network_panel.nodes.save_anyway'),
+        cancelLabel: t('common.cancel'),
+        tone: 'danger',
+      })
+      if (!answer) {
+        setAdding(false)
+        setError(t('tools.network_panel.nodes.unreachable'))
+        return
+      }
+    }
     const created = await addNode(label, parsed.url)
     setAdding(false)
     if (created) {

@@ -12,11 +12,40 @@ import type {
   NetworkPanelRunInput,
   NetworkPanelSettings,
 } from '@shared/tools/network-panel/types'
+import { DOWNLOAD_PATH } from '@shared/tools/network-panel/types'
 import type { SettingsPatch } from '@shared/tools/network-panel/schemas'
 import { request } from '../../../lib/api'
 
 interface ApiData<T> {
   data: T
+}
+
+/** The reference panel's `checkUrl`: one chunk within five seconds, then cancel. */
+export async function probeAddress(url: string, timeoutMs = 5_000): Promise<boolean> {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const target = url === DOWNLOAD_PATH ? `${DOWNLOAD_PATH}?bytes=1048576&_np=probe` : url
+    const response = await fetch(target, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      referrerPolicy: 'no-referrer',
+      signal: controller.signal,
+    })
+    if (response.status === 404 || !response.body) return false
+    const reader = response.body.getReader()
+    const { value } = await reader.read()
+    try {
+      await reader.cancel()
+    } catch {
+      // The probe only needs the first chunk; a cancel that races the close is still a success.
+    }
+    return Boolean(value && value.length > 0)
+  } catch {
+    return false
+  } finally {
+    window.clearTimeout(timer)
+  }
 }
 
 export const networkPanelApi = {

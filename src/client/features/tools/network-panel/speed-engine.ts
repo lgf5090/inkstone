@@ -51,6 +51,8 @@ export interface SpeedEngineDeps {
 const PROGRESS_INTERVAL_MS = 100
 const FAILURE_LIMIT = 6
 const RETRY_DELAY_MS = 400
+/** A run only gives up after arrows have stopped arriving for this long, not after a burst of aborts. */
+const STALL_MS = 5_000
 
 export function createSpeedEngine(deps: SpeedEngineDeps) {
   const fetchImpl = deps.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
@@ -66,7 +68,9 @@ export function createSpeedEngine(deps: SpeedEngineDeps) {
   let lastEmit = 0
   let lastSampleAt = 0
   let lastSampleBytes = 0
-  let failureStreak = 0
+  let consecutiveFailures = 0
+  let lastBytesAt = 0
+  let lastFailure: SpeedEngineError = 'fetch_failed'
   let nonce = 0
   let sampleTimer = 0
   let config: SpeedEngineConfig = { threads: 0, maxBytes: 0, maxSpeedBps: 0 }
@@ -93,14 +97,30 @@ export function createSpeedEngine(deps: SpeedEngineDeps) {
     })
   }
 
+  /**
+   * A thread that could not fetch is a retry, not an event.
+   *
+   * The reference panel restarted a failed thread silently; eight threads failing together (a hidden
+   * tab, a connection reset, a burst of aborts) used to reach the old global streak of six and end a
+   * healthy run. A run only becomes a failure when attempts keep failing *and* no bytes have arrived
+   * for {@link STALL_MS}; that is also the only moment the banner is told about it.
+   */
   const noteFailure = (error: SpeedEngineError) => {
-    failureStreak += 1
-    deps.onError(error)
-    if (failureStreak >= FAILURE_LIMIT && running) stop('failed')
+    if (!running) return
+    lastFailure = error
+    consecutiveFailures += 1
+    if (consecutiveFailures >= FAILURE_LIMIT && now() - lastBytesAt >= STALL_MS) {
+      deps.onError(lastFailure)
+      stop('failed')
+    }
+  }
+
+  const markProgress = () => {
+    lastBytesAt = now()
+    consecutiveFailures = 0
   }
 
   async function loop(index: number) {
-    let immediateFailures = 0
     while (running && index < config.threads) {
       if (config.maxBytes > 0 && bytesUsed >= config.maxBytes) {
         stop('data_cap')
@@ -109,6 +129,17 @@ export function createSpeedEngine(deps: SpeedEngineDeps) {
       const controller = new AbortController()
       controllers.add(controller)
       let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+      let timedOut = false
+      let timeout = 0
+      /** An idle timeout, re-armed by every chunk: a throttled 32 MB stream may legitimately take minutes. */
+      const armTimeout = () => {
+        window.clearTimeout(timeout)
+        timeout = window.setTimeout(() => {
+          timedOut = true
+          controller.abort()
+        }, STALL_MS)
+      }
+      armTimeout()
       try {
         const response = await fetchImpl(deps.buildUrl(index, nonce++), {
           cache: 'no-store',
@@ -126,8 +157,6 @@ export function createSpeedEngine(deps: SpeedEngineDeps) {
           await sleep(RETRY_DELAY_MS)
           continue
         }
-        failureStreak = 0
-        immediateFailures = 0
         let received = 0
         reader = response.body.getReader()
         while (running && index < config.threads) {
@@ -135,6 +164,7 @@ export function createSpeedEngine(deps: SpeedEngineDeps) {
           if (done) break
           if (!value || value.length === 0) continue
           received += value.length
+          armTimeout()
           // The browser delivers bytes in whatever sizes it likes, so a chunk can be far larger than one
           // second's budget. Waiting once per chunk is not a cap: the loop re-asks until the shared
           // budget covers the whole chunk, and only then does it count the bytes it just accepted.
@@ -145,6 +175,7 @@ export function createSpeedEngine(deps: SpeedEngineDeps) {
           }
           if (!running) return
           bytesUsed += value.length
+          markProgress()
           progress(false)
           if (config.maxBytes > 0 && bytesUsed >= config.maxBytes) {
             stop('data_cap')
@@ -155,10 +186,13 @@ export function createSpeedEngine(deps: SpeedEngineDeps) {
         if (received === 0) await sleep(RETRY_DELAY_MS)
       } catch {
         if (!running) return
+        // A stop, a thread retirement or a page unload aborts the request on purpose; none of those are
+        // evidence that the address is unreachable.
+        if (controller.signal.aborted && !timedOut) return
         noteFailure('fetch_failed')
-        immediateFailures += 1
-        if (immediateFailures >= 3) await sleep(RETRY_DELAY_MS)
+        await sleep(RETRY_DELAY_MS)
       } finally {
+        window.clearTimeout(timeout)
         controllers.delete(controller)
         if (reader) {
           try {
@@ -195,10 +229,11 @@ export function createSpeedEngine(deps: SpeedEngineDeps) {
       running = true
       threads = config.threads
       bytesUsed = 0
-      failureStreak = 0
+      consecutiveFailures = 0
       nonce = 0
       series.reset()
       startedAt = now()
+      lastBytesAt = startedAt
       lastEmit = 0
       lastSampleAt = startedAt
       lastSampleBytes = 0

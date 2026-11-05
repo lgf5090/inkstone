@@ -48,7 +48,7 @@ export const DEFAULT_NETWORK_PANEL_SETTINGS: NetworkPanelSettings = {
   threads: 8,
   autoStart: false,
   background: false,
-  showChart: true,
+  showChart: false,
   saveHistory: true,
   autoRefreshInfo: true,
   maxDataBytes: 0,

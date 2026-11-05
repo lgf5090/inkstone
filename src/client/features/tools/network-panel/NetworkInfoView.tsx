@@ -18,7 +18,7 @@ import { useUi } from '../../../store/ui'
 import { networkPanelApi } from './api'
 import { useNetworkPanelStore } from './store'
 
-const INFO_INTERVAL_MS = 30_000
+const INFO_INTERVAL_MS = 5_000
 const LATENCY_INTERVAL_MS = 5_000
 
 function regionName(code: string | null): string {

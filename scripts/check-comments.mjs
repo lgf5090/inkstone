@@ -19163,6 +19163,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/network-panel/HistoryView.tsx", [
     "/**\n * The ledger of measurements.\n *\n * Rows are what the server kept, not what this tab remembers: a run survives a reload, a browser and\n * a device. The summary above the list is counted server-side over the whole ledger rather than the\n * page on screen, so \"average\" means every run, not the last thirty.\n */",
+    "/**\n               * Rows written before the thread count was clamped can carry `threads = 0`, which is also\n               * the signature of the old global failure streak ending a run that was still moving bytes.\n               * Their stored reason stays untouched, but the badge says the run was interrupted rather\n               * than claiming a failure the current engine no longer produces.\n               */",
   ]],
   ["src/client/features/tools/network-panel/NetworkInfoView.tsx", [
     "/**\n * What this deployment can say about the reader's connection.\n *\n * The address, country and network come from Cloudflare's own reading of the request, so nothing is\n * fetched from a third party and no arbitrary URL is involved. The latency is a round trip to this\n * deployment — the same origin the speed test measures — rather than to a foreign check endpoint the\n * page's security policy would refuse.\n */",
@@ -19182,6 +19183,8 @@ const allowed = new Map([
   ["src/client/features/tools/network-panel/api.ts", [
     "/**\n * API client for `/api/tools/network-panel/*`.\n *\n * The speed test itself is not here: its payload is read straight from the response stream by the\n * engine, because a JSON helper would have to buffer exactly the bytes the measurement is counting.\n */",
     "/** Round-trip to this deployment, measured by the caller around this call. */",
+    "/** The reference panel's `checkUrl`: one chunk within five seconds, then cancel. */",
+    "// The probe only needs the first chunk; a cancel that races the close is still a success.",
   ]],
   ["src/client/features/tools/network-panel/components/CapDialog.tsx", [
     "/**\n * The two ceilings, in one dialog shape.\n *\n * A data cap and a bandwidth cap are both \"a number and a unit\", and both leave blank for no ceiling.\n * The stored value is always a byte count or a byte rate; the unit is only what the reader typed.\n */",
@@ -19192,6 +19195,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/network-panel/speed-engine.test.ts", [
     "/**\n * The measurement loop, driven by a stream the test owns.\n *\n * A fake reader and a fake clock are the whole surface: what is pinned is the contract the panel\n * relies on — one request per thread, a cap that stops the run, a failure streak that gives up, and a\n * stop that reports what actually arrived.\n */",
+    "// Yield to the timer queue so the test runner can observe the loop.",
   ]],
   ["src/client/features/tools/network-panel/speed-engine.ts", [
     "/**\n * The download test, as an object rather than a screen.\n *\n * A test is N loops reading one response stream each, restarting the request when a stream ends, and\n * counting the bytes that arrived. The reader owns the fetch and the clock so the loop can be driven\n * with a fake stream in a test; the arithmetic it shares with the panel lives in the shared engine.\n *\n * None of this touches React. The panel subscribes through callbacks, which is what lets a test keep\n * running while another screen is open.\n */",
@@ -19203,9 +19207,19 @@ const allowed = new Map([
     "// The browser delivers bytes in whatever sizes it likes, so a chunk can be far larger than one",
     "// second's budget. Waiting once per chunk is not a cap: the loop re-asks until the shared",
     "// budget covers the whole chunk, and only then does it count the bytes it just accepted.",
+    "/** A run only gives up after arrows have stopped arriving for this long, not after a burst of aborts. */",
+    "/**\n   * A thread that could not fetch is a retry, not an event.\n   *\n   * The reference panel restarted a failed thread silently; eight threads failing together (a hidden\n   * tab, a connection reset, a burst of aborts) used to reach the old global streak of six and end a\n   * healthy run. A run only becomes a failure when attempts keep failing *and* no bytes have arrived\n   * for {@link STALL_MS}; that is also the only moment the banner is told about it.\n   */",
+    "/** An idle timeout, re-armed by every chunk: a throttled 32 MB stream may legitimately take minutes. */",
+    "// A stop, a thread retirement or a page unload aborts the request on purpose; none of those are",
+    "// evidence that the address is unreachable.",
   ]],
   ["src/client/features/tools/network-panel/store.ts", [
     "/**\n * The network panel's page state: the saved settings, the address list and the running test.\n *\n * The engine lives outside React on purpose. The sidebar opens four screens over one panel, and a\n * measurement that stopped every time the reader looked at the history would be the reference project's\n * one behaviour this port does not need; leaving the panel is handled by the background setting instead.\n */",
+    "// A failed run that never received a byte is still a real outcome; it belongs in the ledger with",
+    "// its true status and zero bytes rather than disappearing into a toast.",
+    "// The reference checked a pasted address before using it; saving a dead address would only move",
+    "// the failure to the next Start.",
+    "/**\n   * The tab title while the reader has moved to another tab, the reference panel's own signal.\n   *\n   * A running test borrows the title for its two numbers; a stopped one says why it stopped. While the\n   * panel is visible the host application keeps its title — this module does not rename the site.\n   */",
   ]],
   ["src/client/features/tools/password/AccountArea.tsx", [
     "/* Desktop side-by-side view */",
