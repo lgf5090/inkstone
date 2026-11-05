@@ -10,6 +10,14 @@ import { clouddriveApi } from '../api'
 import { useCloudDriveStore } from '../store'
 import { formatEntryDate } from '../files/format'
 import {
+  CLOUDDRIVE_DRIVERS,
+  driverCapabilityKey,
+  driverCapabilityLabels,
+  findCloudDriveDriver,
+  type CloudDriveDriverDefinition,
+  type CloudDriveDriverField,
+} from '@shared/clouddrive/drivers'
+import {
   PAGE_SIZE_OPTIONS,
   STORAGE_TYPE_VALUES,
   pageCount,
@@ -58,6 +66,81 @@ interface StorageForm {
   urlProxy: string
   readQuota: boolean
   apiKeyVisible: boolean
+  /** Values of the fields a driver declares in the shared registry, keyed by field key. */
+  driverValues: Record<string, string>
+}
+
+const LEGACY_FORM_TYPES: ReadonlySet<string> = new Set([
+  's3', 'webdav', 'github', 'huggingface', 'discord', 'telegram', 'onedrive', 'googledrive',
+])
+
+function schemaDefaults(definition: CloudDriveDriverDefinition | null): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const field of definition?.fields ?? []) {
+    if (field.defaultValue !== undefined) values[field.key] = String(field.defaultValue)
+  }
+  return values
+}
+
+function driverFieldValue(field: CloudDriveDriverField, values: Record<string, string>): string {
+  return values[field.key] ?? String(field.defaultValue ?? '')
+}
+
+function driverAuthSatisfied(
+  definition: CloudDriveDriverDefinition | null,
+  values: Record<string, string>,
+  hasExistingCredentials: boolean,
+): boolean {
+  if (!definition?.authAnyOf?.length) return true
+  return definition.authAnyOf.some((group) => group.every((key) => {
+    const field = definition.fields.find((item) => item.key === key)
+    const value = values[key]?.trim() ?? ''
+    return Boolean(value) || Boolean(field && field.location === 'credentials' && hasExistingCredentials)
+  }))
+}
+
+function DriverFieldInput({
+  field,
+  value,
+  hasCredentials,
+  onChange,
+}: {
+  field: CloudDriveDriverField
+  value: string
+  hasCredentials: boolean
+  onChange: (value: string) => void
+}) {
+  const label = t(field.labelKey as Parameters<typeof t>[0])
+  const hint = field.hintKey ? t(field.hintKey as Parameters<typeof t>[0]) : undefined
+  if (field.type === 'boolean') {
+    return (
+      <div className="space-y-1">
+        <Checkbox checked={value !== 'false'} label={label} onChange={(next) => onChange(String(next))} />
+        {hint && <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{hint}</p>}
+      </div>
+    )
+  }
+  if (field.type === 'select') {
+    return (
+      <Field label={label} hint={hint} required={field.required}>
+        <Select value={value} onChange={(event) => onChange(event.target.value)}>
+          {(field.options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>{t(option.labelKey as Parameters<typeof t>[0])}</option>
+          ))}
+        </Select>
+      </Field>
+    )
+  }
+  return (
+    <Field label={label} hint={hint} required={field.required}>
+      <Input
+        type={field.secret ? 'password' : field.type === 'number' ? 'number' : 'text'}
+        value={value}
+        placeholder={field.secret && hasCredentials ? t('clouddrive.admin.storage.secret_keep') : field.placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </Field>
+  )
 }
 
 type CapacityUnit = 'B' | 'KB' | 'MB' | 'GB' | 'TB'
@@ -98,6 +181,7 @@ function blankForm(type: StorageType = 's3'): StorageForm {
     accessKeyId: '', secretAccessKey: '', username: '', password: '', token: '',
     refreshToken: '', clientId: '', clientSecret: '', botToken: '',
     capacityValue: '', capacityUnit: 'GB', defaultPath: '', urlProxy: '', readQuota: false, apiKeyVisible: false,
+    driverValues: schemaDefaults(findCloudDriveDriver(type)),
   }
 }
 
@@ -133,6 +217,16 @@ function formFromStorage(storage: Storage): StorageForm {
     urlProxy: text('urlProxy'),
     readQuota: storage.readQuota,
     apiKeyVisible: storage.apiKeyVisible,
+    driverValues: Object.fromEntries(
+      (findCloudDriveDriver(storage.type)?.fields ?? [])
+        .filter((field) => field.location === 'config' && field.type !== 'boolean')
+        .map((field) => [field.key, text(field.key) || String(field.defaultValue ?? '')])
+        .concat(
+          (findCloudDriveDriver(storage.type)?.fields ?? [])
+            .filter((field) => field.location === 'config' && field.type === 'boolean')
+            .map((field) => [field.key, config[field.key] === false ? 'false' : 'true']),
+        ),
+    ),
   }
 }
 
@@ -148,6 +242,22 @@ function storagePayload(form: StorageForm): {
   const capacity = parseCapacity(form.capacityValue, form.capacityUnit)
   if (capacity !== null) config.capacityBytes = capacity
   if (form.urlProxy.trim()) config.urlProxy = form.urlProxy.trim()
+  const definition = findCloudDriveDriver(form.type)
+  if (definition && !LEGACY_FORM_TYPES.has(form.type)) {
+    for (const field of definition.fields) {
+      const raw = form.driverValues[field.key] ?? ''
+      if (field.location === 'config') {
+        if (field.type === 'boolean') config[field.key] = raw !== 'false'
+        else if (raw.trim()) config[field.key] = field.type === 'number' ? Number(raw) : raw.trim()
+      } else if (raw.trim()) {
+        credentials[field.key] = raw.trim()
+      }
+    }
+    return {
+      config, credentials,
+      defaultPath: form.defaultPath.trim(), readQuota: form.readQuota, apiKeyVisible: form.apiKeyVisible,
+    }
+  }
   if (form.type === 's3') {
     Object.assign(config, {
       provider: form.provider, endpoint: form.endpoint.trim(), bucketName: form.bucketName.trim(),
@@ -302,6 +412,12 @@ export function StoragePage() {
       toast({ title: t('clouddrive.toast.failed'), description: t('clouddrive.storage.name'), tone: 'danger' })
       return
     }
+    const definition = findCloudDriveDriver(form.type)
+    if (definition && !LEGACY_FORM_TYPES.has(form.type)
+      && !driverAuthSatisfied(definition, form.driverValues, editing?.hasCredentials ?? false)) {
+      toast({ title: t('clouddrive.toast.failed'), description: t('clouddrive.driver.auth_required'), tone: 'danger' })
+      return
+    }
     setBusy(true)
     try {
       const { config, credentials, defaultPath, readQuota, apiKeyVisible } = storagePayload(form)
@@ -383,6 +499,31 @@ export function StoragePage() {
           <Button size="sm" variant="primary" onClick={openCreate}><Plus size={13} /> {t('clouddrive.storage.add')}</Button>
         </div>
       </header>
+      <details className="mb-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+        <summary className="cursor-pointer text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
+          {t('clouddrive.driver.status.title')} · {CLOUDDRIVE_DRIVERS.filter((driver) => driver.implemented).length}/{CLOUDDRIVE_DRIVERS.length}
+        </summary>
+        <p className="mt-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          {t('clouddrive.driver.status.desc', {
+            done: String(CLOUDDRIVE_DRIVERS.filter((driver) => driver.implemented).length),
+            total: String(CLOUDDRIVE_DRIVERS.length),
+          })}
+        </p>
+        <div className="mt-2 grid gap-1 md:grid-cols-2">
+          {CLOUDDRIVE_DRIVERS.map((driver) => (
+            <div key={driver.id} className="flex min-w-0 flex-wrap items-center gap-1.5 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-2 py-1 text-[length:var(--text-10)]">
+              <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]">{t(driver.nameKey as Parameters<typeof t>[0])}</span>
+              <span className="text-[var(--text-quaternary)]">{t(`clouddrive.driver.group.${driver.group}` as Parameters<typeof t>[0])}</span>
+              <span className={driver.implemented ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]'}>
+                {driver.implemented ? t('clouddrive.driver.status.implemented') : t('clouddrive.driver.status.pending')}
+              </span>
+              <span className="text-[var(--text-tertiary)]">
+                {driverCapabilityLabels(driver).map((capability) => t(`clouddrive.driver.cap.${driverCapabilityKey(capability)}` as Parameters<typeof t>[0])).join(' · ')}
+              </span>
+            </div>
+          ))}
+        </div>
+      </details>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <label className="relative min-w-[220px] max-w-[420px] flex-1">
@@ -417,6 +558,16 @@ export function StoragePage() {
                   <span className={`rounded-full px-1.5 py-0.5 text-[length:var(--text-10)] ${storage.status === 'enabled' ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'bg-[var(--bg-inset)] text-[var(--text-tertiary)]'}`}>
                     {storage.status === 'enabled' ? t('clouddrive.admin.enabled') : t('clouddrive.admin.disabled')}
                   </span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {storage.lastTestStatus === 'reauth' && (
+                    <span className="rounded-full bg-[var(--danger-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--danger)]">{t('clouddrive.driver.needs_reauth')}</span>
+                  )}
+                  {driverCapabilityLabels(findCloudDriveDriver(storage.type)).map((capability) => (
+                    <span key={capability} className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                      {t(`clouddrive.driver.cap.${driverCapabilityKey(capability)}` as Parameters<typeof t>[0])}
+                    </span>
+                  ))}
                 </div>
                 <dl className="mt-2 grid gap-x-3 gap-y-1 text-[length:var(--text-11)]">
                   {storageDetails(storage).map((row) => (
@@ -469,7 +620,10 @@ export function StoragePage() {
           <Field label={t('clouddrive.storage.name')} required><Input value={form.name} onChange={(event) => set({ name: event.target.value })} /></Field>
           <div className="grid gap-2 sm:grid-cols-2">
             <Field label={t('clouddrive.storage.type')} required>
-              <Select value={form.type} disabled={editing !== null} onChange={(event) => set({ type: event.target.value as StorageType })}>
+              <Select value={form.type} disabled={editing !== null} onChange={(event) => {
+                const type = event.target.value as StorageType
+                set({ type, driverValues: schemaDefaults(findCloudDriveDriver(type)) })
+              }}>
                 {STORAGE_TYPE_VALUES.map((type) => <option key={type} value={type}>{storageTypeLabel(type)}</option>)}
               </Select>
             </Field>
@@ -588,6 +742,27 @@ export function StoragePage() {
             </>
           )}
 
+          {(() => {
+            const definition = findCloudDriveDriver(form.type)
+            if (!definition || LEGACY_FORM_TYPES.has(form.type)) return null
+            return (
+              <>
+                <p className="pt-1 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('clouddrive.driver.form_title')}</p>
+                {definition.fields.map((field) => (
+                  <DriverFieldInput
+                    key={field.key}
+                    field={field}
+                    value={driverFieldValue(field, form.driverValues)}
+                    hasCredentials={editing?.hasCredentials ?? false}
+                    onChange={(value) => set({ driverValues: { ...form.driverValues, [field.key]: value } })}
+                  />
+                ))}
+                {!driverAuthSatisfied(definition, form.driverValues, editing?.hasCredentials ?? false) && (
+                  <p role="alert" className="text-[length:var(--text-11)] text-[var(--danger)]">{t('clouddrive.driver.auth_required')}</p>
+                )}
+              </>
+            )
+          })()}
           <p className="pt-1 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('clouddrive.admin.storage.advanced')}</p>
           <Field label={t('clouddrive.admin.storage.default_path')}>
             <Input value={form.defaultPath} onChange={(event) => set({ defaultPath: event.target.value })} placeholder={t('clouddrive.admin.storage.default_path_placeholder')} />

@@ -8,6 +8,8 @@ import { checkTarget } from '../lib/outbound'
 import { requireOwner } from '../middleware/auth'
 import { s3RequestUrl, webdavCollectionUrl } from './storage-urls'
 import { invalidateExternalListing } from './external'
+import { findCloudDriveDriver, writableCloudDriveDriver } from '@shared/clouddrive/drivers'
+import { createStorageDriver } from './drivers/factory'
 
 export const clouddriveMountRoutes = new Hono<AppBindings>()
 
@@ -16,12 +18,13 @@ clouddriveMountRoutes.use('/storages/*', requireOwner)
 clouddriveMountRoutes.use('/mounts', requireOwner)
 clouddriveMountRoutes.use('/mounts/*', requireOwner)
 
-const STORAGE_TYPES = ['s3', 'webdav', 'telegram', 'discord', 'huggingface', 'github', 'onedrive', 'googledrive'] as const
-type StorageType = (typeof STORAGE_TYPES)[number]
+type StorageType = string
 const WRITABLE_EXTERNAL_TYPES: ReadonlySet<string> = new Set(['s3', 'webdav'])
+const externalWritable = (type: string): boolean => WRITABLE_EXTERNAL_TYPES.has(type) || writableCloudDriveDriver(type)
 
 interface StorageRow {
   id: string
+  user_id: string
   name: string
   type: string
   config: string
@@ -178,7 +181,7 @@ clouddriveMountRoutes.post('/mounts', async (c) => {
   const storage = storageId === 'primary' ? null : await storageById(c, storageId)
   if (storageId !== 'primary' && !storage) throw ApiError.badRequest('Storage not found')
   if (storage && storage.status !== 'enabled') throw ApiError.badRequest('The storage is disabled')
-  const writableExternal = storage !== null && WRITABLE_EXTERNAL_TYPES.has(storage.type)
+  const writableExternal = storage !== null && externalWritable(storage.type)
   const readOnly = storageId === 'primary'
     ? (body.readOnly ? 1 : 0)
     : writableExternal ? (body.readOnly ? 1 : 0) : 1
@@ -267,7 +270,7 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
   const storageChanged = nextStorageId !== row.storage_id
   if (body.readOnly !== undefined || storageChanged) {
     const storage = await storageById(c, nextStorageId)
-    const writableExternal = storage !== null && WRITABLE_EXTERNAL_TYPES.has(storage.type)
+    const writableExternal = storage !== null && externalWritable(storage.type)
     const readOnly = nextStorageId === 'primary'
       ? (body.readOnly === undefined ? 0 : body.readOnly ? 1 : 0)
       : writableExternal
@@ -428,6 +431,15 @@ function webdavQuota(xml: string): { used: number; total: number | null } | null
 }
 
 async function testStorage(c: Context<AppBindings>, row: StorageRow): Promise<{ ok: boolean; message: string; quota?: { used: number; total: number | null } }> {
+  const driver = await createStorageDriver(c.env, row)
+  if (driver) {
+    try {
+      const result = await driver.test()
+      return { ok: result.ok, message: result.message }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : `${row.type} test failed` }
+    }
+  }
   const config = safeObject(row.config)
   const stored = await decryptCloudDriveCredentials(c.env, row.id, row.credentials).catch(() => null)
   if (!stored && row.credentials) return { ok: false, message: 'The stored storage credentials could not be read' }
@@ -591,8 +603,12 @@ async function testTokenStorage(
 }
 
 function storageType(value: unknown): StorageType {
-  if (!STORAGE_TYPES.includes(value as StorageType)) throw ApiError.badRequest('Unsupported storage type')
-  return value as StorageType
+  const id = typeof value === 'string' ? value : ''
+  const definition = findCloudDriveDriver(id)
+  if (!definition || !definition.implemented || !definition.mountable) {
+    throw ApiError.badRequest('Unsupported storage type')
+  }
+  return id
 }
 
 function httpUrl(value: string, label: string): void {
@@ -652,6 +668,12 @@ function storageConfig(type: StorageType, value: unknown): Record<string, unknow
     if (!/^\d{5,32}$/.test(text('channelId'))) throw ApiError.badRequest('A Discord channel id is required')
   } else if (type === 'telegram') {
     if (!text('chatId')) throw ApiError.badRequest('A Telegram chat id is required')
+  } else if (type === '123pan') {
+    const rootId = text('rootId') || '0'
+    if (!/^\d{1,20}$/.test(rootId)) throw ApiError.badRequest('The 123Pan root folder id must be numeric')
+    if (config.platform !== undefined && config.platform !== 'web' && config.platform !== 'android') {
+      throw ApiError.badRequest('The 123Pan platform must be web or android')
+    }
   }
   return config
 }
