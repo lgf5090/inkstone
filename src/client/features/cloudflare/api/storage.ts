@@ -108,6 +108,7 @@ function r2Path(accountId: string, bucket?: string): string {
 
 export interface D1RowsPage {
   columns: string[]
+  primaryKey: string[]
   rows: Record<string, unknown>[]
   total: number
   limit: number
@@ -219,6 +220,27 @@ export const storageApi = {
       `${d1Path(accountId, databaseId)}/tables/${segment(tableName)}/rows?${query.toString()}`,
     )
   },
+
+  updateD1Row: (
+    accountId: string,
+    databaseId: string,
+    tableName: string,
+    key: Record<string, string | number | null>,
+    values: Record<string, string | number | null>,
+  ) => cfRequest<{ changes: number }>(
+    `${d1Path(accountId, databaseId)}/tables/${segment(tableName)}/rows`,
+    { method: 'PATCH', body: { key, values, allowWrite: true } },
+  ),
+
+  deleteD1Row: (
+    accountId: string,
+    databaseId: string,
+    tableName: string,
+    key: Record<string, string | number | null>,
+  ) => cfRequest<{ changes: number }>(
+    `${d1Path(accountId, databaseId)}/tables/${segment(tableName)}/rows`,
+    { method: 'DELETE', body: { key, allowWrite: true } },
+  ),
 
   executeD1Query: (accountId: string, databaseId: string, sql: string, allowWrite = false) =>
     cfRequest<D1QueryResult>(`${d1Path(accountId, databaseId)}/query`, {

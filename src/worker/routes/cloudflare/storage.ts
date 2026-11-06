@@ -33,11 +33,13 @@ import {
 import {
   createD1Database,
   deleteD1Database,
+  deleteD1Row,
   getD1TableSchema,
   listD1Databases,
   listD1Tables,
   readD1Rows,
   runD1Query,
+  updateD1Row,
 } from '../../cloudflare/storage-d1'
 import {
   assertValidBucketName,
@@ -269,6 +271,33 @@ storageRouter.get('/:accountId/d1/:dbId/tables/:tableName/rows', async (c) => {
   const search = (c.req.query('search') ?? '').slice(0, 200)
   if (!Number.isInteger(limit) || !Number.isInteger(offset)) throw ApiError.badRequest('Invalid pagination')
   return c.json(await readD1Rows(auth, cfAccountId, dbId, tableName, { limit, offset, search }))
+})
+
+storageRouter.patch('/:accountId/d1/:dbId/tables/:tableName/rows', async (c) => {
+  const { row, auth, cfAccountId } = await requireAccount(c, c.req.param('accountId'))
+  const dbId = pathId(c.req.param('dbId'), DATABASE_ID, 'database id')
+  const tableName = c.req.param('tableName')
+  const body = await readJson<Record<string, unknown>>(c, 64 * 1024)
+  if (body.allowWrite !== true) throw ApiError.forbidden('Row edits need the allow-write switch')
+  await assertNotDemo(c.env, c.get('userId'), row.id)
+  const result = await updateD1Row(auth, cfAccountId, dbId, tableName, {
+    key: body.key,
+    values: body.values,
+  })
+  await audit(c, row.id, 'd1_row_update', tableName, 'one row updated')
+  return c.json(result)
+})
+
+storageRouter.delete('/:accountId/d1/:dbId/tables/:tableName/rows', async (c) => {
+  const { row, auth, cfAccountId } = await requireAccount(c, c.req.param('accountId'))
+  const dbId = pathId(c.req.param('dbId'), DATABASE_ID, 'database id')
+  const tableName = c.req.param('tableName')
+  const body = await readJson<Record<string, unknown>>(c, 64 * 1024)
+  if (body.allowWrite !== true) throw ApiError.forbidden('Row deletes need the allow-write switch')
+  await assertNotDemo(c.env, c.get('userId'), row.id)
+  const result = await deleteD1Row(auth, cfAccountId, dbId, tableName, body.key)
+  await audit(c, row.id, 'd1_row_delete', tableName, 'one row deleted')
+  return c.json(result)
 })
 
 storageRouter.post('/:accountId/d1/:dbId/query', async (c) => {

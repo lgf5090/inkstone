@@ -549,6 +549,7 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
           accountId={account.id}
           databaseId={selectedDb.id}
           tableName={rowsTable}
+          readOnly={readOnly}
           onClose={() => setRowsTable(null)}
         />
       )}

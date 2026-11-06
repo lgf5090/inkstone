@@ -339,6 +339,7 @@ describe('D1 routes', () => {
     expect(response.status).toBe(200)
     expect(await readJson(response)).toEqual({
       columns: ['id', 'title'],
+      primaryKey: ['id'],
       rows: [{ id: 2, title: 'two' }, { id: 3, title: 'three' }],
       total: 3,
       limit: 2,
@@ -352,6 +353,83 @@ describe('D1 routes', () => {
     expect(page?.sql).toContain('ORDER BY "id"')
     expect(page?.params).toEqual(['%two%', '%two%', 2, 1])
     expect(statements.some((entry) => /(UPDATE|DELETE|INSERT|DROP|ALTER)/i.test(entry.sql))).toBe(false)
+  })
+
+  it('updates and deletes one row by its primary key, binding every value', async () => {
+    const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-g', accountId: 'cf-g' })
+    const writes: Array<{ sql: string; params?: unknown[] }> = []
+    stubApi(({ method, path, body }) => {
+      if (method !== 'POST' || path !== '/accounts/cf-g/d1/database/db-1/query') return null
+      const payload = body as { sql: string; params?: unknown[] }
+      if (payload.sql.startsWith('PRAGMA table_info')) {
+        return cfJson([{
+          results: [
+            { cid: 0, name: 'id', type: 'INTEGER', notnull: 1, dflt_value: null, pk: 1 },
+            { cid: 1, name: 'title', type: 'TEXT', notnull: 1, dflt_value: null, pk: 0 },
+          ],
+          meta: { duration: 1 },
+        }])
+      }
+      writes.push(payload)
+      return cfJson([{ results: [], meta: { duration: 1, changes: 1 } }])
+    })
+
+    const updated = await send('PATCH', `/${account.id}/d1/db-1/tables/users/rows`, {
+      key: { id: 1 },
+      values: { title: "edited'value" },
+      allowWrite: true,
+    })
+    expect(updated.status).toBe(200)
+    expect(await readJson(updated)).toEqual({ changes: 1 })
+    expect(writes[0]?.sql).toBe('UPDATE "users" SET "title" = ? WHERE "id" = ?')
+    expect(writes[0]?.params).toEqual(["edited'value", 1])
+
+    const deleted = await send('DELETE', `/${account.id}/d1/db-1/tables/users/rows`, {
+      key: { id: 1 },
+      allowWrite: true,
+    })
+    expect(deleted.status).toBe(200)
+    expect(await readJson(deleted)).toEqual({ changes: 1 })
+    expect(writes[1]?.sql).toBe('DELETE FROM "users" WHERE "id" = ?')
+    expect(writes[1]?.params).toEqual([1])
+    expect(await auditActions()).toEqual(expect.arrayContaining(['d1_row_update', 'd1_row_delete']))
+  })
+
+  it('refuses row writes without the switch and rejects unknown or primary-key columns', async () => {
+    const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-h', accountId: 'cf-h' })
+    let queries = 0
+    stubApi(({ method, path, body }) => {
+      if (method !== 'POST' || path !== '/accounts/cf-h/d1/database/db-1/query') return null
+      const payload = body as { sql: string }
+      if (payload.sql.startsWith('PRAGMA table_info')) {
+        queries += 1
+        return cfJson({
+          results: [{ cid: 0, name: 'id', type: 'INTEGER', notnull: 1, dflt_value: null, pk: 1 }],
+          meta: { duration: 1 },
+        })
+      }
+      queries += 1
+      return cfJson([{ results: [], meta: { duration: 1, changes: 1 } }])
+    })
+
+    const noSwitch = await send('PATCH', `/${account.id}/d1/db-1/tables/users/rows`, {
+      key: { id: 1 },
+      values: { title: 'x' },
+    })
+    expect(noSwitch.status).toBe(403)
+    const keyColumn = await send('PATCH', `/${account.id}/d1/db-1/tables/users/rows`, {
+      key: { id: 1 },
+      values: { id: 2 },
+      allowWrite: true,
+    })
+    expect(keyColumn.status).toBe(400)
+    const unknownColumn = await send('PATCH', `/${account.id}/d1/db-1/tables/users/rows`, {
+      key: { id: 1 },
+      values: { missing: 'x' },
+      allowWrite: true,
+    })
+    expect(unknownColumn.status).toBe(400)
+    expect(queries).toBe(2)
   })
 })
 
