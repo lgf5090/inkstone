@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
-import { Input } from '../../../../components/form'
+import { Field, Input } from '../../../../components/form'
 import { type MessageKey, t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
 import type { BundleAccent } from '@shared/tools/shortlinks/types'
@@ -100,11 +100,7 @@ export function CreateBundleModal() {
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4 py-2">
-        <div>
-          <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
-            {t('tools.shortlinks.modal.bundle_name')}{' '}
-            <span className="text-[var(--danger)]">*</span>
-          </label>
+        <Field label={t('tools.shortlinks.modal.bundle_name')} required>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -112,12 +108,9 @@ export function CreateBundleModal() {
             required
             autoFocus
           />
-        </div>
+        </Field>
 
-        <div>
-          <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1.5">
-            {t('tools.shortlinks.modal.bundle_accent')}
-          </label>
+        <Field label={t('tools.shortlinks.modal.bundle_accent')}>
           <div className="flex items-center gap-2">
             {ACCENT_COLORS.map((c) => {
               const isSelected = accent === c.id
@@ -132,23 +125,21 @@ export function CreateBundleModal() {
                     isSelected ? 'scale-110 ring-2 ring-offset-2 ring-[var(--accent)]' : 'opacity-80 hover:opacity-100'
                   }`}
                   aria-label={colorName}
+                  aria-pressed={isSelected}
                   title={colorName}
                 />
               )
             })}
           </div>
-        </div>
+        </Field>
 
-        <div>
-          <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
-            {t('tools.shortlinks.modal.bundle_description')}
-          </label>
+        <Field label={t('tools.shortlinks.modal.bundle_description')}>
           <Input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={t('tools.shortlinks.modal.bundle_description_placeholder')}
           />
-        </div>
+        </Field>
       </form>
     </Modal>
   )

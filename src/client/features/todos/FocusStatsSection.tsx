@@ -9,7 +9,8 @@
 import { useEffect, useState } from 'react'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
-import { durationLabel, SliceBars, Sparkline } from './stats-charts'
+import { Sparkline } from '../../components/Sparkline'
+import { durationLabel, SliceBars } from './stats-charts'
 import type { TodoFocusStats } from '@shared/todos/model'
 
 export interface FocusStatsState {

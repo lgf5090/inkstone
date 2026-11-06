@@ -310,6 +310,9 @@ const allowed = new Map([
     "// while a composition is open so Escape costs the syllable, not the whole query — the guard",
     "// the tree keyboard, the chat composer, the palette and the omnisearch prompt already answer.",
   ]],
+  ["src/client/components/Sparkline.tsx", [
+    "/** A tiny shape behind a KPI: the same series the trend draws, without axes. */",
+  ]],
   ["src/client/components/TagChip.test.ts", [
     "/**\n * Five surfaces wrote this chip by hand and landed on five different boxes, so these cases hold the one\n * shape they converge on: a real `<button>` (a chip filters, so it has to be reachable and answer\n * Enter), the pressed state where a screen reader looks for it, the count lined up on its digits rather\n * than their widths, and the `#` kept out of the announced name — a strip of tags read aloud would\n * otherwise start every item with \"hash\". The colour a kanban tag wears is data from the note, so it\n * arrives as a style; the corner radius is the one thing a surface genuinely owns.\n */",
     "/** Render a chip and hand back its element; the caller unmounts once it has read what it came for. */",
@@ -17225,7 +17228,6 @@ const allowed = new Map([
     "/** One slice of a donut or a stacked bar: a name, a count and the colour it is painted. */",
     "/** A per-bucket reference line, or null when the account has no goal. */",
     "/** The range the answer describes; the chart's accessible name states it, not the first bucket. */",
-    "/** A tiny shape behind a KPI: the same series the trend draws, without axes. */",
     "// A count is compared in whole percents; a rate in points, where one decimal is still meaningful.",
     "/** A donut of shares, with the total in the middle. */",
     "/** One bar per slice, painted in the slice's own colour — a list's colour is the one the reader picked. */",
