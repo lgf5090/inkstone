@@ -11,6 +11,7 @@ import { sha256Hex } from '../lib/encoding'
 import { newId } from '../lib/id'
 import { hashPassword } from '../lib/password'
 import { BLOG_RENDERER_VERSION } from '@shared/blog/renderer'
+import { archiveBucket, BLOG_DEFAULT_TIME_ZONE, zonedYearRange } from '@shared/blog/time'
 
 const POST_COLUMNS = `p.id, p.user_id, p.note_id, p.slug, p.title, p.excerpt, p.description,
   p.cover_asset_id, p.category_id, p.series_id, p.series_order, p.status, p.pinned,
@@ -191,8 +192,15 @@ export interface PublicPostQuery {
   series?: string
   q?: string
   year?: number
+  /** The zone the `year` filter means; defaults to UTC when the caller has no site setting. */
+  timeZone?: string
   pinned?: boolean
   excludeEncrypted?: boolean
+  /**
+   * Every matching row, without a page window. The public `/feeds` projection feeds the sitemap and
+   * the llms files as well as RSS, so a page cap there silently drops older slugs from discovery.
+   */
+  unpaged?: boolean
 }
 
 export async function listPublishedPostsFiltered(
@@ -228,14 +236,29 @@ export async function listPublishedPostsFiltered(
     binds.push(`%${needle}%`, `%${needle}%`, `%${needle}%`)
   }
   if (query.year) {
-    where.push("strftime('%Y', p.published_at / 1000, 'unixepoch') = ?")
-    binds.push(String(query.year))
+    // The archive shows a year on the site's calendar, so the filter has to use the same boundary:
+    // an instant in the last hours of 31 December UTC can already belong to the next year locally.
+    const range = zonedYearRange(query.year, query.timeZone ?? BLOG_DEFAULT_TIME_ZONE)
+    where.push('p.published_at >= ? AND p.published_at < ?')
+    binds.push(range.start, range.end)
   }
   if (query.pinned) where.push('p.pinned = 1')
   if (query.excludeEncrypted) where.push('p.encrypted = 0')
   const joins = `LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
     LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id`
   const whereSql = where.join(' AND ')
+  if (query.unpaged) {
+    const { results } = await db
+      .prepare(
+        `SELECT ${POST_COLUMNS} FROM blog_posts p
+         ${joins}
+         WHERE ${whereSql}
+         ORDER BY p.pinned DESC, COALESCE(p.published_at, p.created_at) DESC, p.id DESC`,
+      )
+      .bind(...binds)
+      .all<BlogPostWithNames>()
+    return { rows: results, total: results.length }
+  }
   const [rows, count] = await Promise.all([
     db
       .prepare(
@@ -255,41 +278,45 @@ export async function listPublishedPostsFiltered(
   return { rows: rows.results, total: count?.total ?? 0 }
 }
 
-export async function listPublishedPosts(
-  db: D1Database,
-  userId: string,
-  page = 1,
-  limit = 10,
-): Promise<{ rows: BlogPostWithNames[]; total: number }> {
-  return listPublishedPostsFiltered(db, userId, { page, limit })
-}
-
+/**
+ * Groups the public archive by the site's calendar year and month.
+ *
+ * SQLite's `strftime` has no IANA zone, so a UTC `GROUP BY` would file a post published late on
+ * 31 December UTC under the previous year for a site in Asia/Shanghai. The rows are therefore bucketed
+ * in JavaScript through the shared zone conversion; only the published timestamp leaves D1.
+ */
 export async function blogArchive(
   db: D1Database,
   userId: string,
+  timeZone: string = BLOG_DEFAULT_TIME_ZONE,
 ): Promise<{ year: string; count: number; months: { month: string; count: number }[] }[]> {
   const { results } = await db
     .prepare(
-      `SELECT strftime('%Y', p.published_at / 1000, 'unixepoch') AS year,
-              strftime('%m', p.published_at / 1000, 'unixepoch') AS month,
-              COUNT(*) AS total
+      `SELECT p.published_at AS publishedAt
        FROM blog_posts p
        WHERE p.user_id = ? AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL
          AND p.encrypted = 0
-         AND p.published_at IS NOT NULL AND p.published_at <= ?
-       GROUP BY year, month
-       ORDER BY year DESC, month DESC`,
+         AND p.published_at IS NOT NULL AND p.published_at <= ?`,
     )
     .bind(userId, Date.now())
-    .all<{ year: string; month: string; total: number }>()
-  const years = new Map<string, { year: string; count: number; months: { month: string; count: number }[] }>()
+    .all<{ publishedAt: number }>()
+  const years = new Map<string, { year: string; count: number; months: Map<string, number> }>()
   for (const row of results) {
-    const entry = years.get(row.year) ?? { year: row.year, count: 0, months: [] }
-    entry.count += row.total
-    entry.months.push({ month: row.month, count: row.total })
-    years.set(row.year, entry)
+    const bucket = archiveBucket(row.publishedAt, timeZone)
+    const entry = years.get(bucket.year) ?? { year: bucket.year, count: 0, months: new Map() }
+    entry.count += 1
+    entry.months.set(bucket.month, (entry.months.get(bucket.month) ?? 0) + 1)
+    years.set(bucket.year, entry)
   }
   return [...years.values()]
+    .sort((left, right) => right.year.localeCompare(left.year))
+    .map((entry) => ({
+      year: entry.year,
+      count: entry.count,
+      months: [...entry.months.entries()]
+        .sort((left, right) => right[0].localeCompare(left[0]))
+        .map(([month, count]) => ({ month, count })),
+    }))
 }
 
 export async function findAdjacentPosts(
@@ -427,23 +454,28 @@ export async function findPublishedPostByAlias(
   return results[0] ?? null
 }
 
+/** D1 accepts at most 100 bound parameters; one is the owner id, leaving 99 ids per statement. */
+const BLOG_TAG_LOOKUP_BATCH = 99
+
 export async function listPostTags(db: D1Database, userId: string, postIds: string[]): Promise<Map<string, string[]>> {
   const result = new Map<string, string[]>()
-  if (postIds.length === 0) return result
-  const placeholders = postIds.map((_, index) => `?${index + 2}`).join(', ')
-  const { results } = await db
-    .prepare(
-      `SELECT pt.post_id, t.name FROM blog_post_tags pt
-       JOIN blog_tags t ON t.id = pt.tag_id AND t.user_id = pt.user_id
-       WHERE pt.user_id = ?1 AND pt.post_id IN (${placeholders})
-       ORDER BY pt.position, t.name`,
-    )
-    .bind(userId, ...postIds)
-    .all<{ post_id: string; name: string }>()
-  for (const row of results) {
-    const list = result.get(row.post_id) ?? []
-    list.push(row.name)
-    result.set(row.post_id, list)
+  for (let start = 0; start < postIds.length; start += BLOG_TAG_LOOKUP_BATCH) {
+    const batch = postIds.slice(start, start + BLOG_TAG_LOOKUP_BATCH)
+    const placeholders = batch.map((_, index) => `?${index + 2}`).join(', ')
+    const { results } = await db
+      .prepare(
+        `SELECT pt.post_id, t.name FROM blog_post_tags pt
+         JOIN blog_tags t ON t.id = pt.tag_id AND t.user_id = pt.user_id
+         WHERE pt.user_id = ?1 AND pt.post_id IN (${placeholders})
+         ORDER BY pt.position, t.name`,
+      )
+      .bind(userId, ...batch)
+      .all<{ post_id: string; name: string }>()
+    for (const row of results) {
+      const list = result.get(row.post_id) ?? []
+      list.push(row.name)
+      result.set(row.post_id, list)
+    }
   }
   return result
 }

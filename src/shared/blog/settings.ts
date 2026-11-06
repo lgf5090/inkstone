@@ -1,5 +1,6 @@
 import type { BlogMusicConfig, BlogMusicMeting, BlogMusicTrack, BlogSitePublic } from './model'
 import { BLOG_RENDERER_VERSION } from './renderer'
+import { normalizeBlogTimeZone } from './time'
 
 export const BLOG_SETTING_KEYS = [
   'site',
@@ -69,6 +70,8 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
     progressStyle: 'dual',
     postListMode: 'list',
     postListPageSize: 10,
+    // The blog's RSS/Atom routes read this to choose the full body over the excerpt.
+    feedFullText: false,
   },
   article: { showLastUpdated: true, lastUpdatedDays: 90, relatedCount: 3, randomCount: 2, share: true },
   comment: { provider: 'local' },
@@ -195,6 +198,11 @@ function clampInt(value: unknown, fallback: number, min: number, max: number): n
   const parsed = Number(value)
   if (value === undefined || value === null || !Number.isFinite(parsed)) return fallback
   return Math.min(Math.max(Math.trunc(parsed), min), max)
+}
+
+/** The site's validated zone, so archive and year filters agree with the public projection. */
+export function blogSiteTimeZone(settings: BlogSettings): string {
+  return normalizeBlogTimeZone((settings.site as { timeZone?: unknown }).timeZone)
 }
 
 function publicUrl(value: unknown): string | null {
@@ -324,7 +332,7 @@ export function publicBlogSite(
       description: typeof site.description === 'string' ? site.description : '',
       url: typeof site.url === 'string' ? site.url : '',
       locale: typeof site.locale === 'string' ? site.locale : 'en',
-      timeZone: typeof site.timeZone === 'string' ? site.timeZone : 'UTC',
+      timeZone: normalizeBlogTimeZone(site.timeZone),
       themeColor: site.themeColor ?? { hue: 315, style: 'tonalSpot', spec: '2025' },
       banner: {
         desktopLight: publicUrl(site.banner?.desktopLight) ?? '',

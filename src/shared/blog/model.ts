@@ -197,6 +197,8 @@ export interface BlogPostSummary {
   readingMinutes: number
   encrypted: boolean
   hideHomeContent: boolean
+  /** Present only when the feed caller asked for bodies; see `/api/blog/feeds?includeContent=1`. */
+  contentHtml?: string
 }
 
 export interface BlogPostDetail extends BlogPostSummary {

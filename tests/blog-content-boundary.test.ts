@@ -9,6 +9,7 @@ import {
   blogArchive,
   findAdjacentPosts,
   findPublishedPostByAlias,
+  listPostTags,
   updateAdminPostMeta,
 } from '../src/worker/blog/store'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -22,7 +23,7 @@ const PROXY_KEY = 'test-proxy-key'
  * public routes must omit it, while the article page still answers its own slug so a direct link
  * can reach the unlock form.
  */
-async function installed() {
+async function installed(files?: R2Bucket) {
   const sqlite = new DatabaseSync(':memory:')
   const db = makeD1(sqlite) as unknown as D1Database
   await initializeDatabase({ DB: db } as unknown as Env)
@@ -38,8 +39,19 @@ async function installed() {
     return c.json({ error: { message: error.message } }, status as 400)
   })
   app.route('/api/blog', blogPublicRoutes)
-  const env = { DB: db, BLOG_PROXY_KEY: PROXY_KEY } as unknown as Env
+  const env = { DB: db, BLOG_PROXY_KEY: PROXY_KEY, ...(files ? { FILES: files } : {}) } as unknown as Env
   return { sqlite, db, app, env }
+}
+
+/** A render snapshot the feed reader can load: only the HTML a full-text feed prints. */
+function memoryFiles() {
+  const objects = new Map<string, string>()
+  const bucket = {
+    get: async (key: string) => objects.has(key)
+      ? { text: async () => objects.get(key)! }
+      : null,
+  } as unknown as R2Bucket
+  return { objects, bucket }
 }
 
 function post(
@@ -206,5 +218,139 @@ describe('article aliases resolve to a safe 301 target', () => {
       slug: 'astro-ssr',
       permalink: '',
     })
+  })
+})
+
+describe('archive years follow the site time zone', () => {
+  // 2025-12-31T16:30Z is already 2026-01-01 00:30 in Asia/Shanghai: the archive, the year filter
+  // and the count must agree on which year owns it instead of each reading its own UTC boundary.
+  const BOUNDARY = Date.UTC(2025, 11, 31, 16, 30)
+
+  it('files a UTC-year-end post under the next local year', async () => {
+    const ctx = await installed()
+    post(ctx.sqlite, { id: 'boundary', slug: 'new-year', title: 'New year', publishedAt: BOUNDARY })
+    ctx.sqlite.exec(`INSERT INTO blog_settings (user_id, key, value, updated_at)
+      VALUES ('${USER}', 'site', '{"timeZone":"Asia/Shanghai"}', 1)`)
+
+    const shanghai = await blogArchive(ctx.db, USER, 'Asia/Shanghai')
+    expect(shanghai).toEqual([{ year: '2026', count: 1, months: [{ month: '01', count: 1 }] }])
+    expect(await blogArchive(ctx.db, USER, 'UTC')).toEqual([
+      { year: '2025', count: 1, months: [{ month: '12', count: 1 }] },
+    ])
+
+    const local = await request(ctx.app, ctx.env, '/api/blog/archive')
+    expect((await local.json()) as { years: unknown }).toEqual({ years: shanghai })
+
+    expect(((await (await request(ctx.app, ctx.env, '/api/blog/posts?year=2026')).json()) as { items: unknown[] }).items).toHaveLength(1)
+    expect(((await (await request(ctx.app, ctx.env, '/api/blog/posts?year=2025')).json()) as { items: unknown[] }).items).toHaveLength(0)
+  })
+})
+
+describe('the sitemap feed is not cut off at one page', () => {
+  it('returns every public post so older slugs stay discoverable', async () => {
+    const ctx = await installed()
+    for (let index = 0; index < 120; index++) {
+      post(ctx.sqlite, {
+        id: `p${index}`,
+        slug: `post-${index}`,
+        title: `Post ${index}`,
+        publishedAt: NOW - index * 1000,
+      })
+    }
+    post(ctx.sqlite, { id: 'sec', slug: 'secret', title: 'Secret', encrypted: 1, publishedAt: NOW - 500 })
+
+    const body = (await (await request(ctx.app, ctx.env, '/api/blog/feeds')).json()) as {
+      posts: { slug: string }[]
+    }
+    expect(body.posts).toHaveLength(120)
+    expect(body.posts.some((item) => item.slug === 'secret')).toBe(false)
+  })
+})
+
+describe('feed bodies are opt-in and bounded', () => {
+  it('adds contentHtml only for the first 50 entries when includeContent=1', async () => {
+    const files = memoryFiles()
+    const ctx = await installed(files.bucket)
+    for (let index = 0; index < 55; index++) {
+      post(ctx.sqlite, {
+        id: `p${index}`,
+        slug: `post-${index}`,
+        title: `Post ${index}`,
+        publishedAt: NOW - index * 1000,
+      })
+      const key = `renders/p${index}.json`
+      ctx.sqlite.prepare('UPDATE blog_posts SET render_key = ? WHERE id = ?').run(key, `p${index}`)
+      files.objects.set(key, JSON.stringify({ html: `<p>Body ${index}</p>` }))
+    }
+    post(ctx.sqlite, { id: 'sec', slug: 'secret', title: 'Secret', encrypted: 1, publishedAt: NOW - 500 })
+    const secretKey = 'renders/secret.json'
+    ctx.sqlite.prepare('UPDATE blog_posts SET render_key = ? WHERE id = ?').run(secretKey, 'sec')
+    files.objects.set(secretKey, JSON.stringify({ html: '<p>SECRET-BODY</p>' }))
+
+    const bareText = await (await request(ctx.app, ctx.env, '/api/blog/feeds')).text()
+    expect(bareText).not.toContain('contentHtml')
+
+    const fullResponse = await request(ctx.app, ctx.env, '/api/blog/feeds?includeContent=1')
+    const fullText = await fullResponse.text()
+    const body = JSON.parse(fullText) as { posts: { slug: string; contentHtml?: string }[] }
+    expect(body.posts).toHaveLength(55)
+    expect(body.posts.slice(0, 50).every((item) => item.contentHtml)).toBe(true)
+    expect(body.posts.slice(50).some((item) => item.contentHtml)).toBe(false)
+    expect(body.posts.some((item) => item.slug === 'secret')).toBe(false)
+    expect(fullText).not.toContain('SECRET-BODY')
+    expect(fullText.length - bareText.length).toBeGreaterThan(1000)
+  })
+})
+
+describe('tag lookups stay inside the D1 bind budget', () => {
+  it('batches more than 100 post ids instead of sending one oversized statement', async () => {
+    const ctx = await installed()
+    // D1 refuses a statement with more than 100 bound parameters. The wrapper fails the test the
+    // way the real database would, while node:sqlite would otherwise happily accept 121.
+    const limited = {
+      prepare(sql: string) {
+        const statement = ctx.db.prepare(sql)
+        return {
+          bind(...values: unknown[]) {
+            if (values.length > 100) throw new Error('D1_ERROR: variable number must be between ?1 and ?100')
+            return statement.bind(...values)
+          },
+        }
+      },
+    } as unknown as D1Database
+    const ids = Array.from({ length: 121 }, (_, index) => `p${index}`)
+    await expect(listPostTags(limited, USER, ids)).resolves.toBeInstanceOf(Map)
+  })
+})
+
+describe('out-of-range pages select nothing', () => {
+  it('answers a negative, zero or non-numeric page with an empty set', async () => {
+    const ctx = await installed()
+    post(ctx.sqlite, { id: 'one', slug: 'one', title: 'Public one' })
+    post(ctx.sqlite, { id: 'two', slug: 'two', title: 'Public two' })
+
+    for (const page of ['-1', '0', 'abc', '1.5']) {
+      const body = (await (await request(ctx.app, ctx.env, `/api/blog/posts?page=${page}`)).json()) as {
+        items: unknown[]
+        total: number
+      }
+      expect(body.items, `page=${page}`).toEqual([])
+      expect(body.total, `page=${page}`).toBe(0)
+    }
+
+    const pastLast = (await (await request(ctx.app, ctx.env, '/api/blog/posts?page=999')).json()) as {
+      items: unknown[]
+      total: number
+    }
+    expect(pastLast.items).toEqual([])
+    expect(pastLast.total).toBe(2)
+
+    const first = (await (await request(ctx.app, ctx.env, '/api/blog/posts')).json()) as { items: unknown[] }
+    expect(first.items).toHaveLength(2)
+
+    const search = (await (await request(ctx.app, ctx.env, '/api/blog/search?q=Public&page=-1')).json()) as {
+      items: unknown[]
+    }
+    expect(search.items).toEqual([])
   })
 })

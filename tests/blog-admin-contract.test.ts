@@ -13,7 +13,6 @@ import {
   listAdminPosts,
   listPublishedPostsFiltered,
   searchPublishedPosts,
-  listPublishedPosts,
   publishPostSnapshot,
   syncBlogPostFromNote,
   updateAdminPostMeta,
@@ -214,7 +213,7 @@ describe('blog admin projection', () => {
     const row = await syncBlogPostFromNote(db, USER, note(content))
     expect(row?.status).toBe('scheduled')
     expect(row?.published_at).toBe(future)
-    expect((await listPublishedPosts(db, USER, 1, 10)).rows).toHaveLength(0)
+    expect((await listPublishedPostsFiltered(db, USER, { page: 1, limit: 10 })).rows).toHaveLength(0)
     expect(await findPublishedPost(db, USER, row!.slug)).toBeNull()
   })
 
@@ -242,7 +241,7 @@ describe('blog admin projection', () => {
     await publishPostSnapshot(db, memoryBucket(), USER, NOTE, rendered, Date.now())
     const published = await findPublishedPost(db, USER, row!.slug)
     expect(published?.status).toBe('published')
-    const list = await listPublishedPosts(db, USER, 1, 10)
+    const list = await listPublishedPostsFiltered(db, USER, { page: 1, limit: 10 })
     expect(list.rows.map((item) => item.slug)).toEqual([row!.slug])
   })
 
