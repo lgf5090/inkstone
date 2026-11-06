@@ -219,6 +219,14 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
                   </Select>
                 </Field>
               </div>
+              <div>
+                <Checkbox
+                  checked={bool(display.feedFullText)}
+                  onChange={(value) => setDisplay({ ...display, feedFullText: value })}
+                  label={t('blog.admin.feed_full_text')}
+                />
+                <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('blog.admin.feed_full_text_hint')}</p>
+              </div>
             </Section>
             <Section title={t('blog.admin.settings_article')} onSave={() => void saveDomain('article', article)} saving={saving}>
               <div className="grid gap-1 sm:grid-cols-2">
