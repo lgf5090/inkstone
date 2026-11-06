@@ -37,6 +37,7 @@ import type { PublicSharePresence, SharePresencePosition, SharePresenceSession }
 import type {
   AdminBlogComment,
   BlogAdminOverview,
+  BlogNewsletterList,
   BlogCommentStatus,
   BlogAlbumPhoto,
   BlogAuditEntry,
@@ -1014,6 +1015,22 @@ export const api = {
           body: { content },
         }),
       stats: () => request<Record<BlogCommentStatus, number>>('/api/blog/admin/comments/stats'),
+    },
+    newsletter: {
+      list: (params: { status?: string; q?: string; page?: number; limit?: number } = {}) =>
+        request<BlogNewsletterList>(`/api/blog/admin/newsletter/subscribers${toQuery(params)}`),
+      confirmLink: (id: string) =>
+        request<{ url: string }>(
+          `/api/blog/admin/newsletter/subscribers/${encodeURIComponent(id)}/confirm-link`,
+          { method: 'POST', body: {} },
+        ),
+      exportCsv: async (params: { status?: string; q?: string } = {}) => {
+        const { response, filename } = await fetchDownload(
+          `/api/blog/admin/newsletter/subscribers/export${toQuery(params)}`,
+          'inkstone-newsletter-subscribers.csv',
+        )
+        await saveResponseDownload(response, filename)
+      },
     },
     taxonomy: {
       list: () => request<{ categories: TaxonomyItem[]; tags: TaxonomyItem[]; series: TaxonomyItem[] }>('/api/blog/admin/taxonomy'),

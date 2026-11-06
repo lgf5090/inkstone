@@ -62,6 +62,10 @@ import {
 import {
   BLOG_ALL_SCHEMA_STATEMENTS,
   BLOG_COMMENT_SCHEMA_STATEMENTS,
+  BLOG_FAVORITE_SCHEMA_STATEMENTS,
+  BLOG_LIKE_SCHEMA_STATEMENTS,
+  BLOG_NEWSLETTER_INDEX_STATEMENTS,
+  BLOG_NEWSLETTER_TABLE_STATEMENTS,
   BLOG_REQUIRED_COLUMNS,
   BLOG_REQUIRED_INDEXES,
   BLOG_REQUIRED_TABLES,
@@ -3808,6 +3812,22 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_blog_preview_tokens_hash
          ON blog_preview_tokens(token_hash)`,
     ],
+  },
+  {
+    version: 282,
+    statements: BLOG_NEWSLETTER_TABLE_STATEMENTS,
+  },
+  {
+    version: 283,
+    statements: BLOG_NEWSLETTER_INDEX_STATEMENTS,
+  },
+  {
+    version: 284,
+    statements: BLOG_LIKE_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 285,
+    statements: BLOG_FAVORITE_SCHEMA_STATEMENTS,
   },
 ]
 

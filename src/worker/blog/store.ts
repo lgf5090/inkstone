@@ -688,6 +688,7 @@ function parseBlogDate(value: string): number | null {
 export function toBlogSummary(
   row: BlogPostWithNames,
   tags: string[],
+  likeCount = 0,
 ): BlogPostSummary {
   const protectedPost = row.encrypted === 1
   return {
@@ -712,6 +713,7 @@ export function toBlogSummary(
     readingMinutes: row.reading_minutes,
     encrypted: row.encrypted === 1,
     hideHomeContent: row.hide_home_content === 1,
+    likeCount: protectedPost ? 0 : Math.max(0, Math.trunc(likeCount)),
   }
 }
 

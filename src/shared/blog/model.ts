@@ -199,6 +199,7 @@ export interface BlogPostSummary {
   hideHomeContent: boolean
   /** Present only when the feed caller asked for bodies; see `/api/blog/feeds?includeContent=1`. */
   contentHtml?: string
+  likeCount: number
 }
 
 export interface BlogPostDetail extends BlogPostSummary {
@@ -553,6 +554,41 @@ export interface BlogSitePublic {
 export interface BlogNoteStatusItem {
   noteId: string
   status: BlogPostStatus
+}
+
+export interface BlogEngagementState {
+  likeCount: number
+  liked: boolean
+  favorited: boolean
+}
+
+export interface BlogSavedPost extends BlogPostSummary {
+  savedAt: number
+}
+
+export type BlogNewsletterStatus = 'pending' | 'confirmed' | 'unsubscribed'
+
+export interface AdminNewsletterSubscriber {
+  id: string
+  email: string
+  status: BlogNewsletterStatus
+  source: string
+  createdAt: number
+  confirmedAt: number | null
+  unsubscribedAt: number | null
+  lastSentAt: number | null
+}
+
+export interface BlogNewsletterList {
+  items: AdminNewsletterSubscriber[]
+  total: number
+  counts: Record<BlogNewsletterStatus, number>
+}
+
+export interface BlogNewsletterSubscribeResult {
+  status: BlogNewsletterStatus
+  emailSent: boolean
+  delivery: 'sent' | 'unavailable' | 'failed' | 'cooldown' | 'already_confirmed' | 'ignored'
 }
 
 export interface BlogAdminOverview {
