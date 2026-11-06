@@ -22,6 +22,7 @@ import { ImageTab } from './ai/ImageTab'
 import { AudioTab } from './ai/AudioTab'
 import { TranslateTab } from './ai/TranslateTab'
 import { GatewayTab } from './ai/GatewayTab'
+import { PlatformGatewayTab } from './ai/PlatformGatewayTab'
 
 const TAB_LABELS: Record<CloudflareAiTab, CloudflareMessageKey> = {
   stats: 'cloudflare.ai_tabs.stats',
@@ -30,6 +31,7 @@ const TAB_LABELS: Record<CloudflareAiTab, CloudflareMessageKey> = {
   audio: 'cloudflare.ai_tabs.audio',
   translate: 'cloudflare.ai_tabs.translate',
   gateway: 'cloudflare.ai_tabs.gateway',
+  platform: 'cloudflare.ai_tabs.platform',
 }
 
 function AiTabPanel({ tab }: { tab: CloudflareAiTab }) {
@@ -39,6 +41,7 @@ function AiTabPanel({ tab }: { tab: CloudflareAiTab }) {
     case 'audio': return <AudioTab />
     case 'translate': return <TranslateTab />
     case 'gateway': return <GatewayTab />
+    case 'platform': return <PlatformGatewayTab />
     default: return <StatsTab />
   }
 }

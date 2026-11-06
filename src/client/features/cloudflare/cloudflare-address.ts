@@ -34,9 +34,9 @@ export const CLOUDFLARE_SCREENS: readonly CloudflareScreen[] = [
   'settings',
 ]
 
-export type CloudflareAiTab = 'stats' | 'chat' | 'image' | 'audio' | 'translate' | 'gateway'
+export type CloudflareAiTab = 'stats' | 'chat' | 'image' | 'audio' | 'translate' | 'gateway' | 'platform'
 
-export const CLOUDFLARE_AI_TABS: readonly CloudflareAiTab[] = ['stats', 'chat', 'image', 'audio', 'translate', 'gateway']
+export const CLOUDFLARE_AI_TABS: readonly CloudflareAiTab[] = ['stats', 'chat', 'image', 'audio', 'translate', 'gateway', 'platform']
 
 export interface CloudflareAddress {
   screen: CloudflareScreen

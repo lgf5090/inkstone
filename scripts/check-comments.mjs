@@ -6285,6 +6285,9 @@ const allowed = new Map([
     "/**\n * The accounts slice's calls.\n *\n * Every request goes through `cfRequest`, which carries the notebook's client header and turns the\n * route's error envelope into the sentence the screen shows. The CSV import is a multipart form, so\n * it hands `request()` a `FormData` instead of a JSON body.\n */",
     "/** Present for completeness; the screen does not offer it because Workers cannot proxy outbound. */",
   ]],
+  ["src/client/features/cloudflare/api/ai-gateway-platform.ts", [
+    "/**\n * The read-only contract for the Cloudflare AI Gateway management panel.\n *\n * The shapes mirror the Worker routes, which in turn take their fields from the official SDK. Keeping\n * the subset here means a screen never has to know how a gateway is fetched.\n */",
+  ]],
   ["src/client/features/cloudflare/api/ai-gateway.ts", [
     "/**\n * The management-side contract for the self-hosted gateway. Only session-authenticated calls live\n * here; the public `gw_` data plane is consumed by external clients, not by this screen.\n */",
   ]],
@@ -6497,6 +6500,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/cloudflare/screens/ai/ImageTab.tsx", [
     "/**\n * The image tab: text-to-image and image-to-image against the model family the reader picked.\n *\n * The family decides which controls exist — Stable Diffusion takes width, height, guidance and a\n * negative prompt, FLUX does not — and the request builder is what turns that into the body.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/ai/PlatformGatewayTab.tsx", [
+    "/**\n * The Cloudflare-hosted AI Gateway tab: gateways, logs, routing, BYOK, spending limit, analytics and\n * logpush, all read-only. The account is the one the Cloudflare app already stores; this screen never\n * handles a token.\n */",
   ]],
   ["src/client/features/cloudflare/screens/ai/StatsTab.tsx", [
     "/**\n * The AI statistics tab: five headline numbers, the usage rings, the model ranking and one card per\n * account.\n *\n * The ring pair is the point of the page. The outer ring is how today's neurons divide between the\n * accounts, the inner one is how much of the combined quota that whole is, and the small rings answer\n * the question a reader actually acts on — how close each account is to its own 10,000. The bars rank\n * models across accounts. Every shape is printed with its number beside it: an angle or a length is\n * something a reader may not be able to resolve, and a colour never carries a value on its own.\n */",
@@ -38493,6 +38499,9 @@ const allowed = new Map([
     "/** The Responses API puts the schema fields on `text.format`; the upstream chat endpoint wants them nested. */",
     "/** Embedding models are a separate capability: sending one to /chat/completions would fail upstream. */",
   ]],
+  ["src/worker/cloudflare/ai-gateway-platform.ts", [
+    "/**\n * The read side of the Cloudflare AI Gateway management panel.\n *\n * The official `cloudflare` SDK is the field contract: response and parameter types are imported\n * from it, while every call goes through `cfFetch`, the single door that already carries account\n * headers, the timeout and the error mapping. Instantiating the SDK's client would pull every\n * Cloudflare resource into the Worker bundle, so the SDK stays type-only here.\n */",
+  ]],
   ["src/worker/cloudflare/ai-gateway-quota.ts", [
     "/**\n * The self-hosted gateway's quota gate.\n *\n * Cloudflare's GraphQL total is authoritative but late; this ledger is what stops a request before it\n * is sent. Every reservation is one conditional UPDATE so two isolates racing on the same account see\n * each other's increment, and a reservation never shrinks: settling only raises `actual`/`reserved`\n * and reconciliation only raises them further. The hard limit is 10,000 neurons per account/day.\n */",
     "// One UPSERT, not \"UPDATE then INSERT\": several requests can be reserving at the same instant and",
@@ -41542,6 +41551,9 @@ const allowed = new Map([
     "/**\n * The account's email: absent for a token account, and when present it has to be an address.\n *\n * It is sent to Cloudflare as `X-Auth-Email` on every global-key call and echoed back on the accounts\n * screen, so a placeholder there fails much later and much less clearly than a refusal here.\n */",
     "/** The undo behind a delete: only possible while the trash still holds the row. */",
   ]],
+  ["src/worker/routes/cloudflare/ai-gateway-platform.ts", [
+    "/**\n * `/api/cloudflare/ai-gateway-platform` — the Cloudflare AI Gateway management surface.\n *\n * Every endpoint is addressed through an account the reader owns, and the account's Cloudflare id\n * is the only thing sent upstream. This router is read-only on purpose: the write endpoints and\n * their confirmation, audit and rollback live in a separate change.\n */",
+  ]],
   ["src/worker/routes/cloudflare/ai-gateway.ts", [
     "/**\n * `/api/cloudflare/ai-gateway` — the session-authenticated management surface for the self-hosted\n * gateway. The public data plane lives under `/api/gateway` and authenticates with `gw_` keys instead.\n */",
   ]],
@@ -41616,6 +41628,7 @@ const allowed = new Map([
     "// would answer it with its own not-found before this one saw the request.",
     "// Page Rules / URL normalization / SSL packs / IP Access Rules. Registered under the same prefix",
     "// because they are all zone-addressed; none of their paths overlap `dnsRouter`'s.",
+    "// The Cloudflare-hosted AI Gateway management panel, distinct from the self-hosted relay above.",
   ]],
   ["src/worker/routes/cloudflare/network.ts", [
     "// ---------------------------------------------------------------------------------------------",
@@ -44060,6 +44073,9 @@ const allowed = new Map([
   ["tests/ai-drain-queue.test.ts", [
     "// The batch call fails, then every item is retried on its own.",
     "// Clear the backoff and the item is attempted again, incrementing attempts.",
+  ]],
+  ["tests/ai-gateway-platform.test.ts", [
+    "/**\n * The read-only AI Gateway platform routes: list, logs, routing, billing and analytics.\n */",
   ]],
   ["tests/ai-proxy-guard.test.ts", [
     "/**\n * The one predicate every relay asks before it points a request at an address the account configured.\n *\n * What is decided here is the text of an address, so the spellings are the whole test: `2130706433` is\n * `127.0.0.1`, `0x7f000001` is `127.0.0.1`, and an IPv6 literal carries the same address in words that\n * only look unlike it. A public host and a public number have to stay allowed, or the guard is a way of\n * breaking the product rather than a guard.\n */",

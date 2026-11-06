@@ -14,6 +14,7 @@ import { accountInfoRouter } from './account-info'
 import { aiRouter } from './ai'
 import { aiV1Router } from './ai-v1'
 import { aiGatewayRouter } from './ai-gateway'
+import { aiGatewayPlatformRouter } from './ai-gateway-platform'
 import { auditLogRouter } from './audit-log'
 import { auditLogsV2Router } from './audit-logs-v2'
 import { browserRenderRouter } from './browser-render'
@@ -65,3 +66,5 @@ cloudflareRoutes.route('/ai/chat/sessions', chatSessionsRouter)
 cloudflareRoutes.route('/ai', aiRouter)
 cloudflareRoutes.route('/v1', aiV1Router)
 cloudflareRoutes.route('/ai-gateway', aiGatewayRouter)
+// The Cloudflare-hosted AI Gateway management panel, distinct from the self-hosted relay above.
+cloudflareRoutes.route('/ai-gateway-platform', aiGatewayPlatformRouter)
