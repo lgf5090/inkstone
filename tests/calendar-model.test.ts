@@ -119,6 +119,19 @@ describe('calendar model', () => {
     expect(invalid.eventReminderMinutes).toBe(defaults.eventReminderMinutes)
   })
 
+  it('falls back to the default zone when a stored time zone is not IANA', () => {
+    const defaults = defaultCalendarPreferences()
+    // A legacy or hand-edited row can carry any string; `Intl.DateTimeFormat` throws on it, which
+    // would turn the public calendar page into a 500. Normalisation keeps it usable instead.
+    const invalid = normalizeCalendarPreferences({ ...defaults, timeZone: 'Mars/Olympus', secondaryTimeZone: 'Not/AZone' })
+    expect(invalid.timeZone).toBe(defaults.timeZone)
+    expect(invalid.secondaryTimeZone).toBeNull()
+
+    const valid = normalizeCalendarPreferences({ ...defaults, timeZone: 'Asia/Shanghai', secondaryTimeZone: 'Europe/London' })
+    expect(valid.timeZone).toBe('Asia/Shanghai')
+    expect(valid.secondaryTimeZone).toBe('Europe/London')
+  })
+
   it('keeps a working-hours window only when it is a real window', () => {
     const defaults = defaultCalendarPreferences()
     expect(normalizeCalendarPreferences({

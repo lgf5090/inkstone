@@ -19,6 +19,7 @@ import {
   isCalendarAttendeeStatus,
   isCalendarEntityId,
 } from '@shared/calendar/model'
+import { isValidTimeZone } from '@shared/assistant-schedule'
 import type { CalendarAttendeeDto } from '@shared/calendar/model'
 
 const IMPORT_BODY_LIMIT = MAX_ICS_BYTES * 2 + 64 * 1024
@@ -68,9 +69,13 @@ calendarIcsRoutes.post('/import', async (c) => {
   }
 
   const store = new CalendarStore(c.env.DB, c.get('userId'))
+  const preferences = await store.preferences()
+  // An imported file without a usable zone is placed in the account's zone, not refused: the
+  // calendar's own default is the meaningful answer for a missing or unrecognised `defaultTimeZone`.
   const defaultTimeZone = typeof body.defaultTimeZone === 'string' && body.defaultTimeZone
+    && isValidTimeZone(body.defaultTimeZone)
     ? body.defaultTimeZone
-    : (await store.preferences()).timeZone
+    : preferences.timeZone
 
   let parsed: ReturnType<typeof parseIcsCalendar>
   try {

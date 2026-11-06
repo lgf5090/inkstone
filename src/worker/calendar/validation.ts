@@ -12,6 +12,7 @@
  */
 
 import { Temporal } from 'temporal-polyfill'
+import { isValidTimeZone } from '@shared/assistant-schedule'
 import {
   CALENDAR_EVENT_TRIGGERS,
   CALENDAR_REMINDER_MINUTES,
@@ -162,11 +163,10 @@ function parseTemporalField(value: unknown, field: string, fallbackTimeZone: str
   }
   const kind: TemporalKind = record.type
   const raw = record.value
-  if (record.timeZone !== undefined && record.timeZone !== null) {
-    if (typeof record.timeZone !== 'string' || !record.timeZone) {
-      throw ApiError.badRequest(`${field}.timeZone must be text`)
-    }
-  }
+  // A client can send an unknown zone (an older browser, a hand-written value). The account's own
+  // zone is the fallback: the event stays on the calendar instead of the whole request failing.
+  const suppliedZone = typeof record.timeZone === 'string' && record.timeZone ? record.timeZone : null
+  const zone = suppliedZone && isValidTimeZone(suppliedZone) ? suppliedZone : fallbackTimeZone
   let parsed: Temporal.PlainDate | Temporal.PlainDateTime | Temporal.ZonedDateTime
   try {
     if (kind === 'date') {
@@ -175,22 +175,15 @@ function parseTemporalField(value: unknown, field: string, fallbackTimeZone: str
     } else if (kind === 'datetime') {
       if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) || raw.includes('[')) throw new Error('datetime')
       parsed = Temporal.PlainDateTime.from(raw)
+    } else if (raw.includes('[')) {
+      parsed = Temporal.ZonedDateTime.from(raw)
     } else {
-      const zone = typeof record.timeZone === 'string' ? record.timeZone : null
-      if (raw.includes('[')) {
-        parsed = Temporal.ZonedDateTime.from(raw)
-      } else {
-        if (!zone) throw new Error('zone')
-        assertTimeZone(zone, `${field}.timeZone`)
-        parsed = Temporal.PlainDateTime.from(raw).toZonedDateTime(zone)
-      }
+      parsed = Temporal.PlainDateTime.from(raw).toZonedDateTime(zone)
     }
-  } catch (error) {
-    if (error instanceof ApiError) throw error
+  } catch {
     throw ApiError.badRequest(`${field} is not a valid ${kind} value`)
   }
   const normalized = toTemporalValue(parsed)
-  if (normalized.type === 'zoned' && normalized.timeZone) assertTimeZone(normalized.timeZone, `${field}.timeZone`)
   let ms: number
   try {
     ms = temporalToEpochMs(parsed, normalized.timeZone ?? fallbackTimeZone)

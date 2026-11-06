@@ -1,5 +1,7 @@
 import { Temporal } from 'temporal-polyfill'
 
+import { isValidTimeZone } from '../assistant-schedule'
+
 /** Synthetic ids for calendars another account shares with this one; never stored in D1. */
 export const SHARED_CALENDAR_PREFIX = 'shared:'
 
@@ -599,8 +601,12 @@ export function normalizeCalendarPreferences(value: unknown): CalendarPreference
     showWeekNumbers: typeof record.showWeekNumbers === 'boolean' ? record.showWeekNumbers : defaults.showWeekNumbers,
     showHalfHourLines: typeof record.showHalfHourLines === 'boolean' ? record.showHalfHourLines : defaults.showHalfHourLines,
     timeFormat,
-    timeZone: typeof record.timeZone === 'string' && record.timeZone ? record.timeZone : defaults.timeZone,
-    secondaryTimeZone: typeof record.secondaryTimeZone === 'string' && record.secondaryTimeZone
+    // A stored row may predate validation or be hand-edited; an unknown name would make every
+    // formatter throw, so it falls back to the default zone instead of failing the whole read.
+    timeZone: typeof record.timeZone === 'string' && isValidTimeZone(record.timeZone)
+      ? record.timeZone
+      : defaults.timeZone,
+    secondaryTimeZone: typeof record.secondaryTimeZone === 'string' && isValidTimeZone(record.secondaryTimeZone)
       ? record.secondaryTimeZone
       : null,
     calendarSystem: system,
