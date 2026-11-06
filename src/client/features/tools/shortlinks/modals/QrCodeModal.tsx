@@ -3,7 +3,7 @@ import { Copy, Download, Image as ImageIcon } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { Segmented } from '../../../../components/form'
 import { Modal } from '../../../../components/overlay'
-import { Button } from '../../../../components/primitives'
+import { Button, IconButton } from '../../../../components/primitives'
 import { t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
 import { useShortlinksStore } from '../store'
@@ -12,7 +12,7 @@ import {
   downloadQrPng,
   downloadQrSvg,
   qrFileName,
-} from '../../../share/detail/qr-export'
+} from '../../../../lib/qr-export'
 import { copyShortlinkText } from '../copy'
 
 export function QrCodeModal() {
@@ -104,6 +104,7 @@ export function QrCodeModal() {
             bgColor="#ffffff"
             fgColor="#000000"
             marginSize={2}
+            title={t('tools.shortlinks.modal.qr_title')}
           />
         </div>
 
@@ -112,14 +113,13 @@ export function QrCodeModal() {
           <span className="font-mono text-[length:var(--text-12)] text-[var(--text-primary)] truncate">
             {shortUrl}
           </span>
-          <button
-            type="button"
+          <IconButton
+            label={t('tools.shortlinks.links.copy_shortlink')}
+            size="xs"
             onClick={handleCopyUrl}
-            className="rounded p-1 text-[var(--text-tertiary)] hover:text-[var(--accent)] hover:bg-[var(--bg-hover)]"
-            title={t('tools.shortlinks.links.copy_shortlink')}
           >
             <Copy size={14} />
-          </button>
+          </IconButton>
         </div>
 
         {/* Action buttons */}
