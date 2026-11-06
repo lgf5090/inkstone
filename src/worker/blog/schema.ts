@@ -427,10 +427,15 @@ export const BLOG_SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT NOT NULL,
     post_id TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT 0,
+    used_at INTEGER,
+    revoked_at INTEGER,
     PRIMARY KEY (user_id, token_hash)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_blog_preview_tokens_expiry
      ON blog_preview_tokens(expires_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_blog_preview_tokens_hash
+     ON blog_preview_tokens(token_hash)`,
 
   `CREATE TABLE IF NOT EXISTS blog_tasks (
     id TEXT NOT NULL,
@@ -561,7 +566,7 @@ export const BLOG_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> 
   blog_assets: ['id', 'user_id', 'kind', 'object_key', 'variants', 'filename', 'mime', 'size', 'width', 'height', 'hash', 'created_at'],
   blog_post_assets: ['user_id', 'post_id', 'asset_id', 'source_ref', 'created_at'],
   blog_redirects: ['user_id', 'from_slug', 'to_slug', 'status', 'created_at'],
-  blog_preview_tokens: ['token_hash', 'user_id', 'post_id', 'expires_at'],
+  blog_preview_tokens: ['token_hash', 'user_id', 'post_id', 'expires_at', 'created_at', 'used_at', 'revoked_at'],
   blog_tasks: ['id', 'user_id', 'type', 'status', 'payload', 'progress', 'error', 'created_at', 'started_at', 'finished_at'],
   blog_visit_daily: ['user_id', 'day', 'views', 'visitors'],
   blog_audit: ['id', 'user_id', 'action', 'entity', 'entity_id', 'detail', 'created_at'],
@@ -613,6 +618,7 @@ export const BLOG_REQUIRED_INDEXES = [
   'idx_blog_post_assets_post',
   'idx_blog_post_assets_asset',
   'idx_blog_preview_tokens_expiry',
+  'idx_blog_preview_tokens_hash',
   'idx_blog_tasks_user_status',
   'idx_blog_audit_user_created',
   'idx_blog_comments_post',

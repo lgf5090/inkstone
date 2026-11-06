@@ -11,6 +11,7 @@ import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { useUi } from '../../store/ui'
 import { MediaPicker } from './MediaPicker'
+import { PreviewLinkSection } from './PreviewLinkSection'
 import { saveDetailsInOrder } from './save-details'
 import { PostStatusBadge, formatDateTime, useAdminResource } from './shared'
 
@@ -335,6 +336,8 @@ export function PostPublishPanel({
           )}
         </div>
       </section>
+
+      <PreviewLinkSection post={post} />
 
       {post.status !== 'published' && (
       <section>

@@ -51,6 +51,7 @@ import type {
   BlogPostAdminDetail,
   BlogPostAdminItem,
   BlogPostRow,
+  BlogPreviewToken,
   BlogRedirectItem,
   BlogRenderSnapshot,
   BlogSitePublic,
@@ -963,6 +964,18 @@ export const api = {
         method: 'POST',
         body: { noteIds, action },
       }),
+    previewTokens: (postId: string) =>
+      request<{ items: BlogPreviewToken[] }>(`/api/blog/admin/posts/${encodeURIComponent(postId)}/preview-tokens`),
+    createPreviewToken: (postId: string) =>
+      request<{ token: string; hash: string; createdAt: number; expiresAt: number }>(
+        `/api/blog/admin/posts/${encodeURIComponent(postId)}/preview-token`,
+        { method: 'POST', body: {} },
+      ),
+    revokePreviewToken: (postId: string, hash: string) =>
+      request<{ ok: true }>(
+        `/api/blog/admin/posts/${encodeURIComponent(postId)}/preview-tokens/${encodeURIComponent(hash)}`,
+        { method: 'DELETE' },
+      ),
     publish: (noteId: string, snapshot: BlogRenderSnapshot) =>
       request<BlogPostRow>(`/api/blog/admin/posts/${encodeURIComponent(noteId)}/publish`, {
         method: 'POST',

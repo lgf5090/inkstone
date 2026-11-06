@@ -1390,6 +1390,9 @@ const allowed = new Map([
   ["src/client/features/blog-admin/PostsPanel.tsx", [
     "/* Below `md` a 920px table is a horizontal scrollbar over the page title; the same rows become\n              cards so status, date and the action menu stay reachable without dragging sideways. */",
   ]],
+  ["src/client/features/blog-admin/PreviewLinkSection.tsx", [
+    "/**\n * The draft's preview links.\n *\n * A generated token is shown once, because only its hash is stored; the list below is what survives\n * a reload, and its revoke action is what makes a leaked link stop working before its hour is up.\n */",
+  ]],
   ["src/client/features/blog-admin/save-details.ts", [
     "/**\n * The order two separate writes have to happen in.\n *\n * A post row and its frontmatter tags cannot be written in one request from here. The post row is\n * the one that can be refused (a slug another article already uses), so it goes first; writing tags\n * first would leave a half-saved post whenever the row loses that race.\n */",
   ]],
@@ -31367,6 +31370,9 @@ const allowed = new Map([
     "/** Why the owner library produced no playable tracks; absent for non-library providers. */",
     "/** True when the deployment can sign the short-lived audio and cover links. */",
     "/** Present only when the feed caller asked for bodies; see `/api/blog/feeds?includeContent=1`. */",
+    "/**\n * The owner as the public author page shows them.\n *\n * The blog has one author — the account that owns the site — and this projection is what both the\n * page header and its structured data read. `articleCount` counts only published, unencrypted\n * articles, the same set the listing returns.\n */",
+    "/** A preview link row as the admin panel lists it; the plain token is never stored here. */",
+    "/** A draft is read through its preview token; nothing here is part of a public listing. */",
   ]],
   ["src/shared/blog/renderer.ts", [
     "/**\n * The renderer generation a snapshot was produced with.\n *\n * A published snapshot is a *still* of the note body, but the reading runtime re-renders the same\n * markdown through the same pipeline. The number is part of the runtime URL and is written into every\n * snapshot, so a reader can only ever load the runtime that matches the markup it is given: after a\n * renderer change old snapshots keep their still until they are rebuilt, instead of silently swapping\n * in a different renderer.\n */",
@@ -31380,6 +31386,7 @@ const allowed = new Map([
     "// when at least one playable track survives.",
     "/** The site's validated zone, so archive and year filters agree with the public projection. */",
     "// The blog's RSS/Atom routes read this to choose the full body over the excerpt.",
+    "/**\n * The public author address segment.\n *\n * The blog has one author, so the slug is derived from the profile name that the site already\n * stores; when the name is blank the page still needs an address, hence the fixed fallback. Both\n * the site payload and the author endpoint call this, so a link can never point at a segment the\n * endpoint refuses.\n */",
   ]],
   ["src/shared/blog/time.ts", [
     "/** Calendar-day helpers for the blog's archive, always in the site's zone rather than UTC. */",
@@ -37102,6 +37109,9 @@ const allowed = new Map([
     "/** One reading of a numeric query parameter, so every admin list paginates the same way. */",
     "/** An article path is a site-relative address or a bare slug, never a URL or a traversal. */",
   ]],
+  ["src/worker/blog/author.ts", [
+    "/**\n * The public author projection.\n *\n * A blog is owned by one account, so the author is that account's profile in the blog settings and\n * the article count is the same published, unencrypted set the author page lists.\n */",
+  ]],
   ["src/worker/blog/friends.ts", [
     "/**\n * Friend links are nav links, not a second table: the blog projects the `friends` category subtree\n * and public applications land in the `friend_applications` subtree, where the nav app can review\n * them with the same editor and categories as any other bookmark.\n */",
     "// nav categories are one level deep (root + children); keep the walk explicit so a future",
@@ -37126,6 +37136,12 @@ const allowed = new Map([
     "/**\n * The library the admin picker may read.\n *\n * The public blog always reads the site owner's tracks. A signed-in owner of another account must not\n * see that account's library (the picker would also publish something they cannot preview), and must\n * not see their own library either, because it would never reach the blog. Answer with an explicit\n * mismatch instead of a misleading zero.\n */",
     "/**\n * Whether this deployment can sign a music link.\n *\n * `requireBlogProxy` accepts any non-empty proxy key, so the signer must accept the same key: a length\n * check here once rejected a real deployment's short key and silently dropped every R2 track while the\n * admin still counted them as playable.\n */",
     "/**\n * Resolve the configured scope and say why it has no tracks.\n *\n * The counts come from the same predicates the public list uses, so the status cannot disagree with\n * the entries the admin card counted.\n */",
+  ]],
+  ["src/worker/blog/preview.ts", [
+    "/** A preview link is valid for one hour; the owner can mint another when it runs out. */",
+    "/** Expired and revoked rows stay readable in the admin for this long, then the next mint clears them. */",
+    "/**\n * Mints a preview link for one post.\n *\n * Only the SHA-256 of the token is stored: a database read cannot turn a row back into a working\n * link, and the plain token is handed to the owner once, at creation. The row is bound to the\n * owner and the post, so a token minted for one article cannot be replayed against another.\n */",
+    "/**\n * Reads a draft through its preview token.\n *\n * The token is the only credential, so every failure answer is `null` and the route turns it into\n * the same 404: whether the link never existed, expired, was revoked or belongs to another owner\n * must not be distinguishable from outside. A successful read stamps `used_at` so the admin can see\n * the link was opened.\n */",
   ]],
   ["src/worker/blog/public-routes.ts", [
     "// Friend links moved to the nav app; only its dedicated projection above may serve them.",
@@ -37170,6 +37186,7 @@ const allowed = new Map([
     "// an instant in the last hours of 31 December UTC can already belong to the next year locally.",
     "/**\n * Groups the public archive by the site's calendar year and month.\n *\n * SQLite's `strftime` has no IANA zone, so a UTC `GROUP BY` would file a post published late on\n * 31 December UTC under the previous year for a site in Asia/Shanghai. The rows are therefore bucketed\n * in JavaScript through the shared zone conversion; only the published timestamp leaves D1.\n */",
     "/** D1 accepts at most 100 bound parameters; one is the owner id, leaving 99 ids per statement. */",
+    "/** A listing's own order; the default keeps pinned articles first, as the home page always has. */",
   ]],
   ["src/worker/blog/unlock.ts", [
     "/**\n * Password gate for a published, protected article.\n *\n * The blog never sees the stored hash: it asks this API with the reader's password, and receives a\n * short-lived token signed with a deployment secret. The token is bound to one post, so unlocking one\n * article cannot be replayed to read another, and it carries an expiry so a copied cookie dies on its\n * own. The secret is optional; with it unset the gate answers 503 instead of issuing unsigned tokens.\n */",
@@ -39311,6 +39328,15 @@ const allowed = new Map([
     "// The network panel is a new surface: three tables, none of them changing a table an older",
     "// database already has, so this version states them as they are. They are also in",
     "// `SCHEMA_STATEMENTS` for a fresh database, where `IF NOT EXISTS` makes running them here harmless.",
+    "// Preview links need to be listed newest first, so the row records when it was minted. The column",
+    "// is declared on the table above too; an existing database gets it here, guarded so a fresh one",
+    "// records the version without re-adding it.",
+    "// A preview link that has been opened at least once is shown as used in the admin, which is what",
+    "// tells the owner the link reached a reader before it expired. NULL means never opened.",
+    "// Revoking a link stamps the row instead of deleting it, so the admin can still say the link",
+    "// existed and was withdrawn before it ran out.",
+    "// A preview read arrives with the token and nothing else, so the lookup has to find the row by",
+    "// its hash. The primary key starts with the owner, which would make that lookup a scan.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",

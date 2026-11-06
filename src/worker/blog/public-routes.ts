@@ -33,6 +33,8 @@ import { renderSVG } from 'uqr'
 import { getPublishedPage, listPublishedPages } from './pages'
 import { sanitizeBlogHtml } from './sanitize'
 import { listPublicCollection } from './collections'
+import { blogAuthorPage } from './author'
+import { readBlogPreview } from './preview'
 import {
   blogArchive,
   blogCounts,
@@ -142,6 +144,27 @@ blogPublicRoutes.get('/posts', async (c) => {
     nextCursor: null,
   }, 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+  })
+})
+
+blogPublicRoutes.get('/authors/:slug', async (c) => {
+  const userId = await ownerId(c)
+  const { page, limit } = pageQuery(c)
+  const requestedSort = c.req.query('sort')
+  const sort = requestedSort === 'oldest' || requestedSort === 'title' ? requestedSort : 'latest'
+  const result = await blogAuthorPage(c.env.DB, userId, c.req.param('slug'), { page, limit, sort })
+  if (!result) throw ApiError.notFound('Author not found')
+  return c.json(result, 200, {
+    'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+  })
+})
+
+blogPublicRoutes.get('/preview/:token', async (c) => {
+  const detail = await readBlogPreview(c.env.DB, c.req.param('token'))
+  if (!detail) throw ApiError.notFound('This preview link is invalid or has expired')
+  return c.json(detail, 200, {
+    'Cache-Control': 'no-store',
+    'X-Robots-Tag': 'noindex, nofollow',
   })
 })
 
