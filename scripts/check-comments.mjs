@@ -20029,6 +20029,66 @@ const allowed = new Map([
     "/** The address a sidebar entry links with, so history and the back button agree with the screen. */",
     "/** The calculator view a query names, so a pasted `/tools/calculator?view=textcalc` opens that view. */",
   ]],
+  ["src/client/features/webssh/MobileKeyBar.tsx", [
+    "/**\n * The row of keys a phone keyboard cannot give a terminal: Ctrl, Esc, Tab, arrows and the editing\n * keys. It sends bytes through xterm's own `input()` so the transport sees exactly what a hardware\n * keypress would have produced.\n */",
+    "/** Drawn on the key. */",
+    "/** Bytes sent when the key is pressed without a modifier. */",
+    "/** Accessible name, kept as a key so it is translated with the rest of the interface. */",
+    "/** Ctrl is a one-shot modifier: the letter it prefixes becomes the control byte, then it clears. */",
+  ]],
+  ["src/client/features/webssh/NewSessionDialog.tsx", [
+    "/**\n * W3 owns the host and credential library. Until it lands this dialog only names a demo session,\n * and the description says exactly that — no host, port or password field is shown, so nothing here\n * can be mistaken for a real connection form.\n */",
+  ]],
+  ["src/client/features/webssh/TerminalPane.tsx", [
+    "/**\n * One tab's terminal, its connection banner and its controls.\n *\n * The transport is created by the factory below and the status surface never claims more than the\n * transport reports: on the demo transport every sentence says \"demo\", and the badge in the app\n * header says the real SSH link is still W2's.\n */",
+  ]],
+  ["src/client/features/webssh/TerminalTabs.tsx", [
+    "/**\n * The session strip. A terminal tab carries a close control beside it, so the tab itself stays one\n * button and the row keeps a single tab stop, while arrow keys move the selection the way `Tabs`\n * does. The status dot repeats the connection phase without relying on colour alone: the dot's\n * tooltip and the status bar both say the phase in words.\n */",
+  ]],
+  ["src/client/features/webssh/WebsshApp.tsx", [
+    "/**\n * The demo transport is the only one W4 ships; the badge is the one sentence that must never be\n * hidden, because a terminal that looks live must not be mistaken for a real SSH connection.\n */",
+  ]],
+  ["src/client/features/webssh/prefs.ts", [
+    "/**\n * Terminal preferences live in localStorage beside the reader, like the editor's own font size: they\n * are a property of this browser, not of an account, and nothing here is secret.\n */",
+    "/** Tolerates a missing, truncated or hand-edited value; every rejected field falls back on its own. */",
+  ]],
+  ["src/client/features/webssh/session-retry.ts", [
+    "/** The client's reconnect ladder. The server (W2) never drives retries; the UI does. */",
+    "/** `attempt` is the number of the retry being decided, starting at 1. */",
+  ]],
+  ["src/client/features/webssh/shortcuts.ts", [
+    "/**\n * Which terminal-local action a keydown means. Kept apart from the xterm hook so the mapping can be\n * tested without a canvas, and so the shortcut dialog and the handler cannot drift apart.\n *\n * Ctrl+C stays SIGINT: copying is Ctrl+Shift+C, exactly as it is in a desktop terminal. The\n * platform modifier (Cmd on macOS, Ctrl elsewhere) is accepted for both.\n */",
+  ]],
+  ["src/client/features/webssh/terminal-themes.ts", [
+    "/**\n * Two terminal palettes, both built from the Inkstone surface values. \"Follow\" picks the palette that\n * matches the app's light/dark theme; the explicit presets let a reader keep a dark terminal inside a\n * light shell. ANSI colours are fixed per palette so syntax and command output stay legible either way.\n */",
+  ]],
+  ["src/client/features/webssh/transport/fake-transport.ts", [
+    "/**\n * A demo shell that never touches SSH. Every byte it writes is produced locally, and the UI says so\n * on screen (the \"demo transport\" badge) — it must never be mistaken for a real connection.\n *\n * It exists so the W4 terminal can be exercised end to end (echo, resize, tabs, copy/paste, drop and\n * reconnect) before W2 lands. `drop` simulates the server going away; reconnection is the UI layer's\n * job, not this transport's.\n */",
+    "/** Only the demo transport offers this: it is the drop button's whole reason to exist. */",
+    "/**\n   * Consumes an escape sequence starting at `start` and returns how many characters it used:\n   * arrow keys drive the demo history, every other CSI/SS3 sequence is swallowed.\n   */",
+    "// A CSI sequence ends with a byte in the range 0x40–0x7e.",
+  ]],
+  ["src/client/features/webssh/transport/types.ts", [
+    "/**\n * The replaceable transport layer between the terminal UI and a WebSSH session.\n *\n * W4 ships two implementations: a demo shell (fake) and a WebSocket client aimed at the endpoint\n * W2 will serve. The terminal never imports either one directly — it receives a factory — so W2 can\n * hand over the real implementation without touching the terminal, tabs or status surface.\n *\n * W2 wire contract (same-origin WebSocket, text frames, JSON):\n *\n *   GET /api/webssh/sessions/:sessionId/ws?ticket=<one-time ticket>\n *\n *   Client -> server\n *     { \"type\": \"input\",  \"data\": \"<raw terminal bytes>\" }\n *     { \"type\": \"resize\", \"cols\": 120, \"rows\": 32 }\n *     { \"type\": \"ping\" }\n *\n *   Server -> client\n *     { \"type\": \"ready\",  \"cols\": 120, \"rows\": 32 }\n *     { \"type\": \"output\", \"data\": \"<raw terminal bytes>\" }\n *     { \"type\": \"exit\",   \"reason\": \"eof\" | \"idle\" | \"error\", \"message\": \"<optional>\" }\n *     { \"type\": \"error\",  \"code\": \"<api error code>\", \"message\": \"<optional>\" }\n *     { \"type\": \"pong\" }\n *\n * `input` carries bytes exactly as xterm produced them (including control sequences and `\\r`),\n * so the server can write them to the SSH channel unchanged. `output` carries bytes exactly as the\n * SSH channel produced them. No terminal text is ever interpreted on the server.\n *\n * The ticket is minted over REST by W2, consumed once on upgrade, and never reused by this client;\n * `WebSocketTerminalTransport` accepts the finished URL rather than a session id so the UI layer\n * does not need to know how tickets are issued.\n */",
+    "/** What happened to the link, as the UI needs to hear it. */",
+    "/** Server-provided code or reason, for the status text and diagnostics. */",
+    "/** Raw bytes from the shell. They are written to xterm untouched. */",
+    "/** Deliberate close: no reconnect should follow it. */",
+    "/**\n   * Demo transports only: drop the link as if the server went away, so the reconnect path can be\n   * exercised before W2 exists. A real transport omits it and the UI hides the control.\n   */",
+  ]],
+  ["src/client/features/webssh/use-terminal-session.ts", [
+    "/**\n * Connects, hears drops, and runs the retry ladder. It owns no terminal and writes nothing except\n * the short ANSI status notes it puts in the scrollback, so the transport and the xterm surface stay\n * independent of each other.\n */",
+    "// `close()` is deliberate and already reflected in state; anything else is a drop.",
+  ]],
+  ["src/client/features/webssh/use-xterm.ts", [
+    "/**\n * One xterm instance per terminal tab, wired to the transport through callbacks.\n *\n * The hook owns everything that has to outlive React renders (the terminal, the fit addon and the\n * resize observer) and hands back a small imperative surface; the pane owns the buttons and dialogs.\n * Terminal-local shortcuts are mapped in `shortcuts.ts` so the help dialog and the handler share one\n * definition.\n */",
+    "// A hidden tab has no box to fit; the observer calls again when it is shown.",
+    "// The renderer can be mid-teardown when a hidden panel is disposed; the next resize refits.",
+    "// Theme and type are options, not a new terminal: changing them keeps scrollback and selection.",
+  ]],
+  ["src/client/features/webssh/webssh.css", [
+    "/* WebSSH's terminal glue. Colours come from xterm's theme object (built from the Inkstone palettes in\n   `terminal-themes.ts`); this file only makes the xterm surface take the box the app gives it. */",
+  ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
     "// (cursor) no longer refetches, and stale links stay visible until the",
