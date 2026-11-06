@@ -19732,6 +19732,7 @@ const allowed = new Map([
     "/**\n     * Applying a reference-image preview writes the prompt into the workspace *and* saves the\n     * variables the model embedded, so the placeholders it kept are editable next time.\n     */",
     "// The revision belongs to the workspace that conflicted, which is not necessarily the one on",
     "// screen: a switch persists the outgoing draft after the new workspace has loaded.",
+    "/**\n * Writes only the debounce this workspace still owes.\n *\n * A workspace switch used to schedule a save unconditionally, so opening any `?view=` link wrote the\n * previous workspace back even when the reader had changed nothing — a revision the client had not\n * confirmed could then answer 409 on a screen that only meant to load. If no timer is waiting, the\n * draft on screen is already the one the server holds.\n */",
   ]],
   ["src/client/features/tools/prompt-optimizer/views/ArenaView.tsx", [
     "/**\n * The arena: one prompt, several models, side-by-side answers.\n */",
