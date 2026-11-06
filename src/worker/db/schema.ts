@@ -3842,6 +3842,31 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 285,
     statements: BLOG_FAVORITE_SCHEMA_STATEMENTS,
   },
+  {
+    version: 286,
+    statements: [
+      `UPDATE blog_settings
+       SET value = json_set(blog_settings.value, '$.items[' || entry.key || '].column', 'primary')
+       FROM json_each(json_extract(blog_settings.value, '$.items')) AS entry
+       WHERE blog_settings.key = 'widgets'
+         AND json_extract(entry.value, '$.type') = 'stats'
+         AND json_array_length(json_extract(blog_settings.value, '$.items')) = (
+           SELECT COUNT(*) FROM json_each(json_extract(blog_settings.value, '$.items')) AS known
+           WHERE json_extract(known.value, '$.type')
+             IN ('profile', 'categories', 'series', 'tags', 'stats', 'calendar', 'announcement')
+         )
+         AND (
+           SELECT COUNT(*) FROM json_each(json_extract(blog_settings.value, '$.items')) AS statsof
+           WHERE json_extract(statsof.value, '$.type') = 'stats'
+             AND json_extract(statsof.value, '$.column') = 'secondary'
+         ) = 1
+         AND (
+           SELECT COUNT(*) FROM json_each(json_extract(blog_settings.value, '$.items')) AS calof
+           WHERE json_extract(calof.value, '$.type') = 'calendar'
+             AND json_extract(calof.value, '$.column') = 'secondary'
+         ) = 1`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
