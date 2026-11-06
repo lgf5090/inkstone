@@ -10,13 +10,17 @@ import { Hono } from 'hono'
 import type { AppBindings } from '../../env'
 import { requireAuth } from '../../middleware/auth'
 import { accountsRouter } from './accounts'
+import { accountInfoRouter } from './account-info'
 import { aiRouter } from './ai'
 import { aiV1Router } from './ai-v1'
 import { auditLogRouter } from './audit-log'
+import { auditLogsV2Router } from './audit-logs-v2'
 import { browserRenderRouter } from './browser-render'
 import { chatSessionsRouter } from './chat-sessions'
 import { dashboardRouter } from './dashboard'
 import { dnsRouter } from './dns'
+import { dnsSecurityRouter } from './dns-security'
+import { networkRouter } from './network'
 import { quotaRouter } from './quota'
 import { settingsRouter } from './settings'
 import { storageRouter } from './storage'
@@ -38,8 +42,14 @@ cloudflareRoutes.get('/health', (c) => c.json({
 
 cloudflareRoutes.route('/accounts', accountsRouter)
 cloudflareRoutes.route('/dashboard', dashboardRouter)
+cloudflareRoutes.route('/dashboard', accountInfoRouter)
 cloudflareRoutes.route('/audit-log', auditLogRouter)
+cloudflareRoutes.route('/audit-logs', auditLogsV2Router)
 cloudflareRoutes.route('/dns', dnsRouter)
+// Page Rules / URL normalization / SSL packs / IP Access Rules. Registered under the same prefix
+// because they are all zone-addressed; none of their paths overlap `dnsRouter`'s.
+cloudflareRoutes.route('/dns', dnsSecurityRouter)
+cloudflareRoutes.route('/network', networkRouter)
 cloudflareRoutes.route('/workers', workersRouter)
 cloudflareRoutes.route('/storage', storageRouter)
 cloudflareRoutes.route('/tunnels', tunnelsRouter)
