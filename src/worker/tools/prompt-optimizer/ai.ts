@@ -332,7 +332,7 @@ export async function optimizePrompt(input: {
   request: OptimizeRequest
   variables: Record<string, string>
   loadAsset: AssetLoader
-}): Promise<{ text: string; analysis: string; modelLabel: string; modelId: string; templateId: string; usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheMissTokens: number } }> {
+}): Promise<{ text: string; analysis: string; reasoning: string; modelLabel: string; modelId: string; templateId: string; usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheMissTokens: number } }> {
   const { env, userId, store, settings, request } = input
   const template = await selectTemplate(store, settings, typeForWorkspace(request.workspace), request.templateId)
   const context = buildOptimizeContext(request, settings, input.variables)
@@ -349,6 +349,7 @@ export async function optimizePrompt(input: {
     if (images.length) {
       const controller = new AbortController()
       let text = ''
+      let reasoning = ''
       let usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheMissTokens: 0 }
       for await (const event of streamResolvedCall(call, {
         system: assembled.system || 'You improve prompts. Reply with the improved prompt only.',
@@ -357,11 +358,13 @@ export async function optimizePrompt(input: {
         signal: controller.signal,
       })) {
         if (event.type === 'text') text += event.delta
+        else if (event.type === 'reasoning') reasoning += event.delta
         else if (event.type === 'done') usage = event.usage
       }
       return {
         text: text.trim(),
         analysis: '',
+        reasoning: reasoning.trim(),
         modelLabel: call.modelLabel,
         modelId: call.model.id,
         templateId: template.id,
@@ -378,6 +381,7 @@ export async function optimizePrompt(input: {
     return {
       text: result.text,
       analysis: '',
+      reasoning: result.reasoning,
       modelLabel: call.modelLabel,
       modelId: call.model.id,
       templateId: template.id,
@@ -404,7 +408,14 @@ export async function extractImagePrompt(input: {
   originalPrompt: string
   modelId?: string
   loadAsset: AssetLoader
-}): Promise<{ text: string; modelLabel: string; usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheMissTokens: number } }> {
+}): Promise<{
+  text: string
+  prompt: string
+  variableDefaults: Record<string, string>
+  rawText: string
+  modelLabel: string
+  usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheMissTokens: number }
+}> {
   const image = await input.loadAsset(input.imageId)
   if (!image) throw ApiError.notFound('Reference image not found')
   const migrate = input.mode === 'image2image' && Boolean(input.originalPrompt.trim())
@@ -431,12 +442,144 @@ export async function extractImagePrompt(input: {
       turns: assembled.turns,
       maxOutputTokens: Math.min(call.model.maxOutputTokens ?? 4096, 8192),
       temperature: 0.2,
+      structured: true,
     })
-    if (!result.text.trim()) throw new ApiError(502, 'internal', 'The vision model returned an empty prompt')
-    return { text: result.text.trim(), modelLabel: call.modelLabel, usage: result.usage }
+    const rawText = result.text.trim()
+    if (!rawText) throw new ApiError(502, 'internal', 'The vision model returned an empty prompt')
+    const preview = normalizeImagePromptPreview(rawText)
+    return { text: preview.prompt || rawText, ...preview, modelLabel: call.modelLabel, usage: result.usage }
   } catch (error) {
     aiErrorResponse(error)
   }
+}
+
+const IMAGE_PROMPT_MAX_VARIABLES = 5
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Turns a vision answer into the reference project's preview: a JSON prompt object plus the variable
+ * defaults it embedded.
+ *
+ * Models routinely wrap the JSON in a code fence, use a stringified `prompt`, or write `{name}` where
+ * the template asked for `{{name}}`; all of that is normalised here. A response that cannot be parsed
+ * still yields its raw text, so a reader never loses the model's answer to a strict parser.
+ */
+export function normalizeImagePromptPreview(rawText: string): { prompt: string; variableDefaults: Record<string, string>; rawText: string } {
+  let parsed: Record<string, unknown>
+  try {
+    parsed = parseImagePromptJson(rawText)
+  } catch {
+    return { prompt: '', variableDefaults: {}, rawText }
+  }
+  const defaults = normalizeImageVariableDefaults(
+    isRecord(parsed.defaults) ? parsed.defaults : isRecord(parsed.variableDefaults) ? parsed.variableDefaults : {},
+  )
+  let promptObject: Record<string, unknown>
+  try {
+    promptObject = resolveImagePromptObject(parsed.prompt ?? parsed.promptJson ?? parsed)
+  } catch {
+    return { prompt: '', variableDefaults: {}, rawText }
+  }
+  const normalized = normalizeImagePromptObject(promptObject, Object.keys(defaults))
+  const constrained = constrainImagePromptVariables(normalized, defaults)
+  const variableNamesFound = scanImagePromptVariables(constrained)
+  return {
+    prompt: JSON.stringify(constrained, null, 2),
+    variableDefaults: variableNamesFound.slice(0, IMAGE_PROMPT_MAX_VARIABLES).reduce<Record<string, string>>((out, name) => {
+      out[name] = defaults[name] ?? ''
+      return out
+    }, {}),
+    rawText,
+  }
+}
+
+function parseImagePromptJson(rawText: string): Record<string, unknown> {
+  const trimmed = rawText.trim()
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  const candidate = fenced?.[1]?.trim() ?? trimmed
+  const start = candidate.indexOf('{')
+  const end = candidate.lastIndexOf('}')
+  const jsonText = start >= 0 && end >= start ? candidate.slice(start, end + 1) : candidate
+  const parsed = JSON.parse(jsonText) as unknown
+  if (!isRecord(parsed)) throw new Error('The model answer is not a JSON object')
+  return parsed
+}
+
+function resolveImagePromptObject(value: unknown): Record<string, unknown> {
+  if (isRecord(value)) return value
+  if (typeof value === 'string') {
+    const parsed = JSON.parse(value) as unknown
+    if (isRecord(parsed)) return parsed
+  }
+  throw new Error('The model answer has no usable prompt object')
+}
+
+function normalizeImageVariableDefaults(value: Record<string, unknown>): Record<string, string> {
+  const defaults: Record<string, string> = {}
+  for (const [rawName, rawValue] of Object.entries(value)) {
+    const name = rawName.trim()
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue
+    if (typeof rawValue !== 'string') continue
+    const trimmed = rawValue.trim()
+    if (!trimmed) continue
+    defaults[name] = trimmed
+  }
+  return defaults
+}
+
+function normalizeImagePromptObject(value: Record<string, unknown>, knownVariables: string[]): Record<string, unknown> {
+  const known = new Set(knownVariables)
+  const normalizeString = (content: string): string => {
+    // The template's delimiter switch makes the model emit `{{name}}` literally, but models often
+    // fall back to single braces or quote the name with the full-width corner brackets below.
+    let normalized = content.replace(/(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*)\}(?!\})/g, '{{$1}}')
+    normalized = normalized.replace(/[\u300c\u300e]([A-Za-z_][A-Za-z0-9_]*)[\u300d\u300f]/g, (match, name: string) => (known.has(name) ? `{{${name}}}` : match))
+    return normalized
+  }
+  const normalize = (current: unknown): unknown => {
+    if (typeof current === 'string') return normalizeString(current)
+    if (Array.isArray(current)) return current.map((item) => normalize(item))
+    if (isRecord(current)) return Object.fromEntries(Object.entries(current).map(([key, child]) => [key, normalize(child)]))
+    return current
+  }
+  return normalize(value) as Record<string, unknown>
+}
+
+function scanImagePromptVariables(value: unknown): string[] {
+  const found: string[] = []
+  const visit = (current: unknown) => {
+    if (typeof current === 'string') {
+      for (const match of current.matchAll(/\{\{\{?\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}\}?/g)) {
+        if (match[1] && !found.includes(match[1])) found.push(match[1])
+      }
+      return
+    }
+    if (Array.isArray(current)) {
+      for (const item of current) visit(item)
+      return
+    }
+    if (isRecord(current)) for (const child of Object.values(current)) visit(child)
+  }
+  visit(value)
+  return found
+}
+
+function constrainImagePromptVariables(promptObject: Record<string, unknown>, defaults: Record<string, string>): Record<string, unknown> {
+  const kept = new Set(scanImagePromptVariables(promptObject).slice(0, IMAGE_PROMPT_MAX_VARIABLES))
+  const replace = (value: unknown): unknown => {
+    if (typeof value === 'string') {
+      return value.replace(/\{\{\{?\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}\}?/g, (match, name: string) => (
+        kept.has(name) ? `{{${name}}}` : defaults[name] ?? match
+      ))
+    }
+    if (Array.isArray(value)) return value.map((item) => replace(item))
+    if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, replace(child)]))
+    return value
+  }
+  return replace(promptObject) as Record<string, unknown>
 }
 
 export async function streamOptimize(input: {
@@ -862,7 +1005,7 @@ export async function iteratePrompt(input: {
     modelId?: string
     metadata?: Record<string, unknown>
   }
-}): Promise<{ text: string; modelLabel: string; modelId: string; templateId: string; usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheMissTokens: number } }> {
+}): Promise<{ text: string; reasoning: string; modelLabel: string; modelId: string; templateId: string; usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheMissTokens: number } }> {
   const template = await selectTemplate(input.store, input.settings, iterateTypeForWorkspace(input.request.workspace), input.request.templateId)
   const context = {
     originalPrompt: input.request.lastOptimizedPrompt,
@@ -882,6 +1025,7 @@ export async function iteratePrompt(input: {
     })
     return {
       text: result.text,
+      reasoning: result.reasoning,
       modelLabel: call.modelLabel,
       modelId: call.model.id,
       templateId: template.id,
@@ -1592,25 +1736,16 @@ export async function rewriteFromEvaluation(input: {
     modelId?: string
   }
 }): Promise<{ text: string; modelLabel: string; templateId: string; usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheMissTokens: number } }> {
-  // The reference project turns an evaluation into iterate input rather than calling a dedicated
-  // rewrite model; the workspace's own iterate template (imageIterate / contextIterate / iterate) is
-  // what applies the feedback to the current prompt.
-  const template = await selectTemplate(input.store, input.settings, iterateTypeForWorkspace(input.request.workspace), undefined)
-  const payload = JSON.stringify({
-    sourcePrompts: { workspacePrompt: input.request.originalPrompt, referencePrompt: input.request.optimizedPrompt },
-    compressedEvaluation: { summary: input.request.feedback, rewriteGuidance: { recommendation: 'rewrite', priorityMoves: [] } },
-  })
-  const assembled = buildMessages(template, {
-    originalPrompt: input.request.originalPrompt,
-    lastOptimizedPrompt: input.request.optimizedPrompt,
-    iterateInput: payload,
-    optimizationMode: optimizationModeOfWorkspace(input.request.workspace),
-  }, '')
+  const language = input.settings.builtinTemplateLanguage
+  const template = selectRewriteTemplate(input.request.workspace, language)
+  if (!template) throw new ApiError(500, 'internal', 'No evaluation rewrite template is available')
+  const payload = buildRewritePayload(input.request, language)
+  const assembled = buildMessages(template, { ...payload, rewritePayloadJson: JSON.stringify(payload, null, 2) }, '')
   const call = await resolveCall(input.env, input.userId, input.settings, input.request.modelId, 'evaluation')
   try {
     const result = await collectCall({
       call,
-      system: assembled.system,
+      system: assembled.system || 'You rewrite a prompt from an evaluation. Reply with the rewritten prompt only.',
       turns: assembled.turns,
       maxOutputTokens: Math.min(call.model.maxOutputTokens ?? 4096, 8192),
       temperature: 0.3,
@@ -1618,6 +1753,120 @@ export async function rewriteFromEvaluation(input: {
     return { text: result.text, modelLabel: call.modelLabel, templateId: template.id, usage: result.usage }
   } catch (error) {
     aiErrorResponse(error)
+  }
+}
+
+/**
+ * The workspace picks one of the five rewrite templates the reference project ships, each paired by
+ * language; image workspaces and anything unrecognised use the generic edition.
+ */
+function selectRewriteTemplate(workspace: Workspace, language: 'zh' | 'en'): PromptTemplate | null {
+  const id = workspace === 'basic_system'
+    ? 'evaluation-rewrite-basic-system'
+    : workspace === 'basic_user'
+      ? 'evaluation-rewrite-basic-user'
+      : workspace === 'pro_multi'
+        ? 'evaluation-rewrite-pro-multi'
+        : workspace === 'pro_variable'
+          ? 'evaluation-rewrite-pro-variable'
+          : 'evaluation-rewrite-generic'
+  return findBuiltinTemplate(id, language)
+}
+
+function rewriteSubject(workspace: Workspace): string {
+  // Payload labels are model-facing data, not interface copy: one English spelling keeps the rewrite
+  // request language-neutral and still readable to a Chinese-language rewrite prompt.
+  const labels = {
+    basic_system: 'system prompt',
+    basic_user: 'user prompt',
+    pro_multi: 'multi-message system prompt',
+    pro_variable: 'variable user prompt',
+    image: 'image prompt',
+  }
+  if (workspace === 'basic_system') return labels.basic_system
+  if (workspace === 'basic_user') return labels.basic_user
+  if (workspace === 'pro_multi') return labels.pro_multi
+  if (workspace === 'pro_variable') return labels.pro_variable
+  return labels.image
+}
+
+function rewriteMode(workspace: Workspace): { functionMode: string; subMode: string } {
+  if (workspace === 'basic_system') return { functionMode: 'basic', subMode: 'system' }
+  if (workspace === 'basic_user') return { functionMode: 'basic', subMode: 'user' }
+  if (workspace === 'pro_multi') return { functionMode: 'pro', subMode: 'multi' }
+  if (workspace === 'pro_variable') return { functionMode: 'pro', subMode: 'variable' }
+  return { functionMode: 'image', subMode: workspace.replace('image_', '') }
+}
+
+interface RewriteFeedbackDigest {
+  overallScore: number | string
+  summary: string
+  dimensionScores: { key: string; label: string; score: number }[]
+  improvements: string[]
+}
+
+/**
+ * The stored evaluation is the model's strict JSON answer. Rewriting consumes it when it can be read
+ * and otherwise treats the stored text as a plain summary, so a rewrite never fails because an older
+ * evaluation was not JSON.
+ */
+function digestRewriteFeedback(feedback: string): RewriteFeedbackDigest {
+  try {
+    const parsed = extractJson(feedback) as Record<string, unknown>
+    const score = parsed.score as Record<string, unknown> | undefined
+    const dimensions = Array.isArray(score?.dimensions) ? score.dimensions as Record<string, unknown>[] : []
+    return {
+      overallScore: typeof score?.overall === 'number' ? Math.round(score.overall) : typeof score?.overall === 'string' ? score.overall : 'N/A',
+      summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+      dimensionScores: dimensions
+        .filter((dimension) => typeof dimension.key === 'string')
+        .map((dimension) => ({
+          key: String(dimension.key),
+          label: typeof dimension.label === 'string' ? dimension.label : String(dimension.key),
+          score: normalizeScore(dimension.score) ?? 0,
+        })),
+      improvements: normalizeStringList(parsed.improvements),
+    }
+  } catch {
+    return { overallScore: 'N/A', summary: feedback.trim().slice(0, 1200), dimensionScores: [], improvements: [] }
+  }
+}
+
+function buildRewritePayload(
+  request: { workspace: Workspace; originalPrompt: string; optimizedPrompt: string; feedback: string },
+  language: 'zh' | 'en',
+): Record<string, unknown> {
+  const digest = digestRewriteFeedback(request.feedback)
+  return {
+    scenario: {
+      language,
+      evaluationType: 'result',
+      evaluationTypeLabel: 'result evaluation',
+      subjectLabel: rewriteSubject(request.workspace),
+      mode: rewriteMode(request.workspace),
+      overallScore: digest.overallScore,
+    },
+    sourcePrompts: {
+      ...(request.originalPrompt.trim() ? { workspacePrompt: request.originalPrompt.trim() } : {}),
+      ...(request.optimizedPrompt.trim() ? { referencePrompt: request.optimizedPrompt.trim() } : {}),
+    },
+    compressedEvaluation: {
+      summary: digest.summary,
+      dimensionScores: digest.dimensionScores,
+      improvements: digest.improvements,
+      patchPlan: [],
+      rewriteGuidance: {
+        recommendation: 'rewrite',
+        reasons: [],
+        focusAreas: [],
+        priorityMoves: digest.improvements.slice(0, 8),
+      },
+      focusSummaryLines: [],
+      conflictLines: [],
+      learnableSignalLines: [],
+      overfitWarningLines: [],
+      supportEvidenceLines: [],
+    },
   }
 }
 

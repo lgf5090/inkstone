@@ -26,16 +26,18 @@ import {
 import { Button, Badge, IconButton, Spinner } from '../../../../components/primitives'
 import { Field, Input, Textarea } from '../../../../components/form'
 import { SelectMenu } from '../../../../components/select-menu'
-import { Tooltip, confirm } from '../../../../components/overlay'
+import { Modal, Tooltip, confirm } from '../../../../components/overlay'
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { copyText } from '../../../../lib/clipboard'
 import { navigateToPath } from '../../../../lib/app-history'
 import type { TemplateType, Workspace } from '@shared/tools/prompt-optimizer/types'
 import { isPredefinedVariable, missingVariables, variableNames } from '@shared/tools/prompt-optimizer/variables'
-import { usePromptOptimizerStore, messageId, type TestGroup } from '../store'
+import { usePromptOptimizerStore, messageId, isConversationWorkspace, type ImagePromptPreview, type TestGroup } from '../store'
 import { useUiStore } from '../../../../lib/ui-store'
+import { useBreakpoint } from '../../../../lib/hooks'
 import { ToolsPanel } from '../panels/ToolsPanel'
+import { TemplateEditor } from '../components/TemplateEditor'
 import { SaveFavoriteModal } from '../modals/SaveFavoriteModal'
 import { VariablesModal } from '../modals/VariablesModal'
 import { ContextModal } from '../modals/ContextModal'
@@ -44,7 +46,7 @@ const WORKSPACE_TEMPLATE_TYPE: Record<Workspace, TemplateType> = {
   basic_system: 'optimize',
   basic_user: 'userOptimize',
   pro_multi: 'conversationMessageOptimize',
-  pro_variable: 'userOptimize',
+  pro_variable: 'contextUserOptimize',
   image_text2image: 'text2imageOptimize',
   image_image2image: 'image2imageOptimize',
   image_multiimage: 'multiimageOptimize',
@@ -89,11 +91,17 @@ export function WorkspaceView() {
   const [saveOpen, setSaveOpen] = useState(false)
   const [variablesOpen, setVariablesOpen] = useState(false)
   const [contextOpen, setContextOpen] = useState(false)
-  const [imagePrompt, setImagePrompt] = useState('')
+  const [imagePreview, setImagePreview] = useState<ImagePromptPreview | null>(null)
+  const [imagePreviewDraft, setImagePreviewDraft] = useState('')
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false)
   const [showAnalysis, setShowAnalysis] = useState(true)
+  const [mobileRegion, setMobileRegion] = useState<'optimize' | 'test'>('optimize')
+  const [splitPct, setSplitPct] = useState(50)
+  const breakpoint = useBreakpoint()
+  const isCompact = breakpoint !== 'desktop'
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const isPro = workspace === 'pro_multi'
+  const isPro = isConversationWorkspace(workspace)
   const isImage = workspace.startsWith('image_')
   const isVariable = workspace === 'pro_variable'
   const isEditingMessage = isPro && Boolean(draft.selectedMessageId)
@@ -168,16 +176,23 @@ export function WorkspaceView() {
   }
 
   const extractReferencePrompt = async (imageId: string) => {
-    const text = await understandImage(imageId)
-    if (text) setImagePrompt(text)
+    const preview = await understandImage(imageId)
+    if (!preview) return
+    setImagePreview(preview)
+    setImagePreviewDraft(preview.prompt || preview.rawText)
+    setImagePreviewOpen(true)
+  }
+
+  const applyImagePreview = async () => {
+    if (!imagePreviewDraft.trim()) return
+    await usePromptOptimizerStore.getState().applyImagePromptPreview(imagePreviewDraft, imagePreview?.variableDefaults ?? {})
+    setImagePreviewOpen(false)
+    setImagePreview(null)
   }
 
   const generatePicture = async () => {
-    const asset = await generateImage(imagePrompt || draft.optimized || draft.prompt, undefined)
-    if (asset) {
-      updateDraft({ imageIds: [...draft.imageIds, asset.id] })
-      setImagePrompt('')
-    }
+    const asset = await generateImage(draft.prompt || draft.optimized, undefined)
+    if (asset) updateDraft({ imageIds: [...draft.imageIds, asset.id] })
   }
 
   const referenceAssets = draft.imageIds.map((id) => images.find((asset) => asset.id === id)).filter(Boolean)
@@ -257,6 +272,26 @@ export function WorkspaceView() {
         </div>
       </header>
 
+      {isCompact && (
+        <nav
+          aria-label={t('tools.prompt_optimizer.workspace.regions')}
+          className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5 lg:hidden"
+        >
+          {(['optimize', 'test'] as const).map((region) => (
+            <Button
+              key={region}
+              variant={mobileRegion === region ? 'primary' : 'ghost'}
+              size="sm"
+              aria-pressed={mobileRegion === region}
+              onClick={() => setMobileRegion(region)}
+            >
+              {region === 'optimize' ? <Sparkles size={13} /> : <Play size={13} />}
+              {t(region === 'optimize' ? 'tools.prompt_optimizer.workspace.region_optimize' : 'tools.prompt_optimizer.workspace.region_test')}
+            </Button>
+          ))}
+        </nav>
+      )}
+
       {!models.text.length && (
         <div role="alert" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">
           <AlertTriangle size={14} className="text-[var(--warning)]" aria-hidden="true" />
@@ -267,8 +302,14 @@ export function WorkspaceView() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-2 lg:overflow-hidden">
-        <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto border-[var(--border-subtle)] p-3 lg:border-r">
+      <div className={cn('flex min-h-0 flex-1', isCompact ? 'flex-col overflow-y-auto' : 'flex-row overflow-hidden')}>
+        <section
+          className={cn(
+            'flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto p-3',
+            isCompact && mobileRegion === 'test' ? 'hidden' : 'flex',
+          )}
+          style={isCompact ? undefined : { width: `${splitPct}%` }}
+        >
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
               {isPro ? `${t('tools.prompt_optimizer.workspace.messages')} · ${t('tools.prompt_optimizer.workspace.conversation_context')}` : t('tools.prompt_optimizer.workspace.original')}
@@ -431,8 +472,6 @@ export function WorkspaceView() {
           {isImage && (
             <ImageReferences
               assets={referenceAssets}
-              imagePrompt={imagePrompt}
-              onImagePrompt={setImagePrompt}
               onPick={() => fileRef.current?.click()}
               onGenerate={() => void generatePicture()}
               onRemove={(id) => updateDraft({ imageIds: draft.imageIds.filter((entry) => entry !== id) })}
@@ -546,7 +585,29 @@ export function WorkspaceView() {
           </div>
         </section>
 
-        <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto p-3">
+        {!isCompact && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t('tools.prompt_optimizer.workspace.split')}
+            aria-valuemin={25}
+            aria-valuemax={50}
+            aria-valuenow={Math.round(splitPct)}
+            tabIndex={0}
+            className="flex w-1.5 shrink-0 cursor-col-resize items-center justify-center border-l border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] outline-none focus-visible:bg-[var(--accent-soft)]"
+            onKeyDown={(event) => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+              event.preventDefault()
+              setSplitPct((current) => (
+                event.key === 'Home' ? 25 : event.key === 'End' ? 50 : Math.min(50, Math.max(25, current + (event.key === 'ArrowLeft' ? -1 : 1)))
+              ))
+            }}
+          >
+            <span aria-hidden="true" className="h-8 w-px bg-[var(--border-subtle)]" />
+          </div>
+        )}
+
+        <section className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3', isCompact && mobileRegion === 'optimize' ? 'hidden' : 'flex')}>
           <TestPanel onRun={(ids) => void runTest(ids)} busy={busy === 'test'} workspace={workspace} />
           <EvaluationPanel
             evaluation={evaluations}
@@ -563,6 +624,43 @@ export function WorkspaceView() {
       <SaveFavoriteModal open={saveOpen} onClose={() => setSaveOpen(false)} />
       <VariablesModal open={variablesOpen} onClose={() => setVariablesOpen(false)} />
       <ContextModal open={contextOpen} onClose={() => setContextOpen(false)} />
+      <Modal
+        open={imagePreviewOpen}
+        onClose={() => setImagePreviewOpen(false)}
+        title={t('tools.prompt_optimizer.image.preview_title')}
+        width={780}
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setImagePreviewOpen(false)}>
+              {t('tools.prompt_optimizer.common.cancel')}
+            </Button>
+            <Button variant="primary" disabled={!imagePreviewDraft.trim()} onClick={() => void applyImagePreview()}>
+              {t('tools.prompt_optimizer.image.apply')}
+            </Button>
+          </>
+        )}
+      >
+        <div className="flex flex-col gap-2">
+          <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+            {t('tools.prompt_optimizer.image.preview_hint')}
+          </p>
+          {imagePreview && Object.keys(imagePreview.variableDefaults).length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                {t('tools.prompt_optimizer.image.variable_defaults')}:
+              </span>
+              {Object.entries(imagePreview.variableDefaults).map(([name, value]) => (
+                <Badge key={name} tone="accent">{`{{${name}}} = ${value}`}</Badge>
+              ))}
+            </div>
+          )}
+          <TemplateEditor
+            value={imagePreviewDraft}
+            onChange={setImagePreviewDraft}
+            ariaLabel={t('tools.prompt_optimizer.image.preview_title')}
+          />
+        </div>
+      </Modal>
     </div>
   )
 }
@@ -584,7 +682,7 @@ function TestPanel({ onRun, busy, workspace }: { onRun: (ids?: string[]) => void
   const draft = usePromptOptimizerStore((s) => s.drafts[workspace])
   const models = usePromptOptimizerStore((s) => s.models)
   const updateDraft = usePromptOptimizerStore((s) => s.updateDraft)
-  const isConversation = workspace === 'pro_multi'
+  const isConversation = isConversationWorkspace(workspace)
   const modelOptions = [
     { value: '', label: t('tools.prompt_optimizer.workspace.model_default') },
     ...models.text.map((model) => ({ value: model.id, label: model.label || model.model })),
@@ -603,9 +701,46 @@ function TestPanel({ onRun, busy, workspace }: { onRun: (ids?: string[]) => void
         </Button>
       </div>
       {isConversation ? (
-        <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
-          {draft.testOutput ? draft.testOutput.slice(0, 600) : t('tools.prompt_optimizer.test.no_output')}
-        </p>
+        <div className="flex flex-col gap-2">
+          <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {t('tools.prompt_optimizer.test.conversation_hint')}
+          </p>
+          {variants.map((variant) => {
+            const group = groupsOf(variant)[0]
+            return (
+              <div key={variant} className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-2">
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <Badge tone={variant === 'baseline' ? 'neutral' : 'accent'}>
+                    {t(variant === 'baseline' ? 'tools.prompt_optimizer.workspace.baseline' : 'tools.prompt_optimizer.workspace.candidate')}
+                  </Badge>
+                  {group?.status === 'done' && <Badge tone="success">{t('tools.prompt_optimizer.test.done')}</Badge>}
+                </div>
+                {group?.output ? (
+                  <pre aria-label={t('tools.prompt_optimizer.workspace.test_output')} className="max-h-48 overflow-auto whitespace-pre-wrap rounded-[var(--r-sm)] bg-[var(--bg-sunken)] p-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                    {group.output}
+                  </pre>
+                ) : (
+                  <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('tools.prompt_optimizer.test.no_output')}</p>
+                )}
+                {group?.reasoning ? (
+                  <div className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                    {t('tools.prompt_optimizer.test.reasoning')}: {group.reasoning.slice(0, 400)}
+                  </div>
+                ) : null}
+                {group?.toolCalls.length ? (
+                  <ul className="mt-1 flex flex-col gap-1" aria-label={t('tools.prompt_optimizer.test.tool_calls')}>
+                    {group.toolCalls.map((call, index) => (
+                      <li key={`${call.name}-${index}`} className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] p-1.5 font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]">
+                        <span className="font-semibold text-[var(--text-primary)]">{call.name}</span>
+                        <span className="ml-1 break-all">{call.arguments.slice(0, 300)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
           {variants.map((variant) => {
@@ -815,10 +950,8 @@ function EvaluationPanel({ evaluation, busy, onEvaluate, onRewrite, focus, onFoc
   )
 }
 
-function ImageReferences({ assets, imagePrompt, onImagePrompt, onPick, onGenerate, onRemove, onUnderstand, disabled, hasImageModel, supportsGeneration, gallery, onUseImage, onDeleteImage }: {
+function ImageReferences({ assets, onPick, onGenerate, onRemove, onUnderstand, disabled, hasImageModel, supportsGeneration, gallery, onUseImage, onDeleteImage }: {
   assets: ({ id: string; mime: string } | undefined)[]
-  imagePrompt: string
-  onImagePrompt: (value: string) => void
   onPick: () => void
   onGenerate: () => void
   onRemove: (id: string) => void
@@ -867,13 +1000,13 @@ function ImageReferences({ assets, imagePrompt, onImagePrompt, onPick, onGenerat
           ))}
         </div>
       )}
-      <div className="flex items-end gap-2">
-        <Field label={t('tools.prompt_optimizer.image.generate_placeholder')}>
-          <Input value={imagePrompt} onChange={(event) => onImagePrompt(event.target.value)} placeholder={t('tools.prompt_optimizer.image.generate_placeholder')} />
-        </Field>
+      <div className="flex flex-wrap items-end gap-2">
         <Button variant="secondary" size="sm" onClick={onGenerate} disabled={generateDisabled}>
           {disabled ? t('tools.prompt_optimizer.workspace.generating_image') : t('tools.prompt_optimizer.workspace.generate_image')}
         </Button>
+        <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          {t('tools.prompt_optimizer.image.generate_hint')}
+        </span>
       </div>
       {!hasImageModel && (
         <p className="mt-1 text-[length:var(--text-11)] text-[var(--warning)]">

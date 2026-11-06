@@ -196,7 +196,7 @@ export const promptOptimizerApi = {
   generateImage: (prompt: string, size?: string, modelId?: string, kind: 'image' = 'image') =>
     request<{ data: AssetRecord }>('/api/tools/prompt-optimizer/images/generate', { method: 'POST', body: { prompt, ...(size ? { size } : {}), ...(modelId ? { modelId } : {}), kind } }).then((r) => r.data),
   understandImage: (imageId: string, mode: 'text2image' | 'image2image', originalPrompt: string, modelId?: string) =>
-    request<{ data: { text: string; modelLabel: string } }>('/api/tools/prompt-optimizer/images/understand', {
+    request<{ data: { text: string; prompt: string; variableDefaults: Record<string, string>; rawText: string; modelLabel: string } }>('/api/tools/prompt-optimizer/images/understand', {
       method: 'POST',
       body: { imageId, mode, originalPrompt, ...(modelId ? { modelId } : {}) },
     }).then((r) => r.data),

@@ -38,10 +38,13 @@ export function PromptOptimizerApp() {
   }, [hydrate])
 
   useEffect(() => {
-    if (loading || !pathname.startsWith('/tools/prompt_optimizer')) return
+    // `settings` is the hydration marker: effects in the same commit still see the pre-hydration
+    // values, so a direct `?view=` load would otherwise switch workspaces and persist an empty draft
+    // at revision 0 before the real session arrives.
+    if (loading || !settings || !pathname.startsWith('/tools/prompt_optimizer')) return
     const view = promptOptimizerViewFromSearch(search)
     if (view && view !== usePromptOptimizerStore.getState().activeView) void setActiveView(view)
-  }, [search, pathname, loading, setActiveView])
+  }, [search, pathname, loading, settings, setActiveView])
 
   if (loading && !settings) return <LoadingBlock />
 

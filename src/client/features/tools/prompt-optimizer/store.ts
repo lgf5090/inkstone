@@ -24,7 +24,7 @@ import type {
   Workspace,
 } from '@shared/tools/prompt-optimizer/types'
 import { PROMPT_OPTIMIZER_NAV_VIEWS, WORKSPACES, type PromptOptimizerNavView } from '@shared/tools/prompt-optimizer/types'
-import { applyVariables, missingVariables, variableNames } from '@shared/tools/prompt-optimizer/variables'
+import { applyVariables, isPredefinedVariable, missingVariables, variableNames } from '@shared/tools/prompt-optimizer/variables'
 import { promptOptimizerApi, type EvaluateResult, type ModelCatalogue } from './api'
 import { t, translateApiError } from '../../../lib/i18n'
 import { useUiStore } from '../../../lib/ui-store'
@@ -43,6 +43,14 @@ export interface TestGroup {
   /** Baseline is the reference run; candidate is what the current prompt produces. */
   variant: 'baseline' | 'candidate'
   modelId: string
+}
+
+export interface ImagePromptPreview {
+  text: string
+  prompt: string
+  variableDefaults: Record<string, string>
+  rawText: string
+  modelLabel?: string
 }
 
 export interface WorkspaceDraft {
@@ -65,6 +73,11 @@ export interface WorkspaceDraft {
   usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheMissTokens: number } | null
 }
 
+/** The two workspaces whose unit of work is a conversation rather than one prompt. */
+export function isConversationWorkspace(workspace: Workspace): boolean {
+  return workspace === 'pro_multi' || workspace === 'pro_variable'
+}
+
 function emptyDraft(workspace: Workspace): WorkspaceDraft {
   return {
     prompt: '',
@@ -76,7 +89,7 @@ function emptyDraft(workspace: Workspace): WorkspaceDraft {
     testOutput: '',
     testReasoning: '',
     testGroups: [{ id: 'g1', input: '', output: '', reasoning: '', toolCalls: [], status: 'idle', variant: 'baseline', modelId: '' }],
-    messages: workspace === 'pro_multi' ? [{ id: 'm1', role: 'system', content: '' }] : [],
+    messages: isConversationWorkspace(workspace) ? [{ id: 'm1', role: 'system', content: '' }] : [],
     selectedMessageId: '',
     tools: [],
     imageIds: [],
@@ -133,7 +146,7 @@ function mergeDraft(workspace: Workspace, state: Record<string, unknown> | null 
     testGroups: Array.isArray(source.testGroups) && source.testGroups.length
       ? source.testGroups.map((group, index) => normalizeTestGroup(group, index))
       : base.testGroups,
-    messages: workspace === 'pro_multi'
+    messages: isConversationWorkspace(workspace)
       ? (Array.isArray(source.messages) && source.messages.length ? source.messages : base.messages)
       : [],
     tools: Array.isArray(source.tools) ? source.tools : [],
@@ -233,7 +246,8 @@ export interface PromptOptimizerState {
   refreshImages: () => Promise<void>
   uploadImage: (dataUrl: string, kind?: 'image', prompt?: string) => Promise<AssetRecord | null>
   generateImage: (prompt: string, size?: string) => Promise<AssetRecord | null>
-  understandImage: (imageId: string) => Promise<string | null>
+  understandImage: (imageId: string) => Promise<ImagePromptPreview | null>
+  applyImagePromptPreview: (prompt: string, variableDefaults: Record<string, string>) => Promise<void>
   deleteImage: (id: string) => Promise<void>
   refreshStats: () => Promise<void>
   exportData: (format: 'json' | 'txt', scope?: 'all' | 'history' | 'favorites') => Promise<void>
@@ -249,6 +263,38 @@ const defaultModels: ModelCatalogue = { text: [], image: [], activeModelId: '' }
 
 export function messageId(): string {
   return `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+}
+
+/**
+ * The first optimization of a selected message is the point where its pre-optimization text stops
+ * being recoverable from the draft, so V0 is snapshotted once and never overwritten afterwards.
+ */
+function messagesWithOriginalSnapshot(workspace: Workspace, draft: WorkspaceDraft): ConversationMessage[] {
+  if (!isConversationWorkspace(workspace) || !draft.selectedMessageId) return draft.messages
+  return draft.messages.map((message) => (
+    message.id === draft.selectedMessageId && !message.originalContent
+      ? { ...message, originalContent: message.content }
+      : message
+  ))
+}
+
+/**
+ * The conversation chain a test runs.
+ *
+ * `baseline` is the selected message at its V0 text (`originalContent`, falling back to the current
+ * text because the draft never overwrites the message itself); `candidate` is the same chain with the
+ * optimized result in that slot. Every other message stays shared so the two runs differ only in the
+ * message under test.
+ */
+function conversationTestMessages(draft: WorkspaceDraft, variant: 'baseline' | 'candidate'): ConversationMessage[] {
+  const selectedId = draft.selectedMessageId
+  if (!selectedId) return draft.messages
+  const selected = draft.messages.find((message) => message.id === selectedId)
+  if (!selected) return draft.messages
+  const content = variant === 'candidate'
+    ? (draft.optimized || selected.content)
+    : (selected.originalContent ?? selected.content)
+  return draft.messages.map((message) => (message.id === selectedId ? { ...message, content } : message))
 }
 
 function errorText(error: unknown): string {
@@ -413,7 +459,7 @@ export const usePromptOptimizerStore = create<PromptOptimizerState>((set, get) =
       const state = get()
       const workspace = state.workspace
       const draft = state.drafts[workspace]
-      const selectedContent = workspace === 'pro_multi' && draft.selectedMessageId
+      const selectedContent = isConversationWorkspace(workspace) && draft.selectedMessageId
         ? draft.messages.find((message) => message.id === draft.selectedMessageId)?.content ?? ''
         : ''
       const prompt = selectedContent || draft.prompt
@@ -455,6 +501,7 @@ export const usePromptOptimizerStore = create<PromptOptimizerState>((set, get) =
                 chainId: payload.record.chainId,
                 versions: [payload.record],
                 usage: payload.usage,
+                messages: messagesWithOriginalSnapshot(workspace, get().drafts[workspace]),
               })
               set({ busy: null, streaming: false })
               toast(t('tools.prompt_optimizer.workspace.optimize_done'), 'success')
@@ -475,7 +522,13 @@ export const usePromptOptimizerStore = create<PromptOptimizerState>((set, get) =
       }
       try {
         const result = await promptOptimizerApi.optimize(request as never)
-        patchDraft(workspace, { optimized: result.text, chainId: result.record.chainId, versions: [result.record], usage: result.usage })
+        patchDraft(workspace, {
+          optimized: result.text,
+          chainId: result.record.chainId,
+          versions: [result.record],
+          usage: result.usage,
+          messages: messagesWithOriginalSnapshot(workspace, get().drafts[workspace]),
+        })
         toast(t('tools.prompt_optimizer.workspace.optimize_done'), 'success')
         void get().refreshStats()
       } catch (error) {
@@ -565,21 +618,40 @@ export const usePromptOptimizerStore = create<PromptOptimizerState>((set, get) =
       set({ busy: 'test' })
       const variables = Object.fromEntries(state.variables.map((variable) => [variable.name, variable.value]))
       try {
-        if (state.workspace === 'pro_multi') {
-          const messages = draft.messages.map((message) => ({
-            ...message,
-            content: message.role === 'system' ? draft.optimized : message.content,
-          }))
-          const result = await promptOptimizerApi.testConversation({
-            messages: messages.map((message) => ({ ...message, content: applyVariables(message.content, variables) })),
-            variables,
-            tools: draft.tools,
-            ...(draft.modelId ? { modelId: draft.modelId } : {}),
-          } as never)
+        if (isConversationWorkspace(state.workspace)) {
+          if (!draft.selectedMessageId) {
+            toast(t('tools.prompt_optimizer.test.select_message'), 'warning')
+            return
+          }
+          // Baseline and candidate are two runs of the same chain; only the selected message differs,
+          // so this is the conversation equivalent of the two test groups a prompt workspace uses.
+          const byVariant: Record<'baseline' | 'candidate', Awaited<ReturnType<typeof promptOptimizerApi.testConversation>> | null> = {
+            baseline: null,
+            candidate: null,
+          }
+          for (const variant of ['baseline', 'candidate'] as const) {
+            try {
+              byVariant[variant] = await promptOptimizerApi.testConversation({
+                messages: conversationTestMessages(draft, variant),
+                variables,
+                ...(draft.tools.length ? { tools: draft.tools } : {}),
+                ...(draft.modelId ? { modelId: draft.modelId } : {}),
+              })
+            } catch (error) {
+              toast(`${t(variant === 'baseline' ? 'tools.prompt_optimizer.workspace.baseline' : 'tools.prompt_optimizer.workspace.candidate')}: ${errorText(error)}`, 'error')
+            }
+          }
+          const groups = draft.testGroups.map((group) => {
+            const result = byVariant[group.variant]
+            return result
+              ? { ...group, output: result.text, reasoning: result.reasoning, toolCalls: result.toolCalls, status: 'done' as const }
+              : group
+          })
+          const primary = byVariant.candidate ?? byVariant.baseline
           patchDraft(state.workspace, {
-            testOutput: result.text,
-            testReasoning: result.reasoning,
-            testGroups: draft.testGroups.map((group) => ({ ...group, output: result.text, reasoning: result.reasoning, toolCalls: result.toolCalls, status: 'done' })),
+            testGroups: groups,
+            testOutput: primary?.text ?? draft.testOutput,
+            testReasoning: primary?.reasoning ?? draft.testReasoning,
           })
         } else {
           const results: TestGroup[] = []
@@ -1015,16 +1087,33 @@ export const usePromptOptimizerStore = create<PromptOptimizerState>((set, get) =
       try {
         const workspace = get().workspace
         const draft = get().drafts[workspace]
-        const result = await promptOptimizerApi.understandImage(
+        return await promptOptimizerApi.understandImage(
           imageId,
           workspace === 'image_image2image' || workspace === 'image_multiimage' ? 'image2image' : 'text2image',
           draft.prompt,
           get().settings?.imageRecognitionModelId || undefined,
         )
-        return result.text
       } catch (error) {
         toast(errorText(error), 'error')
         return null
+      }
+    },
+    /**
+     * Applying a reference-image preview writes the prompt into the workspace *and* saves the
+     * variables the model embedded, so the placeholders it kept are editable next time.
+     */
+    applyImagePromptPreview: async (prompt, variableDefaults) => {
+      const workspace = get().workspace
+      patchDraft(workspace, { prompt })
+      try {
+        for (const [name, value] of Object.entries(variableDefaults)) {
+          if (isPredefinedVariable(name)) continue
+          await promptOptimizerApi.saveVariable({ name, value, description: '' })
+        }
+        if (Object.keys(variableDefaults).length) await get().refreshVariables()
+        toast(t('tools.prompt_optimizer.image.prompt_applied'), 'success')
+      } catch (error) {
+        toast(errorText(error), 'error')
       }
     },
     deleteImage: async (id) => {
@@ -1085,13 +1174,15 @@ export const usePromptOptimizerStore = create<PromptOptimizerState>((set, get) =
 
     dismissConflict: () => set({ conflictWorkspace: null, conflictSession: null }),
     overwriteConflict: async () => {
-      const workspace = get().workspace
+      // The revision belongs to the workspace that conflicted, which is not necessarily the one on
+      // screen: a switch persists the outgoing draft after the new workspace has loaded.
+      const workspace = get().conflictWorkspace ?? get().workspace
       const session = get().conflictSession
       if (!session) return
       try {
         const result = await promptOptimizerApi.saveSession(workspace, session.rev, get().drafts[workspace] as unknown as Record<string, unknown>)
         if ('conflict' in result) {
-          set({ conflictSession: result.current })
+          set({ conflictWorkspace: workspace, conflictSession: result.current })
           toast(t('tools.prompt_optimizer.common.conflict'), 'warning')
         } else {
           set((state) => ({ revs: { ...state.revs, [workspace]: result.rev }, conflictWorkspace: null, conflictSession: null }))

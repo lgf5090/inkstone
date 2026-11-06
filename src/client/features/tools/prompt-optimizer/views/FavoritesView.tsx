@@ -52,6 +52,18 @@ export function FavoritesView() {
     ])
   }, [refreshFavorites, refreshCategories])
 
+  // Escape leaves the shelf and returns to the workspace, matching the reference favourites page.
+  // A dialog in front of the page owns Escape itself, so its handler marks the event handled first.
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.key !== 'Escape' || event.isComposing || event.repeat) return
+      const state = usePromptOptimizerStore.getState()
+      void state.setActiveView(state.workspace)
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [])
+
   const useFavorite = async (favorite: FavoritePrompt) => {
     const workspace: PromptOptimizerNavView = favorite.functionMode === 'image'
       ? 'image_text2image'

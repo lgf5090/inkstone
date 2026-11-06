@@ -115,3 +115,30 @@ describe('Prompt Optimizer request contracts', () => {
     expect(SessionSaveSchema.safeParse({ rev: -1, state: {} }).success).toBe(false)
   })
 })
+
+describe('Prompt Optimizer reference-image preview', () => {
+  it('parses a fenced answer, normalises single-brace placeholders and keeps the defaults', async () => {
+    const { normalizeImagePromptPreview } = await import('../src/worker/tools/prompt-optimizer/ai')
+    const preview = normalizeImagePromptPreview([
+      '```json',
+      JSON.stringify({
+        prompt: { 主体: '{subject}', 主色: '「mainColor」', 背景: '城市夜景' },
+        defaults: { subject: '一只橘猫', mainColor: '灰绿' },
+      }),
+      '```',
+    ].join('\n'))
+    expect(preview.variableDefaults).toEqual({ subject: '一只橘猫', mainColor: '灰绿' })
+    expect(preview.prompt).toContain('{{subject}}')
+    expect(preview.prompt).toContain('{{mainColor}}')
+    expect(preview.prompt).toContain('城市夜景')
+  })
+
+  it('accepts a stringified prompt and falls back to raw text when the answer is not JSON', async () => {
+    const { normalizeImagePromptPreview } = await import('../src/worker/tools/prompt-optimizer/ai')
+    const stringified = normalizeImagePromptPreview(JSON.stringify({ prompt: JSON.stringify({ 主体: '猫' }) }))
+    expect(JSON.parse(stringified.prompt)).toEqual({ 主体: '猫' })
+    const malformed = normalizeImagePromptPreview('这不是 JSON，但仍然是模型回答')
+    expect(malformed.prompt).toBe('')
+    expect(malformed.rawText).toBe('这不是 JSON，但仍然是模型回答')
+  })
+})
