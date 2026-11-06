@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import {
   ArrowLeft,
   Copy,
@@ -8,12 +8,15 @@ import {
   QrCode,
   Trash2,
 } from 'lucide-react'
+import type { ChartConfiguration } from 'chart.js'
+import { ChartCanvas, withAlpha, type ChartColors } from '../../../components/chart-canvas'
 import { LoadingBlock } from '../../../components/feedback'
+import { Sparkline } from '../../../components/Sparkline'
 import { Button, IconButton } from '../../../components/primitives'
 import { confirm } from '../../../components/overlay'
-import { t } from '../../../lib/i18n'
+import { localeTag, t } from '../../../lib/i18n'
 import { useUiStore } from '../../../lib/ui-store'
-import { Sparkline } from '../../todos/stats-charts'
+import { countryFlag, countryName } from '@shared/tools/shortlinks/country'
 import type { ShortLinkBundle } from '@shared/tools/shortlinks/types'
 import { ACCENT_DOT } from './accents'
 import { useShortlinksStore } from './store'
@@ -160,6 +163,57 @@ export function BundlesView() {
   )
 }
 
+function share(count: number, total: number): number {
+  return total > 0 ? Math.min(100, Math.round((count / total) * 100)) : 0
+}
+
+function BreakdownCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-5">
+      <h3 className="mb-3 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
+        {title}
+      </h3>
+      {children}
+    </div>
+  )
+}
+
+function ShareRows({ items, total, nameOf }: {
+  items: { name: string; count: number }[]
+  total: number
+  nameOf?: (name: string) => ReactNode
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="py-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+        {t('tools.shortlinks.dashboard.no_data')}
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-2.5">
+      {items.map((item, index) => {
+        const pct = share(item.count, total)
+        return (
+          <div key={`${item.name}-${index}`} className="space-y-1">
+            <div className="flex items-center justify-between gap-3 text-[length:var(--text-12)]">
+              <span className="min-w-0 truncate font-medium text-[var(--text-primary)]">
+                {nameOf ? nameOf(item.name) : item.name}
+              </span>
+              <span className="shrink-0 whitespace-nowrap font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]">
+                {item.count.toLocaleString()} ({pct}%)
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-inset)]">
+              <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function BundleDetailView() {
   const activeBundleId = useShortlinksStore((s) => s.activeBundleId)
   const bundles = useShortlinksStore((s) => s.bundles)
@@ -171,6 +225,62 @@ function BundleDetailView() {
   const openQrModal = useShortlinksStore((s) => s.openQrModal)
   const openBundleModal = useShortlinksStore((s) => s.openBundleModal)
   const selectLink = useShortlinksStore((s) => s.selectLink)
+
+  const chartBuilder = useMemo(() => {
+    const timeline = stats?.timeline
+    if (!timeline || timeline.buckets.length === 0) return null
+    const labels = timeline.buckets.map((bucket) => bucket.label)
+    const values = timeline.buckets.map((bucket) => bucket.count)
+    return (colors: ChartColors): ChartConfiguration<'line'> => ({
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: t('tools.shortlinks.links.clicks'),
+            data: values,
+            borderColor: colors.palette[0] ?? colors.text,
+            backgroundColor: withAlpha(colors.palette[0] ?? colors.text, 0.15),
+            fill: true,
+            tension: 0.35,
+            borderWidth: 2,
+            pointRadius: labels.length > 20 ? 0 : 3,
+            pointHoverRadius: 5,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            backgroundColor: colors.grid,
+            titleColor: colors.text,
+            bodyColor: colors.text,
+          },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: colors.text, maxTicksLimit: 7, font: { size: 11 } },
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: colors.grid },
+            ticks: { color: colors.text, precision: 0, font: { size: 11 } },
+          },
+        },
+      },
+    })
+  }, [stats?.timeline])
+
+  const topLinks = useMemo(
+    () => [...(stats?.per_link ?? [])].sort((a, b) => b.click_count - a.click_count).slice(0, 6),
+    [stats?.per_link],
+  )
 
   const bundle = bundles.find((b) => b.id === activeBundleId)
   if (!bundle) {
@@ -220,12 +330,12 @@ function BundleDetailView() {
       {/* Bundle Header Card */}
       <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-6 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <span
               className="size-4 rounded-full shrink-0"
               style={{ backgroundColor: dot }}
             />
-            <div>
+            <div className="min-w-0">
               <h2 className="text-xl font-bold text-[var(--text-primary)]">{bundle.name}</h2>
               {bundle.description && (
                 <p className="text-[length:var(--text-12)] text-[var(--text-secondary)] mt-0.5">
@@ -235,7 +345,7 @@ function BundleDetailView() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="secondary"
               size="sm"
@@ -255,19 +365,159 @@ function BundleDetailView() {
           </div>
         </div>
 
-        <div className="flex items-center gap-6 pt-3 border-t border-[var(--border-subtle)] text-[length:var(--text-13)]">
+        <div className="grid grid-cols-2 gap-4 pt-3 border-t border-[var(--border-subtle)] md:grid-cols-4">
           <div>
-            <span className="text-[var(--text-tertiary)]">{t('tools.shortlinks.dashboard.total_links')}: </span>
-            <span className="font-mono font-bold text-[var(--text-primary)]">{links.length}</span>
+            <div className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+              {t('tools.shortlinks.dashboard.total_links')}
+            </div>
+            <div className="mt-1 font-mono text-[length:var(--text-15)] font-bold text-[var(--text-primary)]">
+              {(stats?.link_count ?? links.length).toLocaleString()}
+            </div>
           </div>
           <div>
-            <span className="text-[var(--text-tertiary)]">{t('tools.shortlinks.dashboard.total_clicks')}: </span>
-            <span className="font-mono font-bold text-[var(--text-primary)]">
+            <div className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+              {t('tools.shortlinks.dashboard.total_clicks')}
+            </div>
+            <div className="mt-1 font-mono text-[length:var(--text-15)] font-bold text-[var(--text-primary)]">
               {(stats?.total_clicks ?? bundle.total_clicks ?? 0).toLocaleString()}
-            </span>
+            </div>
+          </div>
+          <div>
+            <div className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+              {t('tools.shortlinks.bundles.clicked_links')}
+            </div>
+            <div className="mt-1 font-mono text-[length:var(--text-15)] font-bold text-[var(--text-primary)]">
+              {(stats?.clicked_links ?? 0).toLocaleString()}
+            </div>
+          </div>
+          <div>
+            <div className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+              {t('tools.shortlinks.bundles.countries_reached')}
+            </div>
+            <div className="mt-1 font-mono text-[length:var(--text-15)] font-bold text-[var(--text-primary)]">
+              {(stats?.countries_reached ?? 0).toLocaleString()}
+            </div>
           </div>
         </div>
       </div>
+
+      {stats ? (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-5 md:col-span-2">
+            <h3 className="mb-3 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
+              {t('tools.shortlinks.bundles.top_links')}
+            </h3>
+            {topLinks.length === 0 || stats.total_clicks === 0 ? (
+              <div className="py-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+                {t('tools.shortlinks.dashboard.no_data')}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {topLinks.map((link) => {
+                  const pct = link.pct_of_bundle
+                  return (
+                    <div key={link.link_id} className="space-y-1">
+                      <div className="flex items-center justify-between gap-3 text-[length:var(--text-12)]">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="shrink-0 font-mono font-semibold text-[var(--accent)]">
+                            /{link.primary_slug}
+                          </span>
+                          {link.label && (
+                            <span className="truncate font-medium text-[var(--text-primary)]">
+                              {link.label}
+                            </span>
+                          )}
+                        </div>
+                        <span className="shrink-0 whitespace-nowrap font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]">
+                          {link.click_count.toLocaleString()} ({pct}%)
+                        </span>
+                      </div>
+                      <div className="truncate font-mono text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                        {link.url}
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-inset)]">
+                        <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-5 md:col-span-2">
+            <h3 className="mb-4 text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
+              {t('tools.shortlinks.dashboard.click_trends')}
+            </h3>
+            <div className="relative h-60 w-full">
+              {chartBuilder ? (
+                <ChartCanvas<'line'>
+                  height="h-60"
+                  label={t('tools.shortlinks.dashboard.click_trends')}
+                  build={chartBuilder}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-[length:var(--text-13)] text-[var(--text-tertiary)]">
+                  {t('tools.shortlinks.dashboard.no_data')}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <BreakdownCard title={t('tools.shortlinks.detail.countries')}>
+            <ShareRows
+              items={stats.countries}
+              total={stats.total_clicks}
+              nameOf={(name) => (
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <span aria-hidden="true">{countryFlag(name)}</span>
+                  <span className="truncate">{countryName(name, localeTag())}</span>
+                </span>
+              )}
+            />
+          </BreakdownCard>
+
+          <BreakdownCard title={t('tools.shortlinks.detail.devices')}>
+            <ShareRows
+              items={stats.devices}
+              total={stats.total_clicks}
+              nameOf={(name) => <span className="capitalize">{name}</span>}
+            />
+          </BreakdownCard>
+
+          <BreakdownCard title={t('tools.shortlinks.detail.referrers')}>
+            <ShareRows
+              items={stats.referrers}
+              total={stats.total_clicks}
+              nameOf={(name) => name || t('tools.shortlinks.detail.direct')}
+            />
+          </BreakdownCard>
+
+          <BreakdownCard title={t('tools.shortlinks.bundles.link_mode')}>
+            <ShareRows
+              items={stats.link_modes}
+              total={stats.total_clicks}
+              nameOf={(name) => (
+                name === 'qr'
+                  ? t('tools.shortlinks.bundles.mode_qr')
+                  : name === 'link'
+                    ? t('tools.shortlinks.bundles.mode_link')
+                    : name
+              )}
+            />
+          </BreakdownCard>
+        </div>
+      ) : (
+        <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] py-12">
+          {loading ? (
+            <LoadingBlock />
+          ) : (
+            <div className="text-center text-[length:var(--text-13)] text-[var(--text-tertiary)]">
+              {t('tools.shortlinks.dashboard.no_data')}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Included Links List */}
       <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] overflow-hidden">
@@ -305,7 +555,7 @@ function BundleDetailView() {
               return (
                 <div
                   key={link.id}
-                  className="p-3.5 flex items-center justify-between gap-4 hover:bg-[var(--bg-hover)] transition-colors"
+                  className="p-3.5 flex flex-col gap-2 hover:bg-[var(--bg-hover)] transition-colors sm:flex-row sm:items-center sm:justify-between sm:gap-4"
                 >
                   <button
                     type="button"
@@ -313,7 +563,7 @@ function BundleDetailView() {
                     className="min-w-0 flex-1 text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] rounded-[var(--r-sm)]"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[length:var(--text-13)] font-semibold text-[var(--accent)]">
+                      <span className="min-w-0 truncate font-mono text-[length:var(--text-13)] font-semibold text-[var(--accent)]">
                         /{primarySlug}
                       </span>
                       {link.label && (
@@ -327,7 +577,7 @@ function BundleDetailView() {
                     </div>
                   </button>
 
-                  <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center justify-between gap-3 sm:shrink-0">
                     <span className="font-mono text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
                       {link.total_clicks.toLocaleString()} {t('tools.shortlinks.links.clicks')}
                     </span>
