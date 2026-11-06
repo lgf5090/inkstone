@@ -31366,6 +31366,7 @@ const allowed = new Map([
     "/** True when the signed-in account is not the owner the public blog reads. */",
     "/** Why the owner library produced no playable tracks; absent for non-library providers. */",
     "/** True when the deployment can sign the short-lived audio and cover links. */",
+    "/** Present only when the feed caller asked for bodies; see `/api/blog/feeds?includeContent=1`. */",
   ]],
   ["src/shared/blog/renderer.ts", [
     "/**\n * The renderer generation a snapshot was produced with.\n *\n * A published snapshot is a *still* of the note body, but the reading runtime re-renders the same\n * markdown through the same pipeline. The number is part of the runtime URL and is written into every\n * snapshot, so a reader can only ever load the runtime that matches the markup it is given: after a\n * renderer change old snapshots keep their still until they are rebuilt, instead of silently swapping\n * in a different renderer.\n */",
@@ -31377,6 +31378,14 @@ const allowed = new Map([
     "// The owner library is resolved after this pure projection: its tracks live in D1 and its bytes in",
     "// R2, neither of which this function may read. `enabled` starts false and the resolver flips it",
     "// when at least one playable track survives.",
+    "/** The site's validated zone, so archive and year filters agree with the public projection. */",
+    "// The blog's RSS/Atom routes read this to choose the full body over the excerpt.",
+  ]],
+  ["src/shared/blog/time.ts", [
+    "/** Calendar-day helpers for the blog's archive, always in the site's zone rather than UTC. */",
+    "/** The zone a blog uses when its stored setting is absent or not an IANA name. */",
+    "/** The `YYYY` / `MM` a published instant belongs to on the site's calendar. */",
+    "/**\n * The half-open instant range `[start, end)` covering a whole calendar year in `timeZone`.\n *\n * A post published at 2025-12-31T16:00Z is already 2026-01-01 in Asia/Shanghai, and the filter has\n * to answer with the same year the archive grouped it under. Computing the two wall-clock\n * boundaries through the shared DST-aware conversion keeps that true even in zones that shift.\n */",
   ]],
   ["src/shared/byte-format.ts", [
     "/**\n * The one place a byte count is turned into the text a reader reads.\n *\n * Four copies of this lived on the worker side alone, each rounding differently: one kept bytes,\n * one printed `Math.ceil` of KB and MB, two printed `toFixed(1)` of MB only, and the interface had\n * two more. A quota warning and the row beside it could therefore disagree about the same number.\n * This is the version the interface already used for attachments, versions and storage stats, so a\n * server-side limit and the client-side bar under it say the same thing.\n */",
@@ -31460,6 +31469,8 @@ const allowed = new Map([
     "/**\n * Whether the month grid prints the lunar date and festival names.\n *\n * `auto` is the default because the almanac is a property of the Chinese calendar tradition rather\n * than of the app: a Han interface asks for it, and another language does not unless the reader\n * turns it on.\n */",
     "/** Lunar date, solar term and festival names in the month grid; `auto` follows the language. */",
     "/** Print the day-off and makeup-workday marks for statutory days. */",
+    "// A stored row may predate validation or be hand-edited; an unknown name would make every",
+    "// formatter throw, so it falls back to the default zone instead of failing the whole read.",
   ]],
   ["src/shared/clouddrive/drivers.ts", [
     "/**\n * The single declaration of every storage driver the CloudDrive can mount.\n *\n * The admin UI and the worker read this table, so a driver cannot appear as an option without a\n * definition and a configuration schema. `implemented` gates the dropdown: the 70 drivers that are\n * still to be ported are listed in the roadmap view with the reason instead of becoming dead options.\n *\n * Field labels and driver names are i18n keys. A driver's `fields` describe where each value lives:\n * `config` is returned to the client, `credentials` is encrypted in the vault and never echoed.\n */",
@@ -33951,6 +33962,9 @@ const allowed = new Map([
     "// notebook's namespace.",
     "// The proxy answers with upstream bytes and its own CORS/cache/security headers. Rewriting",
     "// them here would replace the engine's policy (and wrap every large download a second time).",
+    "// A response that can vary by cookie (the app shell, an unlock form, a share page) must not be",
+    "// stored by the CDN. Existing HTML routes already say so explicitly; this is the default for the",
+    "// ones that do not, and the API has always been no-store for the same reason.",
   ]],
   ["src/worker/assistant/attachments.ts", [
     "/**\n * The token each attachment line starts with.\n *\n * It is English on purpose: this block is model-facing prompt text, never the reader's UI, and the\n * reader's own labels come from the locale catalog the composer draws.\n */",
@@ -37124,6 +37138,8 @@ const allowed = new Map([
     "// An explicit redirect always wins; an article alias is the fallback for paths the redirect table",
     "// does not own. Both are site-relative, so the blog can append its own query and stay on origin.",
     "// A malformed escape must not become a 500: the raw path simply will not match an alias.",
+    "/**\n * Reads the page envelope. A page is only valid as a positive integer: `-1`, `0`, `abc` and\n * `1.5` are caller errors rather than \"start over\", and the routes answer them with an empty page.\n * A numeric page far past the last row is valid but naturally selects nothing.\n */",
+    "/**\n * How many feed entries may carry a body when a caller explicitly asks for one.\n *\n * RSS and Atom print the first 50 entries; the sitemap and llms routes call this endpoint without\n * the parameter, so their response never grows. Reading 50 snapshots once per cache miss is the\n * deliberate price of full-text feeds; the list itself stays unpaged for sitemap coverage.\n */",
   ]],
   ["src/worker/blog/runtime-routes.ts", [
     "/**\n * Serves the versioned reading runtime the blog loads for published articles.\n *\n * The files are ordinary build assets, but the path is claimed by the Worker for two reasons: a\n * version that no longer exists must answer 404 rather than the SPA's `index.html` (a module script\n * cannot recover from HTML), and the blog reads them through a proxy, so the response states the\n * immutable caching the content-hashed names already justify.\n */",
@@ -37148,6 +37164,12 @@ const allowed = new Map([
     "// A fresh frontmatter alias must not steal another article's path. The admin update rejects the",
     "// collision outright; note sync is automatic, so it keeps the article but leaves the alias empty",
     "// and says so instead of failing the whole sync.",
+    "/** The zone the `year` filter means; defaults to UTC when the caller has no site setting. */",
+    "/**\n   * Every matching row, without a page window. The public `/feeds` projection feeds the sitemap and\n   * the llms files as well as RSS, so a page cap there silently drops older slugs from discovery.\n   */",
+    "// The archive shows a year on the site's calendar, so the filter has to use the same boundary:",
+    "// an instant in the last hours of 31 December UTC can already belong to the next year locally.",
+    "/**\n * Groups the public archive by the site's calendar year and month.\n *\n * SQLite's `strftime` has no IANA zone, so a UTC `GROUP BY` would file a post published late on\n * 31 December UTC under the previous year for a site in Asia/Shanghai. The rows are therefore bucketed\n * in JavaScript through the shared zone conversion; only the published timestamp leaves D1.\n */",
+    "/** D1 accepts at most 100 bound parameters; one is the owner id, leaving 99 ids per statement. */",
   ]],
   ["src/worker/blog/unlock.ts", [
     "/**\n * Password gate for a published, protected article.\n *\n * The blog never sees the stored hash: it asks this API with the reader's password, and receives a\n * short-lived token signed with a deployment secret. The token is bound to one post, so unlocking one\n * article cannot be replayed to read another, and it carries an expiry so a copied cookie dies on its\n * own. The secret is optional; with it unset the gate answers 503 instead of issuing unsigned tokens.\n */",
@@ -37377,6 +37399,8 @@ const allowed = new Map([
     "/** One edit aimed at a single occurrence of a stored series. */",
     "/**\n * One countdown as a create request.\n *\n * The date is the reader's own calendar day, and only the shape is checked here: whether that lunar\n * day exists is a property of the table, which the store answers when it resolves the repeat.\n */",
     "/** A partial countdown write; every absent field means \"leave it as it is\". */",
+    "// A client can send an unknown zone (an older browser, a hand-written value). The account's own",
+    "// zone is the fallback: the event stays on the calendar instead of the whole request failing.",
   ]],
   ["src/worker/calendar/vendor/dayflow-caldav.d.ts", [
     "/**\n * Worker-side type shim for the provider library.\n *\n * The package's published types pull Preact/DOM globals that replace the Worker's BodyInit/Headers.\n * The cron only needs these five runtime exports; Vite still resolves the real implementation.\n */",
@@ -39784,6 +39808,9 @@ const allowed = new Map([
     "/**\n * The presets plus whatever the deployment names, never the deployment list alone.\n *\n * Replacing rather than extending would let one optional variable silently block the readers who\n * picked a built-in provider — the same failure this list exists to prevent — and an entry that\n * parses as something other than a bare host is a mistyped variable, not a directive: it is dropped\n * and reported instead of being pasted into the policy.\n */",
     "// The assistant's dictation and the QR workshop's live scanner both need a media device, and the",
     "// page itself is the only frame allowed to ask for one. Location stays shut.",
+    "// Netease player URLs and covers live on the `music.*` CDN labels; the earlier `*.126.net` /",
+    "// `*.127.net` / `*.163.com` wildcards also named unrelated properties. `isAllowedMusicSourceHost()`",
+    "// still accepts the broader suffixes when proxying, but the browser only ever loads these three.",
   ]],
   ["src/worker/lib/throttle.ts", [
     "/**\n * Runs a throttled step — spending an attempt budget, checking a lock, or both — and answers the\n * `429` the API promises once the throttle rejects it.\n *\n * Every throttled route funnels through here so the status, error code, `Retry-After` hint and\n * response shape cannot drift apart. `message` is the human prefix a route shows; the retry count is\n * appended here. The step is a thunk so a route that checks a lock before spending work keeps its\n * exact ordering.\n */",
@@ -41250,6 +41277,8 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/calendar-ics.ts", [
     "// The events are idempotent by (source, external id), so a retry of the same file is safe.",
+    "// An imported file without a usable zone is placed in the account's zone, not refused: the",
+    "// calendar's own default is the meaningful answer for a missing or unrecognised `defaultTimeZone`.",
   ]],
   ["src/worker/routes/calendar-members.ts", [
     "/**\n * Account-to-account calendar sharing.\n *\n * A share row is both the invitation and the permission: pending rows appear in the member's sidebar,\n * accepted rows appear as synthetic read-only calendars, and declining keeps the history without\n * granting access. The owner is the only account allowed to change the guest list.\n */",
@@ -43827,6 +43856,8 @@ const allowed = new Map([
     "/**\n * Every base URL a built-in provider preset hands the reader has to be reachable from the browser,\n * because the key stays in the reader's own browser and the request goes straight to the provider.\n * A preset added to the settings table without a matching `connect-src` host is a feature that\n * silently never works for whoever picks it, so the guard reads the table rather than a copy of it.\n */",
     "/** The beacon Cloudflare's edge appends to every HTML response either loads or errors on every visit. */",
     "/**\n * The note templates execute inside QuickJS, a WebAssembly module, so the served policy has to let the\n * browser compile wasm — and must still refuse to let a page execute a string as code. Asserting both\n * halves matters: `'wasm-unsafe-eval'` is the narrow permission, and a later edit that reaches for\n * `'unsafe-eval'` instead would open `new Function` to every note while keeping the templates working.\n */",
+    "// The previous policy named every 126.net, 127.net and 163.com host, which covered unrelated",
+    "// properties; the player and cover URLs only use the `music.*` labels.",
   ]],
   ["tests/app-tab-routes.test.ts", [
     "// An address missing from this list is still served — by the asset layer's SPA fallback,",
@@ -45493,6 +45524,15 @@ const allowed = new Map([
     "// protected read is distinguishable from a crash.",
     "// The first post owns the path, so assigning it to the second one is an explicit conflict.",
     "// Re-setting an alias a post already owns stays allowed.",
+    "// 2025-12-31T16:30Z is already 2026-01-01 00:30 in Asia/Shanghai: the archive, the year filter",
+    "// and the count must agree on which year owns it instead of each reading its own UTC boundary.",
+    "/** A render snapshot the feed reader can load: only the HTML a full-text feed prints. */",
+    "// D1 refuses a statement with more than 100 bound parameters. The wrapper fails the test the",
+    "// way the real database would, while node:sqlite would otherwise happily accept 121.",
+  ]],
+  ["tests/blog-contract.test.ts", [
+    "// The calendar widget formats through this value; an unknown name would throw in the browser",
+    "// and leave the widget blank, so the projection answers with the site default instead.",
   ]],
   ["tests/blog-purge-posts.test.ts", [
     "/**\n * A trashed post is the only row the delete path may see, and it owns two things the row alone does\n * not show: the assets it pinned in `blog_post_assets` and the R2 render snapshot under `render_key`.\n * Leaving either behind makes the media library refuse to delete the file and keeps paying for storage.\n */",
@@ -45538,6 +45578,8 @@ const allowed = new Map([
     "// A reader that switched the window on but sent a broken number keeps the switch and gets",
     "// default hours; the strict boundary that refuses the value is the route parser.",
     "// Off is a valid choice and keeps the window the reader picked.",
+    "// A legacy or hand-edited row can carry any string; `Intl.DateTimeFormat` throws on it, which",
+    "// would turn the public calendar page into a 500. Normalisation keeps it usable instead.",
   ]],
   ["tests/calendar-reminders.test.ts", [
     "// An hour ahead of the start only the 60-minute lead is due; the 10-minute one fires later.",
