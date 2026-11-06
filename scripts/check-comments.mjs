@@ -136,6 +136,11 @@ const allowed = new Map([
     "// `canvas`/`rc` are deliberately absent: React owns that element, and a fresh one here is not the",
     "// one on screen. See the note on `unmount-releases-fields`.",
   ]],
+  ["scripts/fixture-blog-e2e.mjs", [
+    "/**\n * Repairs the e2e fixture's missing render snapshot for one blog post.\n *\n * The audit fixture's `long-token` row was inserted with a placeholder `render_key` and no R2\n * object, so the public article page has no stored still to show. This script patches that note to\n * valid blog frontmatter and then publishes a real snapshot: the browser runs the same\n * `captureBlogSnapshot` the admin publish panel uses, and the server receives it through\n * `/api/blog/admin/posts/:noteId/publish`, which writes R2 and the render columns.\n *\n * It never writes D1 or R2 directly, and it is idempotent: a post whose content hash and render\n * snapshot already match is reported as ready and nothing is published again.\n */",
+    "// Chrome is still binding the debugging port.",
+    "// already closed",
+  ]],
   ["scripts/lib/contrast.mjs", [
     "// Colours travel as {rgb:[r,g,b], alpha} so a translucent tint can be composited",
     "// over the surface underneath it (`over`) before it is compared (`contrastRatio`).",

@@ -219,8 +219,35 @@ Existing databases are upgraded automatically on startup with idempotent schema 
 | `npm run deploy:kv` | Build and deploy with `wrangler.kv.toml` |
 | `npm run deploy:demo` | Build and deploy the static browser-only demo |
 | `npm run test:e2e` | Exercise the API against a running disposable local instance |
+| `npm run fixture:blog-e2e -- ...` | Repair the public-blog e2e fixture's missing render snapshot |
 
 The end-to-end script creates, changes, and deletes data at `http://localhost:7712`. Run it only against a fresh local state dedicated to testing.
+
+### Public blog e2e fixture
+
+The public-blog e2e suite expects the newest fixture post (`long-token`) to serve a stored render snapshot. If that audit fixture was inserted with a placeholder `render_key`, the article page shows its empty state instead of a reading surface. `scripts/fixture-blog-e2e.mjs` repairs the fixture through the real channel:
+
+1. it patches the post's note to valid blog frontmatter (`blogType: post`, `isPublished: true`);
+2. it runs `captureBlogSnapshot` — the same builder the admin publish panel uses — in a Chrome page served by the Vite dev server;
+3. it sends the snapshot to `POST /api/blog/admin/posts/:noteId/publish`, so the server writes R2 and the `render_*` columns. The script never writes D1 or R2 directly and never changes the slug or title.
+
+The script is idempotent: when the stored content hash and the public render HTML already match, it prints a ready message and publishes nothing.
+
+```bash
+# Vite dev server, for the client modules behind /src
+npm run dev -- --port 7713 --strictPort
+
+# API over the persist directory the e2e run uses
+XDG_CONFIG_HOME=/home/kubuntu/.cache/xdg-config npx wrangler dev --local \
+  --persist-to /tmp/e2e-fixture-verify --config dist/inkstone/wrangler.json \
+  --port 7732 --ip 127.0.0.1 --var BLOG_PROXY_KEY:theme-key
+
+# Owner session: copy the inkstone_session cookie from a signed-in browser,
+# or pass --session-cookie "inkstone_session=<value>"
+node scripts/fixture-blog-e2e.mjs --base-url http://127.0.0.1:7732 \
+  --dev-url http://localhost:7713 --proxy-key theme-key --session-token <64-hex-token>
+```
+
 
 ## Repository layout
 
