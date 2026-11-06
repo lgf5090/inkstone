@@ -93,6 +93,8 @@ export const ZH_CN_BLOG_ADMIN = {
   "blog.admin.fab_items": "悬浮按钮项",
   "blog.admin.fab_items_hint": "用逗号分隔的操作标识。",
   "blog.admin.featured_image": "封面图",
+  "blog.admin.feed_full_text": "RSS/Atom 全文输出",
+  "blog.admin.feed_full_text_hint": "开启后 RSS/Atom 输出文章全文；关闭时只输出摘要。",
   "blog.admin.field_description": "描述",
   "blog.admin.field_name": "名称",
   "blog.admin.field_note": "备注",

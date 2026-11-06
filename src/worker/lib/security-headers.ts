@@ -38,6 +38,10 @@ const CLOUDFLARE_INSIGHTS_SCRIPT_SOURCE = 'https://static.cloudflareinsights.com
 const CLOUDFLARE_INSIGHTS_REPORT_SOURCE = 'https://cloudflareinsights.com'
 const MEMO_MAP_TILE_SOURCE = new URL(MEMO_MAP_TILE_URL).origin
 const MEMO_MAP_GEOCODE_SOURCE = new URL(NOMINATIM_REVERSE_ENDPOINT).origin
+// Netease player URLs and covers live on the `music.*` CDN labels; the earlier `*.126.net` /
+// `*.127.net` / `*.163.com` wildcards also named unrelated properties. `isAllowedMusicSourceHost()`
+// still accepts the broader suffixes when proxying, but the browser only ever loads these three.
+const NETEASE_MEDIA_SOURCES = 'https://*.music.126.net https://*.music.127.net https://*.music.163.com'
 
 export interface SecurityHeaderOptions {
   // Vite's dev server injects the React Fast Refresh bootstrap as an inline script,
@@ -70,7 +74,7 @@ export function securityHeaders(url: string, options: SecurityHeaderOptions = {}
     'Content-Security-Policy': [
       `default-src 'self'; base-uri 'self'; ${scriptSrc}style-src 'self' 'unsafe-inline'; `,
       `img-src 'self' data: blob: ${imageSchemes} ${MEMO_MAP_TILE_SOURCE}; font-src 'self' data: https://esm.sh; connect-src 'self' data: blob: ${CLOUDFLARE_INSIGHTS_REPORT_SOURCE} ${MEMO_MAP_GEOCODE_SOURCE} ${aiConnectSources}; worker-src 'self' blob:; `,
-      "manifest-src 'self'; media-src 'self' blob: https://*.music.126.net https://*.126.net https://*.127.net https://*.163.com; form-action 'self'; frame-src 'self' blob: https://www.youtube-nocookie.com https://www.youtube.com; ",
+      `manifest-src 'self'; media-src 'self' blob: ${NETEASE_MEDIA_SOURCES}; form-action 'self'; frame-src 'self' blob: https://www.youtube-nocookie.com https://www.youtube.com; `,
       "frame-ancestors 'none'; object-src 'none'",
     ].join(''),
   }

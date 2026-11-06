@@ -515,4 +515,15 @@ describe('validation at the boundary', () => {
   it('refuses a recurrence without a supported frequency', () => {
     expect(() => eventInput({ recurrenceRule: 'FREQ=HOURLY' })).toThrow()
   })
+
+  it('places a zoned event in the account zone when the client sends an unknown one', () => {
+    const input = parseEventInput({
+      title: 'Meeting',
+      start: { value: '2026-10-26T09:00:00', type: 'zoned', timeZone: 'Mars/Olympus' },
+      end: { value: '2026-10-26T10:00:00', type: 'zoned', timeZone: 'Mars/Olympus' },
+      calendarId: calendar.id,
+    }, { defaultTimeZone: 'Asia/Shanghai' })
+    expect(input.start.timeZone).toBe('Asia/Shanghai')
+    expect(input.end.timeZone).toBe('Asia/Shanghai')
+  })
 })

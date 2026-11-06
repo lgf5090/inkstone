@@ -63,6 +63,25 @@ describe('blog settings', () => {
     expect(site.site.title).toBe('Inkstone Blog')
     expect(site.counts).toEqual({ posts: 1, categories: 2, tags: 3, series: 4, views: 0 })
   })
+
+  it('projects the full-text feed switch the admin saves under display', () => {
+    const counts = { posts: 0, categories: 0, tags: 0, series: 0, views: 0 }
+    expect(publicBlogSite(mergeBlogSettings([]), counts).display.feedFullText).toBe(false)
+    expect(publicBlogSite(
+      mergeBlogSettings([{ key: 'display', value: JSON.stringify({ feedFullText: true }) }]),
+      counts,
+    ).display.feedFullText).toBe(true)
+  })
+
+  it('serves the default zone when the stored one is not IANA', () => {
+    // The calendar widget formats through this value; an unknown name would throw in the browser
+    // and leave the widget blank, so the projection answers with the site default instead.
+    const site = publicBlogSite(
+      mergeBlogSettings([{ key: 'site', value: JSON.stringify({ timeZone: 'Mars/Olympus' }) }]),
+      { posts: 0, categories: 0, tags: 0, series: 0, views: 0 },
+    )
+    expect(site.site.timeZone).toBe('UTC')
+  })
 })
 
 describe('blog snapshot sanitizer', () => {

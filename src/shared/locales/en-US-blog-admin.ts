@@ -93,6 +93,8 @@ export const EN_US_BLOG_ADMIN = {
   "blog.admin.fab_items": "FAB items",
   "blog.admin.fab_items_hint": "Comma-separated action ids.",
   "blog.admin.featured_image": "Featured image",
+  "blog.admin.feed_full_text": "Full-text RSS/Atom",
+  "blog.admin.feed_full_text_hint": "When on, RSS/Atom include the full article body; when off they carry the summary only.",
   "blog.admin.field_description": "Description",
   "blog.admin.field_name": "Name",
   "blog.admin.field_note": "Note",

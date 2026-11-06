@@ -4,7 +4,7 @@ import { ApiError } from '../lib/errors'
 import { readJson, requestClientIp } from '../lib/request'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { sha256Hex } from '../lib/encoding'
-import { publicBlogSite } from '@shared/blog/settings'
+import { blogSiteTimeZone, publicBlogSite } from '@shared/blog/settings'
 import { normalizeLinkUrl } from '@shared/nav/model'
 import type { BlogPostDetail } from '@shared/blog/model'
 import { verifyPassword } from '../lib/password'
@@ -69,13 +69,24 @@ function publicSite(settings: Parameters<typeof publicBlogSite>[0], counts: Para
   return site
 }
 
-function pageQuery(c: Context<AppBindings>): { page: number; limit: number } {
-  const rawPage = Number(c.req.query('page') ?? '1')
+/**
+ * Reads the page envelope. A page is only valid as a positive integer: `-1`, `0`, `abc` and
+ * `1.5` are caller errors rather than "start over", and the routes answer them with an empty page.
+ * A numeric page far past the last row is valid but naturally selects nothing.
+ */
+function pageQuery(c: Context<AppBindings>): { page: number; limit: number; pageValid: boolean } {
+  const rawPage = c.req.query('page')
+  const page = rawPage === undefined || rawPage === '' ? 1 : Number(rawPage)
   const rawLimit = Number(c.req.query('limit') ?? '10')
   return {
-    page: Number.isFinite(rawPage) ? Math.max(1, Math.trunc(rawPage)) : 1,
+    page: Number.isSafeInteger(page) && page >= 1 ? page : 0,
     limit: Number.isFinite(rawLimit) ? Math.min(50, Math.max(1, Math.trunc(rawLimit))) : 10,
+    pageValid: Number.isSafeInteger(page) && page >= 1,
   }
+}
+
+function emptyPage(limit: number) {
+  return { items: [], page: 0, limit, total: 0, nextCursor: null }
 }
 
 /** The canonical address an alias should land on, mirroring the blog's own `postUrl`. */
@@ -100,8 +111,16 @@ blogPublicRoutes.get('/site', async (c) => {
 
 blogPublicRoutes.get('/posts', async (c) => {
   const userId = await ownerId(c)
-  const { page, limit } = pageQuery(c)
+  const { page, limit, pageValid } = pageQuery(c)
+  if (!pageValid) {
+    return c.json(emptyPage(limit), 200, {
+      'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+    })
+  }
   const year = Number(c.req.query('year'))
+  const timeZone = Number.isFinite(year) && year > 0
+    ? blogSiteTimeZone(await loadBlogSettings(c.env.DB, userId))
+    : undefined
   const { rows, total } = await listPublishedPostsFiltered(c.env.DB, userId, {
     page,
     limit,
@@ -110,6 +129,7 @@ blogPublicRoutes.get('/posts', async (c) => {
     series: c.req.query('series')?.trim().slice(0, 120) || undefined,
     q: c.req.query('q')?.trim().slice(0, 200) || undefined,
     year: Number.isFinite(year) && year > 0 ? Math.trunc(year) : undefined,
+    timeZone,
     pinned: c.req.query('pinned') === 'true',
     excludeEncrypted: true,
   })
@@ -127,14 +147,20 @@ blogPublicRoutes.get('/posts', async (c) => {
 
 blogPublicRoutes.get('/archive', async (c) => {
   const userId = await ownerId(c)
-  return c.json({ years: await blogArchive(c.env.DB, userId) }, 200, {
+  const settings = await loadBlogSettings(c.env.DB, userId)
+  return c.json({ years: await blogArchive(c.env.DB, userId, blogSiteTimeZone(settings)) }, 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })
 })
 
 blogPublicRoutes.get('/search', async (c) => {
   const userId = await ownerId(c)
-  const { page, limit } = pageQuery(c)
+  const { page, limit, pageValid } = pageQuery(c)
+  if (!pageValid) {
+    return c.json({ query: (c.req.query('q') ?? '').trim().slice(0, 200), engine: 'fts', ...emptyPage(limit) }, 200, {
+      'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+    })
+  }
   const query = (c.req.query('q') ?? '').trim().slice(0, 200)
   const result = await searchPublishedPosts(c.env.DB, userId, query, page, limit)
   const tags = await listPostTags(c.env.DB, userId, result.rows.map((row) => row.id))
@@ -151,17 +177,41 @@ blogPublicRoutes.get('/search', async (c) => {
   })
 })
 
+/**
+ * How many feed entries may carry a body when a caller explicitly asks for one.
+ *
+ * RSS and Atom print the first 50 entries; the sitemap and llms routes call this endpoint without
+ * the parameter, so their response never grows. Reading 50 snapshots once per cache miss is the
+ * deliberate price of full-text feeds; the list itself stays unpaged for sitemap coverage.
+ */
+const FEED_CONTENT_LIMIT = 50
+
 blogPublicRoutes.get('/feeds', async (c) => {
   const userId = await ownerId(c)
   const [settings, counts] = await Promise.all([
     loadBlogSettings(c.env.DB, userId),
     blogCounts(c.env.DB, userId),
   ])
-  const { rows } = await listPublishedPostsFiltered(c.env.DB, userId, { page: 1, limit: 100, excludeEncrypted: true })
+  const { rows } = await listPublishedPostsFiltered(c.env.DB, userId, { unpaged: true, excludeEncrypted: true })
   const tags = await listPostTags(c.env.DB, userId, rows.map((row) => row.id))
+  const includeContent = c.req.query('includeContent') === '1'
+  const bodies = new Map<string, string>()
+  if (includeContent) {
+    const recent = rows.slice(0, FEED_CONTENT_LIMIT)
+    const snapshots = await Promise.all(recent.map(async (row) => {
+      const render = await readRenderSnapshot(c.env.FILES, row)
+      return [row.id, render?.html ?? ''] as const
+    }))
+    for (const [id, html] of snapshots) if (html) bodies.set(id, html)
+  }
+  const posts = rows.map((row, index) => {
+    const summary = toBlogSummary(row, tags.get(row.id) ?? [])
+    const html = index < FEED_CONTENT_LIMIT ? bodies.get(row.id) : undefined
+    return html ? { ...summary, contentHtml: html } : summary
+  })
   return c.json({
     site: await resolvePublicBlogMusic(c.env, c.env.DB, userId, publicSite(settings, counts)),
-    posts: rows.map((row) => toBlogSummary(row, tags.get(row.id) ?? [])),
+    posts,
   }, 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })

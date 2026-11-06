@@ -145,15 +145,19 @@ export function createApp() {
     // The proxy answers with upstream bytes and its own CORS/cache/security headers. Rewriting
     // them here would replace the engine's policy (and wrap every large download a second time).
     if (isXgetProxyPath(c.req.path)) return
-    const devDocument = import.meta.env?.DEV === true
-      && (c.res.headers.get('content-type') ?? '').includes('text/html')
+    const contentType = c.res.headers.get('content-type') ?? ''
+    const devDocument = import.meta.env?.DEV === true && contentType.includes('text/html')
     for (const [name, value] of Object.entries(securityHeaders(c.req.url, {
       allowDevInlineScripts: devDocument,
       aiConnectHosts: c.env.AI_CONNECT_HOSTS,
     }))) {
       c.header(name, value)
     }
-    if (c.req.path.startsWith('/api/') && !c.res.headers.has('Cache-Control')) {
+    // A response that can vary by cookie (the app shell, an unlock form, a share page) must not be
+    // stored by the CDN. Existing HTML routes already say so explicitly; this is the default for the
+    // ones that do not, and the API has always been no-store for the same reason.
+    if (!c.res.headers.has('Cache-Control')
+      && (c.req.path.startsWith('/api/') || contentType.includes('text/html'))) {
       c.header('Cache-Control', 'no-store')
     }
   })
