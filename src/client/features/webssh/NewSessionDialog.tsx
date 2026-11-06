@@ -3,6 +3,7 @@ import { Modal } from '../../components/overlay'
 import { Button } from '../../components/primitives'
 import { Input, Field } from '../../components/form'
 import { t } from '../../lib/i18n'
+import { isImeComposing } from '../../lib/ime'
 
 /**
  * W3 owns the host and credential library. Until it lands this dialog only names a demo session,
@@ -53,7 +54,7 @@ export function NewSessionDialog({
           placeholder={t('webssh.session.label_placeholder')}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !isImeComposing(event)) {
               event.preventDefault()
               submit()
             }
