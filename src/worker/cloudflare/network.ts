@@ -586,6 +586,22 @@ export async function createEmailDestination(
   return destination
 }
 
+/** Enable adds and locks MX/SPF records; disable removes the extra MX records Cloudflare added. */
+export async function setEmailRoutingEnabled(
+  auth: CloudflareAuth,
+  zoneId: string,
+  enabled: boolean,
+): Promise<EmailRoutingSettings> {
+  const body = await cfFetch<{ result?: unknown }>(
+    auth,
+    networkZonePath(zoneId, `email/routing/${enabled ? 'enable' : 'disable'}`),
+    { method: 'POST', body: {} },
+  )
+  if (body.result) return toEmailRoutingSettings(body.result)
+  const settings = await cfFetch<{ result?: unknown }>(auth, networkZonePath(zoneId, 'email/routing'))
+  return toEmailRoutingSettings(settings.result)
+}
+
 export async function deleteEmailDestination(
   auth: CloudflareAuth,
   cfAccountId: string,

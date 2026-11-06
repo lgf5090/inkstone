@@ -23,6 +23,7 @@ import {
   createZoneLoadBalancer,
   createZoneSnippet,
   deleteBulkRedirectList,
+  setEmailRoutingEnabled,
   deleteEmailDestination,
   deleteEmailRoutingRule,
   deleteLoadBalancerMonitor,
@@ -269,6 +270,24 @@ async function auditWrite(
   await createAuditLog(c.env, c.get('userId'), accountId, action, target, detail, 'success')
 }
 
+/** A load-balancer write refused with "Access Failed" means the account lacks the product, not a bad payload. */
+function rethrowLoadBalancingEntitlement(error: unknown): never {
+  if (error instanceof ApiError) {
+    const upstream = (error.details as { upstream_status?: unknown } | undefined)?.upstream_status
+    if (
+      (upstream === 400 || upstream === 403)
+      && /access failed|not enabled|not entitled|entitlement|interval is not in range \[1, ?1\]/i.test(error.message)
+    ) {
+      throw new ApiError(
+        403,
+        'cloudflare_load_balancing_unavailable',
+        'Load Balancing is not enabled for this Cloudflare account',
+      )
+    }
+  }
+  throw error
+}
+
 networkRouter.post('/:accountId/load-balancer/pools', async (c) => {
   const account = await loadNetworkAccount(c)
   const body = await readJson<Record<string, unknown>>(c)
@@ -277,7 +296,7 @@ networkRouter.post('/:accountId/load-balancer/pools', async (c) => {
     name: fieldText(body, 'name'),
     address: fieldText(body, 'address'),
     ...(fieldText(body, 'monitorId') ? { monitorId: fieldText(body, 'monitorId') } : {}),
-  })
+  }).catch((error: unknown) => rethrowLoadBalancingEntitlement(error))
   await auditWrite(c, account.row.id, 'create_lb_pool', pool.id, pool.name)
   return c.json(pool, 201)
 })
@@ -304,7 +323,7 @@ networkRouter.post('/:accountId/load-balancer/monitors', async (c) => {
     interval: fieldNumber(body, 'interval', 60),
     timeout: fieldNumber(body, 'timeout', 5),
     retries: fieldNumber(body, 'retries', 2),
-  })
+  }).catch((error: unknown) => rethrowLoadBalancingEntitlement(error))
   await auditWrite(c, account.row.id, 'create_lb_monitor', monitor.id, monitor.description)
   return c.json(monitor, 201)
 })
@@ -331,7 +350,7 @@ networkRouter.post('/:accountId/load-balancer/zones/:zoneId/load-balancers', asy
     name: fieldText(body, 'name'),
     fallbackPool: fieldText(body, 'fallbackPool'),
     defaultPools: poolIds,
-  })
+  }).catch((error: unknown) => rethrowLoadBalancingEntitlement(error))
   await auditWrite(c, account.row.id, 'create_zone_lb', loadBalancer.id, `${zone.name}/${loadBalancer.name}`)
   return c.json(loadBalancer, 201)
 })
@@ -407,6 +426,26 @@ networkRouter.delete('/:accountId/email-routing/:zoneId/rules/:ruleId', async (c
   await deleteEmailRoutingRule(account.auth, zone.id, ruleId)
   await auditWrite(c, account.row.id, 'delete_email_rule', `${zone.name}/${ruleId}`, 'routing rule deleted')
   return c.json({ deleted: true })
+})
+
+networkRouter.post('/:accountId/email-routing/:zoneId/enable', async (c) => {
+  const account = await loadNetworkAccount(c)
+  const zoneId = pathId(c.req.param('zoneId'), 'zone id')
+  const zone = await loadZoneForAccount(account.auth, account.row.cf_account_id ?? '', zoneId)
+  await assertNotDemo(c.env, c.get('userId'), account.row.id)
+  const settings = await setEmailRoutingEnabled(account.auth, zone.id, true)
+  await auditWrite(c, account.row.id, 'enable_email_routing', zone.name, 'email routing enabled')
+  return c.json(settings)
+})
+
+networkRouter.post('/:accountId/email-routing/:zoneId/disable', async (c) => {
+  const account = await loadNetworkAccount(c)
+  const zoneId = pathId(c.req.param('zoneId'), 'zone id')
+  const zone = await loadZoneForAccount(account.auth, account.row.cf_account_id ?? '', zoneId)
+  await assertNotDemo(c.env, c.get('userId'), account.row.id)
+  const settings = await setEmailRoutingEnabled(account.auth, zone.id, false)
+  await auditWrite(c, account.row.id, 'disable_email_routing', zone.name, 'email routing disabled')
+  return c.json(settings)
 })
 
 networkRouter.post('/:accountId/email-routing/addresses', async (c) => {

@@ -336,6 +336,29 @@ describe('network writes', () => {
     ]))
   })
 
+  it('enables and disables Email Routing, returning the read-back settings', async () => {
+    stubApi(({ method, path }) => {
+      if (method === 'POST' && path === `/zones/${ZONE_ID}/email/routing/enable`) {
+        return cfJson({ enabled: true, status: 'ready', name: 'alpha.example' })
+      }
+      if (method === 'POST' && path === `/zones/${ZONE_ID}/email/routing/disable`) {
+        return cfJson({ enabled: false, status: 'unconfigured', name: 'alpha.example' })
+      }
+      return null
+    })
+
+    const enabled = await sendWrite(`/email-routing/${ZONE_ID}/enable`, 'POST')
+    expect(enabled.status).toBe(200)
+    expect(await enabled.json()).toEqual({ enabled: true, status: 'ready', name: 'alpha.example' })
+    const disabled = await sendWrite(`/email-routing/${ZONE_ID}/disable`, 'POST')
+    expect(disabled.status).toBe(200)
+    expect(await disabled.json()).toEqual({ enabled: false, status: 'unconfigured', name: 'alpha.example' })
+    expect(await auditActions()).toEqual(expect.arrayContaining([
+      'enable_email_routing',
+      'disable_email_routing',
+    ]))
+  })
+
   it('uploads a snippet as multipart and deletes it with its rule gone first', async () => {
     stubApi(({ method, path }) => {
       if (method === 'PUT' && path === `/zones/${ZONE_ID}/snippets/parity_write_test`) return cfJson({})

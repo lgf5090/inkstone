@@ -958,6 +958,30 @@ function EmailRoutingPanel({ accountId, zoneId, readOnly }: { accountId: string;
   const [addressOpen, setAddressOpen] = useState(false)
   const [addressEmail, setAddressEmail] = useState('')
 
+  async function toggleRouting(next: boolean): Promise<void> {
+    const ok = await confirm({
+      title: next ? tcf('cloudflare.network.email.enable') : tcf('cloudflare.network.email.disable'),
+      description: next ? tcf('cloudflare.network.email.enable_confirm') : tcf('cloudflare.network.email.disable_confirm'),
+      confirmLabel: next ? tcf('cloudflare.network.email.enable') : tcf('cloudflare.network.email.disable'),
+      cancelLabel: uiT('common.cancel'),
+      tone: next ? 'default' : 'danger',
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      await networkApi.setEmailRoutingEnabled(accountId, zoneId, next)
+      toast({
+        title: next ? tcf('cloudflare.network.email.enable') : tcf('cloudflare.network.email.disable'),
+        tone: 'success',
+      })
+      reload()
+    } catch (failure) {
+      toast({ title: cfErrorText(failure), tone: 'danger' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function createRule(): Promise<void> {
     setBusy(true)
     try {
@@ -1043,7 +1067,22 @@ function EmailRoutingPanel({ accountId, zoneId, readOnly }: { accountId: string;
   const routing = data as EmailRoutingResponse
   return (
     <div className="space-y-3">
-      <Panel title={tcf('cloudflare.network.email.settings')}>
+      <Panel
+        title={tcf('cloudflare.network.email.settings')}
+        actions={(
+          <Button
+            size="sm"
+            variant={routing.settings.enabled ? 'danger' : 'primary'}
+            loading={busy}
+            disabled={readOnly}
+            onClick={() => { void toggleRouting(!routing.settings.enabled) }}
+          >
+            {routing.settings.enabled
+              ? tcf('cloudflare.network.email.disable')
+              : tcf('cloudflare.network.email.enable')}
+          </Button>
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <BadgeForEnabled enabled={routing.settings.enabled} />
           <Badge tone="neutral">{routing.settings.status || '—'}</Badge>

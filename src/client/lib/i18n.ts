@@ -53,6 +53,7 @@ const apiCodeMessages: Record<string, MessageKey> = {
     cloudflare_upstream: 'api.error.cloudflare_upstream',
     cloudflare_not_configured: 'api.error.cloudflare_not_configured',
     cloudflare_credential_refused: 'api.error.cloudflare_credential_refused',
+    cloudflare_load_balancing_unavailable: 'api.error.cloudflare_load_balancing_unavailable',
     cloudflare_quota_exceeded: 'api.error.cloudflare_quota_exceeded',
     github_rate_limited: 'development.github.errors.rate_limited',
     github_token_invalid: 'development.github.errors.token_invalid',

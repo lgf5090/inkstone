@@ -236,6 +236,11 @@ export const networkApi = {
     { method: 'POST', body: input },
   ),
 
+  setEmailRoutingEnabled: (accountId: string, zoneId: string, enabled: boolean) =>
+    cfRequest<EmailRoutingSettings>(
+      `${accountPath(accountId)}/email-routing/${encodeURIComponent(zoneId)}/${enabled ? 'enable' : 'disable'}`,
+      { method: 'POST' },
+    ),
   createEmailRule: (accountId: string, zoneId: string, input: {
     name: string
     recipient: string

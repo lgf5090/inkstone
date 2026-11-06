@@ -1564,6 +1564,7 @@ export type ApiErrorCode =
   | 'cloudflare_upstream'
   | 'cloudflare_not_configured'
   | 'cloudflare_credential_refused'
+  | 'cloudflare_load_balancing_unavailable'
   | 'cloudflare_quota_exceeded'
   | 'apitester_invalid_name'
   | 'apitester_workspace_limit'
