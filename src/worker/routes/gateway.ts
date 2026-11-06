@@ -52,6 +52,7 @@ import {
   extractImage,
   FLUX_ALIAS,
   FLUX_SIZE,
+  GatewayStorageError,
   IMG2IMG_ALIAS,
   imageReservation,
   imageSettlement,
@@ -1103,13 +1104,17 @@ function gatewayImageFolder(now: number): string {
 }
 
 function imageOpenAiError(error: unknown): OpenAiError | ApiError {
+  if (error instanceof GatewayStorageError) {
+    return new OpenAiError(error.status, error.message, 'api_error', error.gatewayCode)
+  }
   if (error instanceof StorageError) {
     const status = error.status >= 400 && error.status < 600 ? error.status : 502
+    const moderation = status === 503 && /Content moderation is unavailable/.test(error.message)
     return new OpenAiError(
       status,
       error.message,
       status === 503 ? 'api_error' : 'invalid_request_error',
-      status === 503 ? 'image_url_unavailable' : 'image_bed_error',
+      moderation ? 'image_moderation_unavailable' : status === 503 ? 'image_url_unavailable' : 'image_bed_error',
     )
   }
   return error instanceof OpenAiError || error instanceof ApiError ? error : new OpenAiError(502, 'Image generation failed', 'api_error', 'image_failed')
@@ -1187,10 +1192,16 @@ async function handleImages(c: Context<AppBindings>): Promise<Response> {
       lastAccountId = outcome.acquired.account.row.id
       const image = await extractImage(outcome.response)
       if (responseFormat === 'url') {
-        const stored = await storeGeneratedImage(
-          c.env, c.env.DB, c.req.raw, key.userId,
-          image.bytes, image.contentType, image.extension, folder, origin,
-        )
+        let stored
+        try {
+          stored = await storeGeneratedImage(
+            c.env, c.env.DB, c.req.raw, key.userId,
+            image.bytes, image.contentType, image.extension, folder, origin,
+          )
+        } catch (storageError) {
+          await settleNeurons(c.env, key.userId, outcome.acquired.account.row.id, resolved.alias, imageSettlement(resolved.alias, 4, 1), limit, Date.now())
+          throw storageError
+        }
         if (!stored.reused) {
           await recordGatewayMedia(c.env, {
             userId: key.userId, keyId: key.id, requestId,

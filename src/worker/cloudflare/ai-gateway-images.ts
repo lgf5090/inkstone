@@ -8,10 +8,10 @@
  */
 import type { ImgbedChannelType } from '@shared/imgbed/model'
 import type { ImgbedActor } from '../imgbed/auth'
-import { getResolvedChannel } from '../imgbed/channels'
+import { availableChannelsForUpload, getResolvedChannel } from '../imgbed/channels'
 import { parseSecuritySettings } from '@shared/imgbed/settings'
 import { deleteFileRow, getFile, getSettingsGroup } from '../imgbed/store'
-import { getWholeFile, publicFileUrl, StorageError } from '../imgbed/storage'
+import { deleteWholeFile, getWholeFile, publicFileUrl, StorageError } from '../imgbed/storage'
 import { uploadSingle } from '../imgbed/upload-service'
 import type { ImgbedFile } from '@shared/imgbed/model'
 import { sha256Hex } from '../lib/encoding'
@@ -175,6 +175,13 @@ export async function imageBedUrl(
   return `${origin}/imgbed/file/${fileId}`
 }
 
+export class GatewayStorageError extends StorageError {
+  constructor(message: string, readonly gatewayCode: string, status = 503) {
+    super(message, status)
+    this.name = 'GatewayStorageError'
+  }
+}
+
 export interface StoredImage {
   fileId: string
   url: string
@@ -196,11 +203,22 @@ export async function storeGeneratedImage(
   const hash = (await sha256Hex(bytes)).slice(0, 32)
   const fileName = `${hash}.${extension}`
   const candidateId = `${folder}/${fileName}`
+  const security = parseSecuritySettings(await getSettingsGroup(db, 'security'))
+  if (security.moderate.enabled) {
+    const channels = await availableChannelsForUpload(env, db)
+    if (!channels.some((channel) => publicFileUrl(channel, 'probe'))) {
+      throw new GatewayStorageError('Content moderation needs a channel direct URL', 'image_moderation_unavailable')
+    }
+  }
   const existing = await getFile(db, candidateId)
   if (existing) {
     const channel = await getResolvedChannel(env, db, existing.source as ImgbedChannelType, existing.channelName)
     if (channel && await imageStillAvailable(env, channel, existing)) {
-      const url = await imageBedUrl(env, db, existing.id, publicFileUrl(channel, existing.id) || undefined, origin)
+      const direct = publicFileUrl(channel, existing.id)
+      if (security.moderate.enabled && !direct) {
+        throw new GatewayStorageError('Content moderation needs a channel direct URL', 'image_moderation_unavailable')
+      }
+      const url = await imageBedUrl(env, db, existing.id, direct || undefined, origin)
       if (url) return { fileId: existing.id, url, reused: true }
     }
     await deleteFileRow(db, existing.id)
@@ -212,7 +230,19 @@ export async function storeGeneratedImage(
     uploadNameType: 'origin',
     returnFormat: 'full',
   })
+  if (security.moderate.enabled && !result.publicUrl) {
+    await discardUploaded(env, db, result.id)
+    throw new GatewayStorageError('Content moderation needs a channel direct URL', 'image_moderation_unavailable')
+  }
   const url = await imageBedUrl(env, db, result.id, result.publicUrl, origin)
   if (!url) throw new StorageError('The image bed has no publicly reachable URL', 503)
   return { fileId: result.id, url, reused: false }
+}
+
+async function discardUploaded(env: Env, db: D1Database, fileId: string): Promise<void> {
+  const file = await getFile(db, fileId)
+  if (!file) return
+  const channel = await getResolvedChannel(env, db, file.source as ImgbedChannelType, file.channelName)
+  if (channel) await deleteWholeFile(env, channel, file).catch(() => undefined)
+  await deleteFileRow(db, fileId)
 }

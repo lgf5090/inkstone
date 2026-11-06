@@ -719,6 +719,24 @@ describe('Images', () => {
     expect(media?.n).toBe(1)
   })
 
+  it('refuses url storage when moderation is on but no channel has a direct URL', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'y'.repeat(26), accountId: 'h'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'moderated image key' })
+    await bed.env.DB.prepare('INSERT INTO imgbed_settings (key, value, updated_at) VALUES (?1, ?2, ?3)')
+      .bind('security', JSON.stringify({ moderate: { enabled: true, channel: 'nsfwjs' } }), Date.now())
+      .run()
+    stubCloudflare(async () => Response.json({ result: { image: pngBase64 } }))
+    const response = await app.request('/api/gateway/v1/images/generations', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'a tiny dot', response_format: 'url' }),
+    }, bed.env)
+    expect(response.status).toBe(503)
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe('image_moderation_unavailable')
+    const files = await bed.env.DB.prepare('SELECT COUNT(*) AS n FROM imgbed_files').first<{ n: number }>()
+    expect(files?.n).toBe(0)
+  })
+
   it('edits an image through img2img and refuses a mask explicitly', async () => {
     await seedAccount(bed, TEST_USER, { id: 'w'.repeat(26), accountId: 'e'.repeat(32) })
     const created = await createGatewayKey(bed.env, TEST_USER, { name: 'edit key' })
