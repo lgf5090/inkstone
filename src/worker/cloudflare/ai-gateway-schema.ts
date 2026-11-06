@@ -107,3 +107,52 @@ export const AI_GATEWAY_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_ai_gateway_reconcile_history
      ON ai_gateway_reconcile_snapshots(user_id, account_id, day, checked_at DESC)`,
 ]
+
+/**
+ * Responses persistence and generated-image retention (migration 288).
+ *
+ * A stored response keeps the canonical messages that were sent upstream and the output items that
+ * were returned, which is exactly what `previous_response_id` needs to rebuild the next turn. The
+ * media table is a retention ledger rather than a second image store: the bytes live in the image
+ * bed's channel and only the file id, URL and expiry are kept here.
+ */
+export const AI_GATEWAY_PERSISTENCE_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS ai_gateway_responses (
+     id TEXT PRIMARY KEY,
+     user_id TEXT NOT NULL,
+     key_id TEXT NOT NULL,
+     model TEXT NOT NULL,
+     previous_response_id TEXT,
+     instructions TEXT,
+     canonical_messages TEXT NOT NULL,
+     output_items TEXT NOT NULL,
+     output_text TEXT NOT NULL DEFAULT '',
+     usage TEXT NOT NULL,
+     metadata TEXT,
+     created_at INTEGER NOT NULL,
+     expires_at INTEGER NOT NULL,
+     size_bytes INTEGER NOT NULL DEFAULT 0
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_gateway_responses_user_time
+     ON ai_gateway_responses(user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_gateway_responses_expiry
+     ON ai_gateway_responses(user_id, expires_at)`,
+
+  `CREATE TABLE IF NOT EXISTS ai_gateway_media (
+     id TEXT PRIMARY KEY,
+     user_id TEXT NOT NULL,
+     key_id TEXT NOT NULL,
+     request_id TEXT NOT NULL,
+     file_id TEXT NOT NULL,
+     format TEXT NOT NULL,
+     url TEXT NOT NULL,
+     size_bytes INTEGER NOT NULL DEFAULT 0,
+     created_at INTEGER NOT NULL,
+     expires_at INTEGER NOT NULL,
+     deleted_at INTEGER
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_gateway_media_expiry
+     ON ai_gateway_media(user_id, expires_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_gateway_media_file
+     ON ai_gateway_media(file_id)`,
+]

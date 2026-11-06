@@ -9,6 +9,7 @@ import {
   reservationFor,
 } from '../src/worker/cloudflare/ai-gateway-models'
 import { createGatewayKey } from '../src/worker/cloudflare/ai-gateway-keys'
+import { readGatewayResponse, storeGatewayResponse } from '../src/worker/cloudflare/ai-gateway-responses'
 import {
   gatewayDay,
   markAccountFailure,
@@ -481,6 +482,136 @@ describe('public chat and responses data plane', () => {
     const text = await response.text()
     expect(text).toContain('event: response.failed')
     expect(text).not.toContain('event: response.completed')
+  })
+})
+
+describe('Responses persistence', () => {
+  async function setup() {
+    const account = await seedAccount(bed, TEST_USER, { id: 's'.repeat(26), accountId: 'a'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'store key' })
+    const headers = { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' }
+    return { account, created, headers }
+  }
+
+  it('stores a non-stream response, reads it back and deletes it', async () => {
+    const { headers } = await setup()
+    stubCloudflare(async () => Response.json({
+      choices: [{ message: { role: 'assistant', content: 'hi there' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    }))
+    const created = await app.request('/api/gateway/v1/responses', {
+      method: 'POST', headers, body: JSON.stringify({ model: 'qwen3', input: 'hello' }),
+    }, bed.env)
+    expect(created.status).toBe(200)
+    const body = await created.json() as { id: string; output: Array<{ content: Array<{ text: string }> }> }
+    const stored = await bed.env.DB.prepare('SELECT id, output_text, expires_at FROM ai_gateway_responses WHERE id = ?1')
+      .bind(body.id).first<{ id: string; output_text: string; expires_at: number }>()
+    expect(stored?.output_text).toBe('hi there')
+    expect(stored?.expires_at).toBeGreaterThan(Date.now())
+
+    const read = await app.request(`/api/gateway/v1/responses/${body.id}`, { headers }, bed.env)
+    expect(read.status).toBe(200)
+    expect(await read.json()).toMatchObject({ object: 'response', id: body.id, output: body.output })
+
+    const deleted = await app.request(`/api/gateway/v1/responses/${body.id}`, { method: 'DELETE', headers }, bed.env)
+    expect(deleted.status).toBe(200)
+    expect(await deleted.json()).toMatchObject({ id: body.id, object: 'response.deleted', deleted: true })
+    const missing = await app.request(`/api/gateway/v1/responses/${body.id}`, { headers }, bed.env)
+    expect(missing.status).toBe(404)
+  })
+
+  it('chains previous_response_id into the next upstream request and reserves the full prompt', async () => {
+    const { headers } = await setup()
+    let calls = 0
+    let secondMessages: unknown[] = []
+    stubCloudflare(async (_url, init) => {
+      calls += 1
+      if (calls === 2) secondMessages = (JSON.parse(init?.body as string) as { messages: unknown[] }).messages
+      return Response.json({
+        choices: [{ message: { role: 'assistant', content: calls === 1 ? 'first answer' : 'second answer' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      })
+    })
+    const first = await app.request('/api/gateway/v1/responses', {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'qwen3', instructions: 'be brief', input: 'hello' }),
+    }, bed.env)
+    const firstBody = await first.json() as { id: string }
+    const second = await app.request('/api/gateway/v1/responses', {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'qwen3', previous_response_id: firstBody.id, input: 'again' }),
+    }, bed.env)
+    expect(second.status).toBe(200)
+    expect(secondMessages).toEqual([
+      { role: 'system', content: 'be brief' },
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'again' },
+    ])
+    const missing = await app.request('/api/gateway/v1/responses', {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'qwen3', previous_response_id: 'resp_missing', input: 'again' }),
+    }, bed.env)
+    expect(missing.status).toBe(400)
+    expect(await missing.json()).toMatchObject({ error: { code: 'previous_response_not_found', param: 'previous_response_id' } })
+  })
+
+  it('does not store when store is false, and rejects an oversized stored response', async () => {
+    const { headers } = await setup()
+    stubCloudflare(async () => Response.json({
+      choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    }))
+    const skipped = await app.request('/api/gateway/v1/responses', {
+      method: 'POST', headers, body: JSON.stringify({ model: 'qwen3', input: 'hello', store: false }),
+    }, bed.env)
+    expect(skipped.status).toBe(200)
+    expect((await bed.env.DB.prepare('SELECT COUNT(*) AS n FROM ai_gateway_responses').first<{ n: number }>())?.n).toBe(0)
+
+    bed.env.AI_GATEWAY_RESPONSE_MAX_BYTES = '1024'
+    stubCloudflare(async () => Response.json({
+      choices: [{ message: { role: 'assistant', content: 'x'.repeat(2000) }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 500, total_tokens: 510 },
+    }))
+    const tooLarge = await app.request('/api/gateway/v1/responses', {
+      method: 'POST', headers, body: JSON.stringify({ model: 'qwen3', input: 'hello' }),
+    }, bed.env)
+    expect(tooLarge.status).toBe(413)
+    expect(await tooLarge.json()).toMatchObject({ error: { code: 'response_too_large_to_store' } })
+  })
+
+  it('stores a streaming response after response.completed', async () => {
+    const { headers } = await setup()
+    stubCloudflare(async () => sseResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'hi' } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: { content: ' there' } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\n`,
+      'data: [DONE]\n\n',
+    ]))
+    const response = await app.request('/api/gateway/v1/responses', {
+      method: 'POST', headers, body: JSON.stringify({ model: 'qwen3', input: 'hello', stream: true }),
+    }, bed.env)
+    const text = await response.text()
+    const id = /"id":"(resp_[^"]+)"/.exec(text)?.[1]
+    expect(id).toBeTruthy()
+    const stored = await bed.env.DB.prepare('SELECT output_text FROM ai_gateway_responses WHERE id = ?1')
+      .bind(id).first<{ output_text: string }>()
+    expect(stored?.output_text).toBe('hi there')
+  })
+
+  it('removes an expired stored response on read', async () => {
+    await storeGatewayResponse(bed.env, {
+      id: 'resp_expired',
+      userId: TEST_USER,
+      keyId: 'k',
+      model: 'qwen3',
+      canonicalMessages: [{ role: 'user', content: 'hello' }],
+      outputItems: [],
+      outputText: '',
+      usage: {},
+      now: Date.now() - 8 * 24 * 3600_000,
+    })
+    expect(await readGatewayResponse(bed.env, TEST_USER, 'resp_expired')).toBeNull()
+    expect((await bed.env.DB.prepare('SELECT COUNT(*) AS n FROM ai_gateway_responses').first<{ n: number }>())?.n).toBe(0)
   })
 })
 

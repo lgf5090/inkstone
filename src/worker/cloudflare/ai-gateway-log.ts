@@ -11,7 +11,7 @@ export interface GatewayRequestInput {
   keyId: string
   accountId: string
   day: string
-  format: 'chat' | 'responses'
+  format: 'chat' | 'responses' | 'embedding' | 'image' | 'audio'
   stream: boolean
   model: string
   status: 'success' | 'error' | 'quota' | 'auth' | 'upstream' | 'client_abort'

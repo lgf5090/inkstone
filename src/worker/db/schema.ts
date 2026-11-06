@@ -83,7 +83,7 @@ import {
   CLOUDFLARE_REQUIRED_TABLES,
   CLOUDFLARE_SCHEMA_STATEMENTS,
 } from '../cloudflare/schema'
-import { AI_GATEWAY_SCHEMA_STATEMENTS } from '../cloudflare/ai-gateway-schema'
+import { AI_GATEWAY_PERSISTENCE_SCHEMA_STATEMENTS, AI_GATEWAY_SCHEMA_STATEMENTS } from '../cloudflare/ai-gateway-schema'
 import {
   YOUTUBE_REQUIRED_COLUMNS,
   YOUTUBE_REQUIRED_INDEXES,
@@ -779,6 +779,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...CALENDAR_SCHEMA_STATEMENTS,
   ...CLOUDFLARE_SCHEMA_STATEMENTS,
   ...AI_GATEWAY_SCHEMA_STATEMENTS,
+  ...AI_GATEWAY_PERSISTENCE_SCHEMA_STATEMENTS,
   ...YOUTUBE_SCHEMA_STATEMENTS,
   ...CLOUDDRIVE_SCHEMA_STATEMENTS,
   ...SCRIPTSHUB_SCHEMA_STATEMENTS,]
@@ -3837,6 +3838,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // 287 starts here: 277–286 are already claimed on `test` (286 by the blog layout fix).
     version: 287,
     statements: AI_GATEWAY_SCHEMA_STATEMENTS,
+  },
+  {
+    // Responses persistence (`previous_response_id`) and the retention ledger for generated images.
+    // 288 follows 287; nothing above is touched.
+    version: 288,
+    statements: AI_GATEWAY_PERSISTENCE_SCHEMA_STATEMENTS,
   },
 ]
 

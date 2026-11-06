@@ -67,6 +67,15 @@ export interface Env {
    */
   AI_GATEWAY_NEURON_LIMIT?: string
 
+  /** TTL for stored Responses objects, in hours. Default 168 (7 days); 0 keeps them forever. */
+  AI_GATEWAY_RESPONSE_TTL_HOURS?: string
+
+  /** Largest serialised Responses object the gateway will store, in bytes. Default 512 KiB. */
+  AI_GATEWAY_RESPONSE_MAX_BYTES?: string
+
+  /** TTL for gateway-generated images, in hours. Default 168 (7 days); 0 keeps them forever. */
+  AI_GATEWAY_IMAGE_TTL_HOURS?: string
+
   /** Shared secret the blog Worker sends on public blog reads; required outside local dev. */
   BLOG_PROXY_KEY?: string
 

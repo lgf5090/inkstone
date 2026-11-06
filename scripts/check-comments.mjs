@@ -38468,6 +38468,10 @@ const allowed = new Map([
   ["src/worker/cloudflare/ai-gateway-log.ts", [
     "/**\n * Request evidence for the gateway. Bodies are deliberately absent: this table answers \"who called,\n * which account served it, what did it cost and why did it fail\" without becoming a second copy of\n * user prompts.\n */",
   ]],
+  ["src/worker/cloudflare/ai-gateway-media.ts", [
+    "/**\n * Retention ledger for images the gateway generates and hands back as a URL.\n *\n * The bytes are not copied here: they already live in the image bed's channel, written by the same\n * `uploadSingle` service a manual upload uses. This table only answers \"which image files did the\n * gateway create, when do they expire, and have we deleted them yet\". The sweep reuses the image\n * bed's own delete path, so a channel's object and its row are removed together.\n */",
+    "/**\n * Deletes expired gateway images through the image bed's channel-aware delete path. A missing file\n * row (already removed by hand) is still marked deleted, so the sweep does not retry it forever.\n */",
+  ]],
   ["src/worker/cloudflare/ai-gateway-models.ts", [
     "/**\n * The two OpenAI faces of the gateway: Chat Completions and Responses.\n *\n * Both are normalised to one canonical messages array before quota estimation and before the upstream\n * call. That is what makes \"the same content\" cost the same neurons in either format and keeps the\n * Responses path from quietly under-counting `instructions` or tool turns.\n */",
     "/** OpenAI fields the Workers AI OpenAI-compatible endpoint accepts; kept as data, not as booleans. */",
@@ -38480,8 +38484,15 @@ const allowed = new Map([
     "// One UPSERT, not \"UPDATE then INSERT\": several requests can be reserving at the same instant and",
     "// the fallback INSERT would then collide on the primary key.",
   ]],
+  ["src/worker/cloudflare/ai-gateway-responses.ts", [
+    "/**\n * Stored Responses objects and the `previous_response_id` chain.\n *\n * OpenAI's Responses API keeps the conversation on the server; this gateway is stateless at the\n * transport layer but not at the semantic one. The row holds the canonical messages that were sent\n * upstream and the output items that came back, so the next turn can rebuild exactly the same\n * conversation and reserve quota against the full prompt rather than only the new input.\n */",
+    "/** Text and tool calls from one response become the assistant turn the next request continues from. */",
+    "/**\n * Prior messages + prior output + the new input. A new `instructions` replaces the previous system\n * message rather than stacking a second one; without new instructions the previous one stays.\n */",
+    "/** Called by the minute cron; expired rows are also removed lazily when someone reads them. */",
+  ]],
   ["src/worker/cloudflare/ai-gateway-schema.ts", [
     "/**\n * The self-hosted AI gateway's local ledger.\n *\n * Cloudflare's GraphQL atoms are the authoritative daily total, but they arrive late. These tables are\n * the gate: an account/day row is updated with one conditional statement so concurrent requests cannot\n * reserve past the threshold, while the request and snapshot tables keep the evidence needed to audit\n * what happened. No request or response bodies are stored here.\n */",
+    "/**\n * Responses persistence and generated-image retention (migration 288).\n *\n * A stored response keeps the canonical messages that were sent upstream and the output items that\n * were returned, which is exactly what `previous_response_id` needs to rebuild the next turn. The\n * media table is a retention ledger rather than a second image store: the bytes live in the image\n * bed's channel and only the file id, URL and expiry are kept here.\n */",
   ]],
   ["src/worker/cloudflare/ai-models.ts", [
     "/**\n * Cloudflare's AI catalogue, and the parts of a model schema this app has to understand.\n *\n * The model list is live (Cloudflare adds and retires models), while a model's input schema is\n * stable enough to keep for an hour — the TTS screens ask for it on every open, and the schema call\n * is one more round trip per model. The body a speech model accepts is derived from that schema\n * rather than hard-coded: melotts takes `prompt` and aura takes `text`, and the speaker enums differ\n * per model.\n */",
@@ -39452,6 +39463,8 @@ const allowed = new Map([
     "// The self-hosted AI gateway keeps its own quota ledger, key table and request evidence. Cloudflare's",
     "// GraphQL total reconciles it, but the gate must be local or concurrent requests would overshoot.",
     "// 287 starts here: 277–286 are already claimed on `test` (286 by the blog layout fix).",
+    "// Responses persistence (`previous_response_id`) and the retention ledger for generated images.",
+    "// 288 follows 287; nothing above is touched.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -39675,6 +39688,9 @@ const allowed = new Map([
     "/** Click-detail retention in days; unset keeps the default, `0` disables the sweep. */",
     "/** Set only when the request authenticated with a Memos access token rather than a session. */",
     "/**\n   * The local gate for the self-hosted AI gateway, in neurons per account/day. Unset means the 9,500\n   * safety threshold; it never exceeds the 10,000 hard limit. A local verification run may set it to\n   * a tiny number to prove the gate stops concurrent requests.\n   */",
+    "/** TTL for stored Responses objects, in hours. Default 168 (7 days); 0 keeps them forever. */",
+    "/** Largest serialised Responses object the gateway will store, in bytes. Default 512 KiB. */",
+    "/** TTL for gateway-generated images, in hours. Default 168 (7 days); 0 keeps them forever. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",

@@ -39,6 +39,12 @@ import {
   settleNeurons,
 } from '../cloudflare/ai-gateway-quota'
 import { insertGatewayRequest, type GatewayRequestInput } from '../cloudflare/ai-gateway-log'
+import {
+  chainMessages,
+  deleteGatewayResponse,
+  readGatewayResponse,
+  storeGatewayResponse,
+} from '../cloudflare/ai-gateway-responses'
 import type { LoadedAccount } from '../cloudflare/accounts'
 
 export const gatewayRoutes = new Hono<AppBindings>()
@@ -692,6 +698,8 @@ async function proxyResponsesStream(
         created_at: createdAt,
         status: state,
         model: request.alias,
+        store: request.store,
+        previous_response_id: request.previousResponseId ?? null,
         output,
         usage: usage
           ? {
@@ -792,9 +800,27 @@ async function proxyResponsesStream(
           }
           const finalUsage = usage ?? fallbackUsage(request, text)
           const output = streamOutput(text, toolItems, itemId, requestId)
+          let stored = request.store
+          if (request.store) {
+            const result = await storeGatewayResponse(c.env, {
+              id: responseId,
+              userId: key.userId,
+              keyId: key.id,
+              model: request.alias,
+              previousResponseId: request.previousResponseId ?? null,
+              instructions: request.instructions ?? null,
+              canonicalMessages: request.messages,
+              outputItems: output as Record<string, unknown>[],
+              outputText: text,
+              usage: { input_tokens: finalUsage.prompt, output_tokens: finalUsage.completion, total_tokens: finalUsage.total },
+              metadata: request.metadata ?? null,
+            })
+            stored = result.stored
+          }
           send('response.completed', {
             response: {
               ...responseObject('completed', output),
+              store: stored,
               usage: {
                 input_tokens: finalUsage.prompt,
                 input_tokens_details: { cached_tokens: 0 },
@@ -895,6 +921,24 @@ async function handle(c: Context<AppBindings>, format: 'chat' | 'responses'): Pr
     key = await authenticate(c)
     const body = await readBody(c)
     request = format === 'chat' ? canonicalChatRequest(body) : canonicalResponsesRequest(body)
+    if (format === 'responses' && request.previousResponseId) {
+      const prior = await readGatewayResponse(c.env, key.userId, request.previousResponseId)
+      if (!prior) {
+        throw new OpenAiError(
+          400,
+          'The previous response does not exist or has expired',
+          'invalid_request_error',
+          'previous_response_not_found',
+          'previous_response_id',
+        )
+      }
+      const instructions = request.instructions ?? prior.instructions ?? undefined
+      request = {
+        ...request,
+        messages: chainMessages(prior, request.messages, instructions),
+        ...(instructions !== undefined ? { instructions } : {}),
+      }
+    }
     if (!keyAllowsModel(key, request.alias)) {
       throw new OpenAiError(403, 'This key is not allowed to use that model', 'permission_error', 'model_not_allowed')
     }
@@ -942,7 +986,31 @@ async function handle(c: Context<AppBindings>, format: 'chat' | 'responses'): Pr
     if (format === 'chat') {
       return chatResponse(parsed, request, corsHeaders(c), requestId)
     }
-    return openAiJson(responsesResponse(parsed, request, requestId, usage), 200, corsHeaders(c), requestId)
+    const responseBody = responsesResponse(parsed, request, requestId, usage)
+    if (request.store) {
+      const stored = await storeGatewayResponse(c.env, {
+        id: `resp_${requestId}`,
+        userId: key.userId,
+        keyId: key.id,
+        model: request.alias,
+        previousResponseId: request.previousResponseId ?? null,
+        instructions: request.instructions ?? null,
+        canonicalMessages: request.messages,
+        outputItems: responseBody.output as Record<string, unknown>[],
+        outputText: completionText(parsed),
+        usage: { input_tokens: usage.prompt, output_tokens: usage.completion, total_tokens: usage.total },
+        metadata: request.metadata ?? null,
+      })
+      if (!stored.stored) {
+        throw new OpenAiError(
+          413,
+          'This response is too large to store; retry with store=false',
+          'invalid_request_error',
+          'response_too_large_to_store',
+        )
+      }
+    }
+    return openAiJson(responseBody, 200, corsHeaders(c), requestId)
   } catch (error) {
     if (key && request) {
       logFailure(c.env, key, request, 'error', errorCodeOf(error).status, errorCodeOf(error).code, started, requestId)
@@ -988,6 +1056,56 @@ gatewayRoutes.get('/v1/models/:id', async (c) => {
 
 gatewayRoutes.post('/v1/chat/completions', (c) => handle(c, 'chat'))
 gatewayRoutes.post('/v1/responses', (c) => handle(c, 'responses'))
+
+gatewayRoutes.get('/v1/responses/:id', async (c) => {
+  const requestId = requestIdOf()
+  try {
+    const key = await authenticate(c)
+    const stored = await readGatewayResponse(c.env, key.userId, c.req.param('id'))
+    if (!stored) {
+      throw new OpenAiError(404, 'The response does not exist or has expired', 'invalid_request_error', 'response_not_found', 'response_id')
+    }
+    return openAiJson({
+      id: stored.id,
+      object: 'response',
+      created_at: stored.createdAt,
+      completed_at: stored.createdAt,
+      status: 'completed',
+      error: null,
+      incomplete_details: null,
+      model: stored.model,
+      instructions: stored.instructions,
+      metadata: stored.metadata ?? {},
+      parallel_tool_calls: true,
+      previous_response_id: stored.previousResponseId,
+      store: true,
+      truncation: 'disabled',
+      temperature: 1,
+      top_p: 1,
+      tools: [],
+      tool_choice: 'auto',
+      output: stored.outputItems,
+      usage: stored.usage,
+    }, 200, corsHeaders(c), requestId)
+  } catch (error) {
+    return openAiError(error, corsHeaders(c), requestId)
+  }
+})
+
+gatewayRoutes.delete('/v1/responses/:id', async (c) => {
+  const requestId = requestIdOf()
+  try {
+    const key = await authenticate(c)
+    const id = c.req.param('id')
+    const deleted = await deleteGatewayResponse(c.env, key.userId, id)
+    if (!deleted) {
+      throw new OpenAiError(404, 'The response does not exist or has expired', 'invalid_request_error', 'response_not_found', 'response_id')
+    }
+    return openAiJson({ id, object: 'response.deleted', deleted: true }, 200, corsHeaders(c), requestId)
+  } catch (error) {
+    return openAiError(error, corsHeaders(c), requestId)
+  }
+})
 
 gatewayRoutes.all('/v1/*', (c) => {
   const requestId = requestIdOf()
