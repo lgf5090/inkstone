@@ -1438,6 +1438,8 @@ export const EN_US_TOOLS = {
   'tools.shortlinks.bundles.links_count': '{count} links',
   'tools.shortlinks.bundles.count': '{count} bundles',
   'tools.shortlinks.bundles.selected_count': '{count} selected',
+  'tools.shortlinks.bundles.loaded_count': 'Showing {loaded} of {total} links',
+  'tools.shortlinks.bundles.load_more': 'Load more',
   'tools.shortlinks.bundles.manage_links': 'Manage Included Links',
   'tools.shortlinks.bundles.add_link': 'Add Link to Bundle',
   'tools.shortlinks.bundles.remove_link': 'Remove from Bundle',

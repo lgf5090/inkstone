@@ -9,6 +9,11 @@ import type { ShortLink } from '@shared/tools/shortlinks/types'
 import { useShortlinksStore } from '../store'
 import { shortlinksApi } from '../api'
 
+/** One page of the account's links; 50 keeps a 150-link account inside D1's bound-parameter limit. */
+const PAGE_SIZE = 50
+/** The add endpoint binds every id in one statement, so the modal hands it slices of the same size. */
+const ADD_BATCH_SIZE = 50
+
 export function ManageBundleLinksModal() {
   const open = useShortlinksStore((s) => s.manageBundleLinksModalOpen)
   const setOpen = useShortlinksStore((s) => s.setManageBundleLinksModalOpen)
@@ -19,18 +24,24 @@ export function ManageBundleLinksModal() {
   const fetchBundles = useShortlinksStore((s) => s.fetchBundles)
 
   const [allUserLinks, setAllUserLinks] = useState<ShortLink[]>([])
+  const [total, setTotal] = useState(0)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [initialIds, setInitialIds] = useState<Set<number>>(new Set())
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [saving, setSaving] = useState(false)
   const initializedRef = useRef(false)
+  // A search or bundle switch starts a new page-one fetch; a late answer from the old query must not
+  // append rows to a list the user is already looking at.
+  const requestSeqRef = useRef(0)
 
   const bundle = bundles.find((b) => b.id === activeBundleId)
 
   useEffect(() => {
     if (!open) {
       initializedRef.current = false
+      requestSeqRef.current += 1
       return
     }
     if (!activeBundleId) return
@@ -45,22 +56,21 @@ export function ManageBundleLinksModal() {
       setSearch('')
     }
 
-    let cancelled = false
+    const seq = ++requestSeqRef.current
     setLoading(true)
     shortlinksApi
-      .getLinks({ limit: 100, search: search.trim() || undefined })
+      .getLinks({ limit: PAGE_SIZE, offset: 0, search: search.trim() || undefined })
       .then((res) => {
-        if (!cancelled) setAllUserLinks(res.items)
+        if (seq !== requestSeqRef.current) return
+        setAllUserLinks(res.items)
+        setTotal(res.total)
       })
       .catch((err) => {
-        if (!cancelled) useUiStore.getState().toast((err as Error).message, 'error')
+        if (seq === requestSeqRef.current) useUiStore.getState().toast((err as Error).message, 'error')
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (seq === requestSeqRef.current) setLoading(false)
       })
-    return () => {
-      cancelled = true
-    }
   }, [open, activeBundleId, activeBundleLinks, search])
 
   const handleToggle = (id: number) => {
@@ -72,6 +82,26 @@ export function ManageBundleLinksModal() {
     })
   }
 
+  const handleLoadMore = async () => {
+    if (!activeBundleId || loading || loadingMore) return
+    const seq = requestSeqRef.current
+    setLoadingMore(true)
+    try {
+      const res = await shortlinksApi.getLinks({
+        limit: PAGE_SIZE,
+        offset: allUserLinks.length,
+        search: search.trim() || undefined,
+      })
+      if (seq !== requestSeqRef.current) return
+      setAllUserLinks((prev) => [...prev, ...res.items])
+      setTotal(res.total)
+    } catch (err) {
+      if (seq === requestSeqRef.current) useUiStore.getState().toast((err as Error).message, 'error')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
   const handleSave = async () => {
     if (!activeBundleId) return
     setSaving(true)
@@ -79,8 +109,8 @@ export function ManageBundleLinksModal() {
       const toAdd = Array.from(selectedIds).filter((id) => !initialIds.has(id))
       const toRemove = Array.from(initialIds).filter((id) => !selectedIds.has(id))
 
-      if (toAdd.length > 0) {
-        await shortlinksApi.addLinksToBundle(activeBundleId, toAdd)
+      for (let offset = 0; offset < toAdd.length; offset += ADD_BATCH_SIZE) {
+        await shortlinksApi.addLinksToBundle(activeBundleId, toAdd.slice(offset, offset + ADD_BATCH_SIZE))
       }
       for (const id of toRemove) {
         await shortlinksApi.removeLinkFromBundle(activeBundleId, id)
@@ -175,6 +205,18 @@ export function ManageBundleLinksModal() {
                 </label>
               )
             })}
+          </div>
+        )}
+        {!loading && total > 0 && (
+          <div className="flex items-center justify-between gap-2 px-1">
+            <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+              {t('tools.shortlinks.bundles.loaded_count', { loaded: allUserLinks.length, total })}
+            </span>
+            {allUserLinks.length < total && (
+              <Button variant="ghost" size="sm" onClick={handleLoadMore} loading={loadingMore}>
+                {t('tools.shortlinks.bundles.load_more')}
+              </Button>
+            )}
           </div>
         )}
       </div>

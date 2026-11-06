@@ -20001,6 +20001,10 @@ const allowed = new Map([
   ["src/client/features/tools/shortlinks/modals/ManageBundleLinksModal.tsx", [
     "// The baseline is the bundle's membership at open time; the live list may still be loading, so",
     "// it can never be used to infer deletions.",
+    "/** One page of the account's links; 50 keeps a 150-link account inside D1's bound-parameter limit. */",
+    "/** The add endpoint binds every id in one statement, so the modal hands it slices of the same size. */",
+    "// A search or bundle switch starts a new page-one fetch; a late answer from the old query must not",
+    "// append rows to a list the user is already looking at.",
   ]],
   ["src/client/features/tools/shortlinks/modals/QrCodeModal.tsx", [
     "/* QR Plate with white background for readability */",
@@ -43840,7 +43844,6 @@ const allowed = new Map([
     "// Password hashing",
     "// Count total",
     "// Fetch link IDs and rows",
-    "// Batch load slugs",
     "// Slugs Management",
     "// Check count of remaining slugs",
     "// Click Ingestion & Public Resolution",
@@ -43866,6 +43869,11 @@ const allowed = new Map([
     "// unbounded D1 writer and inflate the owner's statistics. Bots are not a reader at all, and one",
     "// fingerprint counts once inside the window; both are decided before the insert, so the skipped",
     "// request costs a single indexed read instead of two writes.",
+    "/**\n * D1 rejects a statement past roughly a hundred bound parameters. A slug lookup binds one user id\n * per link plus a trailing scope id, so wide pages, exports and bundle reads have to ask in slices.\n */",
+    "/**\n   * Loads slugs for a set of links in slices, so a page or a whole bundle never builds an `IN` list\n   * wider than D1's bound-parameter ceiling.\n   */",
+    "// Batch load slugs in slices so a full page stays inside D1's bound-parameter limit.",
+    "// Half the API page cap: each page can still be followed by chunked slug reads, and a 150-link",
+    "// account exports in three passes instead of relying on one oversized statement.",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",
@@ -49720,6 +49728,10 @@ const allowed = new Map([
     "// browser sends both a user agent and a language, and the bot check reads the first.",
     "// A visitor id only exists when the deployment has a salt; without one `computeVisitorFingerprint`",
     "// refuses to invent an identity, and this test would be measuring nothing.",
+  ]],
+  ["tests/tools-shortlinks-limits.test.ts", [
+    "/**\n * The ceiling the audit hit in production: D1 rejects a statement with more bound parameters than\n * this. The shared double only enforces it when a suite opts in, so this file opts in on purpose —\n * an un-chunked `IN (?, ?, …)` fails here instead of passing on a permissive local SQLite.\n */",
+    "// One click in the first slice and one in the last, so the per-link merge has to span chunks.",
   ]],
   ["tests/tools-shortlinks-ui.test.tsx", [
     "// First render with activeLink null",
