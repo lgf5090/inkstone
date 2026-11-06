@@ -1,32 +1,29 @@
 /**
  * The gateway tab is an operator view, not a chat surface: it shows the local quota gate, the
- * weighted scheduler order, issued keys, request evidence and the two OpenAI entry points. Reads are
- * live; the only writes are key issuance/revocation and an explicit reconciliation run.
+ * weighted scheduler order, issued keys, the per-account routing switches and the two OpenAI entry
+ * points. Request evidence moved to the request-log tab, which is the workspace's landing view.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Activity, KeyRound, Plus, RefreshCw, ShieldCheck, Zap } from 'lucide-react'
 import { LoadingBlock } from '../../../../components/feedback'
-import { Field, Input, Checkbox } from '../../../../components/form'
+import { Field, Input, Checkbox, Switch } from '../../../../components/form'
 import { Modal, confirm } from '../../../../components/overlay'
 import { Badge, Button, IconButton } from '../../../../components/primitives'
-import { SelectMenu } from '../../../../components/select-menu'
 import { CopyButton } from '../../../../components/copy-button'
+import { cn } from '../../../../lib/cn'
 import { t as uiT } from '../../../../lib/i18n'
 import { useUi } from '../../../../store/ui'
 import { cfErrorText } from '../../api/client'
 import {
   aiGatewayApi,
   type GatewayKeyView,
-  type GatewayLogView,
   type GatewayOverview,
   type GatewayReconcileView,
+  type GatewayRoutingView,
 } from '../../api/ai-gateway'
 import { useCfT } from '../../i18n'
 import { AiEmpty, AiError, AiPanel } from './AiPanel'
 import { Table, TableScroll, TBody, Td, Th, THead, Tr } from '../../components/Table'
-
-type StatusFilter = '' | 'success' | 'error' | 'quota' | 'upstream' | 'auth'
-type FormatFilter = '' | 'chat' | 'responses' | 'embedding' | 'image' | 'audio'
 
 function when(ms: number | null): string {
   if (!ms) return '—'
@@ -44,11 +41,6 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
   return 'neutral'
 }
 
-function accountName(id: string, overview: GatewayOverview | null): string {
-  if (!id) return '—'
-  return overview?.accounts.find((account) => account.id === id)?.name ?? id
-}
-
 export function GatewayTab() {
   const t = useCfT()
   const toast = useUi((state) => state.toast)
@@ -63,21 +55,12 @@ export function GatewayTab() {
   const [keyModels, setKeyModels] = useState<string[]>([])
   const [createdKey, setCreatedKey] = useState<{ token: string; record: GatewayKeyView } | null>(null)
 
-  const [logs, setLogs] = useState<GatewayLogView[]>([])
-  const [logTotal, setLogTotal] = useState(0)
-  const [logPage, setLogPage] = useState(1)
-  const [logLoading, setLogLoading] = useState(false)
-  const [logError, setLogError] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('')
-  const [formatFilter, setFormatFilter] = useState<FormatFilter>('')
-  const [keyFilter, setKeyFilter] = useState('')
-  const [accountFilter, setAccountFilter] = useState('')
-  const [logReload, setLogReload] = useState(0)
-
   const [history, setHistory] = useState<GatewayReconcileView[]>([])
   const [access, setAccess] = useState<Awaited<ReturnType<typeof aiGatewayApi.access>> | null>(null)
-
-  const logPages = Math.max(1, Math.ceil(logTotal / 20))
+  const [routing, setRouting] = useState<GatewayRoutingView[]>([])
+  const [routingDrafts, setRoutingDrafts] = useState<Record<string, { enabled: boolean; gatewayId: string; collectLogPayload: boolean }>>({})
+  const [routingBusy, setRoutingBusy] = useState<string | null>(null)
+  const [routingError, setRoutingError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -91,23 +74,6 @@ export function GatewayTab() {
 
   useEffect(() => {
     let cancelled = false
-    setLogLoading(true)
-    aiGatewayApi.logs({
-      page: logPage,
-      pageSize: 20,
-      ...(statusFilter ? { status: statusFilter } : {}),
-      ...(formatFilter ? { format: formatFilter } : {}),
-      ...(keyFilter ? { keyId: keyFilter } : {}),
-      ...(accountFilter ? { accountId: accountFilter } : {}),
-    })
-      .then((body) => { if (!cancelled) { setLogs(body.items); setLogTotal(body.total); setLogError(null) } })
-      .catch((reason: unknown) => { if (!cancelled) setLogError(cfErrorText(reason)) })
-      .finally(() => { if (!cancelled) setLogLoading(false) })
-    return () => { cancelled = true }
-  }, [logPage, statusFilter, formatFilter, keyFilter, accountFilter, logReload])
-
-  useEffect(() => {
-    let cancelled = false
     aiGatewayApi.reconcileHistory({ page: 1, pageSize: 10 })
       .then((body) => { if (!cancelled) setHistory(body.items) })
       .catch(() => { if (!cancelled) setHistory([]) })
@@ -117,30 +83,23 @@ export function GatewayTab() {
     return () => { cancelled = true }
   }, [reload])
 
-  const keyOptions = useMemo(() => [
-    { value: '', label: t('cloudflare.ai_gateway.all') },
-    ...(overview?.keys ?? []).map((key) => ({ value: key.id, label: `${key.name} (${key.prefix}…)` })),
-  ], [overview, t])
-  const accountOptions = useMemo(() => [
-    { value: '', label: t('cloudflare.ai_gateway.all') },
-    ...(overview?.accounts ?? []).map((account) => ({ value: account.id, label: account.name })),
-  ], [overview, t])
-  const statusOptions = [
-    { value: '', label: t('cloudflare.ai_gateway.all') },
-    { value: 'success', label: 'success' },
-    { value: 'error', label: 'error' },
-    { value: 'quota', label: 'quota' },
-    { value: 'upstream', label: 'upstream' },
-    { value: 'auth', label: 'auth' },
-  ]
-  const formatOptions = [
-    { value: '', label: t('cloudflare.ai_gateway.all') },
-    { value: 'chat', label: t('cloudflare.ai_gateway.format_chat') },
-    { value: 'embedding', label: t('cloudflare.ai_gateway.format_embedding') },
-    { value: 'image', label: t('cloudflare.ai_gateway.format_image') },
-    { value: 'audio', label: t('cloudflare.ai_gateway.format_audio') },
-    { value: 'responses', label: t('cloudflare.ai_gateway.format_responses') },
-  ]
+  useEffect(() => {
+    let cancelled = false
+    aiGatewayApi.routing()
+      .then((body) => {
+        if (cancelled) return
+        setRouting(body.items)
+        setRoutingDrafts(Object.fromEntries(body.items.map((item) => [item.accountId, {
+          enabled: item.enabled,
+          gatewayId: item.gatewayId,
+          collectLogPayload: item.collectLogPayload,
+        }])))
+        setRoutingError(null)
+      })
+      .catch((reason: unknown) => { if (!cancelled) setRoutingError(cfErrorText(reason)) })
+    return () => { cancelled = true }
+  }, [reload])
+
   const modelOptions = [
     { value: 'qwen3', label: 'qwen3' },
     { value: 'glm-4.7-flash', label: 'glm-4.7-flash' },
@@ -209,6 +168,33 @@ export function GatewayTab() {
       toast({ title: cfErrorText(reason), tone: 'danger' })
     } finally {
       setBusy(false)
+    }
+  }
+
+  function setRoutingDraft(accountId: string, next: Partial<{ enabled: boolean; gatewayId: string; collectLogPayload: boolean }>): void {
+    setRoutingDrafts((current) => ({
+      ...current,
+      [accountId]: { ...(current[accountId] ?? { enabled: false, gatewayId: '', collectLogPayload: false }), ...next },
+    }))
+  }
+
+  async function saveRouting(accountId: string): Promise<void> {
+    const draft = routingDrafts[accountId]
+    if (!draft) return
+    setRoutingBusy(accountId)
+    try {
+      const saved = await aiGatewayApi.saveRouting(accountId, draft)
+      setRouting((current) => current.map((item) => (item.accountId === accountId ? saved : item)))
+      setRoutingDraft(accountId, {
+        enabled: saved.enabled,
+        gatewayId: saved.gatewayId,
+        collectLogPayload: saved.collectLogPayload,
+      })
+      toast({ title: t('cloudflare.ai_gateway.routing_saved'), tone: 'success' })
+    } catch (reason) {
+      toast({ title: cfErrorText(reason), tone: 'danger' })
+    } finally {
+      setRoutingBusy(null)
     }
   }
 
@@ -302,6 +288,89 @@ export function GatewayTab() {
             )}
           </AiPanel>
 
+          <AiPanel title={t('cloudflare.ai_gateway.routing_title')} bodyClassName="p-0">
+            <p className="border-b border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+              {t('cloudflare.ai_gateway.routing_hint')}
+            </p>
+            {routingError ? <AiError message={routingError} onRetry={() => setReload((value) => value + 1)} /> : null}
+            {routing.length === 0 ? <AiEmpty>{t('cloudflare.ai_gateway.empty_accounts')}</AiEmpty> : (
+              <ul className="divide-y divide-[var(--border-subtle)]">
+                {routing.map((item) => {
+                  const draft = routingDrafts[item.accountId] ?? {
+                    enabled: item.enabled,
+                    gatewayId: item.gatewayId,
+                    collectLogPayload: item.collectLogPayload,
+                  }
+                  const payloadOn = draft.enabled && draft.collectLogPayload
+                  return (
+                    <li key={item.accountId} className="flex flex-col gap-3 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="min-w-0 truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
+                          {item.accountName}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+                            {t('cloudflare.ai_gateway.routing_switch')}
+                          </span>
+                          <Switch
+                            checked={draft.enabled}
+                            label={t('cloudflare.ai_gateway.routing_switch')}
+                            onChange={(next) => setRoutingDraft(item.accountId, {
+                              enabled: next,
+                              collectLogPayload: next ? draft.collectLogPayload : false,
+                            })}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <Field label={t('cloudflare.ai_gateway.routing_gateway_id')}>
+                          <Input
+                            value={draft.gatewayId}
+                            disabled={!draft.enabled}
+                            placeholder={t('cloudflare.ai_gateway.routing_gateway_id_placeholder')}
+                            onChange={(event) => setRoutingDraft(item.accountId, { gatewayId: event.target.value })}
+                          />
+                        </Field>
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={draft.collectLogPayload}
+                              disabled={!draft.enabled}
+                              label={t('cloudflare.ai_gateway.routing_payload')}
+                              onChange={(next) => setRoutingDraft(item.accountId, { collectLogPayload: next })}
+                            />
+                            <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                              {t('cloudflare.ai_gateway.routing_payload')}
+                            </span>
+                          </div>
+                          <p className={cn(
+                            'text-[length:var(--text-11)]',
+                            payloadOn ? 'text-[var(--status-warning)]' : 'text-[var(--text-tertiary)]',
+                          )}>
+                            {payloadOn
+                              ? t('cloudflare.ai_gateway.routing_payload_warning')
+                              : t('cloudflare.ai_gateway.routing_payload_hint')}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          loading={routingBusy === item.accountId}
+                          disabled={routingBusy === item.accountId || (draft.enabled && !draft.gatewayId.trim())}
+                          onClick={() => { void saveRouting(item.accountId) }}
+                        >
+                          {uiT('common.save')}
+                        </Button>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </AiPanel>
+
           <AiPanel title={t('cloudflare.ai_gateway.active_keys')} bodyClassName="p-0">
             {overview.keys.length === 0 ? <AiEmpty>{t('cloudflare.ai_gateway.empty_keys')}</AiEmpty> : (
               <TableScroll label={t('cloudflare.ai_gateway.active_keys')}>
@@ -335,57 +404,6 @@ export function GatewayTab() {
                 </Table>
               </TableScroll>
             )}
-          </AiPanel>
-
-          <AiPanel title={t('cloudflare.ai_gateway.logs')} bodyClassName="p-0">
-            <div className="flex flex-wrap items-end gap-2 border-b border-[var(--border-subtle)] p-3">
-              <div className="w-36"><SelectMenu label={t('cloudflare.ai_gateway.filter_status')} value={statusFilter} options={statusOptions} onChange={(value) => setStatusFilter(value as StatusFilter)} /></div>
-              <div className="w-36"><SelectMenu label={t('cloudflare.ai_gateway.filter_format')} value={formatFilter} options={formatOptions} onChange={(value) => setFormatFilter(value as FormatFilter)} /></div>
-              <div className="w-44"><SelectMenu label={t('cloudflare.ai_gateway.filter_key')} value={keyFilter} options={keyOptions} onChange={setKeyFilter} /></div>
-              <div className="w-44"><SelectMenu label={t('cloudflare.ai_gateway.filter_account')} value={accountFilter} options={accountOptions} onChange={setAccountFilter} /></div>
-            </div>
-            {logError ? <AiError message={logError} onRetry={() => setLogReload((value) => value + 1)} /> : null}
-            {logLoading ? <LoadingBlock /> : logs.length === 0 ? <AiEmpty>{t('cloudflare.ai_gateway.empty_logs')}</AiEmpty> : (
-              <TableScroll label={t('cloudflare.ai_gateway.logs')}>
-                <Table>
-                  <THead><Tr>
-                    <Th>{t('cloudflare.ai_gateway.checked_at')}</Th>
-                    <Th>{t('cloudflare.ai_gateway.key')}</Th>
-                    <Th>{t('cloudflare.ai_gateway.account')}</Th>
-                    <Th>{t('cloudflare.ai_gateway.format')}</Th>
-                    <Th>{t('cloudflare.ai_gateway.model')}</Th>
-                    <Th>{t('cloudflare.ai_gateway.status')}</Th>
-                    <Th>{t('cloudflare.ai_gateway.tokens')}</Th>
-                    <Th>{t('cloudflare.ai_gateway.neurons')}</Th>
-                    <Th>{t('cloudflare.ai_gateway.duration')}</Th>
-                  </Tr></THead>
-                  <TBody>
-                    {logs.map((log) => (
-                      <Tr key={log.id}>
-                        <Td className="whitespace-nowrap">{when(log.createdAt)}</Td>
-                        <Td className="truncate">{log.keyName}</Td>
-                        <Td className="truncate">{accountName(log.accountId, overview)}</Td>
-                        <Td>{log.format}{log.stream ? ' · SSE' : ''}</Td>
-                        <Td className="truncate font-mono text-[length:var(--text-11-5)]">{log.model}</Td>
-                        <Td><Badge tone={statusTone(log.status)}>{log.status}</Badge></Td>
-                        <Td className="tabular-nums">{number(log.promptTokens)}/{number(log.completionTokens)}</Td>
-                        <Td className="tabular-nums">{number(log.actualNeurons)}</Td>
-                        <Td className="tabular-nums">{number(log.durationMs)} {t('cloudflare.ai_gateway.ms')}</Td>
-                      </Tr>
-                    ))}
-                  </TBody>
-                </Table>
-              </TableScroll>
-            )}
-            <div className="flex items-center justify-end gap-2 p-2">
-              <Button size="sm" variant="secondary" disabled={logPage <= 1} onClick={() => setLogPage((value) => Math.max(1, value - 1))}>
-                {t('cloudflare.ai_gateway.prev')}
-              </Button>
-              <span className="text-[length:var(--text-11-5)] tabular-nums text-[var(--text-tertiary)]">{logPage} / {logPages}</span>
-              <Button size="sm" variant="secondary" disabled={logPage >= logPages} onClick={() => setLogPage((value) => value + 1)}>
-                {t('cloudflare.ai_gateway.next')}
-              </Button>
-            </div>
           </AiPanel>
 
           <AiPanel title={t('cloudflare.ai_gateway.reconcile_history')} bodyClassName="p-0">

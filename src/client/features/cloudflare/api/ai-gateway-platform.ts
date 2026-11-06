@@ -28,6 +28,22 @@ export interface PlatformGateway {
   retry_max_attempts?: number | null
   workers_ai_billing_mode?: 'postpaid' | 'unified'
   zdr?: boolean
+  spend_limits?: PlatformSpendLimits | null
+  store_id?: string | null
+}
+
+export interface PlatformSpendLimitRule {
+  id?: string
+  enabled?: boolean
+  limit: number
+  limitType: 'cost'
+  window: number
+  technique?: 'fixed' | 'sliding'
+}
+
+export interface PlatformSpendLimits {
+  enabled?: boolean
+  rules?: PlatformSpendLimitRule[]
 }
 
 export interface PlatformPage<T> {
@@ -245,11 +261,29 @@ export const aiGatewayPlatformApi = {
       `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/gateways/${encodeURIComponent(gatewayId)}/provider-configs`,
       { method: 'POST', body },
     ),
-  createSpendingLimit: (accountId: string, body: { amount: number; duration: 'daily' | 'weekly' | 'monthly'; strategy: 'fixed' | 'sliding' }) =>
-    cfRequest<{ limit: PlatformSpendingLimit }>(
-      `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/billing/spending-limit`,
+  updateProviderConfig: (accountId: string, gatewayId: string, providerId: string, body: { secret: string }) =>
+    cfRequest<{ provider: PlatformProviderConfig }>(
+      `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/gateways/${encodeURIComponent(gatewayId)}/provider-configs/${encodeURIComponent(providerId)}`,
+      { method: 'PUT', body },
+    ),
+  deleteProviderConfig: (accountId: string, gatewayId: string, providerId: string) =>
+    cfRequest<{ deleted: boolean }>(
+      `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/gateways/${encodeURIComponent(gatewayId)}/provider-configs/${encodeURIComponent(providerId)}`,
+      { method: 'DELETE' },
+    ),
+  createRoute: (accountId: string, gatewayId: string, body: { name: string }) =>
+    cfRequest<{ route: PlatformRoute }>(
+      `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/gateways/${encodeURIComponent(gatewayId)}/routes`,
       { method: 'POST', body },
     ),
+  setSpendLimits: (
+    accountId: string,
+    gatewayId: string,
+    body: { enabled: boolean; rules: Array<{ id?: string; limit: number; window: number; technique?: 'fixed' | 'sliding' }> },
+  ) => cfRequest<{ spendLimits: PlatformSpendLimits }>(
+    `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/gateways/${encodeURIComponent(gatewayId)}/spend-limits`,
+    { method: 'PUT', body },
+  ),
   clearSpendingLimit: (accountId: string) =>
     cfRequest<{ deleted: boolean }>(
       `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/billing/spending-limit`,

@@ -1563,6 +1563,8 @@ export type ApiErrorCode =
   | 'music_ai_upstream'
   | 'cloudflare_upstream'
   | 'cloudflare_not_configured'
+  | 'cloudflare_auth_missing'
+  | 'cloudflare_secret_pending'
   | 'cloudflare_credential_refused'
   | 'cloudflare_load_balancing_unavailable'
   | 'cloudflare_quota_exceeded'

@@ -6496,13 +6496,16 @@ const allowed = new Map([
     "// discard every streamed answer for the rest of the session.",
   ]],
   ["src/client/features/cloudflare/screens/ai/GatewayTab.tsx", [
-    "/**\n * The gateway tab is an operator view, not a chat surface: it shows the local quota gate, the\n * weighted scheduler order, issued keys, request evidence and the two OpenAI entry points. Reads are\n * live; the only writes are key issuance/revocation and an explicit reconciliation run.\n */",
+    "/**\n * The gateway tab is an operator view, not a chat surface: it shows the local quota gate, the\n * weighted scheduler order, issued keys, the per-account routing switches and the two OpenAI entry\n * points. Request evidence moved to the request-log tab, which is the workspace's landing view.\n */",
   ]],
   ["src/client/features/cloudflare/screens/ai/ImageTab.tsx", [
     "/**\n * The image tab: text-to-image and image-to-image against the model family the reader picked.\n *\n * The family decides which controls exist — Stable Diffusion takes width, height, guidance and a\n * negative prompt, FLUX does not — and the request builder is what turns that into the body.\n */",
   ]],
   ["src/client/features/cloudflare/screens/ai/PlatformGatewayTab.tsx", [
-    "/**\n * The Cloudflare-hosted AI Gateway tab: gateways, logs, routing, BYOK, spending limit, analytics and\n * logpush, all read-only. The account is the one the Cloudflare app already stores; this screen never\n * handles a token.\n */",
+    "/**\n * The Cloudflare-hosted AI Gateway tab: gateways, logs, routing, BYOK, spend limits, analytics and\n * logpush. The account is the one the Cloudflare app already stores; this screen never handles a\n * token.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/ai/RequestsTab.tsx", [
+    "/**\n * The relay's own request log, and the AI workspace's landing view.\n *\n * Cloudflare's AI Gateway logs only exist when a request was explicitly routed through a gateway.\n * This table is the opposite: every request the self-hosted relay served, whichever account answered\n * it, recorded at the moment it finished. It is the first place to look when usage or failures need\n * an explanation.\n */",
   ]],
   ["src/client/features/cloudflare/screens/ai/StatsTab.tsx", [
     "/**\n * The AI statistics tab: five headline numbers, the usage rings, the model ranking and one card per\n * account.\n *\n * The ring pair is the point of the page. The outer ring is how today's neurons divide between the\n * accounts, the inner one is how much of the combined quota that whole is, and the small rings answer\n * the question a reader actually acts on — how close each account is to its own 10,000. The bars rank\n * models across accounts. Every shape is printed with its number beside it: an angle or a length is\n * something a reader may not be able to resolve, and a colour never carries a value on its own.\n */",
@@ -38500,7 +38503,8 @@ const allowed = new Map([
     "/** Embedding models are a separate capability: sending one to /chat/completions would fail upstream. */",
   ]],
   ["src/worker/cloudflare/ai-gateway-platform.ts", [
-    "/**\n * The read side of the Cloudflare AI Gateway management panel.\n *\n * The official `cloudflare` SDK is the field contract: response and parameter types are imported\n * from it, while every call goes through `cfFetch`, the single door that already carries account\n * headers, the timeout and the error mapping. Instantiating the SDK's client would pull every\n * Cloudflare resource into the Worker bundle, so the SDK stays type-only here.\n */",
+    "/**\n * The provider-config update the SDK does not declare.\n *\n * Real calls answered PUT on this path and the only field that read back changed was the secret;\n * alias, provider slug, default flag and rate limits were accepted but not applied. The caller\n * therefore sends the current values back unchanged and lets this endpoint rotate the secret.\n */",
+    "/**\n * The Cloudflare AI Gateway management layer behind the panel.\n *\n * The official `cloudflare` SDK is the field contract: response and parameter types are imported\n * from it, while every call goes through `cfFetch`, the single door that already carries account\n * headers, the timeout and the error mapping. Instantiating the SDK's client would pull every\n * Cloudflare resource into the Worker bundle, so the SDK stays type-only here.\n */",
   ]],
   ["src/worker/cloudflare/ai-gateway-quota.ts", [
     "/**\n * The self-hosted gateway's quota gate.\n *\n * Cloudflare's GraphQL total is authoritative but late; this ledger is what stops a request before it\n * is sent. Every reservation is one conditional UPDATE so two isolates racing on the same account see\n * each other's increment, and a reservation never shrinks: settling only raises `actual`/`reserved`\n * and reconciliation only raises them further. The hard limit is 10,000 neurons per account/day.\n */",
@@ -38513,9 +38517,18 @@ const allowed = new Map([
     "/**\n * Prior messages + prior output + the new input. A new `instructions` replaces the previous system\n * message rather than stacking a second one; without new instructions the previous one stays.\n */",
     "/** Called by the minute cron; expired rows are also removed lazily when someone reads them. */",
   ]],
+  ["src/worker/cloudflare/ai-gateway-routing.ts", [
+    "/**\n * Per-account routing switches for the self-hosted relay.\n *\n * Off is the default and a missing row means off, so the relay keeps calling Cloudflare directly\n * until a reader turns a switch on. Turning it on only adds the AI Gateway header to `/ai/v1`\n * requests; it never enables caching. Payload collection is a second switch and is never implied by\n * the first one, because it sends prompt bodies to Cloudflare's log store.\n */",
+    "/** What a row that does not exist means: both switches off, no gateway remembered. */",
+    "/** Gateway ids are slugs; a value that cannot be one is rejected rather than silently ignored. */",
+    "/**\n * Validate what the settings form sent. Payload collection is forced off while routing is off, so the\n * stored value cannot describe a header that would never be sent.\n */",
+    "/** One query for the settings panel rather than one per account. */",
+    "/** The headers a `/ai/v1` call adds when routing is on. Empty means byte-for-byte the old request. */",
+  ]],
   ["src/worker/cloudflare/ai-gateway-schema.ts", [
     "/**\n * The self-hosted AI gateway's local ledger.\n *\n * Cloudflare's GraphQL atoms are the authoritative daily total, but they arrive late. These tables are\n * the gate: an account/day row is updated with one conditional statement so concurrent requests cannot\n * reserve past the threshold, while the request and snapshot tables keep the evidence needed to audit\n * what happened. No request or response bodies are stored here.\n */",
     "/**\n * Responses persistence and generated-image retention (migration 288).\n *\n * A stored response keeps the canonical messages that were sent upstream and the output items that\n * were returned, which is exactly what `previous_response_id` needs to rebuild the next turn. The\n * media table is a retention ledger rather than a second image store: the bytes live in the image\n * bed's channel and only the file id, URL and expiry are kept here.\n */",
+    "/**\n * Per-account routing switches for the self-hosted relay (migration 299).\n *\n * Both switches default to off, and a missing row means off: the relay's default is a direct call to\n * Cloudflare, exactly as it was before this table existed. `gateway_id` is only honoured while\n * `enabled` is 1, so a remembered id cannot turn routing on by itself.\n */",
   ]],
   ["src/worker/cloudflare/ai-models.ts", [
     "/**\n * Cloudflare's AI catalogue, and the parts of a model schema this app has to understand.\n *\n * The model list is live (Cloudflare adds and retires models), while a model's input schema is\n * stable enough to keep for an hour — the TTS screens ask for it on every open, and the schema call\n * is one more round trip per model. The body a speech model accepts is derived from that schema\n * rather than hard-coded: melotts takes `prompt` and aura takes `text`, and the speaker enums differ\n * per model.\n */",
@@ -39488,6 +39501,9 @@ const allowed = new Map([
     "// 287 starts here: 277–286 are already claimed on `test` (286 by the blog layout fix).",
     "// Responses persistence (`previous_response_id`) and the retention ledger for generated images.",
     "// 288 follows 287; nothing above is touched.",
+    "// Per-account switches for routing relay traffic through an AI Gateway. 299 is the first number",
+    "// free here: the short-link batch holds 289–297 and WebSSH spent 298 on its own branch.",
+    "// A fresh database also gets the table from `SCHEMA_STATEMENTS`, where `IF NOT EXISTS` applies.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -41552,10 +41568,21 @@ const allowed = new Map([
     "/** The undo behind a delete: only possible while the trash still holds the row. */",
   ]],
   ["src/worker/routes/cloudflare/ai-gateway-platform.ts", [
-    "/**\n * `/api/cloudflare/ai-gateway-platform` — the Cloudflare AI Gateway management surface.\n *\n * Every endpoint is addressed through an account the reader owns, and the account's Cloudflare id\n * is the only thing sent upstream. This router is read-only on purpose: the write endpoints and\n * their confirmation, audit and rollback live in a separate change.\n */",
+    "/**\n * `/api/cloudflare/ai-gateway-platform` — the Cloudflare AI Gateway management surface.\n *\n * Every endpoint is addressed through an account the reader owns, and the account's Cloudflare id\n * is the only thing sent upstream. Reads and writes share this router; every write reads before it\n * writes, reads the result back and rolls back when the platform did not apply it.\n */",
+    "// Omit `store_id` on purpose: Cloudflare keeps the current store when the field is absent.",
+    "/** 9106 is Cloudflare's \"missing auth headers\", not a capability gate. Name it that way. */",
+    "/** 7020 means the new secret is still propagating in Secrets Store: a retry, not a failure. */",
+    "/** Normalise the new gateway-level spend limits; the old `/billing/spending-limit` is deprecated. */",
+    "// Keep the gateway-level spend limits when this request is only editing the rest of the config.",
+    "/**\n * Gateway-level spend limits: the replacement for the deprecated account-level endpoint.\n *\n * The write is a gateway update because Cloudflare stores these rules on the gateway itself. The\n * full gateway snapshot is sent with the new rules so the rest of the config cannot be reset as a\n * side effect, and the previous snapshot is written back when the read-back does not match.\n */",
+    "/**\n * Creating a dynamic route is available; the earlier `400 / 9106` was a missing-auth probe, not a\n * capability gate. The single-version delete is the one real gap: deleting a route removes its\n * versions and deployments instead.\n */",
+    "/**\n * Provider-key update and delete.\n *\n * The SDK declares only create/list for this resource, but real calls answered PUT and DELETE. A\n * field-by-field probe found that PUT only applies the secret: alias, provider slug, default flag\n * and rate limits came back unchanged. This route therefore rotates the secret only and sends the\n * current metadata back untouched.\n */",
+    "// The deprecated create endpoint always answers 403, so this delete has no rollback: the old",
+    "// limit can only be removed, not recreated. Say that plainly instead of pretending to restore.",
   ]],
   ["src/worker/routes/cloudflare/ai-gateway.ts", [
     "/**\n * `/api/cloudflare/ai-gateway` — the session-authenticated management surface for the self-hosted\n * gateway. The public data plane lives under `/api/gateway` and authenticates with `gw_` keys instead.\n */",
+    "/**\n * The two per-account switches behind the relay's `/ai/v1` calls.\n *\n * The response lists every active AI account, not only the accounts that already have a row, so the\n * panel can show \"off\" as a real value instead of treating a missing row as unknown.\n */",
   ]],
   ["src/worker/routes/cloudflare/ai-v1.ts", [
     "/**\n * `/api/cloudflare/v1` — the OpenAI-compatible face of Cloudflare Workers AI.\n *\n * The shapes are OpenAI's on purpose: the screens already speak them, and a request copied from\n * another tool works unchanged. Account selection travels in the body (`accountId`), because the\n * streaming and JSON paths share one request shape and a custom header would only be readable by one\n * of them.\n *\n * Cloudflare's free allowance is per account and per UTC day. A refusal that means \"today is used up\"\n * marks the account exhausted and moves to the next one, so a reader with several accounts never sees\n * a limit before every account has one. The upstream's own words are kept, truncated, for the account\n * owner to read; they are never turned into a status Cloudflare did not send.\n */",
@@ -44075,7 +44102,10 @@ const allowed = new Map([
     "// Clear the backoff and the item is attempted again, incrementing attempts.",
   ]],
   ["tests/ai-gateway-platform.test.ts", [
-    "/**\n * The read-only AI Gateway platform routes: list, logs, routing, billing and analytics.\n */",
+    "/**\n * The AI Gateway platform routes: reads, and the writes that read back and roll back.\n */",
+  ]],
+  ["tests/ai-gateway-routing.test.ts", [
+    "/**\n * The per-account routing switches behind the relay's `/ai/v1` calls.\n *\n * The contract under test is the default: a missing row means direct, no gateway header and no\n * payload header. Only an explicit switch adds `cf-aig-gateway-id`, and payload collection is its own\n * opt-in.\n */",
   ]],
   ["tests/ai-proxy-guard.test.ts", [
     "/**\n * The one predicate every relay asks before it points a request at an address the account configured.\n *\n * What is decided here is the text of an address, so the spellings are the whole test: `2130706433` is\n * `127.0.0.1`, `0x7f000001` is `127.0.0.1`, and an IPv6 literal carries the same address in words that\n * only look unlike it. A public host and a public number have to stay allowed, or the guard is a way of\n * breaking the product rather than a guard.\n */",

@@ -34,9 +34,9 @@ export const CLOUDFLARE_SCREENS: readonly CloudflareScreen[] = [
   'settings',
 ]
 
-export type CloudflareAiTab = 'stats' | 'chat' | 'image' | 'audio' | 'translate' | 'gateway' | 'platform'
+export type CloudflareAiTab = 'requests' | 'stats' | 'chat' | 'image' | 'audio' | 'translate' | 'gateway' | 'platform'
 
-export const CLOUDFLARE_AI_TABS: readonly CloudflareAiTab[] = ['stats', 'chat', 'image', 'audio', 'translate', 'gateway', 'platform']
+export const CLOUDFLARE_AI_TABS: readonly CloudflareAiTab[] = ['requests', 'stats', 'chat', 'image', 'audio', 'translate', 'gateway', 'platform']
 
 export interface CloudflareAddress {
   screen: CloudflareScreen
@@ -57,7 +57,7 @@ export function parseCloudflareAddress(pathname: string, search = ''): Cloudflar
   const requestedTab = new URLSearchParams(search).get('tab')
   const aiTab = (CLOUDFLARE_AI_TABS as readonly string[]).includes(requestedTab ?? '')
     ? (requestedTab as CloudflareAiTab)
-    : 'stats'
+    : 'requests'
   return { screen, aiTab }
 }
 

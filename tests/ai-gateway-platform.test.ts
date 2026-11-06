@@ -1,5 +1,5 @@
 /**
- * The read-only AI Gateway platform routes: list, logs, routing, billing and analytics.
+ * The AI Gateway platform routes: reads, and the writes that read back and roll back.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -327,25 +327,137 @@ describe('AI Gateway platform write routes', () => {
     expect(await auditRows()).toEqual([{ action: 'ai_gateway.gateway.delete', status: 'success' }])
   })
 
-  it('writes and clears the spending limit with a read-back', async () => {
-    let enabled = false
+  it('writes gateway spend limits with a read-back', async () => {
+    let stored: Record<string, unknown> = { enabled: false, rules: [] }
+    stubApi(({ method, path, body }) => {
+      if (method === 'GET' && path.endsWith(`/gateways/${GATEWAY}`)) {
+        return cfJson(gatewayFixture({ spend_limits: stored }))
+      }
+      if (method === 'PUT' && path.endsWith(`/gateways/${GATEWAY}`)) {
+        const sent = (body as { spend_limits?: Record<string, unknown> }).spend_limits
+        if (sent) stored = sent
+        return cfJson(gatewayFixture({ spend_limits: stored }))
+      }
+      return null
+    })
+    const response = await panelWrite('PUT', `/${ACCOUNT}/gateways/${GATEWAY}/spend-limits`, {
+      enabled: true,
+      rules: [{ limit: 100, window: 86400, technique: 'fixed' }],
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ spendLimits: { enabled: true } })
+    expect(await auditRows()).toEqual([{ action: 'ai_gateway.billing.spend_limits', status: 'success' }])
+  })
+
+  it('rolls the gateway spend limits back when the read-back differs', async () => {
+    let applyWrites = false
+    const writes: Array<Record<string, unknown>> = []
+    stubApi(({ method, path, body }) => {
+      if (method === 'GET' && path.endsWith(`/gateways/${GATEWAY}`)) {
+        return cfJson(gatewayFixture({ spend_limits: { enabled: applyWrites, rules: [] } }))
+      }
+      if (method === 'PUT' && path.endsWith(`/gateways/${GATEWAY}`)) {
+        writes.push((body as { spend_limits?: Record<string, unknown> }).spend_limits ?? {})
+        return cfJson(gatewayFixture({ spend_limits: { enabled: false, rules: [] } }))
+      }
+      return null
+    })
+    const response = await panelWrite('PUT', `/${ACCOUNT}/gateways/${GATEWAY}/spend-limits`, {
+      enabled: true,
+      rules: [{ limit: 100, window: 86400 }],
+    })
+    expect(response.status).toBe(502)
+    expect(writes).toHaveLength(2)
+    expect(writes[1]).toMatchObject({ enabled: false })
+    expect(await auditRows()).toEqual([{ action: 'ai_gateway.billing.spend_limits', status: 'error' }])
+  })
+
+  it('still clears the deprecated account-level limit', async () => {
+    let enabled = true
     stubApi(({ method, path }) => {
       if (path.endsWith('/billing/spending-limit')) {
-        if (method === 'POST') { enabled = true; return cfJson({ enabled, config: { amount: 500, duration: 'monthly', strategy: 'fixed' } }) }
         if (method === 'DELETE') { enabled = false; return cfJson({ success: true }) }
         return cfJson({ enabled, config: { amount: enabled ? 500 : null, duration: enabled ? 'monthly' : null, strategy: enabled ? 'fixed' : null } })
       }
       return null
     })
-    const write = await panelWrite('POST', `/${ACCOUNT}/billing/spending-limit`, { amount: 500, duration: 'monthly', strategy: 'fixed' })
-    expect(write.status).toBe(200)
-    expect(((await write.json()) as { limit: { enabled: boolean } }).limit.enabled).toBe(true)
     const clear = await panelWrite('DELETE', `/${ACCOUNT}/billing/spending-limit`)
     expect(clear.status).toBe(200)
-    expect(await auditRows()).toEqual([
-      { action: 'ai_gateway.billing.limit', status: 'success' },
-      { action: 'ai_gateway.billing.limit.clear', status: 'success' },
-    ])
+    expect(await auditRows()).toEqual([{ action: 'ai_gateway.billing.limit.clear', status: 'success' }])
+  })
+
+  it('creates a dynamic route and audits it', async () => {
+    const route = { id: 'route-1', name: 'new-route', created_at: '2026-11-01T00:00:00Z', modified_at: '2026-11-01T00:00:00Z' }
+    let listed = false
+    stubApi(({ method, path }) => {
+      if (path.endsWith(`/gateways/${GATEWAY}/routes`)) {
+        if (method === 'POST') { listed = true; return cfJson(route) }
+        return Response.json({ success: true, data: { routes: listed ? [route] : [], page: 1, per_page: 20 } })
+      }
+      return null
+    })
+    const response = await panelWrite('POST', `/${ACCOUNT}/gateways/${GATEWAY}/routes`, { name: 'new-route' })
+    expect(response.status).toBe(201)
+    expect(await auditRows()).toEqual([{ action: 'ai_gateway.route.create', status: 'success' }])
+  })
+
+  it('names 9106 as missing auth headers when route creation is refused', async () => {
+    stubApi(({ method, path }) => {
+      if (method === 'GET' && path.endsWith(`/gateways/${GATEWAY}/routes`)) {
+        return Response.json({ success: true, data: { routes: [], page: 1, per_page: 20 } })
+      }
+      if (method === 'POST' && path.endsWith(`/gateways/${GATEWAY}/routes`)) {
+        return Response.json({ success: false, errors: [{ code: 9106, message: 'Missing X-Auth-Key, X-Auth-Email or Authorization headers' }] }, { status: 400 })
+      }
+      return null
+    })
+    const response = await panelWrite('POST', `/${ACCOUNT}/gateways/${GATEWAY}/routes`, { name: 'new-route' })
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({
+      error: { code: 'cloudflare_auth_missing' },
+    })
+    expect(await auditRows()).toEqual([{ action: 'ai_gateway.route.create', status: 'error' }])
+  })
+
+  it('rotates a provider secret and maps 7020 to a retryable code', async () => {
+    const provider = {
+      id: 'pc-1', alias: 'openai-main', provider_slug: 'openai', secret_preview: 'sk-***',
+      secret_id: 's', gateway_id: GATEWAY, modified_at: '2026-11-01T00:00:00Z', default_config: false,
+    }
+    let pending = false
+    stubApi(({ method, path }) => {
+      if (path.endsWith(`/gateways/${GATEWAY}/provider_configs`) && method === 'GET') return cfJson([provider])
+      if (method === 'PUT' && path.endsWith('/provider_configs/pc-1')) {
+        if (pending) {
+          return Response.json({ success: false, errors: [{ code: 7020, message: 'The secret in Secrets Store does not yet match the value sent.' }] }, { status: 503 })
+        }
+        return cfJson({ ...provider, secret_preview: 'sk-***-new' })
+      }
+      return null
+    })
+    const rotated = await panelWrite('PUT', `/${ACCOUNT}/gateways/${GATEWAY}/provider-configs/pc-1`, { secret: 'sk-new' })
+    expect(rotated.status).toBe(200)
+    expect(await auditRows()).toEqual([{ action: 'ai_gateway.provider.update', status: 'success' }])
+    pending = true
+    const retry = await panelWrite('PUT', `/${ACCOUNT}/gateways/${GATEWAY}/provider-configs/pc-1`, { secret: 'sk-new' })
+    expect(retry.status).toBe(409)
+    expect(await retry.json()).toMatchObject({ error: { code: 'cloudflare_secret_pending' } })
+  })
+
+  it('deletes a provider key and confirms it is gone', async () => {
+    const provider = {
+      id: 'pc-1', alias: 'openai-main', provider_slug: 'openai', secret_preview: 'sk-***',
+      secret_id: 's', gateway_id: GATEWAY, modified_at: '2026-11-01T00:00:00Z', default_config: false,
+    }
+    let listed = true
+    stubApi(({ method, path }) => {
+      if (path.endsWith(`/gateways/${GATEWAY}/provider_configs`) && method === 'GET') return cfJson(listed ? [provider] : [])
+      if (method === 'DELETE' && path.endsWith('/provider_configs/pc-1')) { listed = false; return cfJson({ success: true }) }
+      return null
+    })
+    const response = await panelWrite('DELETE', `/${ACCOUNT}/gateways/${GATEWAY}/provider-configs/pc-1`)
+    expect(response.status).toBe(200)
+    expect(await auditRows()).toEqual([{ action: 'ai_gateway.provider.delete', status: 'success' }])
   })
 
   it('creates a provider key and confirms it is listed', async () => {

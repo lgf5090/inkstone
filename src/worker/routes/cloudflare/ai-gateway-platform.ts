@@ -2,8 +2,8 @@
  * `/api/cloudflare/ai-gateway-platform` — the Cloudflare AI Gateway management surface.
  *
  * Every endpoint is addressed through an account the reader owns, and the account's Cloudflare id
- * is the only thing sent upstream. This router is read-only on purpose: the write endpoints and
- * their confirmation, audit and rollback live in a separate change.
+ * is the only thing sent upstream. Reads and writes share this router; every write reads before it
+ * writes, reads the result back and rolls back when the platform did not apply it.
  */
 import type { Context } from 'hono'
 import { Hono } from 'hono'
@@ -15,8 +15,9 @@ import { auditFailureDetail, createAuditLog } from '../../cloudflare/audit'
 import {
   createPlatformGateway,
   createPlatformProviderConfig,
-  createPlatformSpendingLimit,
+  createPlatformRoute,
   deletePlatformGateway,
+  deletePlatformProviderConfig,
   deletePlatformRoute,
   deletePlatformSpendingLimit,
   getPlatformAnalytics,
@@ -32,6 +33,7 @@ import {
   listPlatformRouteVersions,
   listPlatformRoutes,
   updatePlatformGateway,
+  updatePlatformProviderConfig,
 } from '../../cloudflare/ai-gateway-platform'
 import type {
   AIGatewayCreateParams,
@@ -39,7 +41,6 @@ import type {
   AIGatewayUpdateParams,
 } from 'cloudflare/resources/ai-gateway/ai-gateway'
 import type { LogListParams, ProviderConfigCreateParams } from 'cloudflare/resources/ai-gateway'
-import type { SpendingLimitCreateParams } from 'cloudflare/resources/ai-gateway/billing'
 
 export const aiGatewayPlatformRouter = new Hono<AppBindings>()
 
@@ -286,6 +287,8 @@ function snapshotParams(gateway: AIGatewayGetResponse, accountId: string): AIGat
     ...(gateway.retry_max_attempts === null || gateway.retry_max_attempts === undefined ? {} : { retry_max_attempts: gateway.retry_max_attempts }),
     ...(gateway.retry_delay === null || gateway.retry_delay === undefined ? {} : { retry_delay: gateway.retry_delay }),
     ...(gateway.retry_backoff ? { retry_backoff: gateway.retry_backoff } : {}),
+    // Omit `store_id` on purpose: Cloudflare keeps the current store when the field is absent.
+    spend_limits: gateway.spend_limits ?? { enabled: false, rules: [] },
   }
 }
 
@@ -303,6 +306,90 @@ function isMissing(error: unknown): boolean {
     return (error.details as { upstream_status?: number } | undefined)?.upstream_status === 404
   }
   return false
+}
+
+function upstreamCode(error: unknown): number | undefined {
+  if (!(error instanceof ApiError)) return undefined
+  return (error.details as { cf_code?: number } | undefined)?.cf_code
+}
+
+/** 9106 is Cloudflare's "missing auth headers", not a capability gate. Name it that way. */
+function rethrowRouteError(error: unknown): never {
+  if (upstreamCode(error) === 9106) {
+    throw new ApiError(
+      (error as ApiError).status,
+      'cloudflare_auth_missing',
+      'Cloudflare rejected the route request because the authentication headers are missing. Check the account credential and retry.',
+      (error as ApiError).details,
+    )
+  }
+  throw error
+}
+
+/** 7020 means the new secret is still propagating in Secrets Store: a retry, not a failure. */
+function rethrowProviderUpdateError(error: unknown): never {
+  if (upstreamCode(error) === 7020) {
+    throw new ApiError(
+      409,
+      'cloudflare_secret_pending',
+      'The new secret is not visible in Secrets Store yet. Retry in a few seconds.',
+      (error as ApiError).details,
+    )
+  }
+  throw error
+}
+
+interface SpendLimitRuleInput {
+  id?: string
+  limit: number
+  limitType: 'cost'
+  window: number
+  technique?: 'fixed' | 'sliding'
+}
+
+interface SpendLimitsInput {
+  enabled: boolean
+  rules: SpendLimitRuleInput[]
+}
+
+/** Normalise the new gateway-level spend limits; the old `/billing/spending-limit` is deprecated. */
+function spendLimitsInput(body: Record<string, unknown>): SpendLimitsInput {
+  if (typeof body.enabled !== 'boolean') throw ApiError.badRequest('enabled must be a boolean')
+  if (!Array.isArray(body.rules)) throw ApiError.badRequest('rules must be an array')
+  if (body.rules.length > 20) throw ApiError.badRequest('At most 20 spend limit rules are allowed')
+  const rules: SpendLimitRuleInput[] = body.rules.map((raw) => {
+    const rule = raw as Record<string, unknown>
+    const limit = Number(rule.limit)
+    const window = Number(rule.window)
+    if (!Number.isFinite(limit) || limit <= 0) throw ApiError.badRequest('limit must be greater than 0')
+    if (!Number.isInteger(window) || window <= 0) throw ApiError.badRequest('window must be a positive whole number of seconds')
+    if (rule.limitType !== undefined && rule.limitType !== 'cost') {
+      throw ApiError.badRequest('limitType must be cost')
+    }
+    const technique = rule.technique === 'fixed' || rule.technique === 'sliding' ? rule.technique : undefined
+    return {
+      ...(typeof rule.id === 'string' && rule.id.trim() ? { id: rule.id.trim() } : {}),
+      limit,
+      limitType: 'cost',
+      window,
+      ...(technique ? { technique } : {}),
+    }
+  })
+  return { enabled: body.enabled, rules: body.enabled ? rules : [] }
+}
+
+function spendLimitsMatch(
+  readBack: AIGatewayGetResponse['spend_limits'],
+  written: SpendLimitsInput,
+): boolean {
+  const actual = readBack ?? { enabled: false, rules: [] }
+  if (Boolean(actual.enabled) !== written.enabled) return false
+  const key = (rule: { limit?: unknown; limitType?: unknown; window?: unknown; technique?: unknown }): string =>
+    `${String(rule.limit)}|${String(rule.limitType)}|${String(rule.window)}|${String(rule.technique ?? '')}`
+  const actualKeys = (actual.rules ?? []).map(key).sort()
+  const writtenKeys = written.rules.map(key).sort()
+  return actualKeys.length === writtenKeys.length
+    && actualKeys.every((value, index) => value === writtenKeys[index])
 }
 
 aiGatewayPlatformRouter.post('/accounts/:id/gateways', async (c) => {
@@ -340,6 +427,8 @@ aiGatewayPlatformRouter.put('/accounts/:id/gateways/:gatewayId', async (c) => {
   const input = await readJson<Record<string, unknown>>(c, 8192)
   const before = await getPlatformGateway(auth, row.cf_account_id, gatewayId)
   const params = updateGatewayBody(input, row.cf_account_id)
+  // Keep the gateway-level spend limits when this request is only editing the rest of the config.
+  params.spend_limits = before.spend_limits ?? { enabled: false, rules: [] }
   try {
     const written = await updatePlatformGateway(auth, row.cf_account_id, gatewayId, params)
     const readBack = await getPlatformGateway(auth, row.cf_account_id, gatewayId)
@@ -356,6 +445,43 @@ aiGatewayPlatformRouter.put('/accounts/:id/gateways/:gatewayId', async (c) => {
     return c.json({ gateway: readBack })
   } catch (error) {
     await createAuditLog(c.env, userId, row.id, 'ai_gateway.gateway.update', gatewayId,
+      auditFailureDetail(error), 'error')
+    throw error
+  }
+})
+
+/**
+ * Gateway-level spend limits: the replacement for the deprecated account-level endpoint.
+ *
+ * The write is a gateway update because Cloudflare stores these rules on the gateway itself. The
+ * full gateway snapshot is sent with the new rules so the rest of the config cannot be reset as a
+ * side effect, and the previous snapshot is written back when the read-back does not match.
+ */
+aiGatewayPlatformRouter.put('/accounts/:id/gateways/:gatewayId/spend-limits', async (c) => {
+  const { auth, row } = await accountFor(c)
+  if (!row.cf_account_id) throw ApiError.badRequest('This account has no Cloudflare account id')
+  const userId = c.get('userId')
+  const gatewayId = pathId(c.req.param('gatewayId'), 'gateway id')
+  const input = await readJson<Record<string, unknown>>(c, 16 * 1024)
+  const spendLimits = spendLimitsInput(input)
+  const before = await getPlatformGateway(auth, row.cf_account_id, gatewayId)
+  try {
+    const params: AIGatewayUpdateParams = {
+      ...snapshotParams(before, row.cf_account_id),
+      spend_limits: spendLimits,
+    }
+    await updatePlatformGateway(auth, row.cf_account_id, gatewayId, params)
+    const readBack = await getPlatformGateway(auth, row.cf_account_id, gatewayId)
+    if (!spendLimitsMatch(readBack.spend_limits, spendLimits)) {
+      await updatePlatformGateway(auth, row.cf_account_id, gatewayId, snapshotParams(before, row.cf_account_id))
+        .catch(() => undefined)
+      throw new ApiError(502, 'cloudflare_upstream', 'The spend limits did not read back as written; they were rolled back')
+    }
+    await createAuditLog(c.env, userId, row.id, 'ai_gateway.billing.spend_limits', gatewayId,
+      JSON.stringify({ before: before.spend_limits ?? null, after: readBack.spend_limits ?? null }), 'success')
+    return c.json({ spendLimits: readBack.spend_limits ?? { enabled: false, rules: [] } })
+  } catch (error) {
+    await createAuditLog(c.env, userId, row.id, 'ai_gateway.billing.spend_limits', gatewayId,
       auditFailureDetail(error), 'error')
     throw error
   }
@@ -389,6 +515,39 @@ aiGatewayPlatformRouter.delete('/accounts/:id/gateways/:gatewayId', async (c) =>
     await createAuditLog(c.env, userId, row.id, 'ai_gateway.gateway.delete', gatewayId,
       auditFailureDetail(error), 'error')
     throw error
+  }
+})
+
+/**
+ * Creating a dynamic route is available; the earlier `400 / 9106` was a missing-auth probe, not a
+ * capability gate. The single-version delete is the one real gap: deleting a route removes its
+ * versions and deployments instead.
+ */
+aiGatewayPlatformRouter.post('/accounts/:id/gateways/:gatewayId/routes', async (c) => {
+  const { auth, row } = await accountFor(c)
+  if (!row.cf_account_id) throw ApiError.badRequest('This account has no Cloudflare account id')
+  const userId = c.get('userId')
+  const gatewayId = pathId(c.req.param('gatewayId'), 'gateway id')
+  const input = await readJson<Record<string, unknown>>(c, 8192)
+  const name = typeof input.name === 'string' ? input.name.trim() : ''
+  if (!name || name.length > 64) throw ApiError.badRequest('A route name of 1-64 characters is required')
+  const elements = Array.isArray(input.elements) ? input.elements : []
+  const before = await listPlatformRoutes(auth, row.cf_account_id, gatewayId)
+  if (before.some((route) => route.name === name)) throw ApiError.conflict(`A route named ${name} already exists`)
+  try {
+    const created = await createPlatformRoute(auth, row.cf_account_id, gatewayId, { name, elements })
+    const after = await listPlatformRoutes(auth, row.cf_account_id, gatewayId)
+    if (!after.some((route) => route.id === created.id)) {
+      await deletePlatformRoute(auth, row.cf_account_id, gatewayId, created.id).catch(() => undefined)
+      throw new ApiError(502, 'cloudflare_upstream', 'Cloudflare reported success but the route is not listed')
+    }
+    await createAuditLog(c.env, userId, row.id, 'ai_gateway.route.create', `${gatewayId}/${created.id}`,
+      JSON.stringify({ name }), 'success')
+    return c.json({ route: created }, 201)
+  } catch (error) {
+    await createAuditLog(c.env, userId, row.id, 'ai_gateway.route.create', `${gatewayId}/${name}`,
+      auditFailureDetail(error), 'error')
+    rethrowRouteError(error)
   }
 })
 
@@ -454,50 +613,67 @@ aiGatewayPlatformRouter.post('/accounts/:id/gateways/:gatewayId/provider-configs
   }
 })
 
-aiGatewayPlatformRouter.post('/accounts/:id/billing/spending-limit', async (c) => {
+/**
+ * Provider-key update and delete.
+ *
+ * The SDK declares only create/list for this resource, but real calls answered PUT and DELETE. A
+ * field-by-field probe found that PUT only applies the secret: alias, provider slug, default flag
+ * and rate limits came back unchanged. This route therefore rotates the secret only and sends the
+ * current metadata back untouched.
+ */
+aiGatewayPlatformRouter.put('/accounts/:id/gateways/:gatewayId/provider-configs/:providerId', async (c) => {
   const { auth, row } = await accountFor(c)
   if (!row.cf_account_id) throw ApiError.badRequest('This account has no Cloudflare account id')
   const userId = c.get('userId')
-  const input = await readJson<Record<string, unknown>>(c, 4096)
-  const amount = optionalInteger(input.amount, 'amount', 100, 100_000_000)
-  if (amount === undefined) throw ApiError.badRequest('amount is required and must be at least 100 cents')
-  const duration = input.duration
-  if (duration !== 'daily' && duration !== 'weekly' && duration !== 'monthly') {
-    throw ApiError.badRequest('duration must be daily, weekly or monthly', { field: 'duration' })
-  }
-  const strategy = input.strategy
-  if (strategy !== 'fixed' && strategy !== 'sliding') {
-    throw ApiError.badRequest('strategy must be fixed or sliding', { field: 'strategy' })
-  }
-  const before = await getPlatformSpendingLimit(auth, row.cf_account_id).catch(() => null)
-  const params: SpendingLimitCreateParams = {
-    account_id: row.cf_account_id,
-    amount,
-    duration,
-    strategy,
-  }
+  const gatewayId = pathId(c.req.param('gatewayId'), 'gateway id')
+  const providerId = pathId(c.req.param('providerId'), 'provider id')
+  const input = await readJson<Record<string, unknown>>(c, 8192)
+  const secret = typeof input.secret === 'string' ? input.secret.trim() : ''
+  if (!secret) throw ApiError.badRequest('secret is required to rotate the provider key')
+  const listed = await listPlatformProviderConfigs(auth, row.cf_account_id, gatewayId, { perPage: 50 })
+  const before = listed.items.find((item) => item.id === providerId)
+  if (!before) throw ApiError.notFound('That provider key does not exist')
   try {
-    await createPlatformSpendingLimit(auth, row.cf_account_id, params)
-    const readBack = await getPlatformSpendingLimit(auth, row.cf_account_id)
-    if (!readBack.enabled || readBack.config.amount !== amount
-      || readBack.config.duration !== duration || readBack.config.strategy !== strategy) {
-      if (before?.enabled && before.config.amount && before.config.duration && before.config.strategy) {
-        await createPlatformSpendingLimit(auth, row.cf_account_id, {
-          account_id: row.cf_account_id,
-          amount: before.config.amount,
-          duration: before.config.duration as SpendingLimitCreateParams['duration'],
-          strategy: before.config.strategy as SpendingLimitCreateParams['strategy'],
-        }).catch(() => undefined)
-      } else {
-        await deletePlatformSpendingLimit(auth, row.cf_account_id).catch(() => undefined)
-      }
-      throw new ApiError(502, 'cloudflare_upstream', 'The spending limit did not read back as written; it was rolled back')
-    }
-    await createAuditLog(c.env, userId, row.id, 'ai_gateway.billing.limit', 'spending-limit',
-      JSON.stringify({ before: before ?? null, after: readBack }), 'success')
-    return c.json({ limit: readBack })
+    await updatePlatformProviderConfig(auth, row.cf_account_id, gatewayId, providerId, {
+      account_id: row.cf_account_id,
+      alias: before.alias,
+      default_config: before.default_config,
+      provider_slug: before.provider_slug,
+      secret,
+    })
+    const after = await listPlatformProviderConfigs(auth, row.cf_account_id, gatewayId, { perPage: 50 })
+    const readBack = after.items.find((item) => item.id === providerId)
+    if (!readBack) throw new ApiError(502, 'cloudflare_upstream', 'Cloudflare reported success but the provider key is not listed')
+    await createAuditLog(c.env, userId, row.id, 'ai_gateway.provider.update', `${gatewayId}/${providerId}`,
+      JSON.stringify({ before: before.secret_preview, after: readBack.secret_preview }), 'success')
+    return c.json({ provider: readBack })
   } catch (error) {
-    await createAuditLog(c.env, userId, row.id, 'ai_gateway.billing.limit', 'spending-limit',
+    await createAuditLog(c.env, userId, row.id, 'ai_gateway.provider.update', `${gatewayId}/${providerId}`,
+      auditFailureDetail(error), 'error')
+    rethrowProviderUpdateError(error)
+  }
+})
+
+aiGatewayPlatformRouter.delete('/accounts/:id/gateways/:gatewayId/provider-configs/:providerId', async (c) => {
+  const { auth, row } = await accountFor(c)
+  if (!row.cf_account_id) throw ApiError.badRequest('This account has no Cloudflare account id')
+  const userId = c.get('userId')
+  const gatewayId = pathId(c.req.param('gatewayId'), 'gateway id')
+  const providerId = pathId(c.req.param('providerId'), 'provider id')
+  const before = await listPlatformProviderConfigs(auth, row.cf_account_id, gatewayId, { perPage: 50 })
+  const match = before.items.find((item) => item.id === providerId)
+  if (!match) throw ApiError.notFound('That provider key does not exist')
+  try {
+    await deletePlatformProviderConfig(auth, row.cf_account_id, gatewayId, providerId)
+    const after = await listPlatformProviderConfigs(auth, row.cf_account_id, gatewayId, { perPage: 50 })
+    if (after.items.some((item) => item.id === providerId)) {
+      throw new ApiError(502, 'cloudflare_upstream', 'Cloudflare reported success but the provider key is still listed')
+    }
+    await createAuditLog(c.env, userId, row.id, 'ai_gateway.provider.delete', `${gatewayId}/${providerId}`,
+      JSON.stringify({ alias: match.alias, provider_slug: match.provider_slug }), 'success')
+    return c.json({ deleted: true })
+  } catch (error) {
+    await createAuditLog(c.env, userId, row.id, 'ai_gateway.provider.delete', `${gatewayId}/${providerId}`,
       auditFailureDetail(error), 'error')
     throw error
   }
@@ -512,15 +688,9 @@ aiGatewayPlatformRouter.delete('/accounts/:id/billing/spending-limit', async (c)
     await deletePlatformSpendingLimit(auth, row.cf_account_id)
     const readBack = await getPlatformSpendingLimit(auth, row.cf_account_id)
     if (readBack.enabled) {
-      if (before.enabled && before.config.amount && before.config.duration && before.config.strategy) {
-        await createPlatformSpendingLimit(auth, row.cf_account_id, {
-          account_id: row.cf_account_id,
-          amount: before.config.amount,
-          duration: before.config.duration as SpendingLimitCreateParams['duration'],
-          strategy: before.config.strategy as SpendingLimitCreateParams['strategy'],
-        }).catch(() => undefined)
-      }
-      throw new ApiError(502, 'cloudflare_upstream', 'The spending limit is still enabled; the previous value was restored')
+      // The deprecated create endpoint always answers 403, so this delete has no rollback: the old
+      // limit can only be removed, not recreated. Say that plainly instead of pretending to restore.
+      throw new ApiError(502, 'cloudflare_upstream', 'The old spending limit is still enabled; the deprecated create endpoint cannot recreate it, so the delete cannot be rolled back')
     }
     await createAuditLog(c.env, userId, row.id, 'ai_gateway.billing.limit.clear', 'spending-limit',
       JSON.stringify({ before }), 'success')

@@ -109,6 +109,25 @@ export const AI_GATEWAY_SCHEMA_STATEMENTS: readonly string[] = [
 ]
 
 /**
+ * Per-account routing switches for the self-hosted relay (migration 299).
+ *
+ * Both switches default to off, and a missing row means off: the relay's default is a direct call to
+ * Cloudflare, exactly as it was before this table existed. `gateway_id` is only honoured while
+ * `enabled` is 1, so a remembered id cannot turn routing on by itself.
+ */
+export const AI_GATEWAY_ROUTING_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS ai_gateway_routing (
+     user_id TEXT NOT NULL,
+     account_id TEXT NOT NULL,
+     enabled INTEGER NOT NULL DEFAULT 0,
+     gateway_id TEXT NOT NULL DEFAULT '',
+     collect_log_payload INTEGER NOT NULL DEFAULT 0,
+     updated_at INTEGER NOT NULL,
+     PRIMARY KEY (user_id, account_id)
+   )`,
+]
+
+/**
  * Responses persistence and generated-image retention (migration 288).
  *
  * A stored response keeps the canonical messages that were sent upstream and the output items that

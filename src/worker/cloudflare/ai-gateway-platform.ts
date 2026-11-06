@@ -1,5 +1,5 @@
 /**
- * The read side of the Cloudflare AI Gateway management panel.
+ * The Cloudflare AI Gateway management layer behind the panel.
  *
  * The official `cloudflare` SDK is the field contract: response and parameter types are imported
  * from it, while every call goes through `cfFetch`, the single door that already carries account
@@ -10,6 +10,7 @@ import { ApiError } from '../lib/errors'
 import type { CloudflareAuth } from './cf-api'
 import { cfFetch, cfFetchRaw, cfGraphQL } from './cf-api'
 import type {
+  DynamicRoutingCreateResponse,
   DynamicRoutingListDeploymentsResponse,
   DynamicRoutingListResponse,
   DynamicRoutingListVersionsResponse,
@@ -26,10 +27,7 @@ import type {
   AIGatewayListResponse,
   AIGatewayUpdateParams,
 } from 'cloudflare/resources/ai-gateway/ai-gateway'
-import type {
-  SpendingLimitCreateParams,
-  SpendingLimitGetResponse,
-} from 'cloudflare/resources/ai-gateway/billing'
+import type { SpendingLimitGetResponse } from 'cloudflare/resources/ai-gateway/billing'
 
 export interface PlatformPage<T> {
   items: T[]
@@ -441,15 +439,59 @@ export async function createPlatformProviderConfig(
   return result.result
 }
 
-export async function createPlatformSpendingLimit(
+/**
+ * The provider-config update the SDK does not declare.
+ *
+ * Real calls answered PUT on this path and the only field that read back changed was the secret;
+ * alias, provider slug, default flag and rate limits were accepted but not applied. The caller
+ * therefore sends the current values back unchanged and lets this endpoint rotate the secret.
+ */
+export interface PlatformProviderConfigUpdate {
+  account_id: string
+  alias: string
+  default_config: boolean
+  provider_slug: string
+  secret: string
+}
+
+export async function updatePlatformProviderConfig(
   auth: CloudflareAuth,
   accountId: string,
-  body: SpendingLimitCreateParams,
-): Promise<SpendingLimitGetResponse> {
-  const result = await cfFetch<Envelope<SpendingLimitGetResponse>>(
+  gatewayId: string,
+  providerId: string,
+  body: PlatformProviderConfigUpdate,
+): Promise<ProviderConfigListResponse> {
+  const result = await cfFetch<Envelope<ProviderConfigListResponse>>(
     auth,
-    `${accountPath(accountId)}/billing/spending-limit`,
-    { method: 'POST', body: pathBody(body) },
+    `${gatewayPath(accountId, gatewayId)}/provider_configs/${encodeURIComponent(providerId)}`,
+    { method: 'PUT', body: pathBody(body) },
+  )
+  return result.result
+}
+
+export async function deletePlatformProviderConfig(
+  auth: CloudflareAuth,
+  accountId: string,
+  gatewayId: string,
+  providerId: string,
+): Promise<void> {
+  await cfFetch<Envelope<unknown>>(
+    auth,
+    `${gatewayPath(accountId, gatewayId)}/provider_configs/${encodeURIComponent(providerId)}`,
+    { method: 'DELETE' },
+  )
+}
+
+export async function createPlatformRoute(
+  auth: CloudflareAuth,
+  accountId: string,
+  gatewayId: string,
+  body: { name: string; elements: unknown[] },
+): Promise<DynamicRoutingCreateResponse> {
+  const result = await cfFetch<Envelope<DynamicRoutingCreateResponse>>(
+    auth,
+    `${gatewayPath(accountId, gatewayId)}/routes`,
+    { method: 'POST', body },
   )
   return result.result
 }

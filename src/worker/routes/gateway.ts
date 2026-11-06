@@ -40,6 +40,7 @@ import {
   settleNeurons,
 } from '../cloudflare/ai-gateway-quota'
 import { insertGatewayRequest, type GatewayRequestInput } from '../cloudflare/ai-gateway-log'
+import { gatewayHeadersForAccount } from '../cloudflare/ai-gateway-routing'
 import {
   chainMessages,
   deleteGatewayResponse,
@@ -318,11 +319,12 @@ async function callUpstream(
     }
     let response: Response
     try {
+      const routingHeaders = await gatewayHeadersForAccount(c.env, userId, acquired.account.row.id)
       response = await cfFetchRaw(acquired.account.auth, `/accounts/${encodeURIComponent(cfId)}/ai/v1/chat/completions`, {
         method: 'POST',
         body: upstreamBody(request),
         timeoutMs: request.stream ? 600_000 : 300_000,
-        headers: { Accept: request.stream ? 'text/event-stream' : 'application/json' },
+        headers: { Accept: request.stream ? 'text/event-stream' : 'application/json', ...routingHeaders },
       })
     } catch (error) {
       if (error instanceof ApiError && error.code === 'cloudflare_not_configured') {
@@ -996,11 +998,12 @@ async function callEmbeddingUpstream(
     }
     let response: Response
     try {
+      const routingHeaders = await gatewayHeadersForAccount(c.env, userId, acquired.account.row.id)
       response = await cfFetchRaw(acquired.account.auth, `/accounts/${encodeURIComponent(cfId)}/ai/v1/embeddings`, {
         method: 'POST',
         body: { model: workerModel, input, encoding_format: 'float' },
         timeoutMs: 120_000,
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', ...routingHeaders },
       })
     } catch (error) {
       if (error instanceof ApiError && error.code === 'cloudflare_not_configured') {

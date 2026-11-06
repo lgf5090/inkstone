@@ -16,6 +16,7 @@ import {
   type CloudflareAiTab,
 } from '../cloudflare-address'
 import { useCfT, type CloudflareMessageKey } from '../i18n'
+import { RequestsTab } from './ai/RequestsTab'
 import { StatsTab } from './ai/StatsTab'
 import { ChatTab } from './ai/ChatTab'
 import { ImageTab } from './ai/ImageTab'
@@ -25,6 +26,7 @@ import { GatewayTab } from './ai/GatewayTab'
 import { PlatformGatewayTab } from './ai/PlatformGatewayTab'
 
 const TAB_LABELS: Record<CloudflareAiTab, CloudflareMessageKey> = {
+  requests: 'cloudflare.ai_tabs.requests',
   stats: 'cloudflare.ai_tabs.stats',
   chat: 'cloudflare.ai_tabs.chat',
   image: 'cloudflare.ai_tabs.image',
@@ -42,7 +44,8 @@ function AiTabPanel({ tab }: { tab: CloudflareAiTab }) {
     case 'translate': return <TranslateTab />
     case 'gateway': return <GatewayTab />
     case 'platform': return <PlatformGatewayTab />
-    default: return <StatsTab />
+    case 'stats': return <StatsTab />
+    default: return <RequestsTab />
   }
 }
 

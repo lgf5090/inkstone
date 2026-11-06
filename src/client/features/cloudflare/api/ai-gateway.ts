@@ -51,6 +51,14 @@ export interface GatewayLogView {
   createdAt: number
 }
 
+export interface GatewayRoutingView {
+  accountId: string
+  accountName: string
+  enabled: boolean
+  gatewayId: string
+  collectLogPayload: boolean
+}
+
 export interface GatewayReconcileView {
   id: string
   accountId: string
@@ -117,6 +125,9 @@ export const aiGatewayApi = {
     const suffix = params.toString()
     return cfRequest<{ items: GatewayReconcileView[]; total: number }>(`/ai-gateway/reconcile${suffix ? `?${suffix}` : ''}`)
   },
+  routing: () => cfRequest<{ items: GatewayRoutingView[] }>('/ai-gateway/routing'),
+  saveRouting: (accountId: string, body: { enabled: boolean; gatewayId: string; collectLogPayload: boolean }) =>
+    cfRequest<GatewayRoutingView>(`/ai-gateway/routing/${encodeURIComponent(accountId)}`, { method: 'PUT', body }),
   access: () => cfRequest<{
     baseUrl: string
     models: Array<{ id: string; worker_model: string }>

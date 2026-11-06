@@ -23,6 +23,11 @@ import {
 } from '../../cloudflare/ai-gateway-keys'
 import { listGatewayRequests } from '../../cloudflare/ai-gateway-log'
 import { listGatewayModels } from '../../cloudflare/ai-gateway-models'
+import {
+  DEFAULT_GATEWAY_ROUTING,
+  readAllGatewayRouting,
+  saveGatewayRouting,
+} from '../../cloudflare/ai-gateway-routing'
 
 export const aiGatewayRouter = new Hono<AppBindings>()
 
@@ -125,6 +130,60 @@ aiGatewayRouter.delete('/keys/:id', async (c) => {
   if (!revoked) throw ApiError.notFound('That key does not exist or is already revoked')
   await createAuditLog(c.env, userId, '', 'ai_gateway_key_revoke', id, 'revoked', 'success')
   return c.json({ revoked: true })
+})
+
+/**
+ * The two per-account switches behind the relay's `/ai/v1` calls.
+ *
+ * The response lists every active AI account, not only the accounts that already have a row, so the
+ * panel can show "off" as a real value instead of treating a missing row as unknown.
+ */
+aiGatewayRouter.get('/routing', async (c) => {
+  const userId = c.get('userId')
+  const [accounts, routing] = await Promise.all([
+    loadActiveAccounts(c.env, userId),
+    readAllGatewayRouting(c.env, userId),
+  ])
+  const items = accounts
+    .filter(({ row }) => Boolean(row.cf_account_id) && accountHasFeature(row, 'ai'))
+    .map(({ row }) => ({
+      accountId: row.id,
+      accountName: row.name,
+      ...(routing.get(row.id) ?? DEFAULT_GATEWAY_ROUTING),
+    }))
+  return c.json({ items })
+})
+
+aiGatewayRouter.put('/routing/:accountId', async (c) => {
+  const userId = c.get('userId')
+  const accountId = c.req.param('accountId')
+  const body = await readJson<Record<string, unknown>>(c, 16 * 1024)
+  if (typeof body.enabled !== 'boolean') throw ApiError.badRequest('enabled must be a boolean')
+  if (body.gatewayId !== undefined && typeof body.gatewayId !== 'string') {
+    throw ApiError.badRequest('gatewayId must be a string')
+  }
+  if (body.collectLogPayload !== undefined && typeof body.collectLogPayload !== 'boolean') {
+    throw ApiError.badRequest('collectLogPayload must be a boolean')
+  }
+  const account = (await loadActiveAccounts(c.env, userId))
+    .find(({ row }) => row.id === accountId && Boolean(row.cf_account_id) && accountHasFeature(row, 'ai'))
+  if (!account) throw ApiError.notFound('That Cloudflare account is not serving AI requests')
+
+  const routing = await saveGatewayRouting(c.env, userId, accountId, {
+    enabled: body.enabled,
+    gatewayId: typeof body.gatewayId === 'string' ? body.gatewayId : '',
+    collectLogPayload: body.collectLogPayload === true,
+  })
+  await createAuditLog(
+    c.env,
+    userId,
+    accountId,
+    'ai_gateway_routing_update',
+    account.row.name,
+    JSON.stringify({ enabled: routing.enabled, gatewayId: routing.gatewayId, collectLogPayload: routing.collectLogPayload }),
+    'success',
+  )
+  return c.json({ accountId, accountName: account.row.name, ...routing })
 })
 
 aiGatewayRouter.get('/logs', async (c) => {

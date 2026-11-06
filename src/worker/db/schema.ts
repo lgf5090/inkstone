@@ -83,7 +83,11 @@ import {
   CLOUDFLARE_REQUIRED_TABLES,
   CLOUDFLARE_SCHEMA_STATEMENTS,
 } from '../cloudflare/schema'
-import { AI_GATEWAY_PERSISTENCE_SCHEMA_STATEMENTS, AI_GATEWAY_SCHEMA_STATEMENTS } from '../cloudflare/ai-gateway-schema'
+import {
+  AI_GATEWAY_PERSISTENCE_SCHEMA_STATEMENTS,
+  AI_GATEWAY_ROUTING_SCHEMA_STATEMENTS,
+  AI_GATEWAY_SCHEMA_STATEMENTS,
+} from '../cloudflare/ai-gateway-schema'
 import {
   YOUTUBE_REQUIRED_COLUMNS,
   YOUTUBE_REQUIRED_INDEXES,
@@ -780,6 +784,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...CLOUDFLARE_SCHEMA_STATEMENTS,
   ...AI_GATEWAY_SCHEMA_STATEMENTS,
   ...AI_GATEWAY_PERSISTENCE_SCHEMA_STATEMENTS,
+  ...AI_GATEWAY_ROUTING_SCHEMA_STATEMENTS,
   ...YOUTUBE_SCHEMA_STATEMENTS,
   ...CLOUDDRIVE_SCHEMA_STATEMENTS,
   ...SCRIPTSHUB_SCHEMA_STATEMENTS,]
@@ -3844,6 +3849,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // 288 follows 287; nothing above is touched.
     version: 288,
     statements: AI_GATEWAY_PERSISTENCE_SCHEMA_STATEMENTS,
+  },
+  {
+    // Per-account switches for routing relay traffic through an AI Gateway. 299 is the first number
+    // free here: the short-link batch holds 289–297 and WebSSH spent 298 on its own branch.
+    // A fresh database also gets the table from `SCHEMA_STATEMENTS`, where `IF NOT EXISTS` applies.
+    version: 299,
+    statements: AI_GATEWAY_ROUTING_SCHEMA_STATEMENTS,
   },
 ]
 
