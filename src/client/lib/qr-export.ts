@@ -1,4 +1,9 @@
-import { QR_BG_COLOR } from '../../attachment-hub/qr-colors';
+/**
+ * A QR code is painted into an SVG the browser cannot restyle with a CSS variable, so its two colours
+ * are absolute values rather than design tokens: a code that inverts with the theme stops scanning.
+ */
+export const QR_BG_COLOR = '#ffffff';
+export const QR_FG_COLOR = '#0f172a';
 
 /**
  * Turning the QR that is on screen into a file or a clipboard image.
