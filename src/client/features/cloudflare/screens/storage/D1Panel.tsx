@@ -6,7 +6,7 @@
  * writes without it, so the switch cannot be bypassed by editing the page.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Database, History, Loader2, Plus, Settings, Trash2 } from 'lucide-react'
+import { Database, History, Loader2, Plus, Settings, Table2, Trash2 } from 'lucide-react'
 import type { CloudflareAccount } from '@shared/cloudflare/model'
 import { quoteIdent } from '@shared/cloudflare/sql-utils'
 import { Badge, Button, IconButton } from '../../../../components/primitives'
@@ -33,6 +33,7 @@ import {
 } from './d1-history'
 import { CreateNameDialog } from './CreateNameDialog'
 import { CreateTableDialog } from './CreateTableDialog'
+import { D1RowsDialog } from './D1RowsDialog'
 import { D1SchemaDialog } from './D1SchemaDialog'
 import { SqlHistoryDialog } from './SqlHistoryDialog'
 import { StorageError } from './StorageError'
@@ -72,6 +73,7 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
   const [createDbOpen, setCreateDbOpen] = useState(false)
   const [createTableOpen, setCreateTableOpen] = useState(false)
   const [schemaTable, setSchemaTable] = useState<string | null>(null)
+  const [rowsTable, setRowsTable] = useState<string | null>(null)
 
   const resultSort = useSort<Record<string, unknown>>()
 
@@ -353,6 +355,13 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
                     </button>
                     <Badge tone="neutral">{table.rows === null ? '—' : table.rows}</Badge>
                     <IconButton
+                      label={t('cloudflare.storage.view_rows')}
+                      size="xs"
+                      onClick={() => setRowsTable(table.name)}
+                    >
+                      <Table2 size={13} />
+                    </IconButton>
+                    <IconButton
                       label={t('cloudflare.storage.view_schema')}
                       size="xs"
                       onClick={() => setSchemaTable(table.name)}
@@ -531,6 +540,16 @@ export function D1Panel({ account }: { account: CloudflareAccount }) {
           readOnly={readOnly}
           onClose={() => setSchemaTable(null)}
           onChanged={() => { void loadTables() }}
+        />
+      )}
+
+      {selectedDb && rowsTable && (
+        <D1RowsDialog
+          open
+          accountId={account.id}
+          databaseId={selectedDb.id}
+          tableName={rowsTable}
+          onClose={() => setRowsTable(null)}
         />
       )}
 

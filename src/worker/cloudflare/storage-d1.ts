@@ -119,12 +119,13 @@ export async function runD1Query(
   cfAccountId: string,
   databaseId: string,
   sql: string,
+  params: readonly unknown[] = [],
 ): Promise<D1QueryResult> {
   if (!sql.trim()) throw ApiError.badRequest('SQL is required')
   const body = await cfFetch<{ result?: CfQueryEntry | CfQueryEntry[] | null }>(
     auth,
     `${d1Path(cfAccountId, databaseId)}/query`,
-    { method: 'POST', body: { sql } },
+    { method: 'POST', body: { sql, ...(params.length > 0 ? { params } : {}) } },
   )
   const entries = Array.isArray(body.result) ? body.result : body.result ? [body.result] : []
   const first = entries.find((entry) => Array.isArray(entry.results)) ?? entries[0]
@@ -246,4 +247,72 @@ export async function getD1TableSchema(
     })
   }
   return columns.sort((left, right) => left.cid - right.cid)
+}
+
+export interface D1RowsPage {
+  columns: string[]
+  rows: Record<string, unknown>[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/**
+ * One page of a table's rows, optionally filtered across every column.
+ *
+ * The table name comes from the database's own listing and is re-quoted; the search text is bound
+ * as a parameter, never spliced into the statement. Filtering casts each column to text so an
+ * integer or blob column can still match a reader's search without guessing its type.
+ *
+ * This is read-only: it never builds an UPDATE or DELETE.
+ */
+export async function readD1Rows(
+  auth: CloudflareAuth,
+  cfAccountId: string,
+  databaseId: string,
+  tableName: string,
+  options: { limit: number; offset: number; search: string },
+): Promise<D1RowsPage> {
+  if (!tableName || tableName.length > 128 || /[\u0000-\u001f]/.test(tableName)) {
+    throw ApiError.badRequest('Invalid table name')
+  }
+  const columns = await getD1TableSchema(auth, cfAccountId, databaseId, tableName)
+  if (columns.length === 0) throw ApiError.notFound('That table has no columns')
+  const search = options.search.trim()
+  if (search.length > 200) throw ApiError.badRequest('The search text is longer than 200 characters')
+
+  let where = ''
+  const params: unknown[] = []
+  if (search) {
+    where = ` WHERE ${columns.map((column) => `CAST(${quoteIdent(column.name)} AS TEXT) LIKE ?`).join(' OR ')}`
+    for (let index = 0; index < columns.length; index += 1) params.push(`%${search}%`)
+  }
+  const identifier = quoteIdent(tableName)
+  const counted = await runD1Query(
+    auth,
+    cfAccountId,
+    databaseId,
+    `SELECT COUNT(*) AS total FROM ${identifier}${where}`,
+    params,
+  )
+  const total = numberOrUndefined(counted.results[0]?.total) ?? 0
+
+  const order = columns.filter((column) => column.pk > 0).sort((left, right) => left.pk - right.pk)
+  const orderBy = order.length > 0
+    ? ` ORDER BY ${order.map((column) => quoteIdent(column.name)).join(', ')}`
+    : ''
+  const page = await runD1Query(
+    auth,
+    cfAccountId,
+    databaseId,
+    `SELECT * FROM ${identifier}${where}${orderBy} LIMIT ? OFFSET ?`,
+    [...params, options.limit, options.offset],
+  )
+  return {
+    columns: columns.map((column) => column.name),
+    rows: page.results,
+    total,
+    limit: options.limit,
+    offset: options.offset,
+  }
 }

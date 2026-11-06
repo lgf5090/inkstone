@@ -106,6 +106,46 @@ function r2Path(accountId: string, bucket?: string): string {
   return `${accountPath(accountId)}/r2${bucket ? `/${segment(bucket)}` : ''}`
 }
 
+export interface D1RowsPage {
+  columns: string[]
+  rows: Record<string, unknown>[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface R2CorsRule {
+  id?: string
+  allowed?: { methods?: string[]; origins?: string[]; headers?: string[]; [key: string]: unknown }
+  exposeHeaders?: string[]
+  maxAgeSeconds?: number
+  [key: string]: unknown
+}
+
+export interface R2LifecycleRule {
+  id?: string
+  enabled: boolean
+  conditions?: { prefix?: string }
+  deleteObjectsTransition?: { condition?: { type: string; maxAge?: number; date?: string } }
+  [key: string]: unknown
+}
+
+export interface R2CustomDomain {
+  domain: string
+  enabled: boolean
+  status: { ownership: string; ssl: string }
+  zoneId?: string
+  zoneName?: string
+  minTLS?: string
+}
+
+export interface R2BucketSettings {
+  cors: R2CorsRule[]
+  managed_domain: { domain: string; enabled: boolean }
+  custom_domains: R2CustomDomain[]
+  lifecycle: R2LifecycleRule[]
+}
+
 export const storageApi = {
   listKvNamespaces: (accountId: string) =>
     cfRequest<{ namespaces: KvNamespace[] }>(kvPath(accountId)),
@@ -167,6 +207,19 @@ export const storageApi = {
       `${d1Path(accountId, databaseId)}/tables/${segment(tableName)}/schema`,
     ),
 
+  listD1Rows: (
+    accountId: string,
+    databaseId: string,
+    tableName: string,
+    options: { limit?: number; offset?: number; search?: string } = {},
+  ) => {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 50), offset: String(options.offset ?? 0) })
+    if (options.search?.trim()) query.set('search', options.search.trim())
+    return cfRequest<D1RowsPage>(
+      `${d1Path(accountId, databaseId)}/tables/${segment(tableName)}/rows?${query.toString()}`,
+    )
+  },
+
   executeD1Query: (accountId: string, databaseId: string, sql: string, allowWrite = false) =>
     cfRequest<D1QueryResult>(`${d1Path(accountId, databaseId)}/query`, {
       method: 'POST',
@@ -221,4 +274,41 @@ export const storageApi = {
       method: 'POST',
       body: { keys },
     }),
+
+  getR2BucketSettings: (accountId: string, bucket: string) =>
+    cfRequest<R2BucketSettings>(`${r2Path(accountId, bucket)}/settings`),
+
+  saveR2CorsRules: (accountId: string, bucket: string, rules: R2CorsRule[]) =>
+    cfRequest<{ saved: boolean }>(`${r2Path(accountId, bucket)}/cors`, {
+      method: 'PUT',
+      body: { rules },
+    }),
+
+  saveR2LifecycleRules: (accountId: string, bucket: string, rules: R2LifecycleRule[]) =>
+    cfRequest<{ saved: boolean }>(`${r2Path(accountId, bucket)}/lifecycle`, {
+      method: 'PUT',
+      body: { rules },
+    }),
+
+  setR2ManagedDomain: (accountId: string, bucket: string, enabled: boolean) =>
+    cfRequest<{ saved: boolean }>(`${r2Path(accountId, bucket)}/domains/managed`, {
+      method: 'PUT',
+      body: { enabled },
+    }),
+
+  attachR2CustomDomain: (
+    accountId: string,
+    bucket: string,
+    input: { domain: string; zoneId: string; minTLS?: string },
+  ) =>
+    cfRequest<{ saved: boolean }>(`${r2Path(accountId, bucket)}/domains/custom`, {
+      method: 'POST',
+      body: input,
+    }),
+
+  detachR2CustomDomain: (accountId: string, bucket: string, domain: string) =>
+    cfRequest<DeletedResponse>(
+      `${r2Path(accountId, bucket)}/domains/custom/${segment(domain)}`,
+      { method: 'DELETE' },
+    ),
 }

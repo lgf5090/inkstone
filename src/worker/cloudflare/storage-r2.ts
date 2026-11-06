@@ -263,6 +263,349 @@ export async function deleteR2Object(
   await cfFetch(auth, objectPath(cfAccountId, bucket, key), { method: 'DELETE' })
 }
 
+export interface R2CorsRule {
+  id?: string
+  allowed?: { methods?: string[]; origins?: string[]; headers?: string[]; [key: string]: unknown }
+  exposeHeaders?: string[]
+  maxAgeSeconds?: number
+  [key: string]: unknown
+}
+
+export interface R2ManagedDomain {
+  domain: string
+  enabled: boolean
+}
+
+export interface R2CustomDomain {
+  domain: string
+  enabled: boolean
+  status: { ownership: string; ssl: string }
+  zoneId?: string
+  zoneName?: string
+  minTLS?: string
+}
+
+export interface R2LifecycleCondition {
+  type: string
+  maxAge?: number
+  date?: string
+}
+
+export interface R2LifecycleRule {
+  id?: string
+  enabled: boolean
+  conditions?: { prefix?: string }
+  abortMultipartUploadsTransition?: { condition?: R2LifecycleCondition }
+  deleteObjectsTransition?: { condition?: R2LifecycleCondition }
+  storageClassTransitions?: Array<{ condition?: R2LifecycleCondition; storageClass?: string }>
+  [key: string]: unknown
+}
+
+export interface R2BucketSettings {
+  cors: R2CorsRule[]
+  managed_domain: R2ManagedDomain
+  custom_domains: R2CustomDomain[]
+  lifecycle: R2LifecycleRule[]
+}
+
+const CORS_METHODS = ['GET', 'PUT', 'POST', 'DELETE', 'HEAD']
+const TLS_VERSIONS = ['1.0', '1.1', '1.2', '1.3']
+
+function settingsPath(cfAccountId: string, bucket: string, section: string): string {
+  return `${bucketPath(cfAccountId, bucket)}/${section}`
+}
+
+function corsPath(cfAccountId: string, bucket: string): string {
+  return settingsPath(cfAccountId, bucket, 'cors')
+}
+
+function lifecyclePath(cfAccountId: string, bucket: string): string {
+  return settingsPath(cfAccountId, bucket, 'lifecycle')
+}
+
+function managedDomainPath(cfAccountId: string, bucket: string): string {
+  return settingsPath(cfAccountId, bucket, 'domains/managed')
+}
+
+function customDomainsPath(cfAccountId: string, bucket: string, domain?: string): string {
+  const base = settingsPath(cfAccountId, bucket, 'domains/custom')
+  return domain ? `${base}/${encodeURIComponent(domain)}` : base
+}
+
+/** Cloudflare answers 404 for a bucket that has no policy at all; that is an empty setting, not a failure. */
+async function getOptional<T>(auth: CloudflareAuth, path: string): Promise<T | null> {
+  try {
+    return await cfFetch<T>(auth, path)
+  } catch (error) {
+    if (error instanceof ApiError) {
+      const upstream = (error.details as { upstream_status?: unknown } | undefined)?.upstream_status
+      if (upstream === 404) return null
+    }
+    throw error
+  }
+}
+
+function stringEntries(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+}
+
+function corsRulesFrom(value: unknown): R2CorsRule[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (entry): entry is R2CorsRule => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry),
+  )
+}
+
+function lifecycleRulesFrom(value: unknown): R2LifecycleRule[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (entry): entry is R2LifecycleRule => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry),
+  )
+}
+
+function toManagedDomain(value: unknown): R2ManagedDomain {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+  return { domain: text(record.domain), enabled: record.enabled === true }
+}
+
+function toCustomDomain(value: unknown): R2CustomDomain | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const domain = text(record.domain)
+  if (!domain) return null
+  const status = record.status && typeof record.status === 'object' && !Array.isArray(record.status)
+    ? record.status as Record<string, unknown>
+    : {}
+  return {
+    domain,
+    enabled: record.enabled === true,
+    status: { ownership: text(status.ownership), ssl: text(status.ssl) },
+    ...(text(record.zoneId) ? { zoneId: text(record.zoneId) } : {}),
+    ...(text(record.zoneName) ? { zoneName: text(record.zoneName) } : {}),
+    ...(text(record.minTLS) ? { minTLS: text(record.minTLS) } : {}),
+  }
+}
+
+/**
+ * Every bucket setting the screen shows, read in one round of parallel calls.
+ *
+ * A section Cloudflare answers 404 for comes back empty: a bucket with no CORS or lifecycle policy is
+ * a normal configuration, not a failure. Any other error is passed through so the screen can name it.
+ */
+export async function readR2BucketSettings(
+  auth: CloudflareAuth,
+  cfAccountId: string,
+  bucket: string,
+): Promise<R2BucketSettings> {
+  assertValidBucketName(bucket)
+  const [cors, managed, custom, lifecycle] = await Promise.all([
+    getOptional<{ result?: { rules?: unknown[] } | R2CorsRule[] | null }>(auth, corsPath(cfAccountId, bucket)),
+    getOptional<{ result?: unknown }>(auth, managedDomainPath(cfAccountId, bucket)),
+    getOptional<{ result?: { domains?: unknown[] } | null }>(auth, customDomainsPath(cfAccountId, bucket)),
+    getOptional<{ result?: { rules?: unknown[] } | null }>(auth, lifecyclePath(cfAccountId, bucket)),
+  ])
+  const corsResult = cors?.result
+  const corsRules = Array.isArray(corsResult) ? corsResult : corsResult?.rules
+  const customResult = custom?.result
+  const domains = (Array.isArray(customResult) ? customResult : customResult?.domains) ?? []
+  return {
+    cors: corsRulesFrom(corsRules),
+    managed_domain: toManagedDomain(managed?.result),
+    custom_domains: domains
+      .map(toCustomDomain)
+      .filter((domain): domain is R2CustomDomain => domain !== null),
+    lifecycle: lifecycleRulesFrom(lifecycle?.result?.rules),
+  }
+}
+
+function assertCorsRules(value: unknown): R2CorsRule[] {
+  if (!Array.isArray(value)) throw ApiError.badRequest('CORS rules must be an array')
+  if (value.length > 100) throw ApiError.badRequest('At most 100 CORS rules may be saved at once')
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw ApiError.badRequest(`CORS rule ${index + 1} is not an object`)
+    }
+    const rule = entry as Record<string, unknown>
+    const allowed = rule.allowed
+    if (!allowed || typeof allowed !== 'object' || Array.isArray(allowed)) {
+      throw ApiError.badRequest(`CORS rule ${index + 1} has no allowed block`)
+    }
+    const allowedRecord = allowed as Record<string, unknown>
+    const origins = stringEntries(allowedRecord.origins)
+    const methods = stringEntries(allowedRecord.methods)
+    if (origins.length === 0) throw ApiError.badRequest(`CORS rule ${index + 1} needs at least one origin`)
+    if (methods.length === 0) throw ApiError.badRequest(`CORS rule ${index + 1} needs at least one method`)
+    for (const method of methods) {
+      if (!CORS_METHODS.includes(method)) {
+        throw ApiError.badRequest(`CORS rule ${index + 1} has an unsupported method: ${method}`)
+      }
+    }
+    const headers = allowedRecord.headers
+    if (headers !== undefined && (!Array.isArray(headers) || headers.some((header) => typeof header !== 'string'))) {
+      throw ApiError.badRequest(`CORS rule ${index + 1} has an invalid headers list`)
+    }
+    const maxAge = rule.maxAgeSeconds
+    if (maxAge !== undefined && (
+      typeof maxAge !== 'number' || !Number.isInteger(maxAge) || maxAge < 0 || maxAge > 604_800
+    )) {
+      throw ApiError.badRequest(`CORS rule ${index + 1} has an invalid max age`)
+    }
+    return rule as R2CorsRule
+  })
+}
+
+/** Replaces the bucket's whole CORS policy; an empty list removes it with the API's own DELETE. */
+export async function writeR2CorsPolicy(
+  auth: CloudflareAuth,
+  cfAccountId: string,
+  bucket: string,
+  rules: unknown,
+): Promise<void> {
+  assertValidBucketName(bucket)
+  const validated = assertCorsRules(rules)
+  if (validated.length === 0) {
+    await cfFetch(auth, corsPath(cfAccountId, bucket), { method: 'DELETE' })
+    return
+  }
+  await cfFetch(auth, corsPath(cfAccountId, bucket), { method: 'PUT', body: { rules: validated } })
+}
+
+function assertLifecycleCondition(value: unknown, label: string): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw ApiError.badRequest(`${label} has no condition`)
+  }
+  const condition = value as Record<string, unknown>
+  if (condition.type === 'Age') {
+    if (typeof condition.maxAge !== 'number' || !Number.isInteger(condition.maxAge) || condition.maxAge < 1) {
+      throw ApiError.badRequest(`${label} needs a whole number of seconds`)
+    }
+    return
+  }
+  if (condition.type === 'Date') {
+    if (typeof condition.date !== 'string' || Number.isNaN(Date.parse(condition.date))) {
+      throw ApiError.badRequest(`${label} needs a valid date`)
+    }
+    return
+  }
+  throw ApiError.badRequest(`${label} has an unsupported condition type`)
+}
+
+function assertLifecycleRules(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) throw ApiError.badRequest('Lifecycle rules must be an array')
+  if (value.length > 100) throw ApiError.badRequest('At most 100 lifecycle rules may be saved at once')
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw ApiError.badRequest(`Lifecycle rule ${index + 1} is not an object`)
+    }
+    const rule = entry as Record<string, unknown>
+    if (typeof rule.enabled !== 'boolean') {
+      throw ApiError.badRequest(`Lifecycle rule ${index + 1} needs an enabled flag`)
+    }
+    const conditions = rule.conditions
+    if (conditions !== undefined) {
+      if (!conditions || typeof conditions !== 'object' || Array.isArray(conditions)) {
+        throw ApiError.badRequest(`Lifecycle rule ${index + 1} has invalid conditions`)
+      }
+      const prefix = (conditions as Record<string, unknown>).prefix
+      if (prefix !== undefined && (typeof prefix !== 'string' || prefix.length > 1024)) {
+        throw ApiError.badRequest(`Lifecycle rule ${index + 1} has an invalid prefix`)
+      }
+    }
+    const transitions = [rule.abortMultipartUploadsTransition, rule.deleteObjectsTransition]
+    transitions.forEach((transition, transitionIndex) => {
+      if (transition === undefined) return
+      if (!transition || typeof transition !== 'object' || Array.isArray(transition)) {
+        throw ApiError.badRequest(`Lifecycle rule ${index + 1} has an invalid transition`)
+      }
+      assertLifecycleCondition(
+        (transition as Record<string, unknown>).condition,
+        `Lifecycle rule ${index + 1} transition ${transitionIndex + 1}`,
+      )
+    })
+    const storageClasses = rule.storageClassTransitions
+    if (storageClasses !== undefined) {
+      if (!Array.isArray(storageClasses)) {
+        throw ApiError.badRequest(`Lifecycle rule ${index + 1} has an invalid storage-class list`)
+      }
+      for (const transition of storageClasses) {
+        if (!transition || typeof transition !== 'object' || Array.isArray(transition)) {
+          throw ApiError.badRequest(`Lifecycle rule ${index + 1} has an invalid storage-class transition`)
+        }
+        assertLifecycleCondition(
+          (transition as Record<string, unknown>).condition,
+          `Lifecycle rule ${index + 1} storage-class transition`,
+        )
+      }
+    }
+    return rule
+  })
+}
+
+/** Replaces the whole lifecycle policy; an empty list removes it with the API's own DELETE. */
+export async function writeR2LifecycleRules(
+  auth: CloudflareAuth,
+  cfAccountId: string,
+  bucket: string,
+  rules: unknown,
+): Promise<void> {
+  assertValidBucketName(bucket)
+  const validated = assertLifecycleRules(rules)
+  if (validated.length === 0) {
+    await cfFetch(auth, lifecyclePath(cfAccountId, bucket), { method: 'DELETE' })
+    return
+  }
+  await cfFetch(auth, lifecyclePath(cfAccountId, bucket), { method: 'PUT', body: { rules: validated } })
+}
+
+export async function setR2ManagedDomainEnabled(
+  auth: CloudflareAuth,
+  cfAccountId: string,
+  bucket: string,
+  enabled: boolean,
+): Promise<void> {
+  assertValidBucketName(bucket)
+  await cfFetch(auth, managedDomainPath(cfAccountId, bucket), { method: 'PUT', body: { enabled } })
+}
+
+const CUSTOM_DOMAIN = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/
+
+export async function attachR2CustomDomain(
+  auth: CloudflareAuth,
+  cfAccountId: string,
+  bucket: string,
+  input: { domain: string; zoneId: string; minTLS?: string },
+): Promise<void> {
+  assertValidBucketName(bucket)
+  const domain = input.domain.trim().toLowerCase()
+  if (domain.length > 253 || !CUSTOM_DOMAIN.test(domain)) {
+    throw ApiError.badRequest('A custom domain must be a plain lowercase hostname')
+  }
+  if (!/^[A-Za-z0-9]{1,64}$/.test(input.zoneId)) throw ApiError.badRequest('A zone id is required')
+  if (input.minTLS !== undefined && !TLS_VERSIONS.includes(input.minTLS)) {
+    throw ApiError.badRequest('The minimum TLS version must be 1.0, 1.1, 1.2 or 1.3')
+  }
+  await cfFetch(auth, customDomainsPath(cfAccountId, bucket), {
+    method: 'POST',
+    body: { domain, zoneId: input.zoneId, enabled: true, ...(input.minTLS ? { minTLS: input.minTLS } : {}) },
+  })
+}
+
+export async function detachR2CustomDomain(
+  auth: CloudflareAuth,
+  cfAccountId: string,
+  bucket: string,
+  domain: string,
+): Promise<void> {
+  assertValidBucketName(bucket)
+  const normalized = domain.trim().toLowerCase()
+  if (normalized.length > 253 || !CUSTOM_DOMAIN.test(normalized)) {
+    throw ApiError.badRequest('A custom domain must be a plain lowercase hostname')
+  }
+  await cfFetch(auth, customDomainsPath(cfAccountId, bucket, normalized), { method: 'DELETE' })
+}
+
 /** R2 has no bulk-delete endpoint, so keys go in bounded concurrent batches. */
 export async function bulkDeleteR2Objects(
   auth: CloudflareAuth,
