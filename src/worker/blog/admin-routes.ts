@@ -24,6 +24,7 @@ import { createTaxonomy, deleteTaxonomy, listTaxonomy, updateTaxonomy } from './
 import { blogMediaSigningReady, resolveBlogMusicLibrary } from './music-library'
 import { friendAdminConfig } from './friends'
 import { deleteMedia, listMedia, MEDIA_MAX_BYTES, uploadMedia } from './media'
+import { createBlogPreviewToken, listBlogPreviewTokens, revokeBlogPreviewToken } from './preview'
 import {
   deletePage,
   getPage,
@@ -406,6 +407,33 @@ blogAdminRoutes.post('/posts/:noteId/publish', async (c) => {
   } catch (error) {
     mapBlogError(error)
   }
+})
+
+blogAdminRoutes.get('/posts/:id/preview-tokens', async (c) => {
+  const id = userId(c)
+  const post = await findPostById(c.env.DB, id, c.req.param('id'))
+  if (!post) throw ApiError.notFound('Post not found')
+  return c.json({ items: await listBlogPreviewTokens(c.env.DB, id, post.id) })
+})
+
+blogAdminRoutes.post('/posts/:id/preview-token', async (c) => {
+  const id = userId(c)
+  const post = await findPostById(c.env.DB, id, c.req.param('id'))
+  if (!post) throw ApiError.notFound('Post not found')
+  const created = await createBlogPreviewToken(c.env.DB, id, post.id)
+  await recordBlogAudit(c.env.DB, id, 'post.preview_link', 'post', post.id, { expiresAt: created.expiresAt })
+  return c.json(created, 201)
+})
+
+blogAdminRoutes.delete('/posts/:id/preview-tokens/:hash', async (c) => {
+  const id = userId(c)
+  const hash = c.req.param('hash')
+  if (!/^[a-f0-9]{64}$/.test(hash)) throw ApiError.badRequest('Invalid preview token')
+  const post = await findPostById(c.env.DB, id, c.req.param('id'))
+  if (!post) throw ApiError.notFound('Post not found')
+  if (!(await revokeBlogPreviewToken(c.env.DB, id, post.id, hash))) throw ApiError.notFound('Preview link not found')
+  await recordBlogAudit(c.env.DB, id, 'post.preview_revoke', 'post', post.id, { hash })
+  return c.json({ ok: true })
 })
 
 blogAdminRoutes.post('/posts/:postId/unpublish', async (c) => {

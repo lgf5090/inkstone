@@ -3772,6 +3772,43 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 276,
     statements: TOOLS_NETWORK_PANEL_SCHEMA_STATEMENTS,
   },
+  {
+    // Preview links need to be listed newest first, so the row records when it was minted. The column
+    // is declared on the table above too; an existing database gets it here, guarded so a fresh one
+    // records the version without re-adding it.
+    version: 278,
+    skipIfColumnExists: { table: 'blog_preview_tokens', column: 'created_at' },
+    statements: [
+      `ALTER TABLE blog_preview_tokens ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    // A preview link that has been opened at least once is shown as used in the admin, which is what
+    // tells the owner the link reached a reader before it expired. NULL means never opened.
+    version: 279,
+    skipIfColumnExists: { table: 'blog_preview_tokens', column: 'used_at' },
+    statements: [
+      `ALTER TABLE blog_preview_tokens ADD COLUMN used_at INTEGER`,
+    ],
+  },
+  {
+    // Revoking a link stamps the row instead of deleting it, so the admin can still say the link
+    // existed and was withdrawn before it ran out.
+    version: 280,
+    skipIfColumnExists: { table: 'blog_preview_tokens', column: 'revoked_at' },
+    statements: [
+      `ALTER TABLE blog_preview_tokens ADD COLUMN revoked_at INTEGER`,
+    ],
+  },
+  {
+    // A preview read arrives with the token and nothing else, so the lookup has to find the row by
+    // its hash. The primary key starts with the owner, which would make that lookup a scan.
+    version: 281,
+    statements: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_blog_preview_tokens_hash
+         ON blog_preview_tokens(token_hash)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -275,6 +275,24 @@ function publicMusic(value: unknown): BlogMusicConfig {
   }
 }
 
+/**
+ * The public author address segment.
+ *
+ * The blog has one author, so the slug is derived from the profile name that the site already
+ * stores; when the name is blank the page still needs an address, hence the fixed fallback. Both
+ * the site payload and the author endpoint call this, so a link can never point at a segment the
+ * endpoint refuses.
+ */
+export function blogAuthorSlug(name: string): string {
+  const slug = name
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+  return slug || 'author'
+}
+
 export function publicBlogSite(
   settings: BlogSettings,
   counts: BlogSitePublic['counts'],
@@ -334,6 +352,7 @@ export function publicBlogSite(
       },
     },
     profile: {
+      slug: blogAuthorSlug(typeof profile.name === 'string' ? profile.name : ''),
       name: typeof profile.name === 'string' ? profile.name : '',
       bio: typeof profile.bio === 'string' ? profile.bio : '',
       avatar: typeof profile.avatar === 'string' ? profile.avatar : '',

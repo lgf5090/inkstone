@@ -193,6 +193,8 @@ export interface PublicPostQuery {
   year?: number
   pinned?: boolean
   excludeEncrypted?: boolean
+  /** A listing's own order; the default keeps pinned articles first, as the home page always has. */
+  sort?: 'latest' | 'oldest' | 'title'
 }
 
 export async function listPublishedPostsFiltered(
@@ -236,13 +238,20 @@ export async function listPublishedPostsFiltered(
   const joins = `LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
     LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id`
   const whereSql = where.join(' AND ')
+  const order = query.sort === 'oldest'
+    ? 'COALESCE(p.published_at, p.created_at) ASC, p.id ASC'
+    : query.sort === 'title'
+      ? 'p.title COLLATE NOCASE ASC, p.id DESC'
+      : query.sort === 'latest'
+        ? 'COALESCE(p.published_at, p.created_at) DESC, p.id DESC'
+        : 'p.pinned DESC, COALESCE(p.published_at, p.created_at) DESC, p.id DESC'
   const [rows, count] = await Promise.all([
     db
       .prepare(
         `SELECT ${POST_COLUMNS} FROM blog_posts p
          ${joins}
          WHERE ${whereSql}
-         ORDER BY p.pinned DESC, COALESCE(p.published_at, p.created_at) DESC, p.id DESC
+         ORDER BY ${order}
          LIMIT ? OFFSET ?`,
       )
       .bind(...binds, safeLimit, offset)

@@ -211,6 +211,63 @@ export interface BlogPostDetail extends BlogPostSummary {
   viewCount: number
 }
 
+/**
+ * The owner as the public author page shows them.
+ *
+ * The blog has one author — the account that owns the site — and this projection is what both the
+ * page header and its structured data read. `articleCount` counts only published, unencrypted
+ * articles, the same set the listing returns.
+ */
+export interface BlogAuthorPublic {
+  slug: string
+  name: string
+  avatar: string
+  bio: string
+  email: string
+  location: string
+  links: { label: string; url: string }[]
+  articleCount: number
+}
+
+export interface BlogAuthorPage {
+  author: BlogAuthorPublic
+  items: BlogPostSummary[]
+  page: number
+  limit: number
+  total: number
+}
+
+/** A preview link row as the admin panel lists it; the plain token is never stored here. */
+export interface BlogPreviewToken {
+  hash: string
+  postId: string
+  createdAt: number
+  expiresAt: number
+  usedAt: number | null
+  revokedAt: number | null
+  status: 'active' | 'used' | 'expired' | 'revoked'
+}
+
+/** A draft is read through its preview token; nothing here is part of a public listing. */
+export interface BlogPreviewDetail {
+  preview: true
+  id: string
+  slug: string
+  title: string
+  excerpt: string
+  description: string
+  coverUrl: string | null
+  category: string | null
+  series: string | null
+  tags: string[]
+  publishedAt: number | null
+  updatedAt: number
+  wordCount: number
+  readingMinutes: number
+  encrypted: boolean
+  content: string
+}
+
 export interface BlogPostAdminItem extends BlogPostSummary {
   noteId: string
   status: BlogPostStatus
@@ -453,7 +510,7 @@ export interface BlogSitePublic {
     themeColor: { hue: number; style: string; spec: string }
     banner: { desktopLight: string; desktopDark: string; mobileLight: string; mobileDark: string }
   }
-  profile: { name: string; bio: string; avatar: string; email: string; location: string; links: { label: string; url: string }[] }
+  profile: { slug: string; name: string; bio: string; avatar: string; email: string; location: string; links: { label: string; url: string }[] }
   nav: { label: string; href: string; children?: { label: string; href: string }[] }[]
   sidebar: { enable: boolean; arrangement: 'single' | 'dual'; side: 'left' | 'right' }
   widgets: BlogWidget[]
