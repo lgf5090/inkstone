@@ -96,6 +96,8 @@ export const ConversationTestRequestSchema = z.object({
 const CompareEntrySchema = z.object({
   label: z.string().max(200),
   prompt: z.string().max(PROMPT_OPTIMIZER_LIMITS.promptMaxChars).default(''),
+  input: z.string().max(PROMPT_OPTIMIZER_LIMITS.promptMaxChars).default(''),
+  variant: z.enum(['baseline', 'candidate']).optional(),
   output: z.string().max(PROMPT_OPTIMIZER_LIMITS.promptMaxChars).default(''),
   modelLabel: z.string().max(200).default(''),
 })

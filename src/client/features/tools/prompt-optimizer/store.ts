@@ -585,10 +585,11 @@ export const usePromptOptimizerStore = create<PromptOptimizerState>((set, get) =
           const results: TestGroup[] = []
           for (const group of targets) {
             try {
+              const groupPrompt = group.variant === 'baseline' ? draft.prompt : draft.optimized
               const result = await promptOptimizerApi.test({
                 workspace: state.workspace,
-                system: state.workspace === 'basic_system' ? draft.optimized : '',
-                user: group.input || (state.workspace === 'basic_system' ? '' : applyVariables(draft.optimized, variables)),
+                system: state.workspace === 'basic_system' ? applyVariables(groupPrompt, variables) : '',
+                user: group.input || (state.workspace === 'basic_system' ? '' : applyVariables(groupPrompt, variables)),
                 ...(group.modelId || draft.modelId ? { modelId: group.modelId || draft.modelId } : {}),
                 tools: undefined,
               })
@@ -627,18 +628,25 @@ export const usePromptOptimizerStore = create<PromptOptimizerState>((set, get) =
         const compare = type === 'compare' || type === 'structured'
           ? draft.testGroups.filter((group) => group.output.trim()).map((group, index) => ({
               label: t('tools.prompt_optimizer.workspace.test_label').replace('{index}', String(index + 1)),
-              prompt: draft.optimized,
+              prompt: group.variant === 'baseline' ? draft.prompt : draft.optimized,
+              input: group.input,
+              variant: group.variant,
               output: group.output,
-              modelLabel: draft.modelId,
+              modelLabel: group.modelId || draft.modelId,
             }))
           : undefined
+        // The result/evaluation fallback follows the candidate run, not whichever group happens to be
+        // first in the list (the default first group is the baseline).
+        const primary = draft.testGroups.find((group) => group.variant === 'candidate' && group.output.trim())
+          ?? draft.testGroups.find((group) => group.output.trim())
+          ?? draft.testGroups[0]
         const result = await promptOptimizerApi.evaluate({
           workspace: state.workspace,
           type,
           originalPrompt: draft.prompt,
           optimizedPrompt: draft.optimized,
-          testInput: draft.testGroups[0]?.input ?? '',
-          testOutput: draft.testGroups[0]?.output ?? draft.testOutput,
+          testInput: primary?.input ?? '',
+          testOutput: primary?.output ?? draft.testOutput,
           focus: draft.focus,
           ...(draft.modelId ? { modelId: draft.modelId } : {}),
           ...(compare?.length ? { compare } : {}),

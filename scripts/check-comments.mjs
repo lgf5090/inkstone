@@ -19734,6 +19734,8 @@ const allowed = new Map([
     "// Defined variables become their real values in the text the model reads; an undefined",
     "// placeholder stays literal so the reader can see what is still missing.",
     "/** Baseline is the reference run; candidate is what the current prompt produces. */",
+    "// The result/evaluation fallback follows the candidate run, not whichever group happens to be",
+    "// first in the list (the default first group is the baseline).",
   ]],
   ["src/client/features/tools/prompt-optimizer/views/ArenaView.tsx", [
     "/**\n * The arena: one prompt, several models, side-by-side answers.\n */",
@@ -43757,6 +43759,8 @@ const allowed = new Map([
     "// Both stages use their own builtin templates, so the candidate evidence actually reaches the model.",
     "// OpenAI's wire needs the assistant turn's calls followed by one tool message per call id; the",
     "// result's text belongs to the tool message, not to a user turn.",
+    "// The UI's first group is the baseline; judge roles must follow the variant labels rather than",
+    "// the array position, so the candidate becomes Target and the baseline becomes Baseline.",
   ]],
   ["src/worker/tools/prompt-optimizer/assets.ts", [
     "/**\n * R2-backed pictures for the Prompt Optimizer.\n *\n * Uploads arrive as data URLs from the browser and are re-typed from their own bytes, not from the\n * claimed MIME. Reads go through an authenticated route keyed by `user_id`, never a raw object key.\n */",

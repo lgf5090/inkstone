@@ -1300,7 +1300,7 @@ export async function evaluatePrompt(input: {
     testInput: string
     testOutput: string
     focus: string
-    compare?: { label: string; prompt: string; output: string; modelLabel: string }[]
+    compare?: { label: string; prompt: string; input?: string; variant?: 'baseline' | 'candidate'; output: string; modelLabel: string }[]
   }
 }): Promise<EvaluationOutcome> {
   const { request } = input
@@ -1330,15 +1330,15 @@ export async function evaluatePrompt(input: {
     addUsage(result.usage)
     return parseEvaluationText(result.text)
   }
-  const singleContext = (output: string, prompt: string): Record<string, unknown> => ({
+  const singleContext = (output: string, prompt: string, testInput = request.testInput): Record<string, unknown> => ({
     ...snapshotContext({
       promptRefLabel: request.workspace === 'basic_user' ? 'User prompt' : request.workspace.startsWith('pro_') ? 'Conversation' : 'System prompt',
       modelKey: '',
       versionLabel: '',
       prompt,
       executionInputLabel: 'Test case input',
-      executionInputContent: request.testInput,
-      executionInputSummary: request.testInput.length > 200 ? `${request.testInput.slice(0, 160)}…` : '',
+      executionInputContent: testInput,
+      executionInputSummary: testInput.length > 200 ? `${testInput.slice(0, 160)}…` : '',
       output,
       reasoning: '',
       focus: request.focus,
@@ -1356,7 +1356,7 @@ export async function evaluatePrompt(input: {
       const candidateScores: { label: string; score: number | null }[] = []
       const resultTemplate = request.templateId ? findBuiltinTemplate(request.templateId, language) : evaluationTemplateFor(request.workspace, 'result', language)
       for (const entry of compare) {
-        const parsed = await runTemplate(resultTemplate, singleContext(entry.output, entry.prompt || request.optimizedPrompt))
+        const parsed = await runTemplate(resultTemplate, singleContext(entry.output, entry.prompt || request.optimizedPrompt, entry.input ?? request.testInput))
         candidateScores.push({ label: entry.label, score: parsed.overall })
       }
       const structured = request.type === 'structured'
@@ -1368,7 +1368,15 @@ export async function evaluatePrompt(input: {
         const judgeTemplate = structuredCompareTemplate('pair-judge', language)
         const synthesisTemplate = structuredCompareTemplate('synthesis', language)
         if (!judgeTemplate || !synthesisTemplate) throw new ApiError(500, 'internal', 'No structured compare template is available')
-        const roleBindings = compare.map((entry, index) => ({
+        // The UI's first group is the baseline; judge roles must follow the variant labels rather than
+        // the array position, so the candidate becomes Target and the baseline becomes Baseline.
+        const ordered = (() => {
+          const candidate = compare.find((entry) => entry.variant === 'candidate')
+          const baseline = compare.find((entry) => entry.variant === 'baseline')
+          if (!candidate || !baseline) return compare
+          return [candidate, baseline, ...compare.filter((entry) => entry !== candidate && entry !== baseline)]
+        })()
+        const roleBindings = ordered.map((entry, index) => ({
           snapshotId: `s${index + 1}`,
           snapshotLabel: entry.label,
           role: structuredRoleOf(index),
@@ -1387,7 +1395,7 @@ export async function evaluatePrompt(input: {
           overfitWarnings: string[]
         }[] = []
         let replicaIndex = 0
-        for (const pair of structuredPairPlan(compare.length)) {
+        for (const pair of structuredPairPlan(ordered.length)) {
           const plan = STRUCTURED_PAIR_PLANS[pair.pairType]
           const pairKey = pair.pairType === 'targetBaseline'
             ? 'target-vs-baseline'
@@ -1396,6 +1404,11 @@ export async function evaluatePrompt(input: {
               : pair.pairType === 'referenceBaseline'
                 ? 'reference-vs-reference-baseline'
                 : replicaIndex++ === 0 ? 'target-vs-replica' : `target-vs-replica-${replicaIndex}`
+          const left = ordered[pair.left]!
+          const right = ordered[pair.right]!
+          const leftInput = left.input || request.testInput
+          const rightInput = right.input || request.testInput
+          const judgeInputs = [...new Set([leftInput, rightInput].filter(Boolean))]
           const judgeOutcome = await runTemplate(judgeTemplate, {
             pairGuidance: copy.pairs[pair.pairType],
             pairJudgeJsonContract: structuredPairContract(pairKey, pair.pairType, plan.allowedSignals),
@@ -1411,11 +1424,13 @@ export async function evaluatePrompt(input: {
                 ...(request.focus ? { focusBrief: request.focus } : {}),
               },
               roleBindings,
-              testCases: request.testInput
-                ? [{ id: 't1', label: '', input: { kind: 'text', label: 'Test case input', content: request.testInput } }]
-                : [],
-              leftSnapshot: structuredSnapshotPayload(compare[pair.left]!, pair.left, structuredRoleOf(pair.left), copy.roles[structuredRoleOf(pair.left)], request.testInput),
-              rightSnapshot: structuredSnapshotPayload(compare[pair.right]!, pair.right, structuredRoleOf(pair.right), copy.roles[structuredRoleOf(pair.right)], request.testInput),
+              testCases: judgeInputs.map((content, index) => ({
+                id: `t${index + 1}`,
+                label: '',
+                input: { kind: 'text', label: 'Test case input', content },
+              })),
+              leftSnapshot: structuredSnapshotPayload(left, pair.left, structuredRoleOf(pair.left), copy.roles[structuredRoleOf(pair.left)], leftInput),
+              rightSnapshot: structuredSnapshotPayload(right, pair.right, structuredRoleOf(pair.right), copy.roles[structuredRoleOf(pair.right)], rightInput),
             }, null, 2),
           })
           const judge = extractJson(judgeOutcome.raw) as Record<string, unknown>
@@ -1450,9 +1465,9 @@ export async function evaluatePrompt(input: {
             language,
             roleName: copy.roleName,
             subjectLabel: copy.subjectLabel,
-            sharedCompareInputs: true,
-            samePromptAcrossSnapshots: compare.every((entry) => entry.prompt === compare[0]!.prompt),
-            crossModelComparison: compare.some((entry) => Boolean(entry.modelLabel)),
+            sharedCompareInputs: ordered.every((entry) => (entry.input ?? request.testInput) === (ordered[0]!.input ?? request.testInput)),
+            samePromptAcrossSnapshots: ordered.every((entry) => entry.prompt === ordered[0]!.prompt),
+            crossModelComparison: ordered.some((entry) => Boolean(entry.modelLabel)),
             ...(request.focus ? { focusBrief: request.focus } : {}),
           },
           roleBindings,
@@ -1476,6 +1491,7 @@ export async function evaluatePrompt(input: {
         const compareTemplate = request.templateId
           ? findBuiltinTemplate(request.templateId, language)
           : evaluationTemplateFor(request.workspace, 'compare', language)
+        const compareInputs = compare.map((item) => item.input || request.testInput)
         const context: Record<string, unknown> = {
           ...singleContext(request.testOutput, request.optimizedPrompt || request.originalPrompt),
           hasStructuredCompare: false,
@@ -1492,32 +1508,32 @@ export async function evaluatePrompt(input: {
             hasVersionLabel: false,
             versionLabel: '',
             promptText: item.prompt,
-            hasExecutionInput: Boolean(request.testInput),
+            hasExecutionInput: Boolean(compareInputs[index]),
             executionInputLabel: 'Test case input',
-            executionInputContent: request.testInput,
+            executionInputContent: compareInputs[index] ?? '',
             hasExecutionInputSummary: false,
             executionInputSummary: '',
             output: item.output,
             hasReasoning: false,
             reasoning: '',
           })),
-          hasCompareTestCases: Boolean(request.testInput),
-          hasSharedCompareInputs: true,
-          compareTestCaseCount: request.testInput ? 1 : 0,
-          compareTestCases: request.testInput
-            ? [{
-                id: 't1',
-                hasLabel: false,
-                label: '',
-                inputKind: 'text',
-                inputLabel: 'Test case input',
-                hasInputSummary: false,
-                inputSummary: '',
-                inputContent: request.testInput,
-                hasSettingsSummary: false,
-                settingsSummary: '',
-              }]
-            : [],
+          hasCompareTestCases: compareInputs.some(Boolean),
+          hasSharedCompareInputs: compareInputs.every((value) => value === compareInputs[0]),
+          compareTestCaseCount: new Set(compareInputs.filter(Boolean)).size,
+          compareTestCases: compareInputs
+            .filter(Boolean)
+            .map((inputContent, index) => ({
+              id: `t${index + 1}`,
+              hasLabel: false,
+              label: '',
+              inputKind: 'text',
+              inputLabel: 'Test case input',
+              hasInputSummary: false,
+              inputSummary: '',
+              inputContent,
+              hasSettingsSummary: false,
+              settingsSummary: '',
+            })),
           compareJsonContract: COMPARE_JSON_CONTRACT,
           hasCrossModelComparison: compare.some((entry) => Boolean(entry.modelLabel)),
           compareRoleBindings: [],

@@ -34,6 +34,17 @@ const { apiMock } = vi.hoisted(() => ({
       toolCalls: [],
       timing: { durationMs: 1, modelLabel: 'test', inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheMissTokens: 0 },
     })),
+    evaluate: vi.fn(async (_body: Record<string, unknown>) => ({
+      score: 60,
+      verdict: 'ok',
+      feedback: '',
+      strengths: [],
+      weaknesses: [],
+      suggestions: [],
+      raw: '{}',
+      timing: { durationMs: 1, modelLabel: 'test', inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheMissTokens: 0 },
+      evaluation: {},
+    })),
   },
 }))
 
@@ -60,6 +71,7 @@ describe('Prompt Optimizer workspace switching', () => {
     apiMock.optimize.mockClear()
     apiMock.iterate.mockClear()
     apiMock.test.mockClear()
+    apiMock.evaluate.mockClear()
   })
 
   it('keeps a caller override after loading the persisted session', async () => {
@@ -111,20 +123,43 @@ describe('Prompt Optimizer workspace switching', () => {
     expect(request.iterateInput).toContain('{{audience}}')
   })
 
-  it('sends each baseline or candidate group to its own model', async () => {
+  it('sends baseline and candidate groups to their own models and prompts', async () => {
     const { usePromptOptimizerStore } = await import('../src/client/features/tools/prompt-optimizer/store')
-    usePromptOptimizerStore.setState({ settings, workspace: 'basic_user', activeView: 'basic_user' })
-    await usePromptOptimizerStore.getState().setWorkspace('basic_user')
+    usePromptOptimizerStore.setState({ settings, workspace: 'basic_system', activeView: 'basic_system' })
+    await usePromptOptimizerStore.getState().setWorkspace('basic_system')
     usePromptOptimizerStore.getState().updateDraft({
-      optimized: 'optimized prompt',
+      prompt: 'baseline prompt',
+      optimized: 'candidate prompt',
       testGroups: [
         { id: 'g1', input: 'one', output: '', reasoning: '', toolCalls: [], status: 'idle', variant: 'baseline', modelId: 'model-baseline' },
         { id: 'g2', input: 'two', output: '', reasoning: '', toolCalls: [], status: 'idle', variant: 'candidate', modelId: 'model-candidate' },
       ],
     })
     await usePromptOptimizerStore.getState().runTest()
-    expect(apiMock.test).toHaveBeenNthCalledWith(1, expect.objectContaining({ modelId: 'model-baseline' }))
-    expect(apiMock.test).toHaveBeenNthCalledWith(2, expect.objectContaining({ modelId: 'model-candidate' }))
+    expect(apiMock.test).toHaveBeenNthCalledWith(1, expect.objectContaining({ modelId: 'model-baseline', system: 'baseline prompt' }))
+    expect(apiMock.test).toHaveBeenNthCalledWith(2, expect.objectContaining({ modelId: 'model-candidate', system: 'candidate prompt' }))
+  })
+
+  it('sends each compare snapshot with its own input and variant role', async () => {
+    const { usePromptOptimizerStore } = await import('../src/client/features/tools/prompt-optimizer/store')
+    usePromptOptimizerStore.setState({ settings, workspace: 'basic_user', activeView: 'basic_user' })
+    await usePromptOptimizerStore.getState().setWorkspace('basic_user')
+    usePromptOptimizerStore.getState().updateDraft({
+      prompt: 'baseline prompt',
+      optimized: 'candidate prompt',
+      testGroups: [
+        { id: 'g1', input: 'baseline input', output: 'baseline output', reasoning: '', toolCalls: [], status: 'done', variant: 'baseline', modelId: '' },
+        { id: 'g2', input: 'candidate input', output: 'candidate output', reasoning: '', toolCalls: [], status: 'done', variant: 'candidate', modelId: '' },
+      ],
+    })
+    await usePromptOptimizerStore.getState().evaluate('compare')
+    const body = apiMock.evaluate.mock.calls[0]![0] as unknown as {
+      testInput: string
+      compare: { prompt: string; input: string; variant: string }[]
+    }
+    expect(body.testInput).toBe('candidate input')
+    expect(body.compare[0]).toMatchObject({ prompt: 'baseline prompt', input: 'baseline input', variant: 'baseline' })
+    expect(body.compare[1]).toMatchObject({ prompt: 'candidate prompt', input: 'candidate input', variant: 'candidate' })
   })
 
   it('surfaces a 409 conflict to the conflict dialog state', async () => {
