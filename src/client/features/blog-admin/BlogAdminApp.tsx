@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   Layers,
   Link2,
+  Mail,
   Menu as MenuIcon,
   Newspaper,
   MessageSquare,
@@ -40,6 +41,7 @@ import { CalendarPanel } from './CalendarPanel'
 import { PostsPanel } from './PostsPanel'
 import { MediaPanel } from './MediaPanel'
 import { CommentsPanel } from './CommentsPanel'
+import { NewsletterPanel } from './NewsletterPanel'
 import { PagesPanel } from './PagesPanel'
 import { TaxonomyPanel } from './TaxonomyPanel'
 import { CollectionsPanel } from './CollectionsPanel'
@@ -77,7 +79,7 @@ function writeSidebarCollapsed(collapsed: boolean): void {
 
 type NavId =
   | 'dashboard' | 'calendar' | 'posts' | 'pages' | 'media'
-  | 'comments' | 'categories' | 'tags' | 'series' | 'friends' | 'moments' | 'albums' | 'collections'
+  | 'comments' | 'newsletter' | 'categories' | 'tags' | 'series' | 'friends' | 'moments' | 'albums' | 'collections'
   | 'menus' | 'widgets' | 'redirects' | 'tools' | 'import' | 'account' | 'settings'
 
 interface NavItem {
@@ -95,6 +97,7 @@ const CONTENT_NAV: NavItem[] = [
 
 const MANAGE_NAV: NavItem[] = [
   { id: 'comments', path: '/blog-admin/comments', label: 'blog.admin.comments', icon: MessageSquare },
+  { id: 'newsletter', path: '/blog-admin/newsletter', label: 'blog.admin.newsletter', icon: Mail },
   { id: 'categories', path: '/blog-admin/categories', label: 'blog.admin.categories', icon: Tags },
   { id: 'tags', path: '/blog-admin/tags', label: 'blog.admin.tags', icon: Tags },
   { id: 'series', path: '/blog-admin/series', label: 'blog.admin.series', icon: Layers },
@@ -131,6 +134,7 @@ function activeNav(pathname: string): NavId {
   if (first === 'pages') return 'pages'
   if (first === 'media') return 'media'
   if (first === 'comments') return 'comments'
+  if (first === 'newsletter') return 'newsletter'
   if (first === 'categories' || first === 'tags' || first === 'series') return first
   if (first === 'friends') return 'friends'
   if (first === 'moments') return 'moments'
@@ -567,6 +571,7 @@ function AdminRoute({
   }
   if (pathname === '/blog-admin/media') return <Scroll><MediaPanel /></Scroll>
   if (pathname === '/blog-admin/comments') return <Scroll><CommentsPanel /></Scroll>
+  if (pathname === '/blog-admin/newsletter') return <Scroll><NewsletterPanel /></Scroll>
   if (pathname === '/blog-admin/categories') return <Scroll><TaxonomyPanel initialKind="categories" /></Scroll>
   if (pathname === '/blog-admin/tags') return <Scroll><TaxonomyPanel initialKind="tags" /></Scroll>
   if (pathname === '/blog-admin/series') return <Scroll><TaxonomyPanel initialKind="series" /></Scroll>
