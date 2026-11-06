@@ -6285,6 +6285,9 @@ const allowed = new Map([
     "/**\n * The accounts slice's calls.\n *\n * Every request goes through `cfRequest`, which carries the notebook's client header and turns the\n * route's error envelope into the sentence the screen shows. The CSV import is a multipart form, so\n * it hands `request()` a `FormData` instead of a JSON body.\n */",
     "/** Present for completeness; the screen does not offer it because Workers cannot proxy outbound. */",
   ]],
+  ["src/client/features/cloudflare/api/ai-gateway.ts", [
+    "/**\n * The management-side contract for the self-hosted gateway. Only session-authenticated calls live\n * here; the public `gw_` data plane is consumed by external clients, not by this screen.\n */",
+  ]],
   ["src/client/features/cloudflare/api/ai.ts", [
     "/**\n * The Cloudflare AI contract between the app and `/api/cloudflare/v1`.\n *\n * The endpoints are OpenAI-shaped on purpose: they are a proxy to Cloudflare's own OpenAI-compatible\n * API, the reference module's screens already read that shape, and it is what a reader pasting a\n * request from another tool expects. Account selection travels in the body (`accountId`) rather than a\n * custom header, so the streaming path and the JSON path share one request shape.\n */",
     "/** The caller owns the stream and must cancel the reader when it stops. */",
@@ -6488,6 +6491,9 @@ const allowed = new Map([
     "// Naming is best-effort; the question still supplies a usable title.",
     "// Re-armed on every mount: StrictMode cleans a fresh mount up, and a flag left false there would",
     "// discard every streamed answer for the rest of the session.",
+  ]],
+  ["src/client/features/cloudflare/screens/ai/GatewayTab.tsx", [
+    "/**\n * The gateway tab is an operator view, not a chat surface: it shows the local quota gate, the\n * weighted scheduler order, issued keys, request evidence and the two OpenAI entry points. Reads are\n * live; the only writes are key issuance/revocation and an explicit reconciliation run.\n */",
   ]],
   ["src/client/features/cloudflare/screens/ai/ImageTab.tsx", [
     "/**\n * The image tab: text-to-image and image-to-image against the model family the reader picked.\n *\n * The family decides which controls exist — Stable Diffusion takes width, height, guidance and a\n * negative prompt, FLUX does not — and the request builder is what turns that into the body.\n */",
@@ -34024,6 +34030,8 @@ const allowed = new Map([
     "// A response that can vary by cookie (the app shell, an unlock form, a share page) must not be",
     "// stored by the CDN. Existing HTML routes already say so explicitly; this is the default for the",
     "// ones that do not, and the API has always been no-store for the same reason.",
+    "// Public gateway first: it authenticates with its own `gw_` bearer key, so the session middleware",
+    "// on `/api/cloudflare` must never see it.",
   ]],
   ["src/worker/assistant/attachments.ts", [
     "/**\n * The token each attachment line starts with.\n *\n * It is English on purpose: this block is model-facing prompt text, never the reader's UI, and the\n * reader's own labels come from the locale catalog the composer draws.\n */",
@@ -38454,6 +38462,23 @@ const allowed = new Map([
     "// A transport failure never carries an upstream status. A 5xx or a 429 is Cloudflare's own",
     "// availability problem, not this credential's; only a 4xx answer is a refusal.",
   ]],
+  ["src/worker/cloudflare/ai-gateway-keys.ts", [
+    "/**\n * Gateway keys are issued by Inkstone, not by Cloudflare.\n *\n * Only the SHA-256 hash and a short prefix are stored; the plaintext is returned once at creation and\n * never written to a log or audit row. The per-key daily request counter lives in its own row so the\n * hot path does not update the key metadata.\n */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-log.ts", [
+    "/**\n * Request evidence for the gateway. Bodies are deliberately absent: this table answers \"who called,\n * which account served it, what did it cost and why did it fail\" without becoming a second copy of\n * user prompts.\n */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-models.ts", [
+    "/**\n * The two OpenAI faces of the gateway: Chat Completions and Responses.\n *\n * Both are normalised to one canonical messages array before quota estimation and before the upstream\n * call. That is what makes \"the same content\" cost the same neurons in either format and keeps the\n * Responses path from quietly under-counting `instructions` or tool turns.\n */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-quota.ts", [
+    "/**\n * The self-hosted gateway's quota gate.\n *\n * Cloudflare's GraphQL total is authoritative but late; this ledger is what stops a request before it\n * is sent. Every reservation is one conditional UPDATE so two isolates racing on the same account see\n * each other's increment, and a reservation never shrinks: settling only raises `actual`/`reserved`\n * and reconciliation only raises them further. The hard limit is 10,000 neurons per account/day.\n */",
+    "// One UPSERT, not \"UPDATE then INSERT\": several requests can be reserving at the same instant and",
+    "// the fallback INSERT would then collide on the primary key.",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-schema.ts", [
+    "/**\n * The self-hosted AI gateway's local ledger.\n *\n * Cloudflare's GraphQL atoms are the authoritative daily total, but they arrive late. These tables are\n * the gate: an account/day row is updated with one conditional statement so concurrent requests cannot\n * reserve past the threshold, while the request and snapshot tables keep the evidence needed to audit\n * what happened. No request or response bodies are stored here.\n */",
+  ]],
   ["src/worker/cloudflare/ai-models.ts", [
     "/**\n * Cloudflare's AI catalogue, and the parts of a model schema this app has to understand.\n *\n * The model list is live (Cloudflare adds and retires models), while a model's input schema is\n * stable enough to keep for an hour — the TTS screens ask for it on every open, and the schema call\n * is one more round trip per model. The body a speech model accepts is derived from that schema\n * rather than hard-coded: melotts takes `prompt` and aura takes `text`, and the speaker enums differ\n * per model.\n */",
     "/** Exposed for tests and for a cache-clear action; the cache is otherwise per isolate. */",
@@ -38519,6 +38544,8 @@ const allowed = new Map([
     "// can name the failure without parsing an English sentence that Cloudflare is free to reword.",
     "// `upstream_status` is what lets a credential check tell \"Cloudflare refused this key\" from",
     "// \"Cloudflare never answered\": the route sees both as a 502 otherwise.",
+    "// Built before the try: a missing credential is a configuration error, and wrapping it as \"Cloudflare",
+    "// could not be reached\" would hide that from callers that classify auth failures.",
   ]],
   ["src/worker/cloudflare/chat-sessions.ts", [
     "/**\n * The AI conversation history, as rows.\n *\n * Every statement carries the reader's id; the session id alone never proves ownership, and a query\n * that finds nothing is answered as missing rather than forbidden so ids cannot be probed. The route\n * above this module parses bodies and maps refusals to HTTP; it does not know the schema.\n */",
@@ -39418,6 +39445,9 @@ const allowed = new Map([
     "// existed and was withdrawn before it ran out.",
     "// A preview read arrives with the token and nothing else, so the lookup has to find the row by",
     "// its hash. The primary key starts with the owner, which would make that lookup a scan.",
+    "// The self-hosted AI gateway keeps its own quota ledger, key table and request evidence. Cloudflare's",
+    "// GraphQL total reconciles it, but the gate must be local or concurrent requests would overshoot.",
+    "// 287 starts here: 277–286 are already claimed on `test` (286 by the blog layout fix).",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -39640,6 +39670,7 @@ const allowed = new Map([
     "/** HMAC secret for protected-post unlock tokens; unset disables the unlock endpoint. */",
     "/** Click-detail retention in days; unset keeps the default, `0` disables the sweep. */",
     "/** Set only when the request authenticated with a Memos access token rather than a session. */",
+    "/**\n   * The local gate for the self-hosted AI gateway, in neurons per account/day. Unset means the 9,500\n   * safety threshold; it never exceeds the 10,000 hard limit. A local verification run may set it to\n   * a tiny number to prove the gate stops concurrent requests.\n   */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -40178,6 +40209,7 @@ const allowed = new Map([
   ]],
   ["src/worker/middleware/auth.ts", [
     "/**\n * How stale `users.last_seen_at` may get before a request writes a fresh one.\n *\n * A reader's every request would otherwise take a write to the `users` row, so the bump is rate-limited\n * to one per interval; the same number is the guard in the `UPDATE` so two concurrent requests cannot\n * both decide they were the one that crossed the interval.\n */",
+    "/** The public AI gateway is a bearer-key data plane, not a cookie-authenticated browser API. */",
   ]],
   ["src/worker/music/assistant-context.ts", [
     "/**\n * The music screen, read from a turn's body and written into its prompt.\n *\n * This is the trust boundary for the music context: the client is not allowed to decide what the\n * model sees. Only a page the app actually has, bounded strings and one enumerated cloud source get\n * through, and anything else is dropped rather than passed along as an empty value the prompt would\n * have to interpret.\n */",
@@ -41476,6 +41508,9 @@ const allowed = new Map([
     "/**\n * The account's email: absent for a token account, and when present it has to be an address.\n *\n * It is sent to Cloudflare as `X-Auth-Email` on every global-key call and echoed back on the accounts\n * screen, so a placeholder there fails much later and much less clearly than a refusal here.\n */",
     "/** The undo behind a delete: only possible while the trash still holds the row. */",
   ]],
+  ["src/worker/routes/cloudflare/ai-gateway.ts", [
+    "/**\n * `/api/cloudflare/ai-gateway` — the session-authenticated management surface for the self-hosted\n * gateway. The public data plane lives under `/api/gateway` and authenticates with `gw_` keys instead.\n */",
+  ]],
   ["src/worker/routes/cloudflare/ai-v1.ts", [
     "/**\n * `/api/cloudflare/v1` — the OpenAI-compatible face of Cloudflare Workers AI.\n *\n * The shapes are OpenAI's on purpose: the screens already speak them, and a request copied from\n * another tool works unchanged. Account selection travels in the body (`accountId`), because the\n * streaming and JSON paths share one request shape and a custom header would only be readable by one\n * of them.\n *\n * Cloudflare's free allowance is per account and per UTC day. A refusal that means \"today is used up\"\n * marks the account exhausted and moves to the next one, so a reader with several accounts never sees\n * a limit before every account has one. The upstream's own words are kept, truncated, for the account\n * owner to read; they are never turned into a status Cloudflare did not send.\n */",
     "/** Cloudflare model ids look like `@cf/meta/llama-3.1-8b-instruct`; nothing else may enter a path. */",
@@ -41653,6 +41688,11 @@ const allowed = new Map([
     "// placeholders are counted against; `updated_at` is appended by the store.",
     "// Both strategies answer the same way: a batch that matched no folder row is a folder that moved or",
     "// was edited underneath, and the route reports that instead of half-emptying the tree.",
+  ]],
+  ["src/worker/routes/gateway.ts", [
+    "/**\n * The public face of the self-hosted gateway.\n *\n * Two OpenAI formats share one canonical messages array, one reservation, one upstream call, and one\n * usage/neuron calculation. The router itself is unauthenticated; a `gw_` bearer key is the only\n * credential, and every response error is rewritten to OpenAI's `{error:{message,type,code}}` shape so\n * an Inkstone internal error can never leak to an external caller.\n */",
+    "/* ignore a malformed deployment URL */",
+    "/** Cloudflare's OpenAI-compatible endpoint reports the billed neurons alongside the token counts. */",
   ]],
   ["src/worker/routes/inknote-assets.ts", [
     "/** HTTP surface for Inknote assets: upload, owner-only reads with Range, delete and prune. */",

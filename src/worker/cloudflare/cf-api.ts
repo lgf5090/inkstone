@@ -66,6 +66,13 @@ export interface CfRequestInit {
 }
 
 async function send(auth: CloudflareAuth, path: string, init: CfRequestInit = {}): Promise<Response> {
+  // Built before the try: a missing credential is a configuration error, and wrapping it as "Cloudflare
+  // could not be reached" would hide that from callers that classify auth failures.
+  const headers = {
+    'Content-Type': 'application/json',
+    ...authHeaders(auth),
+    ...(init.headers ?? {}),
+  }
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), init.timeoutMs ?? CF_TIMEOUT_MS)
   if (init.signal) {
@@ -75,11 +82,7 @@ async function send(auth: CloudflareAuth, path: string, init: CfRequestInit = {}
   try {
     return await fetch(`${CF_API_BASE}${path}`, {
       method: init.method ?? 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders(auth),
-        ...(init.headers ?? {}),
-      },
+      headers,
       ...(init.body === undefined
         ? {}
         : { body: typeof init.body === 'string' ? init.body : JSON.stringify(init.body) }),

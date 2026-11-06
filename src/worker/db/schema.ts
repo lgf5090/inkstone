@@ -83,6 +83,7 @@ import {
   CLOUDFLARE_REQUIRED_TABLES,
   CLOUDFLARE_SCHEMA_STATEMENTS,
 } from '../cloudflare/schema'
+import { AI_GATEWAY_SCHEMA_STATEMENTS } from '../cloudflare/ai-gateway-schema'
 import {
   YOUTUBE_REQUIRED_COLUMNS,
   YOUTUBE_REQUIRED_INDEXES,
@@ -777,6 +778,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS,
   ...CALENDAR_SCHEMA_STATEMENTS,
   ...CLOUDFLARE_SCHEMA_STATEMENTS,
+  ...AI_GATEWAY_SCHEMA_STATEMENTS,
   ...YOUTUBE_SCHEMA_STATEMENTS,
   ...CLOUDDRIVE_SCHEMA_STATEMENTS,
   ...SCRIPTSHUB_SCHEMA_STATEMENTS,]
@@ -3828,6 +3830,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 285,
     statements: BLOG_FAVORITE_SCHEMA_STATEMENTS,
+  },
+  {
+    // The self-hosted AI gateway keeps its own quota ledger, key table and request evidence. Cloudflare's
+    // GraphQL total reconciles it, but the gate must be local or concurrent requests would overshoot.
+    // 287 starts here: 277–286 are already claimed on `test` (286 by the blog layout fix).
+    version: 287,
+    statements: AI_GATEWAY_SCHEMA_STATEMENTS,
   },
 ]
 

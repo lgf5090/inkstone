@@ -52,6 +52,7 @@ import { updateRoutes } from './routes/update'
 import { mcpAuthorizeRoutes } from './routes/mcp-authorize'
 import { mcpSettingsRoutes } from './routes/mcp-settings'
 import { aiProxyRoutes } from './routes/ai-proxy'
+import { gatewayRoutes } from './routes/gateway'
 import { assistantRoutes } from './routes/assistant'
 import { activityRoutes } from './routes/activity'
 import { excalidrawLibraryRoutes } from './routes/excalidraw-library'
@@ -282,6 +283,9 @@ export function createApp() {
   app.route('/api/settings', settingsRoutes)
   app.route('/api/update', updateRoutes)
   app.route('/api/mcp', mcpSettingsRoutes)
+  // Public gateway first: it authenticates with its own `gw_` bearer key, so the session middleware
+  // on `/api/cloudflare` must never see it.
+  app.route('/api/gateway', gatewayRoutes)
   app.route('/api/ai', aiProxyRoutes)
   // Before `/api/todos`: Hono matches in registration order and that router owns `/:id`, so the
   // import path has to be claimed first or it would read as the id of a task called "import".

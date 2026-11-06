@@ -13,6 +13,7 @@ import { accountsRouter } from './accounts'
 import { accountInfoRouter } from './account-info'
 import { aiRouter } from './ai'
 import { aiV1Router } from './ai-v1'
+import { aiGatewayRouter } from './ai-gateway'
 import { auditLogRouter } from './audit-log'
 import { auditLogsV2Router } from './audit-logs-v2'
 import { browserRenderRouter } from './browser-render'
@@ -63,3 +64,4 @@ cloudflareRoutes.route('/quota', quotaRouter)
 cloudflareRoutes.route('/ai/chat/sessions', chatSessionsRouter)
 cloudflareRoutes.route('/ai', aiRouter)
 cloudflareRoutes.route('/v1', aiV1Router)
+cloudflareRoutes.route('/ai-gateway', aiGatewayRouter)

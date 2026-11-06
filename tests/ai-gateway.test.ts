@@ -1,0 +1,323 @@
+// @vitest-environment node
+import { beforeEach, describe, expect, it } from 'vitest'
+import { Hono } from 'hono'
+import type { AppBindings } from '../src/worker/env'
+import { gatewayRoutes } from '../src/worker/routes/gateway'
+import {
+  canonicalChatRequest,
+  canonicalResponsesRequest,
+  reservationFor,
+} from '../src/worker/cloudflare/ai-gateway-models'
+import { createGatewayKey } from '../src/worker/cloudflare/ai-gateway-keys'
+import {
+  gatewayDay,
+  markAccountFailure,
+  markAccountSelected,
+  reconcileAccount,
+  reserveNeurons,
+  selectGatewayAccount,
+  settleNeurons,
+} from '../src/worker/cloudflare/ai-gateway-quota'
+import {
+  makeCloudflareBed,
+  seedAccount,
+  stubCloudflare,
+  TEST_USER,
+  type CloudflareTestBed,
+} from './cloudflare-fixtures'
+
+let bed: CloudflareTestBed
+let app: Hono<AppBindings>
+
+beforeEach(async () => {
+  bed = await makeCloudflareBed()
+  app = new Hono<AppBindings>()
+  app.route('/api/gateway', gatewayRoutes)
+})
+
+describe('gateway quota gate', () => {
+  it('never lets concurrent reservations pass the local threshold', async () => {
+    const results = await Promise.all([
+      reserveNeurons(bed.env, TEST_USER, 'account-a', 'qwen3', 20, 50),
+      reserveNeurons(bed.env, TEST_USER, 'account-a', 'qwen3', 20, 50),
+      reserveNeurons(bed.env, TEST_USER, 'account-a', 'qwen3', 20, 50),
+    ])
+    expect(results.filter((result) => result.ok)).toHaveLength(2)
+    const row = await bed.env.DB.prepare(
+      `SELECT reserved_neurons, actual_neurons, exhausted
+         FROM ai_gateway_account_ledger
+        WHERE user_id = ?1 AND account_id = ?2 AND day = ?3 AND model = '*'`,
+    ).bind(TEST_USER, 'account-a', gatewayDay()).first<{
+      reserved_neurons: number
+      actual_neurons: number
+      exhausted: number
+    }>()
+    expect(Math.max(row?.reserved_neurons ?? 0, row?.actual_neurons ?? 0)).toBeLessThanOrEqual(50)
+  })
+
+  it('raises the gate when actual usage exceeds the reservation and never lowers it', async () => {
+    expect((await reserveNeurons(bed.env, TEST_USER, 'account-b', 'qwen3', 10, 100)).ok).toBe(true)
+    const settled = await settleNeurons(bed.env, TEST_USER, 'account-b', 'qwen3', 30, 100)
+    expect(settled.effective).toBeGreaterThanOrEqual(30)
+    const again = await reserveNeurons(bed.env, TEST_USER, 'account-b', 'qwen3', 80, 100)
+    expect(again.ok).toBe(false)
+    const row = await bed.env.DB.prepare(
+      `SELECT MAX(reserved_neurons, actual_neurons) AS effective
+         FROM ai_gateway_account_ledger
+        WHERE user_id = ?1 AND account_id = ?2 AND day = ?3 AND model = '*'`,
+    ).bind(TEST_USER, 'account-b', gatewayDay()).first<{ effective: number }>()
+    expect(row?.effective).toBeGreaterThanOrEqual(30)
+  })
+
+  it('accumulates settlements instead of letting the last request overwrite the total', async () => {
+    expect((await reserveNeurons(bed.env, TEST_USER, 'account-c', 'qwen3', 10, 100)).ok).toBe(true)
+    await settleNeurons(bed.env, TEST_USER, 'account-c', 'qwen3', 5, 100)
+    await settleNeurons(bed.env, TEST_USER, 'account-c', 'qwen3', 7, 100)
+    const row = await bed.env.DB.prepare(
+      `SELECT actual_neurons, MAX(reserved_neurons, actual_neurons) AS effective
+         FROM ai_gateway_account_ledger
+        WHERE user_id = ?1 AND account_id = ?2 AND day = ?3 AND model = '*'`,
+    ).bind(TEST_USER, 'account-c', gatewayDay()).first<{ actual_neurons: number; effective: number }>()
+    expect(row?.actual_neurons).toBe(12)
+    expect(row?.effective).toBeGreaterThanOrEqual(12)
+  })
+
+  it('reconciles only upward and records an over-budget snapshot', async () => {
+    const account = await seedAccount(bed, TEST_USER, { id: 'c'.repeat(26), accountId: 'd'.repeat(32) })
+    stubCloudflare(async (url) => {
+      expect(url.pathname).toBe('/client/v4/graphql')
+      return Response.json({
+        data: { viewer: { accounts: [{ total: [{ sum: { totalNeurons: 120 } }], byModel: [] }] } },
+      })
+    })
+    const result = await reconcileAccount(bed.env, TEST_USER, {
+      id: account.id,
+      user_id: TEST_USER,
+      name: 'Test account',
+      auth_type: 'token',
+      email: null,
+      cf_account_id: 'd'.repeat(32),
+      is_active: 1,
+      enabled_features: 'ai',
+      available_features: '',
+      has_credentials: 1,
+      created_at: 0,
+      updated_at: 0,
+    }, {
+      auth_type: 'token',
+      api_token: 'test-token',
+    } as never, 100)
+    expect(result.outcome).toBe('over')
+    const ledger = await bed.env.DB.prepare(
+      `SELECT MAX(reserved_neurons, actual_neurons) AS effective, exhausted
+         FROM ai_gateway_account_ledger
+        WHERE user_id = ?1 AND account_id = ?2 AND day = ?3 AND model = '*'`,
+    ).bind(TEST_USER, account.id, gatewayDay()).first<{ effective: number; exhausted: number }>()
+    expect(ledger?.effective).toBe(120)
+    expect(ledger?.exhausted).toBe(1)
+  })
+})
+
+describe('gateway scheduler', () => {
+  it('rotates between healthy accounts and skips cooling or auth-failed ones', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'g'.repeat(26), accountId: '1'.repeat(32) })
+    await seedAccount(bed, TEST_USER, { id: 'h'.repeat(26), accountId: '2'.repeat(32) })
+
+    const first = await selectGatewayAccount(bed.env, TEST_USER, new Set(), 10, 1_000)
+    expect(first).not.toBeNull()
+    await markAccountSelected(bed.env, TEST_USER, first!.account.row.id)
+    const second = await selectGatewayAccount(bed.env, TEST_USER, new Set(), 10, 1_000)
+    expect(second?.account.row.id).not.toBe(first?.account.row.id)
+
+    await markAccountFailure(bed.env, TEST_USER, first!.account.row.id, 'cooling', 'upstream_429')
+    const cooling = await selectGatewayAccount(bed.env, TEST_USER, new Set(), 10, 1_000)
+    expect(cooling?.account.row.id).toBe(second?.account.row.id)
+
+    await markAccountFailure(bed.env, TEST_USER, second!.account.row.id, 'auth_error', 'upstream_auth')
+    expect(await selectGatewayAccount(bed.env, TEST_USER, new Set(), 10, 1_000)).toBeNull()
+  })
+})
+
+describe('chat and responses normalisation', () => {
+  it('gives the same reservation for the same text in both formats', () => {
+    const chat = canonicalChatRequest({ model: 'qwen3', messages: [{ role: 'user', content: 'hello' }] })
+    const responses = canonicalResponsesRequest({ model: 'qwen3', input: 'hello' })
+    expect(reservationFor(chat)).toBe(reservationFor(responses))
+  })
+
+  it('maps instructions, tool definitions and tool turns onto canonical messages', () => {
+    const request = canonicalResponsesRequest({
+      model: 'qwen3',
+      instructions: 'be brief',
+      input: [
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'weather?' }] },
+        { type: 'function_call', call_id: 'call_1', name: 'get_weather', arguments: '{"city":"Paris"}' },
+        { type: 'function_call_output', call_id: 'call_1', output: 'sunny' },
+      ],
+      tools: [{ type: 'function', name: 'get_weather', parameters: { type: 'object' } }],
+      max_output_tokens: 100,
+    })
+    expect(request.messages[0]).toEqual({ role: 'system', content: 'be brief' })
+    expect(request.messages[1]).toMatchObject({ role: 'user', content: 'weather?' })
+    expect(request.messages[2]).toMatchObject({ role: 'assistant', tool_calls: [{ id: 'call_1' }] })
+    expect(request.messages[3]).toMatchObject({ role: 'tool', content: 'sunny', tool_call_id: 'call_1' })
+    expect(request.tools).toEqual([{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }])
+  })
+
+  it('rejects Responses context-reuse fields instead of silently ignoring them', () => {
+    expect(() => canonicalResponsesRequest({ model: 'qwen3', input: 'hello', previous_response_id: 'resp_1' }))
+      .toThrow(/previous_response_id/)
+  })
+})
+
+describe('public chat and responses data plane', () => {
+  it('serves both formats through one account and one usage calculation', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'e'.repeat(26), accountId: 'f'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'test key' })
+    stubCloudflare(async (url, init) => {
+      expect(url.pathname).toBe(`/client/v4/accounts/${'f'.repeat(32)}/ai/v1/chat/completions`)
+      const body = JSON.parse(init?.body as string) as { model: string; messages: unknown[] }
+      expect(body.model).toBe('@cf/qwen/qwen3-30b-a3b-fp8')
+      expect(body.messages).toHaveLength(1)
+      return Response.json({
+        choices: [{ message: { role: 'assistant', content: 'hi there' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      })
+    })
+    const headers = { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' }
+    const chat = await app.request('/api/gateway/v1/chat/completions', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model: 'qwen3', messages: [{ role: 'user', content: 'hello' }] }),
+    }, bed.env)
+    expect(chat.status).toBe(200)
+    expect(await chat.json()).toMatchObject({ model: 'qwen3', usage: { prompt_tokens: 10, completion_tokens: 5 } })
+
+    const responses = await app.request('/api/gateway/v1/responses', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model: 'qwen3', input: 'hello' }),
+    }, bed.env)
+    expect(responses.status).toBe(200)
+    const body = await responses.json() as {
+      object: string
+      output: Array<{ type: string; content?: Array<{ text: string }> }>
+      usage: { input_tokens: number; output_tokens: number }
+    }
+    expect(body.object).toBe('response')
+    expect(body.output[0]?.type).toBe('message')
+    expect(body.output[0]?.content?.[0]?.text).toBe('hi there')
+    expect(body.usage).toMatchObject({ input_tokens: 10, output_tokens: 5 })
+
+    const logs = await bed.env.DB.prepare(
+      'SELECT format, model, status, actual_neurons FROM ai_gateway_requests ORDER BY created_at',
+    ).all<{ format: string; model: string; status: string; actual_neurons: number }>()
+    expect((logs.results ?? []).map((row) => row.format)).toEqual(['chat', 'responses'])
+    expect((logs.results ?? []).every((row) => row.status === 'success')).toBe(true)
+    expect((logs.results ?? []).every((row) => row.actual_neurons > 0)).toBe(true)
+  })
+
+  it('returns OpenAI-shaped errors for unknown keys and unsupported fields', async () => {
+    const noKey = await app.request('/api/gateway/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'qwen3', messages: [{ role: 'user', content: 'hello' }] }),
+    }, bed.env)
+    expect(noKey.status).toBe(401)
+    expect(await noKey.json()).toMatchObject({ error: { type: 'authentication_error', code: 'invalid_api_key' } })
+
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'wrong model' })
+    const unsupported = await app.request('/api/gateway/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'qwen3', messages: [{ role: 'user', content: 'hello' }], n: 2 }),
+    }, bed.env)
+    expect(unsupported.status).toBe(400)
+    expect(await unsupported.json()).toMatchObject({ error: { type: 'invalid_request_error', code: 'bad_request' } })
+  })
+
+  it('passes the chat SSE through and settles from the final usage chunk', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'm'.repeat(26), accountId: '3'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'stream key' })
+    stubCloudflare(async () => sseResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'he' } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'llo' } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, neurons: 0.6 } })}\n\n`,
+      'data: [DONE]\n\n',
+    ]))
+    const response = await app.request('/api/gateway/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'qwen3', messages: [{ role: 'user', content: 'hello' }], stream: true }),
+    }, bed.env)
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).toContain('"content":"he"')
+    expect(text).toContain('"content":"llo"')
+    expect(text).toContain('data: [DONE]')
+    const log = await bed.env.DB.prepare(
+      'SELECT stream, status, prompt_tokens, completion_tokens, actual_neurons FROM ai_gateway_requests',
+    ).first<{ stream: number; status: string; prompt_tokens: number; completion_tokens: number; actual_neurons: number }>()
+    expect(log).toMatchObject({ stream: 1, status: 'success', prompt_tokens: 10, completion_tokens: 5 })
+    expect(log?.actual_neurons).toBe(1)
+  })
+
+  it('turns the upstream SSE into the Responses event sequence', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'j'.repeat(26), accountId: '4'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'responses stream key' })
+    stubCloudflare(async () => sseResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'he' } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'llo' } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\n`,
+      'data: [DONE]\n\n',
+    ]))
+    const response = await app.request('/api/gateway/v1/responses', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'qwen3', input: 'hello', stream: true }),
+    }, bed.env)
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    const events = [...text.matchAll(/^event: ([a-z_.]+)$/gm)].map((match) => match[1])
+    expect(events).toEqual([
+      'response.created',
+      'response.in_progress',
+      'response.output_item.added',
+      'response.content_part.added',
+      'response.output_text.delta',
+      'response.output_text.delta',
+      'response.output_text.done',
+      'response.content_part.done',
+      'response.output_item.done',
+      'response.completed',
+    ])
+    expect(text).toContain('"text":"hello"')
+  })
+
+  it('enforces the per-key daily request limit', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'k'.repeat(26), accountId: '5'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'limited key', dailyRequestLimit: 1 })
+    stubCloudflare(async () => Response.json({
+      choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    }))
+    const headers = { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' }
+    const body = JSON.stringify({ model: 'qwen3', messages: [{ role: 'user', content: 'hello' }] })
+    const first = await app.request('/api/gateway/v1/chat/completions', { method: 'POST', headers, body }, bed.env)
+    expect(first.status).toBe(200)
+    const second = await app.request('/api/gateway/v1/chat/completions', { method: 'POST', headers, body }, bed.env)
+    expect(second.status).toBe(429)
+    expect(await second.json()).toMatchObject({ error: { type: 'rate_limit_error', code: 'key_daily_limit' } })
+  })
+})
+
+function sseResponse(lines: string[]): Response {
+  const encoder = new TextEncoder()
+  const body = new ReadableStream({
+    start(controller) {
+      for (const line of lines) controller.enqueue(encoder.encode(line))
+      controller.close()
+    },
+  })
+  return new Response(body, { headers: { 'content-type': 'text/event-stream' } })
+}

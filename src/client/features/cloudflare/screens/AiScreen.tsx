@@ -21,6 +21,7 @@ import { ChatTab } from './ai/ChatTab'
 import { ImageTab } from './ai/ImageTab'
 import { AudioTab } from './ai/AudioTab'
 import { TranslateTab } from './ai/TranslateTab'
+import { GatewayTab } from './ai/GatewayTab'
 
 const TAB_LABELS: Record<CloudflareAiTab, CloudflareMessageKey> = {
   stats: 'cloudflare.ai_tabs.stats',
@@ -28,6 +29,7 @@ const TAB_LABELS: Record<CloudflareAiTab, CloudflareMessageKey> = {
   image: 'cloudflare.ai_tabs.image',
   audio: 'cloudflare.ai_tabs.audio',
   translate: 'cloudflare.ai_tabs.translate',
+  gateway: 'cloudflare.ai_tabs.gateway',
 }
 
 function AiTabPanel({ tab }: { tab: CloudflareAiTab }) {
@@ -36,6 +38,7 @@ function AiTabPanel({ tab }: { tab: CloudflareAiTab }) {
     case 'image': return <ImageTab />
     case 'audio': return <AudioTab />
     case 'translate': return <TranslateTab />
+    case 'gateway': return <GatewayTab />
     default: return <StatsTab />
   }
 }

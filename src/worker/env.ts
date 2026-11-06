@@ -60,6 +60,13 @@ export interface Env {
 
   PUBLIC_URL?: string
 
+  /**
+   * The local gate for the self-hosted AI gateway, in neurons per account/day. Unset means the 9,500
+   * safety threshold; it never exceeds the 10,000 hard limit. A local verification run may set it to
+   * a tiny number to prove the gate stops concurrent requests.
+   */
+  AI_GATEWAY_NEURON_LIMIT?: string
+
   /** Shared secret the blog Worker sends on public blog reads; required outside local dev. */
   BLOG_PROXY_KEY?: string
 
