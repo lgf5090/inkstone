@@ -19,6 +19,7 @@ const ShortlinksApp = lazy(() => import('./shortlinks/ShortlinksApp').then((m) =
 const CalculatorApp = lazy(() => import('./calculator/CalculatorApp').then((m) => ({ default: m.CalculatorApp })))
 const CompareApp = lazy(() => import('./compare/CompareApp').then((m) => ({ default: m.CompareApp })))
 const NetworkPanelApp = lazy(() => import('./network-panel/NetworkPanelApp').then((m) => ({ default: m.NetworkPanelApp })))
+const PromptOptimizerApp = lazy(() => import('./prompt-optimizer/PromptOptimizerApp').then((m) => ({ default: m.PromptOptimizerApp })))
 
 export function ToolsApp() {
   const breakpoint = useBreakpoint()
@@ -77,7 +78,9 @@ export function ToolsApp() {
                           ? t('tools.compare.module_name')
                           : activeSubmodule === 'network_panel'
                             ? t('tools.network_panel.module_name')
-                            : t('tools.shortlinks.module_name')}
+                            : activeSubmodule === 'prompt_optimizer'
+                              ? t('tools.prompt_optimizer.module_name')
+                              : t('tools.shortlinks.module_name')}
             </span>
           </div>
         </header>
@@ -119,6 +122,7 @@ export function ToolsApp() {
             {activeSubmodule === 'calculator' && <CalculatorApp />}
             {activeSubmodule === 'compare' && <CompareApp />}
             {activeSubmodule === 'network_panel' && <NetworkPanelApp />}
+            {activeSubmodule === 'prompt_optimizer' && <PromptOptimizerApp />}
           </Suspense>
         </main>
       </div>
