@@ -137,11 +137,25 @@ function isImgbedTokenRequest(c: Context<AppBindings>): boolean {
   return /^Bearer\s+img_[A-Za-z0-9_-]{43}$/i.test(c.req.header('Authorization') ?? '')
 }
 
+const SHORTLINKS_API_PREFIX = '/api/tools/shortlinks'
+
+function isShortlinksApiKeyRequest(c: Context<AppBindings>): boolean {
+  const path = c.req.path
+  if (path !== SHORTLINKS_API_PREFIX && !path.startsWith(`${SHORTLINKS_API_PREFIX}/`)) return false
+  return /^Bearer sl_[A-Za-z0-9_-]+$/.test(c.req.header('Authorization') ?? '')
+}
+
 export const requireClientHeader = createMiddleware<AppBindings>(async (c, next) => {
   const method = c.req.method.toUpperCase()
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
-    if (!isXgetProxyPath(c.req.path) && !isMemoPatRequest(c) && !isImgbedTokenRequest(c) && c.req.header(CLIENT_HEADER) !== '1') {
-      throw new ApiError(403, 'forbidden', 'Missing client identification header. Refresh and try again')
+    if (
+      !isXgetProxyPath(c.req.path) &&
+      !isMemoPatRequest(c) &&
+      !isImgbedTokenRequest(c) &&
+      !isShortlinksApiKeyRequest(c) &&
+      c.req.header(CLIENT_HEADER) !== '1'
+    ) {
+      throw new ApiError(403, 'forbidden', `Missing client identification header. Web clients must send ${CLIENT_HEADER}: 1`)
     }
   }
   await next()
