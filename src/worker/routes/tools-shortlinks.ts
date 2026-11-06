@@ -365,7 +365,7 @@ toolsShortlinksRoutes.get('/bundles/:id/breakdown', async (c) => {
 toolsShortlinksRoutes.get('/settings', async (c) => {
   const store = getStore(c)
   const settings = await store.getSettings()
-  return c.json({ ok: true, data: settings })
+  return c.json({ ok: true, data: { ...settings, secret_configured: Boolean(c.env.SHORTLINKS_SECRET) } })
 })
 
 toolsShortlinksRoutes.on(['PUT', 'PATCH'], '/settings', async (c) => {
@@ -378,8 +378,15 @@ toolsShortlinksRoutes.on(['PUT', 'PATCH'], '/settings', async (c) => {
 // ---------------------------------------------------------------- Backups & Import/Export
 toolsShortlinksRoutes.get('/backups', async (c) => {
   const store = getStore(c)
-  const backups = await store.listBackups()
+  const backups = await store.listBackups(c.env.FILES)
   return c.json({ ok: true, data: backups })
+})
+
+toolsShortlinksRoutes.delete('/backups/:id', async (c) => {
+  const store = getStore(c)
+  const id = c.req.param('id') ?? ''
+  await store.deleteBackup(id, c.env.FILES)
+  return c.json({ ok: true })
 })
 
 toolsShortlinksRoutes.post('/backups', async (c) => {
@@ -415,7 +422,11 @@ toolsShortlinksRoutes.get('/export/download', async (c) => {
   const fallbackName = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
   return new Response(obj.body, {
     headers: {
-      'content-type': filename.endsWith('.csv') ? 'text/csv; charset=utf-8' : 'text/plain; charset=utf-8',
+      'content-type': filename.endsWith('.csv')
+        ? 'text/csv; charset=utf-8'
+        : filename.endsWith('.json')
+          ? 'application/json; charset=utf-8'
+          : 'text/plain; charset=utf-8',
       'content-disposition': `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
       'x-content-type-options': 'nosniff',
     },
@@ -436,11 +447,18 @@ toolsShortlinksRoutes.get('/export/csv', async (c) => {
   return c.json({ ok: true, data: { ...res, r2_key: res.key, url: downloadUrl } })
 })
 
+toolsShortlinksRoutes.get('/export/json', async (c) => {
+  const store = getStore(c)
+  const res = await store.exportData('json', c.env.FILES)
+  const downloadUrl = `/api/tools/shortlinks/export/download?key=${encodeURIComponent(res.key)}&filename=${encodeURIComponent(res.filename)}`
+  return c.json({ ok: true, data: { ...res, r2_key: res.key, url: downloadUrl } })
+})
+
 toolsShortlinksRoutes.post('/import', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, BatchImportSchema)
   const res = await store.batchImportLinks(body.items)
-  return c.json({ ok: true, data: { imported: res.imported, errors: res.failed > 0 ? [`${res.failed} links failed`] : [] } })
+  return c.json({ ok: true, data: { imported: res.imported, failed: res.failed, errors: res.errors } })
 })
 
 // ---------------------------------------------------------------- API Keys

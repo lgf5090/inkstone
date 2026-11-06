@@ -5,6 +5,7 @@ import {
   Database,
   FileSpreadsheet,
   FileText,
+  FileJson,
   Key,
   Plus,
   RotateCcw,
@@ -160,6 +161,33 @@ export function SettingsView() {
     }
   }
 
+  const handleExportJson = async () => {
+    try {
+      const res = await shortlinksApi.exportJson()
+      downloadUrl(res.url)
+    } catch (err) {
+      useUiStore.getState().toast((err as Error).message, 'error')
+    }
+  }
+
+  const handleDeleteBackup = async (backupId: string | number) => {
+    const ok = await confirm({
+      title: t('tools.shortlinks.settings.delete_backup'),
+      description: t('tools.shortlinks.settings.delete_backup_confirm'),
+      tone: 'danger',
+      confirmLabel: t('tools.shortlinks.settings.delete_backup'),
+      cancelLabel: t('common.cancel'),
+    })
+    if (!ok) return
+    try {
+      await shortlinksApi.deleteBackup(backupId)
+      useUiStore.getState().toast(t('tools.shortlinks.settings.backup_deleted'), 'success')
+      void fetchBackups()
+    } catch (err) {
+      useUiStore.getState().toast((err as Error).message, 'error')
+    }
+  }
+
   const handleCreateBackup = async () => {
     setBackingUp(true)
     try {
@@ -291,6 +319,25 @@ export function SettingsView() {
             {t('tools.shortlinks.settings.save')}
           </Button>
         </div>
+
+        <div
+          className={`rounded-[var(--r-md)] border p-3 text-[length:var(--text-12)] ${
+            settings?.secret_configured
+              ? 'border-[var(--border-subtle)] bg-[var(--bg-inset)] text-[var(--text-secondary)]'
+              : 'border-[var(--warning)] bg-[var(--warning-soft)] text-[var(--warning)]'
+          }`}
+        >
+          <div className="font-medium">
+            {settings?.secret_configured
+              ? t('tools.shortlinks.settings.dedupe_enabled')
+              : t('tools.shortlinks.settings.dedupe_disabled')}
+          </div>
+          {!settings?.secret_configured && (
+            <div className="mt-0.5 text-[length:var(--text-11)]">
+              {t('tools.shortlinks.settings.dedupe_disabled_desc')}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* API Keys Section */}
@@ -421,6 +468,10 @@ export function SettingsView() {
             <FileSpreadsheet size={15} className="mr-1.5" />
             {t('tools.shortlinks.settings.export_csv')}
           </Button>
+          <Button variant="secondary" onClick={handleExportJson}>
+            <FileJson size={15} className="mr-1.5" />
+            {t('tools.shortlinks.settings.export_json')}
+          </Button>
           <Button variant="secondary" onClick={() => setImportModalOpen(true)}>
             <Upload size={15} className="mr-1.5" />
             {t('tools.shortlinks.settings.import_data')}
@@ -457,17 +508,31 @@ export function SettingsView() {
                     <span className="text-[var(--text-tertiary)]">
                       {'('}{(b.size / 1024).toFixed(1)}{' KB)'}
                     </span>
+                    {typeof b.link_count === 'number' && (
+                      <span className="text-[var(--text-tertiary)]">
+                        {t('tools.shortlinks.settings.backup_links', { count: b.link_count })}
+                      </span>
+                    )}
                   </div>
 
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleRestoreBackup(b.id)}
-                    className="h-7 px-2 text-[length:var(--text-11)] text-[var(--accent)]"
-                  >
-                    <RotateCcw size={12} className="mr-1" />
-                    {t('tools.shortlinks.settings.restore_backup')}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRestoreBackup(b.id)}
+                      className="h-7 px-2 text-[length:var(--text-11)] text-[var(--accent)]"
+                    >
+                      <RotateCcw size={12} className="mr-1" />
+                      {t('tools.shortlinks.settings.restore_backup')}
+                    </Button>
+                    <IconButton
+                      label={t('tools.shortlinks.settings.delete_backup')}
+                      size="sm"
+                      onClick={() => handleDeleteBackup(b.id)}
+                    >
+                      <Trash2 size={13} className="text-[var(--danger)]" />
+                    </IconButton>
+                  </div>
                 </div>
               ))
             )}

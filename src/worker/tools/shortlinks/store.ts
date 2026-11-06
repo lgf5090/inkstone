@@ -1649,12 +1649,78 @@ export class ShortlinksStore {
   // Backups & Export/Import
   // -------------------------------------------------------------------------
 
-  async listBackups(): Promise<ShortlinkBackup[]> {
+  async listBackups(r2Bucket?: R2Bucket): Promise<ShortlinkBackup[]> {
     const rows = await this.db
       .prepare('SELECT * FROM tools_shortlinks_backups WHERE user_id = ? ORDER BY created_at DESC')
       .bind(this.userId)
       .all<ShortlinkBackup>()
-    return rows.results ?? []
+    const backups = rows.results ?? []
+    if (!r2Bucket) return backups
+
+    // The D1 row has no link_count column; the number lives in the file's own header, so the list
+    // reads it back instead of inventing a migration for a display-only field.
+    return Promise.all(
+      backups.map(async (backup) => {
+        try {
+          const object = await r2Bucket.get(backup.r2_key)
+          if (!object) return backup
+          const parsed = JSON.parse(await object.text()) as { _backup_info?: { link_count?: number } }
+          return { ...backup, link_count: parsed._backup_info?.link_count }
+        } catch {
+          return backup
+        }
+      }),
+    )
+  }
+
+  async deleteBackup(backupId: string, r2Bucket?: R2Bucket): Promise<void> {
+    const row = await this.db
+      .prepare('SELECT r2_key FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
+      .bind(this.userId, backupId)
+      .first<{ r2_key: string }>()
+    if (!row) throw ApiError.notFound('Backup not found')
+    if (r2Bucket) await r2Bucket.delete(row.r2_key).catch(() => {})
+    await this.db
+      .prepare('DELETE FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
+      .bind(this.userId, backupId)
+      .run()
+  }
+
+  /** One backup of each kind is a lot for a self-hosted deployment; older files are pruned. */
+  private async pruneBackups(keep: number, r2Bucket?: R2Bucket): Promise<void> {
+    const rows = await this.db
+      .prepare('SELECT id, r2_key FROM tools_shortlinks_backups WHERE user_id = ? ORDER BY created_at DESC')
+      .bind(this.userId)
+      .all<{ id: string; r2_key: string }>()
+    for (const row of (rows.results ?? []).slice(keep)) {
+      if (r2Bucket) await r2Bucket.delete(row.r2_key).catch(() => {})
+      await this.db
+        .prepare('DELETE FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
+        .bind(this.userId, row.id)
+        .run()
+    }
+  }
+
+  private async passwordHashes(): Promise<Map<number, string>> {
+    const rows = await this.db
+      .prepare('SELECT id, password_hash FROM tools_shortlinks_links WHERE user_id = ? AND password_hash IS NOT NULL')
+      .bind(this.userId)
+      .all<{ id: number; password_hash: string }>()
+    return new Map((rows.results ?? []).map((row) => [row.id, row.password_hash]))
+  }
+
+  private async bundleMemberships(): Promise<Map<number, number[]>> {
+    const rows = await this.db
+      .prepare('SELECT bundle_id, link_id FROM tools_shortlinks_bundle_links WHERE user_id = ? ORDER BY added_at ASC')
+      .bind(this.userId)
+      .all<{ bundle_id: number; link_id: number }>()
+    const map = new Map<number, number[]>()
+    for (const row of rows.results ?? []) {
+      const list = map.get(row.bundle_id) ?? []
+      list.push(row.link_id)
+      map.set(row.bundle_id, list)
+    }
+    return map
   }
 
   /** Pages through the whole account: listLinks caps one page at 100 rows. */
@@ -1678,17 +1744,19 @@ export class ShortlinksStore {
     const links = await this.allLinksForExport()
     const bundles = await this.listBundles()
     const settings = await this.getSettings()
+    const hashes = await this.passwordHashes()
+    const memberships = await this.bundleMemberships()
 
     const backupData = {
       _backup_info: {
         type: 'inkstone_shortlinks_backup',
-        version: '1.0.0',
+        version: '2.0.0',
         created_at: now,
         link_count: links.length,
       },
       settings,
-      links,
-      bundles,
+      links: links.map((link) => ({ ...link, password_hash: hashes.get(link.id) ?? null })),
+      bundles: bundles.map((bundle) => ({ ...bundle, link_ids: memberships.get(bundle.id) ?? [] })),
     }
 
     const content = JSON.stringify(backupData, null, 2)
@@ -1706,6 +1774,7 @@ export class ShortlinksStore {
       )
       .bind(this.userId, backupId, filename, key, size, now)
       .run()
+    await this.pruneBackups(20, r2Bucket)
 
     return {
       id: backupId,
@@ -1773,19 +1842,43 @@ export class ShortlinksStore {
       return { key, filename, size }
     }
 
-    // JSON export
+    // JSON export is the round-trippable one: settings, bundles and password hashes travel with it
+    // so an account can be moved and restored without losing anything but click history.
     const filename = `shortlinks_${fileId}.json`
-    const content = JSON.stringify(links, null, 2)
+    const hashes = await this.passwordHashes()
+    const memberships = await this.bundleMemberships()
+    const document = {
+      _export_info: {
+        type: 'inkstone_shortlinks_export',
+        version: '2.0.0',
+        created_at: now,
+        link_count: links.length,
+      },
+      settings: await this.getSettings(),
+      links: links.map((link) => ({ ...link, password_hash: hashes.get(link.id) ?? null })),
+      bundles: (await this.listBundles()).map((bundle) => ({
+        ...bundle,
+        link_ids: memberships.get(bundle.id) ?? [],
+      })),
+    }
+    const content = JSON.stringify(document, null, 2)
     const key = `tools/shortlinks/backup/${this.userId}/export_${fileId}.json`
     const { size } = await uploadShortlinksFileToR2(r2Bucket, key, content, 'application/json')
     return { key, filename, size }
   }
 
-  async batchImportLinks(items: { url: string; label?: string; slug?: string }[]): Promise<{ imported: number; failed: number }> {
+  async batchImportLinks(
+    items: { url: string; label?: string; slug?: string }[],
+  ): Promise<{
+    imported: number
+    failed: number
+    errors: { line: number; slug?: string; url: string; reason: string }[]
+  }> {
     let imported = 0
-    let failed = 0
+    const errors: { line: number; slug?: string; url: string; reason: string }[] = []
 
-    for (const item of items) {
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index]
       try {
         await this.createLink({
           url: item.url,
@@ -1794,18 +1887,28 @@ export class ShortlinksStore {
           allow_duplicate: true,
         })
         imported++
-      } catch {
-        failed++
+      } catch (err) {
+        errors.push({
+          line: index + 1,
+          slug: item.slug,
+          url: item.url,
+          reason: (err as Error).message,
+        })
       }
     }
 
-    return { imported, failed }
+    return { imported, failed: errors.length, errors }
   }
 
   async restoreBackup(
     backupId: string,
     r2Bucket?: R2Bucket,
-  ): Promise<{ imported: number; total: number; protectedWithoutPassword: number }> {
+  ): Promise<{
+    imported: number
+    total: number
+    protectedWithoutPassword: number
+    restored: { settings: boolean; bundles: number; bundle_links: number; slugs: number }
+  }> {
     const backup = await this.db
       .prepare('SELECT * FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
       .bind(this.userId, backupId)
@@ -1825,34 +1928,149 @@ export class ShortlinksStore {
     }
 
     const text = await obj.text()
-    const parsed = JSON.parse(text)
-    const links = (parsed.links || []) as Array<{
-      url: string
-      label?: string | null
-      expires_at?: number | null
-      password_protected?: boolean
-      slugs?: Array<{ slug: string }>
-    }>
+    let parsed: {
+      _backup_info?: { type?: string }
+      _export_info?: { type?: string }
+      settings?: Partial<ShortlinksSettings>
+      links?: Array<{
+        id?: number
+        url: string
+        label?: string | null
+        expires_at?: number | null
+        password_protected?: boolean
+        password_hash?: string | null
+        slugs?: Array<{ slug: string; is_primary?: boolean; is_custom?: boolean; disabled_at?: number | null }>
+      }>
+      bundles?: Array<{
+        id?: number
+        name: string
+        description?: string | null
+        icon?: string | null
+        accent?: BundleAccent
+        link_ids?: number[]
+      }>
+    }
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      throw ApiError.badRequest('Backup file is not valid JSON')
+    }
+    if (!parsed._backup_info && !parsed._export_info) {
+      throw ApiError.badRequest('Unrecognized backup format')
+    }
 
-    let imported = 0
-    let protectedWithoutPassword = 0
-    for (const l of links) {
-      try {
-        const slug = l.slugs?.[0]?.slug
-        await this.createLink({
-          url: l.url,
-          label: l.label ?? undefined,
-          custom_slug: slug,
-          expires_at: l.expires_at ?? null,
-          allow_duplicate: true,
-        })
-        imported++
-        if (l.password_protected) protectedWithoutPassword++
-      } catch {
-        // Continue on conflict
+    const settings = parsed.settings
+    let settingsRestored = false
+    if (settings && typeof settings === 'object') {
+      const patch: Partial<ShortlinksSettings> = {}
+      if (typeof settings.slug_default_length === 'number') patch.slug_default_length = settings.slug_default_length
+      if (typeof settings.default_range === 'string') patch.default_range = settings.default_range as TimelineRange
+      if (typeof settings.filter_bots === 'boolean') patch.filter_bots = settings.filter_bots
+      if (typeof settings.filter_self_referrers === 'boolean') patch.filter_self_referrers = settings.filter_self_referrers
+      if (Object.keys(patch).length > 0) {
+        await this.updateSettings(patch)
+        settingsRestored = true
       }
     }
 
-    return { imported, total: links.length, protectedWithoutPassword }
+    const bundles = Array.isArray(parsed.bundles) ? parsed.bundles : []
+    const linkList = Array.isArray(parsed.links) ? parsed.links : []
+    const bundleMap = new Map<number, number>()
+    let bundlesRestored = 0
+    for (const bundle of bundles) {
+      if (!bundle?.name) continue
+      const existing = await this.db
+        .prepare('SELECT id FROM tools_shortlinks_bundles WHERE user_id = ? AND name = ?')
+        .bind(this.userId, bundle.name)
+        .first<{ id: number }>()
+      let bundleId = existing?.id
+      if (!bundleId) {
+        const created = await this.createBundle({
+          name: bundle.name,
+          description: bundle.description ?? null,
+          icon: bundle.icon ?? null,
+          accent: bundle.accent,
+        })
+        bundleId = created.id
+        bundlesRestored++
+      }
+      if (typeof bundle.id === 'number') bundleMap.set(bundle.id, bundleId)
+    }
+
+    const linkMap = new Map<number, number>()
+    let imported = 0
+    let protectedWithoutPassword = 0
+    let slugsRestored = 0
+    for (const link of linkList) {
+      if (!link || typeof link.url !== 'string') continue
+      const slugs = Array.isArray(link.slugs) ? link.slugs : []
+      const primary = slugs.find((slug) => slug.is_primary)?.slug ?? slugs[0]?.slug
+      try {
+        const created = await this.createLink({
+          url: link.url,
+          label: link.label ?? undefined,
+          custom_slug: primary,
+          expires_at: link.expires_at ?? null,
+          allow_duplicate: true,
+        })
+        if (typeof link.id === 'number') linkMap.set(link.id, created.id)
+        imported++
+        slugsRestored++
+
+        const now = Math.floor(Date.now() / 1000)
+        for (const slug of slugs) {
+          if (!slug?.slug || slug.slug === primary) continue
+          const res = await this.db
+            .prepare(
+              `INSERT OR IGNORE INTO tools_shortlinks_slugs
+                 (slug, user_id, link_id, is_custom, is_primary, created_at, disabled_at)
+               VALUES (?, ?, ?, ?, 0, ?, ?)`,
+            )
+            .bind(slug.slug, this.userId, created.id, slug.is_custom ? 1 : 0, now, slug.disabled_at ?? null)
+            .run()
+          slugsRestored += res.meta.changes ?? 0
+        }
+
+        if (typeof link.password_hash === 'string' && link.password_hash) {
+          await this.db
+            .prepare('UPDATE tools_shortlinks_links SET password_hash = ?, is_password_protected = 1 WHERE id = ? AND user_id = ?')
+            .bind(link.password_hash, created.id, this.userId)
+            .run()
+        } else if (link.password_protected) {
+          protectedWithoutPassword++
+        }
+      } catch {
+        // A slug that is still live on this account cannot be restored; the rest of the backup still lands.
+      }
+    }
+
+    let bundleLinksRestored = 0
+    for (const bundle of bundles) {
+      const bundleId = typeof bundle.id === 'number' ? bundleMap.get(bundle.id) : undefined
+      if (!bundleId) continue
+      const ids = Array.isArray(bundle.link_ids) ? bundle.link_ids : []
+      const now = Math.floor(Date.now() / 1000)
+      for (const oldLinkId of ids) {
+        const newLinkId = linkMap.get(oldLinkId)
+        if (!newLinkId) continue
+        const res = await this.db
+          .prepare('INSERT OR IGNORE INTO tools_shortlinks_bundle_links (user_id, bundle_id, link_id, added_at) VALUES (?, ?, ?, ?)')
+          .bind(this.userId, bundleId, newLinkId, now)
+          .run()
+        bundleLinksRestored += res.meta.changes ?? 0
+      }
+    }
+
+    return {
+      imported,
+      total: linkList.length,
+      protectedWithoutPassword,
+      restored: {
+        settings: settingsRestored,
+        bundles: bundlesRestored,
+        bundle_links: bundleLinksRestored,
+        slugs: slugsRestored,
+      },
+    }
   }
 }

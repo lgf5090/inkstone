@@ -173,6 +173,8 @@ export interface ShortlinksSettings {
   filter_bots: boolean
   filter_self_referrers: boolean
   updated_at?: number
+  /** Read-only server state: whether SHORTLINKS_SECRET is configured for visitor dedupe. */
+  secret_configured?: boolean
 }
 
 export interface ShortlinkApiKey {

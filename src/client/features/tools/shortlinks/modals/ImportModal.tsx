@@ -4,10 +4,18 @@ import { Button } from '../../../../components/primitives'
 import { FIELD_BASE } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
+import { parseShortlinkImport } from '@shared/tools/shortlinks/import-parse'
 import { useShortlinksStore } from '../store'
 import { shortlinksApi } from '../api'
 
 const MAX_IMPORT_BYTES = 1024 * 1024
+
+interface ImportFailure {
+  line: number
+  slug?: string
+  url: string
+  reason: string
+}
 
 export function ImportModal() {
   const open = useShortlinksStore((s) => s.importModalOpen)
@@ -18,9 +26,11 @@ export function ImportModal() {
   const [format, setFormat] = useState<'csv' | 'txt'>('csv')
   const [content, setContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [failures, setFailures] = useState<ImportFailure[]>([])
 
   const handleClose = () => {
     setContent('')
+    setFailures([])
     setOpen(false)
   }
 
@@ -51,35 +61,31 @@ export function ImportModal() {
 
     setSubmitting(true)
     try {
-      const lines = trimmed.split('\n').map((l) => l.trim()).filter(Boolean)
-      const items: Array<{ url: string; slug?: string; label?: string }> = []
-      for (const line of lines) {
-        if (format === 'csv') {
-          const parts = line.split(',').map((p) => p.trim())
-          if (parts[0] && (parts[0].startsWith('http://') || parts[0].startsWith('https://'))) {
-            items.push({
-              url: parts[0],
-              slug: parts[1] || undefined,
-              label: parts[2] || undefined,
-            })
-          }
-        } else {
-          if (line.startsWith('http://') || line.startsWith('https://')) {
-            items.push({ url: line })
-          }
-        }
-      }
-      if (items.length === 0) {
+      const parsed = parseShortlinkImport(trimmed, format)
+      if (parsed.items.length === 0) {
         throw new Error(t('tools.shortlinks.modal.import_no_urls'))
       }
-      const res = await shortlinksApi.importData({ items })
+      const res = await shortlinksApi.importData({ items: parsed.items })
+      const allErrors: ImportFailure[] = [
+        ...parsed.issues.map((issue) => ({
+          line: issue.line,
+          url: issue.raw,
+          reason: t(
+            issue.reason === 'invalid_url'
+              ? 'tools.shortlinks.modal.import_error_invalid_url'
+              : 'tools.shortlinks.modal.import_error_missing_url',
+          ),
+        })),
+        ...res.errors,
+      ]
+      setFailures(allErrors)
       useUiStore.getState().toast(
         t('tools.shortlinks.modal.import_result', { count: res.imported }),
         'success',
       )
-      handleClose()
       void fetchLinks()
       void fetchDashboard()
+      if (allErrors.length === 0) handleClose()
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
     } finally {
@@ -162,6 +168,22 @@ export function ImportModal() {
             className={`${FIELD_BASE} font-mono text-[length:var(--text-12)] py-2`}
           />
         </div>
+
+        {failures.length > 0 && (
+          <div className="rounded-[var(--r-md)] border border-[var(--danger)] bg-[var(--danger-soft)] p-3 space-y-1.5">
+            <div className="text-[length:var(--text-12)] font-semibold text-[var(--danger)]">
+              {t('tools.shortlinks.modal.import_failures', { count: failures.length })}
+            </div>
+            <ul className="max-h-40 overflow-y-auto space-y-1 text-[length:var(--text-11)] font-mono text-[var(--text-secondary)]">
+              {failures.map((failure, index) => (
+                <li key={`${failure.line}-${index}`}>
+                  {t('tools.shortlinks.modal.import_failure_line', { line: failure.line })} ·{' '}
+                  {failure.slug ? `/${failure.slug}` : failure.url} · {failure.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </form>
     </Modal>
   )

@@ -33817,6 +33817,10 @@ const allowed = new Map([
   ["src/shared/tools/shortlinks/country.ts", [
     "/**\n * Country flag emoji and localized name helper.\n */",
   ]],
+  ["src/shared/tools/shortlinks/import-parse.ts", [
+    "/**\n * Parses the import formats the Short Links tool itself can export: header-based CSV, the\n * `[slug] -> url (label)` TXT shape, and bare URL lines from other tools.\n */",
+    "/** A quoted CSV cell exists in exported labels; splitting on every comma breaks them. */",
+  ]],
   ["src/shared/tools/shortlinks/schemas.ts", [
     "/**\n * Shared Zod schemas for Short Links manager under Tools (`tools/shortlinks`).\n */",
     "/**\n * Why a target URL may not be stored, or null when it may.\n *\n * A short link is handed to a browser as a `Location` header, and `z.string().url()` also accepts\n * `javascript:`, `data:` and `ftp:`. Only the two schemes a redirect can honestly mean are kept, and\n * credentials are refused because the address bar would otherwise show a host the reader never sees.\n */",
@@ -33824,6 +33828,7 @@ const allowed = new Map([
   ["src/shared/tools/shortlinks/types.ts", [
     "/**\n * Shared types for Short Links manager under Tools (`tools/shortlinks`).\n */",
     "/** `RANDOM_CHARSET` in the worker's slugs.ts omits l/o/0/1, so one character has 32 values, not 62. */",
+    "/** Read-only server state: whether SHORTLINKS_SECRET is configured for visitor dedupe. */",
   ]],
   ["src/shared/types.ts", [
     "/** Only computed on the first page of a listing; later keyset pages return null. */",
@@ -43859,8 +43864,6 @@ const allowed = new Map([
     "// Per link breakdown",
     "// API Keys",
     "// Backups & Export/Import",
-    "// JSON export",
-    "// Continue on conflict",
     "// Password gate throttling",
     "/** Pages through the whole account: listLinks caps one page at 100 rows. */",
     "// The link row and its first slug commit together: a generated slug lost to a concurrent create",
@@ -43886,6 +43889,12 @@ const allowed = new Map([
     "// Bucketing happens in the reader's calendar, so the rows have to cross the boundary as raw",
     "// timestamps: SQLite's date() is UTC-only and would put a post-midnight Shanghai click on the",
     "// previous day.",
+    "// The D1 row has no link_count column; the number lives in the file's own header, so the list",
+    "// reads it back instead of inventing a migration for a display-only field.",
+    "/** One backup of each kind is a lot for a self-hosted deployment; older files are pruned. */",
+    "// JSON export is the round-trippable one: settings, bundles and password hashes travel with it",
+    "// so an account can be moved and restored without losing anything but click history.",
+    "// A slug that is still live on this account cannot be restored; the rest of the backup still lands.",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",

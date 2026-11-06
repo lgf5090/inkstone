@@ -227,8 +227,19 @@ export const shortlinksApi = {
       (r) => r.data,
     ),
 
+  exportJson: () =>
+    request<{ data: { r2_key: string; url: string } }>('/api/tools/shortlinks/export/json').then(
+      (r) => r.data,
+    ),
+
   importData: (input: ImportDataInput) =>
-    request<{ data: { imported: number; errors: string[] } }>('/api/tools/shortlinks/import', {
+    request<{
+      data: {
+        imported: number
+        failed: number
+        errors: Array<{ line: number; slug?: string; url: string; reason: string }>
+      }
+    }>('/api/tools/shortlinks/import', {
       method: 'POST',
       body: input,
     }).then((r) => r.data),
@@ -241,12 +252,22 @@ export const shortlinksApi = {
       method: 'POST',
     }).then((r) => r.data),
 
-  restoreBackup: (backupId: string | number) =>
-    request<{ data: { imported: number; total: number; protectedWithoutPassword: number } }>(
-      '/api/tools/shortlinks/backups/restore',
-      {
-        method: 'POST',
-        body: { backup_id: String(backupId) },
-      },
+  deleteBackup: (backupId: string | number) =>
+    request<{ data: { success: boolean } }>(
+      `/api/tools/shortlinks/backups/${encodeURIComponent(String(backupId))}`,
+      { method: 'DELETE' },
     ).then((r) => r.data),
+
+  restoreBackup: (backupId: string | number) =>
+    request<{
+      data: {
+        imported: number
+        total: number
+        protectedWithoutPassword: number
+        restored: { settings: boolean; bundles: number; bundle_links: number; slugs: number }
+      }
+    }>('/api/tools/shortlinks/backups/restore', {
+      method: 'POST',
+      body: { backup_id: String(backupId) },
+    }).then((r) => r.data),
 }
