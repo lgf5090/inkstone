@@ -17,6 +17,11 @@ export type WebsshAuditEventType =
   | 'auth_fail'
   | 'disconnect'
   | 'session_error'
+  | 'recording_start'
+  | 'recording_finalize'
+  | 'recording_fail'
+  | 'recording_delete'
+  | 'recording_access'
 
 export interface WebsshAuditInput {
   userId: string

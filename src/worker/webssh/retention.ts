@@ -3,6 +3,7 @@
 
 import type { Env } from '../env'
 import { WEBSSH_IDLE_TIMEOUT_MS } from './constants'
+import { purgeExpiredRecordings } from './recording/retention'
 
 const CONSUMED_TICKET_KEEP_MS = 60 * 60 * 1000
 
@@ -34,6 +35,13 @@ export async function runWebsshRetention(env: Env, now: number): Promise<number>
     .bind(now, now - WEBSSH_IDLE_TIMEOUT_MS)
     .run()
   removed += Number(staleActive.meta.changes ?? 0)
+
+  // Recordings follow the same sweep: mark the D1 row first, then remove its R2 object. A failure
+  // leaves the row marked so the next fire retries instead of losing the reference.
+  removed += await purgeExpiredRecordings(env, now).catch((error) => {
+    console.warn('[inkstone] WebSSH recording retention failed:', (error as Error).message)
+    return 0
+  })
 
   return removed
 }

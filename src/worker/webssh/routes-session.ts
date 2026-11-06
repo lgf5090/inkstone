@@ -166,7 +166,7 @@ websshSessionRoutes.get('/sessions/:id', async (c) => {
     c,
     userId,
     sessionId,
-    'status, started_at, connected_at, ended_at, last_activity_at, close_reason, error_code, host_id',
+    'status, started_at, connected_at, ended_at, last_activity_at, close_reason, error_code, host_id, recording_id',
   )
   return c.json<WebsshSessionView>({
     id: sessionId,
@@ -178,6 +178,7 @@ websshSessionRoutes.get('/sessions/:id', async (c) => {
     lastActivityAt: Number(row.last_activity_at),
     closeReason: String(row.close_reason ?? ''),
     errorCode: String(row.error_code ?? ''),
+    recordingId: String(row.recording_id ?? ''),
   })
 })
 
