@@ -1358,9 +1358,6 @@ const allowed = new Map([
   ["src/client/features/attachment-hub/hub-scope.tsx", [
     "/**\n * Every request the hub makes is namespaced by this scope, so a component that cannot see one must\n * fail loudly rather than ask the server for whichever namespace it happened to guess.\n */",
   ]],
-  ["src/client/features/attachment-hub/qr-colors.ts", [
-    "/**\n * A QR code is painted into an SVG the browser cannot restyle with a CSS variable, so its two colours\n * are absolute values rather than design tokens: a code that inverts with the theme stops scanning.\n */",
-  ]],
   ["src/client/features/auth/LoginPage.tsx", [
     "// Only the OAuth consent page may be resumed after sign-in, so a crafted ?next",
     "// can never send the browser somewhere else with an authenticated session.",
@@ -14393,16 +14390,6 @@ const allowed = new Map([
     "// button stand down until the writes answer.",
     "/* Names the two pickers that came up empty rather than the save as a whole: their\n                    lists are what is missing, and the access controls beside them still work. */",
   ]],
-  ["src/client/features/share/detail/qr-export.ts", [
-    "/**\n * Turning the QR that is on screen into a file or a clipboard image.\n *\n * The code is drawn as SVG, so the vector export is a serialisation, while a bitmap needs the browser\n * to rasterise it through a canvas. The plate is painted first with the code's own background: a PNG\n * that kept the page's background instead would print a code whose quiet zone is whatever colour the\n * theme happened to be wearing.\n */",
-    "/** The one file name both exports and the clipboard answer get named by. */",
-    "// Released on the next turn, not the same one: the click only asks for the download, and an object",
-    "// URL revoked before the browser has taken hold of it can leave the file empty.",
-    "/** A clipboard image, or false when the browser refuses one (an insecure context does). */",
-    "// The image is on screen and the address can still be copied: a refused clipboard write is said",
-    "// out loud by the caller, which is the only half of this the reader can act on.",
-    "/** Rasterise the serialised code, or null when the browser will not draw it or give it back. */",
-  ]],
   ["src/client/features/share/detail/qr-modal.test.ts", [
     "/**\n * The QR sheet: one address, drawn as a code and handed out by every way out of the panel.\n *\n * What is worth pinning is that the code, the copied text and the open-in-a-new-tab link cannot\n * disagree about the address, and that a relative address the hub may hold becomes the absolute one a\n * camera can follow. The raster exports are left to the browser gates: jsdom has no canvas to paint\n * into, so a test here would be asserting that nothing happened.\n */",
     "// Big enough to read off a monitor across a table, which is what \"printable size\" means here.",
@@ -26609,6 +26596,17 @@ const allowed = new Map([
     "/**\n * Walk a listing's labels deriving their readings, a chunk per idle callback, and return a cancel.\n *\n * A 2000-note vault costs about 120ms of dictionary work — one long task on the first keystroke if\n * nothing spreads it out, invisible if idle does. Labels already cached are stepped over, so a\n * re-warm after the vault changes costs what is new and nothing else.\n */",
     "/** Fallback idle slot when the browser offers no `requestIdleCallback`, so a warm-up still yields. */",
     "/**\n * How long an idle task may be held before the browser runs it anyway.\n *\n * Idle is a courtesy, not a promise: a page that never goes idle would otherwise never derive the\n * readings the search needs. The ceiling is what turns \"when there is room\" into \"when there is room,\n * or when the reader has waited this long for an answer\".\n */",
+  ]],
+  ["src/client/lib/qr-export.ts", [
+    "/**\n * A QR code is painted into an SVG the browser cannot restyle with a CSS variable, so its two colours\n * are absolute values rather than design tokens: a code that inverts with the theme stops scanning.\n */",
+    "/**\n * Turning the QR that is on screen into a file or a clipboard image.\n *\n * The code is drawn as SVG, so the vector export is a serialisation, while a bitmap needs the browser\n * to rasterise it through a canvas. The plate is painted first with the code's own background: a PNG\n * that kept the page's background instead would print a code whose quiet zone is whatever colour the\n * theme happened to be wearing.\n */",
+    "/** The one file name both exports and the clipboard answer get named by. */",
+    "// Released on the next turn, not the same one: the click only asks for the download, and an object",
+    "// URL revoked before the browser has taken hold of it can leave the file empty.",
+    "/** A clipboard image, or false when the browser refuses one (an insecure context does). */",
+    "// The image is on screen and the address can still be copied: a refused clipboard write is said",
+    "// out loud by the caller, which is the only half of this the reader can act on.",
+    "/** Rasterise the serialised code, or null when the browser will not draw it or give it back. */",
   ]],
   ["src/client/lib/query-match.test.ts", [
     "// The dictionary is lazy in the browser; here the literal is what a reader can type without it.",

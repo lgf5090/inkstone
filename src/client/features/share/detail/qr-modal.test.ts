@@ -14,7 +14,7 @@ import { initI18n, t } from '../../../lib/i18n';
 import { installTestGlobals } from '../../../lib/test-render';
 import { useUi } from '../../../store/ui';
 import { ShareQrModal } from './qr-modal';
-import { qrFileName } from './qr-export';
+import { qrFileName } from '../../../lib/qr-export';
 
 let root: Root;
 let host: HTMLElement;

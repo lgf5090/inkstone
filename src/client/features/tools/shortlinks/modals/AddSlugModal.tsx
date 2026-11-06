@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
+import { MAX_SLUG_LENGTH } from '@shared/tools/shortlinks/types'
+import { CustomSlugRegex } from '@shared/tools/shortlinks/schemas'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
-import { Input } from '../../../../components/form'
+import { Field, Input } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
 import { useShortlinksStore } from '../store'
@@ -15,10 +17,14 @@ export function AddSlugModal() {
   const fetchLinks = useShortlinksStore((s) => s.fetchLinks)
 
   const [slug, setSlug] = useState('')
+  const [error, setError] = useState<'required' | 'invalid' | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const fieldId = useId()
 
   const handleClose = () => {
     setSlug('')
+    setError(null)
     closeAddSlugModal()
   }
 
@@ -26,7 +32,17 @@ export function AddSlugModal() {
     e.preventDefault()
     if (!linkId) return
     const trimmed = slug.trim()
-    if (!trimmed) return
+    if (!trimmed) {
+      setError('required')
+      inputRef.current?.focus()
+      return
+    }
+    if (trimmed.length > MAX_SLUG_LENGTH || !CustomSlugRegex.test(trimmed)) {
+      setError('invalid')
+      inputRef.current?.focus()
+      return
+    }
+    setError(null)
 
     setSubmitting(true)
     try {
@@ -57,7 +73,7 @@ export function AddSlugModal() {
           <Button
             variant="primary"
             onClick={handleSubmit}
-            disabled={submitting || !slug.trim()}
+            disabled={submitting}
           >
             {t('common.save')}
           </Button>
@@ -65,22 +81,35 @@ export function AddSlugModal() {
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4 py-2">
-        <div>
-          <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
-            {t('tools.shortlinks.modal.slug_input_label')}{' '}
-            <span className="text-[var(--danger)]">*</span>
-          </label>
+        <Field
+          label={t('tools.shortlinks.modal.slug_input_label')}
+          required
+        >
           <Input
+            id={`${fieldId}-input`}
+            ref={inputRef}
             value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-            placeholder="my-alias-slug"
-            required
+            onChange={(e) => {
+              setSlug(e.target.value)
+              if (error) setError(null)
+            }}
+            placeholder={t('tools.shortlinks.modal.slug_placeholder_example')}
             autoFocus
+            invalid={Boolean(error)}
+            aria-describedby={error ? `${fieldId}-error` : undefined}
           />
-          <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-            {t('tools.shortlinks.modal.custom_slug_placeholder')}
+        </Field>
+        {error && (
+          <p
+            id={`${fieldId}-error`}
+            role="alert"
+            className="text-[length:var(--text-12)] text-[var(--danger)]"
+          >
+            {t(error === 'required'
+              ? 'tools.shortlinks.modal.slug_required'
+              : 'tools.shortlinks.modal.slug_invalid')}
           </p>
-        </div>
+        )}
       </form>
     </Modal>
   )

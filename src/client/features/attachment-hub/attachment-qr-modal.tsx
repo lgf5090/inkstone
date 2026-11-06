@@ -6,7 +6,7 @@ import { Button } from '../../components/primitives'
 import { t } from '../../lib/i18n'
 import { copyText } from '../../lib/clipboard'
 import { useUi } from '../../store/ui'
-import { QR_BG_COLOR, QR_FG_COLOR } from './qr-colors'
+import { QR_BG_COLOR, QR_FG_COLOR } from '../../lib/qr-export'
 
 const MODAL_WIDTH = 400
 const COPY_FEEDBACK_MS = 1600

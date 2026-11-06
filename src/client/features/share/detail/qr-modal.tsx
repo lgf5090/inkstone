@@ -6,8 +6,7 @@ import { Button } from '../../../components/primitives';
 import { t } from '../../../lib/i18n';
 import { copyText } from '../../../lib/clipboard';
 import { useUi } from '../../../store/ui';
-import { QR_BG_COLOR, QR_FG_COLOR } from '../../attachment-hub/qr-colors';
-import { copyQrImageToClipboard, downloadQrPng, downloadQrSvg, qrFileName } from './qr-export';
+import { QR_BG_COLOR, QR_FG_COLOR, copyQrImageToClipboard, downloadQrPng, downloadQrSvg, qrFileName } from '../../../lib/qr-export';
 
 const MODAL_WIDTH = 420;
 
