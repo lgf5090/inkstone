@@ -142,6 +142,7 @@ export function GatewayTab() {
     { value: 'qwen3', label: 'qwen3' },
     { value: 'glm-4.7-flash', label: 'glm-4.7-flash' },
     { value: 'llama-3.1-8b', label: 'llama-3.1-8b' },
+    { value: 'llama-3.3-70b', label: 'llama-3.3-70b' },
   ]
 
   async function createKey(): Promise<void> {

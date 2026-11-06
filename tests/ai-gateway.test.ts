@@ -164,9 +164,66 @@ describe('chat and responses normalisation', () => {
     expect(request.tools).toEqual([{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }])
   })
 
-  it('rejects Responses context-reuse fields instead of silently ignoring them', () => {
-    expect(() => canonicalResponsesRequest({ model: 'qwen3', input: 'hello', previous_response_id: 'resp_1' }))
-      .toThrow(/previous_response_id/)
+  it('rejects unsupported Responses context fields instead of silently ignoring them', () => {
+    expect(() => canonicalResponsesRequest({ model: 'qwen3', input: 'hello', conversation: 'conv_1' }))
+      .toThrow(/conversation/)
+  })
+
+  it('accepts the OpenAI fields the upstream endpooint supports and rejects impossible combinations', () => {
+    const chat = canonicalChatRequest({
+      model: 'qwen3',
+      messages: [{ role: 'user', content: 'hello' }],
+      stop: ['END'],
+      seed: 42,
+      n: 2,
+      parallel_tool_calls: false,
+      logprobs: true,
+      top_logprobs: 3,
+      response_format: { type: 'json_object' },
+      user: 'reader-1',
+      metadata: { trace: 'abc' },
+    })
+    expect(chat.stop).toEqual(['END'])
+    expect(chat.seed).toBe(42)
+    expect(chat.n).toBe(2)
+    expect(chat.parallelToolCalls).toBe(false)
+    expect(chat.logprobs).toBe(true)
+    expect(chat.topLogprobs).toBe(3)
+    expect(chat.responseFormat).toEqual({ type: 'json_object' })
+    expect(chat.user).toBe('reader-1')
+    expect(chat.metadata).toEqual({ trace: 'abc' })
+    expect(reservationFor(chat)).toBeGreaterThan(reservationFor({ ...chat, n: 1 }))
+    expect(() => canonicalChatRequest({
+      model: 'qwen3', messages: [{ role: 'user', content: 'hi' }], stream: true, response_format: { type: 'json_object' },
+    })).toThrow(/streaming/)
+    expect(() => canonicalChatRequest({
+      model: 'qwen3', messages: [{ role: 'user', content: 'hi' }], top_logprobs: 3,
+    })).toThrow(/logprobs/)
+  })
+
+  it('maps Responses text.format and keeps store/previous_response_id as context data', () => {
+    const request = canonicalResponsesRequest({
+      model: 'qwen3',
+      input: 'hello',
+      text: { format: { type: 'json_schema', name: 'Answer', schema: { type: 'object' }, strict: true } },
+      store: false,
+      previous_response_id: 'resp_1',
+      truncation: 'disabled',
+      parallel_tool_calls: false,
+      metadata: { trace: 'abc' },
+    })
+    expect(request.responseFormat).toEqual({
+      type: 'json_schema',
+      json_schema: { name: 'Answer', schema: { type: 'object' }, strict: true },
+    })
+    expect(request.store).toBe(false)
+    expect(request.previousResponseId).toBe('resp_1')
+    expect(request.truncation).toBe('disabled')
+    expect(request.parallelToolCalls).toBe(false)
+    expect(() => canonicalResponsesRequest({ model: 'qwen3', input: 'hello', truncation: 'auto' }))
+      .toThrow(/truncation/)
+    expect(() => canonicalResponsesRequest({ model: 'qwen3', input: 'hello', include: ['message.output_text.logprobs'] }))
+      .toThrow(/include/)
   })
 })
 
@@ -230,7 +287,7 @@ describe('public chat and responses data plane', () => {
     const unsupported = await app.request('/api/gateway/v1/chat/completions', {
       method: 'POST',
       headers: { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: 'qwen3', messages: [{ role: 'user', content: 'hello' }], n: 2 }),
+      body: JSON.stringify({ model: 'qwen3', messages: [{ role: 'user', content: 'hello' }], audio: { voice: 'alloy', format: 'mp3' } }),
     }, bed.env)
     expect(unsupported.status).toBe(400)
     expect(await unsupported.json()).toMatchObject({ error: { type: 'invalid_request_error', code: 'bad_request' } })
@@ -308,6 +365,122 @@ describe('public chat and responses data plane', () => {
     const second = await app.request('/api/gateway/v1/chat/completions', { method: 'POST', headers, body }, bed.env)
     expect(second.status).toBe(429)
     expect(await second.json()).toMatchObject({ error: { type: 'rate_limit_error', code: 'key_daily_limit' } })
+  })
+
+  it('forwards the supported OpenAI chat fields to the upstream endpoint', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'n'.repeat(26), accountId: '6'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'forward key' })
+    let seen: Record<string, unknown> = {}
+    stubCloudflare(async (_url, init) => {
+      seen = JSON.parse(init?.body as string) as Record<string, unknown>
+      return Response.json({
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      })
+    })
+    const response = await app.request('/api/gateway/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'qwen3',
+        messages: [{ role: 'user', content: 'hello' }],
+        stop: ['END'],
+        seed: 42,
+        n: 2,
+        parallel_tool_calls: false,
+        logprobs: true,
+        top_logprobs: 3,
+        response_format: { type: 'json_object' },
+        user: 'reader-1',
+        metadata: { trace: 'abc' },
+      }),
+    }, bed.env)
+    expect(response.status).toBe(200)
+    expect(seen).toMatchObject({
+      stop: ['END'], seed: 42, n: 2, parallel_tool_calls: false,
+      logprobs: true, top_logprobs: 3, response_format: { type: 'json_object' },
+      user: 'reader-1', metadata: { trace: 'abc' },
+    })
+    expect(response.headers.get('x-request-id')).toBeTruthy()
+  })
+
+  it('only emits the final usage chunk when stream_options.include_usage asks for it', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'p'.repeat(26), accountId: '7'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'usage key' })
+    stubCloudflare(async () => sseResponse([
+      `data: ${JSON.stringify({ id: 'id-1', created: 1, model: '@cf/qwen/qwen3-30b-a3b-fp8', choices: [{ delta: { content: 'ok' } }] })}\n\n`,
+      `data: ${JSON.stringify({ id: 'id-1', created: 1, choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\n`,
+      'data: [DONE]\n\n',
+    ]))
+    const headers = { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' }
+    const body = JSON.stringify({
+      model: 'qwen3', messages: [{ role: 'user', content: 'hello' }], stream: true, stream_options: { include_usage: true },
+    })
+    const withUsage = await app.request('/api/gateway/v1/chat/completions', { method: 'POST', headers, body }, bed.env)
+    const text = await withUsage.text()
+    expect(text).toContain('"choices":[]')
+    expect(text).toContain('"prompt_tokens":10')
+    expect(text.trimEnd().endsWith('data: [DONE]')).toBe(true)
+    expect(text).toContain('"model":"qwen3"')
+
+    const withoutUsage = await app.request('/api/gateway/v1/chat/completions', {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'qwen3', messages: [{ role: 'user', content: 'hello' }], stream: true }),
+    }, bed.env)
+    expect(await withoutUsage.text()).not.toContain('"usage"')
+  })
+
+  it('serves OpenAI-shaped model objects and a 404 error object for unknown routes', async () => {
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'models key' })
+    const headers = { authorization: `Bearer ${created.token}` }
+    const list = await app.request('/api/gateway/v1/models', { headers }, bed.env)
+    expect(list.status).toBe(200)
+    const body = await list.json() as { data: Array<{ id: string; object: string; created: number }> }
+    expect(body.data[0]).toMatchObject({ object: 'model', created: 1_700_000_000 })
+    expect(list.headers.get('x-request-id')).toBeTruthy()
+
+    const one = await app.request('/api/gateway/v1/models/qwen3', { headers }, bed.env)
+    expect(one.status).toBe(200)
+    const missing = await app.request('/api/gateway/v1/models/nope', { headers }, bed.env)
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toMatchObject({ error: { type: 'invalid_request_error', code: 'model_not_found', param: 'model' } })
+
+    const unknown = await app.request('/api/gateway/v1/unknown', { method: 'POST', headers }, bed.env)
+    expect(unknown.status).toBe(404)
+    expect((await unknown.json() as { error: { param: unknown } }).error).toHaveProperty('param')
+  })
+
+  it('sets Retry-After and the OpenAI error param on quota failures', async () => {
+    const account = await seedAccount(bed, TEST_USER, { id: 'q'.repeat(26), accountId: '8'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'quota key' })
+    await reserveNeurons(bed.env, TEST_USER, account.id, 'qwen3', 9_500, 9_500)
+    const response = await app.request('/api/gateway/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'qwen3', messages: [{ role: 'user', content: 'hello' }] }),
+    }, bed.env)
+    expect(response.status).toBe(429)
+    expect(response.headers.get('retry-after')).toBeTruthy()
+    expect(await response.json()).toMatchObject({
+      error: { type: 'rate_limit_error', code: 'insufficient_quota', param: null },
+    })
+  })
+
+  it('turns an upstream stream error into a response.failed event', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'r'.repeat(26), accountId: '9'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'failed key' })
+    stubCloudflare(async () => sseResponse([
+      `data: ${JSON.stringify({ error: { message: 'boom' } })}\n\n`,
+      'data: [DONE]\n\n',
+    ]))
+    const response = await app.request('/api/gateway/v1/responses', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'qwen3', input: 'hello', stream: true }),
+    }, bed.env)
+    const text = await response.text()
+    expect(text).toContain('event: response.failed')
+    expect(text).not.toContain('event: response.completed')
   })
 })
 

@@ -52,14 +52,15 @@ class OpenAiError extends Error {
     message: string,
     readonly type: string,
     readonly code: string,
+    readonly param: string | null = null,
   ) {
     super(message)
   }
 }
 
-function errorCodeOf(error: unknown): { status: number; type: string; code: string; message: string } {
+function errorCodeOf(error: unknown): { status: number; type: string; code: string; message: string; param: string | null } {
   if (error instanceof OpenAiError) {
-    return { status: error.status, type: error.type, code: error.code, message: error.message }
+    return { status: error.status, type: error.type, code: error.code, message: error.message, param: error.param }
   }
   if (error instanceof ApiError) {
     const status = error.status >= 400 && error.status < 600 ? error.status : 500
@@ -68,21 +69,45 @@ function errorCodeOf(error: unknown): { status: number; type: string; code: stri
       type: status === 400 || status === 413 ? 'invalid_request_error' : status === 429 ? 'rate_limit_error' : 'api_error',
       code: error.code,
       message: error.message,
+      param: null,
     }
   }
-  return { status: 500, type: 'api_error', code: 'internal', message: 'The gateway failed to complete the request' }
+  return { status: 500, type: 'api_error', code: 'internal', message: 'The gateway failed to complete the request', param: null }
 }
 
-function openAiJson(body: unknown, status = 200, extra: Record<string, string> = {}): Response {
+function retryAfterSeconds(): string {
+  const now = Date.now()
+  const next = new Date(now)
+  next.setUTCHours(24, 0, 0, 0)
+  return String(Math.max(1, Math.ceil((next.getTime() - now) / 1000)))
+}
+
+function metaHeaders(requestId: string, status: number): Record<string, string> {
+  const headers: Record<string, string> = { 'x-request-id': requestId }
+  if (status === 429) headers['retry-after'] = retryAfterSeconds()
+  return headers
+}
+
+function openAiJson(body: unknown, status = 200, extra: Record<string, string> = {}, requestId = ''): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...extra },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      ...(requestId ? metaHeaders(requestId, status) : {}),
+      ...extra,
+    },
   })
 }
 
-function openAiError(error: unknown, extra: Record<string, string> = {}): Response {
+function openAiError(error: unknown, extra: Record<string, string> = {}, requestId = ''): Response {
   const mapped = errorCodeOf(error)
-  return openAiJson({ error: { message: mapped.message, type: mapped.type, code: mapped.code } }, mapped.status, extra)
+  return openAiJson(
+    { error: { message: mapped.message, type: mapped.type, code: mapped.code, param: mapped.param } },
+    mapped.status,
+    extra,
+    requestId,
+  )
 }
 
 function requestOrigin(c: Context<AppBindings>): string | null {
@@ -109,9 +134,10 @@ function corsHeaders(c: Context<AppBindings>): Record<string, string> {
   const origin = requestOrigin(c)
   return {
     'access-control-allow-origin': origin ?? '*',
-    'access-control-allow-headers': 'authorization, content-type',
-    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-allow-headers': 'authorization, content-type, openai-organization, openai-beta, x-request-id',
+    'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
     'access-control-max-age': '86400',
+    'access-control-expose-headers': 'x-request-id, retry-after',
     vary: 'Origin',
   }
 }
@@ -151,6 +177,15 @@ function upstreamBody(request: CanonicalRequest): Record<string, unknown> {
   if (request.frequencyPenalty !== undefined) body.frequency_penalty = request.frequencyPenalty
   if (request.tools !== undefined) body.tools = request.tools
   if (request.toolChoice !== undefined) body.tool_choice = request.toolChoice
+  if (request.stop !== undefined) body.stop = request.stop
+  if (request.seed !== undefined) body.seed = request.seed
+  if (request.n !== 1) body.n = request.n
+  if (request.parallelToolCalls !== undefined) body.parallel_tool_calls = request.parallelToolCalls
+  if (request.logprobs !== undefined) body.logprobs = request.logprobs
+  if (request.topLogprobs !== undefined) body.top_logprobs = request.topLogprobs
+  if (request.responseFormat !== undefined) body.response_format = request.responseFormat
+  if (request.user !== undefined) body.user = request.user
+  if (request.metadata !== undefined) body.metadata = request.metadata
   body.max_tokens = request.maxOutputTokens
   if (request.stream) body.stream_options = { include_usage: true }
   return body
@@ -160,8 +195,25 @@ function isNeuronLimitError(text: string): boolean {
   return /4006|daily free allocation|neuron limit/i.test(text)
 }
 
+function upstreamMessage(text: string): string {
+  try {
+    const parsed = JSON.parse(text) as { errors?: Array<{ message?: unknown }> }
+    const first = parsed?.errors?.[0]?.message
+    if (typeof first === 'string' && first) return first.slice(0, 300)
+  } catch { /* not Cloudflare's JSON error envelope */ }
+  return text.slice(0, 300)
+}
+
 function classifyUpstream(status: number, text: string): 'auth' | 'exhausted' | 'cooling' | 'client' {
-  if (status === 401 || status === 403) return 'auth'
+  if (status === 401) return 'auth'
+  if (status === 403) {
+    // Cloudflare also answers 403 for a model capability the account's token cannot change
+    // ("This model doesn't support JSON Schema"). That is a client error, not a broken credential.
+    if (/AiError|doesn't support|does not support|not supported|JSON Schema|json_schema|model.*not/i.test(text)) {
+      return 'client'
+    }
+    return 'auth'
+  }
   if (status === 429 || isNeuronLimitError(text)) return 'exhausted'
   if (status >= 500 || status === 408) return 'cooling'
   return 'client'
@@ -244,8 +296,14 @@ async function callUpstream(
     }
     if (response.ok) return { response, acquired }
     lastStatus = response.status
-    lastMessage = (await response.text()).slice(0, 300)
-    const kind = classifyUpstream(response.status, lastMessage)
+    const rawError = await response.text()
+    lastMessage = upstreamMessage(rawError)
+    const kind = classifyUpstream(response.status, rawError)
+    if (kind === 'client') {
+      // The account is healthy; the request was not something the model can serve. Do not cool the
+      // account down for a client error.
+      return { failure: 'upstream', upstreamStatus: response.status, message: lastMessage || 'Cloudflare refused the request' }
+    }
     if (kind === 'auth') {
       await markAccountFailure(c.env, userId, acquired.account.row.id, 'auth_error', 'upstream_auth')
     } else if (kind === 'exhausted') {
@@ -254,9 +312,6 @@ async function callUpstream(
       await markAccountFailure(c.env, userId, acquired.account.row.id, 'cooling', `upstream_${response.status}`)
     }
     skip.add(acquired.account.row.id)
-    if (kind === 'client') {
-      return { failure: 'upstream', upstreamStatus: response.status, message: lastMessage || 'Cloudflare refused the request' }
-    }
   }
   return { failure: 'upstream', upstreamStatus: lastStatus, message: lastMessage }
 }
@@ -381,8 +436,8 @@ function logFailure(
   }).catch(() => undefined)
 }
 
-function chatResponse(parsed: Record<string, unknown>, request: CanonicalRequest, cors: Record<string, string>): Response {
-  return openAiJson({ ...parsed, model: request.alias }, 200, cors)
+function chatResponse(parsed: Record<string, unknown>, request: CanonicalRequest, cors: Record<string, string>, requestId: string): Response {
+  return openAiJson({ ...parsed, model: request.alias }, 200, cors, requestId)
 }
 
 function responsesResponse(
@@ -426,19 +481,40 @@ function responsesResponse(
     id: `resp_${requestId}`,
     object: 'response',
     created_at: created,
+    completed_at: created,
     status: 'completed',
+    error: null,
+    incomplete_details: null,
     model: request.alias,
+    instructions: request.instructions ?? null,
+    metadata: request.metadata ?? {},
+    max_output_tokens: request.maxOutputTokens,
+    parallel_tool_calls: request.parallelToolCalls ?? true,
+    previous_response_id: request.previousResponseId ?? null,
+    store: request.store,
+    truncation: request.truncation ?? 'disabled',
+    temperature: request.temperature ?? 1,
+    top_p: request.topP ?? 1,
+    tools: request.tools ?? [],
+    tool_choice: request.toolChoice ?? 'auto',
     output,
-    usage: { input_tokens: usage.prompt, output_tokens: usage.completion, total_tokens: usage.total },
+    usage: {
+      input_tokens: usage.prompt,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens: usage.completion,
+      output_tokens_details: { reasoning_tokens: 0 },
+      total_tokens: usage.total,
+    },
   }
 }
 
-function streamHeaders(cors: Record<string, string>): Record<string, string> {
+function streamHeaders(c: Context<AppBindings>, requestId: string): Record<string, string> {
   return {
     'content-type': 'text/event-stream; charset=utf-8',
     'cache-control': 'no-store, no-transform',
     connection: 'keep-alive',
-    ...cors,
+    'x-request-id': requestId,
+    ...corsHeaders(c),
   }
 }
 
@@ -455,6 +531,7 @@ async function proxyChatStream(
   if (!body) throw new OpenAiError(502, 'Cloudflare returned an empty stream', 'api_error', 'upstream_error')
   const reader = body.getReader()
   const decoder = new TextDecoder()
+  const encoder = new TextEncoder()
   const abort = new AbortController()
   const onAbort = (): void => { abort.abort() }
   c.req.raw.signal?.addEventListener('abort', onAbort)
@@ -463,30 +540,74 @@ async function proxyChatStream(
   let text = ''
   let status: GatewayRequestInput['status'] = 'success'
   let errorCode: string | null = null
+  let meta = { id: '', created: 0 }
   const stream = new ReadableStream({
     async start(controller) {
+      const sendEvent = (payload: Record<string, unknown>): void => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
+      }
+      const handleLine = (line: string): void => {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data:')) {
+          if (trimmed) controller.enqueue(encoder.encode(`${line}\n`))
+          return
+        }
+        const payload = trimmed.slice(5).trim()
+        if (payload === '[DONE]') return
+        let parsed: Record<string, unknown>
+        try {
+          const value = JSON.parse(payload) as unknown
+          if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('not an object')
+          parsed = value as Record<string, unknown>
+        } catch {
+          controller.enqueue(encoder.encode(`${line}\n`))
+          return
+        }
+        if (parsed.error) {
+          status = 'error'
+          errorCode = 'upstream_stream_error'
+          sendEvent(parsed)
+          return
+        }
+        if (typeof parsed.id === 'string' && parsed.id) meta = { ...meta, id: parsed.id }
+        if (typeof parsed.created === 'number') meta = { ...meta, created: parsed.created }
+        const nextUsage = readUsage(parsed.usage)
+        if (nextUsage) usage = nextUsage
+        const choices = Array.isArray(parsed.choices) ? parsed.choices : []
+        const choice = choices[0] as Record<string, unknown> | undefined
+        const delta = choice && typeof choice === 'object' ? choice.delta as Record<string, unknown> | undefined : undefined
+        if (delta && typeof delta.content === 'string') text += delta.content
+        const payloadOnly: Record<string, unknown> = { ...parsed, model: request.alias }
+        delete payloadOnly.usage
+        sendEvent(payloadOnly)
+      }
       try {
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
-          controller.enqueue(value)
           buffer += decoder.decode(value, { stream: true })
           const lines = buffer.split('\n')
           buffer = lines.pop() ?? ''
-          for (const line of lines) {
-            const parsed = parseSseData(line)
-            if (!parsed) continue
-            if (parsed.usage) usage = parsed.usage
-            if (parsed.delta) text += parsed.delta
-            if (parsed.error) { status = 'error'; errorCode = 'upstream_stream_error' }
-          }
+          for (const line of lines) handleLine(line)
         }
         buffer += decoder.decode()
-        if (buffer.trim()) {
-          const parsed = parseSseData(buffer)
-          if (parsed?.usage) usage = parsed.usage
-          if (parsed?.delta) text += parsed.delta
+        if (buffer.trim()) handleLine(buffer)
+        if (request.includesUsage && usage) {
+          sendEvent({
+            id: meta.id || `chatcmpl-${requestId}`,
+            object: 'chat.completion.chunk',
+            created: meta.created || Math.floor(Date.now() / 1000),
+            model: request.alias,
+            choices: [],
+            usage: {
+              prompt_tokens: usage.prompt,
+              completion_tokens: usage.completion,
+              total_tokens: usage.total,
+              ...(usage.neurons !== undefined ? { neurons: usage.neurons } : {}),
+            },
+          })
         }
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
       } catch {
         status = 'client_abort'
       } finally {
@@ -513,7 +634,7 @@ async function proxyChatStream(
       void reader.cancel().catch(() => undefined)
     },
   })
-  return new Response(stream, { headers: streamHeaders(corsHeaders(c)) })
+  return new Response(stream, { headers: streamHeaders(c, requestId) })
 }
 
 function parseSseData(line: string): { delta?: string; usage?: Usage; error?: boolean } | null {
@@ -560,7 +681,6 @@ async function proxyResponsesStream(
   let sequence = 0
   let textStarted = false
   const toolItems = new Map<number, { id: string; name: string; arguments: string }>()
-  const cors = corsHeaders(c)
   const stream = new ReadableStream({
     async start(controller) {
       const send = (type: string, data: Record<string, unknown>): void => {
@@ -573,7 +693,15 @@ async function proxyResponsesStream(
         status: state,
         model: request.alias,
         output,
-        usage: usage ? { input_tokens: usage.prompt, output_tokens: usage.completion, total_tokens: usage.total } : null,
+        usage: usage
+          ? {
+              input_tokens: usage.prompt,
+              input_tokens_details: { cached_tokens: 0 },
+              output_tokens: usage.completion,
+              output_tokens_details: { reasoning_tokens: 0 },
+              total_tokens: usage.total,
+            }
+          : null,
       })
       send('response.created', { response: responseObject('in_progress') })
       send('response.in_progress', { response: responseObject('in_progress') })
@@ -632,33 +760,51 @@ async function proxyResponsesStream(
           if (parsed?.usage) usage = parsed.usage
           if (parsed?.delta) text += parsed.delta
         }
-        if (textStarted) {
-          send('response.output_text.done', {
-            item_id: itemId, output_index: 0, content_index: 0, text,
+        if (status === 'error') {
+          send('response.failed', {
+            response: {
+              ...responseObject('failed', []),
+              error: { code: 'upstream_stream_error', message: 'The upstream stream reported an error' },
+            },
           })
-          send('response.content_part.done', {
-            item_id: itemId, output_index: 0, content_index: 0,
-            part: { type: 'output_text', text, annotations: [] },
-          })
-          send('response.output_item.done', {
-            output_index: 0,
-            item: { type: 'message', id: itemId, status: 'completed', role: 'assistant', content: [{ type: 'output_text', text, annotations: [] }] },
+        } else {
+          if (textStarted) {
+            send('response.output_text.done', {
+              item_id: itemId, output_index: 0, content_index: 0, text,
+            })
+            send('response.content_part.done', {
+              item_id: itemId, output_index: 0, content_index: 0,
+              part: { type: 'output_text', text, annotations: [] },
+            })
+            send('response.output_item.done', {
+              output_index: 0,
+              item: { type: 'message', id: itemId, status: 'completed', role: 'assistant', content: [{ type: 'output_text', text, annotations: [] }] },
+            })
+          }
+          for (const [index, call] of toolItems) {
+            send('response.function_call_arguments.done', {
+              item_id: call.id, output_index: textStarted ? 1 + index : index, arguments: call.arguments,
+            })
+            send('response.output_item.done', {
+              output_index: textStarted ? 1 + index : index,
+              item: { type: 'function_call', id: call.id, call_id: call.id, name: call.name, arguments: call.arguments, status: 'completed' },
+            })
+          }
+          const finalUsage = usage ?? fallbackUsage(request, text)
+          const output = streamOutput(text, toolItems, itemId, requestId)
+          send('response.completed', {
+            response: {
+              ...responseObject('completed', output),
+              usage: {
+                input_tokens: finalUsage.prompt,
+                input_tokens_details: { cached_tokens: 0 },
+                output_tokens: finalUsage.completion,
+                output_tokens_details: { reasoning_tokens: 0 },
+                total_tokens: finalUsage.total,
+              },
+            },
           })
         }
-        for (const [index, call] of toolItems) {
-          send('response.function_call_arguments.done', {
-            item_id: call.id, output_index: textStarted ? 1 + index : index, arguments: call.arguments,
-          })
-          send('response.output_item.done', {
-            output_index: textStarted ? 1 + index : index,
-            item: { type: 'function_call', id: call.id, call_id: call.id, name: call.name, arguments: call.arguments, status: 'completed' },
-          })
-        }
-        const finalUsage = usage ?? fallbackUsage(request, text)
-        const output = streamOutput(text, toolItems, itemId, requestId)
-        send('response.completed', { response: { ...responseObject('completed', output), usage: {
-          input_tokens: finalUsage.prompt, output_tokens: finalUsage.completion, total_tokens: finalUsage.total,
-        } } })
       } catch {
         status = 'client_abort'
       } finally {
@@ -684,7 +830,7 @@ async function proxyResponsesStream(
       void reader.cancel().catch(() => undefined)
     },
   })
-  return new Response(stream, { headers: streamHeaders(cors) })
+  return new Response(stream, { headers: streamHeaders(c, requestId) })
 }
 
 function extractToolDeltas(line: string): Array<{ index: number; name?: string; arguments: string }> {
@@ -794,30 +940,60 @@ async function handle(c: Context<AppBindings>, format: 'chat' | 'responses'): Pr
       requestId,
     })
     if (format === 'chat') {
-      return chatResponse(parsed, request, corsHeaders(c))
+      return chatResponse(parsed, request, corsHeaders(c), requestId)
     }
-    return openAiJson(responsesResponse(parsed, request, requestId, usage), 200, corsHeaders(c))
+    return openAiJson(responsesResponse(parsed, request, requestId, usage), 200, corsHeaders(c), requestId)
   } catch (error) {
     if (key && request) {
       logFailure(c.env, key, request, 'error', errorCodeOf(error).status, errorCodeOf(error).code, started, requestId)
     }
-    return openAiError(error, corsHeaders(c))
+    return openAiError(error, corsHeaders(c), requestId)
   }
 }
 
+function requestIdOf(): string {
+  return newId().replace(/-/g, '').slice(0, 24)
+}
+
 gatewayRoutes.options('*', (c) => {
-  if (!originAllowed(c)) return openAiError(new OpenAiError(403, 'Origin not allowed', 'permission_error', 'origin_not_allowed'))
-  return new Response(null, { status: 204, headers: corsHeaders(c) })
+  const requestId = requestIdOf()
+  if (!originAllowed(c)) {
+    return openAiError(new OpenAiError(403, 'Origin not allowed', 'permission_error', 'origin_not_allowed'), corsHeaders(c), requestId)
+  }
+  return new Response(null, { status: 204, headers: { ...corsHeaders(c), 'x-request-id': requestId } })
 })
 
 gatewayRoutes.get('/v1/models', async (c) => {
+  const requestId = requestIdOf()
   try {
     await authenticate(c)
-    return openAiJson({ object: 'list', data: listGatewayModels() }, 200, corsHeaders(c))
+    return openAiJson({ object: 'list', data: listGatewayModels() }, 200, corsHeaders(c), requestId)
   } catch (error) {
-    return openAiError(error, corsHeaders(c))
+    return openAiError(error, corsHeaders(c), requestId)
+  }
+})
+
+gatewayRoutes.get('/v1/models/:id', async (c) => {
+  const requestId = requestIdOf()
+  try {
+    await authenticate(c)
+    const id = c.req.param('id')
+    const model = listGatewayModels().find((entry) => entry.id === id)
+    if (!model) throw new OpenAiError(404, `The model "${id}" does not exist`, 'invalid_request_error', 'model_not_found', 'model')
+    return openAiJson(model, 200, corsHeaders(c), requestId)
+  } catch (error) {
+    return openAiError(error, corsHeaders(c), requestId)
   }
 })
 
 gatewayRoutes.post('/v1/chat/completions', (c) => handle(c, 'chat'))
 gatewayRoutes.post('/v1/responses', (c) => handle(c, 'responses'))
+
+gatewayRoutes.all('/v1/*', (c) => {
+  const requestId = requestIdOf()
+  return openAiError(
+    new OpenAiError(404, `Unknown gateway endpoint: ${c.req.method} ${c.req.path}`, 'invalid_request_error', 'not_found'),
+    corsHeaders(c),
+    requestId,
+  )
+})

@@ -38470,6 +38470,10 @@ const allowed = new Map([
   ]],
   ["src/worker/cloudflare/ai-gateway-models.ts", [
     "/**\n * The two OpenAI faces of the gateway: Chat Completions and Responses.\n *\n * Both are normalised to one canonical messages array before quota estimation and before the upstream\n * call. That is what makes \"the same content\" cost the same neurons in either format and keeps the\n * Responses path from quietly under-counting `instructions` or tool turns.\n */",
+    "/** OpenAI fields the Workers AI OpenAI-compatible endpoint accepts; kept as data, not as booleans. */",
+    "/** Responses-only context material, echoed back in the response object and stored for chaining. */",
+    "/** OpenAI's chat response_format uses the nested `json_schema` object; `text` is the default. */",
+    "/** The Responses API puts the schema fields on `text.format`; the upstream chat endpoint wants them nested. */",
   ]],
   ["src/worker/cloudflare/ai-gateway-quota.ts", [
     "/**\n * The self-hosted gateway's quota gate.\n *\n * Cloudflare's GraphQL total is authoritative but late; this ledger is what stops a request before it\n * is sent. Every reservation is one conditional UPDATE so two isolates racing on the same account see\n * each other's increment, and a reservation never shrinks: settling only raises `actual`/`reserved`\n * and reconciliation only raises them further. The hard limit is 10,000 neurons per account/day.\n */",
@@ -41693,6 +41697,11 @@ const allowed = new Map([
     "/**\n * The public face of the self-hosted gateway.\n *\n * Two OpenAI formats share one canonical messages array, one reservation, one upstream call, and one\n * usage/neuron calculation. The router itself is unauthenticated; a `gw_` bearer key is the only\n * credential, and every response error is rewritten to OpenAI's `{error:{message,type,code}}` shape so\n * an Inkstone internal error can never leak to an external caller.\n */",
     "/* ignore a malformed deployment URL */",
     "/** Cloudflare's OpenAI-compatible endpoint reports the billed neurons alongside the token counts. */",
+    "/* not Cloudflare's JSON error envelope */",
+    "// Cloudflare also answers 403 for a model capability the account's token cannot change",
+    "// (\"This model doesn't support JSON Schema\"). That is a client error, not a broken credential.",
+    "// The account is healthy; the request was not something the model can serve. Do not cool the",
+    "// account down for a client error.",
   ]],
   ["src/worker/routes/inknote-assets.ts", [
     "/** HTTP surface for Inknote assets: upload, owner-only reads with Range, delete and prune. */",

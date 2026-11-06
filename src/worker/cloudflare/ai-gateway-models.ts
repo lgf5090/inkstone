@@ -12,6 +12,7 @@ export const GATEWAY_MODEL_ALIASES = {
   qwen3: '@cf/qwen/qwen3-30b-a3b-fp8',
   'glm-4.7-flash': '@cf/zai-org/glm-4.7-flash',
   'llama-3.1-8b': '@cf/meta/llama-3.1-8b-instruct-fp8',
+  'llama-3.3-70b': '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
 } as const
 
 export type GatewayModelAlias = keyof typeof GATEWAY_MODEL_ALIASES
@@ -23,6 +24,7 @@ const MODEL_BY_ID = Object.fromEntries(
 export interface GatewayModelInfo {
   id: GatewayModelAlias
   object: 'model'
+  created: number
   owned_by: 'workers-ai'
   worker_model: string
 }
@@ -31,6 +33,7 @@ export function listGatewayModels(): GatewayModelInfo[] {
   return Object.entries(GATEWAY_MODEL_ALIASES).map(([alias, worker]) => ({
     id: alias as GatewayModelAlias,
     object: 'model',
+    created: 1_700_000_000,
     owned_by: 'workers-ai',
     worker_model: worker,
   }))
@@ -66,6 +69,23 @@ export interface CanonicalRequest {
   presencePenalty?: number
   frequencyPenalty?: number
   stream: boolean
+  /** OpenAI fields the Workers AI OpenAI-compatible endpoint accepts; kept as data, not as booleans. */
+  stop?: string | string[]
+  seed?: number
+  n: number
+  parallelToolCalls?: boolean
+  logprobs?: boolean
+  topLogprobs?: number
+  responseFormat?: Record<string, unknown>
+  user?: string
+  metadata?: Record<string, string>
+  includesUsage: boolean
+  /** Responses-only context material, echoed back in the response object and stored for chaining. */
+  instructions?: string
+  include?: unknown[]
+  store: boolean
+  previousResponseId?: string
+  truncation?: 'disabled'
 }
 
 const MAX_MESSAGES = 200
@@ -93,6 +113,107 @@ function optionalNumber(value: unknown, label: string, min: number, max: number)
   }
   return value
 }
+
+function optionalInteger(value: unknown, label: string, min: number, max: number): number | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+    throw ApiError.badRequest(`${label} must be an integer between ${min} and ${max}`)
+  }
+  return value
+}
+
+function optionalBoolean(value: unknown, label: string): boolean | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'boolean') throw ApiError.badRequest(`${label} must be a boolean`)
+  return value
+}
+
+function optionalText(value: unknown, label: string, max = 256): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length === 0 || value.length > max) {
+    throw ApiError.badRequest(`${label} must be a non-empty string of at most ${max} characters`)
+  }
+  return value
+}
+
+function stopValue(value: unknown): string | string[] | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'string') {
+    if (value.length === 0 || value.length > 100) throw ApiError.badRequest('stop must be a non-empty string of at most 100 characters')
+    return value
+  }
+  if (!Array.isArray(value) || value.length === 0 || value.length > 4) {
+    throw ApiError.badRequest('stop must be a string or an array of 1 to 4 strings')
+  }
+  for (const entry of value) {
+    if (typeof entry !== 'string' || entry.length === 0 || entry.length > 100) {
+      throw ApiError.badRequest('Every stop sequence must be a non-empty string of at most 100 characters')
+    }
+  }
+  return value as string[]
+}
+
+function metadataValue(value: unknown, label: string): Record<string, string> | undefined {
+  if (value === undefined) return undefined
+  const item = record(value)
+  if (!item) throw ApiError.badRequest(`${label} must be an object of string values`)
+  const entries = Object.entries(item)
+  if (entries.length > 16) throw ApiError.badRequest(`${label} can carry at most 16 keys`)
+  const out: Record<string, string> = {}
+  for (const [key, entry] of entries) {
+    if (typeof entry !== 'string' || entry.length > 512) {
+      throw ApiError.badRequest(`${label}.${key} must be a string of at most 512 characters`)
+    }
+    out[key] = entry
+  }
+  return out
+}
+
+/** OpenAI's chat response_format uses the nested `json_schema` object; `text` is the default. */
+function chatResponseFormat(value: unknown): Record<string, unknown> | undefined {
+  if (value === undefined) return undefined
+  const item = record(value)
+  if (!item) throw ApiError.badRequest('response_format must be an object')
+  const type = item.type
+  if (type === 'text') return undefined
+  if (type !== 'json_object' && type !== 'json_schema') {
+    throw ApiError.badRequest('response_format.type must be text, json_object or json_schema')
+  }
+  if (type === 'json_object') return { type: 'json_object' }
+  if (!record(item.json_schema)) throw ApiError.badRequest('response_format.json_schema is required for json_schema')
+  return { type: 'json_schema', json_schema: item.json_schema }
+}
+
+/** The Responses API puts the schema fields on `text.format`; the upstream chat endpoint wants them nested. */
+function responsesTextFormat(value: unknown): Record<string, unknown> | undefined {
+  if (value === undefined) return undefined
+  const item = record(value)
+  if (!item) throw ApiError.badRequest('text.format must be an object')
+  const type = item.type
+  if (type === 'text' || type === undefined) return undefined
+  if (type === 'json_object') return { type: 'json_object' }
+  if (type !== 'json_schema') throw ApiError.badRequest('text.format.type must be text, json_object or json_schema')
+  if (!item.name || typeof item.name !== 'string') throw ApiError.badRequest('text.format.name is required for json_schema')
+  if (!record(item.schema)) throw ApiError.badRequest('text.format.schema is required for json_schema')
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: item.name,
+      schema: item.schema,
+      ...(item.strict !== undefined ? { strict: item.strict } : {}),
+      ...(item.description !== undefined ? { description: item.description } : {}),
+    },
+  }
+}
+
+function includeUsageOf(value: unknown): boolean {
+  if (value === undefined) return false
+  const item = record(value)
+  if (!item) throw ApiError.badRequest('stream_options must be an object')
+  return item.include_usage === true
+}
+
+const MAX_N = 128
 
 function contentText(value: unknown, label: string): string {
   if (typeof value === 'string') {
@@ -259,9 +380,6 @@ function resolveModel(value: unknown): { alias: GatewayModelAlias; model: string
 }
 
 export function canonicalChatRequest(body: Record<string, unknown>): CanonicalRequest {
-  if (body.n !== undefined && body.n !== 1) throw ApiError.badRequest('n other than 1 is not supported')
-  if (body.logprobs !== undefined || body.top_logprobs !== undefined) throw ApiError.badRequest('logprobs is not supported')
-  if (body.response_format !== undefined) throw ApiError.badRequest('response_format is not supported')
   if (body.audio !== undefined || body.modalities !== undefined) throw ApiError.badRequest('audio/modalities are not supported')
   const resolved = resolveModel(body.model)
   const messages = chatMessages(body.messages)
@@ -272,6 +390,20 @@ export function canonicalChatRequest(body: Record<string, unknown>): CanonicalRe
       ? optionalNumber(body.max_completion_tokens, 'max_completion_tokens', 1, MAX_OUTPUT_TOKENS) ?? DEFAULT_OUTPUT_TOKENS
       : DEFAULT_OUTPUT_TOKENS
   if (body.stream !== undefined && typeof body.stream !== 'boolean') throw ApiError.badRequest('stream must be a boolean')
+  const stream = body.stream === true
+  const responseFormat = chatResponseFormat(body.response_format)
+  if (stream && responseFormat) throw ApiError.badRequest('response_format is not supported with streaming')
+  const n = optionalInteger(body.n, 'n', 1, MAX_N) ?? 1
+  const logprobs = optionalBoolean(body.logprobs, 'logprobs')
+  const topLogprobs = optionalInteger(body.top_logprobs, 'top_logprobs', 0, 20)
+  if (topLogprobs !== undefined && logprobs !== true) {
+    throw ApiError.badRequest('top_logprobs requires logprobs to be true')
+  }
+  const stop = stopValue(body.stop)
+  const seed = optionalInteger(body.seed, 'seed', -2_147_483_648, 2_147_483_647)
+  const parallelToolCalls = optionalBoolean(body.parallel_tool_calls, 'parallel_tool_calls')
+  const user = optionalText(body.user, 'user')
+  const metadata = metadataValue(body.metadata, 'metadata')
   return {
     format: 'chat',
     alias: resolved.alias,
@@ -280,25 +412,47 @@ export function canonicalChatRequest(body: Record<string, unknown>): CanonicalRe
     ...(tools ? { tools } : {}),
     ...(body.tool_choice !== undefined ? { toolChoice: body.tool_choice } : {}),
     maxOutputTokens: Math.round(maxOutput),
+    n,
     ...commonNumbers(body),
-    stream: body.stream === true,
+    stream,
+    ...(stop !== undefined ? { stop } : {}),
+    ...(seed !== undefined ? { seed } : {}),
+    ...(parallelToolCalls !== undefined ? { parallelToolCalls } : {}),
+    ...(logprobs !== undefined ? { logprobs } : {}),
+    ...(topLogprobs !== undefined ? { topLogprobs } : {}),
+    ...(responseFormat ? { responseFormat } : {}),
+    ...(user !== undefined ? { user } : {}),
+    ...(metadata !== undefined ? { metadata } : {}),
+    includesUsage: includeUsageOf(body.stream_options),
+    store: body.store === true,
   }
 }
 
 export function canonicalResponsesRequest(body: Record<string, unknown>): CanonicalRequest {
-  for (const unsupported of ['previous_response_id', 'conversation', 'background', 'include']) {
+  for (const unsupported of ['conversation', 'background']) {
     if (body[unsupported] !== undefined) throw ApiError.badRequest(`${unsupported} is not supported`)
   }
-  if (body.store === true) throw ApiError.badRequest('store is not supported')
   const text = record(body.text)
-  if (text?.format !== undefined) throw ApiError.badRequest('text.format is not supported')
+  const responseFormat = responsesTextFormat(text?.format)
   const resolved = resolveModel(body.model)
-  const messages = responsesItems(body.input, body.instructions)
+  const instructions = body.instructions !== undefined ? requiredText(body.instructions, 'instructions') : undefined
+  const messages = responsesItems(body.input, instructions)
   const tools = responsesTools(body.tools)
   const maxOutput = body.max_output_tokens !== undefined
     ? optionalNumber(body.max_output_tokens, 'max_output_tokens', 1, MAX_OUTPUT_TOKENS) ?? DEFAULT_OUTPUT_TOKENS
     : DEFAULT_OUTPUT_TOKENS
   if (body.stream !== undefined && typeof body.stream !== 'boolean') throw ApiError.badRequest('stream must be a boolean')
+  const stream = body.stream === true
+  if (stream && responseFormat) throw ApiError.badRequest('text.format json output is not supported with streaming')
+  const include = body.include
+  if (include !== undefined) {
+    if (!Array.isArray(include)) throw ApiError.badRequest('include must be an array')
+    if (include.length > 0) throw ApiError.badRequest('include values are not supported by this gateway')
+  }
+  if (body.truncation !== undefined && body.truncation !== 'disabled') {
+    throw ApiError.badRequest('truncation supports only "disabled"')
+  }
+  const previousResponseId = optionalText(body.previous_response_id, 'previous_response_id', 128)
   return {
     format: 'responses',
     alias: resolved.alias,
@@ -307,8 +461,19 @@ export function canonicalResponsesRequest(body: Record<string, unknown>): Canoni
     ...(tools ? { tools } : {}),
     ...(body.tool_choice !== undefined ? { toolChoice: body.tool_choice } : {}),
     maxOutputTokens: Math.round(maxOutput),
+    n: 1,
     ...commonNumbers(body),
-    stream: body.stream === true,
+    stream,
+    ...(responseFormat ? { responseFormat } : {}),
+    includesUsage: false,
+    ...(instructions !== undefined ? { instructions } : {}),
+    ...(body.parallel_tool_calls !== undefined
+      ? { parallelToolCalls: optionalBoolean(body.parallel_tool_calls, 'parallel_tool_calls') }
+      : {}),
+    ...(metadataValue(body.metadata, 'metadata') !== undefined ? { metadata: metadataValue(body.metadata, 'metadata') } : {}),
+    store: body.store !== false,
+    ...(previousResponseId !== undefined ? { previousResponseId } : {}),
+    ...(body.truncation === 'disabled' ? { truncation: 'disabled' as const } : {}),
   }
 }
 
@@ -317,8 +482,9 @@ export function estimatePromptTokens(request: Pick<CanonicalRequest, 'messages' 
   return Math.max(1, Math.ceil(raw.length / 3))
 }
 
-export function reservationFor(request: Pick<CanonicalRequest, 'workerModel' | 'messages' | 'tools' | 'maxOutputTokens'>): number {
+export function reservationFor(request: Pick<CanonicalRequest, 'workerModel' | 'messages' | 'tools' | 'maxOutputTokens' | 'n'>): number {
   const promptTokens = estimatePromptTokens(request)
-  const estimated = estimateNeurons(request.workerModel, promptTokens, request.maxOutputTokens)
+  const outputTokens = request.maxOutputTokens * Math.max(1, request.n)
+  const estimated = estimateNeurons(request.workerModel, promptTokens, outputTokens)
   return Math.max(50, Math.ceil(estimated * 1.10))
 }
