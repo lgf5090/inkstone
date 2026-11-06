@@ -26,7 +26,7 @@ import { AiEmpty, AiError, AiPanel } from './AiPanel'
 import { Table, TableScroll, TBody, Td, Th, THead, Tr } from '../../components/Table'
 
 type StatusFilter = '' | 'success' | 'error' | 'quota' | 'upstream' | 'auth'
-type FormatFilter = '' | 'chat' | 'responses' | 'embedding' | 'image'
+type FormatFilter = '' | 'chat' | 'responses' | 'embedding' | 'image' | 'audio'
 
 function when(ms: number | null): string {
   if (!ms) return '—'
@@ -138,6 +138,7 @@ export function GatewayTab() {
     { value: 'chat', label: t('cloudflare.ai_gateway.format_chat') },
     { value: 'embedding', label: t('cloudflare.ai_gateway.format_embedding') },
     { value: 'image', label: t('cloudflare.ai_gateway.format_image') },
+    { value: 'audio', label: t('cloudflare.ai_gateway.format_audio') },
     { value: 'responses', label: t('cloudflare.ai_gateway.format_responses') },
   ]
   const modelOptions = [
@@ -151,6 +152,8 @@ export function GatewayTab() {
     { value: 'bge-m3', label: 'bge-m3' },
     { value: 'flux', label: 'flux' },
     { value: 'sd15-img2img', label: 'sd15-img2img' },
+    { value: 'whisper', label: 'whisper' },
+    { value: 'aura-1', label: 'aura-1' },
   ]
 
   async function createKey(): Promise<void> {

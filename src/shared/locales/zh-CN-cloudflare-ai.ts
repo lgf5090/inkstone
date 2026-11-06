@@ -96,6 +96,7 @@ export const ZH_CN_CLOUDFLARE_AI = {
   "cloudflare.ai_gateway.filter_status": "状态筛选",
   "cloudflare.ai_gateway.format": "格式",
   "cloudflare.ai_gateway.format_chat": "Chat",
+  "cloudflare.ai_gateway.format_audio": "音频",
   "cloudflare.ai_gateway.format_embedding": "Embeddings",
   "cloudflare.ai_gateway.format_image": "图片",
   "cloudflare.ai_gateway.format_responses": "Responses",

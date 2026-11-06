@@ -750,6 +750,76 @@ describe('Images', () => {
   })
 })
 
+describe('Audio', () => {
+  it('transcribes to json, srt and verbose_json with word timings', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'y'.repeat(26), accountId: 'f'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'audio key' })
+    stubCloudflare(async (url) => {
+      expect(url.pathname).toBe(`/client/v4/accounts/${'f'.repeat(32)}/ai/run/@cf/openai/whisper-large-v3-turbo`)
+      return Response.json({
+        text: 'hello world',
+        vtt: 'WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello world\n',
+        words: [
+          { word: 'hello', start: 0, end: 0.5 },
+          { word: 'world', start: 0.6, end: 1.1 },
+        ],
+      })
+    })
+    const form = new FormData()
+    form.append('file', new File([new Uint8Array(120_000)], 'speech.mp3', { type: 'audio/mpeg' }))
+    const response = await app.request('/api/gateway/v1/audio/transcriptions', {
+      method: 'POST', headers: { authorization: `Bearer ${created.token}` }, body: form,
+    }, bed.env)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ text: 'hello world' })
+
+    const srtForm = new FormData()
+    srtForm.append('file', new File([new Uint8Array(120_000)], 'speech.mp3', { type: 'audio/mpeg' }))
+    srtForm.append('response_format', 'srt')
+    const srt = await app.request('/api/gateway/v1/audio/transcriptions', {
+      method: 'POST', headers: { authorization: `Bearer ${created.token}` }, body: srtForm,
+    }, bed.env)
+    expect(srt.status).toBe(200)
+    expect(await srt.text()).toContain('00:00:00,000 --> 00:00:01,000')
+
+    const verboseForm = new FormData()
+    verboseForm.append('file', new File([new Uint8Array(120_000)], 'speech.mp3', { type: 'audio/mpeg' }))
+    verboseForm.append('response_format', 'verbose_json')
+    verboseForm.append('timestamp_granularities', 'word')
+    const verbose = await app.request('/api/gateway/v1/audio/transcriptions', {
+      method: 'POST', headers: { authorization: `Bearer ${created.token}` }, body: verboseForm,
+    }, bed.env)
+    expect(verbose.status).toBe(200)
+    const body = await verbose.json() as { segments: Array<{ text: string }>; words: Array<{ word: string }> }
+    expect(body.segments[0]!.text).toContain('hello world')
+    expect(body.words[1]!.word).toBe('world')
+  })
+
+  it('synthesises speech with an OpenAI voice and rejects unsupported speed or format', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'z'.repeat(26), accountId: 'g'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'tts key' })
+    stubCloudflare(async (url) => {
+      expect(url.pathname).toBe(`/client/v4/accounts/${'g'.repeat(32)}/ai/run/@cf/deepgram/aura-1`)
+      return new Response(new Uint8Array([1, 2, 3, 4]), { headers: { 'content-type': 'audio/mpeg' } })
+    })
+    const headers = { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' }
+    const response = await app.request('/api/gateway/v1/audio/speech', {
+      method: 'POST', headers,
+      body: JSON.stringify({ input: 'hello world', voice: 'alloy', response_format: 'mp3' }),
+    }, bed.env)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('audio/mpeg')
+    expect((await response.arrayBuffer()).byteLength).toBe(4)
+
+    for (const patch of [{ speed: 1.5 }, { response_format: 'xyz' }, { voice: 'unknown' }]) {
+      const rejected = await app.request('/api/gateway/v1/audio/speech', {
+        method: 'POST', headers, body: JSON.stringify({ input: 'hello', ...patch }),
+      }, bed.env)
+      expect(rejected.status).toBe(400)
+    }
+  })
+})
+
 function sseResponse(lines: string[]): Response {
   const encoder = new TextEncoder()
   const body = new ReadableStream({

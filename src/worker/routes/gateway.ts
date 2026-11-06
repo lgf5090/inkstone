@@ -60,6 +60,27 @@ import {
   storeGeneratedImage,
 } from '../cloudflare/ai-gateway-images'
 import { recordGatewayMedia } from '../cloudflare/ai-gateway-media'
+import {
+  AURA_ALIAS,
+  audioMinutes,
+  extractAudio,
+  listAudioModels,
+  resolveAuraEncoding,
+  resolveAuraSpeaker,
+  resolveGatewayAudio,
+  speechReservation,
+  speechSettlement,
+  toSrt,
+  toVtt,
+  transcriptionDurationMinutes,
+  transcriptionReservation,
+  transcriptionSettlement,
+  verboseSegments,
+  vttToSrt,
+  WHISPER_ALIAS,
+  wordsFromVtt,
+  type WhisperResult,
+} from '../cloudflare/ai-gateway-audio'
 import { StorageError } from '../imgbed/storage'
 import type { LoadedAccount } from '../cloudflare/accounts'
 
@@ -1323,6 +1344,221 @@ async function handleImageEdits(c: Context<AppBindings>): Promise<Response> {
   }
 }
 
+function formStrings(value: unknown): string[] {
+  if (typeof value === 'string') return value.split(',').map((entry) => entry.trim()).filter(Boolean)
+  if (Array.isArray(value)) return value.filter((entry): entry is string => typeof entry === 'string')
+  return []
+}
+
+function textResponse(body: string, contentType: string, c: Context<AppBindings>, requestId: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'content-type': contentType,
+      'cache-control': 'no-store',
+      'x-request-id': requestId,
+      ...corsHeaders(c),
+    },
+  })
+}
+
+async function handleTranscription(c: Context<AppBindings>, task: 'transcribe' | 'translate'): Promise<Response> {
+  const started = Date.now()
+  const requestId = requestIdOf()
+  let key: GatewayKeyAuth | null = null
+  let model = ''
+  try {
+    key = await authenticate(c)
+    const contentType = c.req.header('content-type') ?? ''
+    if (!contentType.includes('multipart/form-data')) throw ApiError.badRequest('This endpoint expects multipart/form-data')
+    const form = await c.req.parseBody()
+    const file = form.file instanceof File ? form.file : form.audio instanceof File ? form.audio : null
+    if (!file) throw ApiError.badRequest('file is required')
+    if (file.size > 25 * 1024 * 1024) throw ApiError.tooLarge('file is larger than 25 MB')
+    model = typeof form.model === 'string' ? form.model : WHISPER_ALIAS
+    const resolved = resolveGatewayAudio(model)
+    if (!resolved || resolved.kind !== 'transcribe') {
+      throw new OpenAiError(400, `Unknown transcription model: ${model}`, 'invalid_request_error', 'model_not_found', 'model')
+    }
+    if (!keyAllowsModel(key, resolved.alias)) {
+      throw new OpenAiError(403, 'This key is not allowed to use that model', 'permission_error', 'model_not_allowed', 'model')
+    }
+    const responseFormat = typeof form.response_format === 'string' ? form.response_format : 'json'
+    if (!['json', 'text', 'srt', 'vtt', 'verbose_json'].includes(responseFormat)) {
+      throw new OpenAiError(400, 'response_format is not supported', 'invalid_request_error', 'bad_request', 'response_format')
+    }
+    if (form.temperature !== undefined && Number(form.temperature) !== 0) {
+      throw new OpenAiError(400, 'Whisper accepts only temperature 0', 'invalid_request_error', 'unsupported_temperature', 'temperature')
+    }
+    const granularities = formStrings(form.timestamp_granularities ?? form['timestamp_granularities[]'])
+    if (granularities.some((entry) => entry !== 'word' && entry !== 'segment')) {
+      throw new OpenAiError(400, 'timestamp_granularities supports word and segment', 'invalid_request_error', 'bad_request', 'timestamp_granularities')
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const base64 = bytesToBase64(bytes)
+    const language = typeof form.language === 'string' && form.language ? form.language : undefined
+    const initialPrompt = typeof form.prompt === 'string' && form.prompt ? form.prompt : undefined
+    const estimatedMinutes = audioMinutes(bytes)
+    const reserve = transcriptionReservation(bytes)
+    const limit = gatewayLimit(c.env)
+    const day = gatewayDay()
+    if (!(await consumeKeyRequest(c.env, key, day))) {
+      logGatewayFailure(c.env, key, requestId, { format: 'audio', model: resolved.alias, stream: false }, 'quota', 429, 'key_daily_limit', started)
+      throw new OpenAiError(429, 'This key has reached its daily request limit', 'rate_limit_error', 'key_daily_limit')
+    }
+    const upstreamBody = {
+      audio: base64,
+      task,
+      ...(language ? { language } : {}),
+      ...(initialPrompt ? { initial_prompt: initialPrompt } : {}),
+    }
+    const outcome = await callAiRunUpstream(c, resolved.alias, resolved.model, upstreamBody, reserve, limit, new Set(), key.userId, 300_000)
+    if ('failure' in outcome) {
+      const noAccount = outcome.failure === 'no_account'
+      logGatewayFailure(c.env, key, requestId, { format: 'audio', model: resolved.alias, stream: false },
+        noAccount ? 'quota' : 'upstream', noAccount ? 429 : (outcome.upstreamStatus && outcome.upstreamStatus < 500 ? 400 : 502),
+        noAccount ? 'no_account_quota' : 'upstream_error', started)
+      throw new OpenAiError(
+        noAccount ? 429 : (outcome.upstreamStatus && outcome.upstreamStatus < 500 ? 400 : 502),
+        noAccount ? 'No account has enough neuron quota left today' : (outcome.message ?? 'All accounts failed'),
+        noAccount ? 'rate_limit_error' : 'api_error',
+        noAccount ? 'insufficient_quota' : 'upstream_error',
+      )
+    }
+    const raw = await outcome.response.json().catch(() => null) as Record<string, unknown> | null
+    const payload = (raw && typeof raw.result === 'object' && raw.result !== null ? raw.result : raw) as WhisperResult | null
+    if (!payload || typeof payload.text !== 'string') {
+      throw new OpenAiError(502, 'Cloudflare returned an unexpected transcription body', 'api_error', 'upstream_error')
+    }
+    const vttText = typeof payload.vtt === 'string' ? payload.vtt : ''
+    const words = Array.isArray(payload.words) && payload.words.length > 0
+      ? payload.words
+      : (vttText ? wordsFromVtt(vttText) : [])
+    const minutes = transcriptionDurationMinutes(payload, estimatedMinutes)
+    const actual = transcriptionSettlement(minutes)
+    const now = Date.now()
+    await settleNeurons(c.env, key.userId, outcome.acquired.account.row.id, resolved.alias, actual, limit, now)
+    await addKeyUsage(c.env, key.id, key.userId, day, actual, 0)
+    await markAccountSuccess(c.env, key.userId, outcome.acquired.account.row.id, now)
+    await insertGatewayRequest(c.env, {
+      id: requestId, userId: key.userId, keyId: key.id, accountId: outcome.acquired.account.row.id, day,
+      format: 'audio', stream: false, model: resolved.alias, status: 'success', httpStatus: 200,
+      reservedNeurons: reserve, actualNeurons: actual, promptTokens: 0, completionTokens: 0,
+      durationMs: now - started,
+    })
+    if (responseFormat === 'text') return textResponse(payload.text, 'text/plain; charset=utf-8', c, requestId)
+    if (responseFormat === 'srt') {
+      return textResponse(vttText ? vttToSrt(vttText) : toSrt(words, payload.text), 'text/plain; charset=utf-8', c, requestId)
+    }
+    if (responseFormat === 'vtt') {
+      return textResponse(typeof payload.vtt === 'string' ? payload.vtt : toVtt(words, payload.text), 'text/vtt; charset=utf-8', c, requestId)
+    }
+    if (responseFormat === 'verbose_json') {
+      return openAiJson({
+        task,
+        language: language ?? 'unknown',
+        duration: minutes * 60,
+        text: payload.text,
+        segments: verboseSegments(words, payload.text),
+        ...(granularities.includes('word') ? { words } : {}),
+      }, 200, corsHeaders(c), requestId)
+    }
+    return openAiJson({ text: payload.text }, 200, corsHeaders(c), requestId)
+  } catch (error) {
+    if (key) {
+      const info = errorCodeOf(error)
+      logGatewayFailure(c.env, key, requestId, { format: 'audio', model, stream: false }, 'error', info.status, info.code, started)
+    }
+    return openAiError(error, corsHeaders(c), requestId)
+  }
+}
+
+async function handleSpeech(c: Context<AppBindings>): Promise<Response> {
+  const started = Date.now()
+  const requestId = requestIdOf()
+  let key: GatewayKeyAuth | null = null
+  let model = ''
+  try {
+    key = await authenticate(c)
+    const body = await readBody(c)
+    model = typeof body.model === 'string' ? body.model : AURA_ALIAS
+    const resolved = resolveGatewayAudio(model)
+    if (!resolved || resolved.kind !== 'speech') {
+      throw new OpenAiError(400, `Unknown speech model: ${model}`, 'invalid_request_error', 'model_not_found', 'model')
+    }
+    if (!keyAllowsModel(key, resolved.alias)) {
+      throw new OpenAiError(403, 'This key is not allowed to use that model', 'permission_error', 'model_not_allowed', 'model')
+    }
+    const input = typeof body.input === 'string' ? body.input.trim() : ''
+    if (!input || input.length > 4096) throw ApiError.badRequest('input must be between 1 and 4096 characters')
+    const speaker = resolveAuraSpeaker(body.voice)
+    if (!speaker) {
+      throw new OpenAiError(400, 'voice must be one of alloy, echo, fable, onyx, nova or shimmer', 'invalid_request_error', 'unsupported_voice', 'voice')
+    }
+    const encoding = resolveAuraEncoding(body.response_format)
+    if (!encoding) {
+      throw new OpenAiError(400, 'response_format must be mp3, opus, aac, flac, wav or pcm', 'invalid_request_error', 'unsupported_format', 'response_format')
+    }
+    if (body.speed !== undefined && Number(body.speed) !== 1) {
+      throw new OpenAiError(400, 'speed supports only 1', 'invalid_request_error', 'unsupported_speed', 'speed')
+    }
+    const reserve = speechReservation(input)
+    const limit = gatewayLimit(c.env)
+    const day = gatewayDay()
+    if (!(await consumeKeyRequest(c.env, key, day))) {
+      logGatewayFailure(c.env, key, requestId, { format: 'audio', model: resolved.alias, stream: false }, 'quota', 429, 'key_daily_limit', started)
+      throw new OpenAiError(429, 'This key has reached its daily request limit', 'rate_limit_error', 'key_daily_limit')
+    }
+    const outcome = await callAiRunUpstream(
+      c, resolved.alias, resolved.model,
+      { text: input, speaker, encoding: encoding.encoding, ...(encoding.container !== 'none' ? { container: encoding.container } : {}) },
+      reserve, limit, new Set(), key.userId, 300_000,
+    )
+    if ('failure' in outcome) {
+      const noAccount = outcome.failure === 'no_account'
+      logGatewayFailure(c.env, key, requestId, { format: 'audio', model: resolved.alias, stream: false },
+        noAccount ? 'quota' : 'upstream', noAccount ? 429 : (outcome.upstreamStatus && outcome.upstreamStatus < 500 ? 400 : 502),
+        noAccount ? 'no_account_quota' : 'upstream_error', started)
+      throw new OpenAiError(
+        noAccount ? 429 : (outcome.upstreamStatus && outcome.upstreamStatus < 500 ? 400 : 502),
+        noAccount ? 'No account has enough neuron quota left today' : (outcome.message ?? 'All accounts failed'),
+        noAccount ? 'rate_limit_error' : 'api_error',
+        noAccount ? 'insufficient_quota' : 'upstream_error',
+      )
+    }
+    const audio = await extractAudio(outcome.response).catch((error) => {
+      throw new OpenAiError(502, (error as Error)?.message ?? 'Cloudflare returned no audio', 'api_error', 'upstream_error')
+    })
+    const actual = speechSettlement(input)
+    const now = Date.now()
+    await settleNeurons(c.env, key.userId, outcome.acquired.account.row.id, resolved.alias, actual, limit, now)
+    await addKeyUsage(c.env, key.id, key.userId, day, actual, 0)
+    await markAccountSuccess(c.env, key.userId, outcome.acquired.account.row.id, now)
+    await insertGatewayRequest(c.env, {
+      id: requestId, userId: key.userId, keyId: key.id, accountId: outcome.acquired.account.row.id, day,
+      format: 'audio', stream: false, model: resolved.alias, status: 'success', httpStatus: 200,
+      reservedNeurons: reserve, actualNeurons: actual, promptTokens: 0, completionTokens: 0,
+      durationMs: now - started,
+    })
+    return new Response(audio, {
+      status: 200,
+      headers: {
+        'content-type': encoding.contentType,
+        'content-length': String(audio.byteLength),
+        'cache-control': 'no-store',
+        'x-request-id': requestId,
+        ...corsHeaders(c),
+      },
+    })
+  } catch (error) {
+    if (key) {
+      const info = errorCodeOf(error)
+      logGatewayFailure(c.env, key, requestId, { format: 'audio', model, stream: false }, 'error', info.status, info.code, started)
+    }
+    return openAiError(error, corsHeaders(c), requestId)
+  }
+}
+
 async function handleEmbeddings(c: Context<AppBindings>): Promise<Response> {
   const started = Date.now()
   const requestId = requestIdOf()
@@ -1565,7 +1801,7 @@ gatewayRoutes.get('/v1/models', async (c) => {
   const requestId = requestIdOf()
   try {
     await authenticate(c)
-    return openAiJson({ object: 'list', data: [...listGatewayModels(), ...listImageModels()] }, 200, corsHeaders(c), requestId)
+    return openAiJson({ object: 'list', data: [...listGatewayModels(), ...listImageModels(), ...listAudioModels()] }, 200, corsHeaders(c), requestId)
   } catch (error) {
     return openAiError(error, corsHeaders(c), requestId)
   }
@@ -1576,7 +1812,7 @@ gatewayRoutes.get('/v1/models/:id', async (c) => {
   try {
     await authenticate(c)
     const id = c.req.param('id')
-    const model = [...listGatewayModels(), ...listImageModels()].find((entry) => entry.id === id)
+    const model = [...listGatewayModels(), ...listImageModels(), ...listAudioModels()].find((entry) => entry.id === id)
     if (!model) throw new OpenAiError(404, `The model "${id}" does not exist`, 'invalid_request_error', 'model_not_found', 'model')
     return openAiJson(model, 200, corsHeaders(c), requestId)
   } catch (error) {
@@ -1588,6 +1824,9 @@ gatewayRoutes.post('/v1/chat/completions', (c) => handle(c, 'chat'))
 gatewayRoutes.post('/v1/embeddings', (c) => handleEmbeddings(c))
 gatewayRoutes.post('/v1/images/generations', (c) => handleImages(c))
 gatewayRoutes.post('/v1/images/edits', (c) => handleImageEdits(c))
+gatewayRoutes.post('/v1/audio/transcriptions', (c) => handleTranscription(c, 'transcribe'))
+gatewayRoutes.post('/v1/audio/translations', (c) => handleTranscription(c, 'translate'))
+gatewayRoutes.post('/v1/audio/speech', (c) => handleSpeech(c))
 gatewayRoutes.post('/v1/responses', (c) => handle(c, 'responses'))
 
 gatewayRoutes.get('/v1/responses/:id', async (c) => {

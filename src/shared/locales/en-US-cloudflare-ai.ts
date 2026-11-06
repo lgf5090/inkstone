@@ -96,6 +96,7 @@ export const EN_US_CLOUDFLARE_AI = {
   "cloudflare.ai_gateway.filter_status": "Status filter",
   "cloudflare.ai_gateway.format": "Format",
   "cloudflare.ai_gateway.format_chat": "Chat",
+  "cloudflare.ai_gateway.format_audio": "Audio",
   "cloudflare.ai_gateway.format_embedding": "Embeddings",
   "cloudflare.ai_gateway.format_image": "Images",
   "cloudflare.ai_gateway.format_responses": "Responses",

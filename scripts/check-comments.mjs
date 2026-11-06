@@ -38462,6 +38462,12 @@ const allowed = new Map([
     "// A transport failure never carries an upstream status. A 5xx or a 429 is Cloudflare's own",
     "// availability problem, not this credential's; only a 4xx answer is a refusal.",
   ]],
+  ["src/worker/cloudflare/ai-gateway-audio.ts", [
+    "/**\n * OpenAI audio compatibility (speech-to-text, translation and text-to-speech).\n *\n * Whisper accepts base64 audio and returns text plus word timings; the gateway turns those words into\n * the `srt`, `vtt` and `verbose_json` shapes the OpenAI clients expect. Speech uses Deepgram Aura so\n * OpenAI voice names map to real speakers and most output encodings are available. None of these\n * calls stream, so a retry can move to another account before any byte reaches the client.\n */",
+    "/**\n * Duration is what the quota gate needs before the model runs. RIFF/WAVE carries its own byte rate;\n * compressed audio is assumed to be at 16 kbps, the low end of the formats OpenAI clients upload, so\n * the estimate is longer rather than shorter than the real file.\n */",
+    "/** Whisper's VTT is one cue per recognised word in practice; both cue shapes are accepted. */",
+    "/** Aura answers with an audio body; older JSON shapes carry a base64 `audio` field. */",
+  ]],
   ["src/worker/cloudflare/ai-gateway-images.ts", [
     "/**\n * OpenAI Images support on top of Workers AI and the existing image bed.\n *\n * Text-to-image is `flux-1-schnell`; image editing is Stable Diffusion img2img/inpainting. The\n * gateway never writes R2 itself: a `url` response calls the image bed's `uploadSingle`, so the bytes,\n * the channel, the URL format and the delete path are the ones a manual upload already uses. A\n * content-hash filename lets a repeated generation reuse the file already in the bed.\n */",
     "/** flux-1-schnell takes no width/height; 1024x1024 is the shape its catalog page documents. */",
