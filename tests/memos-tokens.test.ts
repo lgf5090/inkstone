@@ -418,7 +418,7 @@ describe('token routes', () => {
     expect(await create.json()).toEqual({
       error: {
         code: 'forbidden',
-        message: 'Missing client identification header. Refresh and try again',
+        message: `Missing client identification header. Web clients must send ${CLIENT_HEADER}: 1`,
       },
     })
 
