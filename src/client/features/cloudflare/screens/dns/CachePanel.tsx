@@ -40,8 +40,9 @@ export function CachePanel({
   })
   const [saving, setSaving] = useState(false)
   const [purging, setPurging] = useState(false)
-  const [urlOpen, setUrlOpen] = useState(false)
-  const [urls, setUrls] = useState('')
+  const [purgeOpen, setPurgeOpen] = useState(false)
+  const [purgeMode, setPurgeMode] = useState<'files' | 'prefixes' | 'hosts' | 'tags'>('files')
+  const [purgeValues, setPurgeValues] = useState('')
 
   useEffect(() => {
     if (!data) return
@@ -100,18 +101,25 @@ export function CachePanel({
     }
   }
 
-  async function purgeUrls(): Promise<void> {
-    const files = urls.split('\n').map((line) => line.trim()).filter(Boolean)
-    if (files.length === 0) {
+  async function purgeByMode(): Promise<void> {
+    const values = purgeValues.split('\n').map((line) => line.trim()).filter(Boolean)
+    if (values.length === 0) {
       toast({ title: t('cloudflare.dns.msg.url_required'), tone: 'warning' })
       return
     }
     setPurging(true)
     try {
-      await dnsApi.purgeCache(domain, { files })
-      toast({ title: t('cloudflare.dns.msg.url_purged', { count: files.length }), tone: 'success' })
-      setUrls('')
-      setUrlOpen(false)
+      const input = purgeMode === 'files'
+        ? { files: values }
+        : purgeMode === 'prefixes'
+          ? { prefixes: values }
+          : purgeMode === 'hosts'
+            ? { hosts: values }
+            : { tags: values }
+      await dnsApi.purgeCache(domain, input)
+      toast({ title: t('cloudflare.dns.msg.url_purged', { count: values.length }), tone: 'success' })
+      setPurgeValues('')
+      setPurgeOpen(false)
     } catch (reason) {
       toast({
         title: t('cloudflare.dns.msg.purge_failed'),
@@ -203,21 +211,37 @@ export function CachePanel({
           <Button variant="danger" loading={purging} onClick={() => void purgeAll()}>
             {t('cloudflare.dns.purge_all')}
           </Button>
-          <Button variant="secondary" onClick={() => setUrlOpen((open) => !open)}>
-            {urlOpen ? t('cloudflare.dns.collapse') : t('cloudflare.dns.purge_by_url')}
+          <Button variant="secondary" onClick={() => setPurgeOpen((open) => !open)}>
+            {purgeOpen ? t('cloudflare.dns.collapse') : t('cloudflare.dns.purge_by_url')}
           </Button>
         </div>
-        {urlOpen && (
+        {purgeOpen && (
           <div className="space-y-2">
+            <Field label={t('cloudflare.dns.purge_mode')}>
+              <div>
+                <SelectMenu
+                  label={t('cloudflare.dns.purge_mode')}
+                  value={purgeMode}
+                  options={[
+                    { value: 'files', label: t('cloudflare.dns.purge_mode_files') },
+                    { value: 'prefixes', label: t('cloudflare.dns.purge_mode_prefixes') },
+                    { value: 'hosts', label: t('cloudflare.dns.purge_mode_hosts') },
+                    { value: 'tags', label: t('cloudflare.dns.purge_mode_tags') },
+                  ]}
+                  onChange={(value) => setPurgeMode(value as typeof purgeMode)}
+                  width={220}
+                />
+              </div>
+            </Field>
             <Field label={t('cloudflare.dns.purge_by_url')}>
               <Textarea
                 rows={4}
-                value={urls}
-                onChange={(event) => setUrls(event.target.value)}
-                placeholder={t('cloudflare.dns.purge_url_placeholder')}
+                value={purgeValues}
+                onChange={(event) => setPurgeValues(event.target.value)}
+                placeholder={t(`cloudflare.dns.purge_${purgeMode}_placeholder` as Parameters<typeof t>[0])}
               />
             </Field>
-            <Button variant="primary" loading={purging} onClick={() => void purgeUrls()}>
+            <Button variant="primary" loading={purging} onClick={() => void purgeByMode()}>
               {t('cloudflare.dns.purge_specified_url')}
             </Button>
           </div>

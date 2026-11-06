@@ -6,11 +6,13 @@ export function SwitchRow({
   label,
   hint,
   checked,
+  disabled,
   onChange,
 }: {
   label: string
   hint?: ReactNode
   checked: boolean
+  disabled?: boolean
   onChange: (next: boolean) => void
 }) {
   return (
@@ -19,7 +21,7 @@ export function SwitchRow({
         <p className="text-[length:var(--text-12-5)] text-[var(--text-primary)]">{label}</p>
         {hint && <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{hint}</p>}
       </div>
-      <Switch checked={checked} onChange={onChange} label={label} />
+      <Switch checked={checked} disabled={disabled} onChange={onChange} label={label} />
     </div>
   )
 }

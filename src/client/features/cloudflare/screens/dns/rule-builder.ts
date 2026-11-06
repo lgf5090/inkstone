@@ -14,6 +14,16 @@ export type RuleHeaderOp = 'set' | 'add' | 'remove'
 
 export type RuleTtlMode = 'respect_origin' | 'custom'
 
+export interface RuleConfigFlags {
+  automatic_https_rewrites?: boolean
+  bic?: boolean
+  email_obfuscation?: boolean
+  fonts?: boolean
+  hotlink_protection?: boolean
+  opportunistic_encryption?: boolean
+  rocket_loader?: boolean
+}
+
 export interface RuleFormState {
   matchType: RuleMatchType
   /** The part left of the zone name; empty is the apex. */
@@ -24,6 +34,7 @@ export interface RuleFormState {
   port: number
   redirectUrl: string
   redirectStatus: number
+  redirectPreserveQuery: boolean
   rewriteTarget: 'path' | 'query'
   rewriteValue: string
   headerOp: RuleHeaderOp
@@ -32,6 +43,11 @@ export interface RuleFormState {
   cacheEnabled: boolean
   ttlMode: RuleTtlMode
   ttlSeconds: number
+  configFlags: RuleConfigFlags
+  compressionAlgorithms: string[]
+  errorContentType: string
+  errorContent: string
+  errorStatusCode: string
   limitAction: 'block' | 'managed_challenge' | 'js_challenge' | 'challenge'
   limitPeriod: number
   limitRequests: number
@@ -43,6 +59,17 @@ export interface RulePayload {
   action: string
   action_parameters: Record<string, unknown>
 }
+
+/** The configuration-rule switches the form offers; unknown keys are preserved only in advanced JSON. */
+export const CONFIG_FLAG_KEYS: readonly (keyof RuleConfigFlags)[] = [
+  'automatic_https_rewrites',
+  'bic',
+  'email_obfuscation',
+  'fonts',
+  'hotlink_protection',
+  'opportunistic_encryption',
+  'rocket_loader',
+]
 
 const DEFAULT_PORT = 80
 const DEFAULT_TTL = 3600
@@ -59,6 +86,7 @@ export function emptyRuleForm(): RuleFormState {
     port: DEFAULT_PORT,
     redirectUrl: '',
     redirectStatus: 301,
+    redirectPreserveQuery: false,
     rewriteTarget: 'path',
     rewriteValue: '',
     headerOp: 'set',
@@ -67,6 +95,11 @@ export function emptyRuleForm(): RuleFormState {
     cacheEnabled: true,
     ttlMode: 'respect_origin',
     ttlSeconds: DEFAULT_TTL,
+    configFlags: {},
+    compressionAlgorithms: ['auto'],
+    errorContentType: 'text/html',
+    errorContent: '',
+    errorStatusCode: '',
     limitAction: 'block',
     limitPeriod: DEFAULT_PERIOD,
     limitRequests: DEFAULT_REQUESTS,
@@ -126,6 +159,14 @@ export function buildAction(phase: RulePhase, form: RuleFormState): Record<strin
           status_code: form.redirectStatus,
         },
       }
+    case 'single_redirect': {
+      const fromValue: Record<string, unknown> = {
+        target_url: { value: form.redirectUrl.trim() },
+        status_code: form.redirectStatus,
+      }
+      if (form.redirectPreserveQuery) fromValue.preserve_query_string = true
+      return { from_value: fromValue }
+    }
     case 'transform':
       return { uri: { [form.rewriteTarget]: { expression: form.rewriteValue } } }
     case 'request_headers':
@@ -142,6 +183,17 @@ export function buildAction(phase: RulePhase, form: RuleFormState): Record<strin
           ? { mode: 'override', value: form.ttlSeconds }
           : { mode: 'respect_origin_ttl' },
       }
+    case 'config':
+      return { ...form.configFlags }
+    case 'compression':
+      return { algorithms: form.compressionAlgorithms.map((name) => ({ name })) }
+    case 'custom_errors': {
+      const parameters: Record<string, unknown> = { content_type: form.errorContentType }
+      const status = Number(form.errorStatusCode)
+      if (Number.isInteger(status) && status >= 400 && status <= 999) parameters.status_code = status
+      if (form.errorContent.trim()) parameters.content = form.errorContent
+      return parameters
+    }
     case 'rate_limit':
       return {
         characteristics: ['ip'],
@@ -229,6 +281,37 @@ export function formFromRule(rule: DnsRule, phase: RulePhase, zoneName: string):
       const from = objectOf(parameters.from_value)
       form.redirectUrl = stringOf(objectOf(from.target).url)
       form.redirectStatus = numberOf(from.status_code, 301)
+      break
+    }
+    case 'single_redirect': {
+      const from = objectOf(parameters.from_value)
+      const target = objectOf(from.target_url)
+      form.redirectUrl = stringOf(target.value) || stringOf(target.expression)
+      form.redirectStatus = numberOf(from.status_code, 301)
+      form.redirectPreserveQuery = from.preserve_query_string === true
+      break
+    }
+    case 'config': {
+      const flags: RuleConfigFlags = {}
+      for (const key of CONFIG_FLAG_KEYS) {
+        if (typeof parameters[key] === 'boolean') flags[key] = parameters[key] as boolean
+      }
+      form.configFlags = flags
+      break
+    }
+    case 'compression': {
+      const names = Array.isArray(parameters.algorithms)
+        ? parameters.algorithms.map((item) => stringOf(objectOf(item).name)).filter(Boolean)
+        : []
+      form.compressionAlgorithms = names.length > 0 ? names : ['auto']
+      break
+    }
+    case 'custom_errors': {
+      form.errorContentType = stringOf(parameters.content_type) || 'text/html'
+      form.errorContent = stringOf(parameters.content)
+      form.errorStatusCode = numberOf(parameters.status_code, 0) > 0
+        ? String(numberOf(parameters.status_code, 0))
+        : ''
       break
     }
     case 'transform': {

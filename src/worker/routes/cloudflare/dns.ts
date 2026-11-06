@@ -26,6 +26,9 @@ import {
   parseRuleInput,
   parseRulePhase,
   parseSettingsPatch,
+  readPurgeHosts,
+  readPurgeTags,
+  readPurgeUrls,
   RULE_PHASES,
   SETTING_PATHS,
   toDnsRecord,
@@ -303,34 +306,41 @@ dnsRouter.patch('/domains/:domain/proxy', async (c) => {
 dnsRouter.post('/domains/:domain/purge-cache', async (c) => {
   const userId = c.get('userId')
   const body = await readBody(c)
-  const everything = body.purge_everything === true
-  const files = body.files
-  if (everything && files !== undefined) {
-    throw ApiError.badRequest('Choose either purge_everything or files, not both')
+
+  const keys = ['purge_everything', 'files', 'prefixes', 'hosts', 'tags'] as const
+  const present = keys.filter((key) => body[key] !== undefined)
+  if (present.length !== 1) {
+    throw ApiError.badRequest('Provide exactly one of purge_everything, files, prefixes, hosts or tags')
   }
-  if (!everything && !Array.isArray(files)) {
-    throw ApiError.badRequest('Provide purge_everything or a files array')
-  }
-  let purgeBody: { purge_everything: true } | { files: string[] }
-  if (everything) {
+
+  let purgeBody:
+    | { purge_everything: true }
+    | { files: string[] }
+    | { prefixes: string[] }
+    | { hosts: string[] }
+    | { tags: string[] }
+  let detail: string
+
+  if (body.purge_everything !== undefined) {
+    if (body.purge_everything !== true) throw ApiError.badRequest('purge_everything must be true')
     purgeBody = { purge_everything: true }
+    detail = 'purge_everything'
+  } else if (body.files !== undefined) {
+    purgeBody = { files: readPurgeUrls(body.files, 'files', 30) }
+    detail = `purge ${purgeBody.files.length} URLs`
+  } else if (body.prefixes !== undefined) {
+    purgeBody = { prefixes: readPurgeUrls(body.prefixes, 'prefixes', 100) }
+    detail = `purge ${purgeBody.prefixes.length} prefixes`
+  } else if (body.hosts !== undefined) {
+    const hosts = readPurgeHosts(body.hosts)
+    purgeBody = { hosts }
+    detail = `purge ${hosts.length} hosts`
   } else {
-    const urls = (files as unknown[])
-      .filter((item): item is string => typeof item === 'string')
-      .map((item) => item.trim())
-      .filter(Boolean)
-    if (urls.length === 0) throw ApiError.badRequest('At least one URL is required')
-    if (urls.length > 30) throw ApiError.badRequest('Cloudflare accepts at most 30 URLs per purge')
-    for (const url of urls) {
-      if (!/^https?:\/\//i.test(url)) throw ApiError.badRequest(`Not a URL: ${url}`)
-      try {
-        new URL(url)
-      } catch {
-        throw ApiError.badRequest(`Not a URL: ${url}`)
-      }
-    }
-    purgeBody = { files: urls }
+    const tags = readPurgeTags(body.tags)
+    purgeBody = { tags }
+    detail = `purge ${tags.length} tags`
   }
+
   const { account, zoneId, zoneName } = await findDnsZone(c.env, userId, c.req.param('domain'))
   const response = await cfFetch<{ result?: { id?: string } }>(
     account.auth,
@@ -343,7 +353,7 @@ dnsRouter.post('/domains/:domain/purge-cache', async (c) => {
     account.row.id,
     'purge_cache',
     zoneName,
-    everything ? 'purge_everything' : `purge ${'files' in purgeBody ? purgeBody.files.length : 0} URLs`,
+    detail,
     'success',
   )
   return c.json({ id: response.result?.id ?? '' })
@@ -445,6 +455,39 @@ function rulePayload(input: ReturnType<typeof parseRuleInput>): DnsRule {
   if (input.action_parameters !== undefined) rule.action_parameters = input.action_parameters
   return rule
 }
+
+/**
+ * Every ruleset the zone owns, with its phase and rule count.
+ *
+ * The per-phase routes answer "what is in this phase"; this one answers "what rulesets exist at all",
+ * which is what an audit of an accidental empty ruleset needs. Cloudflare's list may omit `rules`, so
+ * a row without them is fetched once to count. Read-only.
+ */
+dnsRouter.get('/domains/:domain/rulesets', async (c) => {
+  const { account, zoneId } = await findDnsZone(c.env, c.get('userId'), c.req.param('domain'))
+  const listed = await cfFetch<{
+    result?: Array<{ id?: string; phase?: string; name?: string; rules?: unknown[] }>
+  }>(account.auth, `/zones/${zoneId}/rulesets`)
+  const rulesets = await Promise.all((listed.result ?? []).map(async (row) => {
+    const id = typeof row.id === 'string' ? row.id : ''
+    if (!id) return null
+    let rules = Array.isArray(row.rules) ? row.rules : null
+    if (!rules) {
+      const detail = await cfFetch<{ result?: { rules?: unknown[] } }>(
+        account.auth,
+        `/zones/${zoneId}/rulesets/${encodeURIComponent(id)}`,
+      )
+      rules = Array.isArray(detail.result?.rules) ? detail.result.rules : []
+    }
+    return {
+      id,
+      phase: typeof row.phase === 'string' ? row.phase : '',
+      name: typeof row.name === 'string' ? row.name : '',
+      ruleCount: rules.length,
+    }
+  }))
+  return c.json({ rulesets: rulesets.filter((row) => row !== null) })
+})
 
 dnsRouter.get('/domains/:domain/rules/:phase', async (c) => {
   const phase = parseRulePhase(c.req.param('phase'))

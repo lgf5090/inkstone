@@ -13,7 +13,7 @@ import { useUi } from '../../../../store/ui'
 import { cfErrorText } from '../../api/client'
 import { dnsApi, type ZoneSettings } from '../../api/dns'
 import { useCfT } from '../../i18n'
-import { SECURITY_CHOICES, SSL_CHOICES } from './options'
+import { SECURITY_CHOICES, MIN_TLS_VERSION_CHOICES, SSL_CHOICES } from './options'
 import { PanelError } from './PanelError'
 import { SwitchRow } from './SwitchRow'
 import { usePanelLoad } from './use-panel-load'
@@ -51,6 +51,15 @@ export function ZoneSettingsPanel({ domain }: { domain: string }) {
       minify: { ...ZONE_DEFAULTS.minify, ...(data.minify ?? {}) },
       brotli: data.brotli ?? ZONE_DEFAULTS.brotli,
       zero_rtt: data.zero_rtt ?? ZONE_DEFAULTS.zero_rtt,
+      tls_1_3: data.tls_1_3,
+      min_tls_version: data.min_tls_version,
+      http2: data.http2,
+      http3: data.http3,
+      websockets: data.websockets,
+      ipv6: data.ipv6,
+      always_online: data.always_online,
+      early_hints: data.early_hints,
+      opportunistic_encryption: data.opportunistic_encryption,
     })
   }, [data])
 
@@ -120,6 +129,23 @@ export function ZoneSettingsPanel({ domain }: { domain: string }) {
           checked={form.automatic_https_rewrites === 'on'}
           onChange={(next) => setForm((current) => ({ ...current, automatic_https_rewrites: next ? 'on' : 'off' }))}
         />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label={t('cloudflare.dns.min_tls_version')}>
+            <div>
+              <SelectMenu
+                label={t('cloudflare.dns.min_tls_version')}
+                value={form.min_tls_version ?? '1.2'}
+                options={MIN_TLS_VERSION_CHOICES.map((choice) => ({ value: choice.value, label: choice.label }))}
+                onChange={(value) => setForm((current) => ({ ...current, min_tls_version: value }))}
+              />
+            </div>
+          </Field>
+          <SwitchRow
+            label={t('cloudflare.dns.tls_1_3')}
+            checked={form.tls_1_3 === 'on'}
+            onChange={(next) => setForm((current) => ({ ...current, tls_1_3: next ? 'on' : 'off' }))}
+          />
+        </div>
       </section>
 
       <section className="space-y-3 border-t border-[var(--border-subtle)] pt-4">
@@ -155,6 +181,24 @@ export function ZoneSettingsPanel({ domain }: { domain: string }) {
           checked={form.zero_rtt === 'on'}
           onChange={(next) => setForm((current) => ({ ...current, zero_rtt: next ? 'on' : 'off' }))}
         />
+        <div className="grid gap-2 sm:grid-cols-2">
+          {([
+            ['http2', 'cloudflare.dns.http2'],
+            ['http3', 'cloudflare.dns.http3'],
+            ['websockets', 'cloudflare.dns.websockets'],
+            ['ipv6', 'cloudflare.dns.ipv6'],
+            ['always_online', 'cloudflare.dns.always_online'],
+            ['early_hints', 'cloudflare.dns.early_hints'],
+            ['opportunistic_encryption', 'cloudflare.dns.opportunistic_encryption'],
+          ] as const).map(([key, labelKey]) => (
+            <SwitchRow
+              key={key}
+              label={t(labelKey)}
+              checked={form[key] === 'on'}
+              onChange={(next) => setForm((current) => ({ ...current, [key]: next ? 'on' : 'off' }))}
+            />
+          ))}
+        </div>
       </section>
 
       <div className="flex justify-end border-t border-[var(--border-subtle)] pt-3">
