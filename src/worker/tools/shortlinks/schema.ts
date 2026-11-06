@@ -14,12 +14,15 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
     expires_at INTEGER,
     created_via TEXT DEFAULT 'app',
     created_by TEXT DEFAULT 'user',
-    total_clicks INTEGER NOT NULL DEFAULT 0
+    total_clicks INTEGER NOT NULL DEFAULT 0,
+    last_clicked_at INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_user 
     ON tools_shortlinks_links(user_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_url 
     ON tools_shortlinks_links(user_id, url)`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_last_click
+    ON tools_shortlinks_links(user_id, last_clicked_at DESC)`,
 
   `CREATE TABLE IF NOT EXISTS tools_shortlinks_slugs (
     slug TEXT NOT NULL PRIMARY KEY,
@@ -79,6 +82,30 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_device 
     ON tools_shortlinks_clicks(user_id, device_type)`,
 
+  `CREATE TABLE IF NOT EXISTS tools_shortlinks_clicks_daily (
+    user_id TEXT NOT NULL,
+    link_id INTEGER NOT NULL,
+    day TEXT NOT NULL,
+    clicks INTEGER NOT NULL DEFAULT 0,
+    last_updated INTEGER NOT NULL,
+    PRIMARY KEY (user_id, link_id, day)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_daily_user
+    ON tools_shortlinks_clicks_daily(user_id, day)`,
+
+  `CREATE TABLE IF NOT EXISTS tools_shortlinks_breakdown_daily (
+    user_id TEXT NOT NULL,
+    link_id INTEGER NOT NULL,
+    day TEXT NOT NULL,
+    dimension TEXT NOT NULL,
+    name TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    last_updated INTEGER NOT NULL,
+    PRIMARY KEY (user_id, link_id, day, dimension, name)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_breakdown_daily_user
+    ON tools_shortlinks_breakdown_daily(user_id, dimension, day)`,
+
   `CREATE TABLE IF NOT EXISTS tools_shortlinks_bundles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -111,6 +138,7 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
     default_range TEXT NOT NULL DEFAULT '30d',
     filter_bots INTEGER NOT NULL DEFAULT 1,
     filter_self_referrers INTEGER NOT NULL DEFAULT 1,
+    stats_rollup_enabled INTEGER NOT NULL DEFAULT 1,
     updated_at INTEGER NOT NULL
   )`,
 
@@ -159,6 +187,8 @@ export const TOOLS_SHORTLINKS_REQUIRED_TABLES: readonly string[] = [
   'tools_shortlinks_links',
   'tools_shortlinks_slugs',
   'tools_shortlinks_clicks',
+  'tools_shortlinks_clicks_daily',
+  'tools_shortlinks_breakdown_daily',
   'tools_shortlinks_bundles',
   'tools_shortlinks_bundle_links',
   'tools_shortlinks_settings',
@@ -171,6 +201,7 @@ export const TOOLS_SHORTLINKS_REQUIRED_TABLES: readonly string[] = [
 export const TOOLS_SHORTLINKS_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_shortlinks_links_user',
   'idx_tools_shortlinks_links_url',
+  'idx_tools_shortlinks_links_last_click',
   'idx_tools_shortlinks_slugs_user',
   'idx_tools_shortlinks_slugs_link',
   'idx_tools_shortlinks_clicks_clicked',
@@ -181,6 +212,8 @@ export const TOOLS_SHORTLINKS_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_shortlinks_clicks_country',
   'idx_tools_shortlinks_clicks_refhost',
   'idx_tools_shortlinks_clicks_device',
+  'idx_tools_shortlinks_clicks_daily_user',
+  'idx_tools_shortlinks_breakdown_daily_user',
   'idx_tools_shortlinks_bundles_user',
   'idx_tools_shortlinks_bundle_links_link',
   'idx_tools_shortlinks_api_keys_user',
@@ -201,6 +234,7 @@ export const TOOLS_SHORTLINKS_REQUIRED_COLUMNS: Readonly<Record<string, readonly
     'created_via',
     'created_by',
     'total_clicks',
+    'last_clicked_at',
   ],
   tools_shortlinks_slugs: [
     'slug',

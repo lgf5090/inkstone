@@ -77,6 +77,11 @@ export interface TimelineData {
   buckets: TimelineBucket[]
 }
 
+export interface AnalyticsBounds {
+  from?: number
+  to?: number
+}
+
 export interface BundleStats {
   bundle: ShortLinkBundle
   link_count: number
@@ -153,6 +158,11 @@ export interface BreakdownPage {
   has_more?: boolean
 }
 
+export interface HeatmapData {
+  cells: { weekday: number; hour: number; count: number }[]
+  max: number
+}
+
 export interface DashboardStats {
   range?: TimelineRange
   total_links: number
@@ -172,6 +182,7 @@ export interface ShortlinksSettings {
   default_range: TimelineRange
   filter_bots: boolean
   filter_self_referrers: boolean
+  stats_rollup_enabled?: boolean
   updated_at?: number
   /** Read-only server state: whether SHORTLINKS_SECRET is configured for visitor dedupe. */
   secret_configured?: boolean

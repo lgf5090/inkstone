@@ -4,6 +4,7 @@
  */
 
 import type {
+  AnalyticsBounds,
   BreakdownPage,
   BundleAccent,
   BundleStats,
@@ -32,6 +33,7 @@ import {
   fillBuckets,
   fillMissingOptions,
   formatAvgPerDay,
+  heatmapCells,
   rangeToSinceTs,
   timelineBuckets,
 } from './analytics'
@@ -88,6 +90,7 @@ export class ShortlinksStore {
         default_range: string
         filter_bots: number
         filter_self_referrers: number
+        stats_rollup_enabled: number
         updated_at: number
       }>()
 
@@ -97,6 +100,7 @@ export class ShortlinksStore {
         default_range: DEFAULT_TIMELINE_RANGE,
         filter_bots: true,
         filter_self_referrers: true,
+        stats_rollup_enabled: true,
         updated_at: Math.floor(Date.now() / 1000),
       }
     }
@@ -106,6 +110,7 @@ export class ShortlinksStore {
       default_range: (row.default_range as TimelineRange) || DEFAULT_TIMELINE_RANGE,
       filter_bots: Boolean(row.filter_bots),
       filter_self_referrers: Boolean(row.filter_self_referrers),
+      stats_rollup_enabled: Boolean(row.stats_rollup_enabled ?? 1),
       updated_at: row.updated_at,
     }
   }
@@ -879,8 +884,17 @@ export class ShortlinksStore {
     await this.db.batch([
       insertStatement,
       this.db
-        .prepare('UPDATE tools_shortlinks_links SET total_clicks = total_clicks + 1 WHERE id = ? AND user_id = ?')
-        .bind(linkId, targetUserId),
+        .prepare('UPDATE tools_shortlinks_links SET total_clicks = total_clicks + 1, last_clicked_at = ? WHERE id = ? AND user_id = ?')
+        .bind(now, linkId, targetUserId),
+      this.db
+        .prepare(
+          `INSERT INTO tools_shortlinks_clicks_daily (user_id, link_id, day, clicks, last_updated)
+           VALUES (?1, ?2, date(?3, 'unixepoch'), 1, ?3)
+           ON CONFLICT (user_id, link_id, day) DO UPDATE SET
+             clicks = clicks + 1,
+             last_updated = excluded.last_updated`,
+        )
+        .bind(targetUserId, linkId, now),
     ])
   }
 
@@ -895,7 +909,7 @@ export class ShortlinksStore {
     return scope
   }
 
-  async getLinkAnalytics(linkId: number, range: TimelineRange = '30d'): Promise<ClickStats> {
+  async getLinkAnalytics(linkId: number, range: TimelineRange = '30d', bounds?: AnalyticsBounds): Promise<ClickStats> {
     const settings = await this.getSettings()
     const link = await this.db
       .prepare('SELECT created_at FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
@@ -904,10 +918,14 @@ export class ShortlinksStore {
     let where = `user_id = ? AND link_id = ?${this.clickScope(settings)}`
     const binds: (string | number)[] = [this.userId, linkId]
 
-    const sinceTs = rangeToSinceTs(range)
+    const sinceTs = bounds?.from ?? rangeToSinceTs(range)
     if (sinceTs !== undefined) {
       where += ' AND clicked_at >= ?'
       binds.push(sinceTs)
+    }
+    if (bounds?.to !== undefined) {
+      where += ' AND clicked_at < ?'
+      binds.push(bounds.to)
     }
 
     const [
@@ -975,6 +993,7 @@ export class ShortlinksStore {
     bundleId?: number,
     range: TimelineRange = '30d',
     timeZone?: string,
+    bounds?: AnalyticsBounds,
   ): Promise<TimelineData> {
     const settings = await this.getSettings()
     const now = Math.floor(Date.now() / 1000)
@@ -989,10 +1008,14 @@ export class ShortlinksStore {
       binds.push(bundleId, this.userId)
     }
 
-    const sinceTs = rangeToSinceTs(range, now)
+    const sinceTs = bounds?.from ?? rangeToSinceTs(range, now)
     if (sinceTs !== undefined) {
       where += ' AND clicked_at >= ?'
       binds.push(sinceTs)
+    }
+    if (bounds?.to !== undefined) {
+      where += ' AND clicked_at < ?'
+      binds.push(bounds.to)
     }
 
     // Bucketing happens in the reader's calendar, so the rows have to cross the boundary as raw
@@ -1007,7 +1030,12 @@ export class ShortlinksStore {
       .bind(...binds)
       .all<{ clicked_at: number }>()
 
-    const buckets = timelineBuckets(rows.results ?? [], range, now, timeZone)
+    const buckets = timelineBuckets(
+      rows.results ?? [],
+      bounds?.from !== undefined || bounds?.to !== undefined ? 'all' : range,
+      bounds?.to ?? now,
+      timeZone,
+    )
     return { range, buckets }
   }
 
@@ -1087,6 +1115,99 @@ export class ShortlinksStore {
       offset,
       limit,
       has_more: offset + items.length < total,
+    }
+  }
+
+  async getHeatmap(
+    linkId?: number,
+    bundleId?: number,
+    range: TimelineRange = '30d',
+    timeZone?: string,
+  ): Promise<{ cells: { weekday: number; hour: number; count: number }[]; max: number }> {
+    const settings = await this.getSettings()
+    const now = Math.floor(Date.now() / 1000)
+    let where = `user_id = ?${this.clickScope(settings)}`
+    const binds: (string | number)[] = [this.userId]
+
+    if (linkId) {
+      where += ' AND link_id = ?'
+      binds.push(linkId)
+    } else if (bundleId) {
+      where += ' AND link_id IN (SELECT link_id FROM tools_shortlinks_bundle_links WHERE bundle_id = ? AND user_id = ?)'
+      binds.push(bundleId, this.userId)
+    }
+
+    const sinceTs = rangeToSinceTs(range, now)
+    if (sinceTs !== undefined) {
+      where += ' AND clicked_at >= ?'
+      binds.push(sinceTs)
+    }
+
+    const rows = await this.db
+      .prepare(`SELECT clicked_at FROM tools_shortlinks_clicks WHERE ${where}`)
+      .bind(...binds)
+      .all<{ clicked_at: number }>()
+    const cells = heatmapCells(rows.results ?? [], timeZone)
+    const max = cells.reduce((peak, cell) => Math.max(peak, cell.count), 0)
+    return { cells, max }
+  }
+
+  /**
+   * Rebuilds the daily rollups from the raw click ledger. Re-runnable: both tables are cleared for
+   * this account first, and the raw table stays the source of truth for every custom range.
+   */
+  async backfillStatsRollups(): Promise<{ days: number; clicks: number; breakdown_rows: number }> {
+    const settings = await this.getSettings()
+    if (settings.stats_rollup_enabled === false) {
+      return { days: 0, clicks: 0, breakdown_rows: 0 }
+    }
+
+    await this.db.batch([
+      this.db.prepare('DELETE FROM tools_shortlinks_clicks_daily WHERE user_id = ?').bind(this.userId),
+      this.db.prepare('DELETE FROM tools_shortlinks_breakdown_daily WHERE user_id = ?').bind(this.userId),
+    ])
+
+    await this.db
+      .prepare(
+        `INSERT INTO tools_shortlinks_clicks_daily (user_id, link_id, day, clicks, last_updated)
+         SELECT user_id, link_id, date(clicked_at, 'unixepoch') AS day, COUNT(*), MAX(clicked_at)
+         FROM tools_shortlinks_clicks
+         WHERE user_id = ?
+         GROUP BY link_id, day`,
+      )
+      .bind(this.userId)
+      .run()
+
+    for (const dimension of ['country', 'referrer_host', 'device_type', 'browser'] as const) {
+      await this.db
+        .prepare(
+          `INSERT INTO tools_shortlinks_breakdown_daily
+             (user_id, link_id, day, dimension, name, count, last_updated)
+           SELECT user_id, link_id, date(clicked_at, 'unixepoch') AS day, '${dimension}', ${dimension}, COUNT(*), MAX(clicked_at)
+           FROM tools_shortlinks_clicks
+           WHERE user_id = ? AND ${dimension} IS NOT NULL
+           GROUP BY link_id, day, ${dimension}`,
+        )
+        .bind(this.userId)
+        .run()
+    }
+
+    const daily = await this.db
+      .prepare(
+        `SELECT COUNT(*) AS days, COALESCE(SUM(clicks), 0) AS clicks
+         FROM tools_shortlinks_clicks_daily WHERE user_id = ?`,
+      )
+      .bind(this.userId)
+      .first<{ days: number; clicks: number }>()
+    const breakdown = await this.db
+      .prepare('SELECT COUNT(*) AS cnt FROM tools_shortlinks_breakdown_daily WHERE user_id = ?')
+      .bind(this.userId)
+      .first<{ cnt: number }>()
+
+    return {
+      days: daily?.days ?? 0,
+      clicks: daily?.clicks ?? 0,
+      breakdown_rows: breakdown?.cnt ?? 0,
     }
   }
 

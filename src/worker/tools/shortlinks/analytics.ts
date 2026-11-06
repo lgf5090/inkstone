@@ -304,3 +304,35 @@ export function timelineBuckets(
   for (let cursor = start; cursor <= end; cursor = shiftDateKey(cursor, 1)) push(cursor)
   return buckets
 }
+
+export interface HeatmapCell {
+  weekday: number
+  hour: number
+  count: number
+}
+
+/** A week-by-hour grid in the reader's zone; weekday 0 is Sunday, matching Date#getUTCDay. */
+export function heatmapCells(
+  rows: { clicked_at: number }[],
+  timeZone?: string,
+): HeatmapCell[] {
+  const tz = isValidTimeZone(timeZone) ? timeZone : 'UTC'
+  const counts = Array.from({ length: 7 }, () => new Array<number>(24).fill(0))
+  for (const row of rows) {
+    const p = localParts(row.clicked_at, tz, true)
+    const weekday = new Date(
+      Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day)),
+    ).getUTCDay()
+    const hour = Number.parseInt(p.hour, 10)
+    if (Number.isFinite(weekday) && Number.isFinite(hour) && hour >= 0 && hour < 24) {
+      counts[weekday][hour]++
+    }
+  }
+  const cells: HeatmapCell[] = []
+  for (let weekday = 0; weekday < 7; weekday++) {
+    for (let hour = 0; hour < 24; hour++) {
+      cells.push({ weekday, hour, count: counts[weekday][hour] })
+    }
+  }
+  return cells
+}

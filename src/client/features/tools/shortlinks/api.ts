@@ -3,11 +3,13 @@
  */
 
 import type {
+  AnalyticsBounds,
   BreakdownPage,
   BundleStats,
   ClickStats,
   CreatedShortlinkApiKey,
   DashboardStats,
+  HeatmapData,
   ShortLink,
   ShortLinkBundle,
   ShortLinkSlug,
@@ -48,10 +50,12 @@ function clientTimeZone(): string {
   }
 }
 
-function analyticsQuery(range?: TimelineRange): string {
+function analyticsQuery(range?: TimelineRange, bounds?: AnalyticsBounds): string {
   const q = new URLSearchParams()
   if (range) q.set('range', range)
   q.set('timezone', clientTimeZone())
+  if (bounds?.from !== undefined) q.set('from', String(bounds.from))
+  if (bounds?.to !== undefined) q.set('to', String(bounds.to))
   return q.toString()
 }
 
@@ -123,14 +127,19 @@ export const shortlinksApi = {
       { method: 'DELETE' },
     ).then((r) => r.data),
 
-  getLinkStats: (id: number, range?: TimelineRange) =>
+  getLinkStats: (id: number, range?: TimelineRange, bounds?: AnalyticsBounds) =>
     request<{ data: ClickStats }>(
-      `/api/tools/shortlinks/links/${id}/stats${range ? `?range=${range}` : ''}`,
+      `/api/tools/shortlinks/links/${id}/stats?${analyticsQuery(range, bounds)}`,
     ).then((r) => r.data),
 
-  getLinkTimeline: (id: number, range?: TimelineRange) =>
+  getLinkTimeline: (id: number, range?: TimelineRange, bounds?: AnalyticsBounds) =>
     request<{ data: TimelineData }>(
-      `/api/tools/shortlinks/links/${id}/timeline?${analyticsQuery(range)}`,
+      `/api/tools/shortlinks/links/${id}/timeline?${analyticsQuery(range, bounds)}`,
+    ).then((r) => r.data),
+
+  getLinkHeatmap: (id: number, range?: TimelineRange) =>
+    request<{ data: HeatmapData }>(
+      `/api/tools/shortlinks/links/${id}/heatmap?${analyticsQuery(range)}`,
     ).then((r) => r.data),
 
   getLinkBreakdown: (

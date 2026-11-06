@@ -19954,6 +19954,8 @@ const allowed = new Map([
     "/* Devices */",
     "/* Operating Systems */",
     "/* Browsers */",
+    "// A date input names a local calendar day; the inclusive end becomes the following midnight.",
+    "/* Week × Hour Heatmap */",
   ]],
   ["src/client/features/tools/shortlinks/LinksView.tsx", [
     "/* Search and Filters Header */",
@@ -39468,6 +39470,8 @@ const allowed = new Map([
     "// existed and was withdrawn before it ran out.",
     "// A preview read arrives with the token and nothing else, so the lookup has to find the row by",
     "// its hash. The primary key starts with the owner, which would make that lookup a scan.",
+    "// Shortlinks analytics rollup: one row per link per UTC day. Kept beside the raw click ledger,",
+    "// which stays the precise source for drills and custom ranges.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -43817,6 +43821,7 @@ const allowed = new Map([
     "/** A browser-supplied IANA zone is untrusted input; an invalid one falls back to UTC. */",
     "/** The Monday of the local week a calendar date belongs to, expressed as a date key. */",
     "/**\n * Buckets raw click timestamps in the reader's own calendar, not the Worker's UTC one.\n *\n * SQLite's `date(..., 'unixepoch')` is fixed to UTC, which puts an Asia/Shanghai click made after\n * local midnight into the previous day. The raw column stays UTC; only the bucket key is local.\n */",
+    "/** A week-by-hour grid in the reader's zone; weekday 0 is Sunday, matching Date#getUTCDay. */",
   ]],
   ["src/worker/tools/shortlinks/fingerprint.ts", [
     "/**\n * Privacy-respecting visitor fingerprinting.\n *\n * Daily salt rotation ensures IDs cannot be correlated across days.\n * Raw IP is never stored.\n */",
@@ -43895,6 +43900,7 @@ const allowed = new Map([
     "// JSON export is the round-trippable one: settings, bundles and password hashes travel with it",
     "// so an account can be moved and restored without losing anything but click history.",
     "// A slug that is still live on this account cannot be restored; the rest of the backup still lands.",
+    "/**\n   * Rebuilds the daily rollups from the raw click ledger. Re-runnable: both tables are cleared for\n   * this account first, and the raw table stays the source of truth for every custom range.\n   */",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",

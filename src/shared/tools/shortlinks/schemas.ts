@@ -162,6 +162,8 @@ export const BreakdownQuerySchema = z.object({
 export const AnalyticsRangeQuerySchema = z.object({
   range: TimelineRangeSchema.default('30d'),
   timezone: z.string().max(64).optional(),
+  from: z.coerce.number().int().min(0).optional(),
+  to: z.coerce.number().int().min(0).optional(),
 })
 
 export type CreateLinkInput = z.infer<typeof CreateLinkSchema>

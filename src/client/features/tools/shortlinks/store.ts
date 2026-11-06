@@ -5,10 +5,12 @@
 import { create } from 'zustand'
 import { BREAKDOWN_PAGE_SIZE } from '@shared/tools/shortlinks/types'
 import type {
+  AnalyticsBounds,
   BreakdownPage,
   BundleStats,
   ClickStats,
   DashboardStats,
+  HeatmapData,
   ShortLink,
   ShortLinkBundle,
   ShortlinkApiKey,
@@ -61,10 +63,13 @@ export interface ShortlinksStoreState {
   activeLink: ShortLink | null
   activeLinkStats: ClickStats | null
   activeLinkTimeline: TimelineData | null
+  activeLinkHeatmap: HeatmapData | null
   activeTimelineRange: TimelineRange
+  customRange: AnalyticsBounds | null
   loadingDetail: boolean
   selectLink: (id: number | null) => Promise<void>
   setTimelineRange: (range: TimelineRange) => Promise<void>
+  setCustomRange: (bounds: AnalyticsBounds | null) => Promise<void>
   refreshActiveLink: () => Promise<void>
 
   // Bundles
@@ -192,26 +197,48 @@ export const useShortlinksStore = create<ShortlinksStoreState>((set, get) => ({
   activeLink: null,
   activeLinkStats: null,
   activeLinkTimeline: null,
+  activeLinkHeatmap: null,
   activeTimelineRange: '30d',
+  customRange: null,
   loadingDetail: false,
 
   selectLink: async (id: number | null) => {
-    set({ activeLinkId: id, activeLink: null, activeLinkStats: null, activeLinkTimeline: null })
+    set({ activeLinkId: id, activeLink: null, activeLinkStats: null, activeLinkTimeline: null, activeLinkHeatmap: null })
     if (id === null) return
     await get().refreshActiveLink()
   },
 
   setTimelineRange: async (range: TimelineRange) => {
-    set({ activeTimelineRange: range })
+    set({ activeTimelineRange: range, customRange: null })
     const { activeLinkId } = get()
     if (!activeLinkId) return
     set({ loadingDetail: true })
     try {
-      const [stats, timeline] = await Promise.all([
+      const [stats, timeline, heatmap] = await Promise.all([
         shortlinksApi.getLinkStats(activeLinkId, range),
         shortlinksApi.getLinkTimeline(activeLinkId, range),
+        shortlinksApi.getLinkHeatmap(activeLinkId, range),
       ])
-      set({ activeLinkStats: stats, activeLinkTimeline: timeline })
+      set({ activeLinkStats: stats, activeLinkTimeline: timeline, activeLinkHeatmap: heatmap })
+    } catch (e) {
+      useUiStore.getState().toast((e as Error).message, 'error')
+    } finally {
+      set({ loadingDetail: false })
+    }
+  },
+
+  setCustomRange: async (bounds: AnalyticsBounds | null) => {
+    set({ customRange: bounds })
+    const { activeLinkId } = get()
+    if (!activeLinkId || !bounds) return
+    set({ loadingDetail: true })
+    try {
+      const [stats, timeline, heatmap] = await Promise.all([
+        shortlinksApi.getLinkStats(activeLinkId, 'all', bounds),
+        shortlinksApi.getLinkTimeline(activeLinkId, 'all', bounds),
+        shortlinksApi.getLinkHeatmap(activeLinkId, 'all'),
+      ])
+      set({ activeLinkStats: stats, activeLinkTimeline: timeline, activeLinkHeatmap: heatmap })
     } catch (e) {
       useUiStore.getState().toast((e as Error).message, 'error')
     } finally {
@@ -220,16 +247,17 @@ export const useShortlinksStore = create<ShortlinksStoreState>((set, get) => ({
   },
 
   refreshActiveLink: async () => {
-    const { activeLinkId, activeTimelineRange } = get()
+    const { activeLinkId, activeTimelineRange, customRange } = get()
     if (!activeLinkId) return
     set({ loadingDetail: true })
     try {
-      const [link, stats, timeline] = await Promise.all([
+      const [link, stats, timeline, heatmap] = await Promise.all([
         shortlinksApi.getLink(activeLinkId),
-        shortlinksApi.getLinkStats(activeLinkId, activeTimelineRange),
-        shortlinksApi.getLinkTimeline(activeLinkId, activeTimelineRange),
+        shortlinksApi.getLinkStats(activeLinkId, customRange ? 'all' : activeTimelineRange, customRange ?? undefined),
+        shortlinksApi.getLinkTimeline(activeLinkId, customRange ? 'all' : activeTimelineRange, customRange ?? undefined),
+        shortlinksApi.getLinkHeatmap(activeLinkId, activeTimelineRange),
       ])
-      set({ activeLink: link, activeLinkStats: stats, activeLinkTimeline: timeline })
+      set({ activeLink: link, activeLinkStats: stats, activeLinkTimeline: timeline, activeLinkHeatmap: heatmap })
     } catch (e) {
       useUiStore.getState().toast((e as Error).message, 'error')
     } finally {

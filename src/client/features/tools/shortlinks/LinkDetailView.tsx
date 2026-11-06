@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ArrowLeft,
   Copy,
@@ -16,7 +16,7 @@ import {
 import type { ChartConfiguration } from 'chart.js'
 import { ChartCanvas, withAlpha, type ChartColors } from '../../../components/chart-canvas'
 import { LoadingBlock } from '../../../components/feedback'
-import { Segmented } from '../../../components/form'
+import { Segmented, Input } from '../../../components/form'
 import { Button, IconButton } from '../../../components/primitives'
 import { confirm } from '../../../components/overlay'
 import { t, type MessageKey } from '../../../lib/i18n'
@@ -35,6 +35,16 @@ const RANGES: { id: TimelineRange; labelKey: MessageKey }[] = [
   { id: 'all', labelKey: 'tools.shortlinks.detail.range_all' },
 ]
 
+const WEEKDAY_KEYS: readonly MessageKey[] = [
+  'tools.shortlinks.detail.heatmap_weekday_0',
+  'tools.shortlinks.detail.heatmap_weekday_1',
+  'tools.shortlinks.detail.heatmap_weekday_2',
+  'tools.shortlinks.detail.heatmap_weekday_3',
+  'tools.shortlinks.detail.heatmap_weekday_4',
+  'tools.shortlinks.detail.heatmap_weekday_5',
+  'tools.shortlinks.detail.heatmap_weekday_6',
+]
+
 function share(count: number, total: number): number {
   return total > 0 ? Math.min(100, Math.round((count / total) * 100)) : 0
 }
@@ -43,16 +53,29 @@ export function LinkDetailView() {
   const link = useShortlinksStore((s) => s.activeLink)
   const stats = useShortlinksStore((s) => s.activeLinkStats)
   const timeline = useShortlinksStore((s) => s.activeLinkTimeline)
+  const heatmap = useShortlinksStore((s) => s.activeLinkHeatmap)
   const range = useShortlinksStore((s) => s.activeTimelineRange)
   const loading = useShortlinksStore((s) => s.loadingDetail)
   const selectLink = useShortlinksStore((s) => s.selectLink)
   const setTimelineRange = useShortlinksStore((s) => s.setTimelineRange)
+  const setCustomRange = useShortlinksStore((s) => s.setCustomRange)
   const refreshActiveLink = useShortlinksStore((s) => s.refreshActiveLink)
   const fetchLinks = useShortlinksStore((s) => s.fetchLinks)
   const openEditModal = useShortlinksStore((s) => s.openEditModal)
   const openQrModal = useShortlinksStore((s) => s.openQrModal)
   const openAddSlugModal = useShortlinksStore((s) => s.openAddSlugModal)
   const openBreakdown = useShortlinksStore((s) => s.openBreakdown)
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+
+  const applyCustomRange = () => {
+    if (!customFrom || !customTo) return
+    // A date input names a local calendar day; the inclusive end becomes the following midnight.
+    const start = new Date(`${customFrom}T00:00:00`).getTime() / 1000
+    const end = new Date(`${customTo}T00:00:00`).getTime() / 1000 + 86400
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return
+    void setCustomRange({ from: Math.floor(start), to: Math.floor(end) })
+  }
 
   // Chart configuration builder (placed before conditional return to uphold Rules of Hooks)
   const chartBuilder = useMemo(() => {
@@ -310,14 +333,38 @@ export function LinkDetailView() {
           <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {t('tools.shortlinks.detail.title')}
           </span>
-          <Segmented
-            size="sm"
-            value={range}
-            className="w-full sm:w-auto"
-            label={t('tools.shortlinks.detail.title')}
-            onChange={(next) => setTimelineRange(next)}
-            options={RANGES.map((r) => ({ value: r.id, label: t(r.labelKey) }))}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented
+              size="sm"
+              value={range}
+              className="w-full sm:w-auto"
+              label={t('tools.shortlinks.detail.title')}
+              onChange={(next) => setTimelineRange(next)}
+              options={RANGES.map((r) => ({ value: r.id, label: t(r.labelKey) }))}
+            />
+            <Input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              aria-label={t('tools.shortlinks.detail.custom_from')}
+              className="h-8 w-36"
+            />
+            <Input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              aria-label={t('tools.shortlinks.detail.custom_to')}
+              className="h-8 w-36"
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={applyCustomRange}
+              disabled={!customFrom || !customTo}
+            >
+              {t('tools.shortlinks.detail.custom_apply')}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -390,6 +437,56 @@ export function LinkDetailView() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Week × Hour Heatmap */}
+      <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-5">
+        <h3 className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] mb-4">
+          {t('tools.shortlinks.detail.heatmap_title')}
+        </h3>
+        {!heatmap || heatmap.cells.every((cell) => cell.count === 0) ? (
+          <div className="py-8 text-center text-[var(--text-tertiary)] text-[length:var(--text-12)]">
+            {loading ? t('common.loading') : t('tools.shortlinks.dashboard.no_data')}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <div className="grid grid-cols-[auto_repeat(24,minmax(10px,1fr))] gap-1 min-w-[520px]">
+              <span />
+              {Array.from({ length: 24 }, (_, hour) => (
+                <span key={`h-${hour}`} className="text-center font-mono text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                  {hour}
+                </span>
+              ))}
+              {[1, 2, 3, 4, 5, 6, 0].map((weekday) => (
+                <div key={`w-${weekday}`} className="contents">
+                  <span className="pr-2 text-[length:var(--text-10)] text-[var(--text-secondary)]">
+                    {t(WEEKDAY_KEYS[weekday])}
+                  </span>
+                  {heatmap.cells
+                    .filter((cell) => cell.weekday === weekday)
+                    .sort((a, b) => a.hour - b.hour)
+                    .map((cell) => (
+                      <span
+                        key={`${weekday}-${cell.hour}`}
+                        title={t('tools.shortlinks.detail.heatmap_cell', {
+                          weekday: t(WEEKDAY_KEYS[weekday]),
+                          hour: cell.hour,
+                          count: cell.count,
+                        })}
+                        className="block h-3.5 rounded-[2px]"
+                        style={{
+                          backgroundColor:
+                            cell.count > 0
+                              ? `color-mix(in srgb, var(--accent) ${Math.max(12, Math.round((cell.count / heatmap.max) * 100))}%, transparent)`
+                              : 'var(--bg-inset)',
+                        }}
+                      />
+                    ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Slugs Management Table */}

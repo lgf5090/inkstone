@@ -138,4 +138,72 @@ describe('Shortlinks analytics store and retention', () => {
     expect((sqlite.prepare('SELECT COUNT(*) AS cnt FROM tools_shortlinks_rate_limits').get() as { cnt: number }).cnt).toBe(1)
     expect((sqlite.prepare('SELECT COUNT(*) AS cnt FROM tools_shortlinks_password_attempts').get() as { cnt: number }).cnt).toBe(0)
   })
+
+  it('maintains daily rollups on writes and rebuilds them idempotently', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const linkId = seedLink(0)
+    sqlite
+      .prepare(
+        `INSERT INTO tools_shortlinks_clicks (user_id, link_id, slug, clicked_at, country, device_type, browser, visitor_fp, is_bot, is_self_referrer)
+         VALUES (?, ?, 'analytics-link', ?, 'CN', 'desktop', 'Chrome', 'v1', 0, 0)`,
+      )
+      .run(USER, linkId, now)
+    sqlite
+      .prepare(
+        `INSERT INTO tools_shortlinks_clicks (user_id, link_id, slug, clicked_at, country, device_type, browser, visitor_fp, is_bot, is_self_referrer)
+         VALUES (?, ?, 'analytics-link', ?, 'US', 'mobile', 'Safari', 'v2', 0, 0)`,
+      )
+      .run(USER, linkId, now)
+
+    const first = await store.backfillStatsRollups()
+    const second = await store.backfillStatsRollups()
+    expect(first).toEqual(second)
+    expect(first.clicks).toBe(2)
+    expect(first.days).toBe(1)
+    expect(first.breakdown_rows).toBeGreaterThan(0)
+
+    const heatmap = await store.getHeatmap(linkId, undefined, 'all', 'UTC')
+    expect(heatmap.cells.reduce((sum, cell) => sum + cell.count, 0)).toBe(2)
+    expect(heatmap.max).toBe(2)
+    expect(second.clicks).toBe(2)
+  })
+
+  it('writes a daily row and last_clicked_at through recordClick', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const linkId = seedLink(0)
+    await store.recordClick('analytics-link', linkId, USER, {
+      visitorFp: 'writer-visitor',
+      country: 'CN',
+      deviceType: 'desktop',
+      browser: 'Chrome',
+    })
+    const daily = sqlite
+      .prepare('SELECT SUM(clicks) AS clicks FROM tools_shortlinks_clicks_daily WHERE link_id = ?')
+      .get(linkId) as { clicks: number }
+    expect(daily.clicks).toBe(1)
+    const link = sqlite.prepare('SELECT last_clicked_at FROM tools_shortlinks_links WHERE id = ?').get(linkId) as {
+      last_clicked_at: number
+    }
+    expect(link.last_clicked_at).toBeGreaterThanOrEqual(now)
+  })
+
+  it('honours an explicit from/to window for stats and timeline', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const linkId = seedLink(2)
+    seedClick(linkId, now - 10 * 86400, 'old')
+    seedClick(linkId, now - 2 * 86400, 'recent')
+
+    const stats = await store.getLinkAnalytics(linkId, 'all', {
+      from: now - 5 * 86400,
+      to: now,
+    })
+    expect(stats.total_clicks).toBe(1)
+    expect(stats.unique_visitors).toBe(1)
+
+    const timeline = await store.getTimeline(linkId, undefined, 'all', 'UTC', {
+      from: now - 5 * 86400,
+      to: now,
+    })
+    expect(timeline.buckets.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(1)
+  })
 })

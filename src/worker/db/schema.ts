@@ -3867,6 +3867,56 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ) = 1`,
     ],
   },
+  {
+    // Shortlinks analytics rollup: one row per link per UTC day. Kept beside the raw click ledger,
+    // which stays the precise source for drills and custom ranges.
+    version: 289,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS tools_shortlinks_clicks_daily (
+         user_id TEXT NOT NULL,
+         link_id INTEGER NOT NULL,
+         day TEXT NOT NULL,
+         clicks INTEGER NOT NULL DEFAULT 0,
+         last_updated INTEGER NOT NULL,
+         PRIMARY KEY (user_id, link_id, day)
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_daily_user
+         ON tools_shortlinks_clicks_daily(user_id, day)`,
+    ],
+  },
+  {
+    version: 290,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS tools_shortlinks_breakdown_daily (
+         user_id TEXT NOT NULL,
+         link_id INTEGER NOT NULL,
+         day TEXT NOT NULL,
+         dimension TEXT NOT NULL,
+         name TEXT NOT NULL,
+         count INTEGER NOT NULL DEFAULT 0,
+         last_updated INTEGER NOT NULL,
+         PRIMARY KEY (user_id, link_id, day, dimension, name)
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_breakdown_daily_user
+         ON tools_shortlinks_breakdown_daily(user_id, dimension, day)`,
+    ],
+  },
+  {
+    version: 291,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'last_clicked_at' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN last_clicked_at INTEGER`,
+      `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_last_click
+         ON tools_shortlinks_links(user_id, last_clicked_at DESC)`,
+    ],
+  },
+  {
+    version: 292,
+    skipIfColumnExists: { table: 'tools_shortlinks_settings', column: 'stats_rollup_enabled' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_settings ADD COLUMN stats_rollup_enabled INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
