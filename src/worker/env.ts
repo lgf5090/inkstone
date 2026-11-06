@@ -53,6 +53,8 @@ export interface Env {
 
   CREDENTIAL_VAULT?: DurableObjectNamespace
 
+  WEBSSH_SESSION?: DurableObjectNamespace
+
   /** Optional default password for navigation categories that choose "use default". Set as a secret. */
   NAV_DEFAULT_CATEGORY_PASSWORD?: string
 

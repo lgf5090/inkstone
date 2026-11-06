@@ -19,6 +19,7 @@ Inkstone is offered as a network service, so §13 of the license applies: every 
 | Image bed storage/upload behaviour (multi-channel storage, naming and tag rules) | [MarSeventh/CloudFlare-ImgBed](https://github.com/MarSeventh/CloudFlare-ImgBed) | 2.7.8 (036d2b5) | MIT | behaviour port; see `docs/improvement/imgbed/port-plan-1.md` |
 | Xget acceleration proxy engine (routing, protocols, cache policy, response finalization) | [xixu-me/Xget](https://github.com/xixu-me/Xget) (ported via the mpages adaptation) | 2026-10 snapshot | AGPL-3.0-only | listed per file in its header |
 | Prompt Optimizer tool (templates, evaluation/iterate templates, workspace flows) | [linshenkx/prompt-optimizer](https://github.com/linshenkx/prompt-optimizer) | 2025 snapshot | AGPL-3.0-only | `src/shared/tools/prompt-optimizer/`, `src/worker/tools/prompt-optimizer/`, `src/client/features/tools/prompt-optimizer/` |
+| WebSSH SSH transport, key exchange, authentication, channel and SFTP protocol | [EdgeSSH](https://github.com/EdgeSSH/EdgeSSH) (derived from [cmliu/CF-Workers-WebSSH](https://github.com/cmliu/CF-Workers-WebSSH)) | 2026-11 snapshot | Apache-2.0 | `src/worker/webssh/ssh/`, `src/worker/webssh/sftp/`; each ported file carries its origin in the header |
 
 Every file that carries copied or adapted text from the upstream project states its origin in a comment of this form, at the file header or at the ported section:
 

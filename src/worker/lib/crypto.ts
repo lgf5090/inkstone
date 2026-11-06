@@ -53,6 +53,44 @@ export async function decryptCloudDriveCredentials(
   return isCloudDriveCredentialRecord(value) ? value : null
 }
 
+export interface WebsshSecretRecord {
+  password?: string
+  privateKey?: string
+  passphrase?: string
+}
+
+const WEBSSH_SECRET_FIELDS = new Set(['password', 'privateKey', 'passphrase'])
+const WEBSSH_SECRET_FIELD_LIMIT = 16 * 1024
+
+function isWebsshSecretRecord(value: unknown): value is WebsshSecretRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const entries = Object.entries(value)
+  if (!entries.length || entries.length > WEBSSH_SECRET_FIELDS.size) return false
+  return entries.every(([key, field]) => WEBSSH_SECRET_FIELDS.has(key)
+    && typeof field === 'string'
+    && field.length > 0
+    && field.length <= WEBSSH_SECRET_FIELD_LIMIT)
+}
+
+export async function encryptWebsshSecret(
+  env: Env,
+  credentialId: string,
+  value: WebsshSecretRecord,
+): Promise<string> {
+  if (!isValidId(credentialId) || !isWebsshSecretRecord(value)) throw new Error('invalid_webssh_credential')
+  return encryptCredential(env, `webssh:${credentialId}`, value)
+}
+
+export async function decryptWebsshSecret(
+  env: Env,
+  credentialId: string,
+  stored: string,
+): Promise<WebsshSecretRecord | null> {
+  if (!isValidId(credentialId) || !stored || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `webssh:${credentialId}`, stored)
+  return isWebsshSecretRecord(value) ? value : null
+}
+
 export const YOUTUBE_SETTINGS_SECRET_SCOPE = '00000000000000000000000002'
 
 /** The instance's YouTube API key: sealed, never returned, and separate from the Worker secret. */
