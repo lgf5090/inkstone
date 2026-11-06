@@ -22,6 +22,8 @@ import { MAX_DEPS_PER_TASK } from '../assistant/store'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
+import { PromptOptimizerStore } from '../tools/prompt-optimizer/store'
+import { iteratePrompt, optimizePrompt } from '../tools/prompt-optimizer/ai'
 import {
   fetchMcpNote,
   getMcpNoteContext,
@@ -1554,7 +1556,91 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
   )
 
   registerDatabaseTools(server, options)
+  registerPromptOptimizerTools(server, options)
   return mcp
+}
+
+/**
+ * The prompt optimizer's three tools, the same three names the reference MCP server publishes.
+ */
+function registerPromptOptimizerTools(server: McpServer, options: InkstoneMcpServerOptions): void {
+  const optimize = async (workspace: 'basic_user' | 'basic_system', prompt: string, template?: string) => {
+    const store = new PromptOptimizerStore(options.env.DB, options.auth.userId)
+    const settings = await store.getSettings()
+    const result = await optimizePrompt({
+      env: options.env,
+      userId: options.auth.userId,
+      store,
+      settings,
+      request: { workspace, prompt, ...(template ? { templateId: template } : {}) } as never,
+      variables: {},
+      loadAsset: async () => null,
+    })
+    return structured({ prompt: result.text, model: result.modelLabel })
+  }
+
+  server.registerTool(
+    'optimize-user-prompt',
+    {
+      title: 'Optimize a user prompt',
+      description: 'Improve a user prompt: make the request clearer and more specific, add missing context, and keep the writer intent.',
+      inputSchema: z.object({
+        prompt: z.string().min(1).max(64000),
+        template: z.string().min(1).max(200).optional().describe('Optional template id; the account default applies when omitted'),
+      }),
+      outputSchema: z.object({ prompt: z.string(), model: z.string() }),
+      annotations: writeAnnotations(false),
+    },
+    async (input, ctx) => writeTool(ctx, options, MCP_SCOPES.write, () => optimize('basic_user', input.prompt, input.template)),
+  )
+
+  server.registerTool(
+    'optimize-system-prompt',
+    {
+      title: 'Optimize a system prompt',
+      description: 'Improve a system prompt: strengthen the role definition, behaviour rules, constraints and instruction hierarchy.',
+      inputSchema: z.object({
+        prompt: z.string().min(1).max(64000),
+        template: z.string().min(1).max(200).optional().describe('Optional template id; the account default applies when omitted'),
+      }),
+      outputSchema: z.object({ prompt: z.string(), model: z.string() }),
+      annotations: writeAnnotations(false),
+    },
+    async (input, ctx) => writeTool(ctx, options, MCP_SCOPES.write, () => optimize('basic_system', input.prompt, input.template)),
+  )
+
+  server.registerTool(
+    'iterate-prompt',
+    {
+      title: 'Iterate a prompt',
+      description: 'Continue an existing optimized prompt with one concrete change request, keeping the previous result as the starting point.',
+      inputSchema: z.object({
+        last_optimized_prompt: z.string().min(1).max(64000),
+        iterate_input: z.string().min(1).max(20000).describe('What should improve next'),
+        template: z.string().min(1).max(200).optional(),
+      }),
+      outputSchema: z.object({ prompt: z.string(), model: z.string() }),
+      annotations: writeAnnotations(false),
+    },
+    async (input, ctx) => writeTool(ctx, options, MCP_SCOPES.write, async () => {
+        const store = new PromptOptimizerStore(options.env.DB, options.auth.userId)
+        const settings = await store.getSettings()
+        const result = await iteratePrompt({
+          env: options.env,
+          userId: options.auth.userId,
+          store,
+          settings,
+          request: {
+            chainId: 'mcp',
+            lastOptimizedPrompt: input.last_optimized_prompt,
+            iterateInput: input.iterate_input,
+            workspace: 'basic_user',
+            ...(input.template ? { templateId: input.template } : {}),
+          },
+        })
+      return structured({ prompt: result.text, model: result.modelLabel })
+    }),
+  )
 }
 
 function registerDatabaseTools(server: McpServer, options: InkstoneMcpServerOptions): void {
