@@ -50017,6 +50017,8 @@ const allowed = new Map([
     "// per-user session ceiling.",
     "// Audit writes are deliberately fire-and-forget on the request path; give them a moment before",
     "// the in-memory database closes so a late write is not reported as a failure.",
+    "// Audit writes are fire-and-forget on the request path; poll briefly instead of assuming the",
+    "// write lands within one scheduling tick under a loaded full-suite run.",
   ]],
   ["tests/webssh-ssh-auth.test.ts", [
     "// W1 authentication: OpenSSH key parsing, request construction, signature self-verification and",

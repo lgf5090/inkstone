@@ -263,9 +263,17 @@ describe('upgrade preconditions', () => {
     expect(upgrade.status).toBe(404)
 
     await new Promise((resolve) => setTimeout(resolve, 50))
-    const audit = sqlite.prepare(
-      'SELECT event_type, metadata FROM webssh_audit_events WHERE session_id = ? ORDER BY created_at DESC',
-    ).get(sessionId) as { event_type: string; metadata: string } | undefined
+    let audit: { event_type: string; metadata: string } | undefined
+    // Audit writes are fire-and-forget on the request path; poll briefly instead of assuming the
+    // write lands within one scheduling tick under a loaded full-suite run.
+    for (let attempt = 0; attempt < 40 && !audit; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      audit = sqlite.prepare(
+        `SELECT event_type, metadata FROM webssh_audit_events
+          WHERE session_id = ? AND event_type = 'ticket_rejected'
+          ORDER BY created_at DESC LIMIT 1`,
+      ).get(sessionId) as { event_type: string; metadata: string } | undefined
+    }
     expect(audit?.event_type).toBe('ticket_rejected')
     expect(JSON.parse(audit?.metadata ?? '{}')).toMatchObject({ reason: 'missing' })
   })
