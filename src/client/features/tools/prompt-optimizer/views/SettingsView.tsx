@@ -227,7 +227,14 @@ export function SettingsView() {
                   <RotateCcw size={12} />
                   {t('tools.prompt_optimizer.settings.restore')}
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => void deleteBackup(backup.id)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void confirm({
+                    title: t('tools.prompt_optimizer.settings.delete_backup_confirm').replace('{filename}', backup.filename),
+                    tone: 'danger',
+                  }).then((ok) => { if (ok) void deleteBackup(backup.id) })}
+                >
                   <Trash2 size={12} />
                   {t('tools.prompt_optimizer.settings.delete_backup')}
                 </Button>

@@ -21,13 +21,18 @@ const TYPES: TemplateType[] = [
   'text2imageOptimize',
   'image2imageOptimize',
   'multiimageOptimize',
+  'imageIterate',
   'iterate',
   'conversationMessageOptimize',
   'contextUserOptimize',
   'contextIterate',
   'evaluation',
+  'evaluation-rewrite',
+  'evaluation-structured-compare',
   'variable-extraction',
   'variable-value-generation',
+  'image-prompt-composition',
+  'image-prompt-migration',
 ]
 
 export function TemplatesView() {
@@ -89,7 +94,14 @@ export function TemplatesView() {
             { value: 'zh', label: t('tools.prompt_optimizer.templates.language_zh') },
             { value: 'en', label: t('tools.prompt_optimizer.templates.language_en') },
           ]}
-          onChange={(value) => { void saveSettings({ builtinTemplateLanguage: value }); void refreshTemplates() }}
+          onChange={(value) => {
+            void (async () => {
+              // The catalogue is rendered in the language the setting names, so the setting must land
+              // before the templates are re-read; firing both at once raced the old list back in.
+              await saveSettings({ builtinTemplateLanguage: value })
+              await refreshTemplates()
+            })()
+          }}
           width={160}
           size="sm"
         />

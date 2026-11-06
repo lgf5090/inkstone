@@ -152,6 +152,22 @@ export const SettingsPatchSchema = z.object({
 
 const ImportRowsSchema = z.array(z.record(z.string(), z.unknown())).max(20_000)
 
+const IMPORT_ROW_ARRAYS = [
+  'records',
+  'templates',
+  'categories',
+  'favorites',
+  'favoriteTags',
+  'favoriteVersions',
+  'variables',
+  'contexts',
+  'sessions',
+  'evaluations',
+] as const
+
+/** One document cannot exceed this many rows across every collection it carries. */
+export const IMPORT_TOTAL_ROWS_MAX = 20_000
+
 export const ImportDocumentSchema = z.object({
   format: z.string().max(120).optional(),
   version: z.number().optional(),
@@ -167,7 +183,18 @@ export const ImportDocumentSchema = z.object({
   contexts: ImportRowsSchema.optional(),
   sessions: ImportRowsSchema.optional(),
   evaluations: ImportRowsSchema.optional(),
-}).passthrough()
+}).passthrough().superRefine((document, context) => {
+  // Each array is capped on its own, but eleven of them could sum to a batch no D1 request can take.
+  // The budget is checked on the whole document so an import fails before any statement is built.
+  const total = IMPORT_ROW_ARRAYS.reduce((sum, key) => sum + (Array.isArray(document[key]) ? document[key].length : 0), 0)
+  if (total > IMPORT_TOTAL_ROWS_MAX) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['records'],
+      message: `The document carries ${total} rows; one import can carry at most ${IMPORT_TOTAL_ROWS_MAX}`,
+    })
+  }
+})
 
 const TemplateContentSchema = z.union([
   z.string().min(1).max(PROMPT_OPTIMIZER_LIMITS.promptMaxChars),
@@ -197,7 +224,6 @@ export const PromptTemplateSchema = z.object({
       'conversationMessageOptimize',
       'contextUserOptimize',
       'contextIterate',
-      'contextSystemOptimize',
       'evaluation',
       'evaluation-rewrite',
       'evaluation-structured-compare',

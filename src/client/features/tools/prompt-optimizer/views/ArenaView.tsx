@@ -199,7 +199,9 @@ export function ArenaView() {
           </div>
         ))}
         <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-          {t('tools.prompt_optimizer.arena.image_disabled')}
+          {models.image.length
+            ? t('tools.prompt_optimizer.arena.image_unimplemented')
+            : t('tools.prompt_optimizer.arena.image_disabled')}
         </p>
       </div>
 

@@ -12,7 +12,7 @@ import { usePromptOptimizerStore } from '../store'
 import { validateVariableName } from '@shared/tools/prompt-optimizer/variables'
 import { PREDEFINED_VARIABLES } from '@shared/tools/prompt-optimizer/types'
 import type { VariableEntry } from '@shared/tools/prompt-optimizer/types'
-import { parseCSVRows } from '../../password/utils/csv-parser'
+import { parseCSVRows } from '@shared/tools/password/csv-parser'
 
 export function VariablesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const variables = usePromptOptimizerStore((s) => s.variables)

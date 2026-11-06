@@ -397,6 +397,7 @@ toolsPromptOptimizerRoutes.post('/optimize', async (c) => {
   const store = getStore(c)
   const config = await settings(c)
   const variables = await resolveVariables(store, request.variables)
+  const started = Date.now()
   try {
     const result = await optimizePrompt({
       env: c.env,
@@ -413,12 +414,13 @@ toolsPromptOptimizerRoutes.post('/optimize', async (c) => {
       workspace: request.workspace as Workspace,
       originalPrompt: request.prompt,
       optimizedPrompt: result.text,
+      reasoning: result.reasoning,
       modelId: result.modelId,
       modelLabel: result.modelLabel,
       templateId: result.templateId,
       metadata: { variables: Object.keys(variables), messageId: request.selectedMessageId ?? '', usage: result.usage },
     })
-    return c.json({ data: { ...result, record }, timing: { durationMs: 0, ...result.usage } })
+    return c.json({ data: { ...result, record }, timing: { durationMs: Date.now() - started, ...result.usage } })
   } catch (error) {
     mapAiError(error)
   }
@@ -460,6 +462,7 @@ toolsPromptOptimizerRoutes.post('/optimize/stream', async (c) => {
       void (async () => {
         try {
           let text = ''
+          let reasoning = ''
           let usage = { inputTokens: 0, outputTokens: 0 }
           for await (const event of streamResolvedCall(prepared.call, {
             system: prepared.system,
@@ -471,6 +474,7 @@ toolsPromptOptimizerRoutes.post('/optimize/stream', async (c) => {
               text += event.delta
               send({ type: 'text', delta: event.delta })
             } else if (event.type === 'reasoning') {
+              reasoning += event.delta
               send({ type: 'reasoning', delta: event.delta })
             } else if (event.type === 'done') {
               usage = event.usage
@@ -480,6 +484,7 @@ toolsPromptOptimizerRoutes.post('/optimize/stream', async (c) => {
                 workspace: request.workspace as Workspace,
                 originalPrompt: request.prompt,
                 optimizedPrompt: event.text,
+                reasoning: reasoning.trim(),
                 modelId: prepared.modelId,
                 modelLabel: prepared.call.modelLabel,
                 templateId: prepared.templateId,
@@ -559,6 +564,7 @@ toolsPromptOptimizerRoutes.post('/iterate', async (c) => {
       workspace: request.workspace as Workspace,
       originalPrompt: request.lastOptimizedPrompt,
       optimizedPrompt: result.text,
+      reasoning: result.reasoning,
       modelId: result.modelId,
       modelLabel: result.modelLabel,
       templateId: result.templateId,
@@ -765,7 +771,10 @@ toolsPromptOptimizerRoutes.post('/import', async (c) => {
   const payload = (raw as { document?: unknown }).document ?? raw
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw ApiError.badRequest('Import must be a JSON object')
   const parsed = ImportDocumentSchema.safeParse(payload)
-  if (!parsed.success) throw ApiError.badRequest(`Import document failed validation: ${parsed.error.issues[0]?.path.join('.') || 'shape'}`)
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    throw ApiError.badRequest(`Import document failed validation: ${issue ? `${issue.path.join('.') || 'shape'} — ${issue.message}` : 'shape'}`)
+  }
   return c.json({ data: await getStore(c).importAll(parsed.data as Record<string, unknown>) })
 })
 
