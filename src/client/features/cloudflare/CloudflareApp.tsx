@@ -11,7 +11,7 @@
 import { useEffect, useState, type ComponentType, type ReactElement } from 'react'
 import './cloudflare.css'
 import {
-  Boxes, Cloud, Database, Globe, LayoutDashboard, MonitorSmartphone, Settings, Sparkles, Store, Users, Waypoints,
+  Boxes, Cloud, Database, Globe, LayoutDashboard, MonitorSmartphone, Network, Settings, Sparkles, Store, Users, Waypoints,
 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { navigateToAddress, usePathname, useSearch } from '../../lib/app-history'
@@ -34,6 +34,7 @@ import {
 import { DashboardScreen } from './screens/DashboardScreen'
 import { AccountsScreen } from './screens/AccountsScreen'
 import { DnsScreen } from './screens/DnsScreen'
+import { NetworkScreen } from './screens/NetworkScreen'
 import { WorkersScreen } from './screens/WorkersScreen'
 import { StorageScreen } from './screens/StorageScreen'
 import { TunnelsScreen } from './screens/TunnelsScreen'
@@ -52,6 +53,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { screen: 'dashboard', labelKey: 'cloudflare.dashboard.title', icon: LayoutDashboard },
   { screen: 'accounts', labelKey: 'cloudflare.accounts.title', icon: Users },
   { screen: 'dns', labelKey: 'cloudflare.dns.title', icon: Globe },
+  { screen: 'network', labelKey: 'cloudflare.network.title', icon: Network },
   { screen: 'workers', labelKey: 'cloudflare.workers.title', icon: Boxes },
   { screen: 'storage', labelKey: 'cloudflare.storage.title', icon: Database },
   { screen: 'tunnels', labelKey: 'cloudflare.tunnels.tunnel_management', icon: Waypoints },
@@ -93,6 +95,7 @@ function Screen({ screen, aiTab }: { screen: CloudflareScreen; aiTab: Cloudflare
   switch (screen) {
     case 'accounts': return <AccountsScreen />
     case 'dns': return <DnsScreen />
+    case 'network': return <NetworkScreen />
     case 'workers': return <WorkersScreen />
     case 'storage': return <StorageScreen />
     case 'tunnels': return <TunnelsScreen />
