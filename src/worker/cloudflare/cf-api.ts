@@ -202,9 +202,14 @@ export function upstreamApiError(error: unknown): ApiError {
       error.status === 429 ? 429 : 502,
       'cloudflare_upstream',
       error.message,
-      // The platform's own code travels beside the message so a reader (or the audit trail) can name
-      // the failure without parsing an English sentence that Cloudflare is free to reword.
-      error.cfCode === undefined ? undefined : { cf_code: error.cfCode },
+      // The platform's own code and status travel beside the message so a reader (or the audit trail)
+      // can name the failure without parsing an English sentence that Cloudflare is free to reword.
+      // `upstream_status` is what lets a credential check tell "Cloudflare refused this key" from
+      // "Cloudflare never answered": the route sees both as a 502 otherwise.
+      {
+        ...(error.cfCode === undefined ? {} : { cf_code: error.cfCode }),
+        upstream_status: error.status,
+      },
     )
   }
   return new ApiError(

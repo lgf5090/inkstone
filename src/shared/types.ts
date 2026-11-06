@@ -1563,6 +1563,7 @@ export type ApiErrorCode =
   | 'music_ai_upstream'
   | 'cloudflare_upstream'
   | 'cloudflare_not_configured'
+  | 'cloudflare_credential_refused'
   | 'cloudflare_quota_exceeded'
   | 'apitester_invalid_name'
   | 'apitester_workspace_limit'

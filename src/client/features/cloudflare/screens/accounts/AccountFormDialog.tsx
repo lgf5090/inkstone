@@ -19,7 +19,7 @@ import { Button } from '../../../../components/primitives'
 import { Checkbox, Field, Input, Segmented } from '../../../../components/form'
 import { Modal } from '../../../../components/overlay'
 import { accountsApi, type AccountInput, type AccountUpdateInput } from '../../api/accounts'
-import { cfErrorText } from '../../api/client'
+import { cfErrorDetail, cfErrorText } from '../../api/client'
 import { cfT } from '../../i18n'
 import { enabledFeatures, featureLabel } from './labels'
 
@@ -71,6 +71,26 @@ export function AccountFormDialog({
       toast({ title: cfT('cloudflare.accounts.msg.name_required'), tone: 'warning' })
       return
     }
+    if (authType === 'token') {
+      if (!token.trim()) {
+        toast({ title: cfT('cloudflare.accounts.msg.token_required'), tone: 'warning' })
+        return
+      }
+    } else {
+      const address = email.trim()
+      if (!address && !account) {
+        toast({ title: cfT('cloudflare.accounts.msg.email_required'), tone: 'warning' })
+        return
+      }
+      if (address && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+        toast({ title: cfT('cloudflare.accounts.msg.email_invalid'), tone: 'warning' })
+        return
+      }
+      if (!apiKey.trim() && !account) {
+        toast({ title: cfT('cloudflare.accounts.msg.api_key_required'), tone: 'warning' })
+        return
+      }
+    }
     setBusy(true)
     setError(null)
     try {
@@ -103,8 +123,10 @@ export function AccountFormDialog({
       onClose()
     } catch (caught) {
       const message = cfErrorText(caught)
-      setError(message)
-      toast({ title: t('common.action_failed'), description: message, tone: 'danger' })
+      const detail = cfErrorDetail(caught)
+      const shown = detail ? `${message} — ${detail}` : message
+      setError(shown)
+      toast({ title: t('common.action_failed'), description: shown, tone: 'danger' })
     } finally {
       setBusy(false)
     }
