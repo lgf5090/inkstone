@@ -22,6 +22,13 @@ import {
 } from './comments'
 import { createTaxonomy, deleteTaxonomy, listTaxonomy, updateTaxonomy } from './taxonomy'
 import { blogMediaSigningReady, resolveBlogMusicLibrary } from './music-library'
+import { likeCounts } from './engagement'
+import {
+  exportNewsletterSubscribers,
+  listNewsletterSubscribers,
+  newsletterCsv,
+  rotateConfirmationToken,
+} from './newsletter'
 import { friendAdminConfig } from './friends'
 import { deleteMedia, listMedia, MEDIA_MAX_BYTES, uploadMedia } from './media'
 import {
@@ -160,9 +167,10 @@ function toAdminItem(
   },
   tags: string[],
   comments: number,
+  likes: number,
 ): BlogPostAdminItem {
   return {
-    ...toBlogSummary(row, tags),
+    ...toBlogSummary(row, tags, likes),
     noteId: row.note_id,
     status: row.status,
     renderStatus: row.render_status,
@@ -178,9 +186,10 @@ function toAdminDetail(
   row: NonNullable<Awaited<ReturnType<typeof findPostById>>>,
   tags: string[],
   comments: number,
+  likes: number,
 ): BlogPostAdminDetail {
   return {
-    ...toAdminItem(row, tags, comments),
+    ...toAdminItem(row, tags, comments, likes),
     noteTitle: row.title,
     noteUpdatedAt: row.updated_at,
     contentHash: row.content_hash,
@@ -231,12 +240,18 @@ blogAdminRoutes.get('/posts', async (c) => {
     seriesId: c.req.query('series') ?? undefined,
     sort: c.req.query('sort') ?? undefined,
   })
-  const [tags, comments] = await Promise.all([
+  const [tags, comments, likes] = await Promise.all([
     listPostTags(c.env.DB, id, rows.map((row) => row.id)),
     commentCounts(c.env.DB, id, rows.map((row) => row.id)),
+    likeCounts(c.env.DB, id, rows.map((row) => row.id)),
   ])
   return c.json({
-    items: rows.map((row) => toAdminItem(row, tags.get(row.id) ?? [], comments.get(row.id) ?? 0)),
+    items: rows.map((row) => toAdminItem(
+      row,
+      tags.get(row.id) ?? [],
+      comments.get(row.id) ?? 0,
+      likes.get(row.id) ?? 0,
+    )),
     page,
     limit,
     total,
@@ -247,11 +262,12 @@ blogAdminRoutes.get('/posts/:id', async (c) => {
   const id = userId(c)
   const row = await findPostById(c.env.DB, id, c.req.param('id'))
   if (!row) throw ApiError.notFound('Post not found')
-  const [tags, comments] = await Promise.all([
+  const [tags, comments, likes] = await Promise.all([
     listPostTags(c.env.DB, id, [row.id]),
     commentCounts(c.env.DB, id, [row.id]),
+    likeCounts(c.env.DB, id, [row.id]),
   ])
-  return c.json(toAdminDetail(row, tags.get(row.id) ?? [], comments.get(row.id) ?? 0))
+  return c.json(toAdminDetail(row, tags.get(row.id) ?? [], comments.get(row.id) ?? 0, likes.get(row.id) ?? 0))
 })
 
 blogAdminRoutes.patch('/posts/:id', async (c) => {
@@ -284,11 +300,12 @@ blogAdminRoutes.patch('/posts/:id', async (c) => {
   try {
     const row = await updateAdminPostMeta(c.env.DB, id, c.req.param('id'), patch)
     await recordBlogAudit(c.env.DB, id, 'post.update', 'post', row.id, { slug: row.slug })
-    const [tags, comments] = await Promise.all([
+    const [tags, comments, likes] = await Promise.all([
       listPostTags(c.env.DB, id, [row.id]),
       commentCounts(c.env.DB, id, [row.id]),
+      likeCounts(c.env.DB, id, [row.id]),
     ])
-    return c.json(toAdminDetail(row, tags.get(row.id) ?? [], comments.get(row.id) ?? 0))
+    return c.json(toAdminDetail(row, tags.get(row.id) ?? [], comments.get(row.id) ?? 0, likes.get(row.id) ?? 0))
   } catch (error) {
     mapContentError(error)
   }
@@ -364,11 +381,12 @@ blogAdminRoutes.get('/posts/by-note/:noteId', async (c) => {
   const id = userId(c)
   const row = await findPostByNoteId(c.env.DB, id, c.req.param('noteId'))
   if (!row) throw ApiError.notFound('Post not found')
-  const [tags, comments] = await Promise.all([
+  const [tags, comments, likes] = await Promise.all([
     listPostTags(c.env.DB, id, [row.id]),
     commentCounts(c.env.DB, id, [row.id]),
+    likeCounts(c.env.DB, id, [row.id]),
   ])
-  return c.json(toAdminDetail(row, tags.get(row.id) ?? [], comments.get(row.id) ?? 0))
+  return c.json(toAdminDetail(row, tags.get(row.id) ?? [], comments.get(row.id) ?? 0, likes.get(row.id) ?? 0))
 })
 
 blogAdminRoutes.post('/posts/:noteId/sync', async (c) => {
@@ -470,6 +488,50 @@ function mapContentError(error: unknown): never {
     default: throw error
   }
 }
+
+function newsletterStatusQuery(value: string | undefined): 'pending' | 'confirmed' | 'unsubscribed' | 'all' {
+  return value === 'pending' || value === 'confirmed' || value === 'unsubscribed' ? value : 'all'
+}
+
+blogAdminRoutes.get('/newsletter/subscribers', async (c) => {
+  const id = userId(c)
+  const { page, limit } = pageQuery(c)
+  return c.json(await listNewsletterSubscribers(c.env.DB, id, {
+    status: newsletterStatusQuery(c.req.query('status')),
+    q: (c.req.query('q') ?? '').slice(0, 200),
+  }, page, limit))
+})
+
+blogAdminRoutes.get('/newsletter/subscribers/export', async (c) => {
+  const id = userId(c)
+  const rows = await exportNewsletterSubscribers(c.env.DB, id, {
+    status: newsletterStatusQuery(c.req.query('status')),
+    q: (c.req.query('q') ?? '').slice(0, 200),
+  })
+  await recordBlogAudit(c.env.DB, id, 'newsletter.export', 'newsletter', 'subscribers', { count: rows.length })
+  return c.body(`\uFEFF${newsletterCsv(rows)}`, 200, {
+    'Content-Type': 'text/csv; charset=utf-8',
+    'Content-Disposition': 'attachment; filename="inkstone-newsletter-subscribers.csv"',
+    'Cache-Control': 'no-store',
+  })
+})
+
+blogAdminRoutes.post('/newsletter/subscribers/:id/confirm-link', async (c) => {
+  const id = userId(c)
+  try {
+    const link = await rotateConfirmationToken(c.env, id, c.req.param('id'))
+    await recordBlogAudit(c.env.DB, id, 'newsletter.confirm_link', 'newsletter', c.req.param('id'), {})
+    return c.json(link)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (message === 'newsletter_missing') throw ApiError.notFound('Subscriber not found')
+    if (message === 'newsletter_not_pending') throw ApiError.conflict('Only a pending subscriber needs a confirmation link')
+    if (message === 'newsletter_origin_missing') {
+      throw new ApiError(503, 'server_misconfigured', 'Set BLOG_PUBLIC_ORIGIN or the blog site URL first')
+    }
+    throw error
+  }
+})
 
 blogAdminRoutes.get('/taxonomy', async (c) => {
   return c.json(await listTaxonomy(c.env.DB, userId(c)))

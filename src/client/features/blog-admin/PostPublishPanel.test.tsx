@@ -26,7 +26,7 @@ function post(): BlogPostAdminDetail {
     id: 'post-1', noteId: 'note-1', slug: 'hello', permalink: '', title: 'Hello', excerpt: '',
     description: '', coverUrl: null, category: null, series: null, seriesOrder: null, tags: [],
     pinned: false, language: '', publishedAt: null, updatedAt: 1, wordCount: 0, readingMinutes: 0,
-    encrypted: false, hideHomeContent: false, status: 'draft', renderStatus: 'ready', renderHash: '',
+    encrypted: false, hideHomeContent: false, likeCount: 0, status: 'draft', renderStatus: 'ready', renderHash: '',
     createdAt: 1, viewCount: 0, commentCount: 0, noteTitle: 'Hello', noteUpdatedAt: 1,
     contentHash: '', renderGeneratedAt: null, rendererVersion: '', coverAssetId: null, categoryId: null,
     seriesId: null, commentsEnabled: true, license: '', alias: '', passwordHint: '',

@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono'
+import { getCookie } from 'hono/cookie'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { readJson, requestClientIp } from '../lib/request'
@@ -33,6 +34,21 @@ import { renderSVG } from 'uqr'
 import { getPublishedPage, listPublishedPages } from './pages'
 import { sanitizeBlogHtml } from './sanitize'
 import { listPublicCollection } from './collections'
+import {
+  BLOG_VISITOR_COOKIE,
+  applyEngagement,
+  likeCounts,
+  listSavedPosts,
+  oneLikeCount,
+  readEngagement,
+  validVisitorId,
+  visitorHash,
+} from './engagement'
+import {
+  confirmNewsletter,
+  subscribeNewsletter,
+  unsubscribeNewsletter,
+} from './newsletter'
 import {
   blogArchive,
   blogCounts,
@@ -78,6 +94,25 @@ function pageQuery(c: Context<AppBindings>): { page: number; limit: number } {
   }
 }
 
+function visitorOf(c: Context<AppBindings>): string | null {
+  return validVisitorId(c.req.header('x-blog-visitor'))
+    ?? validVisitorId(getCookie(c, BLOG_VISITOR_COOKIE))
+}
+
+async function guardNewsletter(c: Context<AppBindings>, action: string, maxAttempts = 8): Promise<void> {
+  const ipHash = await sha256Hex(`${requestClientIp(c)}|blog-newsletter|${action}`)
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(c.env.DB, [{
+      key: `blog-newsletter:${action}:${ipHash}`,
+      maxAttempts,
+      windowMs: 60 * 60 * 1000,
+      lockMs: 15 * 60 * 1000,
+    }]),
+    'Too many newsletter requests',
+  )
+}
+
+
 /** The canonical address an alias should land on, mirroring the blog's own `postUrl`. */
 function aliasTarget(row: { slug: string; permalink: string }, permalinkEnabled: boolean): string {
   if (permalinkEnabled && row.permalink) {
@@ -113,9 +148,12 @@ blogPublicRoutes.get('/posts', async (c) => {
     pinned: c.req.query('pinned') === 'true',
     excludeEncrypted: true,
   })
-  const tags = await listPostTags(c.env.DB, userId, rows.map((row) => row.id))
+  const [tags, counts] = await Promise.all([
+    listPostTags(c.env.DB, userId, rows.map((row) => row.id)),
+    likeCounts(c.env.DB, userId, rows.map((row) => row.id)),
+  ])
   return c.json({
-    items: rows.map((row) => toBlogSummary(row, tags.get(row.id) ?? [])),
+    items: rows.map((row) => toBlogSummary(row, tags.get(row.id) ?? [], counts.get(row.id) ?? 0)),
     page,
     limit,
     total,
@@ -137,11 +175,14 @@ blogPublicRoutes.get('/search', async (c) => {
   const { page, limit } = pageQuery(c)
   const query = (c.req.query('q') ?? '').trim().slice(0, 200)
   const result = await searchPublishedPosts(c.env.DB, userId, query, page, limit)
-  const tags = await listPostTags(c.env.DB, userId, result.rows.map((row) => row.id))
+  const [tags, counts] = await Promise.all([
+    listPostTags(c.env.DB, userId, result.rows.map((row) => row.id)),
+    likeCounts(c.env.DB, userId, result.rows.map((row) => row.id)),
+  ])
   return c.json({
     query,
     engine: result.engine,
-    items: result.rows.map((row) => toBlogSummary(row, tags.get(row.id) ?? [])),
+    items: result.rows.map((row) => toBlogSummary(row, tags.get(row.id) ?? [], counts.get(row.id) ?? 0)),
     page,
     limit,
     total: result.total,
@@ -158,10 +199,13 @@ blogPublicRoutes.get('/feeds', async (c) => {
     blogCounts(c.env.DB, userId),
   ])
   const { rows } = await listPublishedPostsFiltered(c.env.DB, userId, { page: 1, limit: 100, excludeEncrypted: true })
-  const tags = await listPostTags(c.env.DB, userId, rows.map((row) => row.id))
+  const [tags, likes] = await Promise.all([
+    listPostTags(c.env.DB, userId, rows.map((row) => row.id)),
+    likeCounts(c.env.DB, userId, rows.map((row) => row.id)),
+  ])
   return c.json({
     site: await resolvePublicBlogMusic(c.env, c.env.DB, userId, publicSite(settings, counts)),
-    posts: rows.map((row) => toBlogSummary(row, tags.get(row.id) ?? [])),
+    posts: rows.map((row) => toBlogSummary(row, tags.get(row.id) ?? [], likes.get(row.id) ?? 0)),
   }, 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })
@@ -173,10 +217,17 @@ blogPublicRoutes.get('/posts/:slug/adjacent', async (c) => {
   if (!row) throw ApiError.notFound('Post not found')
   const adjacent = await findAdjacentPosts(c.env.DB, userId, row)
   const ids = [adjacent.previous?.id, adjacent.next?.id].filter((id): id is string => Boolean(id))
-  const tags = await listPostTags(c.env.DB, userId, ids)
+  const [tags, likes] = await Promise.all([
+    listPostTags(c.env.DB, userId, ids),
+    likeCounts(c.env.DB, userId, ids),
+  ])
   return c.json({
-    previous: adjacent.previous ? toBlogSummary(adjacent.previous, tags.get(adjacent.previous.id) ?? []) : null,
-    next: adjacent.next ? toBlogSummary(adjacent.next, tags.get(adjacent.next.id) ?? []) : null,
+    previous: adjacent.previous
+      ? toBlogSummary(adjacent.previous, tags.get(adjacent.previous.id) ?? [], likes.get(adjacent.previous.id) ?? 0)
+      : null,
+    next: adjacent.next
+      ? toBlogSummary(adjacent.next, tags.get(adjacent.next.id) ?? [], likes.get(adjacent.next.id) ?? 0)
+      : null,
   }, 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })
@@ -310,9 +361,10 @@ blogPublicRoutes.get('/posts/:slug', async (c) => {
   // and the endpoint answers with the stored count without writing. Only the SSR page open counts.
   const countView = c.req.header('x-blog-view') !== 'none' && row.encrypted !== 1
   const tags = await listPostTags(c.env.DB, userId, [row.id])
+  const likes = row.encrypted === 1 ? 0 : await oneLikeCount(c.env.DB, userId, row.id)
   const render = await readRenderSnapshot(c.env.FILES, row)
   const detail: BlogPostDetail = {
-    ...toBlogSummary(row, tags.get(row.id) ?? []),
+    ...toBlogSummary(row, tags.get(row.id) ?? [], likes),
     content: row.content,
     headings: render?.headings ?? [],
     render,
@@ -353,6 +405,94 @@ blogPublicRoutes.post('/posts/:slug/unlock', async (c) => {
   const token = await issueUnlockToken(c.env, row.id)
   if (!token) throw unlockNotConfigured()
   return c.json({ token, expiresAt: unlockExpiry() }, 200, { 'Cache-Control': 'private, no-store' })
+})
+
+blogPublicRoutes.post('/newsletter/subscribe', async (c) => {
+  const userId = await ownerId(c)
+  await guardNewsletter(c, 'subscribe')
+  const body = await readJson<Record<string, unknown>>(c, 8 * 1024)
+  if (typeof body.website === 'string' && body.website.trim()) {
+    return c.json({ status: 'pending', emailSent: false, delivery: 'ignored' }, 200, { 'Cache-Control': 'no-store' })
+  }
+  const email = typeof body.email === 'string' ? body.email : ''
+  try {
+    const result = await subscribeNewsletter(
+      c.env,
+      userId,
+      email,
+      typeof body.source === 'string' ? body.source : undefined,
+    )
+    return c.json(result, 200, { 'Cache-Control': 'no-store' })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (message === 'newsletter_invalid_email') throw ApiError.badRequest('Enter a valid email address')
+    throw error
+  }
+})
+
+blogPublicRoutes.post('/newsletter/confirm', async (c) => {
+  const userId = await ownerId(c)
+  await guardNewsletter(c, 'confirm', 60)
+  const body = await readJson<{ token?: unknown }>(c, 4 * 1024)
+  const token = typeof body.token === 'string' ? body.token.trim() : ''
+  if (!token || token.length > 200) throw ApiError.badRequest('A confirmation token is required')
+  return c.json(await confirmNewsletter(c.env, userId, token), 200, { 'Cache-Control': 'no-store' })
+})
+
+blogPublicRoutes.post('/newsletter/unsubscribe', async (c) => {
+  const userId = await ownerId(c)
+  await guardNewsletter(c, 'unsubscribe', 60)
+  const body = await readJson<{ token?: unknown }>(c, 4 * 1024)
+  const token = typeof body.token === 'string' ? body.token.trim() : ''
+  if (!token || token.length > 200) throw ApiError.badRequest('An unsubscribe token is required')
+  return c.json(await unsubscribeNewsletter(c.env, userId, token), 200, { 'Cache-Control': 'no-store' })
+})
+
+blogPublicRoutes.get('/engagement/posts/:slug', async (c) => {
+  const userId = await ownerId(c)
+  const row = await findPublishedPost(c.env.DB, userId, c.req.param('slug'))
+  if (!row || row.encrypted === 1) throw ApiError.notFound('Post not found')
+  const visitor = visitorOf(c)
+  const hash = visitor ? await visitorHash(userId, visitor) : null
+  return c.json(await readEngagement(c.env.DB, userId, row.id, hash), 200, { 'Cache-Control': 'private, no-store' })
+})
+
+blogPublicRoutes.post('/engagement/posts/:slug', async (c) => {
+  const userId = await ownerId(c)
+  const row = await findPublishedPost(c.env.DB, userId, c.req.param('slug'))
+  if (!row || row.encrypted === 1) throw ApiError.notFound('Post not found')
+  const visitor = visitorOf(c)
+  if (!visitor) throw ApiError.badRequest('A visitor identity is required')
+  const body = await readJson<Record<string, unknown>>(c, 4 * 1024)
+  const like = body.like === true ? true : body.like === false ? false : undefined
+  const favorite = body.favorite === true ? true : body.favorite === false ? false : undefined
+  if (like === undefined && favorite === undefined) throw ApiError.badRequest('Nothing to update')
+  if ((body.like !== undefined && like === undefined) || (body.favorite !== undefined && favorite === undefined)) {
+    throw ApiError.badRequest('Engagement values must be booleans')
+  }
+  const ipHash = await sha256Hex(`${requestClientIp(c)}|blog-engagement|${row.id}`)
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(c.env.DB, [{
+      key: `blog-engagement:${ipHash}`,
+      maxAttempts: 120,
+      windowMs: 60 * 1000,
+      lockMs: 60 * 1000,
+    }]),
+    'Too many engagement updates',
+  )
+  const hash = await visitorHash(userId, visitor)
+  return c.json(await applyEngagement(c.env.DB, userId, row.id, hash, { like, favorite }), 200, {
+    'Cache-Control': 'private, no-store',
+  })
+})
+
+blogPublicRoutes.get('/engagement/saved', async (c) => {
+  const userId = await ownerId(c)
+  const { page, limit } = pageQuery(c)
+  const visitor = visitorOf(c)
+  if (!visitor) return c.json({ items: [], page, limit, total: 0 }, 200, { 'Cache-Control': 'private, no-store' })
+  const hash = await visitorHash(userId, visitor)
+  return c.json(await listSavedPosts(c.env.DB, userId, hash, page, limit), 200, { 'Cache-Control': 'private, no-store' })
 })
 
 blogPublicRoutes.get('/categories', async (c) => {

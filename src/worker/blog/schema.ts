@@ -496,9 +496,67 @@ export const BLOG_COMMENT_SCHEMA_STATEMENTS: readonly string[] = [
      ON blog_comments(user_id, parent_id)`,
 ]
 
+export const BLOG_NEWSLETTER_TABLE_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS blog_newsletter_subscribers (
+    id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    email_normalized TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    source TEXT NOT NULL DEFAULT '',
+    confirm_token_hash TEXT NOT NULL DEFAULT '',
+    unsubscribe_token_hash TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    confirmed_at INTEGER,
+    unsubscribed_at INTEGER,
+    last_sent_at INTEGER,
+    PRIMARY KEY (user_id, id)
+  )`,
+]
+
+export const BLOG_NEWSLETTER_INDEX_STATEMENTS: readonly string[] = [
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_blog_newsletter_email
+     ON blog_newsletter_subscribers(user_id, email_normalized)`,
+  `CREATE INDEX IF NOT EXISTS idx_blog_newsletter_status
+     ON blog_newsletter_subscribers(user_id, status, created_at DESC, id)`,
+  `CREATE INDEX IF NOT EXISTS idx_blog_newsletter_confirm
+     ON blog_newsletter_subscribers(user_id, confirm_token_hash)`,
+  `CREATE INDEX IF NOT EXISTS idx_blog_newsletter_unsubscribe
+     ON blog_newsletter_subscribers(user_id, unsubscribe_token_hash)`,
+]
+
+export const BLOG_LIKE_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS blog_post_likes (
+    user_id TEXT NOT NULL,
+    post_id TEXT NOT NULL,
+    visitor_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, post_id, visitor_hash)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_blog_post_likes_post
+     ON blog_post_likes(user_id, post_id)`,
+]
+
+export const BLOG_FAVORITE_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS blog_post_favorites (
+    user_id TEXT NOT NULL,
+    post_id TEXT NOT NULL,
+    visitor_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, post_id, visitor_hash)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_blog_post_favorites_visitor
+     ON blog_post_favorites(user_id, visitor_hash, created_at DESC)`,
+]
+
 export const BLOG_ALL_SCHEMA_STATEMENTS: readonly string[] = [
   ...BLOG_SCHEMA_STATEMENTS,
   ...BLOG_COMMENT_SCHEMA_STATEMENTS,
+  ...BLOG_NEWSLETTER_TABLE_STATEMENTS,
+  ...BLOG_NEWSLETTER_INDEX_STATEMENTS,
+  ...BLOG_LIKE_SCHEMA_STATEMENTS,
+  ...BLOG_FAVORITE_SCHEMA_STATEMENTS,
 ]
 
 export const BLOG_REQUIRED_TABLES = [
@@ -529,6 +587,9 @@ export const BLOG_REQUIRED_TABLES = [
   'blog_visit_daily',
   'blog_audit',
   'blog_comments',
+  'blog_newsletter_subscribers',
+  'blog_post_likes',
+  'blog_post_favorites',
 ] as const
 
 export const BLOG_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -566,6 +627,9 @@ export const BLOG_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> 
   blog_visit_daily: ['user_id', 'day', 'views', 'visitors'],
   blog_audit: ['id', 'user_id', 'action', 'entity', 'entity_id', 'detail', 'created_at'],
   blog_comments: ['id', 'user_id', 'post_id', 'parent_id', 'author_name', 'author_email_hash', 'author_url', 'content', 'status', 'ip_hash', 'user_agent_hash', 'created_at', 'updated_at', 'deleted_at'],
+  blog_newsletter_subscribers: ['id', 'user_id', 'email', 'email_normalized', 'status', 'source', 'confirm_token_hash', 'unsubscribe_token_hash', 'created_at', 'updated_at', 'confirmed_at', 'unsubscribed_at', 'last_sent_at'],
+  blog_post_likes: ['user_id', 'post_id', 'visitor_hash', 'created_at'],
+  blog_post_favorites: ['user_id', 'post_id', 'visitor_hash', 'created_at'],
 }
 
 export const BLOG_REQUIRED_INDEXES = [
@@ -618,4 +682,10 @@ export const BLOG_REQUIRED_INDEXES = [
   'idx_blog_comments_post',
   'idx_blog_comments_status',
   'idx_blog_comments_parent',
+  'idx_blog_newsletter_email',
+  'idx_blog_newsletter_status',
+  'idx_blog_newsletter_confirm',
+  'idx_blog_newsletter_unsubscribe',
+  'idx_blog_post_likes_post',
+  'idx_blog_post_favorites_visitor',
 ] as const
