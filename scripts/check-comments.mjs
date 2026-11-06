@@ -43874,6 +43874,8 @@ const allowed = new Map([
     "// Batch load slugs in slices so a full page stays inside D1's bound-parameter limit.",
     "// Half the API page cap: each page can still be followed by chunked slug reads, and a 150-link",
     "// account exports in three passes instead of relying on one oversized statement.",
+    "// Ownership is proved in the same slices as the writes below: a single `IN (...)` over every ID",
+    "// would bind one parameter per link and hit D1's ceiling once a caller sends more than a hundred.",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",
@@ -49732,6 +49734,7 @@ const allowed = new Map([
   ["tests/tools-shortlinks-limits.test.ts", [
     "/**\n * The ceiling the audit hit in production: D1 rejects a statement with more bound parameters than\n * this. The shared double only enforces it when a suite opts in, so this file opts in on purpose —\n * an un-chunked `IN (?, ?, …)` fails here instead of passing on a permissive local SQLite.\n */",
     "// One click in the first slice and one in the last, so the per-link merge has to span chunks.",
+    "// The route schema requires at least one ID; the store's own empty path still has to hold.",
   ]],
   ["tests/tools-shortlinks-ui.test.tsx", [
     "// First render with activeLink null",

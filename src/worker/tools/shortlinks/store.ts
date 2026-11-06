@@ -1369,14 +1369,21 @@ export class ShortlinksStore {
     }
 
     const unique = [...new Set(linkIds)]
-    const placeholders = unique.map(() => '?').join(', ')
-    const owned = await this.db
-      .prepare(
-        `SELECT COUNT(*) as cnt FROM tools_shortlinks_links WHERE user_id = ? AND id IN (${placeholders})`,
-      )
-      .bind(this.userId, ...unique)
-      .first<{ cnt: number }>()
-    if ((owned?.cnt ?? 0) !== unique.length) {
+    // Ownership is proved in the same slices as the writes below: a single `IN (...)` over every ID
+    // would bind one parameter per link and hit D1's ceiling once a caller sends more than a hundred.
+    let owned = 0
+    for (let offset = 0; offset < unique.length; offset += LINK_ID_CHUNK_SIZE) {
+      const chunk = unique.slice(offset, offset + LINK_ID_CHUNK_SIZE)
+      const placeholders = chunk.map(() => '?').join(', ')
+      const row = await this.db
+        .prepare(
+          `SELECT COUNT(*) as cnt FROM tools_shortlinks_links WHERE user_id = ? AND id IN (${placeholders})`,
+        )
+        .bind(this.userId, ...chunk)
+        .first<{ cnt: number }>()
+      owned += row?.cnt ?? 0
+    }
+    if (owned !== unique.length) {
       throw ApiError.badRequest('One or more links were not found')
     }
 

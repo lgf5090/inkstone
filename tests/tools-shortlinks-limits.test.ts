@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TOOLS_SHORTLINKS_SCHEMA_STATEMENTS } from '../src/worker/tools/shortlinks/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { toolsShortlinksRoutes } from '../src/worker/routes/tools-shortlinks'
+import { ShortlinksStore } from '../src/worker/tools/shortlinks/store'
 import type { AppBindings, Env } from '../src/worker/env'
 import { testBindings, testR2Bucket } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -44,10 +45,15 @@ const app = testApp()
 let sqlite: DatabaseSync
 let env: Env
 
-async function call(method: string, path: string): Promise<Response> {
+async function call(method: string, path: string, options: { body?: unknown } = {}): Promise<Response> {
   const headers: Record<string, string> = {}
+  let body: string | undefined
   if (method !== 'GET' && method !== 'HEAD') headers['X-Inkstone-Client'] = '1'
-  return app.fetch(new Request(`http://localhost${path}`, { method, headers }), env)
+  if (options.body !== undefined) {
+    headers['content-type'] = 'application/json'
+    body = JSON.stringify(options.body)
+  }
+  return app.fetch(new Request(`http://localhost${path}`, { method, headers, body }), env)
 }
 
 async function json<T>(response: Response): Promise<T> {
@@ -196,6 +202,28 @@ describe('READ-1 read paths past the D1 bound-parameter ceiling', () => {
       const backupRes = await call('POST', '/api/tools/shortlinks/backups')
       expect(backupRes.status).toBe(200)
       expect((await json<{ data: { link_count: number } }>(backupRes)).data.link_count).toBe(count)
+    })
+  })
+
+  describe.each([0, 1, 99, 100, 120])('adding %i links to a bundle', (count) => {
+    it('proves ownership in slices instead of one oversized IN list', async () => {
+      const bundleId = createBundle(`Boundary ${count}`)
+      const ids = seedLinks(count)
+
+      if (count === 0) {
+        // The route schema requires at least one ID; the store's own empty path still has to hold.
+        await new ShortlinksStore(env.DB, USER).addBundleLinks(bundleId, [])
+      } else {
+        const res = await call('POST', `/api/tools/shortlinks/bundles/${bundleId}/links`, {
+          body: { link_ids: ids },
+        })
+        expect(res.status).toBe(200)
+      }
+
+      const row = sqlite
+        .prepare('SELECT COUNT(*) AS cnt FROM tools_shortlinks_bundle_links WHERE bundle_id = ?')
+        .get(bundleId) as { cnt: number }
+      expect(row.cnt).toBe(count)
     })
   })
 })
