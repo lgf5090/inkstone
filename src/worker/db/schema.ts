@@ -3917,6 +3917,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE tools_shortlinks_settings ADD COLUMN stats_rollup_enabled INTEGER NOT NULL DEFAULT 1`,
     ],
   },
+  {
+    version: 293,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'lifecycle_state' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'active'`,
+      `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_lifecycle
+         ON tools_shortlinks_links(user_id, lifecycle_state)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

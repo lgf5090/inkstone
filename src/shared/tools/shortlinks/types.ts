@@ -42,6 +42,7 @@ export interface ShortLink {
   created_by?: string
   slugs: ShortLinkSlug[]
   total_clicks: number
+  lifecycle_state?: 'active' | 'disabled' | 'archived'
 }
 
 export interface ShortLinkBundle {

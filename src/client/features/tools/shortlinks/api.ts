@@ -100,6 +100,12 @@ export const shortlinksApi = {
       method: 'DELETE',
     }).then((r) => r.data),
 
+  setLinkLifecycle: (id: number, state: 'active' | 'disabled' | 'archived') =>
+    request<{ data: ShortLink }>(`/api/tools/shortlinks/links/${id}/lifecycle`, {
+      method: 'PATCH',
+      body: { state },
+    }).then((r) => r.data),
+
   addSlug: (linkId: number, input: AddSlugInput) =>
     request<{ data: ShortLinkSlug }>(`/api/tools/shortlinks/links/${linkId}/slugs`, {
       method: 'POST',

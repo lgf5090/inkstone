@@ -387,6 +387,7 @@ export class ShortlinksStore {
         created_via: string | null
         created_by: string
         total_clicks: number
+        lifecycle_state: 'active' | 'disabled' | 'archived'
       }>()
 
     if (!linkRow) return null
@@ -424,13 +425,14 @@ export class ShortlinksStore {
       user_id: linkRow.user_id,
       url: linkRow.url,
       label: linkRow.label,
-      password_protected: Boolean(linkRow.is_password_protected),
+      password_protected: Boolean(linkRow.password_hash),
       created_at: linkRow.created_at,
       expires_at: linkRow.expires_at,
       created_via: linkRow.created_via,
       created_by: linkRow.created_by,
       slugs,
       total_clicks: linkRow.total_clicks || 0,
+      lifecycle_state: linkRow.lifecycle_state,
     }
   }
 
@@ -496,14 +498,14 @@ export class ShortlinksStore {
     const limit = Math.min(100, Math.max(1, Math.floor(params.limit || 20)))
     const now = Math.floor(Date.now() / 1000)
 
-    let whereClause = 'WHERE l.user_id = ?'
+    let whereClause = "WHERE l.user_id = ? AND l.lifecycle_state != 'archived'"
     const binds: (string | number)[] = [this.userId]
 
     if (filter === 'active') {
-      whereClause += ' AND (l.expires_at IS NULL OR l.expires_at > ?) AND EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = l.id AND s.disabled_at IS NULL)'
+      whereClause += " AND l.lifecycle_state = 'active' AND (l.expires_at IS NULL OR l.expires_at > ?) AND EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = l.id AND s.disabled_at IS NULL)"
       binds.push(now)
     } else if (filter === 'disabled') {
-      whereClause += ' AND ((l.expires_at IS NOT NULL AND l.expires_at <= ?) OR NOT EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = l.id AND s.disabled_at IS NULL))'
+      whereClause += " AND (l.lifecycle_state != 'active' OR (l.expires_at IS NOT NULL AND l.expires_at <= ?) OR NOT EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = l.id AND s.disabled_at IS NULL))"
       binds.push(now)
     }
 
@@ -548,6 +550,7 @@ export class ShortlinksStore {
       created_via: string | null
       created_by: string
       total_clicks: number
+      lifecycle_state: 'active' | 'disabled' | 'archived'
     }>()
 
     const linkIds = (rows.results ?? []).map((r) => r.id)
@@ -563,13 +566,14 @@ export class ShortlinksStore {
       user_id: r.user_id,
       url: r.url,
       label: r.label,
-      password_protected: Boolean(r.is_password_protected),
+      password_protected: Boolean(r.password_hash),
       created_at: r.created_at,
       expires_at: r.expires_at,
       created_via: r.created_via,
       created_by: r.created_by,
       slugs: slugMap.get(r.id) || [],
       total_clicks: r.total_clicks || 0,
+      lifecycle_state: r.lifecycle_state,
     }))
 
     return { items, links: items, total }
@@ -630,13 +634,44 @@ export class ShortlinksStore {
     }
 
     if (link.total_clicks > 0) {
-      throw ApiError.badRequest('Cannot delete a short link with click history. Please disable it instead to preserve analytics.')
+      throw ApiError.conflict('This link has click history and can only be archived, so its analytics stay readable')
     }
 
     await this.db
       .prepare('DELETE FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
       .bind(id, this.userId)
       .run()
+  }
+
+  /**
+   * Link-level lifecycle: disabling or archiving takes every alias down together, because a reader
+   * who saved a secondary slug must see the same 404 as the primary. Reactivating restores them.
+   */
+  async setLinkLifecycle(id: number, state: 'active' | 'disabled' | 'archived'): Promise<void> {
+    const link = await this.getLinkById(id)
+    if (!link) throw ApiError.notFound('Link not found')
+    const now = Math.floor(Date.now() / 1000)
+
+    await this.db.batch([
+      this.db
+        .prepare('UPDATE tools_shortlinks_links SET lifecycle_state = ? WHERE id = ? AND user_id = ?')
+        .bind(state, id, this.userId),
+      state === 'active'
+        ? this.db
+            .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = NULL WHERE link_id = ? AND user_id = ?')
+            .bind(id, this.userId)
+        : this.db
+            .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = COALESCE(disabled_at, ?) WHERE link_id = ? AND user_id = ?')
+            .bind(now, id, this.userId),
+    ])
+  }
+
+  async archiveLink(id: number): Promise<void> {
+    await this.setLinkLifecycle(id, 'archived')
+  }
+
+  async restoreLink(id: number): Promise<void> {
+    await this.setLinkLifecycle(id, 'active')
   }
 
   // -------------------------------------------------------------------------
@@ -706,25 +741,27 @@ export class ShortlinksStore {
     ])
   }
 
-  async disableSlug(slug: string): Promise<void> {
+  async disableSlug(linkId: number, slug: string): Promise<void> {
     const now = Math.floor(Date.now() / 1000)
-    await this.db
-      .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = ? WHERE slug = ? AND user_id = ?')
-      .bind(now, slug, this.userId)
+    const res = await this.db
+      .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = ? WHERE link_id = ? AND slug = ? AND user_id = ?')
+      .bind(now, linkId, slug, this.userId)
       .run()
+    if ((res.meta.changes ?? 0) === 0) throw ApiError.notFound('Slug not found for this link')
   }
 
-  async enableSlug(slug: string): Promise<void> {
-    await this.db
-      .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = NULL WHERE slug = ? AND user_id = ?')
-      .bind(slug, this.userId)
+  async enableSlug(linkId: number, slug: string): Promise<void> {
+    const res = await this.db
+      .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = NULL WHERE link_id = ? AND slug = ? AND user_id = ?')
+      .bind(linkId, slug, this.userId)
       .run()
+    if ((res.meta.changes ?? 0) === 0) throw ApiError.notFound('Slug not found for this link')
   }
 
-  async deleteSlug(slug: string): Promise<void> {
+  async deleteSlug(linkId: number, slug: string): Promise<void> {
     const slugRow = await this.db
-      .prepare('SELECT * FROM tools_shortlinks_slugs WHERE slug = ? AND user_id = ?')
-      .bind(slug, this.userId)
+      .prepare('SELECT * FROM tools_shortlinks_slugs WHERE slug = ? AND link_id = ? AND user_id = ?')
+      .bind(slug, linkId, this.userId)
       .first<{ slug: string; link_id: number; is_primary: number }>()
 
     if (!slugRow) {
@@ -791,7 +828,7 @@ export class ShortlinksStore {
         `SELECT s.slug, s.link_id, s.user_id, s.disabled_at, l.url, l.expires_at, l.password_hash, l.is_password_protected
          FROM tools_shortlinks_slugs s
          JOIN tools_shortlinks_links l ON s.link_id = l.id
-         WHERE s.slug = ?`,
+         WHERE s.slug = ? AND l.lifecycle_state = 'active'`,
       )
       .bind(slug)
       .first<{
@@ -815,7 +852,7 @@ export class ShortlinksStore {
       disabled_at: row.disabled_at,
       expires_at: row.expires_at,
       password_hash: row.password_hash,
-      is_password_protected: Boolean(row.is_password_protected),
+      is_password_protected: Boolean(row.password_hash),
     }
   }
 
@@ -1478,6 +1515,11 @@ export class ShortlinksStore {
   }
 
   async deleteBundle(id: number): Promise<void> {
+    const row = await this.db
+      .prepare('SELECT id FROM tools_shortlinks_bundles WHERE id = ? AND user_id = ?')
+      .bind(id, this.userId)
+      .first<{ id: number }>()
+    if (!row) throw ApiError.notFound('Bundle not found')
     await this.db
       .prepare('DELETE FROM tools_shortlinks_bundles WHERE id = ? AND user_id = ?')
       .bind(id, this.userId)
@@ -1557,6 +1599,7 @@ export class ShortlinksStore {
         created_via: string | null
         created_by: string
         total_clicks: number
+        lifecycle_state: 'active' | 'disabled' | 'archived'
       }>()
 
     const linkIds = (rows.results ?? []).map((r) => r.id)
@@ -1569,13 +1612,14 @@ export class ShortlinksStore {
       user_id: r.user_id,
       url: r.url,
       label: r.label,
-      password_protected: Boolean(r.is_password_protected),
+      password_protected: Boolean(r.password_hash),
       created_at: r.created_at,
       expires_at: r.expires_at,
       created_via: r.created_via,
       created_by: r.created_by,
       slugs: slugMap.get(r.id) || [],
       total_clicks: r.total_clicks || 0,
+      lifecycle_state: r.lifecycle_state,
     }))
   }
 

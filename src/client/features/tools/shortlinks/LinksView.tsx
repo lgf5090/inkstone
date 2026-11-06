@@ -47,11 +47,9 @@ export function LinksView() {
   }
 
   const handleToggleSlugStatus = async (link: ShortLink) => {
-    const primarySlug = link.slugs.find((s) => s.is_primary) || link.slugs[0]
-    if (!primarySlug) return
-    const isCurrentlyActive = primarySlug.disabled_at === null
+    const isCurrentlyActive = (link.lifecycle_state ?? 'active') === 'active'
     try {
-      await shortlinksApi.setSlugStatus(link.id, primarySlug.slug, !isCurrentlyActive)
+      await shortlinksApi.setLinkLifecycle(link.id, isCurrentlyActive ? 'disabled' : 'active')
       useUiStore.getState().toast(t('tools.shortlinks.links.status_updated'), 'success')
       void fetchLinks()
     } catch (err) {
@@ -62,19 +60,27 @@ export function LinksView() {
   const handleDeleteLink = async (link: ShortLink) => {
     const hasClicks = link.total_clicks > 0
     const ok = await confirm({
-      title: t('tools.shortlinks.links.delete'),
+      title: hasClicks
+        ? t('tools.shortlinks.links.archive')
+        : t('tools.shortlinks.links.delete'),
       description: hasClicks
-        ? t('tools.shortlinks.links.delete_non_zero_warn')
+        ? t('tools.shortlinks.links.archive_non_zero_warn')
         : t('tools.shortlinks.links.delete_confirm'),
       tone: 'danger',
-      confirmLabel: t('tools.shortlinks.links.delete'),
+      confirmLabel: hasClicks
+        ? t('tools.shortlinks.links.archive')
+        : t('tools.shortlinks.links.delete'),
       cancelLabel: t('common.cancel'),
     })
     if (!ok) return
 
     try {
-      await shortlinksApi.deleteLink(link.id)
-      useUiStore.getState().toast(t('tools.shortlinks.links.deleted'), 'success')
+      if (hasClicks) await shortlinksApi.setLinkLifecycle(link.id, 'archived')
+      else await shortlinksApi.deleteLink(link.id)
+      useUiStore.getState().toast(
+        hasClicks ? t('tools.shortlinks.links.archived') : t('tools.shortlinks.links.deleted'),
+        'success',
+      )
       void fetchLinks()
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
@@ -233,7 +239,11 @@ export function LinksView() {
                         {isSlugActive ? <EyeOff size={13} /> : <Eye size={13} />}
                       </IconButton>
                       <IconButton
-                        label={t('tools.shortlinks.links.delete')}
+                        label={
+                          link.total_clicks > 0
+                            ? t('tools.shortlinks.links.archive')
+                            : t('tools.shortlinks.links.delete')
+                        }
                         size="sm"
                         onClick={() => handleDeleteLink(link)}
                       >
@@ -262,7 +272,9 @@ export function LinksView() {
                 {links.map((link) => {
                   const primarySlugObj = link.slugs.find((s) => s.is_primary) || link.slugs[0]
                   const primarySlug = primarySlugObj?.slug || ''
-                  const isSlugActive = primarySlugObj ? primarySlugObj.disabled_at === null : true
+                  const isSlugActive =
+                    (link.lifecycle_state ?? 'active') === 'active' &&
+                    (link.slugs.length === 0 || link.slugs.some((s) => s.disabled_at === null))
                   const isExpired =
                     link.expires_at !== null && link.expires_at <= Math.floor(Date.now() / 1000)
                   const createdDate = new Date(link.created_at * 1000).toLocaleDateString()
@@ -368,7 +380,11 @@ export function LinksView() {
                             {isSlugActive ? <EyeOff size={13} /> : <Eye size={13} />}
                           </IconButton>
                           <IconButton
-                            label={t('tools.shortlinks.links.delete')}
+                            label={
+                              link.total_clicks > 0
+                                ? t('tools.shortlinks.links.archive')
+                                : t('tools.shortlinks.links.delete')
+                            }
                             size="sm"
                             onClick={() => handleDeleteLink(link)}
                           >

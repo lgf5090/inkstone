@@ -217,18 +217,25 @@ export function LinkDetailView() {
   }
 
   const handleDeleteLink = async () => {
+    const hasClicks = link.total_clicks > 0
     const ok = await confirm({
-      title: t('tools.shortlinks.links.delete'),
-      description: t('tools.shortlinks.links.delete_confirm'),
+      title: hasClicks ? t('tools.shortlinks.links.archive') : t('tools.shortlinks.links.delete'),
+      description: hasClicks
+        ? t('tools.shortlinks.links.archive_non_zero_warn')
+        : t('tools.shortlinks.links.delete_confirm'),
       tone: 'danger',
-      confirmLabel: t('tools.shortlinks.links.delete'),
+      confirmLabel: hasClicks ? t('tools.shortlinks.links.archive') : t('tools.shortlinks.links.delete'),
       cancelLabel: t('common.cancel'),
     })
     if (!ok) return
 
     try {
-      await shortlinksApi.deleteLink(link.id)
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      if (hasClicks) await shortlinksApi.setLinkLifecycle(link.id, 'archived')
+      else await shortlinksApi.deleteLink(link.id)
+      useUiStore.getState().toast(
+        hasClicks ? t('tools.shortlinks.links.archived') : t('tools.shortlinks.settings.save_success'),
+        'success',
+      )
       void selectLink(null)
       void fetchLinks()
     } catch (err) {

@@ -43901,6 +43901,7 @@ const allowed = new Map([
     "// so an account can be moved and restored without losing anything but click history.",
     "// A slug that is still live on this account cannot be restored; the rest of the backup still lands.",
     "/**\n   * Rebuilds the daily rollups from the raw click ledger. Re-runnable: both tables are cleared for\n   * this account first, and the raw table stays the source of truth for every custom range.\n   */",
+    "/**\n   * Link-level lifecycle: disabling or archiving takes every alias down together, because a reader\n   * who saved a secondary slug must see the same 404 as the primary. Reactivating restores them.\n   */",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",

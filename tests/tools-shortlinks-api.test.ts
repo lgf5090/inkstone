@@ -704,12 +704,34 @@ describe('Shortlinks Bundles and Analytics', () => {
     })
     expect(keyRes.status).toBe(200)
     const keyData = (await json<any>(keyRes)).data
-    expect(keyData.apiKey).toMatch(/^sl_/)
+    expect(keyData.api_key).toMatch(/^sl_/)
+    expect(keyData.title).toBe('CI Deployer')
 
     const listRes = await call('GET', '/api/tools/shortlinks/api-keys')
     const keys = (await json<any>(listRes)).data
     expect(keys).toHaveLength(1)
     expect(keys[0].title).toBe('CI Deployer')
+  })
+
+  it('denies export generation to a read-only API key', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      body: { url: 'https://export-key.example.com', custom_slug: 'key-export' },
+    })
+    const readKey = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/api-keys', {
+        body: { title: 'Read only', scope: 'read' },
+      }),
+    )).data
+
+    const listAsRead = await call('GET', '/api/tools/shortlinks/links', {
+      headers: { authorization: `Bearer ${readKey.api_key}` },
+    })
+    expect(listAsRead.status).toBe(200)
+
+    const exportAsRead = await call('GET', '/api/tools/shortlinks/export/txt', {
+      headers: { authorization: `Bearer ${readKey.api_key}` },
+    })
+    expect(exportAsRead.status).toBe(403)
   })
 
   it('exports and backs up every link, guards CSV cells and restores appending', async () => {

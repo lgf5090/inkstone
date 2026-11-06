@@ -32,7 +32,7 @@ const WRITE_SCOPE_DENIED = /\/(settings|backups|api-keys|export|import|stats)(\/
 
 function scopeAllows(scope: string, method: string, path: string): boolean {
   if (scope === 'admin') return true
-  if (scope === 'read') return method === 'GET'
+  if (scope === 'read') return method === 'GET' && !/\/export(\/|$)/.test(path)
   if (method === 'GET') return true
   return !WRITE_SCOPE_DENIED.test(path)
 }
@@ -203,6 +203,14 @@ toolsShortlinksRoutes.delete('/links/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+toolsShortlinksRoutes.patch('/links/:id/lifecycle', async (c) => {
+  const store = getStore(c)
+  const id = idParam(c)
+  const body = await parseBody(c, z.object({ state: z.enum(['active', 'disabled', 'archived']) }))
+  await store.setLinkLifecycle(id, body.state)
+  return c.json({ ok: true, data: await store.getLinkById(id) })
+})
+
 // ---------------------------------------------------------------- Slugs
 toolsShortlinksRoutes.post('/links/:id/slugs', async (c) => {
   const store = getStore(c)
@@ -222,22 +230,22 @@ toolsShortlinksRoutes.on(['PUT', 'PATCH'], '/links/:id/slugs/:slug/primary', asy
 
 toolsShortlinksRoutes.on(['PUT', 'PATCH'], '/links/:id/slugs/:slug/status', async (c) => {
   const store = getStore(c)
-  idParam(c)
+  const id = idParam(c)
   const slug = slugParam(c)
   const body = await parseBody(c, SlugStatusSchema)
   if (body.is_active) {
-    await store.enableSlug(slug)
+    await store.enableSlug(id, slug)
   } else {
-    await store.disableSlug(slug)
+    await store.disableSlug(id, slug)
   }
   return c.json({ ok: true })
 })
 
 toolsShortlinksRoutes.delete('/links/:id/slugs/:slug', async (c) => {
   const store = getStore(c)
-  idParam(c)
+  const id = idParam(c)
   const slug = slugParam(c)
-  await store.deleteSlug(slug)
+  await store.deleteSlug(id, slug)
   return c.json({ ok: true })
 })
 
@@ -494,7 +502,7 @@ toolsShortlinksRoutes.post('/api-keys', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, CreateApiKeySchema)
   const res = await store.createApiKey(body.title, body.scope)
-  return c.json({ ok: true, data: { ...res, api_key: res.apiKey } })
+  return c.json({ ok: true, data: { ...res.record, api_key: res.apiKey } })
 })
 
 toolsShortlinksRoutes.delete('/api-keys/:id', async (c) => {
