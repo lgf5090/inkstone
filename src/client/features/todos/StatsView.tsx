@@ -34,12 +34,12 @@ import { downloadStatsCsv } from './stats-csv'
 import { PRIORITIES, listName, tagName, weekdayName } from './stats-format'
 import { priorityLabel } from './todo-ui'
 import { useTodos } from './store'
+import { Sparkline } from '../../components/Sparkline'
 import {
   DeltaChip,
   Donut,
   FlowChart,
   SliceBars,
-  Sparkline,
   StackedBar,
   TrendChart,
   WeekHourHeatmap,
