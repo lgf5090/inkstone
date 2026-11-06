@@ -36,6 +36,7 @@ export function WorkerTable({
   onDeploy,
   onSettings,
   onLogs,
+  onMetrics,
   onDelete,
   isDemo,
 }: {
@@ -47,6 +48,7 @@ export function WorkerTable({
   onDeploy: (row: WorkerRow) => void
   onSettings: (row: WorkerRow) => void
   onLogs: (row: WorkerRow) => void
+  onMetrics: (row: WorkerRow) => void
   onDelete: (row: WorkerRow) => void
   isDemo: (accountId: string) => boolean
 }) {
@@ -101,6 +103,11 @@ export function WorkerTable({
                     <Button size="sm" variant="secondary" onClick={() => onSettings(row)}>
                       {t('cloudflare.workers.table.settings_btn')}
                     </Button>
+                    {row.type === 'worker' && (
+                      <Button size="sm" variant="secondary" onClick={() => onMetrics(row)}>
+                        {t('cloudflare.workers.table.metrics_btn')}
+                      </Button>
+                    )}
                     {row.type === 'worker' && (
                       <Button size="sm" variant="secondary" onClick={() => onLogs(row)}>
                         {t('cloudflare.workers.table.logs_btn')}

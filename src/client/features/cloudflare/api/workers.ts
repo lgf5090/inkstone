@@ -79,6 +79,17 @@ export interface WorkerRoute {
   script?: string
 }
 
+export interface WorkerMetrics {
+  requests: number
+  errors: number
+  subrequests: number
+  cpuP50Us: number | null
+  cpuP99Us: number | null
+  cpuTotalUs: number | null
+  statusBreakdown: Array<{ status: string; requests: number }>
+  series: Array<{ label: string; requests: number; errors: number }>
+}
+
 export type DeployBindingType = 'kv' | 'd1' | 'r2' | 'ai' | 'durable_object' | 'service' | 'queue'
 
 export interface DeployVarInput {
@@ -387,6 +398,16 @@ export const workersApi = {
     ),
   getPagesDeployments: (accountId: string, name: string) =>
     cfRequest<PagesDeployment[]>(pagesPath(accountId, name, '/deployments')),
+  retryPagesDeployment: (accountId: string, name: string, deploymentId: string) =>
+    cfRequest<unknown>(`${pagesPath(accountId, name, '/deployments')}/${encodeURIComponent(deploymentId)}/retry`, {
+      method: 'POST',
+      body: {},
+    }),
+  rollbackPagesDeployment: (accountId: string, name: string, deploymentId: string) =>
+    cfRequest<unknown>(`${pagesPath(accountId, name, '/deployments')}/${encodeURIComponent(deploymentId)}/rollback`, {
+      method: 'POST',
+      body: {},
+    }),
   deletePagesDeployments: (accountId: string, name: string, ids: string[]) =>
     cfRequest<DeletePagesDeploymentsResult>(pagesPath(accountId, name, '/deployments'), {
       method: 'DELETE',
@@ -469,4 +490,15 @@ export const workersApi = {
       method: 'POST',
       body: { source, targets, keys, secretValues },
     }),
+
+  getMetrics: (accountId: string, name: string, days = 7) =>
+    cfRequest<WorkerMetrics>(
+      `/workers/${encodeURIComponent(accountId)}/workers/${encodeURIComponent(name)}/metrics?days=${days}`,
+    ),
+}
+
+/** The same-origin WebSocket address for a live tail; the browser sends the session cookie itself. */
+export function tailSocketUrl(accountId: string, name: string): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}/api/cloudflare/workers/${encodeURIComponent(accountId)}/workers/${encodeURIComponent(name)}/tail`
 }
