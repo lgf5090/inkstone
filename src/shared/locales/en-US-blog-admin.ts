@@ -407,6 +407,7 @@ export const EN_US_BLOG_ADMIN = {
   "blog.admin.widgets": "Widgets",
   "blog.admin.widgets_empty": "No widgets configured.",
   "blog.admin.widgets_subtitle": "Sidebar widgets and their order.",
+  "blog.admin.widgets_render_hint": "Enabled widgets always render; a profile or taxonomy with no data shows an empty state instead of disappearing.",
   "blog.admin.workspace": "Blog workspace",
   "blog.admin.field_content": "Content",
   "blog.admin.field_location": "Location",

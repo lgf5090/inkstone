@@ -107,7 +107,7 @@ export function Select({
   ...rest
 }: SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSelectElement> }) {
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <select
         {...rest}
         className={cn(FIELD_BASE, 'h-11 cursor-pointer appearance-none pr-7 md:h-[34px]', className)}

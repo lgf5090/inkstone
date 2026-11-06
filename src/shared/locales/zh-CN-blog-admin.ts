@@ -407,6 +407,7 @@ export const ZH_CN_BLOG_ADMIN = {
   "blog.admin.widgets": "小工具",
   "blog.admin.widgets_empty": "还没有配置小工具。",
   "blog.admin.widgets_subtitle": "侧栏小工具及其顺序。",
+  "blog.admin.widgets_render_hint": "已启用的小工具始终渲染；个人资料或分类/标签/系列没有数据时显示空状态，而不是整块消失。",
   "blog.admin.workspace": "博客工作台",
   "blog.admin.field_content": "内容",
   "blog.admin.field_location": "地点",

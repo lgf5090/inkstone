@@ -180,19 +180,20 @@ export function WidgetsPanel() {
             <h2 className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('blog.admin.sidebar_settings')}</h2>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
               <Checkbox checked={sidebar.enable} onChange={(enable) => void saveSidebar({ ...sidebar, enable })} label={t('blog.admin.sidebar_enable')} />
-              <Field label={t('blog.admin.sidebar_arrangement')}>
+              <Field label={t('blog.admin.sidebar_arrangement')} className="min-w-0">
                 <Select value={sidebar.arrangement} onChange={(event) => void saveSidebar({ ...sidebar, arrangement: event.target.value === 'dual' ? 'dual' : 'single' })}>
                   <option value="single">{t('blog.admin.sidebar_single')}</option>
                   <option value="dual">{t('blog.admin.sidebar_dual')}</option>
                 </Select>
               </Field>
-              <Field label={t('blog.admin.sidebar_side')}>
+              <Field label={t('blog.admin.sidebar_side')} className="min-w-0">
                 <Select value={sidebar.side} onChange={(event) => void saveSidebar({ ...sidebar, side: event.target.value === 'right' ? 'right' : 'left' })}>
                   <option value="left">{t('blog.admin.sidebar_left')}</option>
                   <option value="right">{t('blog.admin.sidebar_right')}</option>
                 </Select>
               </Field>
             </div>
+            <p className="mt-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">{t('blog.admin.widgets_render_hint')}</p>
           </AdminCard>
 
           <AdminCard className="overflow-hidden">
