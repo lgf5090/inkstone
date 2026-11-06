@@ -131,6 +131,24 @@ it('lets the browser compile the template interpreter, and nothing else', async 
   expect(scriptSrc).not.toContain("'unsafe-eval'")
 })
 
+it('narrows the Netease media sources to the music CDN labels', async () => {
+  const media = directive(await cspOf('http://localhost/robots.txt'), 'media-src')
+  expect(media).toContain('https://*.music.126.net')
+  expect(media).toContain('https://*.music.127.net')
+  expect(media).toContain('https://*.music.163.com')
+  // The previous policy named every 126.net, 127.net and 163.com host, which covered unrelated
+  // properties; the player and cover URLs only use the `music.*` labels.
+  expect(media).not.toContain('https://*.126.net')
+  expect(media).not.toContain('https://*.127.net')
+  expect(media).not.toContain('https://*.163.com')
+})
+
+it('keeps cookie-varying HTML out of the CDN cache by default', async () => {
+  const response = await fetchAuthorize(false)
+  expect(response.headers.get('content-type')).toContain('text/html')
+  expect(response.headers.get('Cache-Control')).toBe('no-store')
+})
+
 it('allows a sandboxed same-origin mail frame while refusing to be framed', async () => {
   const csp = await cspOf('http://localhost/robots.txt')
   expect(directive(csp, 'frame-src')).toContain("'self'")
