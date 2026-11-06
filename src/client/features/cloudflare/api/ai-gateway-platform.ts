@@ -144,6 +144,21 @@ function queryString(query: Record<string, string | number | undefined>): string
   return suffix ? `?${suffix}` : ''
 }
 
+export interface PlatformGatewayInput {
+  id?: string
+  cache_ttl?: number
+  cache_invalidate_on_update?: boolean
+  collect_logs?: boolean
+  rate_limiting_interval?: number
+  rate_limiting_limit?: number
+  rate_limiting_technique?: 'fixed' | 'sliding'
+  authentication?: boolean
+  byok_only?: boolean
+  retry_max_attempts?: number
+  retry_delay?: number
+  retry_backoff?: 'constant' | 'linear' | 'exponential'
+}
+
 export const aiGatewayPlatformApi = {
   gateways: (accountId: string, query: { search?: string; page?: number; perPage?: number } = {}) =>
     cfRequest<PlatformPage<PlatformGateway>>(
@@ -204,5 +219,40 @@ export const aiGatewayPlatformApi = {
   analytics: (accountId: string, gatewayId: string, days: number) =>
     cfRequest<PlatformAnalytics>(
       `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/gateways/${encodeURIComponent(gatewayId)}/analytics?days=${days}`,
+    ),
+  createGateway: (accountId: string, body: PlatformGatewayInput) =>
+    cfRequest<{ gateway: PlatformGateway }>(
+      `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/gateways`,
+      { method: 'POST', body },
+    ),
+  updateGateway: (accountId: string, gatewayId: string, body: PlatformGatewayInput) =>
+    cfRequest<{ gateway: PlatformGateway }>(
+      `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/gateways/${encodeURIComponent(gatewayId)}`,
+      { method: 'PUT', body },
+    ),
+  deleteGateway: (accountId: string, gatewayId: string) =>
+    cfRequest<{ deleted: boolean }>(
+      `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/gateways/${encodeURIComponent(gatewayId)}`,
+      { method: 'DELETE' },
+    ),
+  deleteRoute: (accountId: string, gatewayId: string, routeId: string) =>
+    cfRequest<{ deleted: boolean }>(
+      `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/gateways/${encodeURIComponent(gatewayId)}/routes/${encodeURIComponent(routeId)}`,
+      { method: 'DELETE' },
+    ),
+  createProviderConfig: (accountId: string, gatewayId: string, body: { alias: string; provider_slug: string; secret: string; default_config?: boolean }) =>
+    cfRequest<{ provider: PlatformProviderConfig }>(
+      `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/gateways/${encodeURIComponent(gatewayId)}/provider-configs`,
+      { method: 'POST', body },
+    ),
+  createSpendingLimit: (accountId: string, body: { amount: number; duration: 'daily' | 'weekly' | 'monthly'; strategy: 'fixed' | 'sliding' }) =>
+    cfRequest<{ limit: PlatformSpendingLimit }>(
+      `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/billing/spending-limit`,
+      { method: 'POST', body },
+    ),
+  clearSpendingLimit: (accountId: string) =>
+    cfRequest<{ deleted: boolean }>(
+      `/ai-gateway-platform/accounts/${encodeURIComponent(accountId)}/billing/spending-limit`,
+      { method: 'DELETE' },
     ),
 }

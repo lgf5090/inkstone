@@ -16,13 +16,20 @@ import type {
   LogGetResponse,
   LogListParams,
   LogListResponse,
+  ProviderConfigCreateParams,
+  ProviderConfigCreateResponse,
   ProviderConfigListResponse,
 } from 'cloudflare/resources/ai-gateway'
 import type {
+  AIGatewayCreateParams,
   AIGatewayGetResponse,
   AIGatewayListResponse,
+  AIGatewayUpdateParams,
 } from 'cloudflare/resources/ai-gateway/ai-gateway'
-import type { SpendingLimitGetResponse } from 'cloudflare/resources/ai-gateway/billing'
+import type {
+  SpendingLimitCreateParams,
+  SpendingLimitGetResponse,
+} from 'cloudflare/resources/ai-gateway/billing'
 
 export interface PlatformPage<T> {
   items: T[]
@@ -366,4 +373,90 @@ export async function getPlatformAnalytics(
       }))
       .filter((row) => row.label),
   }
+}
+
+function pathBody(params: object): Record<string, unknown> {
+  const { account_id, ...rest } = params as { account_id?: string }
+  void account_id
+  return rest as Record<string, unknown>
+}
+
+export async function createPlatformGateway(
+  auth: CloudflareAuth,
+  accountId: string,
+  body: AIGatewayCreateParams,
+): Promise<AIGatewayGetResponse> {
+  const result = await cfFetch<Envelope<AIGatewayGetResponse>>(auth, `${accountPath(accountId)}/gateways`, {
+    method: 'POST',
+    body: pathBody(body),
+  })
+  return result.result
+}
+
+export async function updatePlatformGateway(
+  auth: CloudflareAuth,
+  accountId: string,
+  gatewayId: string,
+  body: AIGatewayUpdateParams,
+): Promise<AIGatewayGetResponse> {
+  const result = await cfFetch<Envelope<AIGatewayGetResponse>>(auth, gatewayPath(accountId, gatewayId), {
+    method: 'PUT',
+    body: pathBody(body),
+  })
+  return result.result
+}
+
+export async function deletePlatformGateway(
+  auth: CloudflareAuth,
+  accountId: string,
+  gatewayId: string,
+): Promise<void> {
+  await cfFetch<Envelope<unknown>>(auth, gatewayPath(accountId, gatewayId), { method: 'DELETE' })
+}
+
+export async function deletePlatformRoute(
+  auth: CloudflareAuth,
+  accountId: string,
+  gatewayId: string,
+  routeId: string,
+): Promise<void> {
+  await cfFetch<{ success?: boolean }>(
+    auth,
+    `${gatewayPath(accountId, gatewayId)}/routes/${encodeURIComponent(routeId)}`,
+    { method: 'DELETE' },
+  )
+}
+
+export async function createPlatformProviderConfig(
+  auth: CloudflareAuth,
+  accountId: string,
+  gatewayId: string,
+  body: ProviderConfigCreateParams,
+): Promise<ProviderConfigCreateResponse> {
+  const result = await cfFetch<Envelope<ProviderConfigCreateResponse>>(
+    auth,
+    `${gatewayPath(accountId, gatewayId)}/provider_configs`,
+    { method: 'POST', body: pathBody(body) },
+  )
+  return result.result
+}
+
+export async function createPlatformSpendingLimit(
+  auth: CloudflareAuth,
+  accountId: string,
+  body: SpendingLimitCreateParams,
+): Promise<SpendingLimitGetResponse> {
+  const result = await cfFetch<Envelope<SpendingLimitGetResponse>>(
+    auth,
+    `${accountPath(accountId)}/billing/spending-limit`,
+    { method: 'POST', body: pathBody(body) },
+  )
+  return result.result
+}
+
+export async function deletePlatformSpendingLimit(
+  auth: CloudflareAuth,
+  accountId: string,
+): Promise<void> {
+  await cfFetch<Envelope<unknown>>(auth, `${accountPath(accountId)}/billing/spending-limit`, { method: 'DELETE' })
 }

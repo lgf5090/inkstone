@@ -4,11 +4,11 @@
  * handles a token.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ExternalLink, RefreshCw } from 'lucide-react'
+import { ExternalLink, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type { CloudflareAccount } from '@shared/cloudflare/model'
 import { LoadingBlock } from '../../../../components/feedback'
-import { Field, Input } from '../../../../components/form'
-import { Modal } from '../../../../components/overlay'
+import { Checkbox, Field, Input } from '../../../../components/form'
+import { Modal, confirm } from '../../../../components/overlay'
 import { Badge, Button } from '../../../../components/primitives'
 import { DatePicker } from '../../../../components/date-picker'
 import { SelectMenu } from '../../../../components/select-menu'
@@ -29,6 +29,7 @@ import {
   type PlatformSpendingLimit,
 } from '../../api/ai-gateway-platform'
 import { useCfT } from '../../i18n'
+import { useUi } from '../../../../store/ui'
 import { AiEmpty, AiError, AiPanel } from './AiPanel'
 import { Table, TableScroll, TBody, Td, Th, THead, Tr } from '../../components/Table'
 
@@ -105,6 +106,7 @@ function Pager({
 
 export function PlatformGatewayTab() {
   const t = useCfT()
+  const toast = useUi((state) => state.toast)
   const [accounts, setAccounts] = useState<CloudflareAccount[]>([])
   const [accountId, setAccountId] = useState('')
   const [search, setSearch] = useState('')
@@ -118,6 +120,13 @@ export function PlatformGatewayTab() {
   const [gatewayError, setGatewayError] = useState<string | null>(null)
   const [gatewayLoading, setGatewayLoading] = useState(false)
   const [section, setSection] = useState<Section>('overview')
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createBusy, setCreateBusy] = useState(false)
+  const [draftId, setDraftId] = useState('')
+  const [draftCache, setDraftCache] = useState('60')
+  const [draftInterval, setDraftInterval] = useState('0')
+  const [draftLimit, setDraftLimit] = useState('0')
+  const [draftLogs, setDraftLogs] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -179,6 +188,29 @@ export function PlatformGatewayTab() {
   const selectedAccount = accounts.find((account) => account.id === accountId) ?? null
   const cfAccountId = selectedAccount?.cf_account_id ?? ''
 
+  async function submitCreate(): Promise<void> {
+    if (!accountId || createBusy) return
+    setCreateBusy(true)
+    try {
+      const created = await aiGatewayPlatformApi.createGateway(accountId, {
+        id: draftId.trim(),
+        cache_ttl: Number(draftCache) || 0,
+        collect_logs: draftLogs,
+        rate_limiting_interval: Number(draftInterval) || 0,
+        rate_limiting_limit: Number(draftLimit) || 0,
+      })
+      toast({ title: t('cloudflare.ai_platform.created_toast', { id: created.gateway.id }), tone: 'success' })
+      setCreateOpen(false)
+      setDraftId('')
+      setGatewayId(created.gateway.id)
+      setReload((value) => value + 1)
+    } catch (error) {
+      toast({ title: permissionText(error, t('cloudflare.ai_platform.plan_unsupported')), tone: 'danger' })
+    } finally {
+      setCreateBusy(false)
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-4">
       <header className="flex flex-wrap items-start justify-between gap-2">
@@ -203,6 +235,10 @@ export function PlatformGatewayTab() {
           <Button size="sm" variant="secondary" onClick={() => setReload((value) => value + 1)}>
             <RefreshCw aria-hidden="true" className="mr-1 size-3.5" />
             {t('cloudflare.ai_platform.refresh')}
+          </Button>
+          <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!accountId}>
+            <Plus aria-hidden="true" className="mr-1 size-3.5" />
+            {t('cloudflare.ai_platform.create_gateway')}
           </Button>
         </div>
       </header>
@@ -296,7 +332,7 @@ export function PlatformGatewayTab() {
                     )
                   })}
                 </nav>
-                {section === 'overview' ? <OverviewSection accountId={accountId} gateway={gateway} cfAccountId={cfAccountId} /> : null}
+                {section === 'overview' ? <OverviewSection accountId={accountId} gateway={gateway} cfAccountId={cfAccountId} onChanged={() => setReload((value) => value + 1)} /> : null}
                 {section === 'logs' ? <LogsSection accountId={accountId} gatewayId={gateway.id} /> : null}
                 {section === 'routing' ? <RoutingSection accountId={accountId} gatewayId={gateway.id} cfAccountId={cfAccountId} /> : null}
                 {section === 'providers' ? <ProvidersSection accountId={accountId} gatewayId={gateway.id} /> : null}
@@ -308,15 +344,110 @@ export function PlatformGatewayTab() {
           </div>
         </div>
       )}
+      <Modal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title={t('cloudflare.ai_platform.create_gateway')}
+        width={560}
+        footer={(
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setCreateOpen(false)}>{t('cloudflare.ai_platform.cancel')}</Button>
+            <Button onClick={() => { void submitCreate() }} disabled={createBusy || !draftId.trim()}>
+              {createBusy ? t('cloudflare.ai_platform.saving') : t('cloudflare.ai_platform.save')}
+            </Button>
+          </div>
+        )}
+      >
+        <div className="space-y-3">
+          <Field label={t('cloudflare.ai_platform.gateway_id')}>
+            <Input value={draftId} onChange={(event) => setDraftId(event.target.value)} placeholder="parity-panel-verify" />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label={t('cloudflare.ai_platform.cache_ttl')}>
+              <Input type="number" min={0} value={draftCache} onChange={(event) => setDraftCache(event.target.value)} />
+            </Field>
+            <Field label={t('cloudflare.ai_platform.rate_interval')}>
+              <Input type="number" min={0} value={draftInterval} onChange={(event) => setDraftInterval(event.target.value)} />
+            </Field>
+            <Field label={t('cloudflare.ai_platform.rate_limit')}>
+              <Input type="number" min={0} value={draftLimit} onChange={(event) => setDraftLimit(event.target.value)} />
+            </Field>
+          </div>
+          <Checkbox checked={draftLogs} onChange={setDraftLogs} label={t('cloudflare.ai_platform.collect_logs')} />
+        </div>
+      </Modal>
     </div>
   )
 }
 
-function OverviewSection({ accountId, gateway, cfAccountId }: { accountId: string; gateway: PlatformGateway; cfAccountId: string }) {
+function OverviewSection({ accountId, gateway, cfAccountId, onChanged }: {
+  accountId: string
+  gateway: PlatformGateway
+  cfAccountId: string
+  onChanged: () => void
+}) {
   const t = useCfT()
+  const toast = useUi((state) => state.toast)
   const [provider, setProvider] = useState('workers-ai')
   const [endpoint, setEndpoint] = useState('')
   const [endpointError, setEndpointError] = useState<string | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [cache, setCache] = useState('0')
+  const [interval, setIntervalValue] = useState('0')
+  const [limit, setLimit] = useState('0')
+  const [attempts, setAttempts] = useState('0')
+  const [delay, setDelay] = useState('0')
+  const [collect, setCollect] = useState(true)
+
+  function openEdit(): void {
+    setCache(String(gateway.cache_ttl ?? 0))
+    setIntervalValue(String(gateway.rate_limiting_interval ?? 0))
+    setLimit(String(gateway.rate_limiting_limit ?? 0))
+    setAttempts(String(gateway.retry_max_attempts ?? 0))
+    setDelay(String(gateway.retry_delay ?? 0))
+    setCollect(gateway.collect_logs)
+    setEditOpen(true)
+  }
+
+  async function submitEdit(): Promise<void> {
+    if (busy) return
+    setBusy(true)
+    try {
+      await aiGatewayPlatformApi.updateGateway(accountId, gateway.id, {
+        cache_ttl: Number(cache) || 0,
+        rate_limiting_interval: Number(interval) || 0,
+        rate_limiting_limit: Number(limit) || 0,
+        retry_max_attempts: Number(attempts) || undefined,
+        retry_delay: Number(delay) || undefined,
+        collect_logs: collect,
+      })
+      toast({ title: t('cloudflare.ai_platform.updated_toast'), tone: 'success' })
+      setEditOpen(false)
+      onChanged()
+    } catch (error) {
+      toast({ title: permissionText(error, t('cloudflare.ai_platform.plan_unsupported')), tone: 'danger' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeGateway(): Promise<void> {
+    const accepted = await confirm({
+      title: t('cloudflare.ai_platform.delete_gateway'),
+      description: t('cloudflare.ai_platform.delete_gateway_hint', { id: gateway.id }),
+      confirmLabel: t('cloudflare.ai_platform.delete'),
+      tone: 'danger',
+    })
+    if (!accepted) return
+    try {
+      await aiGatewayPlatformApi.deleteGateway(accountId, gateway.id)
+      toast({ title: t('cloudflare.ai_platform.deleted_toast'), tone: 'success' })
+      onChanged()
+    } catch (error) {
+      toast({ title: permissionText(error, t('cloudflare.ai_platform.plan_unsupported')), tone: 'danger' })
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -338,7 +469,23 @@ function OverviewSection({ accountId, gateway, cfAccountId }: { accountId: strin
   ]
 
   return (
-    <AiPanel title={t('cloudflare.ai_platform.section_overview')} bodyClassName="space-y-3">
+    <>
+    <AiPanel
+      title={t('cloudflare.ai_platform.section_overview')}
+      actions={(
+        <span className="flex items-center gap-1">
+          <Button size="sm" variant="secondary" onClick={openEdit}>
+            <Pencil aria-hidden="true" className="mr-1 size-3.5" />
+            {t('cloudflare.ai_platform.edit')}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => { void removeGateway() }}>
+            <Trash2 aria-hidden="true" className="mr-1 size-3.5" />
+            {t('cloudflare.ai_platform.delete')}
+          </Button>
+        </span>
+      )}
+      bodyClassName="space-y-3"
+    >
       <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <GatewayField label={t('cloudflare.ai_platform.gateway_id')}>{gateway.id}</GatewayField>
         <GatewayField label={t('cloudflare.ai_platform.created')}>{when(gateway.created_at)}</GatewayField>
@@ -398,6 +545,42 @@ function OverviewSection({ accountId, gateway, cfAccountId }: { accountId: strin
       </div>
       {cfAccountId ? null : <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('cloudflare.ai_platform.no_cf_account_id')}</p>}
     </AiPanel>
+    <Modal
+      open={editOpen}
+      onClose={() => setEditOpen(false)}
+      title={t('cloudflare.ai_platform.edit_gateway')}
+      width={560}
+      footer={(
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setEditOpen(false)}>{t('cloudflare.ai_platform.cancel')}</Button>
+          <Button onClick={() => { void submitEdit() }} disabled={busy}>
+            {busy ? t('cloudflare.ai_platform.saving') : t('cloudflare.ai_platform.save')}
+          </Button>
+        </div>
+      )}
+    >
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label={t('cloudflare.ai_platform.cache_ttl')}>
+            <Input type="number" min={0} value={cache} onChange={(event) => setCache(event.target.value)} />
+          </Field>
+          <Field label={t('cloudflare.ai_platform.rate_interval')}>
+            <Input type="number" min={0} value={interval} onChange={(event) => setIntervalValue(event.target.value)} />
+          </Field>
+          <Field label={t('cloudflare.ai_platform.rate_limit')}>
+            <Input type="number" min={0} value={limit} onChange={(event) => setLimit(event.target.value)} />
+          </Field>
+          <Field label={t('cloudflare.ai_platform.retry_attempts')}>
+            <Input type="number" min={0} max={5} value={attempts} onChange={(event) => setAttempts(event.target.value)} />
+          </Field>
+          <Field label={t('cloudflare.ai_platform.retry_delay')}>
+            <Input type="number" min={0} max={60000} value={delay} onChange={(event) => setDelay(event.target.value)} />
+          </Field>
+        </div>
+        <Checkbox checked={collect} onChange={setCollect} label={t('cloudflare.ai_platform.collect_logs')} />
+      </div>
+    </Modal>
+    </>
   )
 }
 
@@ -590,10 +773,28 @@ function LogDetail({ accountId, gatewayId, log }: { accountId: string; gatewayId
 
 function RoutingSection({ accountId, gatewayId, cfAccountId }: { accountId: string; gatewayId: string; cfAccountId: string }) {
   const t = useCfT()
+  const toast = useUi((state) => state.toast)
   const [routes, setRoutes] = useState<PlatformRoute[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [openRoute, setOpenRoute] = useState<PlatformRoute | null>(null)
+
+  async function removeRoute(route: PlatformRoute): Promise<void> {
+    const accepted = await confirm({
+      title: t('cloudflare.ai_platform.delete_route'),
+      description: t('cloudflare.ai_platform.delete_route_hint', { name: route.name || route.id }),
+      confirmLabel: t('cloudflare.ai_platform.delete'),
+      tone: 'danger',
+    })
+    if (!accepted) return
+    try {
+      await aiGatewayPlatformApi.deleteRoute(accountId, gatewayId, route.id)
+      toast({ title: t('cloudflare.ai_platform.deleted_toast'), tone: 'success' })
+      setRoutes((current) => current.filter((item) => item.id !== route.id))
+    } catch (reason) {
+      toast({ title: permissionText(reason, t('cloudflare.ai_platform.plan_unsupported')), tone: 'danger' })
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -640,6 +841,7 @@ function RoutingSection({ accountId, gatewayId, cfAccountId }: { accountId: stri
                 <Th>{t('cloudflare.ai_platform.routing_route')}</Th>
                 <Th>{t('cloudflare.ai_platform.modified')}</Th>
                 <Th>{t('cloudflare.ai_platform.routing_active')}</Th>
+                <Th>{t('cloudflare.ai_platform.actions')}</Th>
               </Tr>
             </THead>
             <TBody>
@@ -652,6 +854,12 @@ function RoutingSection({ accountId, gatewayId, cfAccountId }: { accountId: stri
                   </Td>
                   <Td>{when(route.modified_at)}</Td>
                   <Td>{route.deployment?.version_id ? <Badge tone="success">{route.deployment.version_id.slice(0, 8)}</Badge> : '—'}</Td>
+                  <Td>
+                    <Button size="sm" variant="secondary" onClick={() => { void removeRoute(route) }}>
+                      <Trash2 aria-hidden="true" className="mr-1 size-3.5" />
+                      {t('cloudflare.ai_platform.delete')}
+                    </Button>
+                  </Td>
                 </Tr>
               ))}
             </TBody>
@@ -730,9 +938,16 @@ function RouteDetail({ accountId, gatewayId, route }: { accountId: string; gatew
 
 function ProvidersSection({ accountId, gatewayId }: { accountId: string; gatewayId: string }) {
   const t = useCfT()
+  const toast = useUi((state) => state.toast)
   const [result, setResult] = useState<PlatformPage<PlatformProviderConfig> | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [reload, setReload] = useState(0)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [alias, setAlias] = useState('')
+  const [slug, setSlug] = useState('openai')
+  const [secret, setSecret] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -746,10 +961,41 @@ function ProvidersSection({ accountId, gatewayId }: { accountId: string; gateway
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [accountId, gatewayId, t])
+  }, [accountId, gatewayId, reload, t])
+
+  async function createProvider(): Promise<void> {
+    if (busy || !alias.trim() || !slug.trim() || !secret.trim()) return
+    setBusy(true)
+    try {
+      await aiGatewayPlatformApi.createProviderConfig(accountId, gatewayId, {
+        alias: alias.trim(),
+        provider_slug: slug.trim(),
+        secret: secret.trim(),
+      })
+      toast({ title: t('cloudflare.ai_platform.provider_created'), tone: 'success' })
+      setCreateOpen(false)
+      setAlias('')
+      setSecret('')
+      setReload((value) => value + 1)
+    } catch (reason) {
+      toast({ title: permissionText(reason, t('cloudflare.ai_platform.plan_unsupported')), tone: 'danger' })
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
-    <AiPanel title={t('cloudflare.ai_platform.section_providers')} bodyClassName="space-y-3">
+    <>
+    <AiPanel
+      title={t('cloudflare.ai_platform.section_providers')}
+      actions={(
+        <Button size="sm" variant="secondary" onClick={() => setCreateOpen(true)}>
+          <Plus aria-hidden="true" className="mr-1 size-3.5" />
+          {t('cloudflare.ai_platform.provider_create')}
+        </Button>
+      )}
+      bodyClassName="space-y-3"
+    >
       {loading ? <LoadingBlock label={t('cloudflare.ai_platform.loading')} /> : null}
       {error ? <AiError message={error} /> : null}
       {!loading && !error && result && result.items.length === 0 ? (
@@ -785,14 +1031,43 @@ function ProvidersSection({ accountId, gatewayId }: { accountId: string; gateway
       ) : null}
       <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('cloudflare.ai_platform.providers_no_delete')}</p>
     </AiPanel>
+    <Modal
+      open={createOpen}
+      onClose={() => setCreateOpen(false)}
+      title={t('cloudflare.ai_platform.provider_create')}
+      width={520}
+      footer={(
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setCreateOpen(false)}>{t('cloudflare.ai_platform.cancel')}</Button>
+          <Button onClick={() => { void createProvider() }} disabled={busy || !alias.trim() || !secret.trim()}>
+            {busy ? t('cloudflare.ai_platform.saving') : t('cloudflare.ai_platform.save')}
+          </Button>
+        </div>
+      )}
+    >
+      <div className="space-y-3">
+        <Field label={t('cloudflare.ai_platform.providers_alias')}>
+          <Input value={alias} onChange={(event) => setAlias(event.target.value)} placeholder="openai-main" />
+        </Field>
+        <Field label={t('cloudflare.ai_platform.providers_slug')}>
+          <Input value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="openai" />
+        </Field>
+        <Field label={t('cloudflare.ai_platform.providers_secret')} hint={t('cloudflare.ai_platform.providers_no_delete')}>
+          <Input type="password" value={secret} onChange={(event) => setSecret(event.target.value)} />
+        </Field>
+      </div>
+    </Modal>
+    </>
   )
 }
 
 function BillingSection({ accountId }: { accountId: string }) {
   const t = useCfT()
+  const toast = useUi((state) => state.toast)
   const [limit, setLimit] = useState<PlatformSpendingLimit | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -806,25 +1081,45 @@ function BillingSection({ accountId }: { accountId: string }) {
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [accountId, t])
+  }, [accountId, reload, t])
+
+  async function clearLimit(): Promise<void> {
+    const accepted = await confirm({
+      title: t('cloudflare.ai_platform.billing_clear'),
+      description: t('cloudflare.ai_platform.billing_clear_hint'),
+      confirmLabel: t('cloudflare.ai_platform.delete'),
+      tone: 'danger',
+    })
+    if (!accepted) return
+    try {
+      await aiGatewayPlatformApi.clearSpendingLimit(accountId)
+      toast({ title: t('cloudflare.ai_platform.limit_cleared'), tone: 'success' })
+      setReload((value) => value + 1)
+    } catch (reason) {
+      toast({ title: permissionText(reason, t('cloudflare.ai_platform.plan_unsupported')), tone: 'danger' })
+    }
+  }
 
   return (
-    <AiPanel title={t('cloudflare.ai_platform.section_billing')} bodyClassName="space-y-2">
+    <AiPanel title={t('cloudflare.ai_platform.section_billing')} bodyClassName="space-y-3">
       {loading ? <LoadingBlock label={t('cloudflare.ai_platform.loading')} /> : null}
       {error ? <AiError message={error} /> : null}
       {!loading && !error && limit ? (
         limit.enabled ? (
-          <p className="text-[length:var(--text-12-5)] text-[var(--text-primary)]">
+          <p className="flex flex-wrap items-center gap-2 text-[length:var(--text-12-5)] text-[var(--text-primary)]">
+            <Badge tone="success">{t('cloudflare.ai_platform.billing_enabled')}</Badge>
             {t('cloudflare.ai_platform.billing_amount', {
               amount: limit.config.amount ?? 0,
               duration: limit.config.duration ?? '—',
               strategy: limit.config.strategy ?? '—',
             })}
+            <Button size="sm" variant="secondary" onClick={() => { void clearLimit() }}>{t('cloudflare.ai_platform.billing_clear')}</Button>
           </p>
         ) : (
           <p className="text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">{t('cloudflare.ai_platform.billing_disabled')}</p>
         )
       ) : null}
+      <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('cloudflare.ai_platform.billing_deprecated')}</p>
       <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('cloudflare.ai_platform.billing_note')}</p>
     </AiPanel>
   )
