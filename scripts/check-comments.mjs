@@ -114,6 +114,14 @@ const allowed = new Map([
     "// `tCount` builds its key from a base plus the plural arm, so the base it is handed has to register",
     "// both arms — otherwise the gate reads a pluralised message as two unreferenced keys and the honest",
     "// fix would be to stop pluralising.",
+    "// Prompt Optimizer's image-understanding vocabulary: the Chinese branch is model input for the",
+    "// Chinese template edition, mirroring the reference project's own prompt data.",
+    "// The optimizer's global stable prefix: its few-shot pair is model input, in the source prompt's",
+    "// language, not interface copy.",
+    "// Ported prompt-template data: the Chinese editions are model input, not interface copy. They live",
+    "// under their own directory so this exemption cannot widen to application code.",
+    "// Structured compare guidance, role names and subject labels are model input for each template",
+    "// edition, matching the reference project's prompt copy rather than the interface.",
   ]],
   ["scripts/e2e.mjs", [
     "// The route counts the body while it streams, under a ceiling of 25 MiB plus a 512 KiB form",
@@ -18463,6 +18471,7 @@ const allowed = new Map([
     "// has to land on the module the address names, and the next visit starts from what the URL says.",
     "/* Seventh submodule: Compare (tools/compare) */",
     "/* Eighth submodule: Network Panel (tools/network_panel) */",
+    "/* Ninth submodule: Prompt Optimizer (tools/prompt_optimizer) */",
   ]],
   ["src/client/features/tools/calculator/api.ts", [
     "// The status is still a usable message when the body is not JSON.",
@@ -19684,6 +19693,68 @@ const allowed = new Map([
     "/** RFC 4648 base32, which is what every authenticator app exports. */",
     "/**\n * The secret a user pastes may be bare base32 or a whole `otpauth://` URI.\n *\n * People copy whichever their provider shows them, and rejecting the URI form because it is not the\n * bare secret is a failure with no explanation. Spaces and dashes are how some providers group the\n * characters; they are not part of the secret.\n */",
     "/** RFC 6238 / RFC 4226: HMAC-SHA1 over the 8-byte time step, then dynamic truncation. */",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/PromptOptimizerApp.tsx", [
+    "/**\n * The Prompt Optimizer container.\n *\n * It owns the address-to-view reading, the one-time hydration and the modal that settles a draft\n * conflict; each screen below it owns its own layout.\n */",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/api.ts", [
+    "/**\n * Client for `/api/tools/prompt-optimizer/*`.\n */",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/components/TemplateEditor.tsx", [
+    "/**\n * The template editor surface.\n *\n * A builtin template is prompt text with `{{name}}` placeholders, so the editor is CodeMirror rather\n * than a plain textarea: it gets line numbers, undo history and a mark on every placeholder. The\n * decoration is a view plugin over the same regex the renderer's variables use, not a new parser.\n */",
+    "// The editor is created once; external value changes are applied by the effect below.",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/modals/ContextModal.tsx", [
+    "/**\n * Saved conversation contexts for the multi-message workspace.\n */",
+    "// A context carries variable overrides; apply them in memory so optimization uses them without",
+    "// overwriting the user's saved global values.",
+    "// The package records which conversation family it came from; restore that workspace before",
+    "// applying its messages, otherwise a user-mode package lands in the system workspace.",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/modals/SaveFavoriteModal.tsx", [
+    "/**\n * Saves the current workspace result as a favorite, with the taxonomy the library filters by.\n */",
+    "// The current evaluation only covers the first group; attach it there so other",
+    "// examples do not inherit a score that was never computed for their input.",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/modals/VariablesModal.tsx", [
+    "/**\n * The variable library: add, edit, delete, import and export the values that fill `{{name}}`.\n */",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/panels/ToolsPanel.tsx", [
+    "/**\n * Tool definitions for function-calling tests in the multi-message workspace.\n */",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/store.ts", [
+    "/**\n * Client state for the Prompt Optimizer.\n *\n * A workspace is a draft: prompt text, the result, its chain, the test cases and the evaluation. Drafts\n * are persisted per workspace with an optimistic revision so a second tab cannot silently overwrite the\n * first one's edits.\n */",
+    "// Plain text, which is what the API returns when the request never reached the router.",
+    "// Stats are a convenience; a failure must not interrupt the editor.",
+    "// A caller-supplied override (favorite reuse, history open) must win over the persisted",
+    "// session and be written back immediately, otherwise the next workspace load replaces it.",
+    "// Remember the per-workspace template/model choice so a fresh browser restores it even before",
+    "// the workspace session arrives.",
+    "// The draft itself is persisted; a failed default selection must not interrupt editing.",
+    "// Defined variables become their real values in the text the model reads; an undefined",
+    "// placeholder stays literal so the reader can see what is still missing.",
+    "/** Baseline is the reference run; candidate is what the current prompt produces. */",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/views/ArenaView.tsx", [
+    "/**\n * The arena: one prompt, several models, side-by-side answers.\n */",
+    "// A saved arena that cannot be read is simply an empty one; the next run writes a fresh state.",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/views/FavoritesView.tsx", [
+    "/**\n * The favorites library: a searchable shelf of prompts, their versions and their examples.\n */",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/views/HistoryView.tsx", [
+    "/**\n * The history shelf: every optimization chain, its versions, and the way back into the workspace.\n */",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/views/SettingsView.tsx", [
+    "/**\n * Tool settings: which model answers, how drafts behave, and the data lifecycle.\n */",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/views/TemplatesView.tsx", [
+    "/**\n * The template library: the ported builtin catalogue, read-only, beside the reader's own templates.\n */",
+    "// Malformed JSON keeps the dialog open.",
+    "// The summary is still readable when the full body cannot be fetched.",
+  ]],
+  ["src/client/features/tools/prompt-optimizer/views/WorkspaceView.tsx", [
+    "/**\n * One prompt workspace: the editor, its result, the test bench and the evaluation.\n *\n * The screen is shared by the system, user, variable and image modes; only the editor shape and the\n * template type change, so one implementation keeps the shortcuts and the evaluation identical.\n */",
   ]],
   ["src/client/features/tools/qrcode/ImageDropZone.tsx", [
     "/**\n * A file picker with the two other ways people actually get an image here: dropping it, and pasting it\n * (the page-level paste listener lives with the view that owns the result).\n *\n * The drop target is a container, not the control: the clickable affordance is the button below, so a\n * keyboard reaches it and a screen reader announces a button rather than an area that happens to answer\n * clicks.\n */",
@@ -33686,6 +33757,27 @@ const allowed = new Map([
     "/** Sealed TOTP secret (base32) or '' when the account has none. */",
     "/** Write-only: the server never returns the stored secret, only whether one exists. */",
   ]],
+  ["src/shared/tools/prompt-optimizer/builtin-templates.ts", [
+    "/**\n * The built-in prompt templates, ported verbatim from the reference project.\n *\n * The reference stores them as TypeScript modules under\n * `packages/core/src/services/template/default-templates`. They are data, not code, so each template\n * family lives in its own JSON file under `./builtin/`; a reviewer diffs one family at a time instead\n * of scrolling a one-megabyte line, and the module below only concatenates them.\n *\n * Copyright (C) 2025 linshenkx (prompt-optimizer, AGPL-3.0-only); see NOTICE.\n */",
+  ]],
+  ["src/shared/tools/prompt-optimizer/builtin.ts", [
+    "/**\n * Lookup helpers over the ported builtin template table.\n *\n * Ids repeat across languages on purpose (the reference writes the Chinese and English editions under\n * one id), so every lookup takes a language and answers with one edition.\n */",
+  ]],
+  ["src/shared/tools/prompt-optimizer/schemas.ts", [
+    "/**\n * Zod request schemas for the Prompt Optimizer module.\n *\n * Every field the client sends crosses this boundary; the server never trusts a workspace name, a\n * template id or an asset id it has not validated here.\n */",
+  ]],
+  ["src/shared/tools/prompt-optimizer/template-render.ts", [
+    "/**\n * The Mustache subset the ported builtin templates use.\n *\n * Porting a hundred templates means porting the syntax they are written in: interpolation, sections,\n * inverted sections, dotted names, the current item, delimiter switches and one lambda helper. A\n * full library is not added for this; the subset is small, the templates are trusted data, and the\n * renderer never sees reader input as a template.\n */",
+    "// Mustache resolves the first segment against the whole context stack, so a section item can still",
+    "// reach root-level helpers (e.g. `{{#items}}{{#helpers.toJson}}{{{label}}}{{/helpers.toJson}}{{/items}}`).",
+  ]],
+  ["src/shared/tools/prompt-optimizer/types.ts", [
+    "/**\n * Shared contracts for the Prompt Optimizer tool (`tools/PromptOptimizer`).\n *\n * The shapes mirror the reference project's core records so a ported template or history entry means\n * the same thing here, while identifiers and storage stay scoped to this module.\n */",
+    "/** Present only on rows read from the database, where the reader owns the template. */",
+  ]],
+  ["src/shared/tools/prompt-optimizer/variables.ts", [
+    "/**\n * Variable syntax shared by the editor, the request builders and the server.\n *\n * A variable is `{{name}}`; the same spelling inside a template is a Mustache tag, so recognizing one\n * here and substituting one there cannot drift apart.\n */",
+  ]],
   ["src/shared/tools/qrcode/schemas.ts", [
     "/**\n * Colours reach canvas `fillStyle` and SVG attributes. Anything carrying a quote, an angle bracket or\n * a backslash would let a saved config close an attribute and write one of its own into the exported\n * SVG, so accepted shapes are listed rather than dangerous characters excluded.\n */",
     "/** A logo is embedded or same-origin: a saved config must not make the reader fetch a third-party host. */",
@@ -39333,6 +39425,8 @@ const allowed = new Map([
     "// The network panel is a new surface: three tables, none of them changing a table an older",
     "// database already has, so this version states them as they are. They are also in",
     "// `SCHEMA_STATEMENTS` for a fresh database, where `IF NOT EXISTS` makes running them here harmless.",
+    "// The prompt optimizer's own tables. Nothing here alters a table an older database has, and every",
+    "// statement is idempotent, so a fresh install and a database already past this number agree.",
     "// Preview links need to be listed newest first, so the row records when it was minted. The column",
     "// is declared on the table above too; an existing database gets it here, guarded so a fresh one",
     "// records the version without re-adding it.",
@@ -39964,6 +40058,7 @@ const allowed = new Map([
     "// The to-do read switch withholds the scope itself rather than inventing a second refusal: a key",
     "// minted before the switch, or before the account turned it off, is answered exactly as a key that",
     "// never carried `todos:read`. Notes keep their own premise — reads are what that endpoint is for.",
+    "/**\n * The prompt optimizer's three tools, the same three names the reference MCP server publishes.\n */",
   ]],
   ["src/worker/mcp/settings.ts", [
     "/**\n * Every MCP HTTP request needs the switch, and the endpoint is hit once per tool call, so the\n * single-key read is memoized per isolate. Flipping the switch in this isolate drops the entry\n * immediately; another isolate converges within the window.\n */",
@@ -42315,6 +42410,12 @@ const allowed = new Map([
     "// A plaintext password dump must not be retained by a browser or a shared cache, and it is",
     "// offered as a download rather than rendered in the tab.",
   ]],
+  ["src/worker/routes/tools-prompt-optimizer.ts", [
+    "/**\n * Prompt Optimizer API (`/api/tools/prompt-optimizer/*`).\n *\n * The route adapts HTTP, validates with the shared schemas, and hands the work to the store or the AI\n * service. It never talks to a provider directly and never trusts an id without binding `user_id`.\n */",
+    "// The reader disconnected first.",
+    "// The shared request helper only surfaces `error.details`, so the conflict payload rides there",
+    "// rather than under `data` where the client can never read a 409 body.",
+  ]],
   ["src/worker/routes/tools-qrcode.ts", [
     "/** Comfortable for a design session; a scripted loop against the store is not. */",
     "/** A QR raster is tens of kilobytes; this is a brake on payloads that would not fit an isolate. */",
@@ -43643,6 +43744,34 @@ const allowed = new Map([
   ]],
   ["src/worker/tools/password/verify.ts", [
     "/**\n * Checks a candidate master password against the stored verifier.\n *\n * The verifier is a bcrypt digest produced by the client when the vault was created (or last\n * reset), so the server can answer \"is this the master password\" without ever learning the key the\n * vault is encrypted with. A malformed or missing digest answers false instead of throwing, because\n * the only caller turns a negative answer into a 401 either way.\n */",
+  ]],
+  ["src/worker/tools/prompt-optimizer/ai.ts", [
+    "/**\n * The Prompt Optimizer's model calls.\n *\n * The module owns prompt assembly and interpretation; the account's model catalogue, keys, request\n * ceiling and metering stay in the assistant store. A call here is therefore the same kind of spend as\n * a chat turn, with the same daily ceiling and the same per-model counters.\n */",
+    "/**\n * Reads a reference image and turns it into a structured image prompt.\n *\n * The reference project calls this `ImageStyleExtractor`; it is a vision call over the\n * `image-prompt-composition` / `image-prompt-migration` templates, not a text optimization.\n */",
+    "// The wire emits tool results from the assistant turn's calls, so attach the result there",
+    "// instead of degrading the tool message into a user turn.",
+    "// The reference project turns an evaluation into iterate input rather than calling a dedicated",
+    "// rewrite model; the workspace's own iterate template (imageIterate / contextIterate / iterate) is",
+    "// what applies the feedback to the current prompt.",
+    "// Structured compare is two-stage: one pair judge per snapshot pair, then a synthesis pass.",
+    "// Both stages use their own builtin templates, so the candidate evidence actually reaches the model.",
+    "// OpenAI's wire needs the assistant turn's calls followed by one tool message per call id; the",
+    "// result's text belongs to the tool message, not to a user turn.",
+  ]],
+  ["src/worker/tools/prompt-optimizer/assets.ts", [
+    "/**\n * R2-backed pictures for the Prompt Optimizer.\n *\n * Uploads arrive as data URLs from the browser and are re-typed from their own bytes, not from the\n * claimed MIME. Reads go through an authenticated route keyed by `user_id`, never a raw object key.\n */",
+  ]],
+  ["src/worker/tools/prompt-optimizer/export.ts", [
+    "/**\n * R2 snapshot files for the Prompt Optimizer.\n *\n * A backup is the module's own export JSON under `tools/PromptOptimizer/backup/{userId}/{id}.json`,\n * and a download is the same document under `txt/` or `json/`. Files are read back through the store\n * row, never by a key the browser supplies.\n */",
+    "// Older backups stored chains; keep rendering them rather than dropping the section.",
+  ]],
+  ["src/worker/tools/prompt-optimizer/schema.ts", [
+    "/**\n * D1 statements and invariants for the Prompt Optimizer (`tools_PromptOptimizer_*`).\n *\n * Every table carries `user_id` and every query in the store binds it. Rows that a reader edits are\n * keyed by `(user_id, id)`, so an id from another account can never address this account's row.\n */",
+  ]],
+  ["src/worker/tools/prompt-optimizer/store.ts", [
+    "/**\n * D1 persistence for the Prompt Optimizer, scoped by `user_id` on every statement.\n *\n * The store owns SQL and row shapes; deciding what an optimization means belongs in `ai.ts`, and\n * HTTP shapes belong in the route. Nothing here reads a model or calls a provider.\n */",
+    "// One D1 batch is one transaction: a rejected row rolls the whole restore back instead of leaving",
+    "// a half-imported account behind.",
   ]],
   ["src/worker/tools/shortlinks/analytics.ts", [
     "/**\n * Time series analytics, bucket filling, delta computation, and statistics helpers.\n */",
@@ -49518,6 +49647,9 @@ const allowed = new Map([
     "// The hint held the first three characters under a key that shipped in the bundle.",
     "// The implementation, not the interface declaration above it.",
     "// The reset must not be reachable with a session alone.",
+  ]],
+  ["tests/tools-prompt-optimizer-api.test.ts", [
+    "// One edition per id: the catalogue carries both languages, the route answers with the current one.",
   ]],
   ["tests/tools-qrcode-a11y.test.tsx", [
     "// The hand-rolled version had no key handling at all and left every tab in the tab order.",
