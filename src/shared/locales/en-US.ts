@@ -165,6 +165,7 @@ const CORE_MESSAGES = {
     "app.meta_description": "A private, self-hosted Markdown notebook built on Cloudflare.",
     "api.error.bad_request": "The request is invalid",
     "api.error.cloudflare_not_configured": "This Cloudflare account is missing its credentials",
+    "api.error.cloudflare_credential_refused": "Cloudflare refused this credential",
     "api.error.cloudflare_quota_exceeded": "Every Cloudflare account has reached its daily allowance",
     "api.error.cloudflare_upstream": "Cloudflare could not complete the request",
     "api.error.conflict": "This content was changed elsewhere. Refresh and try again",

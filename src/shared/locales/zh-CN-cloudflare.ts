@@ -7,6 +7,7 @@
 import { ZH_CN_CLOUDFLARE_ACCOUNTS } from './zh-CN-cloudflare-accounts'
 import { ZH_CN_CLOUDFLARE_DASHBOARD } from './zh-CN-cloudflare-dashboard'
 import { ZH_CN_CLOUDFLARE_DNS } from './zh-CN-cloudflare-dns'
+import { ZH_CN_CLOUDFLARE_NETWORK } from './zh-CN-cloudflare-network'
 import { ZH_CN_CLOUDFLARE_WORKERS } from './zh-CN-cloudflare-workers'
 import { ZH_CN_CLOUDFLARE_STORAGE } from './zh-CN-cloudflare-storage'
 import { ZH_CN_CLOUDFLARE_TUNNELS } from './zh-CN-cloudflare-tunnels'
@@ -19,6 +20,7 @@ export const ZH_CN_CLOUDFLARE = {
   ...ZH_CN_CLOUDFLARE_ACCOUNTS,
   ...ZH_CN_CLOUDFLARE_DASHBOARD,
   ...ZH_CN_CLOUDFLARE_DNS,
+  ...ZH_CN_CLOUDFLARE_NETWORK,
   ...ZH_CN_CLOUDFLARE_WORKERS,
   ...ZH_CN_CLOUDFLARE_STORAGE,
   ...ZH_CN_CLOUDFLARE_TUNNELS,

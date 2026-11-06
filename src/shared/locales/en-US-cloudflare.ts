@@ -7,6 +7,7 @@
 import { EN_US_CLOUDFLARE_ACCOUNTS } from './en-US-cloudflare-accounts'
 import { EN_US_CLOUDFLARE_DASHBOARD } from './en-US-cloudflare-dashboard'
 import { EN_US_CLOUDFLARE_DNS } from './en-US-cloudflare-dns'
+import { EN_US_CLOUDFLARE_NETWORK } from './en-US-cloudflare-network'
 import { EN_US_CLOUDFLARE_WORKERS } from './en-US-cloudflare-workers'
 import { EN_US_CLOUDFLARE_STORAGE } from './en-US-cloudflare-storage'
 import { EN_US_CLOUDFLARE_TUNNELS } from './en-US-cloudflare-tunnels'
@@ -19,6 +20,7 @@ export const EN_US_CLOUDFLARE = {
   ...EN_US_CLOUDFLARE_ACCOUNTS,
   ...EN_US_CLOUDFLARE_DASHBOARD,
   ...EN_US_CLOUDFLARE_DNS,
+  ...EN_US_CLOUDFLARE_NETWORK,
   ...EN_US_CLOUDFLARE_WORKERS,
   ...EN_US_CLOUDFLARE_STORAGE,
   ...EN_US_CLOUDFLARE_TUNNELS,

@@ -159,6 +159,7 @@ const ZH_CORE_MESSAGES = {
     "app.meta_description": "运行在 Cloudflare 上的私有、自托管 Markdown 笔记本。",
     "api.error.bad_request": "请求内容有误",
     "api.error.cloudflare_not_configured": "该 Cloudflare 账户缺少凭据",
+    "api.error.cloudflare_credential_refused": "Cloudflare 拒绝了该凭据",
     "api.error.cloudflare_quota_exceeded": "所有 Cloudflare 账户的当日额度都已用完",
     "api.error.cloudflare_upstream": "Cloudflare 未能完成该请求",
     "api.error.conflict": "内容已在别处修改，请刷新后重试",
