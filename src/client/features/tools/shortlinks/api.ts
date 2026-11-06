@@ -39,9 +39,27 @@ export interface GetLinksParams {
   bundle_id?: number
 }
 
+/** The browser's IANA zone, so daily buckets follow the reader's midnight rather than UTC. */
+function clientTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+}
+
+function analyticsQuery(range?: TimelineRange): string {
+  const q = new URLSearchParams()
+  if (range) q.set('range', range)
+  q.set('timezone', clientTimeZone())
+  return q.toString()
+}
+
 export const shortlinksApi = {
   getDashboard: () =>
-    request<{ data: DashboardStats }>('/api/tools/shortlinks/dashboard').then((r) => r.data),
+    request<{ data: DashboardStats }>(`/api/tools/shortlinks/dashboard?${analyticsQuery()}`).then(
+      (r) => r.data,
+    ),
 
   getLinks: (params?: GetLinksParams) => {
     const q = new URLSearchParams()
@@ -112,7 +130,7 @@ export const shortlinksApi = {
 
   getLinkTimeline: (id: number, range?: TimelineRange) =>
     request<{ data: TimelineData }>(
-      `/api/tools/shortlinks/links/${id}/timeline${range ? `?range=${range}` : ''}`,
+      `/api/tools/shortlinks/links/${id}/timeline?${analyticsQuery(range)}`,
     ).then((r) => r.data),
 
   getLinkBreakdown: (
@@ -173,7 +191,7 @@ export const shortlinksApi = {
 
   getBundleStats: (id: number, range?: TimelineRange) =>
     request<{ data: BundleStats }>(
-      `/api/tools/shortlinks/bundles/${id}/stats${range ? `?range=${range}` : ''}`,
+      `/api/tools/shortlinks/bundles/${id}/stats?${analyticsQuery(range)}`,
     ).then((r) => r.data),
 
   getSettings: () =>

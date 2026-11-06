@@ -165,3 +165,142 @@ export function fillMissingOptions<T extends { name: string; count: number }>(
   }
   return out
 }
+
+const formatterCache = new Map<string, Intl.DateTimeFormat>()
+
+function formatterFor(timeZone: string, withHour: boolean): Intl.DateTimeFormat {
+  const key = `${withHour ? 'hour' : 'day'}|${timeZone}`
+  const cached = formatterCache.get(key)
+  if (cached) return cached
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    ...(withHour ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' as const } : {}),
+  })
+  formatterCache.set(key, formatter)
+  return formatter
+}
+
+/** A browser-supplied IANA zone is untrusted input; an invalid one falls back to UTC. */
+export function isValidTimeZone(timeZone: string | undefined): timeZone is string {
+  if (!timeZone) return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function localParts(ts: number, timeZone: string, withHour: boolean): Record<string, string> {
+  const parts = formatterFor(timeZone, withHour).formatToParts(new Date(ts * 1000))
+  const out: Record<string, string> = {}
+  for (const part of parts) out[part.type] = part.value
+  return out
+}
+
+function localDateKey(ts: number, timeZone: string): string {
+  const p = localParts(ts, timeZone, false)
+  return `${p.year}-${p.month}-${p.day}`
+}
+
+function localHourKey(ts: number, timeZone: string): string {
+  const p = localParts(ts, timeZone, true)
+  return `${p.year}-${p.month}-${p.day} ${p.hour}`
+}
+
+function localMonthKey(ts: number, timeZone: string): string {
+  return localDateKey(ts, timeZone).slice(0, 7)
+}
+
+/** The Monday of the local week a calendar date belongs to, expressed as a date key. */
+function weekStartKey(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  const cursor = new Date(Date.UTC(year, month - 1, day))
+  const weekday = cursor.getUTCDay()
+  cursor.setUTCDate(cursor.getUTCDate() + (weekday === 0 ? -6 : 1 - weekday))
+  return `${cursor.getUTCFullYear()}-${pad2(cursor.getUTCMonth() + 1)}-${pad2(cursor.getUTCDate())}`
+}
+
+function shiftDateKey(dateKey: string, days: number): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  const cursor = new Date(Date.UTC(year, month - 1, day + days))
+  return `${cursor.getUTCFullYear()}-${pad2(cursor.getUTCMonth() + 1)}-${pad2(cursor.getUTCDate())}`
+}
+
+function shiftMonthKey(monthKey: string, months: number): string {
+  const [year, month] = monthKey.split('-').map(Number)
+  const cursor = new Date(Date.UTC(year, month - 1 + months, 1))
+  return `${cursor.getUTCFullYear()}-${pad2(cursor.getUTCMonth() + 1)}`
+}
+
+/**
+ * Buckets raw click timestamps in the reader's own calendar, not the Worker's UTC one.
+ *
+ * SQLite's `date(..., 'unixepoch')` is fixed to UTC, which puts an Asia/Shanghai click made after
+ * local midnight into the previous day. The raw column stays UTC; only the bucket key is local.
+ */
+export function timelineBuckets(
+  rows: { clicked_at: number }[],
+  range: TimelineRange,
+  now: number = Math.floor(Date.now() / 1000),
+  timeZone?: string,
+): TimelineBucket[] {
+  const tz = isValidTimeZone(timeZone) ? timeZone : 'UTC'
+  if (rows.length === 0 && range === 'all') return []
+
+  const earliest = rows.length > 0 ? Math.min(...rows.map((row) => row.clicked_at)) : now
+  const spanDays = (now - earliest) / 86400
+
+  let kind: 'hour' | 'daily' | 'weekly' | 'monthly'
+  if (range === '24h') kind = 'hour'
+  else if (range === '1y') kind = 'weekly'
+  else if (range === 'all') kind = spanDays <= 92 ? 'daily' : spanDays <= 730 ? 'weekly' : 'monthly'
+  else kind = 'daily'
+
+  const keyFor = (ts: number): string => {
+    if (kind === 'hour') return localHourKey(ts, tz)
+    if (kind === 'weekly') return weekStartKey(localDateKey(ts, tz))
+    if (kind === 'monthly') return localMonthKey(ts, tz)
+    return localDateKey(ts, tz)
+  }
+
+  const dataMap = new Map<string, number>()
+  for (const row of rows) {
+    const key = keyFor(row.clicked_at)
+    dataMap.set(key, (dataMap.get(key) ?? 0) + 1)
+  }
+
+  const buckets: TimelineBucket[] = []
+  const push = (label: string) => buckets.push({ label, count: dataMap.get(label) ?? 0 })
+
+  if (kind === 'hour') {
+    for (let i = 23; i >= 0; i--) push(localHourKey(now - i * 3600, tz))
+    return buckets
+  }
+
+  if (kind === 'weekly') {
+    const start = range === '1y'
+      ? weekStartKey(localDateKey(now - 365 * 86400, tz))
+      : weekStartKey(localDateKey(earliest, tz))
+    const end = weekStartKey(localDateKey(now, tz))
+    for (let cursor = start; cursor <= end; cursor = shiftDateKey(cursor, 7)) push(cursor)
+    return buckets
+  }
+
+  if (kind === 'monthly') {
+    const start = localMonthKey(earliest, tz)
+    const end = localMonthKey(now, tz)
+    for (let cursor = start; cursor <= end; cursor = shiftMonthKey(cursor, 1)) push(cursor)
+    return buckets
+  }
+
+  const start = range === 'all'
+    ? localDateKey(earliest, tz)
+    : localDateKey(now - (range === '7d' ? 6 : range === '30d' ? 29 : 89) * 86400, tz)
+  const end = localDateKey(now, tz)
+  for (let cursor = start; cursor <= end; cursor = shiftDateKey(cursor, 1)) push(cursor)
+  return buckets
+}

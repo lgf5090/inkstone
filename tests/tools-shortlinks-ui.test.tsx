@@ -32,6 +32,7 @@ describe('Shortlinks Frontend Feature UI & State Tests', () => {
     useShortlinksStore.setState({
       dashboardStats: {
         total_clicks: 1250,
+        unique_visitors: 480,
         active_links: 12,
         total_links: 15,
         avg_clicks_per_day: 42,

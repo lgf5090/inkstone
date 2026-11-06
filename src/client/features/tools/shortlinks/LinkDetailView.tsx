@@ -11,6 +11,7 @@ import {
   QrCode,
   Star,
   Trash2,
+  Users,
 } from 'lucide-react'
 import type { ChartConfiguration } from 'chart.js'
 import { ChartCanvas, withAlpha, type ChartColors } from '../../../components/chart-canvas'
@@ -321,13 +322,23 @@ export function LinkDetailView() {
       </div>
 
       {/* Stats KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">
           <div className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
             {t('tools.shortlinks.links.clicks')}
           </div>
           <div className="mt-2 text-2xl font-bold font-mono text-[var(--text-primary)]">
             {(stats?.total_clicks ?? 0).toLocaleString()}
+          </div>
+        </div>
+
+        <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">
+          <div className="flex items-center justify-between text-[length:var(--text-12)] text-[var(--text-secondary)]">
+            <span>{t('tools.shortlinks.detail.unique_visitors')}</span>
+            <Users size={14} className="text-[var(--accent)]" aria-hidden="true" />
+          </div>
+          <div className="mt-2 text-2xl font-bold font-mono text-[var(--text-primary)]">
+            {(stats?.unique_visitors ?? 0).toLocaleString()}
           </div>
         </div>
 

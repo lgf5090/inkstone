@@ -33,6 +33,7 @@ import {
   fillMissingOptions,
   formatAvgPerDay,
   rangeToSinceTs,
+  timelineBuckets,
 } from './analytics'
 import {
   getShortlinksBackupR2Key,
@@ -819,17 +820,17 @@ export class ShortlinksStore {
     // A public redirect is an unauthenticated write. A crawler that ignores the 302, a page that
     // refreshes itself, or one reader holding down a shortcut would otherwise turn `/l/:slug` into an
     // unbounded D1 writer and inflate the owner's statistics. Bots are not a reader at all, and one
-    // fingerprint counts once inside the window; both are decided before the insert, so the skipped
-    // request costs a single indexed read instead of two writes.
+    // fingerprint counts once per slug inside the window; the dedupe key carries the slug so a
+    // reader who opens two aliases of the same link still produces a click for each alias.
     if (click.isBot) return
     if (click.visitorFp) {
       const recent = await this.db
         .prepare(
           `SELECT 1 AS seen FROM tools_shortlinks_clicks
-            WHERE user_id = ? AND link_id = ? AND visitor_fp = ? AND clicked_at >= ?
+            WHERE user_id = ? AND link_id = ? AND slug = ? AND visitor_fp = ? AND clicked_at >= ?
             LIMIT 1`,
         )
-        .bind(targetUserId, linkId, click.visitorFp, now - CLICK_DEDUPE_WINDOW_SECONDS)
+        .bind(targetUserId, linkId, slug, click.visitorFp, now - CLICK_DEDUPE_WINDOW_SECONDS)
         .first<{ seen: number }>()
       if (recent) return
     }
@@ -911,6 +912,7 @@ export class ShortlinksStore {
 
     const [
       totalRow,
+      uniqueVisitorsRow,
       countries,
       referrers,
       referrerHosts,
@@ -928,6 +930,7 @@ export class ShortlinksStore {
       numBrowsersRow,
     ] = await Promise.all([
       this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${where}`).bind(...binds).first<{ cnt: number }>(),
+      this.db.prepare(`SELECT COUNT(DISTINCT visitor_fp) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND visitor_fp IS NOT NULL`).bind(...binds).first<{ cnt: number }>(),
       this.db.prepare(`SELECT country as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where} AND country IS NOT NULL GROUP BY country ORDER BY count DESC LIMIT 10`).bind(...binds).all<{ name: string; count: number }>(),
       this.db.prepare(`SELECT referrer as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where} AND referrer IS NOT NULL AND referrer NOT LIKE 'android-app://%' GROUP BY referrer ORDER BY count DESC LIMIT 10`).bind(...binds).all<{ name: string; count: number }>(),
       this.db.prepare(`SELECT referrer_host as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where} AND referrer_host IS NOT NULL GROUP BY referrer_host ORDER BY count DESC LIMIT 10`).bind(...binds).all<{ name: string; count: number }>(),
@@ -947,6 +950,7 @@ export class ShortlinksStore {
 
     return {
       total_clicks: totalRow?.cnt || 0,
+      unique_visitors: uniqueVisitorsRow?.cnt || 0,
       avg_clicks_per_day: formatAvgPerDay(totalRow?.cnt || 0, range, link?.created_at),
       countries: countries.results ?? [],
       referrers: referrers.results ?? [],
@@ -966,7 +970,12 @@ export class ShortlinksStore {
     }
   }
 
-  async getTimeline(linkId?: number, bundleId?: number, range: TimelineRange = '30d'): Promise<TimelineData> {
+  async getTimeline(
+    linkId?: number,
+    bundleId?: number,
+    range: TimelineRange = '30d',
+    timeZone?: string,
+  ): Promise<TimelineData> {
     const settings = await this.getSettings()
     const now = Math.floor(Date.now() / 1000)
     let where = `user_id = ?${this.clickScope(settings)}`
@@ -980,35 +989,25 @@ export class ShortlinksStore {
       binds.push(bundleId, this.userId)
     }
 
-    let bucketExpr = "date(clicked_at, 'unixepoch')"
     const sinceTs = rangeToSinceTs(range, now)
-
-    if (range === '24h') {
-      bucketExpr = "strftime('%Y-%m-%d %H', clicked_at, 'unixepoch')"
-    } else if (range === '1y') {
-      bucketExpr = "date(clicked_at, 'unixepoch', 'weekday 0', '-6 days')"
-    }
-
-    let timeFilter = ''
-    const bucketBinds = [...binds]
     if (sinceTs !== undefined) {
-      timeFilter = ' AND clicked_at >= ?'
-      bucketBinds.push(sinceTs)
+      where += ' AND clicked_at >= ?'
+      binds.push(sinceTs)
     }
 
+    // Bucketing happens in the reader's calendar, so the rows have to cross the boundary as raw
+    // timestamps: SQLite's date() is UTC-only and would put a post-midnight Shanghai click on the
+    // previous day.
     const rows = await this.db
       .prepare(
-        `SELECT ${bucketExpr} as label, COUNT(*) as count
-         FROM tools_shortlinks_clicks
-         WHERE ${where}${timeFilter}
-         GROUP BY label ORDER BY label ASC`,
+        `SELECT clicked_at FROM tools_shortlinks_clicks
+         WHERE ${where}
+         ORDER BY clicked_at ASC`,
       )
-      .bind(...bucketBinds)
-      .all<{ label: string; count: number }>()
+      .bind(...binds)
+      .all<{ clicked_at: number }>()
 
-    const dataMap = new Map((rows.results ?? []).map((r) => [r.label, r.count]))
-    const buckets = fillBuckets(range, dataMap, now)
-
+    const buckets = timelineBuckets(rows.results ?? [], range, now, timeZone)
     return { range, buckets }
   }
 
@@ -1091,7 +1090,7 @@ export class ShortlinksStore {
     }
   }
 
-  async getDashboardStats(range: TimelineRange = '30d'): Promise<DashboardStats> {
+  async getDashboardStats(range: TimelineRange = '30d', timeZone?: string): Promise<DashboardStats> {
     const settings = await this.getSettings()
     const now = Math.floor(Date.now() / 1000)
     const sinceTs = rangeToSinceTs(range, now)
@@ -1122,6 +1121,10 @@ export class ShortlinksStore {
       .prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${where}${timeFilter}`)
       .bind(...binds)
       .first<{ cnt: number }>()
+    const uniqueVisitorsRow = await this.db
+      .prepare(`SELECT COUNT(DISTINCT visitor_fp) as cnt FROM tools_shortlinks_clicks WHERE ${where}${timeFilter} AND visitor_fp IS NOT NULL`)
+      .bind(...binds)
+      .first<{ cnt: number }>()
 
     let totalClicksPrevious = 0
     if (sinceTs !== undefined && prevSinceTs !== undefined) {
@@ -1136,7 +1139,7 @@ export class ShortlinksStore {
     const deltaClicks = computeDelta(totalClicks, totalClicksPrevious)
 
     const [timelineData, recent, topCountries, topReferrers] = await Promise.all([
-      this.getTimeline(undefined, undefined, range),
+      this.getTimeline(undefined, undefined, range, timeZone),
       this.listLinks({ limit: 5, sort: 'created_at' }),
       this.db.prepare(`SELECT country as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where}${timeFilter} AND country IS NOT NULL GROUP BY country ORDER BY count DESC LIMIT 5`).bind(...binds).all<{ name: string; count: number }>(),
       this.db.prepare(`SELECT referrer_host as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where}${timeFilter} AND referrer_host IS NOT NULL GROUP BY referrer_host ORDER BY count DESC LIMIT 5`).bind(...binds).all<{ name: string; count: number }>(),
@@ -1147,6 +1150,7 @@ export class ShortlinksStore {
       total_links: totalLinksRow?.total || 0,
       active_links: totalLinksRow?.active || 0,
       total_clicks: totalClicks,
+      unique_visitors: uniqueVisitorsRow?.cnt || 0,
       delta_clicks: deltaClicks,
       avg_clicks_per_day: formatAvgPerDay(totalClicks, range),
       timeline: {
@@ -1454,7 +1458,7 @@ export class ShortlinksStore {
     }))
   }
 
-  async getBundleAnalytics(bundleId: number, range: TimelineRange = '30d'): Promise<BundleStats> {
+  async getBundleAnalytics(bundleId: number, range: TimelineRange = '30d', timeZone?: string): Promise<BundleStats> {
     const bundle = await this.getBundleById(bundleId)
     if (!bundle) {
       throw ApiError.notFound('Bundle not found')
@@ -1462,7 +1466,7 @@ export class ShortlinksStore {
 
     const settings = await this.getSettings()
     const links = await this.getBundleLinks(bundleId)
-    const timeline = await this.getTimeline(undefined, bundleId, range)
+    const timeline = await this.getTimeline(undefined, bundleId, range, timeZone)
 
     let where = `user_id = ?${this.clickScope(settings)} AND link_id IN (SELECT link_id FROM tools_shortlinks_bundle_links WHERE bundle_id = ? AND user_id = ?)`
     const binds: (string | number)[] = [this.userId, bundleId, this.userId]

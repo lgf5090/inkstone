@@ -19937,6 +19937,7 @@ const allowed = new Map([
     "/* Top Countries with Emoji Flags */",
     "/* Top Referrers */",
     "/* Recent Links */",
+    "/* Unique Visitors */",
   ]],
   ["src/client/features/tools/shortlinks/LinkDetailView.tsx", [
     "// Chart configuration builder (placed before conditional return to uphold Rules of Hooks)",
@@ -19983,6 +19984,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/shortlinks/api.ts", [
     "/**\n * API client for Short Links management endpoints (`/api/tools/shortlinks/*`).\n */",
+    "/** The browser's IANA zone, so daily buckets follow the reader's midnight rather than UTC. */",
   ]],
   ["src/client/features/tools/shortlinks/modals/CreateLinkModal.tsx", [
     "// Best-effort addition of newly created shortlink into bundle",
@@ -43807,6 +43809,9 @@ const allowed = new Map([
   ["src/worker/tools/shortlinks/analytics.ts", [
     "/**\n * Time series analytics, bucket filling, delta computation, and statistics helpers.\n */",
     "// Monthly",
+    "/** A browser-supplied IANA zone is untrusted input; an invalid one falls back to UTC. */",
+    "/** The Monday of the local week a calendar date belongs to, expressed as a date key. */",
+    "/**\n * Buckets raw click timestamps in the reader's own calendar, not the Worker's UTC one.\n *\n * SQLite's `date(..., 'unixepoch')` is fixed to UTC, which puts an Asia/Shanghai click made after\n * local midnight into the previous day. The raw column stays UTC; only the bucket key is local.\n */",
   ]],
   ["src/worker/tools/shortlinks/fingerprint.ts", [
     "/**\n * Privacy-respecting visitor fingerprinting.\n *\n * Daily salt rotation ensures IDs cannot be correlated across days.\n * Raw IP is never stored.\n */",
@@ -43815,6 +43820,8 @@ const allowed = new Map([
   ]],
   ["src/worker/tools/shortlinks/maintenance.ts", [
     "/** Deletes click rows past the retention window in bounded chunks so one fire never blocks the tick. */",
+    "/**\n * Drops click rows past the retention window and keeps `links.total_clicks` truthful.\n *\n * The counter was incremented per click and never touched by the sweep, so after a year the list\n * showed a lifetime number while the analytics range showed the surviving rows. RETURNING hands\n * back exactly which links lost rows, and those counters are adjusted in bounded batches.\n */",
+    "/** Rate-limit and password-attempt buckets are keyed forever unless the sweep retires them. */",
   ]],
   ["src/worker/tools/shortlinks/password-gate.ts", [
     "/**\n * The stored hash signs the cookie instead of travelling in it, so changing the password retires\n * every cookie issued under the old one. Legacy unsalted digests are recognised here and upgraded.\n */",
@@ -43867,8 +43874,6 @@ const allowed = new Map([
     "// A public redirect is an unauthenticated write. A crawler that ignores the 302, a page that",
     "// refreshes itself, or one reader holding down a shortcut would otherwise turn `/l/:slug` into an",
     "// unbounded D1 writer and inflate the owner's statistics. Bots are not a reader at all, and one",
-    "// fingerprint counts once inside the window; both are decided before the insert, so the skipped",
-    "// request costs a single indexed read instead of two writes.",
     "/**\n * D1 rejects a statement past roughly a hundred bound parameters. A slug lookup binds one user id\n * per link plus a trailing scope id, so wide pages, exports and bundle reads have to ask in slices.\n */",
     "/**\n   * Loads slugs for a set of links in slices, so a page or a whole bundle never builds an `IN` list\n   * wider than D1's bound-parameter ceiling.\n   */",
     "// Batch load slugs in slices so a full page stays inside D1's bound-parameter limit.",
@@ -43876,6 +43881,11 @@ const allowed = new Map([
     "// account exports in three passes instead of relying on one oversized statement.",
     "// Ownership is proved in the same slices as the writes below: a single `IN (...)` over every ID",
     "// would bind one parameter per link and hit D1's ceiling once a caller sends more than a hundred.",
+    "// fingerprint counts once per slug inside the window; the dedupe key carries the slug so a",
+    "// reader who opens two aliases of the same link still produces a click for each alias.",
+    "// Bucketing happens in the reader's calendar, so the rows have to cross the boundary as raw",
+    "// timestamps: SQLite's date() is UTC-only and would put a post-midnight Shanghai click on the",
+    "// previous day.",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",
