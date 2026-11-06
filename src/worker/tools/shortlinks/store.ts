@@ -47,6 +47,12 @@ import { fetchPageTitle } from './title-fetch'
 /** One visitor's repeat visit inside this window is a reload, not a second click. */
 const CLICK_DEDUPE_WINDOW_SECONDS = 30
 
+/**
+ * D1 rejects a statement past roughly a hundred bound parameters. A slug lookup binds one user id
+ * per link plus a trailing scope id, so wide pages, exports and bundle reads have to ask in slices.
+ */
+const LINK_ID_CHUNK_SIZE = 50
+
 export function normalizeUrl(rawUrl: string): string {
   return rawUrl.trim().replace(/[?#]+$/, '')
 }
@@ -422,6 +428,50 @@ export class ShortlinksStore {
     }
   }
 
+  /**
+   * Loads slugs for a set of links in slices, so a page or a whole bundle never builds an `IN` list
+   * wider than D1's bound-parameter ceiling.
+   */
+  private async slugsForLinks(linkIds: number[]): Promise<Map<number, ShortLinkSlug[]>> {
+    const slugMap = new Map<number, ShortLinkSlug[]>()
+    for (let offset = 0; offset < linkIds.length; offset += LINK_ID_CHUNK_SIZE) {
+      const chunk = linkIds.slice(offset, offset + LINK_ID_CHUNK_SIZE)
+      const placeholders = chunk.map(() => '?').join(',')
+      const slugRows = await this.db
+        .prepare(
+          `SELECT s.*, (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.slug = s.slug AND c.user_id = ?) as click_count
+           FROM tools_shortlinks_slugs s
+           WHERE s.link_id IN (${placeholders}) AND s.user_id = ?
+           ORDER BY s.is_primary DESC, s.created_at ASC`,
+        )
+        .bind(this.userId, ...chunk, this.userId)
+        .all<{
+          slug: string
+          link_id: number
+          is_custom: number
+          is_primary: number
+          click_count: number
+          created_at: number
+          disabled_at: number | null
+        }>()
+
+      for (const s of slugRows.results ?? []) {
+        const list = slugMap.get(s.link_id) || []
+        list.push({
+          slug: s.slug,
+          link_id: s.link_id,
+          is_custom: Boolean(s.is_custom),
+          is_primary: Boolean(s.is_primary),
+          click_count: s.click_count || 0,
+          created_at: s.created_at,
+          disabled_at: s.disabled_at,
+        })
+        slugMap.set(s.link_id, list)
+      }
+    }
+    return slugMap
+  }
+
   async listLinks(params: {
     filter?: 'all' | 'active' | 'disabled'
     status?: 'all' | 'active' | 'disabled'
@@ -499,40 +549,8 @@ export class ShortlinksStore {
       return { items: [], links: [], total }
     }
 
-    // Batch load slugs
-    const placeholders = linkIds.map(() => '?').join(',')
-    const slugRows = await this.db
-      .prepare(
-        `SELECT s.*, (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.slug = s.slug AND c.user_id = ?) as click_count
-         FROM tools_shortlinks_slugs s
-         WHERE s.link_id IN (${placeholders}) AND s.user_id = ?
-         ORDER BY s.is_primary DESC, s.created_at ASC`,
-      )
-      .bind(this.userId, ...linkIds, this.userId)
-      .all<{
-        slug: string
-        link_id: number
-        is_custom: number
-        is_primary: number
-        click_count: number
-        created_at: number
-        disabled_at: number | null
-      }>()
-
-    const slugMap = new Map<number, ShortLinkSlug[]>()
-    for (const s of slugRows.results ?? []) {
-      const list = slugMap.get(s.link_id) || []
-      list.push({
-        slug: s.slug,
-        link_id: s.link_id,
-        is_custom: Boolean(s.is_custom),
-        is_primary: Boolean(s.is_primary),
-        click_count: s.click_count || 0,
-        created_at: s.created_at,
-        disabled_at: s.disabled_at,
-      })
-      slugMap.set(s.link_id, list)
-    }
+    // Batch load slugs in slices so a full page stays inside D1's bound-parameter limit.
+    const slugMap = await this.slugsForLinks(linkIds)
 
     const items: ShortLink[] = (rows.results ?? []).map((r) => ({
       id: r.id,
@@ -1412,39 +1430,7 @@ export class ShortlinksStore {
     const linkIds = (rows.results ?? []).map((r) => r.id)
     if (linkIds.length === 0) return []
 
-    const placeholders = linkIds.map(() => '?').join(',')
-    const slugRows = await this.db
-      .prepare(
-        `SELECT s.*, (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.slug = s.slug AND c.user_id = ?) as click_count
-         FROM tools_shortlinks_slugs s
-         WHERE s.link_id IN (${placeholders}) AND s.user_id = ?
-         ORDER BY s.is_primary DESC, s.created_at ASC`,
-      )
-      .bind(this.userId, ...linkIds, this.userId)
-      .all<{
-        slug: string
-        link_id: number
-        is_custom: number
-        is_primary: number
-        click_count: number
-        created_at: number
-        disabled_at: number | null
-      }>()
-
-    const slugMap = new Map<number, ShortLinkSlug[]>()
-    for (const s of slugRows.results ?? []) {
-      const list = slugMap.get(s.link_id) || []
-      list.push({
-        slug: s.slug,
-        link_id: s.link_id,
-        is_custom: Boolean(s.is_custom),
-        is_primary: Boolean(s.is_primary),
-        click_count: s.click_count || 0,
-        created_at: s.created_at,
-        disabled_at: s.disabled_at,
-      })
-      slugMap.set(s.link_id, list)
-    }
+    const slugMap = await this.slugsForLinks(linkIds)
 
     return (rows.results ?? []).map((r) => ({
       id: r.id,
@@ -1514,15 +1500,16 @@ export class ShortlinksStore {
 
     const linkIds = links.map((l) => l.id)
     const rangeCounts = new Map<number, number>()
-    if (linkIds.length > 0) {
-      const placeholders = linkIds.map(() => '?').join(', ')
+    for (let offset = 0; offset < linkIds.length; offset += LINK_ID_CHUNK_SIZE) {
+      const chunk = linkIds.slice(offset, offset + LINK_ID_CHUNK_SIZE)
+      const placeholders = chunk.map(() => '?').join(', ')
       const counted = await this.db
         .prepare(
           `SELECT link_id, COUNT(*) as cnt FROM tools_shortlinks_clicks
            WHERE ${where} AND link_id IN (${placeholders})
            GROUP BY link_id`,
         )
-        .bind(...binds, ...linkIds)
+        .bind(...binds, ...chunk)
         .all<{ link_id: number; cnt: number }>()
       for (const row of counted.results ?? []) rangeCounts.set(row.link_id, row.cnt)
     }
@@ -1661,7 +1648,9 @@ export class ShortlinksStore {
 
   /** Pages through the whole account: listLinks caps one page at 100 rows. */
   private async allLinksForExport(): Promise<ShortLink[]> {
-    const pageSize = 100
+    // Half the API page cap: each page can still be followed by chunked slug reads, and a 150-link
+    // account exports in three passes instead of relying on one oversized statement.
+    const pageSize = 50
     const all: ShortLink[] = []
     for (let offset = 0; ; offset += pageSize) {
       const page = await this.listLinks({ limit: pageSize, offset })

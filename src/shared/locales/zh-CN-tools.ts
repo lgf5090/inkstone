@@ -1438,6 +1438,8 @@ export const ZH_CN_TOOLS = {
   'tools.shortlinks.bundles.links_count': '{count} 条链接',
   'tools.shortlinks.bundles.count': '共 {count} 个分组',
   'tools.shortlinks.bundles.selected_count': '已选 {count} 条',
+  'tools.shortlinks.bundles.loaded_count': '已加载 {loaded} / 共 {total} 条',
+  'tools.shortlinks.bundles.load_more': '加载更多',
   'tools.shortlinks.bundles.manage_links': '管理包含链接',
   'tools.shortlinks.bundles.add_link': '添加链接到分组',
   'tools.shortlinks.bundles.remove_link': '移出分组',
