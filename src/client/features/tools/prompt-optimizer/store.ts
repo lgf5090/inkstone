@@ -156,21 +156,46 @@ function mergeDraft(workspace: Workspace, state: Record<string, unknown> | null 
 
 const persistTimers = new Map<Workspace, ReturnType<typeof setTimeout>>()
 
+function saveDraft(workspace: Workspace, rev: number, state: Record<string, unknown>): void {
+  void promptOptimizerApi.saveSession(workspace, rev, state).then((result) => {
+    if ('conflict' in result) {
+      usePromptOptimizerStore.setState({ conflictWorkspace: workspace, conflictSession: result.current })
+    } else {
+      usePromptOptimizerStore.setState((current) => ({ revs: { ...current.revs, [workspace]: result.rev } }))
+    }
+  }).catch((error: unknown) => {
+    toast(error instanceof Error ? error.message : t('tools.prompt_optimizer.errors.save_failed').replace('{message}', 'draft'), 'error')
+  })
+}
+
 function schedulePersist(workspace: Workspace, rev: number, state: Record<string, unknown>): void {
   const timer = persistTimers.get(workspace)
   if (timer) clearTimeout(timer)
   persistTimers.set(workspace, setTimeout(() => {
     persistTimers.delete(workspace)
-    void promptOptimizerApi.saveSession(workspace, rev, state).then((result) => {
-      if ('conflict' in result) {
-        usePromptOptimizerStore.setState({ conflictWorkspace: workspace, conflictSession: result.current })
-      } else {
-        usePromptOptimizerStore.setState((current) => ({ revs: { ...current.revs, [workspace]: result.rev } }))
-      }
-    }).catch((error: unknown) => {
-      toast(error instanceof Error ? error.message : t('tools.prompt_optimizer.errors.save_failed').replace('{message}', 'draft'), 'error')
-    })
+    const current = usePromptOptimizerStore.getState()
+    saveDraft(workspace, current.revs[workspace] ?? rev, state)
   }, 700))
+}
+
+/**
+ * Writes only the debounce this workspace still owes.
+ *
+ * A workspace switch used to schedule a save unconditionally, so opening any `?view=` link wrote the
+ * previous workspace back even when the reader had changed nothing — a revision the client had not
+ * confirmed could then answer 409 on a screen that only meant to load. If no timer is waiting, the
+ * draft on screen is already the one the server holds.
+ */
+function flushPersist(workspace: Workspace): void {
+  const timer = persistTimers.get(workspace)
+  if (!timer) return
+  clearTimeout(timer)
+  persistTimers.delete(workspace)
+  const current = usePromptOptimizerStore.getState()
+  if (current.settings?.autosaveDrafts === false) return
+  const draft = current.drafts[workspace]
+  if (!draft) return
+  saveDraft(workspace, current.revs[workspace] ?? 0, draft as unknown as Record<string, unknown>)
 }
 
 export interface PromptOptimizerState {
@@ -320,7 +345,7 @@ export const usePromptOptimizerStore = create<PromptOptimizerState>((set, get) =
     set((state) => ({
       drafts: { ...state.drafts, [workspace]: next },
     }))
-    if (get().settings?.autosaveDrafts !== false) {
+    if (!get().loading && get().settings?.autosaveDrafts !== false) {
       schedulePersist(workspace, get().revs[workspace] ?? 0, next as unknown as Record<string, unknown>)
     }
   }
@@ -393,10 +418,7 @@ export const usePromptOptimizerStore = create<PromptOptimizerState>((set, get) =
 
     setWorkspace: async (workspace, draftOverride) => {
       const current = get().workspace
-      const draft = get().drafts[current]
-      if (get().settings?.autosaveDrafts !== false) {
-        schedulePersist(current, get().revs[current] ?? 0, draft as unknown as Record<string, unknown>)
-      }
+      if (get().settings?.autosaveDrafts !== false) flushPersist(current)
       set({ workspace, activeView: workspace })
       navigateToAddress('/tools/prompt_optimizer', `view=${workspace}`)
       const settings = get().settings
