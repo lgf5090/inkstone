@@ -29,7 +29,7 @@
       "@dayflow/outlook-sync": ["./src/worker/calendar/vendor/dayflow-outlook-sync.d.ts"]
     }
   },
-  "include": ["src/worker/**/*", "src/shared/**/*", "package.json"],
+  "include": ["src/worker/**/*", "src/shared/**/*", "src/shared/**/*.json", "package.json"],
   // Same scratch-probe exclusion as tsconfig.client.json; see tests/no-scratch-test-files.test.ts.
   "exclude": ["**/*.tmp.*"]
 }

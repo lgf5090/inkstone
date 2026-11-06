@@ -223,6 +223,15 @@ const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CA
     // Password vault CSV/TXT import column vocabulary
     'PASSWORD_CSV_HEADERS',
     'IMPORT_TXT_VOCABULARY',
+    // Prompt Optimizer's image-understanding vocabulary: the Chinese branch is model input for the
+    // Chinese template edition, mirroring the reference project's own prompt data.
+    'IMAGE_UNDERSTANDING_VOCABULARY',
+    // The optimizer's global stable prefix: its few-shot pair is model input, in the source prompt's
+    // language, not interface copy.
+    'GLOBAL_STABLE_PREFIX',
+    // Structured compare guidance, role names and subject labels are model input for each template
+    // edition, matching the reference project's prompt copy rather than the interface.
+    'STRUCTURED_COMPARE_COPY',
     // Tools Color Assistant traditional datasets & AI prompt vocabularies
     'TRADITIONAL_CHINESE_COLORS',
     'TRADITIONAL_NIPPON_COLORS',
@@ -498,6 +507,10 @@ for (const file of englishOnlyPaths.flatMap((target) => fs.existsSync(target) ? 
     // A test file holds note text and expected output, never interface copy, which is the same
     // exemption the scan below gives it.
     if (hanAllowedCatalogs.includes(file) || !isTextSource(file) || file.includes(".test."))
+        continue;
+    // Ported prompt-template data: the Chinese editions are model input, not interface copy. They live
+    // under their own directory so this exemption cannot widen to application code.
+    if (file.startsWith(path.resolve('src/shared/tools/prompt-optimizer/builtin') + path.sep))
         continue;
     // public/vendor is written by @file-viewer/vite-plugin on every build: bundled third-party
     // workers and wasm loaders whose own strings are not this app's interface copy. It is generated

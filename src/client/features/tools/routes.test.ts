@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { calculatorViewFromSearch, toolsPathForSubmodule, toolsSubmoduleFromPath } from './store'
+import { promptOptimizerViewFromSearch } from './prompt-optimizer/store'
 
 describe('tools submodule routing', () => {
   it('reads the module a deep address names', () => {
@@ -22,9 +23,18 @@ describe('tools submodule routing', () => {
   })
 
   it('links every module back with the address it can be read from', () => {
-    for (const submodule of ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator', 'compare', 'network_panel'] as const) {
+    for (const submodule of ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator', 'compare', 'network_panel', 'prompt_optimizer'] as const) {
       expect(toolsSubmoduleFromPath(toolsPathForSubmodule(submodule))).toBe(submodule)
     }
+  })
+})
+
+describe('prompt optimizer view routing', () => {
+  it('reads the view a prompt optimizer query names', () => {
+    expect(promptOptimizerViewFromSearch('?view=favorites')).toBe('favorites')
+    expect(promptOptimizerViewFromSearch('?view=pro_multi')).toBe('pro_multi')
+    expect(promptOptimizerViewFromSearch('?view=not-a-view')).toBeNull()
+    expect(promptOptimizerViewFromSearch('')).toBeNull()
   })
 })
 

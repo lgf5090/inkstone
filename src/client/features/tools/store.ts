@@ -1,14 +1,16 @@
 import { create } from 'zustand'
 
+import type { PromptOptimizerNavView } from '@shared/tools/prompt-optimizer/types'
+
 export const TOOLS_NAV_WIDTH = {
   min: 200,
   max: 380,
   default: 260,
 } as const
 
-export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color' | 'shortlinks' | 'calculator' | 'compare' | 'network_panel'
+export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color' | 'shortlinks' | 'calculator' | 'compare' | 'network_panel' | 'prompt_optimizer'
 
-const TOOLS_SUBMODULES: readonly ToolsSubmodule[] = ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator', 'compare', 'network_panel']
+const TOOLS_SUBMODULES: readonly ToolsSubmodule[] = ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator', 'compare', 'network_panel', 'prompt_optimizer']
 
 /**
  * The module a Tools address names, or null when the address does not name one.
@@ -106,6 +108,8 @@ export type CompareNavView = 'text' | 'files' | 'folders' | 'images' | 'projects
 
 export type NetworkPanelNavView = 'speed' | 'info' | 'history' | 'settings'
 
+export type { PromptOptimizerNavView } from '@shared/tools/prompt-optimizer/types'
+
 const STORAGE_KEY = 'inkstone.tools.layout'
 
 interface PersistedLayout {
@@ -123,6 +127,8 @@ interface PersistedLayout {
   activeCompareView?: CompareNavView
   networkPanelModuleExpanded?: boolean
   activeNetworkPanelView?: NetworkPanelNavView
+  promptOptimizerModuleExpanded?: boolean
+  activePromptOptimizerView?: PromptOptimizerNavView
   activeSubmodule?: ToolsSubmodule
 }
 
@@ -169,6 +175,8 @@ export interface ToolsState {
   activeCompareView: CompareNavView
   networkPanelModuleExpanded: boolean
   activeNetworkPanelView: NetworkPanelNavView
+  promptOptimizerModuleExpanded: boolean
+  activePromptOptimizerView: PromptOptimizerNavView
 
   setToolsNavWidth: (width: number) => void
   toggleToolsNav: () => void
@@ -200,6 +208,9 @@ export interface ToolsState {
   setNetworkPanelModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
   toggleNetworkPanelModuleExpanded: () => void
   setActiveNetworkPanelView: (view: NetworkPanelNavView) => void
+  setPromptOptimizerModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
+  togglePromptOptimizerModuleExpanded: () => void
+  setActivePromptOptimizerView: (view: PromptOptimizerNavView) => void
 }
 
 const initialPersisted = loadPersistedLayout()
@@ -234,6 +245,8 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
   activeCompareView: initialPersisted.activeCompareView ?? 'text',
   networkPanelModuleExpanded: initialPersisted.networkPanelModuleExpanded ?? true,
   activeNetworkPanelView: initialPersisted.activeNetworkPanelView ?? 'speed',
+  promptOptimizerModuleExpanded: initialPersisted.promptOptimizerModuleExpanded ?? true,
+  activePromptOptimizerView: initialPersisted.activePromptOptimizerView ?? 'basic_system',
 
   setToolsNavWidth: (width: number) => {
     const clamped = Math.min(
@@ -553,6 +566,41 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       toolsNavCollapsed: get().toolsNavCollapsed,
       networkPanelModuleExpanded: get().networkPanelModuleExpanded,
       activeNetworkPanelView: view,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  setPromptOptimizerModuleExpanded: (expanded) => {
+    const next = typeof expanded === 'function' ? expanded(get().promptOptimizerModuleExpanded) : expanded
+    set({ promptOptimizerModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      promptOptimizerModuleExpanded: next,
+      activePromptOptimizerView: get().activePromptOptimizerView,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  togglePromptOptimizerModuleExpanded: () => {
+    const next = !get().promptOptimizerModuleExpanded
+    set({ promptOptimizerModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      promptOptimizerModuleExpanded: next,
+      activePromptOptimizerView: get().activePromptOptimizerView,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  setActivePromptOptimizerView: (view) => {
+    set({ activePromptOptimizerView: view })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      promptOptimizerModuleExpanded: get().promptOptimizerModuleExpanded,
+      activePromptOptimizerView: view,
       activeSubmodule: get().activeSubmodule,
     })
   },

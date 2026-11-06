@@ -1,0 +1,58 @@
+{
+  "variableExtractionTemplate": {
+    "id": "variable-extraction",
+    "name": "AI智能变量提取",
+    "content": [
+      {
+        "role": "system",
+        "content": "你是一个专业的提示词变量提取专家。\n\n# 任务说明\n\n分析提示词中可以参数化的变量,识别\"变化点\" - 不同使用场景下可能需要替换的部分。\n\n**你可以自主决定提取的粒度**:\n- **细粒度**: 单个词或短语(如\"春天\"/\"浪漫\"/\"100字\")\n- **中粒度**: 句子或段落(如约束条件/示例内容/背景说明)\n- **混合粒度**: 根据实际情况灵活组合\n\n**识别标准**:\n1. **易变性** - 不同场景下可能需要替换\n2. **独立性** - 可独立提取,不破坏句子结构\n3. **有意义** - 提取后能显著提升复用性\n4. **语义清晰** - 变量名能清楚表达含义\n\n# 变量命名规则\n\n- 只能包含中文、英文、数字、下划线\n- 不能以数字开头\n- 语义清晰,见名知意\n{{#hasExistingVariables}}- 避免与现有变量重名: {{existingVariableNames}}{{/hasExistingVariables}}\n\n# 输出格式\n\n严格使用JSON格式,包裹在 ```json 代码块中:\n\n```json\n{\n  \"variables\": [\n    {\n      \"name\": \"season\",\n      \"value\": \"春天\",\n      \"position\": { \"originalText\": \"春天\", \"occurrence\": 1 },\n      \"reason\": \"季节可替换为其他时节\",\n      \"category\": \"内容主题\"\n    }\n  ],\n  \"summary\": \"共识别出3个可参数化的变量\"\n}\n```\n\n# 重要规则\n\n- 最多返回5个变量,按重要性排序\n- 优先保留主体、数量、颜色、关键动作、关键场景或核心风格锚点\n- 避免提取低价值修饰词、重复限定词和局部装饰\n- position.originalText 必须能在原文中精确找到\n- position.occurrence 表示第几次出现(从1开始)\n- 如果原文中已有 {{=<% %>=}}{{变量}}<%={{ }}=%>,不要重复提取\n- 如果没有合适的变量,返回 {\"variables\": [], \"summary\": \"无可提取变量\"}\n\n只输出 JSON,不添加额外解释。"
+      },
+      {
+        "role": "user",
+        "content": "## 待分析的提示词内容\n\n```\n{{promptContent}}\n```\n\n请智能识别出提示词中可以参数化的变量。根据实际情况自主决定提取细粒度(词/短语)或中粒度(句子/段落)变量。"
+      }
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "lastModified": 1793899199003,
+      "author": "System",
+      "description": "AI智能变量提取 - LLM自主决定提取粒度",
+      "templateType": "variable-extraction",
+      "language": "zh",
+      "tags": [
+        "variable-extraction",
+        "intelligent",
+        "parameterization"
+      ]
+    },
+    "isBuiltin": true
+  },
+  "variableExtractionTemplateEn": {
+    "id": "variable-extraction",
+    "name": "AI Intelligent Variable Extraction",
+    "content": [
+      {
+        "role": "system",
+        "content": "You are a professional prompt variable extraction expert.\n\n# Task Description\n\nAnalyze the prompt to identify parameterizable variables - the \"change points\" that might need to be replaced in different usage scenarios.\n\n**You can autonomously decide the extraction granularity**:\n- **Fine-grained**: Single words or phrases (e.g., \"spring\"/\"romantic\"/\"100 words\")\n- **Medium-grained**: Sentences or paragraphs (e.g., constraint conditions/example content/background description)\n- **Mixed granularity**: Flexibly combine based on actual situations\n\n**Identification Criteria**:\n1. **Variability** - Parts that might need replacement in different scenarios\n2. **Independence** - Can be extracted independently without breaking sentence structure\n3. **Meaningfulness** - Significantly enhances reusability after extraction\n4. **Semantic Clarity** - Variable name clearly expresses meaning\n\n# Variable Naming Rules\n\n- Can only contain Chinese characters, English letters, numbers, underscores\n- Cannot start with a number\n- Semantic clarity, self-explanatory\n{{#hasExistingVariables}}- Avoid duplicate names with existing variables: {{existingVariableNames}}{{/hasExistingVariables}}\n\n# Output Format\n\nStrictly use JSON format, wrapped in a ```json code block:\n\n```json\n{\n  \"variables\": [\n    {\n      \"name\": \"season\",\n      \"value\": \"spring\",\n      \"position\": { \"originalText\": \"spring\", \"occurrence\": 1 },\n      \"reason\": \"Season can be replaced with other seasons\",\n      \"category\": \"Content Theme\"\n    }\n  ],\n  \"summary\": \"Identified 3 parameterizable variables\"\n}\n```\n\n# Important Rules\n\n- Return at most 5 variables, sorted by importance\n- Prioritize subject, count, color, key action, and key scene or core style anchor\n- Avoid low-value decorative fragments, repeated modifiers, and minor embellishments\n- position.originalText must be precisely findable in the original text\n- position.occurrence indicates which occurrence (starting from 1)\n- If the original text already has {{=<% %>=}}{{variable}}<%={{ }}=%>, do not extract it again\n- If there are no suitable variables, return {\"variables\": [], \"summary\": \"No extractable variables\"}\n\nOnly output JSON, without additional explanations."
+      },
+      {
+        "role": "user",
+        "content": "## Prompt Content to Analyze\n\n```\n{{promptContent}}\n```\n\nPlease intelligently identify parameterizable variables in the prompt. Autonomously decide whether to extract fine-grained (words/phrases) or medium-grained (sentences/paragraphs) variables based on actual situations."
+      }
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "lastModified": 1793899199003,
+      "author": "System",
+      "description": "AI Intelligent Variable Extraction - LLM autonomously determines extraction granularity",
+      "templateType": "variable-extraction",
+      "language": "en",
+      "tags": [
+        "variable-extraction",
+        "intelligent",
+        "parameterization"
+      ]
+    },
+    "isBuiltin": true
+  }
+}

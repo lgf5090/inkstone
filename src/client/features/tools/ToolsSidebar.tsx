@@ -58,6 +58,7 @@ import {
   useToolsStore,
   toolsPathForSubmodule,
   type CalculatorNavView,
+  type PromptOptimizerNavView,
   type ColorNavView,
   type CompareNavView,
   type IdPhotoNavView,
@@ -127,6 +128,21 @@ const COMPARE_NAV_SLOTS: readonly { id: CompareNavView; labelKey: MessageKey; ic
   { id: 'projects', labelKey: 'tools.compare.nav.projects', icon: FolderArchive },
   { id: 'stats', labelKey: 'tools.compare.nav.stats', icon: LineChart },
   { id: 'shortcuts', labelKey: 'tools.compare.nav.shortcuts', icon: Keyboard },
+]
+
+const PROMPT_OPTIMIZER_NAV_SLOTS: readonly { id: PromptOptimizerNavView; labelKey: MessageKey; icon: ComponentType<{ size?: number; className?: string }> }[] = [
+  { id: 'basic_system', labelKey: 'tools.prompt_optimizer.nav.basic_system', icon: Sparkles },
+  { id: 'basic_user', labelKey: 'tools.prompt_optimizer.nav.basic_user', icon: TextCursorInput },
+  { id: 'pro_multi', labelKey: 'tools.prompt_optimizer.nav.pro_multi', icon: Bot },
+  { id: 'pro_variable', labelKey: 'tools.prompt_optimizer.nav.pro_variable', icon: Binary },
+  { id: 'image_text2image', labelKey: 'tools.prompt_optimizer.nav.image_text2image', icon: Image },
+  { id: 'image_image2image', labelKey: 'tools.prompt_optimizer.nav.image_image2image', icon: Blend },
+  { id: 'image_multiimage', labelKey: 'tools.prompt_optimizer.nav.image_multiimage', icon: Layers },
+  { id: 'arena', labelKey: 'tools.prompt_optimizer.nav.arena', icon: LineChart },
+  { id: 'favorites', labelKey: 'tools.prompt_optimizer.nav.favorites', icon: Star },
+  { id: 'templates', labelKey: 'tools.prompt_optimizer.nav.templates', icon: LayoutTemplate },
+  { id: 'history', labelKey: 'tools.prompt_optimizer.nav.history', icon: History },
+  { id: 'settings', labelKey: 'tools.prompt_optimizer.nav.settings', icon: Settings },
 ]
 
 const NETWORK_PANEL_NAV_SLOTS: readonly { id: NetworkPanelNavView; labelKey: MessageKey; icon: ComponentType<{ size?: number; className?: string }> }[] = [
@@ -221,6 +237,10 @@ export function ToolsSidebar({
   const toggleCompareModuleExpanded = useToolsStore((s) => s.toggleCompareModuleExpanded)
   const activeCompareView = useToolsStore((s) => s.activeCompareView)
   const setActiveCompareView = useToolsStore((s) => s.setActiveCompareView)
+  const promptOptimizerModuleExpanded = useToolsStore((s) => s.promptOptimizerModuleExpanded)
+  const togglePromptOptimizerModuleExpanded = useToolsStore((s) => s.togglePromptOptimizerModuleExpanded)
+  const activePromptOptimizerView = useToolsStore((s) => s.activePromptOptimizerView)
+  const setActivePromptOptimizerView = useToolsStore((s) => s.setActivePromptOptimizerView)
   const networkPanelModuleExpanded = useToolsStore((s) => s.networkPanelModuleExpanded)
   const toggleNetworkPanelModuleExpanded = useToolsStore((s) => s.toggleNetworkPanelModuleExpanded)
   const activeNetworkPanelView = useToolsStore((s) => s.activeNetworkPanelView)
@@ -280,6 +300,13 @@ export function ToolsSidebar({
   const handleCompareSlotClick = (slotId: CompareNavView) => {
     openSubmodule('compare')
     setActiveCompareView(slotId)
+    onNavigate?.()
+  }
+
+  const handlePromptOptimizerSlotClick = (slotId: PromptOptimizerNavView) => {
+    setActiveSubmodule('prompt_optimizer')
+    setActivePromptOptimizerView(slotId)
+    navigateToAddress(toolsPathForSubmodule('prompt_optimizer'), `view=${slotId}`)
     onNavigate?.()
   }
 
@@ -417,6 +444,19 @@ export function ToolsSidebar({
               }}
             >
               <Gauge size={16} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('tools.prompt_optimizer.module_name')} side="right">
+            <IconButton
+              label={t('tools.prompt_optimizer.module_name')}
+              size="sm"
+              active={activeSubmodule === 'prompt_optimizer'}
+              onClick={() => {
+                openSubmodule('prompt_optimizer')
+                onExpand?.()
+              }}
+            >
+              <Sparkles size={16} />
             </IconButton>
           </Tooltip>
         </div>
@@ -896,6 +936,61 @@ export function ToolsSidebar({
                     type="button"
                     aria-current={isSelected ? 'page' : undefined}
                     onClick={() => handleNetworkPanelSlotClick(slot.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
+                      'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                      'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                      isSelected &&
+                        'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]',
+                    )}
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    <span className="truncate">{t(slot.labelKey)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Ninth submodule: Prompt Optimizer (tools/prompt_optimizer) */}
+        <div>
+          <button
+            type="button"
+            aria-expanded={promptOptimizerModuleExpanded}
+            onClick={togglePromptOptimizerModuleExpanded}
+            className={cn(
+              'flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
+              'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+              activeSubmodule === 'prompt_optimizer' && 'text-[var(--text-primary)]',
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  'transition-transform duration-[var(--dur-fast)]',
+                  promptOptimizerModuleExpanded ? 'rotate-90' : 'rotate-0',
+                )}
+              >
+                <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+              </span>
+              <Sparkles size={16} className="shrink-0 text-[var(--accent)]" />
+              <span className="truncate">{t('tools.prompt_optimizer.module_name')}</span>
+            </div>
+          </button>
+
+          {promptOptimizerModuleExpanded && (
+            <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
+              {PROMPT_OPTIMIZER_NAV_SLOTS.map((slot) => {
+                const Icon = slot.icon
+                const isSelected = activeSubmodule === 'prompt_optimizer' && activePromptOptimizerView === slot.id
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    aria-current={isSelected ? 'page' : undefined}
+                    onClick={() => handlePromptOptimizerSlotClick(slot.id)}
                     className={cn(
                       'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
                       'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',

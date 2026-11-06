@@ -6,7 +6,7 @@ import { Button } from '../../../components/primitives'
 import { Input, Checkbox, Segmented, Select } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
-import { toCSV } from './utils/csv-parser'
+import { toCSV } from '@shared/tools/password/csv-parser'
 import { PasswordApiError, passwordApi } from './api'
 import type { PasswordGroup } from '@shared/tools/password/types'
 

@@ -6,7 +6,7 @@ import { Button } from '../../../components/primitives'
 import { Select, Textarea, Segmented } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
-import { parseCSVRows } from './utils/csv-parser'
+import { parseCSVRows } from '@shared/tools/password/csv-parser'
 import { encryptValue } from './crypto'
 import { passwordApi } from './api'
 
