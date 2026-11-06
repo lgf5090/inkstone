@@ -38478,6 +38478,7 @@ const allowed = new Map([
     "/** Responses-only context material, echoed back in the response object and stored for chaining. */",
     "/** OpenAI's chat response_format uses the nested `json_schema` object; `text` is the default. */",
     "/** The Responses API puts the schema fields on `text.format`; the upstream chat endpoint wants them nested. */",
+    "/** Embedding models are a separate capability: sending one to /chat/completions would fail upstream. */",
   ]],
   ["src/worker/cloudflare/ai-gateway-quota.ts", [
     "/**\n * The self-hosted gateway's quota gate.\n *\n * Cloudflare's GraphQL total is authoritative but late; this ledger is what stops a request before it\n * is sent. Every reservation is one conditional UPDATE so two isolates racing on the same account see\n * each other's increment, and a reservation never shrinks: settling only raises `actual`/`reserved`\n * and reconciliation only raises them further. The hard limit is 10,000 neurons per account/day.\n */",

@@ -26,7 +26,7 @@ import { AiEmpty, AiError, AiPanel } from './AiPanel'
 import { Table, TableScroll, TBody, Td, Th, THead, Tr } from '../../components/Table'
 
 type StatusFilter = '' | 'success' | 'error' | 'quota' | 'upstream' | 'auth'
-type FormatFilter = '' | 'chat' | 'responses'
+type FormatFilter = '' | 'chat' | 'responses' | 'embedding'
 
 function when(ms: number | null): string {
   if (!ms) return '—'
@@ -136,6 +136,7 @@ export function GatewayTab() {
   const formatOptions = [
     { value: '', label: t('cloudflare.ai_gateway.all') },
     { value: 'chat', label: t('cloudflare.ai_gateway.format_chat') },
+    { value: 'embedding', label: t('cloudflare.ai_gateway.format_embedding') },
     { value: 'responses', label: t('cloudflare.ai_gateway.format_responses') },
   ]
   const modelOptions = [
@@ -143,6 +144,10 @@ export function GatewayTab() {
     { value: 'glm-4.7-flash', label: 'glm-4.7-flash' },
     { value: 'llama-3.1-8b', label: 'llama-3.1-8b' },
     { value: 'llama-3.3-70b', label: 'llama-3.3-70b' },
+    { value: 'bge-small', label: 'bge-small' },
+    { value: 'bge-base', label: 'bge-base' },
+    { value: 'bge-large', label: 'bge-large' },
+    { value: 'bge-m3', label: 'bge-m3' },
   ]
 
   async function createKey(): Promise<void> {

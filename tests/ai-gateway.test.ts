@@ -615,6 +615,58 @@ describe('Responses persistence', () => {
   })
 })
 
+describe('Embeddings', () => {
+  it('serves OpenAI embeddings, validates dimensions and encodes base64 on request', async () => {
+    await seedAccount(bed, TEST_USER, { id: 't'.repeat(26), accountId: 'b'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'embedding key', allowedModels: ['bge-m3'] })
+    stubCloudflare(async (url, init) => {
+      expect(url.pathname).toBe(`/client/v4/accounts/${'b'.repeat(32)}/ai/v1/embeddings`)
+      const body = JSON.parse(init?.body as string) as { model: string; input: string[] | string }
+      expect(body.model).toBe('@cf/baai/bge-m3')
+      return Response.json({
+        object: 'list',
+        data: [
+          { object: 'embedding', index: 0, embedding: [0.1, 0.2] },
+          { object: 'embedding', index: 1, embedding: [0.3, 0.4] },
+        ],
+        model: '@cf/baai/bge-m3',
+        usage: { prompt_tokens: 5, total_tokens: 5 },
+      })
+    })
+    const headers = { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' }
+    const response = await app.request('/api/gateway/v1/embeddings', {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'bge-m3', input: ['hello', 'world'] }),
+    }, bed.env)
+    expect(response.status).toBe(200)
+    const body = await response.json() as { data: Array<{ embedding: unknown }>; usage: { prompt_tokens: number } }
+    expect(body.data).toHaveLength(2)
+    expect(body.data[0]!.embedding).toEqual([0.1, 0.2])
+    expect(body.usage.prompt_tokens).toBe(5)
+
+    const base64 = await app.request('/api/gateway/v1/embeddings', {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'bge-m3', input: 'hello', encoding_format: 'base64' }),
+    }, bed.env)
+    expect(base64.status).toBe(200)
+    expect(((await base64.json()) as { data: Array<{ embedding: string }> }).data[0]!.embedding).toMatch(/^[A-Za-z0-9+/]+=*$/)
+
+    const badDimensions = await app.request('/api/gateway/v1/embeddings', {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'bge-m3', input: 'hello', dimensions: 256 }),
+    }, bed.env)
+    expect(badDimensions.status).toBe(400)
+    expect(await badDimensions.json()).toMatchObject({ error: { code: 'dimensions_not_supported', param: 'dimensions' } })
+
+    const unknown = await app.request('/api/gateway/v1/embeddings', {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'nope', input: 'hello' }),
+    }, bed.env)
+    expect(unknown.status).toBe(400)
+    expect(await unknown.json()).toMatchObject({ error: { code: 'model_not_found', param: 'model' } })
+  })
+})
+
 function sseResponse(lines: string[]): Response {
   const encoder = new TextEncoder()
   const body = new ReadableStream({

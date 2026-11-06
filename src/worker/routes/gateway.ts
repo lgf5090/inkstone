@@ -18,6 +18,7 @@ import {
   estimatePromptTokens,
   listGatewayModels,
   reservationFor,
+  resolveGatewayEmbedding,
   type CanonicalRequest,
 } from '../cloudflare/ai-gateway-models'
 import {
@@ -412,6 +413,42 @@ async function finalize(
   })
 }
 
+interface FailureMeta {
+  format: GatewayRequestInput['format']
+  model: string
+  stream: boolean
+}
+
+function logGatewayFailure(
+  env: Env,
+  key: GatewayKeyAuth,
+  requestId: string,
+  meta: FailureMeta,
+  status: GatewayRequestInput['status'],
+  httpStatus: number,
+  code: string | null,
+  started: number,
+): void {
+  void insertGatewayRequest(env, {
+    id: requestId,
+    userId: key.userId,
+    keyId: key.id,
+    accountId: '',
+    day: gatewayDay(),
+    format: meta.format,
+    stream: meta.stream,
+    model: meta.model,
+    status,
+    httpStatus,
+    reservedNeurons: 0,
+    actualNeurons: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    durationMs: Date.now() - started,
+    errorCode: code,
+  }).catch(() => undefined)
+}
+
 function logFailure(
   env: Env,
   key: GatewayKeyAuth,
@@ -422,24 +459,11 @@ function logFailure(
   started: number,
   requestId: string,
 ): void {
-  void insertGatewayRequest(env, {
-    id: requestId,
-    userId: key.userId,
-    keyId: key.id,
-    accountId: '',
-    day: gatewayDay(),
+  logGatewayFailure(env, key, requestId, {
     format: request?.format ?? 'chat',
-    stream: request?.stream ?? false,
     model: request?.alias ?? '',
-    status,
-    httpStatus,
-    reservedNeurons: 0,
-    actualNeurons: 0,
-    promptTokens: 0,
-    completionTokens: 0,
-    durationMs: Date.now() - started,
-    errorCode: code,
-  }).catch(() => undefined)
+    stream: request?.stream ?? false,
+  }, status, httpStatus, code, started)
 }
 
 function chatResponse(parsed: Record<string, unknown>, request: CanonicalRequest, cors: Record<string, string>, requestId: string): Response {
@@ -912,6 +936,192 @@ function streamOutput(
   return output
 }
 
+async function callEmbeddingUpstream(
+  c: Context<AppBindings>,
+  alias: string,
+  workerModel: string,
+  input: string | string[],
+  reserve: number,
+  limit: number,
+  skip: Set<string>,
+  userId: string,
+): Promise<{ response: Response; acquired: Acquired } | { failure: 'no_account' | 'upstream'; upstreamStatus?: number; message?: string }> {
+  let lastStatus: number | undefined
+  let lastMessage = 'All eligible accounts failed'
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const acquired = await acquireAccount(c.env, userId, alias, reserve, limit, skip)
+    if (!acquired) return { failure: 'no_account' }
+    const cfId = acquired.account.row.cf_account_id
+    if (!cfId) {
+      skip.add(acquired.account.row.id)
+      await markAccountFailure(c.env, userId, acquired.account.row.id, 'auth_error', 'missing_cf_account_id')
+      continue
+    }
+    let response: Response
+    try {
+      response = await cfFetchRaw(acquired.account.auth, `/accounts/${encodeURIComponent(cfId)}/ai/v1/embeddings`, {
+        method: 'POST',
+        body: { model: workerModel, input, encoding_format: 'float' },
+        timeoutMs: 120_000,
+        headers: { Accept: 'application/json' },
+      })
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'cloudflare_not_configured') {
+        await markAccountFailure(c.env, userId, acquired.account.row.id, 'auth_error', 'missing_credentials')
+      } else {
+        lastStatus = 502
+        lastMessage = (error as Error)?.message ?? 'The upstream embedding request failed'
+        await markAccountFailure(c.env, userId, acquired.account.row.id, 'cooling', 'upstream_timeout')
+      }
+      skip.add(acquired.account.row.id)
+      continue
+    }
+    if (response.ok) return { response, acquired }
+    lastStatus = response.status
+    const raw = await response.text()
+    lastMessage = upstreamMessage(raw)
+    const kind = classifyUpstream(response.status, raw)
+    if (kind === 'client') return { failure: 'upstream', upstreamStatus: response.status, message: lastMessage }
+    if (kind === 'auth') {
+      await markAccountFailure(c.env, userId, acquired.account.row.id, 'auth_error', 'upstream_auth')
+    } else if (kind === 'exhausted') {
+      await setAccountStatus(c.env, userId, acquired.account.row.id, 'exhausted_today', Date.now(), 0, 'upstream_neuron_limit')
+    } else {
+      await markAccountFailure(c.env, userId, acquired.account.row.id, 'cooling', `upstream_${response.status}`)
+    }
+    skip.add(acquired.account.row.id)
+  }
+  return { failure: 'upstream', upstreamStatus: lastStatus, message: lastMessage }
+}
+
+function float32Base64(values: number[]): string {
+  const bytes = new Uint8Array(new Float32Array(values).buffer)
+  let binary = ''
+  for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
+async function handleEmbeddings(c: Context<AppBindings>): Promise<Response> {
+  const started = Date.now()
+  const requestId = requestIdOf()
+  let key: GatewayKeyAuth | null = null
+  let model = ''
+  try {
+    key = await authenticate(c)
+    const body = await readBody(c)
+    if (typeof body.model !== 'string') throw ApiError.badRequest('model is required')
+    model = body.model
+    const resolved = resolveGatewayEmbedding(model)
+    if (!resolved) {
+      throw new OpenAiError(400, `Unknown model alias: ${model}`, 'invalid_request_error', 'model_not_found', 'model')
+    }
+    if (!keyAllowsModel(key, resolved.alias)) {
+      throw new OpenAiError(403, 'This key is not allowed to use that model', 'permission_error', 'model_not_allowed', 'model')
+    }
+    const rawInput = body.input
+    let inputs: string[]
+    if (typeof rawInput === 'string') inputs = [rawInput]
+    else if (Array.isArray(rawInput) && rawInput.every((entry) => typeof entry === 'string')) inputs = rawInput as string[]
+    else throw ApiError.badRequest('input must be a string or an array of strings')
+    if (inputs.length === 0 || inputs.length > 128) throw ApiError.badRequest('input must contain between 1 and 128 strings')
+    for (const entry of inputs) {
+      if (entry.length === 0 || entry.length > 100_000) throw ApiError.badRequest('Every input must be between 1 and 100,000 characters')
+    }
+    if (body.dimensions !== undefined) {
+      if (!Number.isInteger(body.dimensions) || body.dimensions !== resolved.dimensions) {
+        throw new OpenAiError(
+          400,
+          `This model always returns ${resolved.dimensions} dimensions`,
+          'invalid_request_error',
+          'dimensions_not_supported',
+          'dimensions',
+        )
+      }
+    }
+    const encoding = body.encoding_format ?? 'float'
+    if (encoding !== 'float' && encoding !== 'base64') {
+      throw new OpenAiError(400, 'encoding_format must be float or base64', 'invalid_request_error', 'bad_request', 'encoding_format')
+    }
+    if (body.stream === true) throw ApiError.badRequest('Embeddings do not support streaming')
+    const promptTokens = Math.max(1, Math.ceil(inputs.join('\n').length / 3))
+    const reserve = Math.max(10, Math.ceil(estimateNeurons(resolved.model, promptTokens, 0) * 1.10))
+    const limit = gatewayLimit(c.env)
+    const day = gatewayDay()
+    if (!(await consumeKeyRequest(c.env, key, day))) {
+      logGatewayFailure(c.env, key, requestId, { format: 'embedding', model: resolved.alias, stream: false }, 'quota', 429, 'key_daily_limit', started)
+      throw new OpenAiError(429, 'This key has reached its daily request limit', 'rate_limit_error', 'key_daily_limit')
+    }
+    const outcome = await callEmbeddingUpstream(c, resolved.alias, resolved.model, inputs, reserve, limit, new Set(), key.userId)
+    if ('failure' in outcome) {
+      const noAccount = outcome.failure === 'no_account'
+      logGatewayFailure(
+        c.env, key, requestId, { format: 'embedding', model: resolved.alias, stream: false },
+        noAccount ? 'quota' : 'upstream', noAccount ? 429 : (outcome.upstreamStatus && outcome.upstreamStatus < 500 ? 400 : 502),
+        noAccount ? 'no_account_quota' : 'upstream_error', started,
+      )
+      throw new OpenAiError(
+        noAccount ? 429 : (outcome.upstreamStatus && outcome.upstreamStatus < 500 ? 400 : 502),
+        noAccount ? 'No account has enough neuron quota left today' : (outcome.message ?? 'All accounts failed'),
+        noAccount ? 'rate_limit_error' : 'api_error',
+        noAccount ? 'insufficient_quota' : 'upstream_error',
+      )
+    }
+    const payload = await outcome.response.json().catch(() => null) as {
+      data?: Array<{ index?: number; embedding?: unknown }>
+      usage?: { prompt_tokens?: number; total_tokens?: number }
+    } | null
+    if (!payload || !Array.isArray(payload.data) || payload.data.length === 0) {
+      throw new OpenAiError(502, 'Cloudflare returned an unexpected embeddings body', 'api_error', 'upstream_error')
+    }
+    const usagePrompt = typeof payload.usage?.prompt_tokens === 'number' ? payload.usage.prompt_tokens : promptTokens
+    const totalTokens = typeof payload.usage?.total_tokens === 'number' ? payload.usage.total_tokens : usagePrompt
+    const actual = Math.max(1, Math.ceil(estimateNeurons(resolved.model, usagePrompt, 0)))
+    const now = Date.now()
+    await settleNeurons(c.env, key.userId, outcome.acquired.account.row.id, resolved.alias, actual, limit, now)
+    await addKeyUsage(c.env, key.id, key.userId, day, actual, totalTokens)
+    await markAccountSuccess(c.env, key.userId, outcome.acquired.account.row.id, now)
+    await insertGatewayRequest(c.env, {
+      id: requestId,
+      userId: key.userId,
+      keyId: key.id,
+      accountId: outcome.acquired.account.row.id,
+      day,
+      format: 'embedding',
+      stream: false,
+      model: resolved.alias,
+      status: 'success',
+      httpStatus: 200,
+      reservedNeurons: reserve,
+      actualNeurons: actual,
+      promptTokens: usagePrompt,
+      completionTokens: 0,
+      durationMs: now - started,
+    })
+    const data = payload.data.map((entry, index) => {
+      const embedding = Array.isArray(entry.embedding) ? entry.embedding as number[] : []
+      return {
+        object: 'embedding',
+        index: typeof entry.index === 'number' ? entry.index : index,
+        embedding: encoding === 'base64' ? float32Base64(embedding) : embedding,
+      }
+    })
+    return openAiJson({
+      object: 'list',
+      data,
+      model: resolved.alias,
+      usage: { prompt_tokens: usagePrompt, total_tokens: totalTokens },
+    }, 200, corsHeaders(c), requestId)
+  } catch (error) {
+    if (key) {
+      const mapped = errorCodeOf(error)
+      logGatewayFailure(c.env, key, requestId, { format: 'embedding', model, stream: false }, 'error', mapped.status, mapped.code, started)
+    }
+    return openAiError(error, corsHeaders(c), requestId)
+  }
+}
+
 async function handle(c: Context<AppBindings>, format: 'chat' | 'responses'): Promise<Response> {
   const started = Date.now()
   const requestId = newId().replace(/-/g, '').slice(0, 24)
@@ -1055,6 +1265,7 @@ gatewayRoutes.get('/v1/models/:id', async (c) => {
 })
 
 gatewayRoutes.post('/v1/chat/completions', (c) => handle(c, 'chat'))
+gatewayRoutes.post('/v1/embeddings', (c) => handleEmbeddings(c))
 gatewayRoutes.post('/v1/responses', (c) => handle(c, 'responses'))
 
 gatewayRoutes.get('/v1/responses/:id', async (c) => {

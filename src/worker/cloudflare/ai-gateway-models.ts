@@ -21,22 +21,48 @@ const MODEL_BY_ID = Object.fromEntries(
   Object.entries(GATEWAY_MODEL_ALIASES).map(([alias, id]) => [id, alias]),
 ) as Record<string, GatewayModelAlias>
 
+/** Embedding models are a separate capability: sending one to /chat/completions would fail upstream. */
+export const GATEWAY_EMBEDDING_ALIASES = {
+  'bge-small': { model: '@cf/baai/bge-small-en-v1.5', dimensions: 384 },
+  'bge-base': { model: '@cf/baai/bge-base-en-v1.5', dimensions: 768 },
+  'bge-large': { model: '@cf/baai/bge-large-en-v1.5', dimensions: 1024 },
+  'bge-m3': { model: '@cf/baai/bge-m3', dimensions: 1024 },
+} as const
+
+export type GatewayEmbeddingAlias = keyof typeof GATEWAY_EMBEDDING_ALIASES
+
+export function resolveGatewayEmbedding(value: string): { alias: GatewayEmbeddingAlias; model: string; dimensions: number } | null {
+  const entry = (GATEWAY_EMBEDDING_ALIASES as Record<string, { model: string; dimensions: number }>)[value]
+  return entry ? { alias: value as GatewayEmbeddingAlias, model: entry.model, dimensions: entry.dimensions } : null
+}
+
 export interface GatewayModelInfo {
-  id: GatewayModelAlias
+  id: string
   object: 'model'
   created: number
   owned_by: 'workers-ai'
   worker_model: string
+  kind: 'chat' | 'embedding'
 }
 
 export function listGatewayModels(): GatewayModelInfo[] {
-  return Object.entries(GATEWAY_MODEL_ALIASES).map(([alias, worker]) => ({
-    id: alias as GatewayModelAlias,
-    object: 'model',
+  const chat = Object.entries(GATEWAY_MODEL_ALIASES).map(([alias, worker]) => ({
+    id: alias,
+    object: 'model' as const,
     created: 1_700_000_000,
-    owned_by: 'workers-ai',
+    owned_by: 'workers-ai' as const,
     worker_model: worker,
+    kind: 'chat' as const,
   }))
+  const embeddings = Object.entries(GATEWAY_EMBEDDING_ALIASES).map(([alias, entry]) => ({
+    id: alias,
+    object: 'model' as const,
+    created: 1_700_000_000,
+    owned_by: 'workers-ai' as const,
+    worker_model: entry.model,
+    kind: 'embedding' as const,
+  }))
+  return [...chat, ...embeddings]
 }
 
 export function resolveGatewayModel(value: string): { alias: GatewayModelAlias; model: string } | null {
