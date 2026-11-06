@@ -6622,7 +6622,7 @@ const allowed = new Map([
     "/**\n * D1: databases on the left, tables below them, and the query workbench on the right.\n *\n * The editor can draft before a database is chosen, but every command is disabled until one is. The\n * allow-write switch is only a convenience for the reader: the route checks the SQL again and refuses\n * writes without it, so the switch cannot be bypassed by editing the page.\n */",
   ]],
   ["src/client/features/cloudflare/screens/storage/D1RowsDialog.tsx", [
-    "/**\n * A read-only window onto one D1 table: pageable rows, a search across every column, and a cell\n * viewer for values a table cell truncates. Editing and deleting are deliberately absent; this\n * dialog never sends a write.\n */",
+    "/**\n * A window onto one D1 table: pageable rows, a search across every column, cell viewing, and\n * single-row edit/delete once the reader explicitly turns writes on. The key is the table's primary\n * key; the server rebuilds both statements from the schema and binds every value.\n */",
   ]],
   ["src/client/features/cloudflare/screens/storage/D1SchemaDialog.tsx", [
     "/**\n * A table's columns, their constraints, and the four schema edits D1 allows without opening the SQL\n * editor. Each edit is a normal ALTER/DROP statement sent through the query route with writes allowed;\n * nothing here bypasses the route's own guard.\n */",
@@ -38580,6 +38580,7 @@ const allowed = new Map([
   ["src/worker/cloudflare/network.ts", [
     "/**\n * The read shapes and the write calls for the four network surfaces added in Phase 2.\n *\n * Cloudflare returns much more than each table shows; every converter here keeps the fields the\n * screen actually draws. Missing values stay `null`/`''` instead of becoming a plausible default,\n * because \"Cloudflare did not say\" and \"Cloudflare said zero\" are different answers. Writes are\n * only the create/delete pairs the screens expose; a reader never gets a half-implemented editor.\n */",
     "/** Snippet uploads are multipart, so this one call does not go through `cfFetch`'s JSON body handling. */",
+    "/** Enable adds and locks MX/SPF records; disable removes the extra MX records Cloudflare added. */",
   ]],
   ["src/worker/cloudflare/pricing.ts", [
     "/**\n * What one AI request costs, in Cloudflare's neurons.\n *\n * The numbers come from `model-pricing.json`, which the reference module and this port share. A model\n * the table does not know falls back to the file's own default rather than to zero: a free-looking\n * estimate would let the quota screens stay green while the account is being drained.\n */",
@@ -38614,6 +38615,8 @@ const allowed = new Map([
     "/** A table as the sidebar shows it; the count is filled only when someone asked for it. */",
     "/**\n * The tables of a database, with row counts only when asked.\n *\n * `COUNT(*)` walks the table (or its smallest index), so counting every table turns opening a\n * database into a scan of the whole database — and D1 bills for that CPU. Listing names is one small\n * query; the panel offers the counts as a separate, visible action.\n */",
     "/**\n * One page of a table's rows, optionally filtered across every column.\n *\n * The table name comes from the database's own listing and is re-quoted; the search text is bound\n * as a parameter, never spliced into the statement. Filtering casts each column to text so an\n * integer or blob column can still match a reader's search without guessing its type.\n *\n * This is read-only: it never builds an UPDATE or DELETE.\n */",
+    "/** Update one row selected by its primary key; identifiers come from the schema, values are bound. */",
+    "/** Delete one row selected by its primary key; identifiers come from the schema, values are bound. */",
   ]],
   ["src/worker/cloudflare/storage-kv.ts", [
     "/**\n * KV namespaces, keys and values through the Cloudflare REST API.\n *\n * The service speaks only to Cloudflare; account ownership and demo protection belong to the route.\n * Values are written as raw text with the TTL in the query string, which avoids multipart on a PUT\n * that only carries one field.\n */",
@@ -41555,6 +41558,7 @@ const allowed = new Map([
     "// endpoint with a 404 envelope. That is an empty list, not an unsupported product.",
     "/**\n * `/api/cloudflare/network` — the four network surfaces added in Phase 2.\n *\n * Account-level resources (pools, monitors, redirect lists) need the reader's own account row; zone\n * resources (zone load balancers, email routing, snippets) also need the zone to belong to that\n * account, which `loadZoneForAccount` proves. Every write is audited and refused for a demo account.\n */",
     "// Writes: create/delete only, so every control the screen draws has one endpoint behind it.",
+    "/** A load-balancer write refused with \"Access Failed\" means the account lacks the product, not a bad payload. */",
   ]],
   ["src/worker/routes/cloudflare/quota.ts", [
     "/**\n * `/api/cloudflare/quota` — today's allowance.\n *\n * The numbers come from the store the previous visit refreshed; Cloudflare is asked again behind the\n * response, so opening the dashboard costs one read instead of one GraphQL call per product per\n * account. The exception is a day with nothing counted yet: that answer would be blank, so it waits.\n */",
