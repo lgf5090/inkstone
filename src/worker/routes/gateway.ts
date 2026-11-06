@@ -46,6 +46,21 @@ import {
   readGatewayResponse,
   storeGatewayResponse,
 } from '../cloudflare/ai-gateway-responses'
+import {
+  bytesToBase64,
+  bytesToImageInput,
+  extractImage,
+  FLUX_ALIAS,
+  FLUX_SIZE,
+  IMG2IMG_ALIAS,
+  imageReservation,
+  imageSettlement,
+  listImageModels,
+  resolveGatewayImage,
+  storeGeneratedImage,
+} from '../cloudflare/ai-gateway-images'
+import { recordGatewayMedia } from '../cloudflare/ai-gateway-media'
+import { StorageError } from '../imgbed/storage'
 import type { LoadedAccount } from '../cloudflare/accounts'
 
 export const gatewayRoutes = new Hono<AppBindings>()
@@ -1003,6 +1018,311 @@ function float32Base64(values: number[]): string {
   return btoa(binary)
 }
 
+async function callAiRunUpstream(
+  c: Context<AppBindings>,
+  alias: string,
+  workerModel: string,
+  body: Record<string, unknown>,
+  reserve: number,
+  limit: number,
+  skip: Set<string>,
+  userId: string,
+  timeoutMs = 300_000,
+): Promise<{ response: Response; acquired: Acquired } | { failure: 'no_account' | 'upstream'; upstreamStatus?: number; message?: string }> {
+  let lastStatus: number | undefined
+  let lastMessage = 'All eligible accounts failed'
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const acquired = await acquireAccount(c.env, userId, alias, reserve, limit, skip)
+    if (!acquired) return { failure: 'no_account' }
+    const cfId = acquired.account.row.cf_account_id
+    if (!cfId) {
+      skip.add(acquired.account.row.id)
+      await markAccountFailure(c.env, userId, acquired.account.row.id, 'auth_error', 'missing_cf_account_id')
+      continue
+    }
+    let response: Response
+    try {
+      response = await cfFetchRaw(acquired.account.auth, `/accounts/${encodeURIComponent(cfId)}/ai/run/${workerModel}`, {
+        method: 'POST',
+        body,
+        timeoutMs,
+        headers: { Accept: 'application/json, image/*' },
+      })
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'cloudflare_not_configured') {
+        await markAccountFailure(c.env, userId, acquired.account.row.id, 'auth_error', 'missing_credentials')
+      } else {
+        lastStatus = 502
+        lastMessage = (error as Error)?.message ?? 'The upstream model request failed'
+        await markAccountFailure(c.env, userId, acquired.account.row.id, 'cooling', 'upstream_timeout')
+      }
+      skip.add(acquired.account.row.id)
+      continue
+    }
+    if (response.ok) return { response, acquired }
+    lastStatus = response.status
+    const raw = await response.text()
+    lastMessage = upstreamMessage(raw)
+    const kind = classifyUpstream(response.status, raw)
+    if (kind === 'client') return { failure: 'upstream', upstreamStatus: response.status, message: lastMessage }
+    if (kind === 'auth') {
+      await markAccountFailure(c.env, userId, acquired.account.row.id, 'auth_error', 'upstream_auth')
+    } else if (kind === 'exhausted') {
+      await setAccountStatus(c.env, userId, acquired.account.row.id, 'exhausted_today', Date.now(), 0, 'upstream_neuron_limit')
+    } else {
+      await markAccountFailure(c.env, userId, acquired.account.row.id, 'cooling', `upstream_${response.status}`)
+    }
+    skip.add(acquired.account.row.id)
+  }
+  return { failure: 'upstream', upstreamStatus: lastStatus, message: lastMessage }
+}
+
+function gatewayImageFolder(now: number): string {
+  return `gateway/images/${gatewayDay(now).replace(/-/g, '/')}`
+}
+
+function imageOpenAiError(error: unknown): OpenAiError | ApiError {
+  if (error instanceof StorageError) {
+    const status = error.status >= 400 && error.status < 600 ? error.status : 502
+    return new OpenAiError(
+      status,
+      error.message,
+      status === 503 ? 'api_error' : 'invalid_request_error',
+      status === 503 ? 'image_url_unavailable' : 'image_bed_error',
+    )
+  }
+  return error instanceof OpenAiError || error instanceof ApiError ? error : new OpenAiError(502, 'Image generation failed', 'api_error', 'image_failed')
+}
+
+async function handleImages(c: Context<AppBindings>): Promise<Response> {
+  const started = Date.now()
+  const requestId = requestIdOf()
+  let key: GatewayKeyAuth | null = null
+  let model = ''
+  try {
+    key = await authenticate(c)
+    const body = await readBody(c)
+    model = typeof body.model === 'string' ? body.model : FLUX_ALIAS
+    const resolved = resolveGatewayImage(model)
+    if (!resolved || resolved.kind !== 'generate') {
+      throw new OpenAiError(400, `Unknown image model: ${model}`, 'invalid_request_error', 'model_not_found', 'model')
+    }
+    if (!keyAllowsModel(key, resolved.alias)) {
+      throw new OpenAiError(403, 'This key is not allowed to use that model', 'permission_error', 'model_not_allowed', 'model')
+    }
+    const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
+    if (!prompt || prompt.length > 2048) throw ApiError.badRequest('prompt must be between 1 and 2048 characters')
+    const n = body.n === undefined ? 1 : body.n
+    if (!Number.isInteger(n) || (n as number) < 1 || (n as number) > 10) throw ApiError.badRequest('n must be between 1 and 10')
+    const size = body.size ?? FLUX_SIZE
+    if (size !== FLUX_SIZE) {
+      throw new OpenAiError(400, `This model only generates ${FLUX_SIZE} images`, 'invalid_request_error', 'unsupported_size', 'size')
+    }
+    if (body.quality !== undefined && !['standard', 'auto'].includes(body.quality as string)) {
+      throw new OpenAiError(400, 'quality supports only standard or auto', 'invalid_request_error', 'unsupported_quality', 'quality')
+    }
+    if (body.style !== undefined && body.style !== 'vivid') {
+      throw new OpenAiError(400, 'style supports only vivid', 'invalid_request_error', 'unsupported_style', 'style')
+    }
+    const responseFormat = body.response_format ?? 'url'
+    if (responseFormat !== 'url' && responseFormat !== 'b64_json') {
+      throw new OpenAiError(400, 'response_format must be url or b64_json', 'invalid_request_error', 'bad_request', 'response_format')
+    }
+    const limit = gatewayLimit(c.env)
+    const day = gatewayDay()
+    const reserve = imageReservation(resolved.alias, 4, n as number)
+    if (!(await consumeKeyRequest(c.env, key, day))) {
+      logGatewayFailure(c.env, key, requestId, { format: 'image', model: resolved.alias, stream: false }, 'quota', 429, 'key_daily_limit', started)
+      throw new OpenAiError(429, 'This key has reached its daily request limit', 'rate_limit_error', 'key_daily_limit')
+    }
+    const origin = new URL(c.req.url).origin
+    const folder = gatewayImageFolder(started)
+    const data: Record<string, unknown>[] = []
+    const count = n as number
+    let done = 0
+    let lastAccountId = ''
+    for (let index = 0; index < count; index += 1) {
+      const outcome = await callAiRunUpstream(
+        c, resolved.alias, resolved.model,
+        { prompt, steps: 4 },
+        Math.max(10, Math.ceil(reserve / count)), limit, new Set(), key.userId,
+      )
+      if ('failure' in outcome) {
+        const noAccount = outcome.failure === 'no_account'
+        if (done > 0 && lastAccountId) {
+          const actual = imageSettlement(resolved.alias, 4, done)
+          await settleNeurons(c.env, key.userId, lastAccountId, resolved.alias, actual, limit, Date.now())
+        }
+        logGatewayFailure(c.env, key, requestId, { format: 'image', model: resolved.alias, stream: false },
+          noAccount ? 'quota' : 'upstream', noAccount ? 429 : (outcome.upstreamStatus && outcome.upstreamStatus < 500 ? 400 : 502),
+          noAccount ? 'no_account_quota' : 'upstream_error', started)
+        throw new OpenAiError(
+          noAccount ? 429 : (outcome.upstreamStatus && outcome.upstreamStatus < 500 ? 400 : 502),
+          noAccount ? 'No account has enough neuron quota left today' : (outcome.message ?? 'All accounts failed'),
+          noAccount ? 'rate_limit_error' : 'api_error',
+          noAccount ? 'insufficient_quota' : 'upstream_error',
+        )
+      }
+      lastAccountId = outcome.acquired.account.row.id
+      const image = await extractImage(outcome.response)
+      if (responseFormat === 'url') {
+        const stored = await storeGeneratedImage(
+          c.env, c.env.DB, c.req.raw, key.userId,
+          image.bytes, image.contentType, image.extension, folder, origin,
+        )
+        if (!stored.reused) {
+          await recordGatewayMedia(c.env, {
+            userId: key.userId, keyId: key.id, requestId,
+            fileId: stored.fileId, format: 'image', url: stored.url, sizeBytes: image.bytes.byteLength,
+          })
+        }
+        data.push({ url: stored.url, ...(image.revisedPrompt ? { revised_prompt: image.revisedPrompt } : {}) })
+      } else {
+        data.push({ b64_json: bytesToBase64(image.bytes), ...(image.revisedPrompt ? { revised_prompt: image.revisedPrompt } : {}) })
+      }
+      done += 1
+      if (index === 0) {
+        await markAccountSuccess(c.env, key.userId, outcome.acquired.account.row.id, Date.now())
+      }
+    }
+    const actual = imageSettlement(resolved.alias, 4, done)
+    const now = Date.now()
+    const accountId = lastAccountId
+    if (accountId) await settleNeurons(c.env, key.userId, accountId, resolved.alias, actual, limit, now)
+    await addKeyUsage(c.env, key.id, key.userId, day, actual, 0)
+    await insertGatewayRequest(c.env, {
+      id: requestId, userId: key.userId, keyId: key.id, accountId, day,
+      format: 'image', stream: false, model: resolved.alias, status: 'success', httpStatus: 200,
+      reservedNeurons: reserve, actualNeurons: actual, promptTokens: 0, completionTokens: 0,
+      durationMs: now - started,
+    })
+    return openAiJson({ created: Math.floor(now / 1000), data }, 200, corsHeaders(c), requestId)
+  } catch (error) {
+    const mapped = imageOpenAiError(error)
+    if (key) {
+      const info = errorCodeOf(mapped)
+      logGatewayFailure(c.env, key, requestId, { format: 'image', model, stream: false }, 'error', info.status, info.code, started)
+    }
+    return openAiError(mapped, corsHeaders(c), requestId)
+  }
+}
+
+async function handleImageEdits(c: Context<AppBindings>): Promise<Response> {
+  const started = Date.now()
+  const requestId = requestIdOf()
+  let key: GatewayKeyAuth | null = null
+  let model = ''
+  try {
+    key = await authenticate(c)
+    const contentType = c.req.header('content-type') ?? ''
+    if (!contentType.includes('multipart/form-data')) throw ApiError.badRequest('images/edits expects multipart/form-data')
+    const form = await c.req.parseBody()
+    const image = form.image
+    if (!(image instanceof File)) throw ApiError.badRequest('image is required')
+    if (image.size > 10 * 1024 * 1024) throw ApiError.tooLarge('image is too large')
+    if (form.mask instanceof File) {
+      throw new OpenAiError(
+        400,
+        'mask is not supported: Workers AI inpainting expects a raw mask array, and decoding a PNG mask is not implemented',
+        'invalid_request_error',
+        'mask_not_supported',
+        'mask',
+      )
+    }
+    const prompt = typeof form.prompt === 'string' ? form.prompt.trim() : ''
+    if (!prompt || prompt.length > 2048) throw ApiError.badRequest('prompt must be between 1 and 2048 characters')
+    model = typeof form.model === 'string' ? form.model : IMG2IMG_ALIAS
+    const resolved = resolveGatewayImage(model)
+    if (!resolved || resolved.kind !== 'edit') {
+      throw new OpenAiError(400, `Unknown image edit model: ${model}`, 'invalid_request_error', 'model_not_found', 'model')
+    }
+    if (!keyAllowsModel(key, resolved.alias)) {
+      throw new OpenAiError(403, 'This key is not allowed to use that model', 'permission_error', 'model_not_allowed', 'model')
+    }
+    const n = form.n === undefined ? 1 : Number(form.n)
+    if (!Number.isInteger(n) || n < 1 || n > 10) throw ApiError.badRequest('n must be between 1 and 10')
+    const size = typeof form.size === 'string' ? form.size : '1024x1024'
+    const match = /^(256|512|1024)x(256|512|1024)$/.exec(size)
+    if (!match) {
+      throw new OpenAiError(400, 'size must be 256x256, 512x512 or 1024x1024', 'invalid_request_error', 'unsupported_size', 'size')
+    }
+    const width = Number(match[1])
+    const height = Number(match[2])
+    const responseFormat = typeof form.response_format === 'string' ? form.response_format : 'url'
+    if (responseFormat !== 'url' && responseFormat !== 'b64_json') {
+      throw new OpenAiError(400, 'response_format must be url or b64_json', 'invalid_request_error', 'bad_request', 'response_format')
+    }
+    const imageBytes = new Uint8Array(await image.arrayBuffer())
+    const inputImage = bytesToImageInput(imageBytes)
+    const limit = gatewayLimit(c.env)
+    const day = gatewayDay()
+    const reserve = imageReservation(resolved.alias, 20, n)
+    if (!(await consumeKeyRequest(c.env, key, day))) {
+      logGatewayFailure(c.env, key, requestId, { format: 'image', model: resolved.alias, stream: false }, 'quota', 429, 'key_daily_limit', started)
+      throw new OpenAiError(429, 'This key has reached its daily request limit', 'rate_limit_error', 'key_daily_limit')
+    }
+    const origin = new URL(c.req.url).origin
+    const folder = gatewayImageFolder(started)
+    const data: Record<string, unknown>[] = []
+    let accountId = ''
+    for (let index = 0; index < n; index += 1) {
+      const outcome = await callAiRunUpstream(
+        c, resolved.alias, resolved.model,
+        { prompt, image_b64: inputImage.b64, width, height },
+        Math.max(10, Math.ceil(reserve / n)), limit, new Set(), key.userId,
+      )
+      if ('failure' in outcome) {
+        const noAccount = outcome.failure === 'no_account'
+        logGatewayFailure(c.env, key, requestId, { format: 'image', model: resolved.alias, stream: false },
+          noAccount ? 'quota' : 'upstream', noAccount ? 429 : (outcome.upstreamStatus && outcome.upstreamStatus < 500 ? 400 : 502),
+          noAccount ? 'no_account_quota' : 'upstream_error', started)
+        throw new OpenAiError(
+          noAccount ? 429 : (outcome.upstreamStatus && outcome.upstreamStatus < 500 ? 400 : 502),
+          noAccount ? 'No account has enough neuron quota left today' : (outcome.message ?? 'All accounts failed'),
+          noAccount ? 'rate_limit_error' : 'api_error',
+          noAccount ? 'insufficient_quota' : 'upstream_error',
+        )
+      }
+      accountId = outcome.acquired.account.row.id
+      const output = await extractImage(outcome.response)
+      if (responseFormat === 'url') {
+        const stored = await storeGeneratedImage(
+          c.env, c.env.DB, c.req.raw, key.userId,
+          output.bytes, output.contentType, output.extension, folder, origin,
+        )
+        if (!stored.reused) {
+          await recordGatewayMedia(c.env, {
+            userId: key.userId, keyId: key.id, requestId,
+            fileId: stored.fileId, format: 'image', url: stored.url, sizeBytes: output.bytes.byteLength,
+          })
+        }
+        data.push({ url: stored.url })
+      } else {
+        data.push({ b64_json: bytesToBase64(output.bytes) })
+      }
+    }
+    const actual = imageSettlement(resolved.alias, 20, n)
+    const now = Date.now()
+    await settleNeurons(c.env, key.userId, accountId, resolved.alias, actual, limit, now)
+    await addKeyUsage(c.env, key.id, key.userId, day, actual, 0)
+    await markAccountSuccess(c.env, key.userId, accountId, now)
+    await insertGatewayRequest(c.env, {
+      id: requestId, userId: key.userId, keyId: key.id, accountId, day,
+      format: 'image', stream: false, model: resolved.alias, status: 'success', httpStatus: 200,
+      reservedNeurons: reserve, actualNeurons: actual, promptTokens: 0, completionTokens: 0,
+      durationMs: now - started,
+    })
+    return openAiJson({ created: Math.floor(now / 1000), data }, 200, corsHeaders(c), requestId)
+  } catch (error) {
+    const mapped = imageOpenAiError(error)
+    if (key) {
+      const info = errorCodeOf(mapped)
+      logGatewayFailure(c.env, key, requestId, { format: 'image', model, stream: false }, 'error', info.status, info.code, started)
+    }
+    return openAiError(mapped, corsHeaders(c), requestId)
+  }
+}
+
 async function handleEmbeddings(c: Context<AppBindings>): Promise<Response> {
   const started = Date.now()
   const requestId = requestIdOf()
@@ -1245,7 +1565,7 @@ gatewayRoutes.get('/v1/models', async (c) => {
   const requestId = requestIdOf()
   try {
     await authenticate(c)
-    return openAiJson({ object: 'list', data: listGatewayModels() }, 200, corsHeaders(c), requestId)
+    return openAiJson({ object: 'list', data: [...listGatewayModels(), ...listImageModels()] }, 200, corsHeaders(c), requestId)
   } catch (error) {
     return openAiError(error, corsHeaders(c), requestId)
   }
@@ -1256,7 +1576,7 @@ gatewayRoutes.get('/v1/models/:id', async (c) => {
   try {
     await authenticate(c)
     const id = c.req.param('id')
-    const model = listGatewayModels().find((entry) => entry.id === id)
+    const model = [...listGatewayModels(), ...listImageModels()].find((entry) => entry.id === id)
     if (!model) throw new OpenAiError(404, `The model "${id}" does not exist`, 'invalid_request_error', 'model_not_found', 'model')
     return openAiJson(model, 200, corsHeaders(c), requestId)
   } catch (error) {
@@ -1266,6 +1586,8 @@ gatewayRoutes.get('/v1/models/:id', async (c) => {
 
 gatewayRoutes.post('/v1/chat/completions', (c) => handle(c, 'chat'))
 gatewayRoutes.post('/v1/embeddings', (c) => handleEmbeddings(c))
+gatewayRoutes.post('/v1/images/generations', (c) => handleImages(c))
+gatewayRoutes.post('/v1/images/edits', (c) => handleImageEdits(c))
 gatewayRoutes.post('/v1/responses', (c) => handle(c, 'responses'))
 
 gatewayRoutes.get('/v1/responses/:id', async (c) => {

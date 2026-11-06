@@ -97,6 +97,7 @@ export const ZH_CN_CLOUDFLARE_AI = {
   "cloudflare.ai_gateway.format": "格式",
   "cloudflare.ai_gateway.format_chat": "Chat",
   "cloudflare.ai_gateway.format_embedding": "Embeddings",
+  "cloudflare.ai_gateway.format_image": "图片",
   "cloudflare.ai_gateway.format_responses": "Responses",
   "cloudflare.ai_gateway.key_created": "Key 已创建",
   "cloudflare.ai_gateway.key": "Key",

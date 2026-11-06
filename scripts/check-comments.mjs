@@ -38462,6 +38462,13 @@ const allowed = new Map([
     "// A transport failure never carries an upstream status. A 5xx or a 429 is Cloudflare's own",
     "// availability problem, not this credential's; only a 4xx answer is a refusal.",
   ]],
+  ["src/worker/cloudflare/ai-gateway-images.ts", [
+    "/**\n * OpenAI Images support on top of Workers AI and the existing image bed.\n *\n * Text-to-image is `flux-1-schnell`; image editing is Stable Diffusion img2img/inpainting. The\n * gateway never writes R2 itself: a `url` response calls the image bed's `uploadSingle`, so the bytes,\n * the channel, the URL format and the delete path are the ones a manual upload already uses. A\n * content-hash filename lets a repeated generation reuse the file already in the bed.\n */",
+    "/** flux-1-schnell takes no width/height; 1024x1024 is the shape its catalog page documents. */",
+    "/** `/ai/run` may answer JSON with a base64 image or the image bytes directly. */",
+    "/**\n * The channel's own public domain first, then the image bed's configured link prefix, then this\n * deployment's origin. When the bed's whitelist mode would block an origin link, there is no URL.\n */",
+    "/** Content-hash id inside the gateway's own folder; a hit is reused when its bytes still exist. */",
+  ]],
   ["src/worker/cloudflare/ai-gateway-keys.ts", [
     "/**\n * Gateway keys are issued by Inkstone, not by Cloudflare.\n *\n * Only the SHA-256 hash and a short prefix are stored; the plaintext is returned once at creation and\n * never written to a log or audit row. The per-key daily request counter lives in its own row so the\n * hot path does not update the key metadata.\n */",
   ]],

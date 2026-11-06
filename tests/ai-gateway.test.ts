@@ -667,6 +667,89 @@ describe('Embeddings', () => {
   })
 })
 
+describe('Images', () => {
+  const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+
+  it('returns b64_json and rejects unsupported size, quality and style', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'x'.repeat(26), accountId: 'c'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'image key' })
+    stubCloudflare(async (url) => {
+      expect(url.pathname).toBe(`/client/v4/accounts/${'c'.repeat(32)}/ai/run/@cf/black-forest-labs/flux-1-schnell`)
+      return Response.json({ result: { image: pngBase64 } })
+    })
+    const headers = { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' }
+    const response = await app.request('/api/gateway/v1/images/generations', {
+      method: 'POST', headers,
+      body: JSON.stringify({ prompt: 'a tiny dot', response_format: 'b64_json' }),
+    }, bed.env)
+    expect(response.status).toBe(200)
+    const body = await response.json() as { created: number; data: Array<{ b64_json: string }> }
+    expect(body.data[0]!.b64_json).toBe(pngBase64)
+
+    for (const patch of [{ size: '512x512' }, { quality: 'hd' }, { style: 'natural' }]) {
+      const rejected = await app.request('/api/gateway/v1/images/generations', {
+        method: 'POST', headers, body: JSON.stringify({ prompt: 'a tiny dot', ...patch }),
+      }, bed.env)
+      expect(rejected.status).toBe(400)
+    }
+  })
+
+  it('stores a url through the image bed and reuses the content hash on repeat', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'v'.repeat(26), accountId: 'd'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'url image key' })
+    stubCloudflare(async () => Response.json({ result: { image: pngBase64 } }))
+    const headers = { authorization: `Bearer ${created.token}`, 'content-type': 'application/json' }
+    const call = () => app.request('/api/gateway/v1/images/generations', {
+      method: 'POST', headers, body: JSON.stringify({ prompt: 'a tiny dot', response_format: 'url' }),
+    }, bed.env)
+    const first = await call()
+    expect(first.status).toBe(200)
+    const firstBody = await first.json() as { data: Array<{ url: string }> }
+    expect(firstBody.data[0]!.url).toMatch(/\/imgbed\/file\//)
+    const rowsAfterFirst = (await bed.env.DB.prepare('SELECT COUNT(*) AS n FROM imgbed_files').first<{ n: number }>())?.n
+    expect(rowsAfterFirst).toBe(1)
+
+    const second = await call()
+    expect(second.status).toBe(200)
+    const secondBody = await second.json() as { data: Array<{ url: string }> }
+    expect(secondBody.data[0]!.url).toBe(firstBody.data[0]!.url)
+    const rowsAfterSecond = (await bed.env.DB.prepare('SELECT COUNT(*) AS n FROM imgbed_files').first<{ n: number }>())?.n
+    expect(rowsAfterSecond).toBe(1)
+    const media = await bed.env.DB.prepare('SELECT COUNT(*) AS n FROM ai_gateway_media').first<{ n: number }>()
+    expect(media?.n).toBe(1)
+  })
+
+  it('edits an image through img2img and refuses a mask explicitly', async () => {
+    await seedAccount(bed, TEST_USER, { id: 'w'.repeat(26), accountId: 'e'.repeat(32) })
+    const created = await createGatewayKey(bed.env, TEST_USER, { name: 'edit key' })
+    stubCloudflare(async (url) => {
+      expect(url.pathname).toBe(`/client/v4/accounts/${'e'.repeat(32)}/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img`)
+      return Response.json({ result: { image: pngBase64 } })
+    })
+    const form = new FormData()
+    form.append('image', new File([Buffer.from(pngBase64, 'base64')], 'source.png', { type: 'image/png' }))
+    form.append('prompt', 'make it blue')
+    form.append('response_format', 'b64_json')
+    const response = await app.request('/api/gateway/v1/images/edits', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${created.token}` },
+      body: form,
+    }, bed.env)
+    expect(response.status).toBe(200)
+    expect(((await response.json()) as { data: Array<{ b64_json: string }> }).data[0]!.b64_json).toBe(pngBase64)
+
+    const maskForm = new FormData()
+    maskForm.append('image', new File([Buffer.from(pngBase64, 'base64')], 'source.png', { type: 'image/png' }))
+    maskForm.append('mask', new File([Buffer.from(pngBase64, 'base64')], 'mask.png', { type: 'image/png' }))
+    maskForm.append('prompt', 'make it blue')
+    const masked = await app.request('/api/gateway/v1/images/edits', {
+      method: 'POST', headers: { authorization: `Bearer ${created.token}` }, body: maskForm,
+    }, bed.env)
+    expect(masked.status).toBe(400)
+    expect(await masked.json()).toMatchObject({ error: { code: 'mask_not_supported', param: 'mask' } })
+  })
+})
+
 function sseResponse(lines: string[]): Response {
   const encoder = new TextEncoder()
   const body = new ReadableStream({
