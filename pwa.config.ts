@@ -442,12 +442,16 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).catch(async () => {
-        const shell = await caches.open(SHELL_CACHE)
-        const cached = await shell.match('/index.html')
-        // No cached shell is a real answer with nothing to give, not a page to dress up: the browser
-        // shows its own offline notice, which is true, instead of a blank document from a cache that
-        // was never filled.
-        return cached || Response.error()
+        try {
+          const shell = await caches.open(SHELL_CACHE)
+          const cached = await shell.match('/index.html')
+          // No cached shell is a real answer with nothing to give, not a page to dress up: the browser
+          // shows its own offline notice, which is true, instead of a blank document from a cache that
+          // was never filled.
+          return cached || Response.error()
+        } catch {
+          return Response.error()
+        }
       }),
     )
     return
@@ -460,20 +464,42 @@ self.addEventListener('fetch', (event) => {
   // document's own policy, and falls back to the cache so an offline start still has its guard.
   if (url.pathname === '/boot.js') {
     event.respondWith(
-      fetch(request).catch(async () => (await caches.match(request)) || Response.error()),
+      fetch(request).catch(async () => {
+        try {
+          return (await caches.match(request)) || Response.error()
+        } catch {
+          return Response.error()
+        }
+      }),
     )
     return
   }
 
+  // Every path that reaches this branch is a cache-first asset. The answer must settle either way —
+  // a rejected respondWith turns one dropped connection into a failed FetchEvent, and the browser
+  // reports the whole navigation as a network error even though the document itself loaded.
   event.respondWith((async () => {
-    const cached = await caches.match(request, { ignoreSearch: true })
-    if (cached && !isDocumentFallback(url, cached)) return cached
-    const response = await fetch(request)
-    if (response.ok && OPTIONAL_URL_SET.has(url.pathname) && !isDocumentFallback(url, response)) {
-      const assets = await caches.open(ASSET_CACHE)
-      await assets.put(url.pathname, response.clone())
+    let cached
+    try {
+      cached = await caches.match(request, { ignoreSearch: true })
+    } catch {
+      cached = undefined
     }
-    return response
+    try {
+      const response = await fetch(request)
+      if (response.ok && OPTIONAL_URL_SET.has(url.pathname) && !isDocumentFallback(url, response)) {
+        try {
+          const assets = await caches.open(ASSET_CACHE)
+          await assets.put(url.pathname, response.clone())
+        } catch {
+          // A full or unavailable cache must not turn a good response into a failed request.
+        }
+      }
+      return response
+    } catch {
+      if (cached && !isDocumentFallback(url, cached)) return cached
+      return Response.error()
+    }
   })())
 })
 

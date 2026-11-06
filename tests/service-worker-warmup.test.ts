@@ -25,6 +25,10 @@ class FakeResponse {
     })
   }
 
+  static error() {
+    return new FakeResponse('', { status: 0 })
+  }
+
   async json() {
     return JSON.parse(this.body)
   }
@@ -164,6 +168,7 @@ const documentResponse = () => new FakeResponse(APP_DOCUMENT, {
 
 function bootServiceWorker(options: {
   failing?: string[]
+  errors?: string[]
   previousShell?: boolean
   brokenCaches?: boolean
   documents?: string[]
@@ -174,6 +179,7 @@ function bootServiceWorker(options: {
   const fetched: string[] = []
   const caches = new FakeCacheStorage()
   const failing = new Set(options.failing ?? [])
+  const errors = new Set(options.errors ?? [])
   const documents = new Set(options.documents ?? [])
   if (options.previousShell) caches.maps.set('inkstone-shell-previous', new FakeCache())
   for (const entry of options.poisoned ?? []) {
@@ -189,6 +195,7 @@ function bootServiceWorker(options: {
     const path = toPath(input)
     fetched.push(path)
     if (failing.has(path)) throw new TypeError('Failed to fetch')
+    if (errors.has(path)) return new FakeResponse('', { status: 503 })
     if (documents.has(path)) return documentResponse()
     // The document is the one path that is honestly HTML: it must still be cached, or this guard becomes
     // the reason offline boot fails.
@@ -415,4 +422,18 @@ it('serves the real file instead of a cached document, and caches the real file'
   expect(response).toBeInstanceOf(FakeResponse)
   expect((response as FakeResponse).body).toBe(`body:${engine}`)
   expect((await worker.assetCache()).get(ORIGIN + engine)?.body).toBe(`body:${engine}`)
+})
+
+it('settles a failed asset fetch with a network error response instead of rejecting the event', async () => {
+  const worker = bootServiceWorker({ failing: ['/assets/notes-4.js'] })
+  const response = await worker.requestPath('/assets/notes-4.js')
+  expect(response).toBeInstanceOf(FakeResponse)
+  expect((response as FakeResponse).ok).toBe(false)
+})
+
+it('passes a non-2xx asset answer through without writing it to the cache', async () => {
+  const worker = bootServiceWorker({ errors: ['/assets/notes-4.js'] })
+  const response = await worker.requestPath('/assets/notes-4.js')
+  expect((response as FakeResponse).status).toBe(503)
+  expect((await worker.assetCache()).has(ORIGIN + '/assets/notes-4.js')).toBe(false)
 })
