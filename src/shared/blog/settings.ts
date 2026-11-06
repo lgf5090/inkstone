@@ -110,7 +110,7 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
       { id: 'categories', type: 'categories', title: '', enabled: true, column: 'primary', collapseAfter: 5, config: {} },
       { id: 'series', type: 'series', title: '', enabled: true, column: 'primary', collapseAfter: 5, config: {} },
       { id: 'tags', type: 'tags', title: '', enabled: true, column: 'primary', collapseAfter: 6, config: {} },
-      { id: 'stats', type: 'stats', title: '', enabled: true, column: 'secondary', slot: 'top', config: {} },
+      { id: 'stats', type: 'stats', title: '', enabled: true, column: 'primary', config: {} },
       { id: 'calendar', type: 'calendar', title: '', enabled: true, column: 'secondary', slot: 'top', config: {} },
     ],
   },
