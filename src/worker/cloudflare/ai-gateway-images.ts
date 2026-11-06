@@ -44,6 +44,7 @@ export function listImageModels(): Array<{
   owned_by: 'workers-ai'
   worker_model: string
   kind: 'image'
+  deprecated: boolean
 }> {
   return Object.entries(GATEWAY_IMAGE_ALIASES).map(([alias, entry]) => ({
     id: alias,
@@ -52,6 +53,7 @@ export function listImageModels(): Array<{
     owned_by: 'workers-ai' as const,
     worker_model: entry.model,
     kind: 'image' as const,
+    deprecated: entry.kind === 'edit',
   }))
 }
 
