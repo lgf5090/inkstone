@@ -7,8 +7,22 @@ import type {
   WebsshHostListResponse,
   WebsshHostPreflight,
   WebsshKey,
+  WebsshPublicShareFrames,
+  WebsshPublicShareView,
+  WebsshRecordingFrames,
+  WebsshRecordingSettingsView,
+  WebsshRecordingView,
+  WebsshSessionCreated,
+  WebsshSessionStatus,
+  WebsshSessionTicket,
+  WebsshShareView,
+  WebsshSftpListing,
+  WebsshSftpMutationResult,
+  WebsshSftpUploadCreated,
+  WebsshSftpUploadStatus,
 } from '@shared/webssh/types'
-import { request } from '../../lib/api'
+import { CLIENT_HEADER } from '@shared/constants'
+import { ApiError, request } from '../../lib/api'
 
 export interface WebsshHostPayload {
   name: string
@@ -89,4 +103,113 @@ export const websshApi = {
     await request(`/api/webssh/keys/${id}`, { method: 'DELETE' })
   },
   publicKeyUrl: (id: string) => `/api/webssh/keys/${id}/public`,
+
+  createSession: async (hostId: string, cols: number, rows: number) =>
+    await request<WebsshSessionCreated>('/api/webssh/sessions', { method: 'POST', body: { hostId, cols, rows } }),
+  issueTicket: async (sessionId: string) =>
+    await request<WebsshSessionTicket>(`/api/webssh/sessions/${sessionId}/ticket`, { method: 'POST' }),
+  sessionStatus: async (sessionId: string) =>
+    await request<{ id: string; status: WebsshSessionStatus; recordingId: string }>(`/api/webssh/sessions/${sessionId}`),
+
+  listDir: async (sessionId: string, path: string) =>
+    await request<WebsshSftpListing>(`/api/webssh/sessions/${sessionId}/sftp/list?path=${encodeURIComponent(path)}`),
+  download: async (sessionId: string, path: string, offset = 0, length?: number) => {
+    const search = new URLSearchParams({ path, offset: String(offset) })
+    if (length !== undefined) search.set('length', String(length))
+    return await rawRequest(`/api/webssh/sessions/${sessionId}/sftp/download?${search.toString()}`)
+  },
+  mkdir: async (sessionId: string, path: string) =>
+    await request<WebsshSftpMutationResult>(`/api/webssh/sessions/${sessionId}/sftp/mkdir`, { method: 'POST', body: { path } }),
+  remove: async (sessionId: string, path: string, kind: 'file' | 'directory') =>
+    await request<WebsshSftpMutationResult>(`/api/webssh/sessions/${sessionId}/sftp/remove`, {
+      method: 'POST',
+      body: { path, kind },
+    }),
+  rename: async (sessionId: string, from: string, to: string, overwrite = false) =>
+    await request<WebsshSftpMutationResult>(`/api/webssh/sessions/${sessionId}/sftp/rename`, {
+      method: 'POST',
+      body: { from, to, overwrite },
+    }),
+  createUpload: async (sessionId: string, path: string, size: number) =>
+    await request<WebsshSftpUploadCreated>(`/api/webssh/sessions/${sessionId}/sftp/uploads`, {
+      method: 'POST',
+      body: { path, size },
+    }),
+  putChunk: async (sessionId: string, transferId: string, offset: number, chunk: Blob) =>
+    await rawRequest(`/api/webssh/sessions/${sessionId}/sftp/uploads/${transferId}`, {
+      method: 'PUT',
+      headers: { 'x-webssh-offset': String(offset) },
+      body: chunk,
+    }),
+  uploadStatus: async (sessionId: string, transferId: string) =>
+    await request<WebsshSftpUploadStatus>(`/api/webssh/sessions/${sessionId}/sftp/uploads/${transferId}`),
+  completeUpload: async (sessionId: string, transferId: string) =>
+    await request<WebsshSftpMutationResult>(`/api/webssh/sessions/${sessionId}/sftp/uploads/${transferId}/complete`, {
+      method: 'POST',
+    }),
+  cancelUpload: async (sessionId: string, transferId: string) => {
+    await request(`/api/webssh/sessions/${sessionId}/sftp/uploads/${transferId}`, { method: 'DELETE' })
+  },
+
+  recording: async (sessionId: string) =>
+    await request<WebsshRecordingView>(`/api/webssh/sessions/${sessionId}/recording`),
+  recordingFrames: async (sessionId: string, offset: number, limit = 512 * 1024) =>
+    await request<WebsshRecordingFrames>(
+      `/api/webssh/sessions/${sessionId}/recording/frames?offset=${offset}&limit=${limit}`,
+    ),
+  getShare: async (sessionId: string) =>
+    (await request<{ share: WebsshShareView | null }>(`/api/webssh/sessions/${sessionId}/recording/share`)).share,
+  createShare: async (sessionId: string, body: { title?: string; password?: string | null; expiresIn?: number | null; maxViews?: number | null; rotate?: boolean }) =>
+    (await request<{ share: WebsshShareView }>(`/api/webssh/sessions/${sessionId}/recording/share`, {
+      method: 'POST',
+      body,
+    })).share,
+  deleteShare: async (sessionId: string) => {
+    await request(`/api/webssh/sessions/${sessionId}/recording/share`, { method: 'DELETE' })
+  },
+  recordingSettings: async () => await request<WebsshRecordingSettingsView>('/api/webssh/settings'),
+  updateRecordingSettings: async (enabled: boolean) =>
+    await request<WebsshRecordingSettingsView>('/api/webssh/settings/recording', { method: 'PUT', body: { enabled } }),
+
+  openShare: async (slug: string, password?: string) =>
+    await publicRequest<WebsshPublicShareView>(`/api/public/webssh/shares/${encodeURIComponent(slug)}`, {
+      method: 'POST',
+      body: password ? { password } : {},
+    }),
+  publicFrames: async (slug: string, offset: number, limit = 512 * 1024) =>
+    await publicRequest<WebsshPublicShareFrames>(
+      `/api/public/webssh/shares/${encodeURIComponent(slug)}/frames?offset=${offset}&limit=${limit}`,
+    ),
+}
+
+async function rawRequest(path: string, init: RequestInit = {}): Promise<Response> {
+  const response = await fetch(path, {
+    ...init,
+    credentials: 'same-origin',
+    headers: { [CLIENT_HEADER]: '1', ...(init.headers ?? {}) },
+  })
+  if (!response.ok) throw await responseError(response)
+  return response
+}
+
+async function publicRequest<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+  const response = await rawRequest(path, {
+    method: options.method,
+    headers: { 'content-type': 'application/json' },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  })
+  return await response.json() as T
+}
+
+async function responseError(response: Response): Promise<ApiError> {
+  let code = 'internal'
+  let message = response.statusText || 'The request failed'
+  try {
+    const payload = await response.json() as { error?: { code?: string; message?: string } }
+    if (typeof payload.error?.code === 'string') code = payload.error.code
+    if (typeof payload.error?.message === 'string') message = payload.error.message
+  } catch {
+    // A binary or empty error body still maps to the status line below.
+  }
+  return new ApiError(response.status, code, message)
 }

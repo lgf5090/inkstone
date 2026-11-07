@@ -5,7 +5,7 @@
  * tooltip and the status bar both say the phase in words.
  */
 import { useRef } from 'react'
-import { Plus, Settings2, Keyboard, X } from 'lucide-react'
+import { Plus, Settings2, Keyboard, X, FolderOpen, History, Video } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
@@ -42,6 +42,12 @@ export function TerminalTabs({
   onNew,
   onOpenShortcuts,
   onOpenSettings,
+  onOpenFiles,
+  filesOpen = false,
+  filesDisabled = false,
+  onOpenReplay,
+  replayDisabled = false,
+  onOpenRecordingSettings,
   panelId,
 }: {
   tabs: readonly TerminalTabView[]
@@ -52,6 +58,12 @@ export function TerminalTabs({
   onNew: () => void
   onOpenShortcuts: () => void
   onOpenSettings: () => void
+  onOpenFiles?: () => void
+  filesOpen?: boolean
+  filesDisabled?: boolean
+  onOpenReplay?: () => void
+  replayDisabled?: boolean
+  onOpenRecordingSettings?: () => void
   panelId: string
 }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([])
@@ -139,6 +151,27 @@ export function TerminalTabs({
             <Plus size={15} aria-hidden="true" />
           </IconButton>
         </Tooltip>
+        {onOpenFiles && (
+          <Tooltip label={t('webssh.sftp.open')}>
+            <IconButton label={t('webssh.sftp.open')} size="sm" active={filesOpen} disabled={filesDisabled} onClick={onOpenFiles}>
+              <FolderOpen size={15} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onOpenReplay && (
+          <Tooltip label={t('webssh.replay.open')}>
+            <IconButton label={t('webssh.replay.open')} size="sm" disabled={replayDisabled} onClick={onOpenReplay}>
+              <History size={15} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onOpenRecordingSettings && (
+          <Tooltip label={t('webssh.recording.open')}>
+            <IconButton label={t('webssh.recording.open')} size="sm" onClick={onOpenRecordingSettings}>
+              <Video size={15} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
         <Tooltip label={t('webssh.action.shortcuts')}>
           <IconButton label={t('webssh.action.shortcuts')} size="sm" onClick={onOpenShortcuts}>
             <Keyboard size={15} aria-hidden="true" />

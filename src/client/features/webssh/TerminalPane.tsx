@@ -1,9 +1,9 @@
 /**
  * One tab's terminal, its connection banner and its controls.
  *
- * The transport is created by the factory below and the status surface never claims more than the
- * transport reports: on the demo transport every sentence says "demo", and the badge in the app
- * header says the real SSH link is still W2's.
+ * The transport is created by the factory the workspace passes in, and the status surface never
+ * claims more than the transport reports: only the server's `ready` frame lets the pane call a
+ * session connected.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
@@ -14,7 +14,6 @@ import {
   Keyboard,
   Power,
   RefreshCw,
-  Unplug,
   WifiOff,
 } from 'lucide-react'
 import { t } from '../../lib/i18n'
@@ -27,7 +26,6 @@ import { Tooltip } from '../../components/overlay'
 import { MobileKeyBar } from './MobileKeyBar'
 import { resolveTerminalTheme } from './terminal-themes'
 import type { TerminalSettings } from './prefs'
-import { FakeTerminalTransport } from './transport/fake-transport'
 import type { TerminalTransportFactory } from './transport/types'
 import { MAX_RECONNECT_ATTEMPTS } from './session-retry'
 import { useTerminalSession, type TerminalSessionPhase } from './use-terminal-session'
@@ -37,8 +35,6 @@ export interface TerminalPaneSession {
   id: string
   title: string
 }
-
-const createDemoTransport: TerminalTransportFactory = (handlers) => new FakeTerminalTransport(handlers)
 
 const PHASE_TONE: Record<TerminalSessionPhase, string> = {
   connecting: 'text-[var(--warning)]',
@@ -61,17 +57,19 @@ export function TerminalPane({
   active,
   settings,
   isDark,
-  demoTransport,
+  createTransport,
   panelId,
   onPhaseChange,
+  onSessionId,
 }: {
   session: TerminalPaneSession
   active: boolean
   settings: TerminalSettings
   isDark: boolean
-  demoTransport: boolean
+  createTransport: TerminalTransportFactory
   panelId: string
   onPhaseChange?: (id: string, phase: TerminalSessionPhase) => void
+  onSessionId?: (sessionId: string) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const writeRef = useRef<(data: string) => void>(() => {})
@@ -89,10 +87,11 @@ export function TerminalPane({
   const theme = useMemo(() => resolveTerminalTheme(settings.theme, isDark), [settings.theme, isDark])
 
   const connection = useTerminalSession({
-    createTransport: createDemoTransport,
+    createTransport,
     initialCols: dimensions.cols,
     initialRows: dimensions.rows,
     onOutput: (data) => writeRef.current(data),
+    onSessionId,
   })
 
   const toast = (title: string, tone: 'success' | 'warning' | 'danger' = 'success') => {
@@ -199,7 +198,7 @@ export function TerminalPane({
       return (
         <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2">
           <Spinner size={13} />
-          <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('webssh.banner.connecting_demo')}</span>
+          <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('webssh.banner.connecting')}</span>
         </div>
       )
     }
@@ -270,11 +269,6 @@ export function TerminalPane({
         <span className="tabular text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
           {t('webssh.status.size_value', { cols: dimensions.cols, rows: dimensions.rows })}
         </span>
-        {demoTransport && (
-          <span className="rounded-full bg-[var(--warning-soft)] px-1.5 py-px text-[length:var(--text-10-5)] font-medium text-[var(--warning)]">
-            {t('webssh.status.transport_fake')}
-          </span>
-        )}
         <div className="ms-auto flex items-center gap-0.5">
           <Tooltip label={t('webssh.action.copy')} combo="mod+shift+c">
             <IconButton label={t('webssh.action.copy')} size="sm" onClick={copySelection} disabled={!hasSelection}>
@@ -306,13 +300,6 @@ export function TerminalPane({
               <Keyboard size={14} aria-hidden="true" />
             </IconButton>
           </Tooltip>
-          {demoTransport && connection.phase === 'open' && (
-            <Tooltip label={t('webssh.action.simulate_drop')}>
-              <IconButton label={t('webssh.action.simulate_drop')} size="sm" onClick={() => connection.simulateDrop()}>
-                <Unplug size={14} aria-hidden="true" />
-              </IconButton>
-            </Tooltip>
-          )}
           {connection.phase === 'open' && (
             <Tooltip label={t('webssh.action.disconnect')}>
               <IconButton label={t('webssh.action.disconnect')} size="sm" onClick={() => connection.disconnect()}>

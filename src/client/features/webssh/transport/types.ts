@@ -1,11 +1,10 @@
 /**
  * The replaceable transport layer between the terminal UI and a WebSSH session.
  *
- * W4 ships two implementations: a demo shell (fake) and a WebSocket client aimed at the endpoint
- * W2 will serve. The terminal never imports either one directly — it receives a factory — so W2 can
- * hand over the real implementation without touching the terminal, tabs or status surface.
+ * The terminal never imports a concrete implementation directly — it receives a factory — so the
+ * session wiring can change without touching the terminal, tabs or status surface.
  *
- * W2 wire contract (same-origin WebSocket, text frames, JSON):
+ * Wire contract (same-origin WebSocket, text frames, JSON):
  *
  *   GET /api/webssh/sessions/:sessionId/ws?ticket=<one-time ticket>
  *
@@ -25,7 +24,7 @@
  * so the server can write them to the SSH channel unchanged. `output` carries bytes exactly as the
  * SSH channel produced them. No terminal text is ever interpreted on the server.
  *
- * The ticket is minted over REST by W2, consumed once on upgrade, and never reused by this client;
+ * The ticket is minted over REST, consumed once on upgrade, and never reused by this client;
  * `WebSocketTerminalTransport` accepts the finished URL rather than a session id so the UI layer
  * does not need to know how tickets are issued.
  */
@@ -46,6 +45,8 @@ export interface TerminalTransportHandlers {
   onPhase: (event: TransportPhaseEvent) => void
   /** Raw bytes from the shell. They are written to xterm untouched. */
   onOutput: (data: string) => void
+  /** The session the server created for this transport, once it exists. */
+  onSession?: (sessionId: string) => void
 }
 
 export interface TransportConnectOptions {

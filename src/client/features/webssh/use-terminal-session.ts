@@ -31,6 +31,7 @@ export interface UseTerminalSessionOptions {
   initialCols: number
   initialRows: number
   onOutput: (data: string) => void
+  onSessionId?: (sessionId: string) => void
 }
 
 const RETRY_NOTE = (attempt: number, reason?: string) =>
@@ -91,6 +92,10 @@ export function useTerminalSession(options: UseTerminalSessionOptions): Terminal
       onOutput: (data) => {
         if (generation !== generationRef.current) return
         optionsRef.current.onOutput(data)
+      },
+      onSession: (sessionId) => {
+        if (generation !== generationRef.current) return
+        optionsRef.current.onSessionId?.(sessionId)
       },
     } satisfies TerminalTransportHandlers)
     transportRef.current = transport

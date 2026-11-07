@@ -16,9 +16,9 @@ import type {
   WebsshHostPreflight,
   WebsshKey,
 } from '@shared/webssh/types'
-import { Badge, Button, IconButton } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { Empty } from '../../components/feedback'
-import { Tooltip, confirm } from '../../components/overlay'
+import { confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useBreakpoint } from '../../lib/hooks'
 import { t } from '../../lib/i18n'
@@ -33,12 +33,6 @@ import { FingerprintDialog } from './FingerprintDialog'
 import { TerminalWorkspace } from './TerminalWorkspace'
 import '@xterm/xterm/css/xterm.css'
 import './webssh.css'
-
-/**
- * The demo transport is the only one W4 ships; the badge is the one sentence that must never be
- * hidden, because a terminal that looks live must not be mistaken for a real SSH connection.
- */
-const DEMO_TRANSPORT = true
 
 type SortKey = 'manual' | 'name' | 'recent'
 
@@ -203,13 +197,8 @@ export function WebsshApp() {
         <span className="min-w-0 truncate font-mono text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
           {workspaceHost.username}@{workspaceHost.host}:{workspaceHost.port}
         </span>
-        {DEMO_TRANSPORT && (
-          <Tooltip label={t('webssh.app.demo_hint')}>
-            <Badge tone="warning">{t('webssh.app.demo_badge')}</Badge>
-          </Tooltip>
-        )}
       </div>
-      <TerminalWorkspace demoTransport={DEMO_TRANSPORT} />
+      <TerminalWorkspace host={workspaceHost} />
     </section>
   ) : null
 
@@ -249,11 +238,6 @@ export function WebsshApp() {
         <h1 className="truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
           {t('webssh.app.title')}
         </h1>
-        {DEMO_TRANSPORT && (
-          <Tooltip label={t('webssh.app.demo_hint')}>
-            <Badge tone="warning">{t('webssh.app.demo_badge')}</Badge>
-          </Tooltip>
-        )}
         <span className="hidden min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)] md:block">
           {t('webssh.app.subtitle')}
         </span>
