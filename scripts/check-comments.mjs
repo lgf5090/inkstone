@@ -40939,6 +40939,7 @@ const allowed = new Map([
     "/** Every project write parses through this, so a rejected field reads the same on every route. */",
     "/**\n * The trust boundary every board-scoped route crosses. A board the caller cannot see at all answers\n * 404 rather than 403, so a private board's existence never leaks; one they can see but lack the role\n * for answers 403. The effective role folds the owner rule and the open-board minimum in one place.\n */",
     "/**\n * A card-scoped route resolves the board from the card row, then crosses the same board boundary. A\n * card on a board the caller cannot see answers 404, never 403, so the card's existence stays private\n * too. The board itself must be alive even when undeleting a card: a card cannot outlive its board.\n */",
+    "/** A view-scoped route resolves its board the same way a card does, crossing the same boundary. */",
   ]],
   ["src/worker/project/boards.ts", [
     "/**\n * A new board belongs to its creator, who gets an admin membership row so the member picker and the\n * last-admin count both see them. Properties are written in the order given, position = index.\n */",
@@ -40977,6 +40978,10 @@ const allowed = new Map([
   ["src/worker/project/store.ts", [
     "/**\n * The project app's reads and writes, in one place so no route file carries SQL.\n *\n * Board-scoped rows key on the board rather than the account, so every query here either names the\n * account explicitly (the boards it owns) or reaches it through the membership table.\n */",
     "/**\n   * Owned boards and boards shared with this account, in one statement: a per-membership lookup\n   * would turn a sidebar of fifty boards into fifty round trips.\n   */",
+  ]],
+  ["src/worker/project/views.ts", [
+    "/**\n * Views: the saved ways of looking at one board's cards. A view's fields arrive partial and are\n * merged over the empty defaults on create and over the stored fields on patch, so a client that\n * only changes the sort never has to resend the column widths. Order is a real column the client\n * drags, and a new view without an explicit position lands after the last one.\n */",
+    "/** A copy keeps the fields and type but gets a fresh id and the next position; the title is suffixed. */",
   ]],
   ["src/worker/quickadd/store.ts", [
     "/**\n * Every read and write the QuickAdd HTTP routes make against D1.\n *\n * The shape follows `share/store.ts`: a store built per request from the account it serves, methods\n * that hand back rows, the boolean a guarded write matched, or the answers the route prints, and no\n * `Response` in between. Two kinds of read live here:\n *  - the library envelope on the account's own `users` row. `WHERE id = ?1` binds `c.get('userId')`,\n *    and `users.id` *is* the account, so one device can neither read nor overwrite another's library.\n *    The envelope text is the route's to build and to parse; the store only moves the column;\n *  - the property scans behind `{{FIELD:}}`. Their `user_id` predicate is not a literal in the\n *    template but the first clause `fieldScopeWhere()` always splices — `n.user_id = ?1` bound to the\n *    account the store was built with — because the optional folder/tag scopes are named by the\n *    caller and have to be numbered after it.\n *\n * The scan's three bounds (`FIELD_SCAN_LIMIT`, `FIELD_VALUE_LIMIT`, `FIELD_VALUE_MAX_LENGTH`) are part\n * of the answer rather than configuration: a value list is a convenience, and a slow one is worse than\n * the author typing the word.\n */",

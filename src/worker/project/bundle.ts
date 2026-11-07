@@ -38,7 +38,7 @@ export interface ValueRow {
   value: string
 }
 
-interface ViewRow {
+export interface ViewRow {
   id: string
   board_id: string
   title: string
@@ -96,7 +96,7 @@ export function rowToCard(row: CardRow, values: Record<string, string>): Project
   }
 }
 
-function rowToView(row: ViewRow): ProjectView {
+export function rowToView(row: ViewRow): ProjectView {
   return {
     id: row.id,
     boardId: row.board_id,

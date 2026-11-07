@@ -6,11 +6,13 @@ import {
   ProjectCardPatchSchema,
   ProjectMemberAddSchema,
   ProjectMemberPatchSchema,
+  ProjectViewCreateSchema,
+  ProjectViewPatchSchema,
 } from '@shared/project/validation'
 import type { AppBindings } from '../env'
 import { JSON_BODY_LIMITS } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { projectBody, projectUserId, requireBoard, requireCard } from './auth'
+import { projectBody, projectUserId, requireBoard, requireCard, requireView } from './auth'
 import { readProjectBoardBundle } from './bundle'
 import {
   createProjectCard,
@@ -37,6 +39,14 @@ import {
   setProjectMemberRole,
 } from './members'
 import { ProjectStore } from './store'
+import {
+  createProjectView,
+  duplicateProjectView,
+  getProjectView,
+  patchProjectView,
+  softDeleteProjectView,
+  undeleteProjectView,
+} from './views'
 
 export const projectRoutes = new Hono<AppBindings>()
 
@@ -70,6 +80,12 @@ projectRoutes.post('/boards/:id/cards', async (c) => {
   const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectCardCreateSchema)
   return c.json({ card: await createProjectCard(c.env.DB, board, userId, input, Date.now()) }, 201)
+})
+
+projectRoutes.post('/boards/:id/views', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectViewCreateSchema)
+  return c.json({ view: await createProjectView(c.env.DB, board.id, userId, input, Date.now()) }, 201)
 })
 
 projectRoutes.patch('/boards/:id', async (c) => {
@@ -153,4 +169,32 @@ projectRoutes.post('/cards/:id/undelete', async (c) => {
   const { card, userId } = await requireCard(c, c.req.param('id'), 'editor', { allowDeleted: true })
   await undeleteProjectCard(c.env.DB, card.id, userId, Date.now())
   return c.json({ card: await getProjectCard(c.env.DB, card.id) })
+})
+
+projectRoutes.get('/views/:id', async (c) => {
+  const { view } = await requireView(c, c.req.param('id'), 'viewer')
+  return c.json({ view })
+})
+
+projectRoutes.patch('/views/:id', async (c) => {
+  const { view, userId } = await requireView(c, c.req.param('id'), 'editor')
+  const patch = await projectBody(c, ProjectViewPatchSchema)
+  return c.json({ view: await patchProjectView(c.env.DB, view, patch, userId, Date.now()) })
+})
+
+projectRoutes.delete('/views/:id', async (c) => {
+  const { view, userId } = await requireView(c, c.req.param('id'), 'editor')
+  await softDeleteProjectView(c.env.DB, view.id, userId, Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.post('/views/:id/undelete', async (c) => {
+  const { view, userId } = await requireView(c, c.req.param('id'), 'editor', { allowDeleted: true })
+  await undeleteProjectView(c.env.DB, view.id, userId, Date.now())
+  return c.json({ view: await getProjectView(c.env.DB, view.id) })
+})
+
+projectRoutes.post('/views/:id/duplicate', async (c) => {
+  const { view, userId } = await requireView(c, c.req.param('id'), 'editor')
+  return c.json({ view: await duplicateProjectView(c.env.DB, view, userId, Date.now()) }, 201)
 })

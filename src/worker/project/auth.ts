@@ -1,13 +1,14 @@
 import type { Context } from 'hono'
 import type { ZodType } from 'zod'
-import type { ProjectBoard, ProjectCard, ProjectRole } from '@shared/project/model'
+import type { ProjectBoard, ProjectCard, ProjectRole, ProjectView } from '@shared/project/model'
 import { effectiveProjectRole, projectRoleAtLeast } from '@shared/project/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
-import { rowToCard } from './bundle'
+import { rowToCard, rowToView } from './bundle'
 import { getProjectCardRow, readCardValues } from './cards'
 import { rowToBoard, type ProjectBoardRow } from './permissions'
+import { getProjectViewRow } from './views'
 
 export function projectUserId(c: Context<AppBindings>): string {
   const id = c.get('userId') ?? c.get('user')?.id
@@ -91,4 +92,21 @@ export async function requireCard(
   const access = await requireBoard(c, row.board_id, required)
   const card = rowToCard(row, await readCardValues(c.env.DB, cardId))
   return { ...access, card }
+}
+
+export interface ProjectViewAccess extends ProjectBoardAccess {
+  view: ProjectView
+}
+
+/** A view-scoped route resolves its board the same way a card does, crossing the same boundary. */
+export async function requireView(
+  c: Context<AppBindings>,
+  viewId: string,
+  required: ProjectRole,
+  options: { allowDeleted?: boolean } = {},
+): Promise<ProjectViewAccess> {
+  const row = await getProjectViewRow(c.env.DB, viewId)
+  if (!row || (!options.allowDeleted && row.delete_at !== 0)) throw ApiError.notFound('View not found')
+  const access = await requireBoard(c, row.board_id, required)
+  return { ...access, view: rowToView(row) }
 }
