@@ -49023,6 +49023,10 @@ const allowed = new Map([
     "/**\n * The statistics' two day columns and the index they group by.\n *\n * The columns store the reader's calendar day rather than a UTC date derived at query time, and each\n * one arrives under its own number so a ledger that already spent one cannot hide the other. The\n * index reads `completed_on`, so it has to be numbered after both columns exist.\n */",
     "/**\n * The two organizer columns a list gained: the archive stamp and the parent pointer.\n *\n * Each arrives under its own number and carries its own guard, so a database whose ledger already\n * spent one number still gets the other column, and a fresh install replays neither twice.\n */",
     "/**\n * The account switch that lets an MCP key read tasks at all.\n *\n * On by default: every key minted before the switch existed already carried `todos:read`, and turning\n * the switch off by default would silently revoke what those readers were using. One column, one number,\n * guarded so a fresh install replays nothing twice.\n */",
+    "// 315 carries the WebSSH host metadata batch (provider, pinned and the three icon columns) that the",
+    "// integration lane had already published before the five WebSSH lanes were renumbered onto `test`;",
+    "// splitting it would need fresh numbers the merge plan does not have, so it joins the recorded",
+    "// baseline instead of being rewritten.",
   ]],
   ["tests/scriptshub-path.test.ts", [
     "// The route decodes `%2e%2e` before validating; a second encoding leaves a percent sign, which",

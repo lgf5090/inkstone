@@ -105,12 +105,17 @@ export function HostIconPicker({
               variant="ghost"
               icon={<Trash2 size={13} aria-hidden="true" />}
               disabled={busy}
-              onClick={() => {
+              onClick={async () => {
                 setBusy(true)
-                websshApi.deleteIcon(host.id)
-                  .then((updated) => { onUploaded(updated); onClose() })
-                  .catch((caught: unknown) => setError(caught instanceof ApiError ? caught.message : t('webssh.error.generic')))
-                  .finally(() => setBusy(false))
+                try {
+                  const updated = await websshApi.deleteIcon(host.id)
+                  onUploaded(updated)
+                  onClose()
+                } catch (caught) {
+                  setError(caught instanceof ApiError ? caught.message : t('webssh.error.generic'))
+                } finally {
+                  setBusy(false)
+                }
               }}
             >
               {t('webssh.icon.remove')}

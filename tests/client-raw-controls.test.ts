@@ -413,6 +413,13 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
     },
   ],
   [
+    'src/client/features/webssh/HostList.tsx',
+    {
+      sites: 1,
+      reason: 'The host row selects on click for the pointer path while the checkbox, star and overflow menu inside it are real buttons that stop propagation; the row is the list\'s own selection affordance, exactly like the file and gist rows above, so it is not treated as a control container.',
+    },
+  ],
+  [
     'src/client/features/tags/TagAppearanceMenus.tsx',
     {
       sites: 1,
@@ -1044,6 +1051,7 @@ const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/client/features/tools/qrcode/content/QrContentEditor.tsx', { sites: 1, reason: 'Restoring a saved draft is best-effort: an unreadable draft leaves the editor empty instead of stopping the reader from typing a new one.' }],
   ['src/client/features/imgbed/api.ts', { sites: 1, reason: 'Deleting an upload session after the part that failed is already reported to the caller; a refused cleanup leaves only an expired row for the cron sweep.' }],
   ['src/client/features/imgbed/upload/UploadPage.tsx', { sites: 1, reason: 'Reading saved upload history for the history panel; an unreadable history is shown as empty and never blocks an upload.' }],
+  ['src/client/features/webssh/use-sftp-transfers.ts', { sites: 2, reason: 'Both are cleanup after a transfer that already reported its own outcome: a cancel of the staged upload when the upload has failed, and a mkdir whose failure leaves the directory listing and the chunk PUT to report the missing folder on the next step.' }],
 ])
 
 /**

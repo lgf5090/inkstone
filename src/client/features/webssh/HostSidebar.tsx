@@ -18,6 +18,7 @@ import type {
 } from '@shared/webssh/types'
 import { WEBSSH_BUILTIN_PROVIDERS } from '@shared/webssh/providers'
 import { cn } from '../../lib/cn'
+import { treeIndent } from '../../lib/tree/indent'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, commitOnEnter } from '../../components/form'
@@ -491,7 +492,7 @@ function FolderNode({
           activeId === node.folder.id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
           over && 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]',
         )}
-        style={{ paddingLeft: depth * 14 + 4 }}
+        style={{ paddingLeft: treeIndent(depth) }}
         onDragOver={(event) => {
           if (!event.dataTransfer.types.includes(WEBSSH_HOST_DRAG)) return
           event.preventDefault()

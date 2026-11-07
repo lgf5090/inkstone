@@ -20,7 +20,11 @@ import { SCHEMA_MIGRATIONS, type SchemaMigration } from '../src/worker/db/schema
  */
 
 /** The versions this project already spent more than one column on, and will not spend again. */
-const MULTI_COLUMN_BASELINE = new Set<number>([32])
+// 315 carries the WebSSH host metadata batch (provider, pinned and the three icon columns) that the
+// integration lane had already published before the five WebSSH lanes were renumbered onto `test`;
+// splitting it would need fresh numbers the merge plan does not have, so it joins the recorded
+// baseline instead of being rewritten.
+const MULTI_COLUMN_BASELINE = new Set<number>([32, 315])
 
 /** The `ADD COLUMN` statements a version brings in, as `table.column`. */
 function addedColumns(migration: SchemaMigration): string[] {
