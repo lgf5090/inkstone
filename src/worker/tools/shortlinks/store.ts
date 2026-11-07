@@ -801,10 +801,6 @@ export class ShortlinksStore {
     await this.setLinkLifecycle(id, 'archived')
   }
 
-  async restoreLink(id: number): Promise<void> {
-    await this.setLinkLifecycle(id, 'active')
-  }
-
   // -------------------------------------------------------------------------
   // Slugs Management
   // -------------------------------------------------------------------------

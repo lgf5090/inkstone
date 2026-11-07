@@ -16,7 +16,6 @@ export const PAGINATED_DIMENSIONS = ['countries', 'referrers', 'referrer_hosts']
 export type PaginatedDimension = (typeof PAGINATED_DIMENSIONS)[number]
 
 export const BREAKDOWN_PAGE_SIZE = 10
-export const MAX_BREAKDOWN_LIMIT = 100
 
 export const MAX_TAGS_PER_LINK = 10
 export const MAX_TAG_LENGTH = 24

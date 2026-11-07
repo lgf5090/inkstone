@@ -96,64 +96,6 @@ export function fillBuckets(
   return buckets
 }
 
-export function fillBucketsAll(
-  dataMap: Map<string, number>,
-  now: number,
-  earliest: number,
-  kind: 'daily' | 'weekly' | 'monthly',
-): TimelineBucket[] {
-  const buckets: TimelineBucket[] = []
-  if (dataMap.size === 0) return buckets
-
-  if (kind === 'daily') {
-    const start = new Date(earliest * 1000)
-    start.setUTCHours(0, 0, 0, 0)
-    const end = new Date(now * 1000)
-    end.setUTCHours(0, 0, 0, 0)
-    const cursor = new Date(start)
-    while (cursor <= end) {
-      const label = `${cursor.getUTCFullYear()}-${pad2(cursor.getUTCMonth() + 1)}-${pad2(cursor.getUTCDate())}`
-      buckets.push({ label, count: dataMap.get(label) ?? 0 })
-      cursor.setUTCDate(cursor.getUTCDate() + 1)
-    }
-    return buckets
-  }
-
-  if (kind === 'weekly') {
-    const start = new Date(earliest * 1000)
-    const startDay = start.getUTCDay()
-    const mondayOffset = startDay === 0 ? -6 : 1 - startDay
-    start.setUTCDate(start.getUTCDate() + mondayOffset)
-    start.setUTCHours(0, 0, 0, 0)
-    const end = new Date(now * 1000)
-    const cursor = new Date(start)
-    while (cursor <= end) {
-      const label = `${cursor.getUTCFullYear()}-${pad2(cursor.getUTCMonth() + 1)}-${pad2(cursor.getUTCDate())}`
-      buckets.push({ label, count: dataMap.get(label) ?? 0 })
-      cursor.setUTCDate(cursor.getUTCDate() + 7)
-    }
-    return buckets
-  }
-
-  // Monthly
-  const keys = [...dataMap.keys()].sort()
-  const firstMonth = keys[0]
-  const nowDate = new Date(now * 1000)
-  const endMonth = `${nowDate.getUTCFullYear()}-${pad2(nowDate.getUTCMonth() + 1)}`
-  let [y, m] = firstMonth.split('-').map(Number)
-  const [endY, endM] = endMonth.split('-').map(Number)
-  while (y < endY || (y === endY && m <= endM)) {
-    const label = `${y}-${pad2(m)}`
-    buckets.push({ label, count: dataMap.get(label) ?? 0 })
-    m++
-    if (m > 12) {
-      m = 1
-      y++
-    }
-  }
-  return buckets
-}
-
 export function fillMissingOptions<T extends { name: string; count: number }>(
   items: T[],
   alwaysOn: readonly string[],

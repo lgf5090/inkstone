@@ -43824,7 +43824,6 @@ const allowed = new Map([
   ]],
   ["src/worker/tools/shortlinks/analytics.ts", [
     "/**\n * Time series analytics, bucket filling, delta computation, and statistics helpers.\n */",
-    "// Monthly",
     "/** A browser-supplied IANA zone is untrusted input; an invalid one falls back to UTC. */",
     "/** The Monday of the local week a calendar date belongs to, expressed as a date key. */",
     "/**\n * Buckets raw click timestamps in the reader's own calendar, not the Worker's UTC one.\n *\n * SQLite's `date(..., 'unixepoch')` is fixed to UTC, which puts an Asia/Shanghai click made after\n * local midnight into the previous day. The raw column stays UTC; only the bucket key is local.\n */",
@@ -43846,7 +43845,7 @@ const allowed = new Map([
     "/** The row stores only this digest, never the visitor address. */",
   ]],
   ["src/worker/tools/shortlinks/r2.ts", [
-    "/**\n * R2 storage helpers for Short Links backups, exported files, and QR images.\n *\n * Path invariants:\n * - Backups: `tools/shortlinks/backup/${userId}/${backupId}.json`\n * - Plaintext TXT: `tools/shortlinks/txt/${userId}/${fileId}.txt`\n * - Protected TXT: `tools/shortlinks/txt/${userId}/protected_${fileId}.txt`\n * - Plaintext CSV: `tools/shortlinks/csv/${userId}/${fileId}.csv`\n * - QR Images: `tools/shortlinks/qr/${userId}/${slug}.png`\n */",
+    "/**\n * R2 storage helpers for Short Links backups and exported files.\n *\n * Path invariants:\n * - Backups: `tools/shortlinks/backup/${userId}/${backupId}.json`\n * - Plaintext TXT: `tools/shortlinks/txt/${userId}/${fileId}.txt`\n * - Protected TXT: `tools/shortlinks/txt/${userId}/protected_${fileId}.txt`\n * - Plaintext CSV: `tools/shortlinks/csv/${userId}/${fileId}.csv`\n */",
   ]],
   ["src/worker/tools/shortlinks/referrer.ts", [
     "/**\n * Referrer and domain parsing, normalization, and self-referrer detection.\n */",
