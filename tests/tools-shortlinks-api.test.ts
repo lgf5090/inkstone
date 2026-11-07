@@ -297,11 +297,12 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     const red3 = await call('GET', '/l/disable-me', { user: null })
     expect(red3.status).toBe(302)
 
-    await call('PUT', `/api/tools/shortlinks/links/${link.id}`, {
+    const pastEdit = await call('PUT', `/api/tools/shortlinks/links/${link.id}`, {
       body: { expires_at: now - 100 },
     })
+    expect(pastEdit.status).toBe(400)
     const red4 = await call('GET', '/l/disable-me', { user: null })
-    expect(red4.status).toBe(404)
+    expect(red4.status).toBe(302)
   })
 
   it('counts a repeat reload once and a different visitor separately', async () => {
@@ -326,7 +327,7 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     expect((await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data.total_clicks).toBe(2)
   })
 
-  it('does not write a click for a crawler', async () => {
+  it('stores a crawler click as a bot and keeps it out of filtered analytics', async () => {
     env = testBindings(makeD1(sqlite), { FILES: testR2Bucket(), SHORTLINKS_SECRET: 'test-secret' })
     const link = (await json<any>(
       await call('POST', '/api/tools/shortlinks/links', {
@@ -340,7 +341,10 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
         'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
       },
     })
-    expect((await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data.total_clicks).toBe(0)
+    expect((await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data.total_clicks).toBe(1)
+    const stats = (await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}/stats`))).data
+    expect(stats.total_clicks).toBe(0)
+    expect(stats.bot_clicks).toBe(1)
   })
 
   it('refuses a target that is not an http address', async () => {
@@ -704,12 +708,34 @@ describe('Shortlinks Bundles and Analytics', () => {
     })
     expect(keyRes.status).toBe(200)
     const keyData = (await json<any>(keyRes)).data
-    expect(keyData.apiKey).toMatch(/^sl_/)
+    expect(keyData.api_key).toMatch(/^sl_/)
+    expect(keyData.title).toBe('CI Deployer')
 
     const listRes = await call('GET', '/api/tools/shortlinks/api-keys')
     const keys = (await json<any>(listRes)).data
     expect(keys).toHaveLength(1)
     expect(keys[0].title).toBe('CI Deployer')
+  })
+
+  it('denies export generation to a read-only API key', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      body: { url: 'https://export-key.example.com', custom_slug: 'key-export' },
+    })
+    const readKey = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/api-keys', {
+        body: { title: 'Read only', scope: 'read' },
+      }),
+    )).data
+
+    const listAsRead = await call('GET', '/api/tools/shortlinks/links', {
+      headers: { authorization: `Bearer ${readKey.api_key}` },
+    })
+    expect(listAsRead.status).toBe(200)
+
+    const exportAsRead = await call('GET', '/api/tools/shortlinks/export/txt', {
+      headers: { authorization: `Bearer ${readKey.api_key}` },
+    })
+    expect(exportAsRead.status).toBe(403)
   })
 
   it('exports and backs up every link, guards CSV cells and restores appending', async () => {
@@ -771,5 +797,152 @@ describe('Shortlinks Bundles and Analytics', () => {
       `/api/tools/shortlinks/export/download?key=${encodeURIComponent('tools/shortlinks/qr/user-alice/x.png')}`,
     )
     expect(wrongPrefix.status).toBe(403)
+  })
+})
+
+describe('Shortlinks edge behaviour', () => {
+  it('shows a warning page before an unsafe link redirects', async () => {
+    const created = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        body: { url: 'https://unsafe.example.com', custom_slug: 'edge-unsafe', unsafe: true },
+      }),
+    )).data
+    expect(created.unsafe).toBe(true)
+
+    const warning = await call('GET', '/l/edge-unsafe')
+    expect(warning.status).toBe(200)
+    expect(await warning.text()).toContain('unsafe')
+
+    const confirmed = await call('POST', '/l/edge-unsafe', { form: { confirm: '1' } })
+    expect(confirmed.status).toBe(302)
+    expect(confirmed.headers.get('location')).toBe('https://unsafe.example.com')
+  })
+
+  it('passes the inbound query through when the flag is set and shortens the cache', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      body: {
+        url: 'https://query.example.com/landing',
+        custom_slug: 'edge-query',
+        redirect_with_query: true,
+      },
+    })
+    const res = await call('GET', '/l/edge-query?a=1&utm_source=newsletter')
+    expect(res.status).toBe(302)
+    const location = new URL(res.headers.get('location')!)
+    expect(location.searchParams.get('a')).toBe('1')
+    expect(location.searchParams.get('utm_source')).toBe('newsletter')
+    expect(res.headers.get('cache-control')).toContain('max-age=30')
+  })
+
+  it('rejects an expiry in the past and lets an edit clear label and password', async () => {
+    const created = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        body: { url: 'https://edit.example.com', custom_slug: 'edge-edit', label: 'Keep?', password: 'pw-1234' },
+      }),
+    )).data
+    const past = await call('POST', '/api/tools/shortlinks/links', {
+      body: { url: 'https://past.example.com', custom_slug: 'edge-past', expires_at: 1 },
+    })
+    expect(past.status).toBe(400)
+
+    const edited = await call('PATCH', `/api/tools/shortlinks/links/${created.id}`, {
+      body: { label: null, password: null },
+    })
+    expect(edited.status).toBe(200)
+    const after = (await json<any>(edited)).data
+    expect(after.label).toBeNull()
+    expect(after.password_protected).toBe(false)
+  })
+})
+
+describe('Shortlinks routing rules', () => {
+  const DESKTOP =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+  const MOBILE =
+    'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
+
+  it('routes phones and countries separately and returns the configured status', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      body: {
+        url: 'https://routing.example.com/default',
+        custom_slug: 'route-me',
+        routing_rules: {
+          status: 301,
+          devices: { mobile: 'https://routing.example.com/mobile' },
+          countries: { US: 'https://routing.example.com/us' },
+        },
+      },
+    })
+
+    const mobile = await call('GET', '/l/route-me', { user: null, headers: { 'user-agent': MOBILE } })
+    expect(mobile.status).toBe(301)
+    expect(mobile.headers.get('location')).toBe('https://routing.example.com/mobile')
+    expect(mobile.headers.get('vary')).toContain('User-Agent')
+
+    const us = await call('GET', '/l/route-me', {
+      user: null,
+      headers: { 'user-agent': DESKTOP, 'cf-ipcountry': 'US' },
+    })
+    expect(us.status).toBe(301)
+    expect(us.headers.get('location')).toBe('https://routing.example.com/us')
+
+    const fallback = await call('GET', '/l/route-me', {
+      user: null,
+      headers: { 'user-agent': DESKTOP, 'cf-ipcountry': 'DE' },
+    })
+    expect(fallback.status).toBe(301)
+    expect(fallback.headers.get('location')).toBe('https://routing.example.com/default')
+  })
+
+  it('rejects a routing rule that points at a non-web address', async () => {
+    const response = await call('POST', '/api/tools/shortlinks/links', {
+      body: {
+        url: 'https://routing.example.com/safe',
+        custom_slug: 'route-bad',
+        routing_rules: { devices: { mobile: 'javascript:alert(1)' } },
+      },
+    })
+    expect(response.status).toBe(400)
+  })
+})
+
+describe('Shortlinks Open Graph preview', () => {
+  const CRAWLER = 'Twitterbot/1.0'
+
+  it('serves escaped stored overrides to a social crawler and redirects a browser', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      body: {
+        url: 'https://og.example.com/target',
+        custom_slug: 'og-one',
+        og_preview: {
+          title: '<b>Escaped</b>',
+          description: 'Preview description',
+          image: 'https://cdn.example.com/cover.png',
+        },
+      },
+    })
+
+    const preview = await call('GET', '/l/og-one', { user: null, headers: { 'user-agent': CRAWLER } })
+    expect(preview.status).toBe(200)
+    const html = await preview.text()
+    expect(html).toContain('&lt;b&gt;Escaped&lt;/b&gt;')
+    expect(html).not.toContain('<b>Escaped</b>')
+    expect(html).toContain('og:image')
+    expect(preview.headers.get('cache-control')).toContain('max-age=300')
+
+    const browser = await call('GET', '/l/og-one', {
+      user: null,
+      headers: { 'user-agent': 'Mozilla/5.0 Chrome/131 Safari/537.36' },
+    })
+    expect(browser.status).toBe(302)
+    expect(browser.headers.get('location')).toBe('https://og.example.com/target')
+  })
+
+  it('falls back to the ordinary redirect when no preview can be built', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      body: { url: 'http://127.0.0.1:9/none', custom_slug: 'og-none' },
+    })
+    const res = await call('GET', '/l/og-none', { user: null, headers: { 'user-agent': CRAWLER } })
+    expect(res.status).toBe(302)
   })
 })

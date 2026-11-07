@@ -16,9 +16,25 @@ export const PAGINATED_DIMENSIONS = ['countries', 'referrers', 'referrer_hosts']
 export type PaginatedDimension = (typeof PAGINATED_DIMENSIONS)[number]
 
 export const BREAKDOWN_PAGE_SIZE = 10
-export const MAX_BREAKDOWN_LIMIT = 100
+
+export const MAX_TAGS_PER_LINK = 10
+export const MAX_TAG_LENGTH = 24
 
 export type BundleAccent = 'orange' | 'red' | 'green' | 'blue' | 'purple'
+
+export type RouteDevice = 'mobile' | 'tablet' | 'desktop'
+
+export interface RoutingRules {
+  status?: 301 | 302
+  devices?: Partial<Record<RouteDevice, string>>
+  countries?: Record<string, string>
+}
+
+export interface OgPreview {
+  title?: string
+  description?: string
+  image?: string
+}
 
 export interface ShortLinkSlug {
   slug: string
@@ -42,6 +58,12 @@ export interface ShortLink {
   created_by?: string
   slugs: ShortLinkSlug[]
   total_clicks: number
+  lifecycle_state?: 'active' | 'disabled' | 'archived'
+  unsafe?: boolean
+  redirect_with_query?: boolean
+  tags?: string[]
+  routing_rules?: RoutingRules | null
+  og_preview?: OgPreview | null
 }
 
 export interface ShortLinkBundle {
@@ -75,6 +97,11 @@ export interface TimelineBucket {
 export interface TimelineData {
   range: TimelineRange
   buckets: TimelineBucket[]
+}
+
+export interface AnalyticsBounds {
+  from?: number
+  to?: number
 }
 
 export interface BundleStats {
@@ -125,6 +152,9 @@ export interface ClickData {
 
 export interface ClickStats {
   total_clicks: number
+  unique_visitors: number
+  bot_clicks: number
+  bot_ratio: number
   avg_clicks_per_day: number | string
   countries: { name: string; count: number }[]
   referrers: { name: string; count: number }[]
@@ -152,11 +182,36 @@ export interface BreakdownPage {
   has_more?: boolean
 }
 
+export interface HeatmapData {
+  cells: { weekday: number; hour: number; count: number }[]
+  max: number
+}
+
+export interface RealtimeClick {
+  id: number
+  slug: string
+  link_id: number
+  label: string | null
+  clicked_at: number
+  country: string | null
+  device_type: string | null
+  browser: string | null
+  is_bot: boolean
+}
+
+export interface RealtimeFeed {
+  items: RealtimeClick[]
+  latest_id: number
+}
+
 export interface DashboardStats {
   range?: TimelineRange
   total_links: number
   active_links: number
   total_clicks: number
+  unique_visitors: number
+  bot_clicks: number
+  bot_ratio: number
   delta_clicks?: number
   avg_clicks_per_day: number | string
   timeline: { labels: string[]; values: number[] }
@@ -170,7 +225,10 @@ export interface ShortlinksSettings {
   default_range: TimelineRange
   filter_bots: boolean
   filter_self_referrers: boolean
+  stats_rollup_enabled?: boolean
   updated_at?: number
+  /** Read-only server state: whether SHORTLINKS_SECRET is configured for visitor dedupe. */
+  secret_configured?: boolean
 }
 
 export interface ShortlinkApiKey {

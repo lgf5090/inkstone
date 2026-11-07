@@ -3889,11 +3889,129 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: AI_GATEWAY_PERSISTENCE_SCHEMA_STATEMENTS,
   },
   {
+    // Shortlinks analytics rollup: one row per link per UTC day. Kept beside the raw click ledger,
+    // which stays the precise source for drills and custom ranges.
+    version: 289,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS tools_shortlinks_clicks_daily (
+         user_id TEXT NOT NULL,
+         link_id INTEGER NOT NULL,
+         day TEXT NOT NULL,
+         clicks INTEGER NOT NULL DEFAULT 0,
+         last_updated INTEGER NOT NULL,
+         PRIMARY KEY (user_id, link_id, day)
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_daily_user
+         ON tools_shortlinks_clicks_daily(user_id, day)`,
+    ],
+  },
+  {
+    version: 290,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS tools_shortlinks_breakdown_daily (
+         user_id TEXT NOT NULL,
+         link_id INTEGER NOT NULL,
+         day TEXT NOT NULL,
+         dimension TEXT NOT NULL,
+         name TEXT NOT NULL,
+         count INTEGER NOT NULL DEFAULT 0,
+         last_updated INTEGER NOT NULL,
+         PRIMARY KEY (user_id, link_id, day, dimension, name)
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_breakdown_daily_user
+         ON tools_shortlinks_breakdown_daily(user_id, dimension, day)`,
+    ],
+  },
+  {
+    version: 291,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'last_clicked_at' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN last_clicked_at INTEGER`,
+      `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_last_click
+         ON tools_shortlinks_links(user_id, last_clicked_at DESC)`,
+    ],
+  },
+  {
+    version: 292,
+    skipIfColumnExists: { table: 'tools_shortlinks_settings', column: 'stats_rollup_enabled' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_settings ADD COLUMN stats_rollup_enabled INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    version: 293,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'lifecycle_state' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'active'`,
+      `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_lifecycle
+         ON tools_shortlinks_links(user_id, lifecycle_state)`,
+    ],
+  },
+  {
+    version: 294,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'normalized_url' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN normalized_url TEXT`,
+      `UPDATE tools_shortlinks_links SET normalized_url = lower(trim(url)) WHERE normalized_url IS NULL`,
+      `UPDATE tools_shortlinks_links SET normalized_url = NULL
+        WHERE id NOT IN (SELECT MIN(id) FROM tools_shortlinks_links GROUP BY user_id, normalized_url)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_tools_shortlinks_links_normalized_url
+         ON tools_shortlinks_links(user_id, normalized_url) WHERE normalized_url IS NOT NULL`,
+      `UPDATE tools_shortlinks_bundles SET name = name || ' #' || id
+        WHERE id NOT IN (SELECT MIN(id) FROM tools_shortlinks_bundles GROUP BY user_id, name)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_tools_shortlinks_bundles_name
+         ON tools_shortlinks_bundles(user_id, name)`,
+    ],
+  },
+  {
+    version: 295,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'edge_flags' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN edge_flags INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 296,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS tools_shortlinks_tags (
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, name)
+      )`,
+      `CREATE TABLE IF NOT EXISTS tools_shortlinks_link_tags (
+        user_id TEXT NOT NULL,
+        link_id INTEGER NOT NULL,
+        tag_name TEXT NOT NULL,
+        PRIMARY KEY (user_id, link_id, tag_name)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_link_tags_tag
+         ON tools_shortlinks_link_tags(user_id, tag_name)`,
+    ],
+  },
+  {
+    version: 297,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'routing_rules' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN routing_rules TEXT`,
+    ],
+  },
+  {
     // Per-account switches for routing relay traffic through an AI Gateway. 299 is the first number
-    // free here: the short-link batch holds 289–297 and WebSSH spent 298 on its own branch.
+    // free above the short-link batch (289–297), and WebSSH spent 298 on its own branch.
     // A fresh database also gets the table from `SCHEMA_STATEMENTS`, where `IF NOT EXISTS` applies.
     version: 299,
     statements: AI_GATEWAY_ROUTING_SCHEMA_STATEMENTS,
+  },
+  {
+    // Open Graph preview payloads for social crawlers. 314 is the first free short-link number:
+    // 300–313 belong to other branches (301 monitoring, 304 files/forwarding, 307+ terminal,
+    // 310–312 host list UI, 313 WebSSH-AI).
+    version: 314,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'og_preview' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN og_preview TEXT`,
+    ],
   },
 ]
 

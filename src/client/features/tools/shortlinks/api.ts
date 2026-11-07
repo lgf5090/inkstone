@@ -3,11 +3,14 @@
  */
 
 import type {
+  AnalyticsBounds,
   BreakdownPage,
   BundleStats,
   ClickStats,
   CreatedShortlinkApiKey,
   DashboardStats,
+  HeatmapData,
+  RealtimeFeed,
   ShortLink,
   ShortLinkBundle,
   ShortLinkSlug,
@@ -37,11 +40,41 @@ export interface GetLinksParams {
   sort_by?: 'created_at' | 'clicks' | 'url' | 'label'
   sort_order?: 'asc' | 'desc'
   bundle_id?: number
+  tag?: string
+}
+
+/** The browser's IANA zone, so daily buckets follow the reader's midnight rather than UTC. */
+function clientTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+}
+
+function analyticsQuery(range?: TimelineRange, bounds?: AnalyticsBounds): string {
+  const q = new URLSearchParams()
+  if (range) q.set('range', range)
+  q.set('timezone', clientTimeZone())
+  if (bounds?.from !== undefined) q.set('from', String(bounds.from))
+  if (bounds?.to !== undefined) q.set('to', String(bounds.to))
+  return q.toString()
 }
 
 export const shortlinksApi = {
   getDashboard: () =>
-    request<{ data: DashboardStats }>('/api/tools/shortlinks/dashboard').then((r) => r.data),
+    request<{ data: DashboardStats }>(`/api/tools/shortlinks/dashboard?${analyticsQuery()}`).then(
+      (r) => r.data,
+    ),
+
+  getRealtime: (after?: number) => {
+    const q = new URLSearchParams()
+    if (after !== undefined) q.set('after', String(after))
+    q.set('limit', '30')
+    return request<{ data: RealtimeFeed }>(`/api/tools/shortlinks/realtime?${q.toString()}`).then(
+      (r) => r.data,
+    )
+  },
 
   getLinks: (params?: GetLinksParams) => {
     const q = new URLSearchParams()
@@ -52,6 +85,7 @@ export const shortlinksApi = {
     if (params?.sort_by) q.set('sort_by', params.sort_by)
     if (params?.sort_order) q.set('sort_order', params.sort_order)
     if (params?.bundle_id) q.set('bundle_id', String(params.bundle_id))
+    if (params?.tag) q.set('tag', params.tag)
     const queryStr = q.toString()
     return request<{
       data: { items: ShortLink[]; total: number; limit: number; offset: number }
@@ -76,6 +110,12 @@ export const shortlinksApi = {
   deleteLink: (id: number) =>
     request<{ data: { success: boolean } }>(`/api/tools/shortlinks/links/${id}`, {
       method: 'DELETE',
+    }).then((r) => r.data),
+
+  setLinkLifecycle: (id: number, state: 'active' | 'disabled' | 'archived') =>
+    request<{ data: ShortLink }>(`/api/tools/shortlinks/links/${id}/lifecycle`, {
+      method: 'PATCH',
+      body: { state },
     }).then((r) => r.data),
 
   addSlug: (linkId: number, input: AddSlugInput) =>
@@ -105,14 +145,19 @@ export const shortlinksApi = {
       { method: 'DELETE' },
     ).then((r) => r.data),
 
-  getLinkStats: (id: number, range?: TimelineRange) =>
+  getLinkStats: (id: number, range?: TimelineRange, bounds?: AnalyticsBounds) =>
     request<{ data: ClickStats }>(
-      `/api/tools/shortlinks/links/${id}/stats${range ? `?range=${range}` : ''}`,
+      `/api/tools/shortlinks/links/${id}/stats?${analyticsQuery(range, bounds)}`,
     ).then((r) => r.data),
 
-  getLinkTimeline: (id: number, range?: TimelineRange) =>
+  getLinkTimeline: (id: number, range?: TimelineRange, bounds?: AnalyticsBounds) =>
     request<{ data: TimelineData }>(
-      `/api/tools/shortlinks/links/${id}/timeline${range ? `?range=${range}` : ''}`,
+      `/api/tools/shortlinks/links/${id}/timeline?${analyticsQuery(range, bounds)}`,
+    ).then((r) => r.data),
+
+  getLinkHeatmap: (id: number, range?: TimelineRange) =>
+    request<{ data: HeatmapData }>(
+      `/api/tools/shortlinks/links/${id}/heatmap?${analyticsQuery(range)}`,
     ).then((r) => r.data),
 
   getLinkBreakdown: (
@@ -173,7 +218,7 @@ export const shortlinksApi = {
 
   getBundleStats: (id: number, range?: TimelineRange) =>
     request<{ data: BundleStats }>(
-      `/api/tools/shortlinks/bundles/${id}/stats${range ? `?range=${range}` : ''}`,
+      `/api/tools/shortlinks/bundles/${id}/stats?${analyticsQuery(range)}`,
     ).then((r) => r.data),
 
   getSettings: () =>
@@ -209,8 +254,19 @@ export const shortlinksApi = {
       (r) => r.data,
     ),
 
+  exportJson: () =>
+    request<{ data: { r2_key: string; url: string } }>('/api/tools/shortlinks/export/json').then(
+      (r) => r.data,
+    ),
+
   importData: (input: ImportDataInput) =>
-    request<{ data: { imported: number; errors: string[] } }>('/api/tools/shortlinks/import', {
+    request<{
+      data: {
+        imported: number
+        failed: number
+        errors: Array<{ line: number; slug?: string; url: string; reason: string }>
+      }
+    }>('/api/tools/shortlinks/import', {
       method: 'POST',
       body: input,
     }).then((r) => r.data),
@@ -223,12 +279,22 @@ export const shortlinksApi = {
       method: 'POST',
     }).then((r) => r.data),
 
-  restoreBackup: (backupId: string | number) =>
-    request<{ data: { imported: number; total: number; protectedWithoutPassword: number } }>(
-      '/api/tools/shortlinks/backups/restore',
-      {
-        method: 'POST',
-        body: { backup_id: String(backupId) },
-      },
+  deleteBackup: (backupId: string | number) =>
+    request<{ data: { success: boolean } }>(
+      `/api/tools/shortlinks/backups/${encodeURIComponent(String(backupId))}`,
+      { method: 'DELETE' },
     ).then((r) => r.data),
+
+  restoreBackup: (backupId: string | number) =>
+    request<{
+      data: {
+        imported: number
+        total: number
+        protectedWithoutPassword: number
+        restored: { settings: boolean; bundles: number; bundle_links: number; slugs: number }
+      }
+    }>('/api/tools/shortlinks/backups/restore', {
+      method: 'POST',
+      body: { backup_id: String(backupId) },
+    }).then((r) => r.data),
 }

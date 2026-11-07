@@ -4,6 +4,7 @@
  */
 
 import type {
+  AnalyticsBounds,
   BreakdownPage,
   BundleAccent,
   BundleStats,
@@ -11,6 +12,10 @@ import type {
   ClickData,
   ClickStats,
   DashboardStats,
+  OgPreview,
+  RealtimeClick,
+  RealtimeFeed,
+  RoutingRules,
   ShortLink,
   ShortLinkBundle,
   ShortLinkSlug,
@@ -23,16 +28,22 @@ import type {
 import {
   DEFAULT_SLUG_LENGTH,
   DEFAULT_TIMELINE_RANGE,
+  MAX_TAGS_PER_LINK,
+  MAX_TAG_LENGTH,
 } from '@shared/tools/shortlinks/types'
 import { ApiError } from '../../lib/errors'
 import { sha256Hex } from '../../lib/encoding'
+import { parseRoutingRules } from '@shared/tools/shortlinks/routing'
+import { parseOgPreview } from './og'
 import { hashPassword } from '../../lib/password'
 import {
   computeDelta,
   fillBuckets,
   fillMissingOptions,
   formatAvgPerDay,
+  heatmapCells,
   rangeToSinceTs,
+  timelineBuckets,
 } from './analytics'
 import {
   getShortlinksBackupR2Key,
@@ -52,6 +63,15 @@ const CLICK_DEDUPE_WINDOW_SECONDS = 30
  * per link plus a trailing scope id, so wide pages, exports and bundle reads have to ask in slices.
  */
 const LINK_ID_CHUNK_SIZE = 50
+
+function routingRulesFromRow(raw: string | null | undefined): RoutingRules | null {
+  const rules = parseRoutingRules(raw)
+  return Object.keys(rules).length > 0 ? rules : null
+}
+
+function ogPreviewFromRow(raw: string | null | undefined): OgPreview | null {
+  return parseOgPreview(raw)
+}
 
 export function normalizeUrl(rawUrl: string): string {
   return rawUrl.trim().replace(/[?#]+$/, '')
@@ -87,6 +107,7 @@ export class ShortlinksStore {
         default_range: string
         filter_bots: number
         filter_self_referrers: number
+        stats_rollup_enabled: number
         updated_at: number
       }>()
 
@@ -96,6 +117,7 @@ export class ShortlinksStore {
         default_range: DEFAULT_TIMELINE_RANGE,
         filter_bots: true,
         filter_self_referrers: true,
+        stats_rollup_enabled: true,
         updated_at: Math.floor(Date.now() / 1000),
       }
     }
@@ -105,6 +127,7 @@ export class ShortlinksStore {
       default_range: (row.default_range as TimelineRange) || DEFAULT_TIMELINE_RANGE,
       filter_bots: Boolean(row.filter_bots),
       filter_self_referrers: Boolean(row.filter_self_referrers),
+      stats_rollup_enabled: Boolean(row.stats_rollup_enabled ?? 1),
       updated_at: row.updated_at,
     }
   }
@@ -243,14 +266,20 @@ export class ShortlinksStore {
     allow_duplicate?: boolean
     custom_slug?: string | null
     created_via?: string
+    unsafe?: boolean
+    redirect_with_query?: boolean
+    tags?: string[]
+    routing_rules?: RoutingRules | null
+    og_preview?: OgPreview | null
   }): Promise<ShortLink> {
     const url = normalizeUrl(params.url)
+    const normalizedUrl = params.allow_duplicate ? null : url.toLowerCase()
 
     // Duplicate check
     if (!params.allow_duplicate) {
       const existing = await this.db
-        .prepare('SELECT id FROM tools_shortlinks_links WHERE user_id = ? AND url = ? LIMIT 1')
-        .bind(this.userId, url)
+        .prepare('SELECT id FROM tools_shortlinks_links WHERE user_id = ? AND normalized_url = ? LIMIT 1')
+        .bind(this.userId, normalizedUrl)
         .first<{ id: number }>()
 
       if (existing) {
@@ -262,7 +291,7 @@ export class ShortlinksStore {
     let slug: string
     let isCustom = 0
     if (params.custom_slug) {
-      const custom = params.custom_slug.trim()
+      const custom = params.custom_slug.trim().toLowerCase()
       const validationErr = validateCustomSlug(custom)
       if (validationErr) {
         throw ApiError.badRequest(validationErr)
@@ -294,7 +323,15 @@ export class ShortlinksStore {
     }
 
     const now = Math.floor(Date.now() / 1000)
-
+    const edgeFlags = (params.unsafe ? 1 : 0) | (params.redirect_with_query ? 2 : 0)
+    const routingRules =
+      params.routing_rules && Object.keys(params.routing_rules).length > 0
+        ? JSON.stringify(params.routing_rules)
+        : null
+    const ogPreview =
+      params.og_preview && Object.keys(params.og_preview).length > 0
+        ? JSON.stringify(params.og_preview)
+        : null
     // The link row and its first slug commit together: a generated slug lost to a concurrent create
     // must not leave a link that no short code can ever resolve.
     let linkId = 0
@@ -303,12 +340,13 @@ export class ShortlinksStore {
         await this.db.batch([
           this.db
             .prepare(
-              `INSERT INTO tools_shortlinks_links (user_id, url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO tools_shortlinks_links (user_id, url, normalized_url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by, edge_flags, routing_rules, og_preview)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
               this.userId,
               url,
+              normalizedUrl,
               params.label?.trim() || null,
               passwordHash,
               isProtected,
@@ -316,6 +354,9 @@ export class ShortlinksStore {
               params.expires_at ?? null,
               params.created_via || 'app',
               'user',
+              edgeFlags,
+              routingRules,
+              ogPreview,
             ),
           this.db
             .prepare(
@@ -326,6 +367,9 @@ export class ShortlinksStore {
         ])
         break
       } catch (err) {
+        if (err instanceof Error && /normalized_url/.test(err.message)) {
+          throw ApiError.conflict('This URL has already been shortened. Allow duplicates to create anyway.')
+        }
         const retryable = !isCustom && attempt < 2 && err instanceof Error && /UNIQUE constraint failed/i.test(err.message)
         if (!retryable) throw err
         const settings = await this.getSettings()
@@ -345,6 +389,8 @@ export class ShortlinksStore {
       throw new ApiError(500, 'internal', 'Link was not persisted')
     }
     linkId = inserted.link_id
+
+    if (params.tags !== undefined) await this.setLinkTags(linkId, params.tags)
 
     return (await this.getLinkById(linkId))!
   }
@@ -381,6 +427,10 @@ export class ShortlinksStore {
         created_via: string | null
         created_by: string
         total_clicks: number
+        lifecycle_state: 'active' | 'disabled' | 'archived'
+        edge_flags: number
+        routing_rules: string | null
+        og_preview: string | null
       }>()
 
     if (!linkRow) return null
@@ -413,18 +463,26 @@ export class ShortlinksStore {
       disabled_at: s.disabled_at,
     }))
 
+    const tagMap = await this.tagsForLinks([linkRow.id])
+
     return {
       id: linkRow.id,
       user_id: linkRow.user_id,
       url: linkRow.url,
       label: linkRow.label,
-      password_protected: Boolean(linkRow.is_password_protected),
+      password_protected: Boolean(linkRow.password_hash),
       created_at: linkRow.created_at,
       expires_at: linkRow.expires_at,
       created_via: linkRow.created_via,
       created_by: linkRow.created_by,
       slugs,
       total_clicks: linkRow.total_clicks || 0,
+      lifecycle_state: linkRow.lifecycle_state,
+      unsafe: Boolean(linkRow.edge_flags & 1),
+      redirect_with_query: Boolean(linkRow.edge_flags & 2),
+      routing_rules: routingRulesFromRow(linkRow.routing_rules),
+      og_preview: ogPreviewFromRow(linkRow.og_preview),
+      tags: tagMap.get(linkRow.id) || [],
     }
   }
 
@@ -472,6 +530,58 @@ export class ShortlinksStore {
     return slugMap
   }
 
+  /** Loads the tag names of a set of links in the same slices as the slug loader. */
+  private async tagsForLinks(linkIds: number[]): Promise<Map<number, string[]>> {
+    const tagMap = new Map<number, string[]>()
+    for (let offset = 0; offset < linkIds.length; offset += LINK_ID_CHUNK_SIZE) {
+      const chunk = linkIds.slice(offset, offset + LINK_ID_CHUNK_SIZE)
+      const placeholders = chunk.map(() => '?').join(',')
+      const rows = await this.db
+        .prepare(
+          `SELECT lt.link_id, lt.tag_name AS name
+           FROM tools_shortlinks_link_tags lt
+           WHERE lt.user_id = ? AND lt.link_id IN (${placeholders})
+           ORDER BY lt.tag_name ASC`,
+        )
+        .bind(this.userId, ...chunk)
+        .all<{ link_id: number; name: string }>()
+      for (const row of rows.results ?? []) {
+        const list = tagMap.get(row.link_id) || []
+        list.push(row.name)
+        tagMap.set(row.link_id, list)
+      }
+    }
+    return tagMap
+  }
+
+  /** Replaces every tag of one link, keeping the user's tag names canonical in one table. */
+  private async setLinkTags(linkId: number, tags: string[]): Promise<void> {
+    const names = [...new Set(
+      tags
+        .map((tag) => tag.trim().toLowerCase())
+        .filter((tag) => tag.length > 0 && tag.length <= MAX_TAG_LENGTH),
+    )].slice(0, MAX_TAGS_PER_LINK)
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .prepare('DELETE FROM tools_shortlinks_link_tags WHERE link_id = ? AND user_id = ?')
+      .bind(linkId, this.userId)
+      .run()
+    if (names.length === 0) return
+
+    const statements = []
+    for (const name of names) {
+      statements.push(
+        this.db
+          .prepare('INSERT OR IGNORE INTO tools_shortlinks_tags (user_id, name, created_at) VALUES (?, ?, ?)')
+          .bind(this.userId, name, now),
+        this.db
+          .prepare('INSERT OR IGNORE INTO tools_shortlinks_link_tags (user_id, link_id, tag_name) VALUES (?, ?, ?)')
+          .bind(this.userId, linkId, name),
+      )
+    }
+    await this.db.batch(statements)
+  }
+
   async listLinks(params: {
     filter?: 'all' | 'active' | 'disabled'
     status?: 'all' | 'active' | 'disabled'
@@ -480,6 +590,7 @@ export class ShortlinksStore {
     sort_order?: 'asc' | 'desc'
     bundle_id?: number
     search?: string
+    tag?: string
     offset?: number
     limit?: number
   }): Promise<{ items: ShortLink[]; links: ShortLink[]; total: number }> {
@@ -490,14 +601,14 @@ export class ShortlinksStore {
     const limit = Math.min(100, Math.max(1, Math.floor(params.limit || 20)))
     const now = Math.floor(Date.now() / 1000)
 
-    let whereClause = 'WHERE l.user_id = ?'
+    let whereClause = "WHERE l.user_id = ? AND l.lifecycle_state != 'archived'"
     const binds: (string | number)[] = [this.userId]
 
     if (filter === 'active') {
-      whereClause += ' AND (l.expires_at IS NULL OR l.expires_at > ?) AND EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = l.id AND s.disabled_at IS NULL)'
+      whereClause += " AND l.lifecycle_state = 'active' AND (l.expires_at IS NULL OR l.expires_at > ?) AND EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = l.id AND s.disabled_at IS NULL)"
       binds.push(now)
     } else if (filter === 'disabled') {
-      whereClause += ' AND ((l.expires_at IS NOT NULL AND l.expires_at <= ?) OR NOT EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = l.id AND s.disabled_at IS NULL))'
+      whereClause += " AND (l.lifecycle_state != 'active' OR (l.expires_at IS NOT NULL AND l.expires_at <= ?) OR NOT EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = l.id AND s.disabled_at IS NULL))"
       binds.push(now)
     }
 
@@ -510,6 +621,12 @@ export class ShortlinksStore {
       const q = `%${params.search.trim()}%`
       whereClause += ' AND (l.url LIKE ? OR l.label LIKE ? OR EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = l.id AND s.slug LIKE ?))'
       binds.push(q, q, q)
+    }
+
+    if (params.tag && params.tag.trim().length > 0) {
+      whereClause += ` AND l.id IN (SELECT lt.link_id FROM tools_shortlinks_link_tags lt
+        WHERE lt.user_id = ? AND lt.tag_name = ?)`
+      binds.push(this.userId, params.tag.trim().toLowerCase())
     }
 
     // Count total
@@ -542,6 +659,10 @@ export class ShortlinksStore {
       created_via: string | null
       created_by: string
       total_clicks: number
+      lifecycle_state: 'active' | 'disabled' | 'archived'
+      edge_flags: number
+      routing_rules: string | null
+      og_preview: string | null
     }>()
 
     const linkIds = (rows.results ?? []).map((r) => r.id)
@@ -551,19 +672,26 @@ export class ShortlinksStore {
 
     // Batch load slugs in slices so a full page stays inside D1's bound-parameter limit.
     const slugMap = await this.slugsForLinks(linkIds)
+    const tagMap = await this.tagsForLinks(linkIds)
 
     const items: ShortLink[] = (rows.results ?? []).map((r) => ({
       id: r.id,
       user_id: r.user_id,
       url: r.url,
       label: r.label,
-      password_protected: Boolean(r.is_password_protected),
+      password_protected: Boolean(r.password_hash),
       created_at: r.created_at,
       expires_at: r.expires_at,
       created_via: r.created_via,
       created_by: r.created_by,
       slugs: slugMap.get(r.id) || [],
       total_clicks: r.total_clicks || 0,
+      lifecycle_state: r.lifecycle_state,
+      unsafe: Boolean(r.edge_flags & 1),
+      redirect_with_query: Boolean(r.edge_flags & 2),
+      routing_rules: routingRulesFromRow(r.routing_rules),
+      og_preview: ogPreviewFromRow(r.og_preview),
+      tags: tagMap.get(r.id) || [],
     }))
 
     return { items, links: items, total }
@@ -576,6 +704,11 @@ export class ShortlinksStore {
       label?: string | null
       password?: string | null
       expires_at?: number | null
+      unsafe?: boolean
+      redirect_with_query?: boolean
+      tags?: string[]
+      routing_rules?: RoutingRules | null
+      og_preview?: OgPreview | null
     },
   ): Promise<ShortLink> {
     const existing = await this.getLinkById(id)
@@ -587,8 +720,15 @@ export class ShortlinksStore {
     const binds: (string | number | null)[] = []
 
     if (data.url !== undefined) {
-      updates.push('url = ?')
-      binds.push(normalizeUrl(data.url))
+      const url = normalizeUrl(data.url)
+      const normalized = url.toLowerCase()
+      const conflict = await this.db
+        .prepare('SELECT id FROM tools_shortlinks_links WHERE user_id = ? AND normalized_url = ? AND id != ? LIMIT 1')
+        .bind(this.userId, normalized, id)
+        .first<{ id: number }>()
+      if (conflict) throw ApiError.conflict('Another short link already points at this URL')
+      updates.push('url = ?, normalized_url = ?')
+      binds.push(url, normalized)
     }
     if (data.label !== undefined) {
       updates.push('label = ?')
@@ -607,12 +747,33 @@ export class ShortlinksStore {
         updates.push('password_hash = NULL, is_password_protected = 0')
       }
     }
+    if (data.unsafe !== undefined || data.redirect_with_query !== undefined) {
+      let flags = (existing.unsafe ? 1 : 0) | (existing.redirect_with_query ? 2 : 0)
+      if (data.unsafe !== undefined) flags = data.unsafe ? flags | 1 : flags & ~1
+      if (data.redirect_with_query !== undefined) {
+        flags = data.redirect_with_query ? flags | 2 : flags & ~2
+      }
+      updates.push('edge_flags = ?')
+      binds.push(flags)
+    }
+    if (data.routing_rules !== undefined) {
+      updates.push('routing_rules = ?')
+      const rules = data.routing_rules && Object.keys(data.routing_rules).length > 0 ? JSON.stringify(data.routing_rules) : null
+      binds.push(rules)
+    }
+    if (data.og_preview !== undefined) {
+      updates.push('og_preview = ?')
+      const preview = data.og_preview && Object.keys(data.og_preview).length > 0 ? JSON.stringify(data.og_preview) : null
+      binds.push(preview)
+    }
 
     if (updates.length > 0) {
       binds.push(id, this.userId)
       const sql = `UPDATE tools_shortlinks_links SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`
       await this.db.prepare(sql).bind(...binds).run()
     }
+
+    if (data.tags !== undefined) await this.setLinkTags(id, data.tags)
 
     return (await this.getLinkById(id))!
   }
@@ -624,13 +785,44 @@ export class ShortlinksStore {
     }
 
     if (link.total_clicks > 0) {
-      throw ApiError.badRequest('Cannot delete a short link with click history. Please disable it instead to preserve analytics.')
+      throw ApiError.conflict('This link has click history and can only be archived, so its analytics stay readable')
     }
 
-    await this.db
-      .prepare('DELETE FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
-      .bind(id, this.userId)
-      .run()
+    await this.db.batch([
+      this.db
+        .prepare('DELETE FROM tools_shortlinks_link_tags WHERE link_id = ? AND user_id = ?')
+        .bind(id, this.userId),
+      this.db
+        .prepare('DELETE FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
+        .bind(id, this.userId),
+    ])
+  }
+
+  /**
+   * Link-level lifecycle: disabling or archiving takes every alias down together, because a reader
+   * who saved a secondary slug must see the same 404 as the primary. Reactivating restores them.
+   */
+  async setLinkLifecycle(id: number, state: 'active' | 'disabled' | 'archived'): Promise<void> {
+    const link = await this.getLinkById(id)
+    if (!link) throw ApiError.notFound('Link not found')
+    const now = Math.floor(Date.now() / 1000)
+
+    await this.db.batch([
+      this.db
+        .prepare('UPDATE tools_shortlinks_links SET lifecycle_state = ? WHERE id = ? AND user_id = ?')
+        .bind(state, id, this.userId),
+      state === 'active'
+        ? this.db
+            .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = NULL WHERE link_id = ? AND user_id = ?')
+            .bind(id, this.userId)
+        : this.db
+            .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = COALESCE(disabled_at, ?) WHERE link_id = ? AND user_id = ?')
+            .bind(now, id, this.userId),
+    ])
+  }
+
+  async archiveLink(id: number): Promise<void> {
+    await this.setLinkLifecycle(id, 'archived')
   }
 
   // -------------------------------------------------------------------------
@@ -700,25 +892,27 @@ export class ShortlinksStore {
     ])
   }
 
-  async disableSlug(slug: string): Promise<void> {
+  async disableSlug(linkId: number, slug: string): Promise<void> {
     const now = Math.floor(Date.now() / 1000)
-    await this.db
-      .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = ? WHERE slug = ? AND user_id = ?')
-      .bind(now, slug, this.userId)
+    const res = await this.db
+      .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = ? WHERE link_id = ? AND slug = ? AND user_id = ?')
+      .bind(now, linkId, slug, this.userId)
       .run()
+    if ((res.meta.changes ?? 0) === 0) throw ApiError.notFound('Slug not found for this link')
   }
 
-  async enableSlug(slug: string): Promise<void> {
-    await this.db
-      .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = NULL WHERE slug = ? AND user_id = ?')
-      .bind(slug, this.userId)
+  async enableSlug(linkId: number, slug: string): Promise<void> {
+    const res = await this.db
+      .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = NULL WHERE link_id = ? AND slug = ? AND user_id = ?')
+      .bind(linkId, slug, this.userId)
       .run()
+    if ((res.meta.changes ?? 0) === 0) throw ApiError.notFound('Slug not found for this link')
   }
 
-  async deleteSlug(slug: string): Promise<void> {
+  async deleteSlug(linkId: number, slug: string): Promise<void> {
     const slugRow = await this.db
-      .prepare('SELECT * FROM tools_shortlinks_slugs WHERE slug = ? AND user_id = ?')
-      .bind(slug, this.userId)
+      .prepare('SELECT * FROM tools_shortlinks_slugs WHERE slug = ? AND link_id = ? AND user_id = ?')
+      .bind(slug, linkId, this.userId)
       .first<{ slug: string; link_id: number; is_primary: number }>()
 
     if (!slugRow) {
@@ -779,13 +973,17 @@ export class ShortlinksStore {
     expires_at: number | null
     password_hash: string | null
     is_password_protected: boolean
+    edge_flags: number
+    routing_rules: string | null
+    og_preview: string | null
+    label: string | null
   } | null> {
     const row = await this.db
       .prepare(
-        `SELECT s.slug, s.link_id, s.user_id, s.disabled_at, l.url, l.expires_at, l.password_hash, l.is_password_protected
+        `SELECT s.slug, s.link_id, s.user_id, s.disabled_at, l.url, l.label, l.expires_at, l.password_hash, l.is_password_protected, l.edge_flags, l.routing_rules, l.og_preview
          FROM tools_shortlinks_slugs s
          JOIN tools_shortlinks_links l ON s.link_id = l.id
-         WHERE s.slug = ?`,
+         WHERE s.slug = ? AND l.lifecycle_state = 'active'`,
       )
       .bind(slug)
       .first<{
@@ -797,6 +995,10 @@ export class ShortlinksStore {
         expires_at: number | null
         password_hash: string | null
         is_password_protected: number
+        edge_flags: number
+        routing_rules: string | null
+        og_preview: string | null
+        label: string | null
       }>()
 
     if (!row) return null
@@ -809,7 +1011,11 @@ export class ShortlinksStore {
       disabled_at: row.disabled_at,
       expires_at: row.expires_at,
       password_hash: row.password_hash,
-      is_password_protected: Boolean(row.is_password_protected),
+      is_password_protected: Boolean(row.password_hash),
+      edge_flags: row.edge_flags,
+      routing_rules: row.routing_rules,
+      og_preview: row.og_preview,
+      label: row.label,
     }
   }
 
@@ -818,18 +1024,18 @@ export class ShortlinksStore {
 
     // A public redirect is an unauthenticated write. A crawler that ignores the 302, a page that
     // refreshes itself, or one reader holding down a shortcut would otherwise turn `/l/:slug` into an
-    // unbounded D1 writer and inflate the owner's statistics. Bots are not a reader at all, and one
-    // fingerprint counts once inside the window; both are decided before the insert, so the skipped
-    // request costs a single indexed read instead of two writes.
-    if (click.isBot) return
+    // unbounded D1 writer and inflate the owner's statistics. The fingerprint counts once per slug
+    // inside the window; the dedupe key carries the slug so a reader who opens two aliases of the same
+    // link still produces a click for each alias. Bots are stored with `is_bot = 1` so the settings
+    // switch can decide later whether analytics include them.
     if (click.visitorFp) {
       const recent = await this.db
         .prepare(
           `SELECT 1 AS seen FROM tools_shortlinks_clicks
-            WHERE user_id = ? AND link_id = ? AND visitor_fp = ? AND clicked_at >= ?
+            WHERE user_id = ? AND link_id = ? AND slug = ? AND visitor_fp = ? AND clicked_at >= ?
             LIMIT 1`,
         )
-        .bind(targetUserId, linkId, click.visitorFp, now - CLICK_DEDUPE_WINDOW_SECONDS)
+        .bind(targetUserId, linkId, slug, click.visitorFp, now - CLICK_DEDUPE_WINDOW_SECONDS)
         .first<{ seen: number }>()
       if (recent) return
     }
@@ -878,8 +1084,17 @@ export class ShortlinksStore {
     await this.db.batch([
       insertStatement,
       this.db
-        .prepare('UPDATE tools_shortlinks_links SET total_clicks = total_clicks + 1 WHERE id = ? AND user_id = ?')
-        .bind(linkId, targetUserId),
+        .prepare('UPDATE tools_shortlinks_links SET total_clicks = total_clicks + 1, last_clicked_at = ? WHERE id = ? AND user_id = ?')
+        .bind(now, linkId, targetUserId),
+      this.db
+        .prepare(
+          `INSERT INTO tools_shortlinks_clicks_daily (user_id, link_id, day, clicks, last_updated)
+           VALUES (?1, ?2, date(?3, 'unixepoch'), 1, ?3)
+           ON CONFLICT (user_id, link_id, day) DO UPDATE SET
+             clicks = clicks + 1,
+             last_updated = excluded.last_updated`,
+        )
+        .bind(targetUserId, linkId, now),
     ])
   }
 
@@ -894,23 +1109,29 @@ export class ShortlinksStore {
     return scope
   }
 
-  async getLinkAnalytics(linkId: number, range: TimelineRange = '30d'): Promise<ClickStats> {
+  async getLinkAnalytics(linkId: number, range: TimelineRange = '30d', bounds?: AnalyticsBounds): Promise<ClickStats> {
     const settings = await this.getSettings()
     const link = await this.db
       .prepare('SELECT created_at FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
       .bind(linkId, this.userId)
       .first<{ created_at: number }>()
-    let where = `user_id = ? AND link_id = ?${this.clickScope(settings)}`
+    let scope = `user_id = ? AND link_id = ?`
     const binds: (string | number)[] = [this.userId, linkId]
 
-    const sinceTs = rangeToSinceTs(range)
+    const sinceTs = bounds?.from ?? rangeToSinceTs(range)
     if (sinceTs !== undefined) {
-      where += ' AND clicked_at >= ?'
+      scope += ' AND clicked_at >= ?'
       binds.push(sinceTs)
     }
+    if (bounds?.to !== undefined) {
+      scope += ' AND clicked_at < ?'
+      binds.push(bounds.to)
+    }
+    const where = `${scope}${this.clickScope(settings)}`
 
     const [
       totalRow,
+      uniqueVisitorsRow,
       countries,
       referrers,
       referrerHosts,
@@ -926,8 +1147,11 @@ export class ShortlinksStore {
       numHostsRow,
       numOsRow,
       numBrowsersRow,
+      botClicksRow,
+      allClicksRow,
     ] = await Promise.all([
       this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${where}`).bind(...binds).first<{ cnt: number }>(),
+      this.db.prepare(`SELECT COUNT(DISTINCT visitor_fp) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND visitor_fp IS NOT NULL`).bind(...binds).first<{ cnt: number }>(),
       this.db.prepare(`SELECT country as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where} AND country IS NOT NULL GROUP BY country ORDER BY count DESC LIMIT 10`).bind(...binds).all<{ name: string; count: number }>(),
       this.db.prepare(`SELECT referrer as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where} AND referrer IS NOT NULL AND referrer NOT LIKE 'android-app://%' GROUP BY referrer ORDER BY count DESC LIMIT 10`).bind(...binds).all<{ name: string; count: number }>(),
       this.db.prepare(`SELECT referrer_host as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where} AND referrer_host IS NOT NULL GROUP BY referrer_host ORDER BY count DESC LIMIT 10`).bind(...binds).all<{ name: string; count: number }>(),
@@ -943,10 +1167,13 @@ export class ShortlinksStore {
       this.db.prepare(`SELECT COUNT(DISTINCT referrer_host) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND referrer_host IS NOT NULL`).bind(...binds).first<{ cnt: number }>(),
       this.db.prepare(`SELECT COUNT(DISTINCT os) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND os IS NOT NULL`).bind(...binds).first<{ cnt: number }>(),
       this.db.prepare(`SELECT COUNT(DISTINCT browser) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND browser IS NOT NULL`).bind(...binds).first<{ cnt: number }>(),
+      this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${scope} AND is_bot = 1`).bind(...binds).first<{ cnt: number }>(),
+      this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${scope}`).bind(...binds).first<{ cnt: number }>(),
     ])
 
     return {
       total_clicks: totalRow?.cnt || 0,
+      unique_visitors: uniqueVisitorsRow?.cnt || 0,
       avg_clicks_per_day: formatAvgPerDay(totalRow?.cnt || 0, range, link?.created_at),
       countries: countries.results ?? [],
       referrers: referrers.results ?? [],
@@ -963,10 +1190,18 @@ export class ShortlinksStore {
       num_referrer_hosts: numHostsRow?.cnt || 0,
       num_os: numOsRow?.cnt || 0,
       num_browsers: numBrowsersRow?.cnt || 0,
+      bot_clicks: botClicksRow?.cnt || 0,
+      bot_ratio: allClicksRow?.cnt ? (botClicksRow?.cnt || 0) / allClicksRow.cnt : 0,
     }
   }
 
-  async getTimeline(linkId?: number, bundleId?: number, range: TimelineRange = '30d'): Promise<TimelineData> {
+  async getTimeline(
+    linkId?: number,
+    bundleId?: number,
+    range: TimelineRange = '30d',
+    timeZone?: string,
+    bounds?: AnalyticsBounds,
+  ): Promise<TimelineData> {
     const settings = await this.getSettings()
     const now = Math.floor(Date.now() / 1000)
     let where = `user_id = ?${this.clickScope(settings)}`
@@ -980,35 +1215,34 @@ export class ShortlinksStore {
       binds.push(bundleId, this.userId)
     }
 
-    let bucketExpr = "date(clicked_at, 'unixepoch')"
-    const sinceTs = rangeToSinceTs(range, now)
-
-    if (range === '24h') {
-      bucketExpr = "strftime('%Y-%m-%d %H', clicked_at, 'unixepoch')"
-    } else if (range === '1y') {
-      bucketExpr = "date(clicked_at, 'unixepoch', 'weekday 0', '-6 days')"
-    }
-
-    let timeFilter = ''
-    const bucketBinds = [...binds]
+    const sinceTs = bounds?.from ?? rangeToSinceTs(range, now)
     if (sinceTs !== undefined) {
-      timeFilter = ' AND clicked_at >= ?'
-      bucketBinds.push(sinceTs)
+      where += ' AND clicked_at >= ?'
+      binds.push(sinceTs)
+    }
+    if (bounds?.to !== undefined) {
+      where += ' AND clicked_at < ?'
+      binds.push(bounds.to)
     }
 
+    // Bucketing happens in the reader's calendar, so the rows have to cross the boundary as raw
+    // timestamps: SQLite's date() is UTC-only and would put a post-midnight Shanghai click on the
+    // previous day.
     const rows = await this.db
       .prepare(
-        `SELECT ${bucketExpr} as label, COUNT(*) as count
-         FROM tools_shortlinks_clicks
-         WHERE ${where}${timeFilter}
-         GROUP BY label ORDER BY label ASC`,
+        `SELECT clicked_at FROM tools_shortlinks_clicks
+         WHERE ${where}
+         ORDER BY clicked_at ASC`,
       )
-      .bind(...bucketBinds)
-      .all<{ label: string; count: number }>()
+      .bind(...binds)
+      .all<{ clicked_at: number }>()
 
-    const dataMap = new Map((rows.results ?? []).map((r) => [r.label, r.count]))
-    const buckets = fillBuckets(range, dataMap, now)
-
+    const buckets = timelineBuckets(
+      rows.results ?? [],
+      bounds?.from !== undefined || bounds?.to !== undefined ? 'all' : range,
+      bounds?.to ?? now,
+      timeZone,
+    )
     return { range, buckets }
   }
 
@@ -1091,13 +1325,175 @@ export class ShortlinksStore {
     }
   }
 
-  async getDashboardStats(range: TimelineRange = '30d'): Promise<DashboardStats> {
+  async getHeatmap(
+    linkId?: number,
+    bundleId?: number,
+    range: TimelineRange = '30d',
+    timeZone?: string,
+  ): Promise<{ cells: { weekday: number; hour: number; count: number }[]; max: number }> {
+    const settings = await this.getSettings()
+    const now = Math.floor(Date.now() / 1000)
+    let where = `user_id = ?${this.clickScope(settings)}`
+    const binds: (string | number)[] = [this.userId]
+
+    if (linkId) {
+      where += ' AND link_id = ?'
+      binds.push(linkId)
+    } else if (bundleId) {
+      where += ' AND link_id IN (SELECT link_id FROM tools_shortlinks_bundle_links WHERE bundle_id = ? AND user_id = ?)'
+      binds.push(bundleId, this.userId)
+    }
+
+    const sinceTs = rangeToSinceTs(range, now)
+    if (sinceTs !== undefined) {
+      where += ' AND clicked_at >= ?'
+      binds.push(sinceTs)
+    }
+
+    const rows = await this.db
+      .prepare(`SELECT clicked_at FROM tools_shortlinks_clicks WHERE ${where}`)
+      .bind(...binds)
+      .all<{ clicked_at: number }>()
+    const cells = heatmapCells(rows.results ?? [], timeZone)
+    const max = cells.reduce((peak, cell) => Math.max(peak, cell.count), 0)
+    return { cells, max }
+  }
+
+  /**
+   * Rebuilds the daily rollups from the raw click ledger. Re-runnable: both tables are cleared for
+   * this account first, and the raw table stays the source of truth for every custom range.
+   */
+  async backfillStatsRollups(): Promise<{ days: number; clicks: number; breakdown_rows: number }> {
+    const settings = await this.getSettings()
+    if (settings.stats_rollup_enabled === false) {
+      return { days: 0, clicks: 0, breakdown_rows: 0 }
+    }
+
+    await this.db.batch([
+      this.db.prepare('DELETE FROM tools_shortlinks_clicks_daily WHERE user_id = ?').bind(this.userId),
+      this.db.prepare('DELETE FROM tools_shortlinks_breakdown_daily WHERE user_id = ?').bind(this.userId),
+    ])
+
+    await this.db
+      .prepare(
+        `INSERT INTO tools_shortlinks_clicks_daily (user_id, link_id, day, clicks, last_updated)
+         SELECT user_id, link_id, date(clicked_at, 'unixepoch') AS day, COUNT(*), MAX(clicked_at)
+         FROM tools_shortlinks_clicks
+         WHERE user_id = ?
+         GROUP BY link_id, day`,
+      )
+      .bind(this.userId)
+      .run()
+
+    for (const dimension of ['country', 'referrer_host', 'device_type', 'browser'] as const) {
+      await this.db
+        .prepare(
+          `INSERT INTO tools_shortlinks_breakdown_daily
+             (user_id, link_id, day, dimension, name, count, last_updated)
+           SELECT user_id, link_id, date(clicked_at, 'unixepoch') AS day, '${dimension}', ${dimension}, COUNT(*), MAX(clicked_at)
+           FROM tools_shortlinks_clicks
+           WHERE user_id = ? AND ${dimension} IS NOT NULL
+           GROUP BY link_id, day, ${dimension}`,
+        )
+        .bind(this.userId)
+        .run()
+    }
+
+    const daily = await this.db
+      .prepare(
+        `SELECT COUNT(*) AS days, COALESCE(SUM(clicks), 0) AS clicks
+         FROM tools_shortlinks_clicks_daily WHERE user_id = ?`,
+      )
+      .bind(this.userId)
+      .first<{ days: number; clicks: number }>()
+    const breakdown = await this.db
+      .prepare('SELECT COUNT(*) AS cnt FROM tools_shortlinks_breakdown_daily WHERE user_id = ?')
+      .bind(this.userId)
+      .first<{ cnt: number }>()
+
+    return {
+      days: daily?.days ?? 0,
+      clicks: daily?.clicks ?? 0,
+      breakdown_rows: breakdown?.cnt ?? 0,
+    }
+  }
+
+  /**
+   * The newest clicks of this account after the cursor the reader already saw, oldest first so the
+   * feed can append without re-sorting. A first read (no cursor) asks for the latest page instead.
+   */
+  async listRealtimeClicks(afterId?: number, limit = 30): Promise<RealtimeFeed> {
+    const size = Math.min(100, Math.max(1, Math.floor(limit)))
+    const rows = afterId === undefined
+      ? await this.db
+        .prepare(
+          `SELECT c.id, c.slug, c.link_id, l.label, c.clicked_at, c.country, c.device_type, c.browser, c.is_bot
+           FROM tools_shortlinks_clicks c
+           LEFT JOIN tools_shortlinks_links l ON l.id = c.link_id
+           WHERE c.user_id = ?
+           ORDER BY c.id DESC
+           LIMIT ?`,
+        )
+        .bind(this.userId, size)
+        .all<{
+          id: number
+          slug: string
+          link_id: number
+          label: string | null
+          clicked_at: number
+          country: string | null
+          device_type: string | null
+          browser: string | null
+          is_bot: number
+        }>()
+      : await this.db
+        .prepare(
+          `SELECT c.id, c.slug, c.link_id, l.label, c.clicked_at, c.country, c.device_type, c.browser, c.is_bot
+           FROM tools_shortlinks_clicks c
+           LEFT JOIN tools_shortlinks_links l ON l.id = c.link_id
+           WHERE c.user_id = ? AND c.id > ?
+           ORDER BY c.id ASC
+           LIMIT ?`,
+        )
+        .bind(this.userId, afterId, size)
+        .all<{
+          id: number
+          slug: string
+          link_id: number
+          label: string | null
+          clicked_at: number
+          country: string | null
+          device_type: string | null
+          browser: string | null
+          is_bot: number
+        }>()
+
+    const items: RealtimeClick[] = (rows.results ?? []).map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      link_id: row.link_id,
+      label: row.label,
+      clicked_at: row.clicked_at,
+      country: row.country,
+      device_type: row.device_type,
+      browser: row.browser,
+      is_bot: Boolean(row.is_bot),
+    }))
+    if (afterId === undefined) items.reverse()
+    return {
+      items,
+      latest_id: items.length > 0 ? items[items.length - 1].id : afterId ?? 0,
+    }
+  }
+
+  async getDashboardStats(range: TimelineRange = '30d', timeZone?: string): Promise<DashboardStats> {
     const settings = await this.getSettings()
     const now = Math.floor(Date.now() / 1000)
     const sinceTs = rangeToSinceTs(range, now)
     const prevSinceTs = sinceTs !== undefined ? sinceTs - (now - sinceTs) : undefined
 
-    let where = `user_id = ?${this.clickScope(settings)}`
+    const scope = 'user_id = ?'
+    const where = `${scope}${this.clickScope(settings)}`
     const binds: (string | number)[] = [this.userId]
 
     let timeFilter = ''
@@ -1122,6 +1518,18 @@ export class ShortlinksStore {
       .prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${where}${timeFilter}`)
       .bind(...binds)
       .first<{ cnt: number }>()
+    const uniqueVisitorsRow = await this.db
+      .prepare(`SELECT COUNT(DISTINCT visitor_fp) as cnt FROM tools_shortlinks_clicks WHERE ${where}${timeFilter} AND visitor_fp IS NOT NULL`)
+      .bind(...binds)
+      .first<{ cnt: number }>()
+    const botClicksRow = await this.db
+      .prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${scope}${timeFilter} AND is_bot = 1`)
+      .bind(...binds)
+      .first<{ cnt: number }>()
+    const allClicksRow = await this.db
+      .prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${scope}${timeFilter}`)
+      .bind(...binds)
+      .first<{ cnt: number }>()
 
     let totalClicksPrevious = 0
     if (sinceTs !== undefined && prevSinceTs !== undefined) {
@@ -1136,7 +1544,7 @@ export class ShortlinksStore {
     const deltaClicks = computeDelta(totalClicks, totalClicksPrevious)
 
     const [timelineData, recent, topCountries, topReferrers] = await Promise.all([
-      this.getTimeline(undefined, undefined, range),
+      this.getTimeline(undefined, undefined, range, timeZone),
       this.listLinks({ limit: 5, sort: 'created_at' }),
       this.db.prepare(`SELECT country as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where}${timeFilter} AND country IS NOT NULL GROUP BY country ORDER BY count DESC LIMIT 5`).bind(...binds).all<{ name: string; count: number }>(),
       this.db.prepare(`SELECT referrer_host as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where}${timeFilter} AND referrer_host IS NOT NULL GROUP BY referrer_host ORDER BY count DESC LIMIT 5`).bind(...binds).all<{ name: string; count: number }>(),
@@ -1147,6 +1555,9 @@ export class ShortlinksStore {
       total_links: totalLinksRow?.total || 0,
       active_links: totalLinksRow?.active || 0,
       total_clicks: totalClicks,
+      unique_visitors: uniqueVisitorsRow?.cnt || 0,
+      bot_clicks: botClicksRow?.cnt || 0,
+      bot_ratio: allClicksRow?.cnt ? (botClicksRow?.cnt || 0) / allClicksRow.cnt : 0,
       delta_clicks: deltaClicks,
       avg_clicks_per_day: formatAvgPerDay(totalClicks, range),
       timeline: {
@@ -1251,6 +1662,10 @@ export class ShortlinksStore {
         now,
       )
       .run()
+      .catch((err: Error) => {
+        if (/UNIQUE constraint failed/i.test(err.message)) throw ApiError.conflict('A bundle with this name already exists')
+        throw err
+      })
 
     const id = res.meta.last_row_id as number
     return (await this.getBundleById(id))!
@@ -1337,7 +1752,10 @@ export class ShortlinksStore {
 
     binds.push(id, this.userId)
     const sql = `UPDATE tools_shortlinks_bundles SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`
-    await this.db.prepare(sql).bind(...binds).run()
+    await this.db.prepare(sql).bind(...binds).run().catch((err: Error) => {
+      if (/UNIQUE constraint failed/i.test(err.message)) throw ApiError.conflict('A bundle with this name already exists')
+      throw err
+    })
 
     return (await this.getBundleById(id))!
   }
@@ -1353,6 +1771,11 @@ export class ShortlinksStore {
   }
 
   async deleteBundle(id: number): Promise<void> {
+    const row = await this.db
+      .prepare('SELECT id FROM tools_shortlinks_bundles WHERE id = ? AND user_id = ?')
+      .bind(id, this.userId)
+      .first<{ id: number }>()
+    if (!row) throw ApiError.notFound('Bundle not found')
     await this.db
       .prepare('DELETE FROM tools_shortlinks_bundles WHERE id = ? AND user_id = ?')
       .bind(id, this.userId)
@@ -1369,14 +1792,21 @@ export class ShortlinksStore {
     }
 
     const unique = [...new Set(linkIds)]
-    const placeholders = unique.map(() => '?').join(', ')
-    const owned = await this.db
-      .prepare(
-        `SELECT COUNT(*) as cnt FROM tools_shortlinks_links WHERE user_id = ? AND id IN (${placeholders})`,
-      )
-      .bind(this.userId, ...unique)
-      .first<{ cnt: number }>()
-    if ((owned?.cnt ?? 0) !== unique.length) {
+    // Ownership is proved in the same slices as the writes below: a single `IN (...)` over every ID
+    // would bind one parameter per link and hit D1's ceiling once a caller sends more than a hundred.
+    let owned = 0
+    for (let offset = 0; offset < unique.length; offset += LINK_ID_CHUNK_SIZE) {
+      const chunk = unique.slice(offset, offset + LINK_ID_CHUNK_SIZE)
+      const placeholders = chunk.map(() => '?').join(', ')
+      const row = await this.db
+        .prepare(
+          `SELECT COUNT(*) as cnt FROM tools_shortlinks_links WHERE user_id = ? AND id IN (${placeholders})`,
+        )
+        .bind(this.userId, ...chunk)
+        .first<{ cnt: number }>()
+      owned += row?.cnt ?? 0
+    }
+    if (owned !== unique.length) {
       throw ApiError.badRequest('One or more links were not found')
     }
 
@@ -1425,29 +1855,40 @@ export class ShortlinksStore {
         created_via: string | null
         created_by: string
         total_clicks: number
+        lifecycle_state: 'active' | 'disabled' | 'archived'
+        edge_flags: number
+        routing_rules: string | null
+        og_preview: string | null
       }>()
 
     const linkIds = (rows.results ?? []).map((r) => r.id)
     if (linkIds.length === 0) return []
 
     const slugMap = await this.slugsForLinks(linkIds)
+    const tagMap = await this.tagsForLinks(linkIds)
 
     return (rows.results ?? []).map((r) => ({
       id: r.id,
       user_id: r.user_id,
       url: r.url,
       label: r.label,
-      password_protected: Boolean(r.is_password_protected),
+      password_protected: Boolean(r.password_hash),
       created_at: r.created_at,
       expires_at: r.expires_at,
       created_via: r.created_via,
       created_by: r.created_by,
       slugs: slugMap.get(r.id) || [],
       total_clicks: r.total_clicks || 0,
+      lifecycle_state: r.lifecycle_state,
+      unsafe: Boolean(r.edge_flags & 1),
+      redirect_with_query: Boolean(r.edge_flags & 2),
+      routing_rules: routingRulesFromRow(r.routing_rules),
+      og_preview: ogPreviewFromRow(r.og_preview),
+      tags: tagMap.get(r.id) || [],
     }))
   }
 
-  async getBundleAnalytics(bundleId: number, range: TimelineRange = '30d'): Promise<BundleStats> {
+  async getBundleAnalytics(bundleId: number, range: TimelineRange = '30d', timeZone?: string): Promise<BundleStats> {
     const bundle = await this.getBundleById(bundleId)
     if (!bundle) {
       throw ApiError.notFound('Bundle not found')
@@ -1455,7 +1896,7 @@ export class ShortlinksStore {
 
     const settings = await this.getSettings()
     const links = await this.getBundleLinks(bundleId)
-    const timeline = await this.getTimeline(undefined, bundleId, range)
+    const timeline = await this.getTimeline(undefined, bundleId, range, timeZone)
 
     let where = `user_id = ?${this.clickScope(settings)} AND link_id IN (SELECT link_id FROM tools_shortlinks_bundle_links WHERE bundle_id = ? AND user_id = ?)`
     const binds: (string | number)[] = [this.userId, bundleId, this.userId]
@@ -1638,12 +2079,82 @@ export class ShortlinksStore {
   // Backups & Export/Import
   // -------------------------------------------------------------------------
 
-  async listBackups(): Promise<ShortlinkBackup[]> {
+  async listBackups(r2Bucket?: R2Bucket): Promise<ShortlinkBackup[]> {
     const rows = await this.db
       .prepare('SELECT * FROM tools_shortlinks_backups WHERE user_id = ? ORDER BY created_at DESC')
       .bind(this.userId)
       .all<ShortlinkBackup>()
-    return rows.results ?? []
+    const backups = rows.results ?? []
+    if (!r2Bucket) return backups
+
+    // The D1 row has no link_count column; the number lives in the file's own header, so the list
+    // reads it back instead of inventing a migration for a display-only field.
+    return Promise.all(
+      backups.map(async (backup) => {
+        try {
+          const object = await r2Bucket.get(backup.r2_key)
+          if (!object) return backup
+          const parsed = JSON.parse(await object.text()) as { _backup_info?: { link_count?: number } }
+          return { ...backup, link_count: parsed._backup_info?.link_count }
+        } catch {
+          return backup
+        }
+      }),
+    )
+  }
+
+  async deleteBackup(backupId: string, r2Bucket?: R2Bucket): Promise<void> {
+    const row = await this.db
+      .prepare('SELECT r2_key FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
+      .bind(this.userId, backupId)
+      .first<{ r2_key: string }>()
+    if (!row) throw ApiError.notFound('Backup not found')
+    if (r2Bucket) await r2Bucket.delete(row.r2_key).catch(() => {
+      // The D1 row goes away below either way; an object that is already gone has nothing left to release.
+    })
+    await this.db
+      .prepare('DELETE FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
+      .bind(this.userId, backupId)
+      .run()
+  }
+
+  /** One backup of each kind is a lot for a self-hosted deployment; older files are pruned. */
+  private async pruneBackups(keep: number, r2Bucket?: R2Bucket): Promise<void> {
+    const rows = await this.db
+      .prepare('SELECT id, r2_key FROM tools_shortlinks_backups WHERE user_id = ? ORDER BY created_at DESC')
+      .bind(this.userId)
+      .all<{ id: string; r2_key: string }>()
+    for (const row of (rows.results ?? []).slice(keep)) {
+      if (r2Bucket) await r2Bucket.delete(row.r2_key).catch(() => {
+        // The row is pruned below regardless; a refused delete only leaves the object for the next prune.
+      })
+      await this.db
+        .prepare('DELETE FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
+        .bind(this.userId, row.id)
+        .run()
+    }
+  }
+
+  private async passwordHashes(): Promise<Map<number, string>> {
+    const rows = await this.db
+      .prepare('SELECT id, password_hash FROM tools_shortlinks_links WHERE user_id = ? AND password_hash IS NOT NULL')
+      .bind(this.userId)
+      .all<{ id: number; password_hash: string }>()
+    return new Map((rows.results ?? []).map((row) => [row.id, row.password_hash]))
+  }
+
+  private async bundleMemberships(): Promise<Map<number, number[]>> {
+    const rows = await this.db
+      .prepare('SELECT bundle_id, link_id FROM tools_shortlinks_bundle_links WHERE user_id = ? ORDER BY added_at ASC')
+      .bind(this.userId)
+      .all<{ bundle_id: number; link_id: number }>()
+    const map = new Map<number, number[]>()
+    for (const row of rows.results ?? []) {
+      const list = map.get(row.bundle_id) ?? []
+      list.push(row.link_id)
+      map.set(row.bundle_id, list)
+    }
+    return map
   }
 
   /** Pages through the whole account: listLinks caps one page at 100 rows. */
@@ -1667,17 +2178,19 @@ export class ShortlinksStore {
     const links = await this.allLinksForExport()
     const bundles = await this.listBundles()
     const settings = await this.getSettings()
+    const hashes = await this.passwordHashes()
+    const memberships = await this.bundleMemberships()
 
     const backupData = {
       _backup_info: {
         type: 'inkstone_shortlinks_backup',
-        version: '1.0.0',
+        version: '2.0.0',
         created_at: now,
         link_count: links.length,
       },
       settings,
-      links,
-      bundles,
+      links: links.map((link) => ({ ...link, password_hash: hashes.get(link.id) ?? null })),
+      bundles: bundles.map((bundle) => ({ ...bundle, link_ids: memberships.get(bundle.id) ?? [] })),
     }
 
     const content = JSON.stringify(backupData, null, 2)
@@ -1695,6 +2208,7 @@ export class ShortlinksStore {
       )
       .bind(this.userId, backupId, filename, key, size, now)
       .run()
+    await this.pruneBackups(20, r2Bucket)
 
     return {
       id: backupId,
@@ -1762,19 +2276,43 @@ export class ShortlinksStore {
       return { key, filename, size }
     }
 
-    // JSON export
+    // JSON export is the round-trippable one: settings, bundles and password hashes travel with it
+    // so an account can be moved and restored without losing anything but click history.
     const filename = `shortlinks_${fileId}.json`
-    const content = JSON.stringify(links, null, 2)
+    const hashes = await this.passwordHashes()
+    const memberships = await this.bundleMemberships()
+    const document = {
+      _export_info: {
+        type: 'inkstone_shortlinks_export',
+        version: '2.0.0',
+        created_at: now,
+        link_count: links.length,
+      },
+      settings: await this.getSettings(),
+      links: links.map((link) => ({ ...link, password_hash: hashes.get(link.id) ?? null })),
+      bundles: (await this.listBundles()).map((bundle) => ({
+        ...bundle,
+        link_ids: memberships.get(bundle.id) ?? [],
+      })),
+    }
+    const content = JSON.stringify(document, null, 2)
     const key = `tools/shortlinks/backup/${this.userId}/export_${fileId}.json`
     const { size } = await uploadShortlinksFileToR2(r2Bucket, key, content, 'application/json')
     return { key, filename, size }
   }
 
-  async batchImportLinks(items: { url: string; label?: string; slug?: string }[]): Promise<{ imported: number; failed: number }> {
+  async batchImportLinks(
+    items: { url: string; label?: string; slug?: string }[],
+  ): Promise<{
+    imported: number
+    failed: number
+    errors: { line: number; slug?: string; url: string; reason: string }[]
+  }> {
     let imported = 0
-    let failed = 0
+    const errors: { line: number; slug?: string; url: string; reason: string }[] = []
 
-    for (const item of items) {
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index]
       try {
         await this.createLink({
           url: item.url,
@@ -1783,18 +2321,28 @@ export class ShortlinksStore {
           allow_duplicate: true,
         })
         imported++
-      } catch {
-        failed++
+      } catch (err) {
+        errors.push({
+          line: index + 1,
+          slug: item.slug,
+          url: item.url,
+          reason: (err as Error).message,
+        })
       }
     }
 
-    return { imported, failed }
+    return { imported, failed: errors.length, errors }
   }
 
   async restoreBackup(
     backupId: string,
     r2Bucket?: R2Bucket,
-  ): Promise<{ imported: number; total: number; protectedWithoutPassword: number }> {
+  ): Promise<{
+    imported: number
+    total: number
+    protectedWithoutPassword: number
+    restored: { settings: boolean; bundles: number; bundle_links: number; slugs: number }
+  }> {
     const backup = await this.db
       .prepare('SELECT * FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
       .bind(this.userId, backupId)
@@ -1814,34 +2362,155 @@ export class ShortlinksStore {
     }
 
     const text = await obj.text()
-    const parsed = JSON.parse(text)
-    const links = (parsed.links || []) as Array<{
-      url: string
-      label?: string | null
-      expires_at?: number | null
-      password_protected?: boolean
-      slugs?: Array<{ slug: string }>
-    }>
+    let parsed: {
+      _backup_info?: { type?: string }
+      _export_info?: { type?: string }
+      settings?: Partial<ShortlinksSettings>
+      links?: Array<{
+        id?: number
+        url: string
+        label?: string | null
+        expires_at?: number | null
+        password_protected?: boolean
+        password_hash?: string | null
+        tags?: string[]
+        routing_rules?: RoutingRules | null
+        og_preview?: OgPreview | null
+        slugs?: Array<{ slug: string; is_primary?: boolean; is_custom?: boolean; disabled_at?: number | null }>
+      }>
+      bundles?: Array<{
+        id?: number
+        name: string
+        description?: string | null
+        icon?: string | null
+        accent?: BundleAccent
+        link_ids?: number[]
+      }>
+    }
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      throw ApiError.badRequest('Backup file is not valid JSON')
+    }
+    if (!parsed._backup_info && !parsed._export_info) {
+      throw ApiError.badRequest('Unrecognized backup format')
+    }
 
-    let imported = 0
-    let protectedWithoutPassword = 0
-    for (const l of links) {
-      try {
-        const slug = l.slugs?.[0]?.slug
-        await this.createLink({
-          url: l.url,
-          label: l.label ?? undefined,
-          custom_slug: slug,
-          expires_at: l.expires_at ?? null,
-          allow_duplicate: true,
-        })
-        imported++
-        if (l.password_protected) protectedWithoutPassword++
-      } catch {
-        // Continue on conflict
+    const settings = parsed.settings
+    let settingsRestored = false
+    if (settings && typeof settings === 'object') {
+      const patch: Partial<ShortlinksSettings> = {}
+      if (typeof settings.slug_default_length === 'number') patch.slug_default_length = settings.slug_default_length
+      if (typeof settings.default_range === 'string') patch.default_range = settings.default_range as TimelineRange
+      if (typeof settings.filter_bots === 'boolean') patch.filter_bots = settings.filter_bots
+      if (typeof settings.filter_self_referrers === 'boolean') patch.filter_self_referrers = settings.filter_self_referrers
+      if (Object.keys(patch).length > 0) {
+        await this.updateSettings(patch)
+        settingsRestored = true
       }
     }
 
-    return { imported, total: links.length, protectedWithoutPassword }
+    const bundles = Array.isArray(parsed.bundles) ? parsed.bundles : []
+    const linkList = Array.isArray(parsed.links) ? parsed.links : []
+    const bundleMap = new Map<number, number>()
+    let bundlesRestored = 0
+    for (const bundle of bundles) {
+      if (!bundle?.name) continue
+      const existing = await this.db
+        .prepare('SELECT id FROM tools_shortlinks_bundles WHERE user_id = ? AND name = ?')
+        .bind(this.userId, bundle.name)
+        .first<{ id: number }>()
+      let bundleId = existing?.id
+      if (!bundleId) {
+        const created = await this.createBundle({
+          name: bundle.name,
+          description: bundle.description ?? null,
+          icon: bundle.icon ?? null,
+          accent: bundle.accent,
+        })
+        bundleId = created.id
+        bundlesRestored++
+      }
+      if (typeof bundle.id === 'number') bundleMap.set(bundle.id, bundleId)
+    }
+
+    const linkMap = new Map<number, number>()
+    let imported = 0
+    let protectedWithoutPassword = 0
+    let slugsRestored = 0
+    for (const link of linkList) {
+      if (!link || typeof link.url !== 'string') continue
+      const slugs = Array.isArray(link.slugs) ? link.slugs : []
+      const primary = slugs.find((slug) => slug.is_primary)?.slug ?? slugs[0]?.slug
+      try {
+        const created = await this.createLink({
+          url: link.url,
+          label: link.label ?? undefined,
+          custom_slug: primary,
+          expires_at: link.expires_at ?? null,
+          allow_duplicate: true,
+          tags: Array.isArray(link.tags) ? link.tags : undefined,
+          routing_rules: link.routing_rules ?? null,
+          og_preview: link.og_preview ?? null,
+        })
+        if (typeof link.id === 'number') linkMap.set(link.id, created.id)
+        imported++
+        slugsRestored++
+
+        const now = Math.floor(Date.now() / 1000)
+        for (const slug of slugs) {
+          if (!slug?.slug || slug.slug === primary) continue
+          const res = await this.db
+            .prepare(
+              `INSERT OR IGNORE INTO tools_shortlinks_slugs
+                 (slug, user_id, link_id, is_custom, is_primary, created_at, disabled_at)
+               VALUES (?, ?, ?, ?, 0, ?, ?)`,
+            )
+            .bind(slug.slug, this.userId, created.id, slug.is_custom ? 1 : 0, now, slug.disabled_at ?? null)
+            .run()
+          slugsRestored += res.meta.changes ?? 0
+        }
+
+        if (typeof link.password_hash === 'string' && link.password_hash) {
+          await this.db
+            .prepare('UPDATE tools_shortlinks_links SET password_hash = ?, is_password_protected = 1 WHERE id = ? AND user_id = ?')
+            .bind(link.password_hash, created.id, this.userId)
+            .run()
+        } else if (link.password_protected) {
+          protectedWithoutPassword++
+        }
+      } catch {
+        // A slug that is still live on this account cannot be restored; the rest of the backup still lands.
+      }
+    }
+
+    let bundleLinksRestored = 0
+    for (const bundle of bundles) {
+      const bundleId = typeof bundle.id === 'number' ? bundleMap.get(bundle.id) : undefined
+      if (!bundleId) continue
+      const ids = Array.isArray(bundle.link_ids) ? bundle.link_ids : []
+      const now = Math.floor(Date.now() / 1000)
+      for (const oldLinkId of ids) {
+        const newLinkId = linkMap.get(oldLinkId)
+        if (!newLinkId) continue
+        const res = await this.db
+          .prepare('INSERT OR IGNORE INTO tools_shortlinks_bundle_links (user_id, bundle_id, link_id, added_at) VALUES (?, ?, ?, ?)')
+          .bind(this.userId, bundleId, newLinkId, now)
+          .run()
+        bundleLinksRestored += res.meta.changes ?? 0
+      }
+    }
+
+    return {
+      imported,
+      total: linkList.length,
+      protectedWithoutPassword,
+      restored: {
+        settings: settingsRestored,
+        bundles: bundlesRestored,
+        bundle_links: bundleLinksRestored,
+        slugs: slugsRestored,
+      },
+    }
   }
 }

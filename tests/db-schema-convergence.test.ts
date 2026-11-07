@@ -87,6 +87,22 @@ describe('a boot onto a database whose ledger lies', () => {
     expect(columnsOf(sqlite, 'rewrite_queue')).toContain('claimed_at')
   })
 
+  it('rebuilds the shortlinks rollups an older database never had', async () => {
+    const sqlite = await installed()
+    sqlite.exec('DROP TABLE tools_shortlinks_clicks_daily')
+    sqlite.exec('DROP TABLE tools_shortlinks_breakdown_daily')
+    sqlite.exec('DROP INDEX idx_tools_shortlinks_links_last_click')
+    sqlite.exec('ALTER TABLE tools_shortlinks_links DROP COLUMN last_clicked_at')
+    sqlite.exec('ALTER TABLE tools_shortlinks_settings DROP COLUMN stats_rollup_enabled')
+    for (let version = 289; version <= 292; version++) sqlite.exec(`DELETE FROM schema_migrations WHERE version = ${version}`)
+
+    await reboot(sqlite)
+    expect(tablesOf(sqlite)).toContain('tools_shortlinks_clicks_daily')
+    expect(tablesOf(sqlite)).toContain('tools_shortlinks_breakdown_daily')
+    expect(columnsOf(sqlite, 'tools_shortlinks_links')).toContain('last_clicked_at')
+    expect(columnsOf(sqlite, 'tools_shortlinks_settings')).toContain('stats_rollup_enabled')
+  })
+
   it('gives a skill library built before icons the column it now reads', async () => {
     const sqlite = await installed()
     sqlite.exec(`INSERT INTO chat_prompts (user_id, id, title, content, group_name, tools, scopes, model_id, icon, created_at, updated_at)

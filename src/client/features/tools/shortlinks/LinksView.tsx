@@ -47,11 +47,9 @@ export function LinksView() {
   }
 
   const handleToggleSlugStatus = async (link: ShortLink) => {
-    const primarySlug = link.slugs.find((s) => s.is_primary) || link.slugs[0]
-    if (!primarySlug) return
-    const isCurrentlyActive = primarySlug.disabled_at === null
+    const isCurrentlyActive = (link.lifecycle_state ?? 'active') === 'active'
     try {
-      await shortlinksApi.setSlugStatus(link.id, primarySlug.slug, !isCurrentlyActive)
+      await shortlinksApi.setLinkLifecycle(link.id, isCurrentlyActive ? 'disabled' : 'active')
       useUiStore.getState().toast(t('tools.shortlinks.links.status_updated'), 'success')
       void fetchLinks()
     } catch (err) {
@@ -62,19 +60,27 @@ export function LinksView() {
   const handleDeleteLink = async (link: ShortLink) => {
     const hasClicks = link.total_clicks > 0
     const ok = await confirm({
-      title: t('tools.shortlinks.links.delete'),
+      title: hasClicks
+        ? t('tools.shortlinks.links.archive')
+        : t('tools.shortlinks.links.delete'),
       description: hasClicks
-        ? t('tools.shortlinks.links.delete_non_zero_warn')
+        ? t('tools.shortlinks.links.archive_non_zero_warn')
         : t('tools.shortlinks.links.delete_confirm'),
       tone: 'danger',
-      confirmLabel: t('tools.shortlinks.links.delete'),
+      confirmLabel: hasClicks
+        ? t('tools.shortlinks.links.archive')
+        : t('tools.shortlinks.links.delete'),
       cancelLabel: t('common.cancel'),
     })
     if (!ok) return
 
     try {
-      await shortlinksApi.deleteLink(link.id)
-      useUiStore.getState().toast(t('tools.shortlinks.links.deleted'), 'success')
+      if (hasClicks) await shortlinksApi.setLinkLifecycle(link.id, 'archived')
+      else await shortlinksApi.deleteLink(link.id)
+      useUiStore.getState().toast(
+        hasClicks ? t('tools.shortlinks.links.archived') : t('tools.shortlinks.links.deleted'),
+        'success',
+      )
       void fetchLinks()
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
@@ -85,7 +91,7 @@ export function LinksView() {
     <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 space-y-5 max-w-6xl mx-auto w-full">
       {/* Search and Filters Header */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2 flex-1 max-w-md">
+        <div className="flex items-center gap-2 flex-1 max-w-xl">
           <div className="relative flex-1">
             <Input
               value={filter.search}
@@ -98,6 +104,13 @@ export function LinksView() {
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] pointer-events-none"
             />
           </div>
+          <Input
+            value={filter.tag ?? ''}
+            onChange={(e) => setFilter({ tag: e.target.value, page: 1 })}
+            placeholder={t('tools.shortlinks.links.tags_placeholder')}
+            aria-label={t('tools.shortlinks.links.tags_placeholder')}
+            className="h-9 w-36 shrink-0"
+          />
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -135,7 +148,7 @@ export function LinksView() {
           <div className="py-16 text-center space-y-2">
             <Link2 size={32} className="mx-auto text-[var(--text-tertiary)]" />
             <div className="text-[length:var(--text-14)] font-medium text-[var(--text-secondary)]">
-              {filter.search.trim() || filter.status !== 'all'
+              {filter.search.trim() || filter.status !== 'all' || filter.tag
                 ? t('tools.shortlinks.links.empty_filtered')
                 : t('tools.shortlinks.links.empty')}
             </div>
@@ -184,6 +197,20 @@ export function LinksView() {
                       {link.total_clicks.toLocaleString()}
                     </span>
                   </div>
+                  {link.tags && link.tags.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {link.tags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setFilter({ tag, page: 1 })}
+                          className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.2 text-[length:var(--text-10)] text-[var(--text-secondary)] hover:text-[var(--accent)]"
+                        >
+                          #{tag}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="flex items-center justify-between gap-2">
                     {isExpired ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--danger-soft)] text-[var(--danger)]">
@@ -233,7 +260,11 @@ export function LinksView() {
                         {isSlugActive ? <EyeOff size={13} /> : <Eye size={13} />}
                       </IconButton>
                       <IconButton
-                        label={t('tools.shortlinks.links.delete')}
+                        label={
+                          link.total_clicks > 0
+                            ? t('tools.shortlinks.links.archive')
+                            : t('tools.shortlinks.links.delete')
+                        }
                         size="sm"
                         onClick={() => handleDeleteLink(link)}
                       >
@@ -262,7 +293,9 @@ export function LinksView() {
                 {links.map((link) => {
                   const primarySlugObj = link.slugs.find((s) => s.is_primary) || link.slugs[0]
                   const primarySlug = primarySlugObj?.slug || ''
-                  const isSlugActive = primarySlugObj ? primarySlugObj.disabled_at === null : true
+                  const isSlugActive =
+                    (link.lifecycle_state ?? 'active') === 'active' &&
+                    (link.slugs.length === 0 || link.slugs.some((s) => s.disabled_at === null))
                   const isExpired =
                     link.expires_at !== null && link.expires_at <= Math.floor(Date.now() / 1000)
                   const createdDate = new Date(link.created_at * 1000).toLocaleDateString()
@@ -303,6 +336,18 @@ export function LinksView() {
                             {link.url}
                           </div>
                         )}
+                        {link.tags && link.tags.length > 0 ? (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {link.tags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.2 text-[length:var(--text-10)] text-[var(--text-secondary)]"
+                              >
+                                #{tag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                       </td>
 
                       <td className="py-3 px-4 text-center">
@@ -368,7 +413,11 @@ export function LinksView() {
                             {isSlugActive ? <EyeOff size={13} /> : <Eye size={13} />}
                           </IconButton>
                           <IconButton
-                            label={t('tools.shortlinks.links.delete')}
+                            label={
+                              link.total_clicks > 0
+                                ? t('tools.shortlinks.links.archive')
+                                : t('tools.shortlinks.links.delete')
+                            }
                             size="sm"
                             onClick={() => handleDeleteLink(link)}
                           >

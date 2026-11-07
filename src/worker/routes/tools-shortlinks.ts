@@ -15,6 +15,7 @@ import {
   CreateLinkSchema,
   CustomSlugSchema,
   ListLinksQuerySchema,
+  RealtimeQuerySchema,
   RestoreBackupSchema,
   SlugStatusSchema,
   UpdateBundleSchema,
@@ -28,11 +29,11 @@ import { ShortlinksStore } from '../tools/shortlinks/store'
 
 export const toolsShortlinksRoutes = new Hono<AppBindings>()
 
-const WRITE_SCOPE_DENIED = /\/(settings|backups|api-keys|export|import)(\/|$)/
+const WRITE_SCOPE_DENIED = /\/(settings|backups|api-keys|export|import|stats)(\/|$)/
 
 function scopeAllows(scope: string, method: string, path: string): boolean {
   if (scope === 'admin') return true
-  if (scope === 'read') return method === 'GET'
+  if (scope === 'read') return method === 'GET' && !/\/export(\/|$)/.test(path)
   if (method === 'GET') return true
   return !WRITE_SCOPE_DENIED.test(path)
 }
@@ -138,9 +139,15 @@ function slugParam(c: Context<AppBindings>): string {
 // ---------------------------------------------------------------- Dashboard
 toolsShortlinksRoutes.get('/dashboard', async (c) => {
   const store = getStore(c)
-  const { range } = parseQuery(c, AnalyticsRangeQuerySchema)
-  const stats = await store.getDashboardStats(range)
+  const { range, timezone } = parseQuery(c, AnalyticsRangeQuerySchema)
+  const stats = await store.getDashboardStats(range, timezone)
   return c.json({ ok: true, data: stats })
+})
+
+toolsShortlinksRoutes.get('/realtime', async (c) => {
+  const store = getStore(c)
+  const { after, limit } = parseQuery(c, RealtimeQuerySchema)
+  return c.json({ ok: true, data: await store.listRealtimeClicks(after, limit) })
 })
 
 // ---------------------------------------------------------------- Links
@@ -154,6 +161,7 @@ toolsShortlinksRoutes.get('/links', async (c) => {
     sort_order: query.sort_order,
     bundle_id: query.bundle_id,
     search: query.search,
+    tag: query.tag,
     offset: query.offset,
     limit: query.limit,
   })
@@ -203,6 +211,14 @@ toolsShortlinksRoutes.delete('/links/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+toolsShortlinksRoutes.patch('/links/:id/lifecycle', async (c) => {
+  const store = getStore(c)
+  const id = idParam(c)
+  const body = await parseBody(c, z.object({ state: z.enum(['active', 'disabled', 'archived']) }))
+  await store.setLinkLifecycle(id, body.state)
+  return c.json({ ok: true, data: await store.getLinkById(id) })
+})
+
 // ---------------------------------------------------------------- Slugs
 toolsShortlinksRoutes.post('/links/:id/slugs', async (c) => {
   const store = getStore(c)
@@ -222,22 +238,22 @@ toolsShortlinksRoutes.on(['PUT', 'PATCH'], '/links/:id/slugs/:slug/primary', asy
 
 toolsShortlinksRoutes.on(['PUT', 'PATCH'], '/links/:id/slugs/:slug/status', async (c) => {
   const store = getStore(c)
-  idParam(c)
+  const id = idParam(c)
   const slug = slugParam(c)
   const body = await parseBody(c, SlugStatusSchema)
   if (body.is_active) {
-    await store.enableSlug(slug)
+    await store.enableSlug(id, slug)
   } else {
-    await store.disableSlug(slug)
+    await store.disableSlug(id, slug)
   }
   return c.json({ ok: true })
 })
 
 toolsShortlinksRoutes.delete('/links/:id/slugs/:slug', async (c) => {
   const store = getStore(c)
-  idParam(c)
+  const id = idParam(c)
   const slug = slugParam(c)
-  await store.deleteSlug(slug)
+  await store.deleteSlug(id, slug)
   return c.json({ ok: true })
 })
 
@@ -245,17 +261,25 @@ toolsShortlinksRoutes.delete('/links/:id/slugs/:slug', async (c) => {
 toolsShortlinksRoutes.get('/links/:id/stats', async (c) => {
   const store = getStore(c)
   const id = idParam(c)
-  const { range } = parseQuery(c, AnalyticsRangeQuerySchema)
-  const analytics = await store.getLinkAnalytics(id, range)
+  const { range, from, to } = parseQuery(c, AnalyticsRangeQuerySchema)
+  const analytics = await store.getLinkAnalytics(id, range, from || to ? { from, to } : undefined)
   return c.json({ ok: true, data: analytics })
 })
 
 toolsShortlinksRoutes.get('/links/:id/timeline', async (c) => {
   const store = getStore(c)
   const id = idParam(c)
-  const { range } = parseQuery(c, AnalyticsRangeQuerySchema)
-  const timeline = await store.getTimeline(id, undefined, range)
+  const { range, timezone, from, to } = parseQuery(c, AnalyticsRangeQuerySchema)
+  const timeline = await store.getTimeline(id, undefined, range, timezone, from || to ? { from, to } : undefined)
   return c.json({ ok: true, data: timeline })
+})
+
+toolsShortlinksRoutes.get('/links/:id/heatmap', async (c) => {
+  const store = getStore(c)
+  const id = idParam(c)
+  const { range, timezone } = parseQuery(c, AnalyticsRangeQuerySchema)
+  const heatmap = await store.getHeatmap(id, undefined, range, timezone)
+  return c.json({ ok: true, data: heatmap })
 })
 
 toolsShortlinksRoutes.get('/links/:id/breakdown', async (c) => {
@@ -340,9 +364,23 @@ toolsShortlinksRoutes.delete('/bundles/:id/links/:linkId', async (c) => {
 toolsShortlinksRoutes.get('/bundles/:id/stats', async (c) => {
   const store = getStore(c)
   const id = idParam(c)
-  const { range } = parseQuery(c, AnalyticsRangeQuerySchema)
-  const analytics = await store.getBundleAnalytics(id, range)
+  const { range, timezone } = parseQuery(c, AnalyticsRangeQuerySchema)
+  const analytics = await store.getBundleAnalytics(id, range, timezone)
   return c.json({ ok: true, data: analytics })
+})
+
+toolsShortlinksRoutes.get('/bundles/:id/heatmap', async (c) => {
+  const store = getStore(c)
+  const id = idParam(c)
+  const { range, timezone } = parseQuery(c, AnalyticsRangeQuerySchema)
+  const heatmap = await store.getHeatmap(undefined, id, range, timezone)
+  return c.json({ ok: true, data: heatmap })
+})
+
+toolsShortlinksRoutes.post('/stats/backfill', async (c) => {
+  const store = getStore(c)
+  const res = await store.backfillStatsRollups()
+  return c.json({ ok: true, data: res })
 })
 
 toolsShortlinksRoutes.get('/bundles/:id/breakdown', async (c) => {
@@ -365,7 +403,7 @@ toolsShortlinksRoutes.get('/bundles/:id/breakdown', async (c) => {
 toolsShortlinksRoutes.get('/settings', async (c) => {
   const store = getStore(c)
   const settings = await store.getSettings()
-  return c.json({ ok: true, data: settings })
+  return c.json({ ok: true, data: { ...settings, secret_configured: Boolean(c.env.SHORTLINKS_SECRET) } })
 })
 
 toolsShortlinksRoutes.on(['PUT', 'PATCH'], '/settings', async (c) => {
@@ -378,8 +416,15 @@ toolsShortlinksRoutes.on(['PUT', 'PATCH'], '/settings', async (c) => {
 // ---------------------------------------------------------------- Backups & Import/Export
 toolsShortlinksRoutes.get('/backups', async (c) => {
   const store = getStore(c)
-  const backups = await store.listBackups()
+  const backups = await store.listBackups(c.env.FILES)
   return c.json({ ok: true, data: backups })
+})
+
+toolsShortlinksRoutes.delete('/backups/:id', async (c) => {
+  const store = getStore(c)
+  const id = c.req.param('id') ?? ''
+  await store.deleteBackup(id, c.env.FILES)
+  return c.json({ ok: true })
 })
 
 toolsShortlinksRoutes.post('/backups', async (c) => {
@@ -415,7 +460,11 @@ toolsShortlinksRoutes.get('/export/download', async (c) => {
   const fallbackName = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
   return new Response(obj.body, {
     headers: {
-      'content-type': filename.endsWith('.csv') ? 'text/csv; charset=utf-8' : 'text/plain; charset=utf-8',
+      'content-type': filename.endsWith('.csv')
+        ? 'text/csv; charset=utf-8'
+        : filename.endsWith('.json')
+          ? 'application/json; charset=utf-8'
+          : 'text/plain; charset=utf-8',
       'content-disposition': `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
       'x-content-type-options': 'nosniff',
     },
@@ -436,11 +485,18 @@ toolsShortlinksRoutes.get('/export/csv', async (c) => {
   return c.json({ ok: true, data: { ...res, r2_key: res.key, url: downloadUrl } })
 })
 
+toolsShortlinksRoutes.get('/export/json', async (c) => {
+  const store = getStore(c)
+  const res = await store.exportData('json', c.env.FILES)
+  const downloadUrl = `/api/tools/shortlinks/export/download?key=${encodeURIComponent(res.key)}&filename=${encodeURIComponent(res.filename)}`
+  return c.json({ ok: true, data: { ...res, r2_key: res.key, url: downloadUrl } })
+})
+
 toolsShortlinksRoutes.post('/import', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, BatchImportSchema)
   const res = await store.batchImportLinks(body.items)
-  return c.json({ ok: true, data: { imported: res.imported, errors: res.failed > 0 ? [`${res.failed} links failed`] : [] } })
+  return c.json({ ok: true, data: { imported: res.imported, failed: res.failed, errors: res.errors } })
 })
 
 // ---------------------------------------------------------------- API Keys
@@ -454,7 +510,7 @@ toolsShortlinksRoutes.post('/api-keys', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, CreateApiKeySchema)
   const res = await store.createApiKey(body.title, body.scope)
-  return c.json({ ok: true, data: { ...res, api_key: res.apiKey } })
+  return c.json({ ok: true, data: { ...res.record, api_key: res.apiKey } })
 })
 
 toolsShortlinksRoutes.delete('/api-keys/:id', async (c) => {

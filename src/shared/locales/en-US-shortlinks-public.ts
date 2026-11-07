@@ -22,6 +22,10 @@ export const EN_US_SHORTLINKS_PUBLIC = {
   expiredMessage: 'This short link has passed its expiry time.',
   invalidTargetTitle: 'Link unavailable',
   invalidTargetMessage: 'This short link does not point to a web address that can be opened.',
+  unsafeTitle: 'This link may be unsafe',
+  unsafeMessage: 'The creator flagged this destination as one that may be unexpected or unsafe. Continue only if you trust the person who shared it.',
+  unsafeConfirm: 'Continue to the destination',
+  unsafeCancel: 'Go back to Inkstone',
 }
 
 export type ShortlinksPublicCopy = typeof EN_US_SHORTLINKS_PUBLIC

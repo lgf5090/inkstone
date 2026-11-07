@@ -20020,6 +20020,7 @@ const allowed = new Map([
     "/* Top Countries with Emoji Flags */",
     "/* Top Referrers */",
     "/* Recent Links */",
+    "/* Unique Visitors */",
   ]],
   ["src/client/features/tools/shortlinks/LinkDetailView.tsx", [
     "// Chart configuration builder (placed before conditional return to uphold Rules of Hooks)",
@@ -20036,11 +20037,16 @@ const allowed = new Map([
     "/* Devices */",
     "/* Operating Systems */",
     "/* Browsers */",
+    "// A date input names a local calendar day; the inclusive end becomes the following midnight.",
+    "/* Week × Hour Heatmap */",
   ]],
   ["src/client/features/tools/shortlinks/LinksView.tsx", [
     "/* Search and Filters Header */",
     "/* Links Table Card */",
     "/* Pagination Footer */",
+  ]],
+  ["src/client/features/tools/shortlinks/RealtimePanel.tsx", [
+    "/**\n * Polling feed of the newest clicks. A hidden tab stops asking, a failed round backs off, and the\n * visible tabs each read one page per tick so several open dashboards do not multiply the load.\n */",
   ]],
   ["src/client/features/tools/shortlinks/SettingsView.tsx", [
     "// Local state for settings form",
@@ -20066,6 +20072,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/shortlinks/api.ts", [
     "/**\n * API client for Short Links management endpoints (`/api/tools/shortlinks/*`).\n */",
+    "/** The browser's IANA zone, so daily buckets follow the reader's midnight rather than UTC. */",
   ]],
   ["src/client/features/tools/shortlinks/modals/CreateLinkModal.tsx", [
     "// Best-effort addition of newly created shortlink into bundle",
@@ -20093,10 +20100,10 @@ const allowed = new Map([
     "// Breakdown Modal state",
     "// Modals",
     "// Breakdown",
-    "// A keystroke in the search box is debounced; every other filter change fetches at once.",
     "// The saved default range seeds the analytics range once; a later refetch must not undo a",
     "// range the reader picked by hand.",
     "// A search typed against one dimension must not narrow the next one.",
+    "// A keystroke in the search or tag box is debounced; every other filter change fetches at once.",
   ]],
   ["src/client/features/tools/store.ts", [
     "// Best effort background persist",
@@ -33928,6 +33935,17 @@ const allowed = new Map([
   ["src/shared/tools/shortlinks/country.ts", [
     "/**\n * Country flag emoji and localized name helper.\n */",
   ]],
+  ["src/shared/tools/shortlinks/import-parse.ts", [
+    "/**\n * Parses the import formats the Short Links tool itself can export: header-based CSV, the\n * `[slug] -> url (label)` TXT shape, and bare URL lines from other tools.\n */",
+    "/** A quoted CSV cell exists in exported labels; splitting on every comma breaks them. */",
+  ]],
+  ["src/shared/tools/shortlinks/routing.ts", [
+    "/**\n * Per-link routing rules: a status code, device targets and country targets.\n *\n * The rules travel as JSON in one column so an edge redirect never needs a second table look-up.\n * Only the exact shapes the editor writes are accepted; anything else is treated as \"no rules\".\n */",
+    "/** The device target wins over the country target, so a phone abroad still gets the mobile page. */",
+    "/** Formats country targets as one `US=https://...` line per rule for the editor. */",
+    "/** Reads the editor's line format back, ignoring blank lines and malformed entries. */",
+    "/** Builds the rules object from the three editor fields, returning null when every field is empty. */",
+  ]],
   ["src/shared/tools/shortlinks/schemas.ts", [
     "/**\n * Shared Zod schemas for Short Links manager under Tools (`tools/shortlinks`).\n */",
     "/**\n * Why a target URL may not be stored, or null when it may.\n *\n * A short link is handed to a browser as a `Location` header, and `z.string().url()` also accepts\n * `javascript:`, `data:` and `ftp:`. Only the two schemes a redirect can honestly mean are kept, and\n * credentials are refused because the address bar would otherwise show a host the reader never sees.\n */",
@@ -33935,6 +33953,7 @@ const allowed = new Map([
   ["src/shared/tools/shortlinks/types.ts", [
     "/**\n * Shared types for Short Links manager under Tools (`tools/shortlinks`).\n */",
     "/** `RANDOM_CHARSET` in the worker's slugs.ts omits l/o/0/1, so one character has 32 values, not 62. */",
+    "/** Read-only server state: whether SHORTLINKS_SECRET is configured for visitor dedupe. */",
   ]],
   ["src/shared/types.ts", [
     "/** Only computed on the first page of a listing; later keyset pages return null. */",
@@ -39692,8 +39711,13 @@ const allowed = new Map([
     "// Responses persistence (`previous_response_id`) and the retention ledger for generated images.",
     "// 288 follows 287; nothing above is touched.",
     "// Per-account switches for routing relay traffic through an AI Gateway. 299 is the first number",
-    "// free here: the short-link batch holds 289–297 and WebSSH spent 298 on its own branch.",
     "// A fresh database also gets the table from `SCHEMA_STATEMENTS`, where `IF NOT EXISTS` applies.",
+    "// Shortlinks analytics rollup: one row per link per UTC day. Kept beside the raw click ledger,",
+    "// which stays the precise source for drills and custom ranges.",
+    "// free above the short-link batch (289–297), and WebSSH spent 298 on its own branch.",
+    "// Open Graph preview payloads for social crawlers. 314 is the first free short-link number:",
+    "// 300–313 belong to other branches (301 monitoring, 304 files/forwarding, 307+ terminal,",
+    "// 310–312 host list UI, 313 WebSSH-AI).",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -42782,6 +42806,9 @@ const allowed = new Map([
     "/**\n * The language a public page answers in.\n *\n * A short link is opened by whoever received it, not by the deployment's owner, so the deployment\n * setting would be the wrong guess. `Accept-Language` is the reader's own statement; anything that\n * does not ask for Chinese gets English, which is the catalog's source language.\n */",
     "// A stored target that is not a web address cannot be handed to a browser as `Location`; older",
     "// rows may predate the schema check, so the same rule is enforced again at the edge.",
+    "// Social crawlers see a preview page instead of the redirect. Stored overrides win; missing pieces",
+    "// are read from the target under a short timeout, and a slow or broken target falls back to the",
+    "// ordinary redirect so a preview can never hold the hop hostage.",
   ]],
   ["src/worker/routes/tools-shortlinks.ts", [
     "/**\n * Short Links Manager API routes (`/api/tools/shortlinks/*`).\n */",
@@ -44124,7 +44151,10 @@ const allowed = new Map([
   ]],
   ["src/worker/tools/shortlinks/analytics.ts", [
     "/**\n * Time series analytics, bucket filling, delta computation, and statistics helpers.\n */",
-    "// Monthly",
+    "/** A browser-supplied IANA zone is untrusted input; an invalid one falls back to UTC. */",
+    "/** The Monday of the local week a calendar date belongs to, expressed as a date key. */",
+    "/**\n * Buckets raw click timestamps in the reader's own calendar, not the Worker's UTC one.\n *\n * SQLite's `date(..., 'unixepoch')` is fixed to UTC, which puts an Asia/Shanghai click made after\n * local midnight into the previous day. The raw column stays UTC; only the bucket key is local.\n */",
+    "/** A week-by-hour grid in the reader's zone; weekday 0 is Sunday, matching Date#getUTCDay. */",
   ]],
   ["src/worker/tools/shortlinks/fingerprint.ts", [
     "/**\n * Privacy-respecting visitor fingerprinting.\n *\n * Daily salt rotation ensures IDs cannot be correlated across days.\n * Raw IP is never stored.\n */",
@@ -44133,13 +44163,20 @@ const allowed = new Map([
   ]],
   ["src/worker/tools/shortlinks/maintenance.ts", [
     "/** Deletes click rows past the retention window in bounded chunks so one fire never blocks the tick. */",
+    "/**\n * Drops click rows past the retention window and keeps `links.total_clicks` truthful.\n *\n * The counter was incremented per click and never touched by the sweep, so after a year the list\n * showed a lifetime number while the analytics range showed the surviving rows. RETURNING hands\n * back exactly which links lost rows, and those counters are adjusted in bounded batches.\n */",
+    "/** Rate-limit and password-attempt buckets are keyed forever unless the sweep retires them. */",
+    "// The tick runs every hour; a failed sweep leaves the same expired buckets for the next pass.",
+  ]],
+  ["src/worker/tools/shortlinks/og.ts", [
+    "/**\n * Open Graph preview helpers for social crawlers: parse stored overrides, read a target page's\n * head with the same SSRF/timeout rules as the title sniff, and render an escaped page.\n */",
+    "/** Reads OG/Twitter/title/description tags out of an already-fetched head. */",
   ]],
   ["src/worker/tools/shortlinks/password-gate.ts", [
     "/**\n * The stored hash signs the cookie instead of travelling in it, so changing the password retires\n * every cookie issued under the old one. Legacy unsalted digests are recognised here and upgraded.\n */",
     "/** The row stores only this digest, never the visitor address. */",
   ]],
   ["src/worker/tools/shortlinks/r2.ts", [
-    "/**\n * R2 storage helpers for Short Links backups, exported files, and QR images.\n *\n * Path invariants:\n * - Backups: `tools/shortlinks/backup/${userId}/${backupId}.json`\n * - Plaintext TXT: `tools/shortlinks/txt/${userId}/${fileId}.txt`\n * - Protected TXT: `tools/shortlinks/txt/${userId}/protected_${fileId}.txt`\n * - Plaintext CSV: `tools/shortlinks/csv/${userId}/${fileId}.csv`\n * - QR Images: `tools/shortlinks/qr/${userId}/${slug}.png`\n */",
+    "/**\n * R2 storage helpers for Short Links backups and exported files.\n *\n * Path invariants:\n * - Backups: `tools/shortlinks/backup/${userId}/${backupId}.json`\n * - Plaintext TXT: `tools/shortlinks/txt/${userId}/${fileId}.txt`\n * - Protected TXT: `tools/shortlinks/txt/${userId}/protected_${fileId}.txt`\n * - Plaintext CSV: `tools/shortlinks/csv/${userId}/${fileId}.csv`\n */",
   ]],
   ["src/worker/tools/shortlinks/referrer.ts", [
     "/**\n * Referrer and domain parsing, normalization, and self-referrer detection.\n */",
@@ -44151,6 +44188,7 @@ const allowed = new Map([
   ["src/worker/tools/shortlinks/slugs.ts", [
     "/**\n * Slugs generation, validation, and collision protection for Short Links.\n */",
     "// Unambiguous lowercase characters: removed l, o, 0, 1 to avoid confusion",
+    "/**\n * Every code resolves under `/l/:slug`, so the root routes (`/api`, `/tools`, `/notes`, …) can never\n * collide with one. The old list rejected one-letter codes for pages that live on a different path.\n */",
   ]],
   ["src/worker/tools/shortlinks/store.ts", [
     "/**\n * D1 database storage implementation for Short Links tool (`tools_shortlinks_*`).\n * Enforces multi-tenant isolation via user_id on all operations.\n */",
@@ -44170,8 +44208,6 @@ const allowed = new Map([
     "// Per link breakdown",
     "// API Keys",
     "// Backups & Export/Import",
-    "// JSON export",
-    "// Continue on conflict",
     "// Password gate throttling",
     "/** Pages through the whole account: listLinks caps one page at 100 rows. */",
     "// The link row and its first slug commit together: a generated slug lost to a concurrent create",
@@ -44184,19 +44220,38 @@ const allowed = new Map([
     "/** One visitor's repeat visit inside this window is a reload, not a second click. */",
     "// A public redirect is an unauthenticated write. A crawler that ignores the 302, a page that",
     "// refreshes itself, or one reader holding down a shortcut would otherwise turn `/l/:slug` into an",
-    "// unbounded D1 writer and inflate the owner's statistics. Bots are not a reader at all, and one",
-    "// fingerprint counts once inside the window; both are decided before the insert, so the skipped",
-    "// request costs a single indexed read instead of two writes.",
     "/**\n * D1 rejects a statement past roughly a hundred bound parameters. A slug lookup binds one user id\n * per link plus a trailing scope id, so wide pages, exports and bundle reads have to ask in slices.\n */",
     "/**\n   * Loads slugs for a set of links in slices, so a page or a whole bundle never builds an `IN` list\n   * wider than D1's bound-parameter ceiling.\n   */",
     "// Batch load slugs in slices so a full page stays inside D1's bound-parameter limit.",
     "// Half the API page cap: each page can still be followed by chunked slug reads, and a 150-link",
     "// account exports in three passes instead of relying on one oversized statement.",
+    "// Ownership is proved in the same slices as the writes below: a single `IN (...)` over every ID",
+    "// would bind one parameter per link and hit D1's ceiling once a caller sends more than a hundred.",
+    "// Bucketing happens in the reader's calendar, so the rows have to cross the boundary as raw",
+    "// timestamps: SQLite's date() is UTC-only and would put a post-midnight Shanghai click on the",
+    "// previous day.",
+    "// The D1 row has no link_count column; the number lives in the file's own header, so the list",
+    "// reads it back instead of inventing a migration for a display-only field.",
+    "/** One backup of each kind is a lot for a self-hosted deployment; older files are pruned. */",
+    "// JSON export is the round-trippable one: settings, bundles and password hashes travel with it",
+    "// so an account can be moved and restored without losing anything but click history.",
+    "// A slug that is still live on this account cannot be restored; the rest of the backup still lands.",
+    "/**\n   * Rebuilds the daily rollups from the raw click ledger. Re-runnable: both tables are cleared for\n   * this account first, and the raw table stays the source of truth for every custom range.\n   */",
+    "/**\n   * Link-level lifecycle: disabling or archiving takes every alias down together, because a reader\n   * who saved a secondary slug must see the same 404 as the primary. Reactivating restores them.\n   */",
+    "// The D1 row goes away below either way; an object that is already gone has nothing left to release.",
+    "// The row is pruned below regardless; a refused delete only leaves the object for the next prune.",
+    "// unbounded D1 writer and inflate the owner's statistics. The fingerprint counts once per slug",
+    "// inside the window; the dedupe key carries the slug so a reader who opens two aliases of the same",
+    "// link still produces a click for each alias. Bots are stored with `is_bot = 1` so the settings",
+    "// switch can decide later whether analytics include them.",
+    "/** Loads the tag names of a set of links in the same slices as the slug loader. */",
+    "/** Replaces every tag of one link, keeping the user's tag names canonical in one table. */",
+    "/**\n   * The newest clicks of this account after the cursor the reader already saw, oldest first so the\n   * feed can append without re-sorting. A first read (no cursor) asks for the latest page instead.\n   */",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",
     "// Best-effort cancel of stream reading",
-    "// Non-fatal: title sniffing is best-effort and failures safely fallback to null",
+    "// Non-fatal: preview sniffing is best-effort and failures safely fallback to null",
   ]],
   ["src/worker/tools/shortlinks/ua.ts", [
     "/**\n * Lightweight User-Agent parser for analytics. Zero external dependencies.\n */",
@@ -50057,6 +50112,7 @@ const allowed = new Map([
   ["tests/tools-shortlinks-limits.test.ts", [
     "/**\n * The ceiling the audit hit in production: D1 rejects a statement with more bound parameters than\n * this. The shared double only enforces it when a suite opts in, so this file opts in on purpose —\n * an un-chunked `IN (?, ?, …)` fails here instead of passing on a permissive local SQLite.\n */",
     "// One click in the first slice and one in the last, so the per-link merge has to span chunks.",
+    "// The route schema requires at least one ID; the store's own empty path still has to hold.",
   ]],
   ["tests/tools-shortlinks-ui.test.tsx", [
     "// First render with activeLink null",

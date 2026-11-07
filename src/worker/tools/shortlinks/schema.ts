@@ -14,12 +14,27 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
     expires_at INTEGER,
     created_via TEXT DEFAULT 'app',
     created_by TEXT DEFAULT 'user',
-    total_clicks INTEGER NOT NULL DEFAULT 0
+    total_clicks INTEGER NOT NULL DEFAULT 0,
+    last_clicked_at INTEGER,
+    lifecycle_state TEXT NOT NULL DEFAULT 'active',
+    normalized_url TEXT,
+    edge_flags INTEGER NOT NULL DEFAULT 0,
+    routing_rules TEXT,
+    og_preview TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_user 
     ON tools_shortlinks_links(user_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_url 
     ON tools_shortlinks_links(user_id, url)`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_last_click
+    ON tools_shortlinks_links(user_id, last_clicked_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_lifecycle
+    ON tools_shortlinks_links(user_id, lifecycle_state)`,
+  `UPDATE tools_shortlinks_links SET normalized_url = lower(trim(url)) WHERE normalized_url IS NULL`,
+  `UPDATE tools_shortlinks_links SET normalized_url = NULL
+    WHERE id NOT IN (SELECT MIN(id) FROM tools_shortlinks_links GROUP BY user_id, normalized_url)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_tools_shortlinks_links_normalized_url
+    ON tools_shortlinks_links(user_id, normalized_url) WHERE normalized_url IS NOT NULL`,
 
   `CREATE TABLE IF NOT EXISTS tools_shortlinks_slugs (
     slug TEXT NOT NULL PRIMARY KEY,
@@ -79,6 +94,30 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_device 
     ON tools_shortlinks_clicks(user_id, device_type)`,
 
+  `CREATE TABLE IF NOT EXISTS tools_shortlinks_clicks_daily (
+    user_id TEXT NOT NULL,
+    link_id INTEGER NOT NULL,
+    day TEXT NOT NULL,
+    clicks INTEGER NOT NULL DEFAULT 0,
+    last_updated INTEGER NOT NULL,
+    PRIMARY KEY (user_id, link_id, day)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_daily_user
+    ON tools_shortlinks_clicks_daily(user_id, day)`,
+
+  `CREATE TABLE IF NOT EXISTS tools_shortlinks_breakdown_daily (
+    user_id TEXT NOT NULL,
+    link_id INTEGER NOT NULL,
+    day TEXT NOT NULL,
+    dimension TEXT NOT NULL,
+    name TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    last_updated INTEGER NOT NULL,
+    PRIMARY KEY (user_id, link_id, day, dimension, name)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_breakdown_daily_user
+    ON tools_shortlinks_breakdown_daily(user_id, dimension, day)`,
+
   `CREATE TABLE IF NOT EXISTS tools_shortlinks_bundles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -94,6 +133,10 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_bundles_user 
     ON tools_shortlinks_bundles(user_id, archived_at, created_at DESC)`,
+  `UPDATE tools_shortlinks_bundles SET name = name || ' #' || id
+    WHERE id NOT IN (SELECT MIN(id) FROM tools_shortlinks_bundles GROUP BY user_id, name)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_tools_shortlinks_bundles_name
+    ON tools_shortlinks_bundles(user_id, name)`,
 
   `CREATE TABLE IF NOT EXISTS tools_shortlinks_bundle_links (
     user_id TEXT NOT NULL,
@@ -111,6 +154,7 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
     default_range TEXT NOT NULL DEFAULT '30d',
     filter_bots INTEGER NOT NULL DEFAULT 1,
     filter_self_referrers INTEGER NOT NULL DEFAULT 1,
+    stats_rollup_enabled INTEGER NOT NULL DEFAULT 1,
     updated_at INTEGER NOT NULL
   )`,
 
@@ -153,12 +197,29 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_backups_user 
     ON tools_shortlinks_backups(user_id, created_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS tools_shortlinks_tags (
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, name)
+  )`,
+  `CREATE TABLE IF NOT EXISTS tools_shortlinks_link_tags (
+    user_id TEXT NOT NULL,
+    link_id INTEGER NOT NULL,
+    tag_name TEXT NOT NULL,
+    PRIMARY KEY (user_id, link_id, tag_name)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_link_tags_tag
+    ON tools_shortlinks_link_tags(user_id, tag_name)`,
 ]
 
 export const TOOLS_SHORTLINKS_REQUIRED_TABLES: readonly string[] = [
   'tools_shortlinks_links',
   'tools_shortlinks_slugs',
   'tools_shortlinks_clicks',
+  'tools_shortlinks_clicks_daily',
+  'tools_shortlinks_breakdown_daily',
   'tools_shortlinks_bundles',
   'tools_shortlinks_bundle_links',
   'tools_shortlinks_settings',
@@ -166,11 +227,16 @@ export const TOOLS_SHORTLINKS_REQUIRED_TABLES: readonly string[] = [
   'tools_shortlinks_password_attempts',
   'tools_shortlinks_api_keys',
   'tools_shortlinks_backups',
+  'tools_shortlinks_tags',
+  'tools_shortlinks_link_tags',
 ]
 
 export const TOOLS_SHORTLINKS_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_shortlinks_links_user',
   'idx_tools_shortlinks_links_url',
+  'idx_tools_shortlinks_links_last_click',
+  'idx_tools_shortlinks_links_lifecycle',
+  'idx_tools_shortlinks_links_normalized_url',
   'idx_tools_shortlinks_slugs_user',
   'idx_tools_shortlinks_slugs_link',
   'idx_tools_shortlinks_clicks_clicked',
@@ -181,11 +247,15 @@ export const TOOLS_SHORTLINKS_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_shortlinks_clicks_country',
   'idx_tools_shortlinks_clicks_refhost',
   'idx_tools_shortlinks_clicks_device',
+  'idx_tools_shortlinks_clicks_daily_user',
+  'idx_tools_shortlinks_breakdown_daily_user',
   'idx_tools_shortlinks_bundles_user',
+  'idx_tools_shortlinks_bundles_name',
   'idx_tools_shortlinks_bundle_links_link',
   'idx_tools_shortlinks_api_keys_user',
   'idx_tools_shortlinks_api_keys_hash',
   'idx_tools_shortlinks_backups_user',
+  'idx_tools_shortlinks_link_tags_tag',
 ]
 
 export const TOOLS_SHORTLINKS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -201,6 +271,12 @@ export const TOOLS_SHORTLINKS_REQUIRED_COLUMNS: Readonly<Record<string, readonly
     'created_via',
     'created_by',
     'total_clicks',
+    'last_clicked_at',
+    'lifecycle_state',
+    'normalized_url',
+    'edge_flags',
+    'routing_rules',
+    'og_preview',
   ],
   tools_shortlinks_slugs: [
     'slug',

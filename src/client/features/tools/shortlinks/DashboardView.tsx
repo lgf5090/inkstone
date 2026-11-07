@@ -9,8 +9,10 @@ import {
   QrCode,
   TrendingDown,
   TrendingUp,
+  Users,
 } from 'lucide-react'
 import type { ChartConfiguration } from 'chart.js'
+import { RealtimePanel } from './RealtimePanel'
 import { ChartCanvas, withAlpha, type ChartColors } from '../../../components/chart-canvas'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
@@ -169,7 +171,7 @@ export function DashboardView() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Total Clicks */}
         <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">
           <div className="flex items-center justify-between text-[length:var(--text-12)] text-[var(--text-secondary)]">
@@ -193,6 +195,28 @@ export function DashboardView() {
               )
             ) : null}
             <span>{t('tools.shortlinks.detail.range_30d')}</span>
+          </div>
+          {stats && stats.bot_clicks > 0 ? (
+            <div className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+              {t('tools.shortlinks.dashboard.bot_clicks', {
+                count: stats.bot_clicks,
+                percent: Math.round(stats.bot_ratio * 100),
+              })}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Unique Visitors */}
+        <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">
+          <div className="flex items-center justify-between text-[length:var(--text-12)] text-[var(--text-secondary)]">
+            <span>{t('tools.shortlinks.dashboard.unique_visitors')}</span>
+            <Users size={16} className="text-[var(--accent)]" aria-hidden="true" />
+          </div>
+          <div className="mt-2 text-2xl font-bold font-mono text-[var(--text-primary)]">
+            {(stats?.unique_visitors ?? 0).toLocaleString()}
+          </div>
+          <div className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {t('tools.shortlinks.dashboard.unique_visitors_hint')}
           </div>
         </div>
 
@@ -433,6 +457,8 @@ export function DashboardView() {
           </div>
         )}
       </div>
+
+      <RealtimePanel />
     </div>
   )
 }

@@ -3,6 +3,7 @@
  */
 
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
+import { extractPageMetadata } from './og'
 
 export function isPrivateHost(hostname: string): boolean {
   return isBlockedTarget(hostname)
@@ -26,7 +27,11 @@ export function extractTitle(html: string): string | null {
   return raw ? raw.slice(0, 120) : null
 }
 
-export async function fetchPageTitle(url: string, timeoutMs = 3000): Promise<string | null> {
+async function fetchPageHead(
+  url: string,
+  timeoutMs: number,
+  stopAt: 'title' | 'head',
+): Promise<{ html: string; finalUrl: string } | null> {
   try {
     let currentUrl = url
     let res: Response | null = null
@@ -77,7 +82,7 @@ export async function fetchPageTitle(url: string, timeoutMs = 3000): Promise<str
 
     let html = ''
     const decoder = new TextDecoder()
-    const maxBytes = 16384
+    const maxBytes = 32768
     let totalBytes = 0
 
     while (totalBytes < maxBytes) {
@@ -86,15 +91,28 @@ export async function fetchPageTitle(url: string, timeoutMs = 3000): Promise<str
       html += decoder.decode(value, { stream: true })
       totalBytes += value.byteLength
 
-      if (html.includes('</title>') || html.includes('</head>')) break
+      if (html.includes('</head>') || (stopAt === 'title' && html.includes('</title>'))) break
     }
     void reader.cancel().catch(() => {
       // Best-effort cancel of stream reading
     })
 
-    return extractTitle(html)
+    return { html, finalUrl: currentUrl }
   } catch {
-    // Non-fatal: title sniffing is best-effort and failures safely fallback to null
+    // Non-fatal: preview sniffing is best-effort and failures safely fallback to null
     return null
   }
+}
+
+export async function fetchPageTitle(url: string, timeoutMs = 3000): Promise<string | null> {
+  const head = await fetchPageHead(url, timeoutMs, 'title')
+  return head ? extractTitle(head.html) : null
+}
+
+export async function fetchPageMetadata(
+  url: string,
+  timeoutMs = 1200,
+): Promise<{ title: string | null; description: string | null; image: string | null } | null> {
+  const head = await fetchPageHead(url, timeoutMs, 'head')
+  return head ? extractPageMetadata(head.html, head.finalUrl) : null
 }

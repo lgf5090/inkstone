@@ -96,64 +96,6 @@ export function fillBuckets(
   return buckets
 }
 
-export function fillBucketsAll(
-  dataMap: Map<string, number>,
-  now: number,
-  earliest: number,
-  kind: 'daily' | 'weekly' | 'monthly',
-): TimelineBucket[] {
-  const buckets: TimelineBucket[] = []
-  if (dataMap.size === 0) return buckets
-
-  if (kind === 'daily') {
-    const start = new Date(earliest * 1000)
-    start.setUTCHours(0, 0, 0, 0)
-    const end = new Date(now * 1000)
-    end.setUTCHours(0, 0, 0, 0)
-    const cursor = new Date(start)
-    while (cursor <= end) {
-      const label = `${cursor.getUTCFullYear()}-${pad2(cursor.getUTCMonth() + 1)}-${pad2(cursor.getUTCDate())}`
-      buckets.push({ label, count: dataMap.get(label) ?? 0 })
-      cursor.setUTCDate(cursor.getUTCDate() + 1)
-    }
-    return buckets
-  }
-
-  if (kind === 'weekly') {
-    const start = new Date(earliest * 1000)
-    const startDay = start.getUTCDay()
-    const mondayOffset = startDay === 0 ? -6 : 1 - startDay
-    start.setUTCDate(start.getUTCDate() + mondayOffset)
-    start.setUTCHours(0, 0, 0, 0)
-    const end = new Date(now * 1000)
-    const cursor = new Date(start)
-    while (cursor <= end) {
-      const label = `${cursor.getUTCFullYear()}-${pad2(cursor.getUTCMonth() + 1)}-${pad2(cursor.getUTCDate())}`
-      buckets.push({ label, count: dataMap.get(label) ?? 0 })
-      cursor.setUTCDate(cursor.getUTCDate() + 7)
-    }
-    return buckets
-  }
-
-  // Monthly
-  const keys = [...dataMap.keys()].sort()
-  const firstMonth = keys[0]
-  const nowDate = new Date(now * 1000)
-  const endMonth = `${nowDate.getUTCFullYear()}-${pad2(nowDate.getUTCMonth() + 1)}`
-  let [y, m] = firstMonth.split('-').map(Number)
-  const [endY, endM] = endMonth.split('-').map(Number)
-  while (y < endY || (y === endY && m <= endM)) {
-    const label = `${y}-${pad2(m)}`
-    buckets.push({ label, count: dataMap.get(label) ?? 0 })
-    m++
-    if (m > 12) {
-      m = 1
-      y++
-    }
-  }
-  return buckets
-}
-
 export function fillMissingOptions<T extends { name: string; count: number }>(
   items: T[],
   alwaysOn: readonly string[],
@@ -164,4 +106,175 @@ export function fillMissingOptions<T extends { name: string; count: number }>(
     if (!seen.has(name)) out.push({ name, count: 0 })
   }
   return out
+}
+
+const formatterCache = new Map<string, Intl.DateTimeFormat>()
+
+function formatterFor(timeZone: string, withHour: boolean): Intl.DateTimeFormat {
+  const key = `${withHour ? 'hour' : 'day'}|${timeZone}`
+  const cached = formatterCache.get(key)
+  if (cached) return cached
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    ...(withHour ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' as const } : {}),
+  })
+  formatterCache.set(key, formatter)
+  return formatter
+}
+
+/** A browser-supplied IANA zone is untrusted input; an invalid one falls back to UTC. */
+export function isValidTimeZone(timeZone: string | undefined): timeZone is string {
+  if (!timeZone) return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function localParts(ts: number, timeZone: string, withHour: boolean): Record<string, string> {
+  const parts = formatterFor(timeZone, withHour).formatToParts(new Date(ts * 1000))
+  const out: Record<string, string> = {}
+  for (const part of parts) out[part.type] = part.value
+  return out
+}
+
+function localDateKey(ts: number, timeZone: string): string {
+  const p = localParts(ts, timeZone, false)
+  return `${p.year}-${p.month}-${p.day}`
+}
+
+function localHourKey(ts: number, timeZone: string): string {
+  const p = localParts(ts, timeZone, true)
+  return `${p.year}-${p.month}-${p.day} ${p.hour}`
+}
+
+function localMonthKey(ts: number, timeZone: string): string {
+  return localDateKey(ts, timeZone).slice(0, 7)
+}
+
+/** The Monday of the local week a calendar date belongs to, expressed as a date key. */
+function weekStartKey(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  const cursor = new Date(Date.UTC(year, month - 1, day))
+  const weekday = cursor.getUTCDay()
+  cursor.setUTCDate(cursor.getUTCDate() + (weekday === 0 ? -6 : 1 - weekday))
+  return `${cursor.getUTCFullYear()}-${pad2(cursor.getUTCMonth() + 1)}-${pad2(cursor.getUTCDate())}`
+}
+
+function shiftDateKey(dateKey: string, days: number): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  const cursor = new Date(Date.UTC(year, month - 1, day + days))
+  return `${cursor.getUTCFullYear()}-${pad2(cursor.getUTCMonth() + 1)}-${pad2(cursor.getUTCDate())}`
+}
+
+function shiftMonthKey(monthKey: string, months: number): string {
+  const [year, month] = monthKey.split('-').map(Number)
+  const cursor = new Date(Date.UTC(year, month - 1 + months, 1))
+  return `${cursor.getUTCFullYear()}-${pad2(cursor.getUTCMonth() + 1)}`
+}
+
+/**
+ * Buckets raw click timestamps in the reader's own calendar, not the Worker's UTC one.
+ *
+ * SQLite's `date(..., 'unixepoch')` is fixed to UTC, which puts an Asia/Shanghai click made after
+ * local midnight into the previous day. The raw column stays UTC; only the bucket key is local.
+ */
+export function timelineBuckets(
+  rows: { clicked_at: number }[],
+  range: TimelineRange,
+  now: number = Math.floor(Date.now() / 1000),
+  timeZone?: string,
+): TimelineBucket[] {
+  const tz = isValidTimeZone(timeZone) ? timeZone : 'UTC'
+  if (rows.length === 0 && range === 'all') return []
+
+  const earliest = rows.length > 0 ? Math.min(...rows.map((row) => row.clicked_at)) : now
+  const spanDays = (now - earliest) / 86400
+
+  let kind: 'hour' | 'daily' | 'weekly' | 'monthly'
+  if (range === '24h') kind = 'hour'
+  else if (range === '1y') kind = 'weekly'
+  else if (range === 'all') kind = spanDays <= 92 ? 'daily' : spanDays <= 730 ? 'weekly' : 'monthly'
+  else kind = 'daily'
+
+  const keyFor = (ts: number): string => {
+    if (kind === 'hour') return localHourKey(ts, tz)
+    if (kind === 'weekly') return weekStartKey(localDateKey(ts, tz))
+    if (kind === 'monthly') return localMonthKey(ts, tz)
+    return localDateKey(ts, tz)
+  }
+
+  const dataMap = new Map<string, number>()
+  for (const row of rows) {
+    const key = keyFor(row.clicked_at)
+    dataMap.set(key, (dataMap.get(key) ?? 0) + 1)
+  }
+
+  const buckets: TimelineBucket[] = []
+  const push = (label: string) => buckets.push({ label, count: dataMap.get(label) ?? 0 })
+
+  if (kind === 'hour') {
+    for (let i = 23; i >= 0; i--) push(localHourKey(now - i * 3600, tz))
+    return buckets
+  }
+
+  if (kind === 'weekly') {
+    const start = range === '1y'
+      ? weekStartKey(localDateKey(now - 365 * 86400, tz))
+      : weekStartKey(localDateKey(earliest, tz))
+    const end = weekStartKey(localDateKey(now, tz))
+    for (let cursor = start; cursor <= end; cursor = shiftDateKey(cursor, 7)) push(cursor)
+    return buckets
+  }
+
+  if (kind === 'monthly') {
+    const start = localMonthKey(earliest, tz)
+    const end = localMonthKey(now, tz)
+    for (let cursor = start; cursor <= end; cursor = shiftMonthKey(cursor, 1)) push(cursor)
+    return buckets
+  }
+
+  const start = range === 'all'
+    ? localDateKey(earliest, tz)
+    : localDateKey(now - (range === '7d' ? 6 : range === '30d' ? 29 : 89) * 86400, tz)
+  const end = localDateKey(now, tz)
+  for (let cursor = start; cursor <= end; cursor = shiftDateKey(cursor, 1)) push(cursor)
+  return buckets
+}
+
+export interface HeatmapCell {
+  weekday: number
+  hour: number
+  count: number
+}
+
+/** A week-by-hour grid in the reader's zone; weekday 0 is Sunday, matching Date#getUTCDay. */
+export function heatmapCells(
+  rows: { clicked_at: number }[],
+  timeZone?: string,
+): HeatmapCell[] {
+  const tz = isValidTimeZone(timeZone) ? timeZone : 'UTC'
+  const counts = Array.from({ length: 7 }, () => new Array<number>(24).fill(0))
+  for (const row of rows) {
+    const p = localParts(row.clicked_at, tz, true)
+    const weekday = new Date(
+      Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day)),
+    ).getUTCDay()
+    const hour = Number.parseInt(p.hour, 10)
+    if (Number.isFinite(weekday) && Number.isFinite(hour) && hour >= 0 && hour < 24) {
+      counts[weekday][hour]++
+    }
+  }
+  const cells: HeatmapCell[] = []
+  for (let weekday = 0; weekday < 7; weekday++) {
+    for (let hour = 0; hour < 24; hour++) {
+      cells.push({ weekday, hour, count: counts[weekday][hour] })
+    }
+  }
+  return cells
 }

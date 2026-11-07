@@ -5,17 +5,36 @@
 import { z } from 'zod'
 import {
   MAX_SLUG_LENGTH,
+  MAX_TAGS_PER_LINK,
+  MAX_TAG_LENGTH,
   MIN_SLUG_LENGTH,
   TIMELINE_RANGES,
 } from './types'
 
 export const CustomSlugRegex = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 
-export const CustomSlugSchema = z
-  .string()
-  .min(1)
-  .max(MAX_SLUG_LENGTH)
-  .regex(CustomSlugRegex, 'Slug must contain only lowercase letters, digits and hyphens, and cannot start or end with a hyphen')
+export const CustomSlugSchema = z.preprocess(
+  (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
+  z
+    .string()
+    .min(1)
+    .max(MAX_SLUG_LENGTH)
+    .regex(CustomSlugRegex, 'Slug must contain only lowercase letters, digits and hyphens, and cannot start or end with a hyphen'),
+)
+
+export const TagSchema = z.preprocess(
+  (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
+  z
+    .string()
+    .min(1)
+    .max(MAX_TAG_LENGTH, `Tag exceeds ${MAX_TAG_LENGTH} characters`)
+    .regex(/^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u, 'Tag may contain letters, numbers, spaces, hyphens and underscores'),
+)
+
+export const TagsSchema = z
+  .array(TagSchema)
+  .max(MAX_TAGS_PER_LINK, `A link may carry at most ${MAX_TAGS_PER_LINK} tags`)
+  .transform((tags) => [...new Set(tags)])
 
 /**
  * Why a target URL may not be stored, or null when it may.
@@ -48,21 +67,57 @@ const HttpUrlSchema = z
     if (problem) context.addIssue({ code: z.ZodIssueCode.custom, message: problem })
   })
 
+const CountryCodeSchema = z.string().regex(/^[A-Z]{2}$/, 'Country codes are two uppercase letters')
+
+export const RoutingRulesSchema = z.object({
+  status: z.union([z.literal(301), z.literal(302)]).optional(),
+  devices: z
+    .object({
+      mobile: HttpUrlSchema.optional(),
+      tablet: HttpUrlSchema.optional(),
+      desktop: HttpUrlSchema.optional(),
+    })
+    .optional(),
+  countries: z.record(CountryCodeSchema, HttpUrlSchema).optional(),
+})
+
+export const OgPreviewSchema = z.object({
+  title: z.string().trim().max(120, 'Preview title exceeds 120 characters').optional(),
+  description: z.string().trim().max(200, 'Preview description exceeds 200 characters').optional(),
+  image: HttpUrlSchema.optional(),
+})
+
+const ExpiresAtSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .refine((value) => value > Math.floor(Date.now() / 1000), 'Expiry must be a future time')
+
 export const CreateLinkSchema = z.object({
   url: HttpUrlSchema,
   label: z.string().max(256, 'Label exceeds 256 characters').optional().nullable(),
   password: z.string().min(1).max(64).optional().nullable(),
   slug_length: z.number().int().min(MIN_SLUG_LENGTH).max(MAX_SLUG_LENGTH).optional(),
-  expires_at: z.number().int().nonnegative().optional().nullable(),
+  expires_at: ExpiresAtSchema.optional().nullable(),
   allow_duplicate: z.boolean().optional(),
   custom_slug: CustomSlugSchema.optional().nullable(),
+  unsafe: z.boolean().optional(),
+  redirect_with_query: z.boolean().optional(),
+  tags: TagsSchema.optional(),
+  routing_rules: RoutingRulesSchema.optional().nullable(),
+  og_preview: OgPreviewSchema.optional().nullable(),
 })
 
 export const UpdateLinkSchema = z.object({
   url: HttpUrlSchema.optional(),
   label: z.string().max(256).nullable().optional(),
   password: z.string().max(64).nullable().optional(),
-  expires_at: z.number().int().nonnegative().nullable().optional(),
+  expires_at: ExpiresAtSchema.nullable().optional(),
+  unsafe: z.boolean().optional(),
+  redirect_with_query: z.boolean().optional(),
+  tags: TagsSchema.optional(),
+  routing_rules: RoutingRulesSchema.optional().nullable(),
+  og_preview: OgPreviewSchema.optional().nullable(),
 })
 
 export const AddSlugSchema = z.object({
@@ -120,6 +175,11 @@ export const RestoreBackupSchema = z.object({
 export const TimelineRangeSchema = z.enum(TIMELINE_RANGES)
 export const LinkStatusSchema = z.enum(['all', 'active', 'disabled'])
 
+export const RealtimeQuerySchema = z.object({
+  after: z.coerce.number().int().nonnegative().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+})
+
 export const ListLinksQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
@@ -128,6 +188,7 @@ export const ListLinksQuerySchema = z.object({
   sort_order: z.enum(['asc', 'desc']).default('desc'),
   search: z.string().max(200).optional(),
   bundle_id: z.coerce.number().int().positive().optional(),
+  tag: TagSchema.optional(),
 })
 
 export const BREAKDOWN_DIMENSIONS = [
@@ -161,6 +222,9 @@ export const BreakdownQuerySchema = z.object({
 
 export const AnalyticsRangeQuerySchema = z.object({
   range: TimelineRangeSchema.default('30d'),
+  timezone: z.string().max(64).optional(),
+  from: z.coerce.number().int().min(0).optional(),
+  to: z.coerce.number().int().min(0).optional(),
 })
 
 export type CreateLinkInput = z.infer<typeof CreateLinkSchema>
