@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono'
 import { projectBoardToCsv } from '@shared/project/csv'
 import {
   ProjectBoardCreateSchema,
+  ProjectBoardFromTemplateSchema,
   ProjectBoardPatchSchema,
   ProjectBatchDeleteSchema,
   ProjectBatchSchema,
@@ -83,6 +84,7 @@ import {
 } from './members'
 import { ProjectStore } from './store'
 import { projectStatistics } from './statistics'
+import { createBoardFromTemplate, listProjectTemplates, saveBoardAsTemplate } from './templates'
 import { listProjectSubscriptions, subscribeProject, unsubscribeProject } from './subscriptions'
 import {
   createProjectView,
@@ -107,6 +109,16 @@ projectRoutes.get('/boards', async (c) => {
 
 projectRoutes.get('/statistics', async (c) => {
   return c.json(await projectStatistics(c.env.DB, projectUserId(c)))
+})
+
+projectRoutes.get('/templates', async (c) => {
+  return c.json({ templates: await listProjectTemplates(c.env.DB, projectUserId(c)) })
+})
+
+projectRoutes.post('/boards/from-template', async (c) => {
+  const userId = projectUserId(c)
+  const input = await projectBody(c, ProjectBoardFromTemplateSchema, JSON_BODY_LIMITS.small)
+  return c.json({ board: await createBoardFromTemplate(c.env.DB, userId, input.templateId, Date.now()) }, 201)
 })
 
 projectRoutes.post('/boards', async (c) => {
@@ -174,6 +186,12 @@ projectRoutes.post('/boards/:id/duplicate', async (c) => {
   const { board, role, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
   const bundle = await readProjectBoardBundle(c.env.DB, board, role)
   return c.json({ board: await duplicateProjectBoard(c.env.DB, bundle, userId, Date.now()) }, 201)
+})
+
+projectRoutes.post('/boards/:id/save-as-template', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
+  await saveBoardAsTemplate(c.env.DB, board.id, Date.now())
+  return c.json({ ok: true })
 })
 
 projectRoutes.get('/boards/:id/metadata', async (c) => {

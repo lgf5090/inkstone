@@ -69,4 +69,8 @@ export const EN_US_PROJECT = {
     "project.card.divider_block": "Divider",
     "project.view.prev_month": "Previous month",
     "project.view.next_month": "Next month",
+    "project.templates.title": "Choose a template",
+    "project.templates.blank": "Blank board",
+    "project.templates.blank_description": "Start from scratch.",
+    "project.templates.save_as": "Save as template",
 } as const

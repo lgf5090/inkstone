@@ -94,3 +94,25 @@ export async function patchCardContent(id: string, patch: ProjectContentPatchInp
 export async function deleteCardContent(id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/contents/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
+
+export interface ProjectTemplateSummary {
+  id: string
+  title: string
+  icon: string
+  description: string
+  isBuiltIn: boolean
+}
+
+export async function fetchProjectTemplates(signal?: AbortSignal): Promise<ProjectTemplateSummary[]> {
+  const body = await request<{ templates: ProjectTemplateSummary[] }>('/api/project/templates', { signal })
+  return body.templates
+}
+
+export async function createBoardFromTemplate(templateId: string): Promise<ProjectBoardSummary> {
+  const body = await request<{ board: ProjectBoardSummary }>('/api/project/boards/from-template', { method: 'POST', body: { templateId } })
+  return body.board
+}
+
+export async function saveBoardAsTemplate(id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(id)}/save-as-template`, { method: 'POST', body: {} })
+}

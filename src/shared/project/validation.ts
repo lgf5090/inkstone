@@ -93,6 +93,10 @@ export const ProjectViewFieldsSchema = z.object({
   defaultTemplateId: z.string().max(64),
 })
 
+export const ProjectBoardFromTemplateSchema = z.object({
+  templateId: z.string().min(1).max(64),
+})
+
 export const ProjectBoardCreateSchema = z.object({
   id: projectId.optional(),
   title: title.default(''),

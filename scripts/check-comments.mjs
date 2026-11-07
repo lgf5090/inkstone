@@ -12497,6 +12497,9 @@ const allowed = new Map([
     "// The last branch is for `[[#heading]]`, whose target lives in that same datum. A span without one",
     "// is not a wiki link, and the card it used to produce only repeated the note already on screen.",
   ]],
+  ["src/client/features/project/BoardViews.tsx", [
+    "/* scalar falls through */",
+  ]],
   ["src/client/features/project/api.ts", [
     "/** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */",
   ]],
@@ -32369,6 +32372,9 @@ const allowed = new Map([
   ["src/shared/project/property-patch.ts", [
     "/**\n * The reference's cardProperties patch, step for step (board.go Patch): a whole-object replacement\n * matched by id, where a never-seen id is appended rather than inserted, and a deletion leaves the\n * survivors in their original relative order. Entries without a string id are skipped, not rejected.\n *\n * One guard the reference lacks: a deleted id leaves the order list immediately, so an id both deleted\n * and re-added in the same patch lands at the end exactly once. The reference keeps the deleted id in\n * the order list and would emit it twice; here a property id is a primary key, so a duplicate cannot be\n * stored and the order list must not name it twice.\n */",
   ]],
+  ["src/shared/project/templates.ts", [
+    "/**\n * The built-in board templates, rewritten as starting points rather than copied verbatim: each carries\n * its property set, its views and a couple of sample cards so a new board is immediately usable. Ids\n * are stable 27-character slugs so re-instantiating a template never collides with a live board's ids\n * (the importer assigns fresh ids anyway).\n */",
+  ]],
   ["src/shared/project/validation.ts", [
     "/**\n * The shapes a project request may take. The server runs every write through these before it touches\n * D1; the client runs the same schemas so a rejected field is reported at the control that typed it.\n *\n * Bounds come from `./limits` rather than being restated, so raising a ceiling is one edit.\n */",
     "/** Nested on purpose: a group holds clauses and further groups, which is what the reference stores. */",
@@ -32376,6 +32382,17 @@ const allowed = new Map([
     "/**\n * A batch is one D1 transaction, so its size is bounded rather than left to the caller: an unbounded\n * array would let one request hold the database for as long as it likes.\n */",
     "// zod's string max counts code points, not UTF-16 units, which is the unit the reference's ceiling is",
     "// written in: a title of 16383 emoji is 32766 units but 16383 characters, and it has to be accepted.",
+  ]],
+  ["src/shared/project/view-eval.test.ts", [
+    "// Within half a day of the target, the open window says neither before nor after.",
+  ]],
+  ["src/shared/project/view-eval.ts", [
+    "/**\n * Evaluating a view over a board's cards: filter, sort, group. These are pure so the client can\n * re-run them on every keystroke and the tests can pin the reference's exact truth table (§6.4),\n * including the one place this port deliberately differs: text comparisons lowercase BOTH sides\n * (the reference only lowercased the filter value, so `contains \"ABC\"` never matched `ABC`).\n */",
+    "/** The reference stores a date as an object or a bare millisecond string; readers take both. */",
+    "/** The value a clause compares against, with the server-stamped fallbacks the reference uses. */",
+    "// fall through to scalar",
+    "/** Multi-key sort; an empty value sorts last regardless of direction, as the reference does. */",
+    "/** Group cards by one property's value; the empty key collects cards with no value. */",
   ]],
   ["src/shared/provider-balance.ts", [
     "/**\n * Which providers will say what they are owed, and how to read it out of their own answer.\n *\n * The reader asked for a balance per API key, because a ring of three keys is three wallets and the settings\n * screen showed none of them. What this file holds is the whole of the knowledge about each vendor's billing\n * endpoint: an address, the header the credential goes into, and the field names to read. It is data on\n * purpose — a working implementation of this feature elsewhere in the world runs a user-supplied script per\n * provider, which means the account's own key is handed into code the reader pasted in. That is not being\n * ported here. An adapter is a row, so the only thing a new vendor needs is somebody who has read its answer.\n *\n * Two rules hold this together:\n *  - a balance is only ever asked of the host the provider already sends its keys to. The table is keyed by\n *    host, so a relay at an address of the reader's own never receives a billing request aimed at a vendor,\n *    and a vendor's key never travels somewhere the reader did not already point it;\n *  - nothing here is a secret and nothing here is stored. A reading is fetched, shown, and forgotten: it is\n *    not written into settings, not part of a backup, and not logged.\n *\n * The shapes below were read off a working client of each of these endpoints (cc-switch's Rust balance\n * service, `src-tauri/src/services/balance.rs`), not off the vendors' own references, which were not\n * reachable from the machine this was written on. Where a vendor's documentation disagrees, the vendor wins\n * and the row here is the thing to correct. `amountPaths` is a candidate list for that reason: a field that\n * has moved is worth one line rather than a broken screen.\n */",
@@ -41033,6 +41050,9 @@ const allowed = new Map([
   ]],
   ["src/worker/project/subscriptions.ts", [
     "/**\n * Following a board or a card. A subscription is the caller's own row keyed by (block, subscriber),\n * so re-following revives a soft-deleted row rather than duplicating it, and unfollowing only ever\n * touches the caller's own subscription. Notification delivery reads these rows separately (D-16).\n */",
+  ]],
+  ["src/worker/project/templates.ts", [
+    "/**\n * Templates: the built-in starting points plus the account's own boards saved as templates. Creating\n * from a built-in replays its properties, views and sample cards through the same writers every other\n * create uses; creating from a saved template is a duplicate of that board.\n */",
   ]],
   ["src/worker/project/views.ts", [
     "/**\n * Views: the saved ways of looking at one board's cards. A view's fields arrive partial and are\n * merged over the empty defaults on create and over the stored fields on patch, so a client that\n * only changes the sort never has to resend the column widths. Order is a real column the client\n * drags, and a new view without an explicit position lands after the last one.\n */",

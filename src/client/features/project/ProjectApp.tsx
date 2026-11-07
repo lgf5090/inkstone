@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { Copy, MoreHorizontal, Pencil, Plus, SquareKanban, Trash2 } from 'lucide-react'
+import { Copy, MoreHorizontal, Pencil, Plus, Save, SquareKanban, Trash2 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { ProjectBoardSummary, ProjectRole } from '@shared/project/model'
 import { t } from '../../lib/i18n'
@@ -8,8 +8,10 @@ import { Button, IconButton } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Menu, prompt, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
+import { createBoardFromTemplate, saveBoardAsTemplate } from './api'
 import { useProjectStore } from './store'
 import { BoardPage } from './BoardPage'
+import { TemplatePicker } from './TemplatePicker'
 
 const ROLE_LABEL_KEYS: Record<ProjectRole, MessageKey> = {
   viewer: 'project.role.viewer',
@@ -37,21 +39,28 @@ function BoardList(): ReactElement {
   const loadBoards = useProjectStore((state) => state.loadBoards)
   const addBoard = useProjectStore((state) => state.addBoard)
   const toast = useUi((state) => state.toast)
+  const [showPicker, setShowPicker] = useState(false)
 
   useEffect(() => {
     ensureBoards()
   }, [ensureBoards])
 
-  const createBoard = async () => {
-    const title = await prompt({
-      title: t('project.boards.create_title'),
-      placeholder: t('project.boards.create_placeholder'),
-      confirmLabel: t('project.boards.create_confirm'),
-    })
-    if (title === null) return
+  const pickTemplate = async (templateId: string | null) => {
+    setShowPicker(false)
     try {
-      const board = await addBoard(title.trim())
-      navigateToPath(`/project/boards/${board.id}`)
+      if (templateId === null) {
+        const title = await prompt({
+          title: t('project.boards.create_title'),
+          placeholder: t('project.boards.create_placeholder'),
+          confirmLabel: t('project.boards.create_confirm'),
+        })
+        if (title === null) return
+        const board = await addBoard(title.trim())
+        navigateToPath(`/project/boards/${board.id}`)
+      } else {
+        const board = await createBoardFromTemplate(templateId)
+        navigateToPath(`/project/boards/${board.id}`)
+      }
     } catch (reason) {
       toast({ title: errorText(reason), tone: 'danger' })
     }
@@ -69,7 +78,7 @@ function BoardList(): ReactElement {
             {t('project.boards.count', { count: boards.length })}
           </span>
         )}
-        <Button className="ml-auto" variant="primary" size="sm" icon={<Plus size={15} />} onClick={() => void createBoard()}>
+        <Button className="ml-auto" variant="primary" size="sm" icon={<Plus size={15} />} onClick={() => setShowPicker(true)}>
           {t('project.boards.new')}
         </Button>
       </header>
@@ -91,6 +100,7 @@ function BoardList(): ReactElement {
                   {boards.map((board) => <BoardRow key={board.id} board={board} />)}
                 </ul>
               )}
+      {showPicker && <TemplatePicker onClose={() => setShowPicker(false)} onPick={(id) => void pickTemplate(id)} />}
     </div>
   )
 }
@@ -131,6 +141,10 @@ function BoardRow({ board }: { board: ProjectBoardSummary }): ReactElement {
           navigateToPath(`/project/boards/${copy.id}`)
         })
       },
+    },
+    {
+      id: 'save-template', label: t('project.templates.save_as'), icon: <Save size={15} />, disabled: board.role !== 'admin',
+      onSelect: () => { void guard(async () => { await saveBoardAsTemplate(board.id) }) },
     },
     {
       id: 'delete', label: t('project.boards.delete_confirm'), icon: <Trash2 size={15} />, tone: 'danger', separatorBefore: true, disabled: board.role !== 'admin',

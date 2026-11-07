@@ -69,4 +69,8 @@ export const ZH_CN_PROJECT = {
     "project.card.divider_block": "分隔线",
     "project.view.prev_month": "上个月",
     "project.view.next_month": "下个月",
+    "project.templates.title": "选择模板",
+    "project.templates.blank": "空白板",
+    "project.templates.blank_description": "从零开始。",
+    "project.templates.save_as": "另存为模板",
 } as const
