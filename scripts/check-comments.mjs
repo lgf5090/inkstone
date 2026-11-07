@@ -32332,6 +32332,11 @@ const allowed = new Map([
     "/**\n * Read one `board.jsonl`.\n *\n * The board itself arrives two ways. A current export writes it as a `board` line; the reference's own\n * built-in templates predate that and carry it as a `block` line whose `data.type` is `board` and\n * whose parent is empty. Dispatching on the outer type alone reads none of those seven templates.\n */",
     "/** The board hidden in a legacy `block` line, or null when the block is an ordinary child. */",
   ]],
+  ["src/shared/project/calculations.ts", [
+    "/**\n * The 21 column summaries (§3.3.1), ported from the reference's calculations.ts. Values come from the\n * card's value bag (or its stamps for the server-written time fields); numeric results round to two\n * decimals and timestamps normalize to whole minutes, matching the reference's display precision.\n */",
+    "/* bare stamp */",
+    "/** Which summaries a property type offers, per the reference's per-type calculationOptions. */",
+  ]],
   ["src/shared/project/content-order.ts", [
     "/**\n * A card's reading order. It interleaves content-block ids with comment ids, and a nested array\n * threads comments under one block — an order the per-row position column cannot express, so the\n * card carries it (DV-12). These helpers keep that array honest as blocks and comments come and go:\n * append on create, scrub on delete (including inside threads), and splice on move.\n */",
     "// An emptied thread carries no reading order, so it drops out rather than lingering as [].",
@@ -32379,6 +32384,7 @@ const allowed = new Map([
     "/**\n * The role a request actually carries. An open board grants its minimum to every signed-in account,\n * a private one grants nothing beyond an explicit membership, and the owner is always an admin.\n * The server resolves this before every write; the client resolves it only to decide what to draw.\n */",
     "/** A board as the caller sees it: the stored fields plus the role this caller actually holds. */",
     "/** The counts the board list shows as a subtitle (reference BoardMetadata). */",
+    "// X-8: the reference left number unfilterable; this port makes it filterable and groupable.",
   ]],
   ["src/shared/project/property-patch.ts", [
     "/**\n * The reference's cardProperties patch, step for step (board.go Patch): a whole-object replacement\n * matched by id, where a never-seen id is appended rather than inserted, and a deletion leaves the\n * survivors in their original relative order. Entries without a string id are skipped, not rejected.\n *\n * One guard the reference lacks: a deleted id leaves the order list immediately, so an id both deleted\n * and re-added in the same patch lands at the end exactly once. The reference keeps the deleted id in\n * the order list and would emit it twice; here a property id is a primary key, so a duplicate cannot be\n * stored and the order list must not name it twice.\n */",

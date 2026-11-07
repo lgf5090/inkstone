@@ -1,8 +1,9 @@
 import { useRef, useState, type ReactElement } from 'react'
 import { ArrowUpDown, Eye, Filter, Plus, Trash2 } from 'lucide-react'
-import type { ProjectBoardBundle, ProjectCard, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
+import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
 import { groupProjectCards, matchProjectFilterGroup, sortProjectCards } from '@shared/project/view-eval'
+import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
 import { Select } from '../../components/form'
@@ -126,7 +127,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         : sorted.length === 0
           ? <Empty art="folder" title={t('project.board.empty_cards')} />
           : viewType === 'board'
-            ? <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} />
+            ? <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />
             : viewType === 'gallery'
               ? <GalleryView cards={sorted} onOpenCard={onOpenCard} />
               : (
@@ -158,6 +159,31 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                       </tr>
                     ))}
                   </tbody>
+                  {active && (
+                    <tfoot>
+                      <tr className="border-t border-[var(--border-subtle)] text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                        <td className="px-3 py-1">{t('project.view.summary')}</td>
+                        {columns.map((property) => {
+                          const calc = fields.columnCalculations[property.id] ?? 'count'
+                          return (
+                            <td key={property.id} className="px-3 py-1">
+                              <span className="mr-2">{computeProjectCalculation(sorted, property, calc)}</span>
+                              <Select
+                                className="w-28"
+                                value={calc}
+                                aria-label={property.name}
+                                disabled={!canEdit}
+                                onChange={(event) => onPatchView(active.id, { fields: { columnCalculations: { ...fields.columnCalculations, [property.id]: event.target.value as typeof calc } } })}
+                              >
+                                {calculationOptionsFor(property).map((option) => <option key={option} value={option}>{option}</option>)}
+                              </Select>
+                            </td>
+                          )
+                        })}
+                        {canEdit && <td />}
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             )}
@@ -168,13 +194,15 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   )
 }
 
-function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onOpenCard }: {
+function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onOpenCard, fields, onPatch }: {
   cards: ProjectCard[]
   groupById?: string
   properties: ProjectProperty[]
   canEdit: boolean
   onDeleteCard: (id: string) => void
   onOpenCard: (id: string) => void
+  fields: ProjectViewFields
+  onPatch: (fields: Partial<ProjectViewFields>) => void
 }): ReactElement {
   const groupProperty = properties.find((property) => property.id === groupById)
   const groups = groupProjectCards(cards, groupById, properties)
@@ -186,11 +214,24 @@ function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onO
       {columnKeys.map((key) => {
         const bucket = groups.get(key) ?? []
         const label = key === '' ? t('project.view.no_value') : optionLabel(groupProperty!, key)
+        const calc = fields.kanbanCalculations[key]?.calculation ?? 'count'
+        const calcProperty = groupProperty ?? properties[0]
         return (
           <section key={key || 'empty'} className="flex w-64 shrink-0 flex-col rounded-[var(--r-md)] bg-[var(--bg-subtle)]" aria-label={label}>
             <header className="flex items-center gap-2 px-3 py-2 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
               <span className="min-w-0 flex-1 truncate">{label}</span>
-              <span className="text-[var(--text-tertiary)]">{bucket.length}</span>
+              {calcProperty && (
+                <Select
+                  className="w-24"
+                  value={calc}
+                  aria-label={label}
+                  disabled={!canEdit}
+                  onChange={(event) => onPatch({ kanbanCalculations: { ...fields.kanbanCalculations, [key]: { calculation: event.target.value as ProjectCalculation, propertyId: calcProperty.id } } })}
+                >
+                  {calculationOptionsFor(calcProperty).map((option) => <option key={option} value={option}>{option}</option>)}
+                </Select>
+              )}
+              <span className="text-[var(--text-tertiary)]">{calcProperty ? computeProjectCalculation(bucket, calcProperty, calc) : bucket.length}</span>
             </header>
             <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
               {bucket.length === 0 && <li className="px-1 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.empty_column')}</li>}

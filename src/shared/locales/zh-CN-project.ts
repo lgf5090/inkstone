@@ -104,4 +104,5 @@ export const ZH_CN_PROJECT = {
     "project.card.add_dependency": "阻塞于…",
     "project.board.activity": "动态",
     "project.board.export_md": "导出 Markdown",
+    "project.view.summary": "汇总",
 } as const

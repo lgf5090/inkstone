@@ -24,14 +24,14 @@ export type ProjectPropertyType = (typeof PROJECT_PROPERTY_TYPES)[number]
 /** The two the reference declares but never registers: `file` has no editor, `unknown` is the fallback. */
 export const PROJECT_UNREGISTERED_PROPERTY_TYPES = ['file', 'unknown'] as const
 
-export const PROJECT_FILTER_VALUE_TYPES = ['none', 'options', 'boolean', 'text', 'date', 'person'] as const
+export const PROJECT_FILTER_VALUE_TYPES = ['none', 'options', 'boolean', 'text', 'date', 'person', 'number'] as const
 export type ProjectFilterValueType = (typeof PROJECT_FILTER_VALUE_TYPES)[number]
 
 export const PROJECT_FILTER_CONDITIONS = [
   'includes', 'notIncludes', 'isEmpty', 'isNotEmpty',
   'isSet', 'isNotSet', 'is',
   'contains', 'notContains', 'startsWith', 'notStartsWith', 'endsWith', 'notEndsWith',
-  'isBefore', 'isAfter',
+  'isBefore', 'isAfter', 'greaterThan', 'lessThan',
 ] as const
 export type ProjectFilterCondition = (typeof PROJECT_FILTER_CONDITIONS)[number]
 
@@ -49,6 +49,7 @@ export const PROJECT_CONDITIONS_BY_VALUE_TYPE: Readonly<Record<ProjectFilterValu
     default: 'is',
   },
   date: { conditions: ['is', 'isBefore', 'isAfter', 'isSet', 'isNotSet'], default: 'is' },
+  number: { conditions: ['is', 'greaterThan', 'lessThan', 'isEmpty', 'isNotEmpty'], default: 'is' },
 }
 
 export interface ProjectPropertyCapability {
@@ -66,6 +67,8 @@ const PERSON_MULTI: ProjectPropertyCapability = { canFilter: true, filterValueTy
 const SERVER_STAMP: ProjectPropertyCapability = { canFilter: false, filterValueType: 'none', canGroup: false, readOnly: true }
 const SERVER_AUTHOR: ProjectPropertyCapability = { canFilter: true, filterValueType: 'person', canGroup: true, readOnly: true }
 const OPAQUE: ProjectPropertyCapability = { canFilter: false, filterValueType: 'none', canGroup: false, readOnly: false }
+// X-8: the reference left number unfilterable; this port makes it filterable and groupable.
+const NUMBER: ProjectPropertyCapability = { canFilter: true, filterValueType: 'number', canGroup: true, readOnly: false }
 
 /**
  * What each property type can do, read off the reference's own registrations rather than assumed.
@@ -74,7 +77,7 @@ const OPAQUE: ProjectPropertyCapability = { canFilter: false, filterValueType: '
  */
 export const PROJECT_PROPERTY_CAPABILITIES: Readonly<Record<ProjectPropertyType, ProjectPropertyCapability>> = {
   text: EDITABLE_TEXT,
-  number: OPAQUE,
+  number: NUMBER,
   select: OPTION_SINGLE,
   multiSelect: OPTION_MULTI,
   date: { canFilter: true, filterValueType: 'date', canGroup: false, readOnly: false },

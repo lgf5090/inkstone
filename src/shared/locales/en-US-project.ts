@@ -104,4 +104,5 @@ export const EN_US_PROJECT = {
     "project.card.add_dependency": "Block by…",
     "project.board.activity": "Activity",
     "project.board.export_md": "Export Markdown",
+    "project.view.summary": "Summary",
 } as const

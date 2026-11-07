@@ -129,6 +129,18 @@ function matchClause(card: ProjectCard, clause: ProjectFilterClause, properties:
       const edge = date.to ?? date.from
       return edge !== undefined && edge > target.from
     }
+    case 'greaterThan': {
+      if (empty) return true
+      const a = Number(value)
+      const b = Number(clause.values[0])
+      return Number.isFinite(a) && Number.isFinite(b) && a > b
+    }
+    case 'lessThan': {
+      if (empty) return true
+      const a = Number(value)
+      const b = Number(clause.values[0])
+      return Number.isFinite(a) && Number.isFinite(b) && a < b
+    }
     default: return true
   }
 }
