@@ -11,11 +11,14 @@ import {
 
 export const CustomSlugRegex = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 
-export const CustomSlugSchema = z
-  .string()
-  .min(1)
-  .max(MAX_SLUG_LENGTH)
-  .regex(CustomSlugRegex, 'Slug must contain only lowercase letters, digits and hyphens, and cannot start or end with a hyphen')
+export const CustomSlugSchema = z.preprocess(
+  (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
+  z
+    .string()
+    .min(1)
+    .max(MAX_SLUG_LENGTH)
+    .regex(CustomSlugRegex, 'Slug must contain only lowercase letters, digits and hyphens, and cannot start or end with a hyphen'),
+)
 
 /**
  * Why a target URL may not be stored, or null when it may.

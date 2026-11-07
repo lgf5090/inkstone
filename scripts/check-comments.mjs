@@ -43850,6 +43850,7 @@ const allowed = new Map([
   ["src/worker/tools/shortlinks/slugs.ts", [
     "/**\n * Slugs generation, validation, and collision protection for Short Links.\n */",
     "// Unambiguous lowercase characters: removed l, o, 0, 1 to avoid confusion",
+    "/**\n * Every code resolves under `/l/:slug`, so the root routes (`/api`, `/tools`, `/notes`, …) can never\n * collide with one. The old list rejected one-letter codes for pages that live on a different path.\n */",
   ]],
   ["src/worker/tools/shortlinks/store.ts", [
     "/**\n * D1 database storage implementation for Short Links tool (`tools_shortlinks_*`).\n * Enforces multi-tenant isolation via user_id on all operations.\n */",

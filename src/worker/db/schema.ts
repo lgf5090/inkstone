@@ -3926,6 +3926,22 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON tools_shortlinks_links(user_id, lifecycle_state)`,
     ],
   },
+  {
+    version: 294,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'normalized_url' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN normalized_url TEXT`,
+      `UPDATE tools_shortlinks_links SET normalized_url = lower(trim(url)) WHERE normalized_url IS NULL`,
+      `UPDATE tools_shortlinks_links SET normalized_url = NULL
+        WHERE id NOT IN (SELECT MIN(id) FROM tools_shortlinks_links GROUP BY user_id, normalized_url)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_tools_shortlinks_links_normalized_url
+         ON tools_shortlinks_links(user_id, normalized_url) WHERE normalized_url IS NOT NULL`,
+      `UPDATE tools_shortlinks_bundles SET name = name || ' #' || id
+        WHERE id NOT IN (SELECT MIN(id) FROM tools_shortlinks_bundles GROUP BY user_id, name)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_tools_shortlinks_bundles_name
+         ON tools_shortlinks_bundles(user_id, name)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

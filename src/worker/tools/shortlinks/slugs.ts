@@ -9,40 +9,11 @@ export const RANDOM_CHARSET = 'abcdefghijkmnpqrstuvwxyz23456789'
 export const RANDOM_SLUG_REGEX = /^[a-z0-9]+$/
 export const CUSTOM_SLUG_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/
 
-export const RESERVED_SLUGS = new Set([
-  'api',
-  'tools',
-  'notes',
-  'memos',
-  'auth',
-  'admin',
-  'assets',
-  'favicon',
-  'robots',
-  'health',
-  'login',
-  'logout',
-  'register',
-  'collections',
-  'reading',
-  'feeds',
-  'hooks',
-  'music',
-  'email',
-  'todo',
-  'calendar',
-  'chat',
-  'projects',
-  'nav',
-  'subscriptions',
-  'oauth',
-  'mcp',
-  's',
-  'c',
-  'm',
-  'l',
-  'n',
-])
+/**
+ * Every code resolves under `/l/:slug`, so the root routes (`/api`, `/tools`, `/notes`, …) can never
+ * collide with one. The old list rejected one-letter codes for pages that live on a different path.
+ */
+export const RESERVED_SLUGS = new Set<string>()
 
 export function isReservedSlug(slug: string): boolean {
   return RESERVED_SLUGS.has(slug.toLowerCase())

@@ -46,7 +46,7 @@ describe('Shortlinks Slugs Engine', () => {
     expect(validateRandomSlug('ab')).toContain('at least 3')
     expect(validateRandomSlug('_abc')).toContain('underscore')
     expect(validateRandomSlug('abc$')).toContain('alphanumeric')
-    expect(validateRandomSlug('api')).toContain('reserved')
+    expect(validateRandomSlug('api')).toBeNull()
   })
 
   it('validates custom slug', () => {
@@ -56,14 +56,16 @@ describe('Shortlinks Slugs Engine', () => {
     expect(validateCustomSlug('-abc')).toContain('hyphen')
     expect(validateCustomSlug('abc-')).toContain('hyphen')
     expect(validateCustomSlug('abc_def')).toContain('hyphen')
-    expect(validateCustomSlug('login')).toContain('reserved')
+    expect(validateCustomSlug('login')).toBeNull()
     expect(validateCustomSlug('')).toContain('empty')
   })
 
   it('identifies reserved slugs', () => {
-    expect(isReservedSlug('api')).toBe(true)
-    expect(isReservedSlug('tools')).toBe(true)
-    expect(isReservedSlug('mcp')).toBe(true)
+    expect(isReservedSlug('api')).toBe(false)
+    expect(isReservedSlug('l')).toBe(false)
+    expect(validateCustomSlug('s')).toBeNull()
+    expect(isReservedSlug('tools')).toBe(false)
+    expect(isReservedSlug('mcp')).toBe(false)
     expect(isReservedSlug('my-safe-slug')).toBe(false)
   })
 

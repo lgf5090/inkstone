@@ -251,12 +251,13 @@ export class ShortlinksStore {
     created_via?: string
   }): Promise<ShortLink> {
     const url = normalizeUrl(params.url)
+    const normalizedUrl = params.allow_duplicate ? null : url.toLowerCase()
 
     // Duplicate check
     if (!params.allow_duplicate) {
       const existing = await this.db
-        .prepare('SELECT id FROM tools_shortlinks_links WHERE user_id = ? AND url = ? LIMIT 1')
-        .bind(this.userId, url)
+        .prepare('SELECT id FROM tools_shortlinks_links WHERE user_id = ? AND normalized_url = ? LIMIT 1')
+        .bind(this.userId, normalizedUrl)
         .first<{ id: number }>()
 
       if (existing) {
@@ -268,7 +269,7 @@ export class ShortlinksStore {
     let slug: string
     let isCustom = 0
     if (params.custom_slug) {
-      const custom = params.custom_slug.trim()
+      const custom = params.custom_slug.trim().toLowerCase()
       const validationErr = validateCustomSlug(custom)
       if (validationErr) {
         throw ApiError.badRequest(validationErr)
@@ -300,7 +301,6 @@ export class ShortlinksStore {
     }
 
     const now = Math.floor(Date.now() / 1000)
-
     // The link row and its first slug commit together: a generated slug lost to a concurrent create
     // must not leave a link that no short code can ever resolve.
     let linkId = 0
@@ -309,12 +309,13 @@ export class ShortlinksStore {
         await this.db.batch([
           this.db
             .prepare(
-              `INSERT INTO tools_shortlinks_links (user_id, url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO tools_shortlinks_links (user_id, url, normalized_url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
               this.userId,
               url,
+              normalizedUrl,
               params.label?.trim() || null,
               passwordHash,
               isProtected,
@@ -332,6 +333,9 @@ export class ShortlinksStore {
         ])
         break
       } catch (err) {
+        if (err instanceof Error && /normalized_url/.test(err.message)) {
+          throw ApiError.conflict('This URL has already been shortened. Allow duplicates to create anyway.')
+        }
         const retryable = !isCustom && attempt < 2 && err instanceof Error && /UNIQUE constraint failed/i.test(err.message)
         if (!retryable) throw err
         const settings = await this.getSettings()
@@ -597,8 +601,15 @@ export class ShortlinksStore {
     const binds: (string | number | null)[] = []
 
     if (data.url !== undefined) {
-      updates.push('url = ?')
-      binds.push(normalizeUrl(data.url))
+      const url = normalizeUrl(data.url)
+      const normalized = url.toLowerCase()
+      const conflict = await this.db
+        .prepare('SELECT id FROM tools_shortlinks_links WHERE user_id = ? AND normalized_url = ? AND id != ? LIMIT 1')
+        .bind(this.userId, normalized, id)
+        .first<{ id: number }>()
+      if (conflict) throw ApiError.conflict('Another short link already points at this URL')
+      updates.push('url = ?, normalized_url = ?')
+      binds.push(url, normalized)
     }
     if (data.label !== undefined) {
       updates.push('label = ?')
@@ -1413,6 +1424,10 @@ export class ShortlinksStore {
         now,
       )
       .run()
+      .catch((err: Error) => {
+        if (/UNIQUE constraint failed/i.test(err.message)) throw ApiError.conflict('A bundle with this name already exists')
+        throw err
+      })
 
     const id = res.meta.last_row_id as number
     return (await this.getBundleById(id))!
@@ -1499,7 +1514,10 @@ export class ShortlinksStore {
 
     binds.push(id, this.userId)
     const sql = `UPDATE tools_shortlinks_bundles SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`
-    await this.db.prepare(sql).bind(...binds).run()
+    await this.db.prepare(sql).bind(...binds).run().catch((err: Error) => {
+      if (/UNIQUE constraint failed/i.test(err.message)) throw ApiError.conflict('A bundle with this name already exists')
+      throw err
+    })
 
     return (await this.getBundleById(id))!
   }
