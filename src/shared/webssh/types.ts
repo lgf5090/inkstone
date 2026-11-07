@@ -34,6 +34,136 @@ export interface WebsshSessionTicket {
 
 export type WebsshCloseReason = 'eof' | 'idle' | 'error'
 
+/** Rates are bytes per second; `null` means this is the first sample after connecting. */
+export interface WebsshMonitorNetworkRate {
+  rx: number | null
+  tx: number | null
+}
+
+export interface WebsshMonitorNetworkInterface extends WebsshMonitorNetworkRate {
+  name: string
+  rxBytes: number
+  txBytes: number
+}
+
+export interface WebsshMonitorNetwork {
+  total: WebsshMonitorNetworkRate & { rxBytes: number; txBytes: number }
+  interfaces: WebsshMonitorNetworkInterface[]
+}
+
+export interface WebsshMonitorDisk {
+  mount: string
+  totalBytes: number | null
+  usedBytes: number | null
+  availableBytes: number | null
+  usedPercent: number | null
+}
+
+export interface WebsshMonitorMemory {
+  totalBytes: number | null
+  usedBytes: number | null
+  availableBytes: number | null
+  swapTotalBytes: number | null
+  swapUsedBytes: number | null
+}
+
+export interface WebsshMonitorResources {
+  os: { system: string; release: string; arch: string; hostname: string; pretty: string }
+  uptimeSeconds: number | null
+  load: [number, number, number] | null
+  cpuPercent: number | null
+  memory: WebsshMonitorMemory
+  disks: WebsshMonitorDisk[]
+}
+
+export interface WebsshMonitorProcess {
+  pid: number
+  user: string
+  cpuPercent: number
+  memPercent: number
+  rssBytes: number
+  state: string
+  command: string
+}
+
+export interface WebsshMonitorProcesses {
+  total: number
+  byCpu: WebsshMonitorProcess[]
+  byMemory: WebsshMonitorProcess[]
+  /** True when the remote `ps` output was longer than the exec channel's cap. */
+  truncated: boolean
+}
+
+export interface WebsshMonitorContainer {
+  id: string
+  name: string
+  image: string
+  state: string
+  status: string
+  cpuPercent: number | null
+  memoryUsage: string
+  networkIo: string
+}
+
+export interface WebsshMonitorContainers {
+  /** False when `docker` is not installed on the host. */
+  available: boolean
+  truncated: boolean
+  items: WebsshMonitorContainer[]
+}
+
+/** One throttled sample of a live session; every field is `null`/empty when the host lacks that source. */
+export interface WebsshMonitorSnapshot {
+  sampledAt: number
+  resources: WebsshMonitorResources
+  network: WebsshMonitorNetwork
+  processes: WebsshMonitorProcesses
+  containers: WebsshMonitorContainers
+}
+
+export interface WebsshMonitorKillResult {
+  ok: true
+  pid: number
+  exitCode: number | null
+  stderr: string
+}
+
+export type WebsshWidgetType = 'resources' | 'network' | 'processes' | 'containers'
+
+export const WEBSSH_WIDGET_TYPES: readonly WebsshWidgetType[] = ['resources', 'network', 'processes', 'containers']
+
+/** A widget's rectangle on the 12-column dashboard grid. */
+export interface WebsshDashboardWidget {
+  id: string
+  type: WebsshWidgetType
+  x: number
+  y: number
+  w: number
+  h: number
+  config: Record<string, string | number | boolean | null>
+}
+
+export interface WebsshDashboard {
+  id: string
+  name: string
+  locked: boolean
+  widgets: WebsshDashboardWidget[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface WebsshDashboardListResponse {
+  dashboards: WebsshDashboard[]
+}
+
+/** The portable layout file. It holds no host, credential, session or account identifier. */
+export interface WebsshDashboardExport {
+  version: 1
+  name: string
+  locked: boolean
+  widgets: Array<Pick<WebsshDashboardWidget, 'type' | 'x' | 'y' | 'w' | 'h' | 'config'>>
+}
+
 /** One directory entry from the W5 SFTP listing route. */
 export interface WebsshSftpEntry {
   name: string
@@ -146,6 +276,7 @@ export const WEBSSH_AUDIT_EVENT_TYPES = [
   'share_revoke',
   'share_access',
   'retention_fail',
+  'process_kill',
 ] as const
 
 export type WebsshAuditEventType = typeof WEBSSH_AUDIT_EVENT_TYPES[number]

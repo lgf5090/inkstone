@@ -1,3 +1,35 @@
+export const WEBSSH_DASHBOARD_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS webssh_dashboards (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    locked INTEGER NOT NULL DEFAULT 0,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_webssh_dashboards_user
+     ON webssh_dashboards(user_id, updated_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS webssh_dashboard_widgets (
+    user_id TEXT NOT NULL,
+    dashboard_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    x INTEGER NOT NULL DEFAULT 0,
+    y INTEGER NOT NULL DEFAULT 0,
+    w INTEGER NOT NULL DEFAULT 6,
+    h INTEGER NOT NULL DEFAULT 4,
+    config TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, dashboard_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_webssh_dashboard_widgets_dashboard
+     ON webssh_dashboard_widgets(user_id, dashboard_id, y, x)`,
+]
+
 export const WEBSSH_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS webssh_host_groups (
     user_id TEXT NOT NULL,
@@ -222,6 +254,8 @@ export const WEBSSH_SCHEMA_STATEMENTS: readonly string[] = [
     settings TEXT NOT NULL DEFAULT '{}',
     updated_at INTEGER NOT NULL
   )`,
+
+  ...WEBSSH_DASHBOARD_SCHEMA_STATEMENTS,
 ]
 
 export const WEBSSH_HOST_METADATA_STATEMENTS: readonly string[] = [
@@ -267,6 +301,8 @@ export const WEBSSH_REQUIRED_TABLES: readonly string[] = [
   'webssh_snippets',
   'webssh_audit_events',
   'webssh_settings',
+  'webssh_dashboards',
+  'webssh_dashboard_widgets',
 ]
 
 export const WEBSSH_REQUIRED_INDEXES: readonly string[] = [
@@ -297,6 +333,8 @@ export const WEBSSH_REQUIRED_INDEXES: readonly string[] = [
   'idx_webssh_audit_user',
   'idx_webssh_audit_event',
   'idx_webssh_audit_session',
+  'idx_webssh_dashboards_user',
+  'idx_webssh_dashboard_widgets_dashboard',
 ]
 
 export const WEBSSH_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -343,4 +381,8 @@ export const WEBSSH_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>
     'id', 'user_id', 'session_id', 'host_id', 'event_type', 'metadata', 'ip_hash', 'created_at',
   ],
   webssh_settings: ['user_id', 'settings', 'updated_at'],
+  webssh_dashboards: ['user_id', 'id', 'name', 'locked', 'is_default', 'created_at', 'updated_at'],
+  webssh_dashboard_widgets: [
+    'user_id', 'dashboard_id', 'id', 'type', 'x', 'y', 'w', 'h', 'config', 'created_at', 'updated_at',
+  ],
 }

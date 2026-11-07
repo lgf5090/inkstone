@@ -101,6 +101,7 @@ import {
   CLOUDDRIVE_SCHEMA_STATEMENTS,
 } from '../clouddrive/schema'
 import {
+  WEBSSH_DASHBOARD_SCHEMA_STATEMENTS,
   WEBSSH_HOST_FILTER_INDEX_STATEMENTS,
   WEBSSH_HOST_METADATA_STATEMENTS,
   WEBSSH_PROVIDERS_SCHEMA_STATEMENTS,
@@ -4015,6 +4016,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // A fresh database also gets the table from `SCHEMA_STATEMENTS`, where `IF NOT EXISTS` applies.
     version: 299,
     statements: AI_GATEWAY_ROUTING_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 301,
+    statements: WEBSSH_DASHBOARD_SCHEMA_STATEMENTS,
   },
   {
     // Open Graph preview payloads for social crawlers. 314 is the first free short-link number:

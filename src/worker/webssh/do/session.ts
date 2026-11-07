@@ -5,11 +5,11 @@
 // then resolves/opens the SSH connection. Frames are the frozen W4 text protocol; terminal bytes are
 // never interpreted here.
 
-import type { WebsshServerFrame, WebsshSessionStatus } from '@shared/webssh/types'
+import type { WebsshMonitorKillResult, WebsshMonitorSnapshot, WebsshServerFrame, WebsshSessionStatus } from '@shared/webssh/types'
 import type { Env } from '../../env'
 import { decryptWebsshSecret } from '../../lib/crypto'
 import { isValidId } from '../../lib/id'
-import { SSHSession, type SSHSubsystemChannel } from '../ssh/session'
+import { SSHSession, type SSHExecChannel, type SSHSubsystemChannel } from '../ssh/session'
 import { SSHSessionError } from '../ssh/errors'
 import type {
   SSHConnectionConfig,
@@ -42,6 +42,11 @@ import {
 import { recordAudit } from '../audit'
 import { WebsshSessionRecorder } from '../recording/recorder'
 import { isWebsshAutoTrustFirst, isWebsshRecordingEnabled } from '../settings'
+import {
+  parseMonitorOutput,
+  WEBSSH_MONITOR_COMMAND,
+  type MonitorCounters,
+} from '../monitor/snapshot'
 import {
   autoTrustHostKey,
   hostKeyDecision,
@@ -80,6 +85,9 @@ interface RuntimeConfig {
 
 const HANDSHAKE_TIMEOUT_MS = 20_000
 const TERM_PATTERN = /^[A-Za-z0-9._+-]{1,64}$/
+const MONITOR_CACHE_MS = 3_000
+const MONITOR_EXEC_TIMEOUT_MS = 15_000
+const MONITOR_OUTPUT_LIMIT = 512 * 1024
 
 function failureCode(error: unknown): string {
   if (error instanceof SSHSessionError) return error.code
@@ -125,6 +133,10 @@ export class WebsshSession implements DurableObject {
   private sftpChannel: SSHSubsystemChannel | null = null
   private sftpChain: Promise<unknown> = Promise.resolve()
   private recorder: WebsshSessionRecorder | null = null
+  private monitorCounters: MonitorCounters | null = null
+  private monitorSnapshot: WebsshMonitorSnapshot | null = null
+  private monitorCachedAt = 0
+  private monitorPending: Promise<WebsshMonitorSnapshot> | null = null
 
   constructor(state: DurableObjectState, env: Env) {
     this.ctx = state
@@ -140,6 +152,9 @@ export class WebsshSession implements DurableObject {
     }
     if (url.pathname === '/internal/sftp') {
       return this.handleSftpRequest(request, sessionId, userId)
+    }
+    if (url.pathname === '/internal/monitor') {
+      return this.handleMonitorRequest(request, sessionId, userId)
     }
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
       return new Response('This session runtime accepts only WebSocket upgrades', { status: 426 })
@@ -670,6 +685,165 @@ export class WebsshSession implements DurableObject {
     if (channel) void channel.close().catch(() => undefined)
   }
 
+  // ---- Monitor side channel ---------------------------------------------------------------
+
+  /**
+   * The monitor REST surface reaches this object through the Worker binding. Each request re-reads
+   * the session row so a closed or foreign session answers 404/409 before any exec channel opens.
+   */
+  private async handleMonitorRequest(request: Request, sessionId: string, userId: string): Promise<Response> {
+    if (request.method !== 'POST') return sftpJsonError(405, 'method_not_allowed', 'Monitor operations are POST-only')
+    const row = await this.env.DB.prepare(
+      `SELECT status, host_id FROM webssh_sessions WHERE id = ?1 AND user_id = ?2`,
+    )
+      .bind(sessionId, userId)
+      .first<{ status: string; host_id: string }>()
+    if (!row) return sftpJsonError(404, 'not_found', 'That session does not exist')
+    if (row.status !== 'active' || this.finalized || !this.session) {
+      return sftpJsonError(409, 'session_not_ready', 'The SSH session is not active')
+    }
+    this.sessionId = sessionId
+    this.userId = userId
+    this.hostId = row.host_id
+    this.touch()
+
+    let body: Record<string, unknown>
+    try {
+      const parsed: unknown = await request.json()
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid body')
+      body = parsed as Record<string, unknown>
+    } catch {
+      return sftpJsonError(400, 'bad_request', 'The monitor operation body must be a JSON object')
+    }
+
+    try {
+      if (body.op === 'snapshot') return sftpJson(await this.monitorSnapshotThrottled())
+      if (body.op === 'kill') return await this.executeProcessKill(body)
+      return sftpJsonError(400, 'bad_request', 'Unsupported monitor operation')
+    } catch (error) {
+      const status = error instanceof SSHSessionError ? 409 : 502
+      return sftpJsonError(status, error instanceof SSHSessionError ? error.code : 'monitor_unavailable', failureMessage(error))
+    }
+  }
+
+  private async executeProcessKill(body: Record<string, unknown>): Promise<Response> {
+    const pid = Number(body.pid)
+    if (!Number.isSafeInteger(pid) || pid <= 1 || pid > 2147483647) {
+      return sftpJsonError(400, 'invalid_pid', 'The process id must be an integer above 1')
+    }
+    const result = await this.runMonitorExec(`kill -TERM ${pid}`, 5_000)
+    await this.audit('process_kill', {
+      hostId: this.hostId,
+      metadata: {
+        pid,
+        exitCode: result.exitCode,
+        stderr: result.stderr.slice(0, 480),
+      },
+    })
+    this.monitorSnapshot = null
+    this.monitorCachedAt = 0
+    const payload: WebsshMonitorKillResult = {
+      ok: true,
+      pid,
+      exitCode: result.exitCode,
+      stderr: result.stderr.trim().slice(0, 480),
+    }
+    return sftpJson(payload)
+  }
+
+  /** At most one exec channel per three seconds per session; concurrent callers share the sample. */
+  private async monitorSnapshotThrottled(): Promise<WebsshMonitorSnapshot> {
+    const now = Date.now()
+    if (this.monitorSnapshot && now - this.monitorCachedAt < MONITOR_CACHE_MS) return this.monitorSnapshot
+    if (this.monitorPending) return this.monitorPending
+    const pending = this.collectMonitor()
+      .then((snapshot) => {
+        this.monitorSnapshot = snapshot
+        this.monitorCachedAt = Date.now()
+        return snapshot
+      })
+      .finally(() => {
+        this.monitorPending = null
+      })
+    this.monitorPending = pending
+    return pending
+  }
+
+  private async collectMonitor(): Promise<WebsshMonitorSnapshot> {
+    const result = await this.runMonitorExec(WEBSSH_MONITOR_COMMAND, MONITOR_EXEC_TIMEOUT_MS)
+    const now = Date.now()
+    const parsed = parseMonitorOutput(result.stdout, now, this.monitorCounters)
+    this.monitorCounters = parsed.counters
+    if (result.truncated) parsed.processes.truncated = true
+    return {
+      sampledAt: now,
+      resources: parsed.resources,
+      network: parsed.network,
+      processes: parsed.processes,
+      containers: parsed.containers,
+    }
+  }
+
+  /**
+   * Runs one command on a fresh exec channel and collects its stdout/stderr up to a byte cap. The
+   * channel is closed when the cap or timeout is reached, so a slow `docker stats` cannot pin it.
+   */
+  private runMonitorExec(
+    command: string,
+    timeoutMs: number,
+  ): Promise<{ stdout: string; stderr: string; exitCode: number | null; truncated: boolean }> {
+    const session = this.session
+    if (!session) return Promise.reject(new SSHSessionError('channel_rejected', 'The SSH session is not connected'))
+    return new Promise((resolve, reject) => {
+      let channel: SSHExecChannel | null = null
+      let settled = false
+      let stdout = ''
+      let stderr = ''
+      let bytes = 0
+      let exitCode: number | null = null
+      let truncated = false
+      const decoder = new TextDecoder()
+      const finish = (error?: unknown) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        if (hardTimer) clearTimeout(hardTimer)
+        if (error) reject(error)
+        else resolve({ stdout: `${stdout}${decoder.decode()}`, stderr, exitCode, truncated })
+      }
+      let hardTimer: ReturnType<typeof setTimeout> | null = null
+      const timer = setTimeout(() => {
+        truncated = true
+        void channel?.close().catch(() => undefined)
+        hardTimer = setTimeout(() => finish(), 1_500)
+      }, timeoutMs)
+      const append = (text: string, target: 'stdout' | 'stderr') => {
+        bytes += text.length
+        if (bytes > MONITOR_OUTPUT_LIMIT) {
+          truncated = true
+          void channel?.close().catch(() => undefined)
+          return
+        }
+        if (target === 'stdout') stdout += text
+        else stderr += text
+      }
+      void session.openExec(command, {
+        onData: (data) => append(decoder.decode(data, { stream: true }), 'stdout'),
+        onExtendedData: (data) => append(new TextDecoder().decode(data), 'stderr'),
+        onExit: (code) => {
+          exitCode = code
+        },
+        onClose: () => finish(),
+      }).then((opened) => {
+        if (settled) {
+          void opened.close().catch(() => undefined)
+          return
+        }
+        channel = opened
+      }).catch((error) => finish(error))
+    })
+  }
+
   private onOutput(data: Uint8Array): void {
     this.bytesOut += data.length
     this.recorder?.tapOutput(data)
@@ -753,6 +927,9 @@ export class WebsshSession implements DurableObject {
     this.finalized = true
     this.clearTimers()
     this.disposeSftp(new Error('The WebSSH session ended'))
+    this.monitorSnapshot = null
+    this.monitorCachedAt = 0
+    this.monitorCounters = null
     const now = Date.now()
     // Finish the recording before the runtime can be evicted; its own status row is authoritative.
     const recorder = this.recorder

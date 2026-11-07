@@ -5,7 +5,7 @@
  * tooltip and the status bar both say the phase in words.
  */
 import { useRef } from 'react'
-import { Plus, Settings2, Keyboard, X, FolderOpen, History, ScrollText, Video } from 'lucide-react'
+import { Plus, Settings2, Keyboard, X, FolderOpen, History, ScrollText, Video, Activity, LayoutDashboard } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
@@ -50,6 +50,11 @@ export function TerminalTabs({
   onOpenReplay,
   replayDisabled = false,
   onOpenRecordingSettings,
+  onOpenMonitor,
+  monitorOpen = false,
+  monitorDisabled = false,
+  onOpenDashboard,
+  dashboardActive = false,
   panelId,
 }: {
   tabs: readonly TerminalTabView[]
@@ -68,6 +73,11 @@ export function TerminalTabs({
   onOpenReplay?: () => void
   replayDisabled?: boolean
   onOpenRecordingSettings?: () => void
+  onOpenMonitor?: () => void
+  monitorOpen?: boolean
+  monitorDisabled?: boolean
+  onOpenDashboard?: () => void
+  dashboardActive?: boolean
   panelId: string
 }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([])
@@ -180,6 +190,20 @@ export function TerminalTabs({
           <Tooltip label={t('webssh.session_settings.open')}>
             <IconButton label={t('webssh.session_settings.open')} size="sm" onClick={onOpenRecordingSettings}>
               <Video size={15} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onOpenMonitor && (
+          <Tooltip label={t('webssh.monitor.open')}>
+            <IconButton label={t('webssh.monitor.open')} size="sm" active={monitorOpen} disabled={monitorDisabled} onClick={onOpenMonitor}>
+              <Activity size={15} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onOpenDashboard && (
+          <Tooltip label={t('webssh.dashboard.open')}>
+            <IconButton label={t('webssh.dashboard.open')} size="sm" active={dashboardActive} onClick={onOpenDashboard}>
+              <LayoutDashboard size={15} aria-hidden="true" />
             </IconButton>
           </Tooltip>
         )}

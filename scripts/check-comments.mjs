@@ -20192,6 +20192,10 @@ const allowed = new Map([
     "// recognises. Unknown suffixes fall back to a plain file glyph.",
     "/** Whether the editor should offer this entry: a regular, text-shaped file, by name alone. */",
   ]],
+  ["src/client/features/webssh/monitor-data.ts", [
+    "/** One throttled monitor poll; history keeps the last ten minutes of transfer rates. */",
+    "/** SIGTERM is the only signal the monitor sends, and only after the owner confirms the row. */",
+  ]],
   ["src/client/features/webssh/prefs.ts", [
     "/**\n * Terminal preferences live in localStorage beside the reader, like the editor's own font size: they\n * are a property of this browser, not of an account, and nothing here is secret.\n */",
     "/** Tolerates a missing, truncated or hand-edited value; every rejected field falls back on its own. */",
@@ -34333,6 +34337,12 @@ const allowed = new Map([
     "/** The combinable list filters; nil/empty fields place no restriction. */",
     "/** Hosts that have never connected. */",
     "/** Required for `provider`. */",
+    "/** Rates are bytes per second; `null` means this is the first sample after connecting. */",
+    "/** True when the remote `ps` output was longer than the exec channel's cap. */",
+    "/** False when `docker` is not installed on the host. */",
+    "/** One throttled sample of a live session; every field is `null`/empty when the host lacks that source. */",
+    "/** A widget's rectangle on the 12-column dashboard grid. */",
+    "/** The portable layout file. It holds no host, credential, session or account identifier. */",
   ]],
   ["src/shared/youtube/model.ts", [
     "/**\n * The YouTube app's shared vocabulary: the upstream shapes the API hands over, the library rows a\n * reader saves, the address that names a view, and the pure formatting/tree rules both sides use.\n *\n * Nothing here touches the network or the DOM. The worker's transforms and the reader's rendering\n * have to agree on every field, so the types live once and are imported by both builds.\n */",
@@ -44531,6 +44541,9 @@ const allowed = new Map([
     "/** Replay slices are byte-addressed and bounded so one request never reads a whole recording. */",
     "/** How many expired recordings one retention fire processes. */",
   ]],
+  ["src/worker/webssh/dashboards.ts", [
+    "/** Turns one widget from a request or an imported file into a rectangle the grid can draw. */",
+  ]],
   ["src/worker/webssh/do/host-key.ts", [
     "// The host-key state machine W2 must apply before credentials leave the Worker (plan §8.1.1).",
     "//",
@@ -44562,6 +44575,10 @@ const allowed = new Map([
     "// Finish the recording before the runtime can be evicted; its own status row is authoritative.",
     "// First-seen key: the reference client accepts it and records the fingerprint. The setting",
     "// defaults on but can be turned off to restore a manual confirmation step.",
+    "// ---- Monitor side channel ---------------------------------------------------------------",
+    "/**\n   * The monitor REST surface reaches this object through the Worker binding. Each request re-reads\n   * the session row so a closed or foreign session answers 404/409 before any exec channel opens.\n   */",
+    "/** At most one exec channel per three seconds per session; concurrent callers share the sample. */",
+    "/**\n   * Runs one command on a fresh exec channel and collects its stdout/stderr up to a byte cap. The\n   * channel is closed when the cap or timeout is reached, so a slow `docker stats` cannot pin it.\n   */",
   ]],
   ["src/worker/webssh/hosts.ts", [
     "/**\n   * Creates a host from an import without a credential or key. The row is deliberately usable only\n   * after the owner attaches a secret, so a bulk import never invents an authentication method.\n   */",
@@ -44583,6 +44600,11 @@ const allowed = new Map([
     "/** Splits a CSV line, honouring double quotes and `\"\"` escapes. */",
     "// A pattern entry describes many machines; importing it as one host would be a guess.",
     "/** Validates one confirmed row and returns the normalized host input, or the reasons it was skipped. */",
+  ]],
+  ["src/worker/webssh/monitor/snapshot.ts", [
+    "/**\n * One read-only sample in a single exec request. Every section falls back where a host has no\n * `/proc`: `sysctl` covers FreeBSD/macOS CPU, load, memory and boot time, `netstat -ibn` covers\n * their interface counters, and `ps aux` is the shared process source. The string stays on one\n * line because `buildExecRequest` refuses CR/LF, and it never interpolates user input.\n */",
+    "/** Splits the marker-delimited exec output into named blocks; unknown text is ignored. */",
+    "// Linux: user nice system idle iowait irq softirq steal; BSD: user nice sys intr idle.",
   ]],
   ["src/worker/webssh/openssh-key.ts", [
     "/**\n * The parsed key plus the decrypted, still-padded private section. The protocol core needs the raw\n * section to lift a signing key out of it; callers that only need metadata use\n * `inspectOpenSshPrivateKey`.\n */",
@@ -44667,6 +44689,12 @@ const allowed = new Map([
   ["src/worker/webssh/routes-hosts.ts", [
     "/** A valid OpenSSH block per host; the alias is derived from the display name and de-duplicated. */",
     "/** The list and export share one filter parser so a filtered export cannot drift from the screen. */",
+  ]],
+  ["src/worker/webssh/routes-monitor.ts", [
+    "// Live monitor routes for one owned session. Every lookup filters by `user_id`; the Durable Object",
+    "// re-checks the same row before it opens an exec channel, so a closed or foreign session never",
+    "// reaches the host.",
+    "// A non-JSON body still maps to the status-based message below.",
   ]],
   ["src/worker/webssh/routes-recordings.ts", [
     "// Replay API for recorded sessions. Everything is session-scoped and owner-only: another account",
@@ -44922,6 +44950,11 @@ const allowed = new Map([
     "// The shell keeps local channel id 0 so its on-the-wire behaviour is unchanged.",
     "/** Writes a subsystem packet, waiting for the remote window when it is full. */",
     "// The socket may already be gone; the session-level close reports it.",
+    "/** Handlers a one-shot exec consumer receives. stderr arrives through `onExtendedData`. */",
+    "/** The handle returned by `openExec`; no input is written, only the channel can be closed early. */",
+    "/** Empty for exec channels. */",
+    "/** Empty for subsystem channels. */",
+    "/**\n   * Opens an RFC 4254 `session` channel and runs one command on it (the connection protocol's `exec`\n   * request). Output streams through the handlers; `onExit` reports the channel's exit status. The\n   * command is a single line because `buildExecRequest` refuses CR/LF and NUL.\n   */",
   ]],
   ["src/worker/webssh/ssh/transport.ts", [
     "// Derived from EdgeSSH 2026-11 snapshot (Apache-2.0) src/ssh/transport.ts, with Inkstone adaptations.",
