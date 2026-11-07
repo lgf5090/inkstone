@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ArrowUp,
   Download,
-  File as FileIcon,
+  FilePen,
   Folder,
   FolderPlus,
   Pencil,
@@ -20,6 +20,8 @@ import { ApiError } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { websshApi } from './api'
+import { FileGlyph, isEditableTextEntry } from './file-icons'
+import { FileEditorDialog } from './FileEditorDialog'
 
 function joinPath(parent: string, name: string): string {
   if (parent === '/') return `/${name}`
@@ -63,6 +65,7 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
   const [mkdirName, setMkdirName] = useState('')
   const [renameTarget, setRenameTarget] = useState<WebsshSftpEntry | null>(null)
   const [renameName, setRenameName] = useState('')
+  const [editorTarget, setEditorTarget] = useState<WebsshSftpEntry | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -329,9 +332,7 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
                       else void download(entry)
                     }}
                   >
-                    {isDirectory
-                      ? <Folder size={15} aria-hidden="true" className="shrink-0 text-[var(--accent)]" />
-                      : <FileIcon size={15} aria-hidden="true" className="shrink-0 text-[var(--text-tertiary)]" />}
+                    <FileGlyph entry={entry} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{entry.name}</span>
                       <span className="block truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
@@ -344,6 +345,13 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
                       <Tooltip label={t('webssh.sftp.download')}>
                         <IconButton label={t('webssh.sftp.download')} size="xs" onClick={() => void download(entry)}>
                           <Download size={13} aria-hidden="true" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {isEditableTextEntry(entry) && (
+                      <Tooltip label={t('webssh.editor.open')}>
+                        <IconButton label={t('webssh.editor.open')} size="xs" onClick={() => setEditorTarget(entry)}>
+                          <FilePen size={13} aria-hidden="true" />
                         </IconButton>
                       </Tooltip>
                     )}
@@ -390,6 +398,14 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
           <Input value={mkdirName} autoFocus onChange={(event) => setMkdirName(event.target.value)} />
         </Field>
       </Modal>
+
+      <FileEditorDialog
+        open={editorTarget !== null}
+        entry={editorTarget}
+        sessionId={sessionId}
+        onClose={() => setEditorTarget(null)}
+        onSaved={refresh}
+      />
 
       <Modal
         open={renameTarget !== null}

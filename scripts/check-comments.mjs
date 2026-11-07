@@ -20026,6 +20026,13 @@ const allowed = new Map([
     "// Read-only audit browser and local health view (plan W7-03). The panel never offers an edit or",
     "// delete control: the trail is append-only by construction, so the UI can only filter and page it.",
   ]],
+  ["src/client/features/webssh/FileEditorDialog.tsx", [
+    "// SFTP text editor (W5-03). It reads a whole file through the same bounded download route the",
+    "// browser uses, refuses anything that is not UTF-8 text within the editing ceiling, and writes back",
+    "// through staged upload chunks only after an explicit overwrite confirmation.",
+    "// Local guards (size, encoding) throw plain Errors with a user-facing message; only show a generic",
+    "// string when nothing carried one.",
+  ]],
   ["src/client/features/webssh/ImportDialog.tsx", [
     "// Host import dialog (plan W7-02). Parsing is server-side so the same rules guard the API and the",
     "// preview; the file is read locally and only its text is posted, never the binary upload.",
@@ -20059,6 +20066,12 @@ const allowed = new Map([
   ]],
   ["src/client/features/webssh/api.ts", [
     "// A binary or empty error body still maps to the status line below.",
+  ]],
+  ["src/client/features/webssh/file-icons.tsx", [
+    "// Extension-to-icon mapping for the SFTP list (W5-03). Icons are lucide components chosen by suffix",
+    "// rather than MIME: an SFTP listing carries a name and permissions, and the name is what the user",
+    "// recognises. Unknown suffixes fall back to a plain file glyph.",
+    "/** Whether the editor should offer this entry: a regular, text-shaped file, by name alone. */",
   ]],
   ["src/client/features/webssh/prefs.ts", [
     "/**\n * Terminal preferences live in localStorage beside the reader, like the editor's own font size: they\n * are a property of this browser, not of an account, and nothing here is secret.\n */",
