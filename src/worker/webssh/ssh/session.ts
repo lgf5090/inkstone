@@ -62,7 +62,45 @@ const HOST_CONFIRM_TIMEOUT_MS = 30_000
 const KEEPALIVE_INTERVAL_MS = 25_000
 const MAX_KEEPALIVE_PENDING = 3
 const SHELL_READY_FALLBACK_MS = 3_000
+const SUBSYSTEM_OPEN_TIMEOUT_MS = 30_000
 const KEEPALIVE_NAME = new TextEncoder().encode('keepalive@openssh.com')
+
+/** Handlers a subsystem consumer (currently SFTP) receives from the channel table. */
+export interface SSHSubsystemHandlers {
+  onData(data: Uint8Array): void
+  onEof?(): void
+  onClose?(): void
+}
+
+/** The handle returned by `openSubsystem`: one local channel with its own queue and window. */
+export interface SSHSubsystemChannel {
+  readonly localId: number
+  write(data: Uint8Array): Promise<void>
+  close(): Promise<void>
+}
+
+interface ShellEntry {
+  kind: 'shell'
+  channel: SSHChannel
+}
+
+interface SubsystemEntry {
+  kind: 'subsystem'
+  localId: number
+  name: string
+  channel: SSHChannel
+  handlers: SSHSubsystemHandlers
+  stage: 'opening' | 'requesting' | 'ready' | 'closed'
+  openResolve: (() => void) | null
+  openReject: ((error: Error) => void) | null
+  timer: ReturnType<typeof setTimeout> | null
+  queue: Uint8Array[]
+  headOffset: number
+  flushing: boolean
+  waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }>
+}
+
+type ChannelEntry = ShellEntry | SubsystemEntry
 
 /**
  * A single SSH terminal session over an already-connected TCP socket. `start()` returns once the
@@ -73,6 +111,9 @@ export class SSHSession {
   private readonly transport = new SSHTransport()
   private readonly parser = new SSHPacketParser()
   private readonly shellChannel = new SSHChannel()
+  /** Local channel id → channel state. Id 0 is the shell; subsystems (SFTP) start at 1. */
+  private readonly channels = new Map<number, ChannelEntry>()
+  private nextSubsystemChannelId = 1
   private readonly config: SSHConnectionConfig
   private readonly socket: SSHTransportSocket
   private readonly sink: SSHSessionSink
@@ -161,10 +202,64 @@ export class SSHSession {
     if (this.phase === 'ready') await this.sendEncrypted(this.shellChannel.buildWindowChange(cols, rows))
   }
 
+  /**
+   * Opens an RFC 4254 `session` channel and requests a subsystem on it (W5 uses `sftp`). The
+   * returned handle owns its own send queue and remote window; the shell channel keeps behaving
+   * exactly as it did before the channel table existed.
+   */
+  async openSubsystem(name: string, handlers: SSHSubsystemHandlers): Promise<SSHSubsystemChannel> {
+    if (this.phase !== 'ready') throw new SSHSessionError('channel_rejected', 'The SSH session is not ready for a subsystem channel')
+    if (!/^[A-Za-z0-9@._+-]{1,64}$/.test(name)) throw new SSHSessionError('channel_rejected', 'Invalid SSH subsystem name')
+    const localId = this.nextSubsystemChannelId++
+    if (localId > 0xffffffff) throw new SSHSessionError('protocol_error', 'SSH channel identifiers are exhausted')
+    if (this.channels.has(localId)) throw new SSHSessionError('protocol_error', 'SSH channel identifier collision')
+
+    const channel = new SSHChannel()
+    const entry: SubsystemEntry = {
+      kind: 'subsystem',
+      localId,
+      name,
+      channel,
+      handlers,
+      stage: 'opening',
+      openResolve: null,
+      openReject: null,
+      timer: null,
+      queue: [],
+      headOffset: 0,
+      flushing: false,
+      waiters: [],
+    }
+    this.channels.set(localId, entry)
+    const opened = new Promise<void>((resolve, reject) => {
+      entry.openResolve = resolve
+      entry.openReject = reject
+    })
+    entry.timer = setTimeout(() => {
+      this.failSubsystem(entry, new SSHSessionError('channel_rejected', `The SSH server did not open the ${name} subsystem in time`))
+    }, SUBSYSTEM_OPEN_TIMEOUT_MS)
+
+    try {
+      await this.sendEncrypted(channel.buildOpenSession(localId))
+      await opened
+    } catch (error) {
+      this.removeSubsystem(entry)
+      throw error instanceof SSHSessionError
+        ? error
+        : new SSHSessionError('channel_rejected', error instanceof Error ? error.message : String(error), { cause: error })
+    }
+    return {
+      localId,
+      write: (data) => this.writeSubsystem(entry, data),
+      close: () => this.closeSubsystem(entry),
+    }
+  }
+
   close(): void {
     if (this.phase === 'closed') return
     this.phase = 'closed'
     this.clearTimers()
+    this.failSubsystems(new SSHSessionError('channel_rejected', 'The SSH session is closed'))
     this.inputQueue = []
     this.queuedBytes = 0
     this.config.password = undefined
@@ -632,6 +727,8 @@ export class SSHSession {
       this.sink.status('auth_success', 'SSH authentication succeeded; opening terminal')
       this.phase = 'pty'
       this.startKeepalive()
+      // The shell keeps local channel id 0 so its on-the-wire behaviour is unchanged.
+      this.channels.set(0, { kind: 'shell', channel: this.shellChannel })
       await this.sendEncrypted(this.shellChannel.buildOpenSession(0))
       return
     }
@@ -654,8 +751,16 @@ export class SSHSession {
   private async handleChannel(type: number, payload: Uint8Array): Promise<void> {
     if (payload.length < 5) throw new SSHSessionError('protocol_error', 'Malformed SSH channel message')
     const channelID = readUint32(payload, 1)
-    if (channelID !== 0) throw new SSHSessionError('protocol_error', 'SSH channel message has an unknown recipient')
-    const channel = this.shellChannel
+    const entry = this.channels.get(channelID)
+    if (!entry) throw new SSHSessionError('protocol_error', 'SSH channel message has an unknown recipient')
+    if (entry.kind === 'shell') {
+      await this.handleShellChannel(type, payload, entry.channel)
+      return
+    }
+    await this.handleSubsystemChannel(type, payload, entry)
+  }
+
+  private async handleShellChannel(type: number, payload: Uint8Array, channel: SSHChannel): Promise<void> {
     if (type === SSH_MSG_CHANNEL_OPEN_CONFIRMATION) {
       channel.handleOpenConfirmation(payload)
       if (this.phase !== 'pty') throw new SSHSessionError('protocol_error', 'Unexpected shell channel open confirmation')
@@ -729,6 +834,169 @@ export class SSHSession {
       this.finish('session_ended')
       return
     }
+  }
+
+  private async handleSubsystemChannel(type: number, payload: Uint8Array, entry: SubsystemEntry): Promise<void> {
+    if (type === SSH_MSG_CHANNEL_OPEN_CONFIRMATION) {
+      entry.channel.handleOpenConfirmation(payload)
+      if (entry.stage !== 'opening') throw new SSHSessionError('protocol_error', 'Unexpected subsystem channel open confirmation')
+      entry.stage = 'requesting'
+      await this.sendEncrypted(entry.channel.buildSubsystemRequest(entry.name))
+      return
+    }
+    if (type === SSH_MSG_CHANNEL_OPEN_FAILURE) {
+      entry.channel.handleOpenFailure(payload)
+      this.failSubsystem(entry, new SSHSessionError('channel_rejected', 'SSH server rejected the subsystem channel'))
+      return
+    }
+    if (type === SSH_MSG_CHANNEL_SUCCESS || type === SSH_MSG_CHANNEL_FAILURE) {
+      entry.channel.handleRequestResult(payload)
+      if (entry.stage !== 'requesting') throw new SSHSessionError('protocol_error', 'Unexpected subsystem channel request result')
+      if (type === SSH_MSG_CHANNEL_FAILURE) {
+        this.failSubsystem(entry, new SSHSessionError('channel_rejected', `SSH server rejected the ${entry.name} subsystem request`))
+        return
+      }
+      entry.stage = 'ready'
+      if (entry.timer) clearTimeout(entry.timer)
+      entry.timer = null
+      const resolve = entry.openResolve
+      entry.openResolve = null
+      entry.openReject = null
+      resolve?.()
+      return
+    }
+    if (type === SSH_MSG_CHANNEL_DATA || type === SSH_MSG_CHANNEL_EXTENDED_DATA) {
+      const output = type === SSH_MSG_CHANNEL_DATA
+        ? entry.channel.handleChannelData(payload)
+        : entry.channel.handleExtendedData(payload)
+      try {
+        entry.handlers.onData(output)
+      } catch (error) {
+        this.failSubsystem(entry, error)
+        return
+      }
+      await this.adjustLocalWindow(entry.channel)
+      return
+    }
+    if (type === SSH_MSG_CHANNEL_REQUEST) {
+      await this.handleChannelRequest(entry.channel, payload)
+      return
+    }
+    if (type === SSH_MSG_CHANNEL_WINDOW_ADJUST) {
+      entry.channel.handleWindowAdjust(payload)
+      void this.drainSubsystem(entry)
+      return
+    }
+    if (type === SSH_MSG_CHANNEL_EOF) {
+      entry.channel.handleEof(payload)
+      entry.handlers.onEof?.()
+      return
+    }
+    if (type === SSH_MSG_CHANNEL_CLOSE) {
+      entry.channel.handleClose(payload)
+      if (!entry.channel.hasSentClose()) {
+        await this.sendEncrypted(entry.channel.buildClose()).catch(() => undefined)
+      }
+      this.removeSubsystem(entry)
+      entry.handlers.onClose?.()
+      return
+    }
+  }
+
+  /** Writes a subsystem packet, waiting for the remote window when it is full. */
+  private writeSubsystem(entry: SubsystemEntry, data: Uint8Array): Promise<void> {
+    if (entry.stage !== 'ready' || this.phase === 'closed') {
+      return Promise.reject(new SSHSessionError('channel_rejected', 'The subsystem channel is not ready'))
+    }
+    if (data.length === 0) return Promise.resolve()
+    return new Promise<void>((resolve, reject) => {
+      entry.waiters.push({ resolve, reject })
+      entry.queue.push(new Uint8Array(data))
+      void this.drainSubsystem(entry)
+    })
+  }
+
+  private async drainSubsystem(entry: SubsystemEntry): Promise<void> {
+    if (entry.flushing || entry.stage === 'closed' || this.phase === 'closed') return
+    entry.flushing = true
+    try {
+      while (entry.queue.length > 0) {
+        const first = entry.queue[0]
+        const chunk = entry.channel.takeChannelDataChunk(first, entry.headOffset)
+        if (!chunk) break
+        await this.sendChannelData(entry.channel, chunk)
+        entry.headOffset += chunk.bytesConsumed
+        if (entry.headOffset === first.length) {
+          entry.queue.shift()
+          entry.headOffset = 0
+        }
+      }
+    } catch (error) {
+      this.failSubsystem(entry, error)
+      return
+    } finally {
+      entry.flushing = false
+    }
+    if (entry.queue.length === 0) this.resolveSubsystemWaiters(entry)
+  }
+
+  private resolveSubsystemWaiters(entry: SubsystemEntry): void {
+    const waiters = entry.waiters
+    entry.waiters = []
+    for (const waiter of waiters) waiter.resolve()
+  }
+
+  private rejectSubsystemWaiters(entry: SubsystemEntry, error: unknown): void {
+    const waiters = entry.waiters
+    entry.waiters = []
+    for (const waiter of waiters) waiter.reject(error)
+  }
+
+  private async closeSubsystem(entry: SubsystemEntry): Promise<void> {
+    if (entry.stage === 'closed') return
+    entry.stage = 'closed'
+    if (entry.timer) clearTimeout(entry.timer)
+    entry.timer = null
+    try {
+      if (entry.channel.isOpen() && !entry.channel.hasSentClose()) {
+        await this.sendEncrypted(entry.channel.buildClose())
+      }
+    } catch {
+      // The socket may already be gone; the session-level close reports it.
+    }
+    this.channels.delete(entry.localId)
+    this.rejectSubsystemWaiters(entry, new SSHSessionError('channel_rejected', 'The subsystem channel was closed'))
+  }
+
+  private failSubsystem(entry: SubsystemEntry, error: unknown): void {
+    const normalized = error instanceof SSHSessionError
+      ? error
+      : new SSHSessionError('protocol_error', error instanceof Error ? error.message : String(error), { cause: error })
+    this.removeSubsystem(entry)
+    const reject = entry.openReject
+    entry.openResolve = null
+    entry.openReject = null
+    reject?.(normalized)
+    this.rejectSubsystemWaiters(entry, normalized)
+    entry.handlers.onClose?.()
+  }
+
+  private removeSubsystem(entry: SubsystemEntry): void {
+    entry.stage = 'closed'
+    if (entry.timer) clearTimeout(entry.timer)
+    entry.timer = null
+    this.channels.delete(entry.localId)
+  }
+
+  private failSubsystems(error: Error): void {
+    for (const entry of this.channels.values()) {
+      if (entry.kind !== 'subsystem') continue
+      entry.openReject?.(error)
+      entry.openResolve = null
+      entry.openReject = null
+      this.rejectSubsystemWaiters(entry, error)
+    }
+    this.channels.clear()
   }
 
   private async handleChannelRequest(channel: SSHChannel, payload: Uint8Array): Promise<void> {

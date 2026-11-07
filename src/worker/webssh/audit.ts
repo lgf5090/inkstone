@@ -17,6 +17,12 @@ export type WebsshAuditEventType =
   | 'auth_fail'
   | 'disconnect'
   | 'session_error'
+  | 'file_list'
+  | 'file_upload'
+  | 'file_download'
+  | 'file_delete'
+  | 'file_rename'
+  | 'dir_create'
 
 export interface WebsshAuditInput {
   userId: string

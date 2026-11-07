@@ -9,7 +9,7 @@ import type { WebsshServerFrame, WebsshSessionStatus } from '@shared/webssh/type
 import type { Env } from '../../env'
 import { decryptWebsshSecret } from '../../lib/crypto'
 import { isValidId } from '../../lib/id'
-import { SSHSession } from '../ssh/session'
+import { SSHSession, type SSHSubsystemChannel } from '../ssh/session'
 import { SSHSessionError } from '../ssh/errors'
 import type {
   SSHConnectionConfig,
@@ -20,6 +20,11 @@ import type {
   TerminalSize,
 } from '../ssh/types'
 import { normalizeTerminalSize } from '../ssh/types'
+import { SFTPClient, SFTPStatusError } from '../sftp/client'
+import { SFTP_STATUS } from '../sftp/types'
+import { listDirectory, readFileRange, writeFileChunks, SftpOperationError } from '../sftp/operations'
+import { SftpPathError, normalizeSftpPath } from '../sftp/paths'
+import { WEBSSH_SFTP_MAX_FILE_BYTES, WEBSSH_SFTP_MAX_UPLOAD_PARTS } from '../sftp/limits'
 import {
   openSshSocket,
   readDevAllowPrivateHosts,
@@ -113,6 +118,9 @@ export class WebsshSession implements DurableObject {
   private initialCommand = ''
   private credentialId = ''
   private keyId = ''
+  private sftpClient: SFTPClient | null = null
+  private sftpChannel: SSHSubsystemChannel | null = null
+  private sftpChain: Promise<unknown> = Promise.resolve()
 
   constructor(state: DurableObjectState, env: Env) {
     this.ctx = state
@@ -125,6 +133,9 @@ export class WebsshSession implements DurableObject {
     const userId = url.searchParams.get('u') ?? ''
     if (!isValidId(sessionId) || !isValidId(userId)) {
       return new Response('Invalid WebSSH session request', { status: 400 })
+    }
+    if (url.pathname === '/internal/sftp') {
+      return this.handleSftpRequest(request, sessionId, userId)
     }
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
       return new Response('This session runtime accepts only WebSocket upgrades', { status: 426 })
@@ -404,6 +415,216 @@ export class WebsshSession implements DurableObject {
     }
   }
 
+  // ---- SFTP side channel (W5) ---------------------------------------------------------------
+
+  /**
+   * The SFTP REST surface reaches this object through the Worker's binding, never through a public
+   * URL. Every request re-reads the session row so a closed or foreign session answers 404/409
+   * before any SSH work happens.
+   */
+  private async handleSftpRequest(request: Request, sessionId: string, userId: string): Promise<Response> {
+    if (request.method !== 'POST') return sftpJsonError(405, 'method_not_allowed', 'SFTP operations are POST-only')
+    const row = await this.env.DB.prepare(
+      `SELECT status, host_id FROM webssh_sessions WHERE id = ?1 AND user_id = ?2`,
+    )
+      .bind(sessionId, userId)
+      .first<{ status: string; host_id: string }>()
+    if (!row) return sftpJsonError(404, 'not_found', 'That session does not exist')
+    if (row.status !== 'active' || this.finalized) {
+      return sftpJsonError(409, 'session_not_ready', 'The SSH session is not active')
+    }
+    this.sessionId = sessionId
+    this.userId = userId
+    this.hostId = row.host_id
+    this.touch()
+
+    let body: Record<string, unknown>
+    try {
+      const parsed: unknown = await request.json()
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid body')
+      body = parsed as Record<string, unknown>
+    } catch {
+      return sftpJsonError(400, 'bad_request', 'The SFTP operation body must be a JSON object')
+    }
+    try {
+      return await this.runSftp(() => this.executeSftpOperation(body))
+    } catch (error) {
+      return sftpErrorResponse(error)
+    }
+  }
+
+  private runSftp<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.sftpChain.then(operation, operation)
+    this.sftpChain = run.catch(() => undefined)
+    return run
+  }
+
+  private async executeSftpOperation(body: Record<string, unknown>): Promise<Response> {
+    const op = body.op
+    if (op === 'list') {
+      const client = await this.ensureSftpClient()
+      const path = normalizeSftpPath(body.path)
+      const listing = await listDirectory(client, path)
+      await this.audit('file_list', {
+        hostId: this.hostId,
+        metadata: { path: auditPath(listing.path), count: listing.entries.length },
+      })
+      return sftpJson({ path: listing.path, entries: listing.entries })
+    }
+    if (op === 'download') {
+      const client = await this.ensureSftpClient()
+      const path = normalizeSftpPath(body.path)
+      const offset = body.offset === undefined ? 0 : Number(body.offset)
+      const length = body.length === undefined ? undefined : Number(body.length)
+      const range = await readFileRange(client, path, offset, length)
+      await this.audit('file_download', {
+        hostId: this.hostId,
+        metadata: { path: auditPath(path), offset: range.offset, bytes: range.data.length },
+      })
+      return new Response(range.data, {
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-length': String(range.data.length),
+          'x-webssh-file-size': String(range.size),
+          'x-webssh-range-offset': String(range.offset),
+        },
+      })
+    }
+    if (op === 'mkdir') {
+      const client = await this.ensureSftpClient()
+      const path = normalizeSftpPath(body.path)
+      await client.mkdir(path)
+      await this.audit('dir_create', { hostId: this.hostId, metadata: { path: auditPath(path) } })
+      return sftpJson({ ok: true })
+    }
+    if (op === 'remove') {
+      const client = await this.ensureSftpClient()
+      const path = normalizeSftpPath(body.path)
+      const kind = body.kind === 'directory' ? 'directory' : 'file'
+      if (kind === 'directory') await client.rmdir(path)
+      else await client.removeFile(path)
+      await this.audit('file_delete', { hostId: this.hostId, metadata: { path: auditPath(path), kind } })
+      return sftpJson({ ok: true })
+    }
+    if (op === 'rename') {
+      const client = await this.ensureSftpClient()
+      const from = normalizeSftpPath(body.from)
+      const to = normalizeSftpPath(body.to)
+      const overwrite = body.overwrite === true
+      await client.rename(from, to, overwrite)
+      await this.audit('file_rename', {
+        hostId: this.hostId,
+        metadata: { from: auditPath(from, 512), to: auditPath(to, 512), overwrite },
+      })
+      return sftpJson({ ok: true })
+    }
+    if (op === 'upload') {
+      return this.executeSftpUpload(body)
+    }
+    return sftpJsonError(400, 'bad_request', 'Unsupported SFTP operation')
+  }
+
+  /**
+   * Writes a staged upload (R2 `webssh/documents/uploads/<user>/<transfer>/parts/...`) into the
+   * remote host. The Worker has already verified chunk offsets; this object re-checks size and
+   * that the transfer prefix belongs to the session's owner.
+   */
+  private async executeSftpUpload(body: Record<string, unknown>): Promise<Response> {
+    const client = await this.ensureSftpClient()
+    const path = normalizeSftpPath(body.path)
+    const size = Number(body.size)
+    if (!Number.isSafeInteger(size) || size < 0 || size > WEBSSH_SFTP_MAX_FILE_BYTES) {
+      throw new SftpOperationError('file_too_large', 'The upload size is invalid or exceeds 2 GiB')
+    }
+    const transferId = body.transferId
+    if (typeof transferId !== 'string' || !isValidId(transferId)) {
+      throw new SftpOperationError('bad_request', 'Invalid upload transfer id')
+    }
+    const r2 = this.env.FILES
+    if (!r2) throw new SftpOperationError('storage_unavailable', 'R2 staging is not bound')
+    const prefix = `webssh/documents/uploads/${this.userId}/${transferId}/`
+    const parts: R2Object[] = []
+    let cursor: string | undefined
+    do {
+      const listed = await r2.list({ prefix: `${prefix}parts/`, cursor })
+      parts.push(...listed.objects)
+      if (parts.length > WEBSSH_SFTP_MAX_UPLOAD_PARTS) {
+        throw new SftpOperationError('too_many_entries', 'The staged upload has too many parts')
+      }
+      cursor = listed.truncated ? listed.cursor : undefined
+    } while (cursor)
+    parts.sort((left, right) => left.key.localeCompare(right.key))
+    if (parts.length === 0 && size > 0) throw new SftpOperationError('size_mismatch', 'The staged upload has no parts')
+
+    async function* readParts(): AsyncGenerator<Uint8Array> {
+      for (const part of parts) {
+        const object = await r2!.get(part.key)
+        if (!object) throw new SftpOperationError('size_mismatch', 'A staged upload part disappeared')
+        const reader = object.body.getReader()
+        try {
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            if (value.length > 0) yield value
+          }
+        } finally {
+          reader.releaseLock()
+        }
+      }
+    }
+
+    await writeFileChunks(client, path, size, readParts())
+    await this.audit('file_upload', {
+      hostId: this.hostId,
+      metadata: { path: auditPath(path), bytes: size, transferId, parts: parts.length },
+    })
+    return sftpJson({ ok: true })
+  }
+
+  private async ensureSftpClient(): Promise<SFTPClient> {
+    if (this.sftpClient) return this.sftpClient
+    const session = this.session
+    if (!session) throw new SftpOperationError('session_not_ready', 'The SSH session is not connected')
+    let client: SFTPClient | null = null
+    const buffered: Uint8Array[] = []
+    const channel = await session.openSubsystem('sftp', {
+      onData: (data) => {
+        if (!client) {
+          buffered.push(data)
+          return
+        }
+        try {
+          client.feed(data)
+        } catch (error) {
+          this.disposeSftp(error instanceof Error ? error : new Error(String(error)))
+        }
+      },
+      onEof: () => this.disposeSftp(new Error('The SFTP subsystem ended')),
+      onClose: () => this.disposeSftp(new Error('The SFTP subsystem channel closed')),
+    })
+    client = new SFTPClient((packet) => channel.write(packet), { requestTimeoutMs: 30_000 })
+    this.sftpClient = client
+    this.sftpChannel = channel
+    const initialized = client.initialize()
+    for (const chunk of buffered) client.feed(chunk)
+    try {
+      await initialized
+    } catch (error) {
+      this.disposeSftp(error instanceof Error ? error : new Error(String(error)))
+      throw error
+    }
+    return client
+  }
+
+  private disposeSftp(reason: Error): void {
+    const client = this.sftpClient
+    const channel = this.sftpChannel
+    this.sftpClient = null
+    this.sftpChannel = null
+    client?.dispose(reason)
+    if (channel) void channel.close().catch(() => undefined)
+  }
+
   private onOutput(data: Uint8Array): void {
     this.bytesOut += data.length
     this.touch()
@@ -485,6 +706,7 @@ export class WebsshSession implements DurableObject {
     if (this.finalized) return
     this.finalized = true
     this.clearTimers()
+    this.disposeSftp(new Error('The WebSSH session ended'))
     const now = Date.now()
     const session = this.session
     this.session = null
@@ -674,4 +896,51 @@ export class WebsshSession implements DurableObject {
       metadata: input.metadata,
     }).catch((error) => console.warn('[inkstone] WebSSH audit write failed:', failureMessage(error)))
   }
+}
+
+/** Audit metadata is capped at 2 KiB, so long remote paths are shortened before they are stored. */
+function auditPath(value: string, limit = 1024): string {
+  return value.length <= limit ? value : `${value.slice(0, limit - 3)}...`
+}
+
+function sftpJson(value: unknown, status = 200): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+function sftpJsonError(status: number, code: string, message: string): Response {
+  return sftpJson({ error: { code, message } }, status)
+}
+
+/** Maps SFTP protocol/validation failures onto the REST status codes the Worker route forwards. */
+function sftpErrorResponse(error: unknown): Response {
+  if (error instanceof SftpPathError) {
+    return sftpJsonError(400, error.code, error.message)
+  }
+  if (error instanceof SftpOperationError) {
+    const status = error.code === 'file_too_large' || error.code === 'block_too_large' || error.code === 'too_many_entries'
+      ? 413
+      : error.code === 'session_not_ready' || error.code === 'size_mismatch' || error.code === 'is_directory'
+        ? 409
+        : error.code === 'storage_unavailable'
+          ? 503
+          : 400
+    return sftpJsonError(status, error.code, error.message)
+  }
+  if (error instanceof SFTPStatusError) {
+    const status = error.code === SFTP_STATUS.NO_SUCH_FILE
+      ? 404
+      : error.code === SFTP_STATUS.PERMISSION_DENIED
+        ? 403
+        : 409
+    const code = status === 404 ? 'not_found' : status === 403 ? 'forbidden' : 'sftp_error'
+    return sftpJsonError(status, code, error.description || error.message)
+  }
+  if (error instanceof SSHSessionError) {
+    return sftpJsonError(409, error.code, error.message)
+  }
+  const message = failureMessage(error)
+  return sftpJsonError(502, 'sftp_error', message)
 }
