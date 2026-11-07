@@ -3,7 +3,7 @@ import { countText, deriveExcerpt, extractTags, extractWikiLinks, normalizeLinkK
 import { newId } from '../lib/id'
 
 
-export type ChangeEntity = 'note' | 'folder' | 'tag' | 'settings' | 'profile' | 'site'
+export type ChangeEntity = 'note' | 'folder' | 'tag' | 'settings' | 'profile' | 'site' | 'project'
 export type ChangeOp = 'upsert' | 'delete'
 
 export const FTS_QUEUE_CONFLICT_SQL = `ON CONFLICT(user_id, note_id) DO UPDATE SET

@@ -12497,6 +12497,10 @@ const allowed = new Map([
     "// The last branch is for `[[#heading]]`, whose target lives in that same datum. A span without one",
     "// is not a wiki link, and the card it used to produce only repeated the note already on screen.",
   ]],
+  ["src/client/features/project/BoardPage.tsx", [
+    "// Realtime fallback (D-11): the sync hub notifies members on writes, but a tab that misses the",
+    "// notification (or a deployment without the DO) still converges via a quiet 30s refetch.",
+  ]],
   ["src/client/features/project/BoardViews.tsx", [
     "/* scalar falls through */",
   ]],
@@ -41026,8 +41030,12 @@ const allowed = new Map([
   ["src/worker/project/permissions.ts", [
     "/**\n * Which boards the sidebar lists, and what the caller may do with each.\n *\n * A board reaches its audience two ways — the account owns it, or a membership row names it — so the\n * list is the union of the two, and a board the caller can no longer read is dropped rather than\n * shown greyed out. The role is resolved here so no caller has to remember the open-board rule.\n */",
   ]],
+  ["src/worker/project/realtime.ts", [
+    "/**\n * Board-scoped realtime fan-out (D-11). The shared sync hub is per-user, so a project write notifies\n * every member's hub individually with the board's fresh cursor and the writer's origin; a client\n * ignores notifications whose origin is its own tab and otherwise refetches the open board. Members\n * are capped at the board-member ceiling, and a hub failure is best-effort (the 30s client poll is the\n * fallback), so one unreachable member never fails the write.\n */",
+  ]],
   ["src/worker/project/routes.ts", [
     "/** Public read-only share reader: no session, the slug (plus optional password) is the capability. */",
+    "/**\n * After any successful board-scoped write, tell every member's sync hub so open boards refetch. The\n * board id comes from the path for /boards/:id and from a row lookup for the child entities; routes\n * that own no board (categories, subscriptions, import) fall through untouched.\n */",
   ]],
   ["src/worker/project/schema.ts", [
     "/**\n * The project app's tables, in arrays so a fresh database and a migrated one arrive at the same shape\n * by the same text: `SCHEMA_STATEMENTS` spreads these, and migrations 287-291 apply the very same\n * arrays to a database that predates the app.\n *\n * Boards are shared objects, so a board-scoped row keys on its own id and reaches its audience through\n * `project_board_members`; only the account's own furniture (categories, settings) keys on the account.\n * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.\n */",

@@ -29,6 +29,8 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
+import { originOf } from '../lib/notify'
+import { broadcastProjectChange } from './realtime'
 import { exportProjectBoardArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireCard, requireComment, requireContent, requireView } from './auth'
 import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
@@ -101,6 +103,33 @@ import {
 export const projectRoutes = new Hono<AppBindings>()
 
 projectRoutes.use('*', requireAuth)
+
+/**
+ * After any successful board-scoped write, tell every member's sync hub so open boards refetch. The
+ * board id comes from the path for /boards/:id and from a row lookup for the child entities; routes
+ * that own no board (categories, subscriptions, import) fall through untouched.
+ */
+projectRoutes.use('*', async (c, next) => {
+  await next()
+  const method = c.req.method.toUpperCase()
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS' || !c.res.ok) return
+  const path = c.req.path
+  let boardId: string | undefined
+  const boardMatch = /^\/api\/project\/boards\/([^/]+)(?:\/|$)/.exec(path)
+  if (boardMatch && boardMatch[1] !== 'import' && boardMatch[1] !== 'from-template') {
+    boardId = boardMatch[1]
+  } else {
+    const child = /^\/api\/project\/(cards|views|contents|comments)\/([^/]+)/.exec(path)
+    if (child) {
+      const table = { cards: 'project_cards', views: 'project_views', contents: 'project_card_contents', comments: 'project_comments' }[child[1] as 'cards' | 'views' | 'contents' | 'comments']
+      const row = await c.env.DB.prepare(`SELECT board_id FROM ${table} WHERE id = ?1`).bind(child[2]).first<{ board_id: string }>()
+      boardId = row?.board_id
+    }
+  }
+  if (!boardId) return
+  const task = broadcastProjectChange(c.env, boardId, Date.now(), originOf(c), (t) => c.executionCtx?.waitUntil(t))
+  task.catch((error: unknown) => console.warn('[inkstone] project fan-out failed:', error instanceof Error ? error.message : error))
+})
 
 function store(c: Context<AppBindings>): ProjectStore {
   return new ProjectStore(c.env.DB, projectUserId(c))

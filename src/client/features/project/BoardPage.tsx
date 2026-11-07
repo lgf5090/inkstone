@@ -44,6 +44,18 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     return () => controller.abort()
   }, [boardId])
 
+  // Realtime fallback (D-11): the sync hub notifies members on writes, but a tab that misses the
+  // notification (or a deployment without the DO) still converges via a quiet 30s refetch.
+  useEffect(() => {
+    const controller = new AbortController()
+    const timer = window.setInterval(() => {
+      fetchProjectBoardBundle(boardId, controller.signal)
+        .then((fresh) => setBundle(fresh))
+        .catch(() => undefined)
+    }, 30_000)
+    return () => { window.clearInterval(timer); controller.abort() }
+  }, [boardId])
+
   const addCard = useCallback(async () => {
     const trimmed = title.trim()
     if (!trimmed || busy || !bundle) return
