@@ -1,0 +1,17 @@
+/* WebSSH's terminal glue. Colours come from xterm's theme object (built from the Inkstone palettes in
+   `terminal-themes.ts`); this file only makes the xterm surface take the box the app gives it. */
+.webssh-terminal {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.webssh-terminal .xterm {
+  height: 100%;
+  width: 100%;
+  padding: 0;
+}
+
+.webssh-terminal .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}

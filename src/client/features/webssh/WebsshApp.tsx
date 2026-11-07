@@ -16,9 +16,9 @@ import type {
   WebsshHostPreflight,
   WebsshKey,
 } from '@shared/webssh/types'
-import { Button, IconButton } from '../../components/primitives'
+import { Badge, Button, IconButton } from '../../components/primitives'
 import { Empty } from '../../components/feedback'
-import { confirm } from '../../components/overlay'
+import { Tooltip, confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useBreakpoint } from '../../lib/hooks'
 import { t } from '../../lib/i18n'
@@ -30,6 +30,16 @@ import { GroupDialog } from './GroupDialog'
 import { CredentialDialog } from './CredentialDialog'
 import { KeyManagerDialog } from './KeyManagerDialog'
 import { FingerprintDialog } from './FingerprintDialog'
+import { TerminalWorkspace } from './TerminalWorkspace'
+import '@xterm/xterm/css/xterm.css'
+import './webssh.css'
+
+/**
+ * The demo transport is still the only implementation the terminal has. Until the host-to-session
+ * wiring replaces it, the badge stays visible: a terminal that looks live must never be mistaken
+ * for a real SSH connection.
+ */
+const DEMO_TRANSPORT = true
 
 type SortKey = 'manual' | 'name' | 'recent'
 
@@ -61,6 +71,7 @@ export function WebsshApp() {
   const [refreshToken, setRefreshToken] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [pinnedHost, setPinnedHost] = useState<WebsshHost | null>(null)
+  const [workspaceHost, setWorkspaceHost] = useState<WebsshHost | null>(null)
   const [hostDialog, setHostDialog] = useState<{ open: boolean; host: WebsshHost | null }>({ open: false, host: null })
   const [groupsOpen, setGroupsOpen] = useState(false)
   const [credentialsOpen, setCredentialsOpen] = useState(false)
@@ -123,6 +134,7 @@ export function WebsshApp() {
     setPinnedHost(null)
     setPreflight(null)
     setFingerprints([])
+    setWorkspaceHost(null)
   }
 
   const openFingerprints = async () => {
@@ -170,6 +182,7 @@ export function WebsshApp() {
       setSelectedId(null)
       setPinnedHost(null)
       setPreflight(null)
+      setWorkspaceHost(null)
       refresh()
     } catch (caught) {
       useUi.getState().toast({
@@ -179,6 +192,28 @@ export function WebsshApp() {
     }
   }
 
+  const workspace = workspaceHost ? (
+    <section className="flex min-h-0 flex-1 flex-col" aria-label={workspaceHost.name}>
+      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
+        <IconButton label={t('webssh.actions.back')} size="sm" onClick={() => setWorkspaceHost(null)}>
+          <ArrowLeft size={15} aria-hidden="true" />
+        </IconButton>
+        <span className="min-w-0 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">
+          {workspaceHost.name}
+        </span>
+        <span className="min-w-0 truncate font-mono text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+          {workspaceHost.username}@{workspaceHost.host}:{workspaceHost.port}
+        </span>
+        {DEMO_TRANSPORT && (
+          <Tooltip label={t('webssh.app.demo_hint')}>
+            <Badge tone="warning">{t('webssh.app.demo_badge')}</Badge>
+          </Tooltip>
+        )}
+      </div>
+      <TerminalWorkspace demoTransport={DEMO_TRANSPORT} />
+    </section>
+  ) : null
+
   const detail = selected ? (
     <HostDetail
       host={selected}
@@ -187,6 +222,7 @@ export function WebsshApp() {
       keyLabel={keys.find((key) => key.id === selected.keyId)?.label ?? null}
       preflight={preflight}
       onBack={isMobile ? () => setSelectedId(null) : undefined}
+      onConnect={() => setWorkspaceHost(selected)}
       onEdit={() => setHostDialog({ open: true, host: selected })}
       onDelete={removeHost}
       onCheck={runPreflight}
@@ -202,6 +238,8 @@ export function WebsshApp() {
     </div>
   )
 
+  const rightPane = workspace ?? detail
+
   return (
     <div
       data-testid="webssh-app-root"
@@ -212,6 +250,11 @@ export function WebsshApp() {
         <h1 className="truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
           {t('webssh.app.title')}
         </h1>
+        {DEMO_TRANSPORT && (
+          <Tooltip label={t('webssh.app.demo_hint')}>
+            <Badge tone="warning">{t('webssh.app.demo_badge')}</Badge>
+          </Tooltip>
+        )}
         <span className="hidden min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)] md:block">
           {t('webssh.app.subtitle')}
         </span>
@@ -229,7 +272,7 @@ export function WebsshApp() {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        {(!isMobile || !selected) && (
+        {(!isMobile || (!selected && !workspaceHost)) && (
           <HostList
             hosts={hosts}
             groups={groups}
@@ -262,7 +305,7 @@ export function WebsshApp() {
             onRetry={refresh}
           />
         )}
-        {(!isMobile || selected) && detail}
+        {(!isMobile || selected || workspaceHost) && rightPane}
       </div>
 
       <HostDialog
@@ -321,13 +364,14 @@ export function WebsshApp() {
   )
 }
 
-function HostDetail({ host, groupName, credentialLabel, keyLabel, preflight, onBack, onEdit, onDelete, onCheck, onFingerprints }: {
+function HostDetail({ host, groupName, credentialLabel, keyLabel, preflight, onBack, onConnect, onEdit, onDelete, onCheck, onFingerprints }: {
   host: WebsshHost
   groupName: string | null
   credentialLabel: string | null
   keyLabel: string | null
   preflight: WebsshHostPreflight | null
   onBack?: () => void
+  onConnect: () => void
   onEdit: () => void
   onDelete: () => void
   onCheck: () => void
@@ -393,7 +437,10 @@ function HostDetail({ host, groupName, credentialLabel, keyLabel, preflight, onB
         )}
 
         <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-4">
-          <Button variant="primary" onClick={onCheck}>{t('webssh.actions.check_connection')}</Button>
+          <Button variant="primary" onClick={onConnect} icon={<SquareTerminal size={13} aria-hidden="true" />}>
+            {t('webssh.actions.open_terminal')}
+          </Button>
+          <Button onClick={onCheck}>{t('webssh.actions.check_connection')}</Button>
           <Button onClick={onFingerprints} icon={<ShieldCheck size={13} aria-hidden="true" />}>{t('webssh.actions.fingerprints')}</Button>
         </div>
 
