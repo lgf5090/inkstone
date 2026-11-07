@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import { ArrowLeft, FileDown, History, Plus, Settings2, Share2, SquareKanban } from 'lucide-react'
 import type { ProjectActivityEntry, ProjectBoardBundle, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
-import { projectRoleAtLeast } from '@shared/project/model'
+import { projectRoleAtLeast, emptyProjectViewFields } from '@shared/project/model'
+import { buildProjectAssistantFacts } from '@shared/project/assistant-context'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
+import { useAssistant } from '../chat/assistant-store'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -65,6 +67,18 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     }, 30_000)
     return () => { window.clearInterval(timer); controller.abort() }
   }, [boardId])
+
+  useEffect(() => {
+    if (!bundle) return
+    const store = useAssistant.getState()
+    store.setDockSurface('project')
+    store.setProjectContext({
+      surface: 'project',
+      label: bundle.board.title || t('project.boards.untitled'),
+      facts: buildProjectAssistantFacts(bundle, bundle.views[0]?.fields ?? emptyProjectViewFields()),
+    })
+    return () => { useAssistant.getState().setProjectContext(null) }
+  }, [bundle])
 
   const addCard = useCallback(async () => {
     const trimmed = title.trim()

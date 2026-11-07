@@ -1,16 +1,18 @@
-import { useRef, useState, type ReactElement } from 'react'
+import { useRef, useState, useEffect, type ReactElement } from 'react'
 import { ArrowUpDown, Eye, Filter, Plus, Trash2 } from 'lucide-react'
-import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
+import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
 import { groupProjectCards, matchProjectFilterGroup, sortProjectCards } from '@shared/project/view-eval'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
-import { Select } from '../../components/form'
+import { Input, Select } from '../../components/form'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { FilterModal, PropertiesModal, SortModal } from './ViewSettingsModals'
 import { CalendarView, GalleryView } from './GalleryCalendar'
+import { ChartView, ListView, TimelineView } from './ExtraViews'
+import { fetchBoardLinks } from './api'
 
 const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   board: 'project.view.board',
@@ -58,6 +60,12 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const addAnchor = useRef<HTMLButtonElement>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [settings, setSettings] = useState<'sort' | 'filter' | 'properties' | null>(null)
+  const [links, setLinks] = useState<ProjectCardLink[]>([])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchBoardLinks(bundle.board.id, controller.signal).then(setLinks).catch(() => { if (!controller.signal.aborted) setLinks([]) })
+    return () => controller.abort()
+  }, [bundle.board.id])
   const active = bundle.views.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
   const fields = active?.fields ?? emptyProjectViewFields()
   const viewType = active?.viewType ?? 'table'
@@ -94,7 +102,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               open={addOpen}
               onClose={() => setAddOpen(false)}
               label={t('project.view.add')}
-              items={([['table', 'project.view.table'], ['board', 'project.view.board'], ['gallery', 'project.view.gallery'], ['calendar', 'project.view.calendar']] as const).map(([type, key]) => ({
+              items={([['table', 'project.view.table'], ['board', 'project.view.board'], ['gallery', 'project.view.gallery'], ['calendar', 'project.view.calendar'], ['list', 'project.view.list'], ['timeline', 'project.view.timeline'], ['gantt', 'project.view.gantt'], ['chart', 'project.view.chart']] as const).map(([type, key]) => ({
                 id: type,
                 label: t(key),
                 onSelect: () => onCreateView(type),
@@ -111,6 +119,20 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             onChange={(event) => onPatchView(active.id, { fields: { groupById: event.target.value || undefined } })}
           >
             <option value="">{t('project.view.group_by')}</option>
+            {bundle.properties.filter((property) => property.type === 'select' || property.type === 'person').map((property) => (
+              <option key={property.id} value={property.id}>{property.name}</option>
+            ))}
+          </Select>
+        )}
+        {active && viewType === 'board' && (
+          <Select
+            className="w-36"
+            value={fields.swimlaneBy ?? ''}
+            aria-label={t('project.view.swimlane')}
+            disabled={!canEdit}
+            onChange={(event) => onPatchView(active.id, { fields: { swimlaneBy: event.target.value || undefined } })}
+          >
+            <option value="">{t('project.view.swimlane')}</option>
             {bundle.properties.filter((property) => property.type === 'select' || property.type === 'person').map((property) => (
               <option key={property.id} value={property.id}>{property.name}</option>
             ))}
@@ -140,10 +162,18 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         : sorted.length === 0
           ? <Empty art="folder" title={t('project.board.empty_cards')} />
           : viewType === 'board'
-            ? <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />
+            ? (fields.swimlaneBy
+              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />
+              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />)
             : viewType === 'gallery'
               ? <GalleryView cards={sorted} onOpenCard={onOpenCard} />
-              : (
+              : viewType === 'list'
+                ? <ListView cards={sorted} properties={bundle.properties} onOpenCard={onOpenCard} />
+                : viewType === 'timeline' || viewType === 'gantt'
+                  ? <TimelineView cards={sorted} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} links={links} gantt={viewType === 'gantt'} onOpenCard={onOpenCard} />
+                  : viewType === 'chart'
+                    ? <ChartView cards={sorted} properties={bundle.properties} />
+                    : (
               <div className="min-h-0 flex-1 overflow-auto">
                 <table className="w-full border-collapse text-[length:var(--text-13)]">
                   <thead>
@@ -246,7 +276,23 @@ function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onO
                   {calculationOptionsFor(calcProperty).map((option) => <option key={option} value={option}>{option}</option>)}
                 </Select>
               )}
-              <span className="text-[var(--text-tertiary)]">{calcProperty ? computeProjectCalculation(bucket, calcProperty, calc) : bucket.length}</span>
+              <span className={fields.wipLimits?.[key] !== undefined && bucket.length > fields.wipLimits[key]! ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}>{calcProperty ? computeProjectCalculation(bucket, calcProperty, calc) : bucket.length}</span>
+              {canEdit && groupProperty && (
+                <Input
+                  type="number"
+                  className="w-14"
+                  value={fields.wipLimits?.[key] ?? ''}
+                  placeholder="WIP"
+                  aria-label={`${label} WIP`}
+                  onChange={(event) => {
+                    const raw = event.target.value
+                    const next = { ...fields.wipLimits }
+                    if (raw === '') delete next[key]
+                    else next[key] = Number(raw)
+                    onPatch({ wipLimits: next })
+                  }}
+                />
+              )}
             </header>
             <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
               {bucket.length === 0 && <li className="px-1 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.empty_column')}</li>}
@@ -266,6 +312,32 @@ function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onO
           </section>
         )
       })}
+    </div>
+  )
+}
+
+function Swimlanes({ cards, fields, properties, canEdit, onDeleteCard, onOpenCard, density, onPatch }: {
+  cards: ProjectCard[]
+  fields: ProjectViewFields
+  properties: ProjectProperty[]
+  canEdit: boolean
+  onDeleteCard: (id: string) => void
+  onOpenCard: (id: string) => void
+  density: 'compact' | 'comfortable' | 'spacious'
+  onPatch: (fields: Partial<ProjectViewFields>) => void
+}) {
+  const laneProperty = properties.find((property) => property.id === fields.swimlaneBy)
+  const lanes = groupProjectCards(cards, fields.swimlaneBy, properties)
+  return (
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+      {[...lanes.entries()].map(([key, laneCards]) => (
+        <section key={key || 'empty'}>
+          <h3 className="mb-1 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
+            {key === '' ? t('project.view.no_value') : laneProperty?.options.find((o) => o.id === key)?.value ?? key}
+          </h3>
+          <BoardColumns cards={laneCards} groupById={fields.groupById} properties={properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={onPatch} />
+        </section>
+      ))}
     </div>
   )
 }

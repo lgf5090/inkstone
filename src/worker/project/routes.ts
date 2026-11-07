@@ -23,6 +23,7 @@ import {
   ProjectMemberPatchSchema,
   ProjectSharePutSchema,
   ProjectSubscriptionCreateSchema,
+  ProjectTodoLinkSchema,
   ProjectViewCreateSchema,
   ProjectViewPatchSchema,
 } from '@shared/project/validation'
@@ -89,7 +90,7 @@ import {
 import { ProjectStore } from './store'
 import { searchProject } from './search'
 import { topProjectBoards } from './insights'
-import { addCardLink, createCardFromTemplate, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate } from './enhance'
+import { addCardLink, createCardFromTemplate, getCardTodoLink, linkCardTodo, listBoardLinks, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate, unlinkCardTodo } from './enhance'
 import { projectBoardToMarkdown } from '@shared/project/markdown'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
 import { projectStatistics } from './statistics'
@@ -179,6 +180,11 @@ projectRoutes.get('/boards/:id/activity', async (c) => {
   return c.json({ activity: await listProjectActivity(c.env.DB, board.id, limit) })
 })
 
+projectRoutes.get('/boards/:id/links', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ links: await listBoardLinks(c.env.DB, board.id) })
+})
+
 projectRoutes.get('/boards/:id/markdown', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
   const bundle = await readProjectBoardBundle(c.env.DB, board, role)
@@ -204,6 +210,24 @@ projectRoutes.delete('/cards/:id/links/:toId', async (c) => {
   const { card } = await requireCard(c, c.req.param('id'), 'editor')
   const kind = (c.req.query('kind') ?? 'blocks') as 'blocks' | 'parent'
   await removeCardLink(c.env.DB, card.id, c.req.param('toId'), kind)
+  return c.json({ ok: true })
+})
+
+projectRoutes.get('/cards/:id/todo-link', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ todoId: await getCardTodoLink(c.env.DB, card.id) })
+})
+
+projectRoutes.post('/cards/:id/todo-link', async (c) => {
+  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectTodoLinkSchema, JSON_BODY_LIMITS.small)
+  await linkCardTodo(c.env.DB, card.id, input.todoId, userId, Date.now())
+  return c.json({ ok: true }, 201)
+})
+
+projectRoutes.delete('/cards/:id/todo-link', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  await unlinkCardTodo(c.env.DB, card.id)
   return c.json({ ok: true })
 })
 

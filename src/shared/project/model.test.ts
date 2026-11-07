@@ -16,9 +16,9 @@ import {
 import { PROJECT_ID_PATTERN, PROJECT_LIMITS, isProjectId, newProjectId } from './limits'
 
 describe('the project vocabulary', () => {
-  it('declares the seventeen property types and the fifteen filter conditions the reference has', () => {
+  it('declares the seventeen property types and the reference fifteen conditions plus the two numeric additions (X-8)', () => {
     expect(PROJECT_PROPERTY_TYPES).toHaveLength(17)
-    expect(PROJECT_FILTER_CONDITIONS).toHaveLength(15)
+    expect(PROJECT_FILTER_CONDITIONS).toHaveLength(17)
     expect(PROJECT_CALCULATIONS).toHaveLength(21)
     expect(PROJECT_VIEW_TYPES).toHaveLength(8)
     expect(PROJECT_ROLES).toEqual(['viewer', 'commenter', 'editor', 'admin'])
@@ -35,7 +35,9 @@ describe('the project vocabulary', () => {
 
   it('gives every property type a capability, including the two the reference never registers', () => {
     expect(Object.keys(PROJECT_PROPERTY_CAPABILITIES).sort()).toEqual([...PROJECT_PROPERTY_TYPES].sort())
-    expect(PROJECT_PROPERTY_CAPABILITIES.number.canFilter).toBe(false)
+    // X-8 deliberately makes number filterable/groupable, unlike the reference.
+    expect(PROJECT_PROPERTY_CAPABILITIES.number.canFilter).toBe(true)
+    expect(PROJECT_PROPERTY_CAPABILITIES.number.canGroup).toBe(true)
     expect(PROJECT_PROPERTY_CAPABILITIES.createdBy).toEqual({
       canFilter: true, filterValueType: 'person', canGroup: true, readOnly: true,
     })

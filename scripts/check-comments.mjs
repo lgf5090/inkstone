@@ -12504,6 +12504,10 @@ const allowed = new Map([
   ["src/client/features/project/BoardViews.tsx", [
     "/* scalar falls through */",
   ]],
+  ["src/client/features/project/ExtraViews.tsx", [
+    "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
+    "/* bare stamp */",
+  ]],
   ["src/client/features/project/api.ts", [
     "/** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */",
   ]],
@@ -32332,6 +32336,9 @@ const allowed = new Map([
     "/**\n * Read one `board.jsonl`.\n *\n * The board itself arrives two ways. A current export writes it as a `board` line; the reference's own\n * built-in templates predate that and carry it as a `block` line whose `data.type` is `board` and\n * whose parent is empty. Dispatching on the outer type alone reads none of those seven templates.\n */",
     "/** The board hidden in a legacy `block` line, or null when the block is an ordinary child. */",
   ]],
+  ["src/shared/project/assistant-context.ts", [
+    "/**\n * Board context for the assistant (X-6): bounded, countable facts about the open board — never\n * instructions — mirroring the todo context's discipline. The dock sends these as page facts so the\n * model can answer \"what's due this week\" or \"split this card\" against real data.\n */",
+  ]],
   ["src/shared/project/calculations.ts", [
     "/**\n * The 21 column summaries (§3.3.1), ported from the reference's calculations.ts. Values come from the\n * card's value bag (or its stamps for the server-written time fields); numeric results round to two\n * decimals and timestamps normalize to whole minutes, matching the reference's display precision.\n */",
     "/* bare stamp */",
@@ -32363,6 +32370,9 @@ const allowed = new Map([
   ["src/shared/project/markdown.ts", [
     "/**\n * Board-as-Markdown (X-12): a readable report of a board's cards, grouped by the active grouping\n * property when present, with each card's property values and text content. Pure so it can be tested\n * and reused by any export surface.\n */",
     "/* scalar */",
+  ]],
+  ["src/shared/project/model.test.ts", [
+    "// X-8 deliberately makes number filterable/groupable, unlike the reference.",
   ]],
   ["src/shared/project/model.ts", [
     "/**\n * The project app's vocabulary: what a board, a card, a property and a view are, spelled once for the\n * server that stores them and the client that draws them.\n *\n * The shapes follow Focalboard's block model rather than inventing a new one, because an archive\n * exported there has to import here field for field. Where this port deliberately differs, the\n * reason is stated at the declaration.\n */",
@@ -41041,6 +41051,7 @@ const allowed = new Map([
     "/**\n * Board activity trail (X-7) and card dependencies (X-3). Activity rows are append-only facts about\n * who changed what; the dependency graph is a set of directed 'blocks' edges with cycle detection so\n * a board can never deadlock itself. Both reuse tables created with the core schema.\n */",
     "/** Adding a 'blocks' edge that would close a cycle is refused, keeping the dependency graph acyclic. */",
     "/** New card from a template card: copies its values and content blocks into a fresh live card. */",
+    "/** X-5: a card ↔ /todo task mapping, one task per card. */",
   ]],
   ["src/worker/project/insights.ts", [
     "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.\n */",

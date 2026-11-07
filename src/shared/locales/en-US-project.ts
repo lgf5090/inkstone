@@ -111,4 +111,11 @@ export const EN_US_PROJECT = {
     "project.view.density_spacious": "Spacious",
     "project.card.save_as_template": "Save as template",
     "project.card.from_template": "From template",
+    "project.view.list": "List",
+    "project.view.timeline": "Timeline",
+    "project.view.gantt": "Gantt",
+    "project.view.chart": "Chart",
+    "project.view.no_dates": "No dated cards",
+    "project.view.blocked": "Blocked",
+    "project.view.swimlane": "Swimlane",
 } as const

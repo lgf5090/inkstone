@@ -57,6 +57,14 @@ export async function listCardLinks(db: D1Database, cardId: string): Promise<Pro
   return results.map((row) => ({ fromCardId: row.from_card_id, toCardId: row.to_card_id, kind: row.kind as ProjectCardLinkKind }))
 }
 
+export async function listBoardLinks(db: D1Database, boardId: string): Promise<ProjectCardLink[]> {
+  const { results } = await db
+    .prepare('SELECT from_card_id, to_card_id, kind FROM project_card_links WHERE board_id = ?1')
+    .bind(boardId)
+    .all<{ from_card_id: string, to_card_id: string, kind: string }>()
+  return results.map((row) => ({ fromCardId: row.from_card_id, toCardId: row.to_card_id, kind: row.kind as ProjectCardLinkKind }))
+}
+
 /** Adding a 'blocks' edge that would close a cycle is refused, keeping the dependency graph acyclic. */
 export async function addCardLink(db: D1Database, boardId: string, fromId: string, toId: string, kind: ProjectCardLinkKind, now: number): Promise<void> {
   if (fromId === toId) throw ApiError.badRequest('a card cannot depend on itself')
@@ -82,4 +90,20 @@ export async function addCardLink(db: D1Database, boardId: string, fromId: strin
 
 export async function removeCardLink(db: D1Database, fromId: string, toId: string, kind: ProjectCardLinkKind): Promise<void> {
   await db.prepare('DELETE FROM project_card_links WHERE from_card_id = ?1 AND to_card_id = ?2 AND kind = ?3').bind(fromId, toId, kind).run()
+}
+
+/** X-5: a card ↔ /todo task mapping, one task per card. */
+export async function linkCardTodo(db: D1Database, cardId: string, todoId: string, userId: string, now: number): Promise<void> {
+  await db.prepare(
+    'INSERT INTO project_todo_links (card_id, todo_id, user_id, created_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, todo_id) DO NOTHING',
+  ).bind(cardId, todoId, userId, now).run()
+}
+
+export async function unlinkCardTodo(db: D1Database, cardId: string): Promise<void> {
+  await db.prepare('DELETE FROM project_todo_links WHERE card_id = ?1').bind(cardId).run()
+}
+
+export async function getCardTodoLink(db: D1Database, cardId: string): Promise<string | null> {
+  const row = await db.prepare('SELECT todo_id FROM project_todo_links WHERE card_id = ?1').bind(cardId).first<{ todo_id: string }>()
+  return row?.todo_id ?? null
 }

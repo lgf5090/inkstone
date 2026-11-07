@@ -209,6 +209,8 @@ export interface ProjectViewFields {
   groupById?: string
   dateDisplayPropertyId?: string
   cardSize?: 'compact' | 'comfortable' | 'spacious'
+  swimlaneBy?: string
+  wipLimits?: Record<string, number>
   sortOptions: ProjectSortOption[]
   visiblePropertyIds: string[]
   visibleOptionIds: string[]

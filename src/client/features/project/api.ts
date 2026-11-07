@@ -194,6 +194,11 @@ export async function fetchCardLinks(cardId: string): Promise<ProjectCardLink[]>
   return body.links
 }
 
+export async function fetchBoardLinks(boardId: string, signal?: AbortSignal): Promise<ProjectCardLink[]> {
+  const body = await request<{ links: ProjectCardLink[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/links`, { signal })
+  return body.links
+}
+
 export async function addCardLink(cardId: string, toCardId: string, kind: ProjectCardLink['kind']): Promise<void> {
   await request<{ ok: true }>(`/api/project/cards/${encodeURIComponent(cardId)}/links`, { method: 'POST', body: { toCardId, kind } })
 }

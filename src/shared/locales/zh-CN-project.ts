@@ -111,4 +111,11 @@ export const ZH_CN_PROJECT = {
     "project.view.density_spacious": "宽松",
     "project.card.save_as_template": "另存为模板",
     "project.card.from_template": "从模板新建",
+    "project.view.list": "列表",
+    "project.view.timeline": "时间轴",
+    "project.view.gantt": "甘特",
+    "project.view.chart": "图表",
+    "project.view.no_dates": "暂无带日期的卡片",
+    "project.view.blocked": "被阻塞",
+    "project.view.swimlane": "泳道",
 } as const

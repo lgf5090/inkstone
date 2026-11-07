@@ -84,9 +84,11 @@ function derivePageContext(input: {
   database: DatabaseAssistantContext | null
   music: MusicAssistantContext | null
   inknote: InknoteAssistantContext | null
+  project: AssistantPageContext | null
 }): AssistantPageContext | null {
   const { surface } = input
   if (surface === 'notebook') return null
+  if (surface === 'project') return input.project
   if (surface === 'subscriptions') {
     return {
       surface,
@@ -227,6 +229,7 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   const noteContextOn = useAssistant((state) => state.noteContextOn)
   const activeNoteId = useUi((state) => state.activeNoteId)
   const todo = useAssistant((state) => state.todoContext)
+  const projectContext = useAssistant((state) => state.projectContext)
   const todoOn = useAssistant((state) => state.todoContextOn)
   const setTodoContextOn = useAssistant((state) => state.setTodoContextOn)
   const emailContext = useAssistant((state) => state.emailContext)
@@ -402,8 +405,8 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   // What "this page" means here. The caller's own context wins when it has one; otherwise the surface's
   // props are enough to name the screen. The notebook is left out — its note pointer says it better.
   const derivedPageContext = useMemo(
-    () => pageContextProp ?? derivePageContext({ surface, subscription: subscriptionId ? { id: subscriptionId, name: subscriptionName ?? '' } : null, todo, email: emailContext, nav: navContext, database: databaseContext, music: musicContext, inknote: inknoteContext }),
-    [pageContextProp, surface, subscriptionId, subscriptionName, todo, emailContext, navContext, databaseContext, musicContext, inknoteContext],
+    () => pageContextProp ?? derivePageContext({ surface, subscription: subscriptionId ? { id: subscriptionId, name: subscriptionName ?? '' } : null, todo, email: emailContext, nav: navContext, database: databaseContext, music: musicContext, inknote: inknoteContext, project: projectContext }),
+    [pageContextProp, surface, subscriptionId, subscriptionName, todo, emailContext, navContext, databaseContext, musicContext, inknoteContext, projectContext],
   )
   // Re-attached only when the screen's words change, never on every render: a reader who takes the chip
   // off must not find it back on the next keystroke elsewhere in the page.
