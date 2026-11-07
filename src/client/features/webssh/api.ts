@@ -6,6 +6,8 @@ import type {
   WebsshHostKeyCheck,
   WebsshHostListResponse,
   WebsshHostPreflight,
+  WebsshImportCommitResult,
+  WebsshImportPreview,
   WebsshKey,
   WebsshPublicShareFrames,
   WebsshPublicShareView,
@@ -16,6 +18,8 @@ import type {
   WebsshSessionStatus,
   WebsshSessionTicket,
   WebsshShareView,
+  WebsshSnippet,
+  WebsshSnippetListResponse,
   WebsshSftpListing,
   WebsshSftpMutationResult,
   WebsshSftpUploadCreated,
@@ -180,6 +184,30 @@ export const websshApi = {
     await publicRequest<WebsshPublicShareFrames>(
       `/api/public/webssh/shares/${encodeURIComponent(slug)}/frames?offset=${offset}&limit=${limit}`,
     ),
+
+  listSnippets: async (params: { q?: string; favorite?: boolean; page?: number; pageSize?: number } = {}) => {
+    const search = new URLSearchParams()
+    if (params.q) search.set('q', params.q)
+    if (params.favorite) search.set('favorite', '1')
+    if (params.page) search.set('page', String(params.page))
+    if (params.pageSize) search.set('pageSize', String(params.pageSize))
+    const query = search.toString()
+    return await request<WebsshSnippetListResponse>(`/api/webssh/snippets${query ? `?${query}` : ''}`)
+  },
+  createSnippet: async (body: { title: string; command: string; description?: string; tags?: string[]; shell?: string; favorite?: boolean }) =>
+    (await request<{ snippet: WebsshSnippet }>('/api/webssh/snippets', { method: 'POST', body })).snippet,
+  updateSnippet: async (id: string, body: Partial<{ title: string; command: string; description: string; tags: string[]; shell: string; favorite: boolean }>) =>
+    (await request<{ snippet: WebsshSnippet }>(`/api/webssh/snippets/${id}`, { method: 'PATCH', body })).snippet,
+  deleteSnippet: async (id: string) => {
+    await request(`/api/webssh/snippets/${id}`, { method: 'DELETE' })
+  },
+  touchSnippet: async (id: string) =>
+    (await request<{ snippet: WebsshSnippet }>(`/api/webssh/snippets/${id}/touch`, { method: 'POST' })).snippet,
+
+  previewImport: async (content: string, format: 'auto' | 'ssh-config' | 'csv' = 'auto') =>
+    await request<WebsshImportPreview>('/api/webssh/imports/preview', { method: 'POST', body: { content, format } }),
+  commitImport: async (hosts: Array<{ name: string; host: string; port: number; username: string; tags: string[] }>) =>
+    await request<WebsshImportCommitResult>('/api/webssh/imports', { method: 'POST', body: { hosts } }),
 }
 
 async function rawRequest(path: string, init: RequestInit = {}): Promise<Response> {

@@ -5,7 +5,7 @@
  * tooltip and the status bar both say the phase in words.
  */
 import { useRef } from 'react'
-import { Plus, Settings2, Keyboard, X, FolderOpen, History, Video } from 'lucide-react'
+import { Plus, Settings2, Keyboard, X, FolderOpen, History, ScrollText, Video } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
@@ -45,6 +45,8 @@ export function TerminalTabs({
   onOpenFiles,
   filesOpen = false,
   filesDisabled = false,
+  onOpenSnippets,
+  snippetsDisabled = false,
   onOpenReplay,
   replayDisabled = false,
   onOpenRecordingSettings,
@@ -61,6 +63,8 @@ export function TerminalTabs({
   onOpenFiles?: () => void
   filesOpen?: boolean
   filesDisabled?: boolean
+  onOpenSnippets?: () => void
+  snippetsDisabled?: boolean
   onOpenReplay?: () => void
   replayDisabled?: boolean
   onOpenRecordingSettings?: () => void
@@ -155,6 +159,13 @@ export function TerminalTabs({
           <Tooltip label={t('webssh.sftp.open')}>
             <IconButton label={t('webssh.sftp.open')} size="sm" active={filesOpen} disabled={filesDisabled} onClick={onOpenFiles}>
               <FolderOpen size={15} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onOpenSnippets && (
+          <Tooltip label={t('webssh.snippet.open')}>
+            <IconButton label={t('webssh.snippet.open')} size="sm" disabled={snippetsDisabled} onClick={onOpenSnippets}>
+              <ScrollText size={15} aria-hidden="true" />
             </IconButton>
           </Tooltip>
         )}

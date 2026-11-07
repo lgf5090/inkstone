@@ -61,6 +61,7 @@ export function TerminalPane({
   panelId,
   onPhaseChange,
   onSessionId,
+  insertRequest,
 }: {
   session: TerminalPaneSession
   active: boolean
@@ -70,10 +71,13 @@ export function TerminalPane({
   panelId: string
   onPhaseChange?: (id: string, phase: TerminalSessionPhase) => void
   onSessionId?: (sessionId: string) => void
+  /** A snippet the workspace asked to type into this tab; `token` makes repeats distinguishable. */
+  insertRequest?: { text: string; token: number } | null
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const writeRef = useRef<(data: string) => void>(() => {})
   const apiRef = useRef<XtermController | null>(null)
+  const insertTokenRef = useRef(0)
   const hintId = useId()
   const [hasSelection, setHasSelection] = useState(false)
   const [dimensions, setDimensions] = useState({ cols: 80, rows: 24 })
@@ -181,6 +185,17 @@ export function TerminalPane({
     })
     return () => cancelAnimationFrame(frame)
   }, [active])
+
+  /**
+   * Pasting keeps a snippet from running on arrival: a trailing newline is dropped and xterm's
+   * bracketed-paste path leaves the command at the prompt for the user to submit.
+   */
+  useEffect(() => {
+    if (!active || !insertRequest || insertRequest.token === insertTokenRef.current) return
+    insertTokenRef.current = insertRequest.token
+    apiRef.current?.paste(insertRequest.text.replace(/\r?\n$/, ''))
+    apiRef.current?.focus()
+  }, [active, insertRequest])
 
   const phaseLabel = () => {
     if (connection.phase === 'open') return t('webssh.status.connected')

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import type { WebsshHost } from '@shared/webssh/types'
 import { t } from '../../lib/i18n'
 import { useBreakpoint, useThemeDark } from '../../lib/hooks'
@@ -9,6 +9,7 @@ import { TerminalPane } from './TerminalPane'
 import { SftpPanel } from './SftpPanel'
 import { RecordingPlayerDialog } from './RecordingPlayerDialog'
 import { RecordingSettingsDialog } from './RecordingSettingsDialog'
+import { SnippetsPanel } from './SnippetsPanel'
 import { TerminalSettingsDialog } from './TerminalSettingsDialog'
 import { TerminalShortcutsDialog } from './TerminalShortcutsDialog'
 import { loadTerminalSettings, saveTerminalSettings, type TerminalSettings } from './prefs'
@@ -34,6 +35,9 @@ export function TerminalWorkspace({ host }: { host: WebsshHost }) {
   const [filesOpen, setFilesOpen] = useState(false)
   const [replayOpen, setReplayOpen] = useState(false)
   const [recordingOpen, setRecordingOpen] = useState(false)
+  const [snippetsOpen, setSnippetsOpen] = useState(false)
+  const [insertRequest, setInsertRequest] = useState<{ text: string; token: number } | null>(null)
+  const insertTokenRef = useRef(0)
   const isDark = useThemeDark()
 
   useEffect(() => {
@@ -47,7 +51,14 @@ export function TerminalWorkspace({ host }: { host: WebsshHost }) {
     setSequence(1)
     setFilesOpen(false)
     setReplayOpen(false)
+    setSnippetsOpen(false)
+    setInsertRequest(null)
   }, [host.id, host.name])
+
+  const insertSnippet = (text: string) => {
+    insertTokenRef.current += 1
+    setInsertRequest({ text, token: insertTokenRef.current })
+  }
 
   const reportPhase = useCallback((id: string, phase: TerminalSessionPhase) => {
     setStatuses((current) => (current[id] === phase ? current : { ...current, [id]: phase }))
@@ -105,6 +116,8 @@ export function TerminalWorkspace({ host }: { host: WebsshHost }) {
         onOpenFiles={() => setFilesOpen((value) => !value)}
         filesOpen={filesOpen}
         filesDisabled={!activeSessionId}
+        onOpenSnippets={() => setSnippetsOpen(true)}
+        snippetsDisabled={!activeSessionId}
         onOpenReplay={() => setReplayOpen(true)}
         replayDisabled={!activeSessionId}
         onOpenRecordingSettings={() => setRecordingOpen(true)}
@@ -133,6 +146,7 @@ export function TerminalWorkspace({ host }: { host: WebsshHost }) {
                 isDark={isDark}
                 createTransport={factoryFor()}
                 panelId={PANEL_ID}
+                insertRequest={tab.id === activeId ? insertRequest : null}
                 onPhaseChange={reportPhase}
                 onSessionId={(sessionId) => reportSession(tab.id, sessionId)}
               />
@@ -154,6 +168,11 @@ export function TerminalWorkspace({ host }: { host: WebsshHost }) {
       <TerminalShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} demo={false} />
       <RecordingSettingsDialog open={recordingOpen} onClose={() => setRecordingOpen(false)} />
       <RecordingPlayerDialog open={replayOpen} sessionId={activeSessionId} onClose={() => setReplayOpen(false)} />
+      <SnippetsPanel
+        open={snippetsOpen}
+        onClose={() => setSnippetsOpen(false)}
+        onInsert={activeSessionId ? insertSnippet : undefined}
+      />
     </div>
   )
 }

@@ -71,6 +71,50 @@ export interface WebsshSftpMutationResult {
   ok: true
 }
 
+/** A saved command snippet; `command` is the text inserted into the terminal. */
+export interface WebsshSnippet {
+  id: string
+  title: string
+  command: string
+  description: string
+  tags: string[]
+  shell: string
+  favorite: boolean
+  sortOrder: number
+  createdAt: number
+  updatedAt: number
+  lastUsedAt: number | null
+}
+
+export interface WebsshSnippetListResponse {
+  items: WebsshSnippet[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/** One host definition parsed from an import preview; `issues` blocks it from being created. */
+export interface WebsshImportCandidate {
+  name: string
+  host: string
+  port: number
+  username: string
+  tags: string[]
+  issues: string[]
+}
+
+export interface WebsshImportPreview {
+  format: 'ssh-config' | 'csv'
+  candidates: WebsshImportCandidate[]
+  rejected: number
+}
+
+/** The result of a confirmed import: hosts written and rows left out with a reason code. */
+export interface WebsshImportCommitResult {
+  created: WebsshHost[]
+  skipped: Array<{ name: string; reason: string }>
+}
+
 /** Client -> server frames; every frame is JSON text on the same-origin socket. */
 export type WebsshClientFrame =
   | { type: 'input'; data: string }

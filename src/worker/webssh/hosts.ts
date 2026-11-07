@@ -320,6 +320,49 @@ export class WebsshHostsStore extends WebsshStore {
     return (row?.sort_order ?? 0) + 1000
   }
 
+  /**
+   * Creates a host from an import without a credential or key. The row is deliberately usable only
+   * after the owner attaches a secret, so a bulk import never invents an authentication method.
+   */
+  async createImported(input: { name: string; host: string; port: number; username: string; tags: string[] }): Promise<WebsshHost> {
+    const id = newId()
+    const sortOrder = await this.nextSortOrder('')
+    await this.db.prepare(
+      `INSERT INTO webssh_hosts (
+         user_id, id, name, name_folded, host, port, username, group_id, auth_method, credential_id,
+         key_id, encoding, term_type, initial_command, color, tags, notes, favorite, sort_order,
+         created_at, updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '', 'password', '', '', 'utf-8', 'xterm-256color', '',
+                 '', ?8, '', 0, ?9, ?10, ?10)`,
+    )
+      .bind(
+        this.userId,
+        id,
+        input.name,
+        input.name.toLowerCase(),
+        input.host,
+        input.port,
+        input.username,
+        JSON.stringify(input.tags),
+        sortOrder,
+        this.now,
+      )
+      .run()
+    return (await this.get(id))!
+  }
+
+  /** An import is a convenience, not a merge: an identical name/address/user row is left alone. */
+  async hasDuplicate(input: { name: string; host: string; port: number; username: string }): Promise<boolean> {
+    const row = await this.db.prepare(
+      `SELECT 1 AS found FROM webssh_hosts
+        WHERE user_id = ?1 AND deleted_at IS NULL AND name_folded = ?2
+          AND host = ?3 AND port = ?4 AND username = ?5`,
+    )
+      .bind(this.userId, input.name.toLowerCase(), input.host, input.port, input.username)
+      .first<{ found: number }>()
+    return Boolean(row)
+  }
+
   async create(input: WebsshHostInput): Promise<WebsshHost> {
     await this.assertReferences(input)
     const id = newId()

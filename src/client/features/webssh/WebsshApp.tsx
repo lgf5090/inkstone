@@ -4,9 +4,11 @@ import {
   FolderTree,
   KeyRound,
   Pencil,
+  ScrollText,
   ShieldCheck,
   SquareTerminal,
   Trash2,
+  Upload,
 } from 'lucide-react'
 import type {
   WebsshCredential,
@@ -31,6 +33,8 @@ import { CredentialDialog } from './CredentialDialog'
 import { KeyManagerDialog } from './KeyManagerDialog'
 import { FingerprintDialog } from './FingerprintDialog'
 import { TerminalWorkspace } from './TerminalWorkspace'
+import { SnippetsPanel } from './SnippetsPanel'
+import { ImportDialog } from './ImportDialog'
 import '@xterm/xterm/css/xterm.css'
 import './webssh.css'
 
@@ -69,6 +73,8 @@ export function WebsshApp() {
   const [groupsOpen, setGroupsOpen] = useState(false)
   const [credentialsOpen, setCredentialsOpen] = useState(false)
   const [keysOpen, setKeysOpen] = useState(false)
+  const [snippetsOpen, setSnippetsOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [fingerprintOpen, setFingerprintOpen] = useState(false)
   const [fingerprints, setFingerprints] = useState<WebsshHostKey[]>([])
   const [preflight, setPreflight] = useState<WebsshHostPreflight | null>(null)
@@ -251,6 +257,12 @@ export function WebsshApp() {
           <Button size="sm" variant="ghost" onClick={() => setKeysOpen(true)} icon={<KeyRound size={13} aria-hidden="true" />}>
             {t('webssh.actions.keys')}
           </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSnippetsOpen(true)} icon={<ScrollText size={13} aria-hidden="true" />}>
+            {t('webssh.snippet.open')}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)} icon={<Upload size={13} aria-hidden="true" />}>
+            {t('webssh.actions.import')}
+          </Button>
         </div>
       </header>
 
@@ -331,6 +343,17 @@ export function WebsshApp() {
         keys={keys}
         onClose={() => setKeysOpen(false)}
         onChanged={refresh}
+      />
+
+      <SnippetsPanel open={snippetsOpen} onClose={() => setSnippetsOpen(false)} />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => {
+          setImportOpen(false)
+          refresh()
+        }}
       />
 
       <FingerprintDialog
