@@ -41,8 +41,9 @@ import {
 } from '../constants'
 import { recordAudit } from '../audit'
 import { WebsshSessionRecorder } from '../recording/recorder'
-import { isWebsshRecordingEnabled } from '../settings'
+import { isWebsshAutoTrustFirst, isWebsshRecordingEnabled } from '../settings'
 import {
+  autoTrustHostKey,
   hostKeyDecision,
   markHostConnected,
   recordHostKeySighting,
@@ -357,15 +358,30 @@ export class WebsshSession implements DurableObject {
     try {
       await recordHostKeySighting(this.env.DB, this.userId, this.hostId, info.keyType, info.fingerprint)
       const decision = await hostKeyDecision(this.env.DB, this.userId, this.hostId, info.keyType, info.fingerprint)
-      // This runtime never grants trust on its own: the user's explicit trust action (W3's
-      // fingerprint route) is what turns a first-seen or changed key into an allowed one.
       if (decision.state === 'revoked') {
         await this.audit('host_key_changed', {
           hostId: this.hostId,
           metadata: { algorithm: info.keyType, fingerprint: info.fingerprint, state: decision.state },
         })
+        return false
       }
-      return false
+      if (decision.state === 'changed') return false
+      if (decision.state === 'trusted') return true
+      // First-seen key: the reference client accepts it and records the fingerprint. The setting
+      // defaults on but can be turned off to restore a manual confirmation step.
+      if (!(await isWebsshAutoTrustFirst(this.env.DB, this.userId))) return false
+      const now = Date.now()
+      await autoTrustHostKey(this.env.DB, this.userId, this.hostId, info.keyType, info.fingerprint, now)
+      await this.audit('host_key_trusted', {
+        hostId: this.hostId,
+        metadata: {
+          algorithm: info.keyType,
+          fingerprint: info.fingerprint,
+          mode: 'auto',
+          reason: 'first_seen',
+        },
+      })
+      return true
     } catch (error) {
       console.warn('[inkstone] WebSSH host key record failed:', failureMessage(error))
       return false

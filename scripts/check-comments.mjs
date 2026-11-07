@@ -34157,6 +34157,7 @@ const allowed = new Map([
     "/** One append-only audit row, with metadata already parsed for the read-only viewer. */",
     "/** Local-only statistics; nothing in this shape triggers an external notification. */",
     "/** A recording in the owner's library, joined with the host label for grouping. */",
+    "/** First-seen host keys are trusted without a prompt when true (the default). */",
   ]],
   ["src/shared/youtube/model.ts", [
     "/**\n * The YouTube app's shared vocabulary: the upstream shapes the API hands over, the library rows a\n * reader saves, the address that names a view, and the pure formatting/tree rules both sides use.\n *\n * Nothing here touches the network or the DOM. The worker's transforms and the reader's rendering\n * have to agree on every field, so the types live once and are imported by both builds.\n */",
@@ -44123,6 +44124,7 @@ const allowed = new Map([
     "/** The fingerprint a session should pin before connecting; null means the host has never been trusted. */",
     "/** Record that this host presented a key; a trusted key keeps its trusted_at and refreshes last_seen. */",
     "/** The host row's own \"last connected\" marker, which W3's list sorts by. */",
+    "/**\n * Marks the first-seen key as trusted without a user prompt, but only when the state machine already\n * decided it is untrusted (no trusted key and not revoked). A changed key never reaches this call.\n */",
   ]],
   ["src/worker/webssh/do/session.ts", [
     "// The per-session Durable Object: one SSH terminal, one WebSocket, one state row.",
@@ -44132,8 +44134,6 @@ const allowed = new Map([
     "// then resolves/opens the SSH connection. Frames are the frozen W4 text protocol; terminal bytes are",
     "// never interpreted here.",
     "/** A failure that belongs to this runtime rather than to the SSH protocol core. */",
-    "// This runtime never grants trust on its own: the user's explicit trust action (W3's",
-    "// fingerprint route) is what turns a first-seen or changed key into an allowed one.",
     "// The SSH core is idempotent; a second close is a no-op.",
     "// The browser may already be gone; the finalize row above is the authoritative end state.",
     "// Same idempotent close as finalize.",
@@ -44144,6 +44144,8 @@ const allowed = new Map([
     "/** Maps SFTP protocol/validation failures onto the REST status codes the Worker route forwards. */",
     "/**\n   * Recording is opt-in and off unless the account's explicit setting says otherwise. With it off\n   * this method only reads one settings row: no recording row, no object, no extra write.\n   */",
     "// Finish the recording before the runtime can be evicted; its own status row is authoritative.",
+    "// First-seen key: the reference client accepts it and records the fingerprint. The setting",
+    "// defaults on but can be turned off to restore a manual confirmation step.",
   ]],
   ["src/worker/webssh/hosts.ts", [
     "/**\n   * Creates a host from an import without a credential or key. The row is deliberately usable only\n   * after the owner attaches a secret, so a bulk import never invents an authentication method.\n   */",
@@ -44310,7 +44312,11 @@ const allowed = new Map([
   ["src/worker/webssh/settings.ts", [
     "// Account-level WebSSH settings. Recording is off unless this row explicitly enables it, so a",
     "// deployment that never writes `webssh_settings` produces no recordings and no R2 objects.",
-    "/** Tolerant of hand-edited or older JSON: anything unreadable means recording stays off. */",
+    "// First-connection host-key trust is the opposite: it defaults on, because the reference client",
+    "// accepts a first-seen key without a prompt; a changed or revoked key is still blocked regardless.",
+    "/** Tolerant of hand-edited or older JSON: recording stays off, auto-trust stays on unless disabled. */",
+    "// Only an explicit `false` turns the switch off; a missing field from an older row means on.",
+    "/** Merges one field so saving recording settings cannot silently reset the host-key switch. */",
   ]],
   ["src/worker/webssh/sftp/client.ts", [
     "// Derived from EdgeSSH 2026-11 snapshot (Apache-2.0) src/ssh/sftp.ts, with Inkstone adaptations.",

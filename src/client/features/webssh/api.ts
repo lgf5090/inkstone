@@ -177,6 +177,11 @@ export const websshApi = {
   recordingSettings: async () => await request<WebsshRecordingSettingsView>('/api/webssh/settings'),
   updateRecordingSettings: async (enabled: boolean) =>
     await request<WebsshRecordingSettingsView>('/api/webssh/settings/recording', { method: 'PUT', body: { enabled } }),
+  updateHostKeySettings: async (autoTrustFirst: boolean) =>
+    await request<WebsshRecordingSettingsView>('/api/webssh/settings/host-keys', {
+      method: 'PUT',
+      body: { autoTrustFirst },
+    }),
 
   openShare: async (slug: string, password?: string) =>
     await publicRequest<WebsshPublicShareView>(`/api/public/webssh/shares/${encodeURIComponent(slug)}`, {

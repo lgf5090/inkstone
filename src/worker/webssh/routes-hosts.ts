@@ -26,6 +26,7 @@ import {
 import { WebsshHostKeysStore, normalizeFingerprint, normalizeHostKeyAlgorithm } from './host-keys'
 import { groupStore, normalizeGroupColor, normalizeGroupIcon, normalizeGroupName, type WebsshGroupsStore } from './groups'
 import { keyStore } from './keys'
+import { recordAudit } from './audit'
 
 export const websshHostRoutes = new Hono<AppBindings>()
 
@@ -134,11 +135,15 @@ websshHostRoutes.post('/hosts/:id/fingerprint/check', async (c) => {
 websshHostRoutes.post('/hosts/:id/fingerprints/trust', async (c) => {
   const hostId = await requireHost(c)
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
-  const check = await new WebsshHostKeysStore(c.env.DB, c.get('userId')).trust(
+  const algorithm = normalizeHostKeyAlgorithm(body.algorithm)
+  const fingerprint = normalizeFingerprint(body.fingerprint)
+  const check = await new WebsshHostKeysStore(c.env.DB, c.get('userId')).trust(hostId, algorithm, fingerprint)
+  await recordAudit(c.env.DB, {
+    userId: c.get('userId'),
     hostId,
-    normalizeHostKeyAlgorithm(body.algorithm),
-    normalizeFingerprint(body.fingerprint),
-  )
+    eventType: 'host_key_trusted',
+    metadata: { algorithm, fingerprint, mode: 'manual' },
+  })
   return c.json({ check })
 })
 

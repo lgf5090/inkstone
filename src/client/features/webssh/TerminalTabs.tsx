@@ -177,8 +177,8 @@ export function TerminalTabs({
           </Tooltip>
         )}
         {onOpenRecordingSettings && (
-          <Tooltip label={t('webssh.recording.open')}>
-            <IconButton label={t('webssh.recording.open')} size="sm" onClick={onOpenRecordingSettings}>
+          <Tooltip label={t('webssh.session_settings.open')}>
+            <IconButton label={t('webssh.session_settings.open')} size="sm" onClick={onOpenRecordingSettings}>
               <Video size={15} aria-hidden="true" />
             </IconButton>
           </Tooltip>

@@ -188,7 +188,10 @@ describe('recording settings', () => {
   it('is off by default and only an explicit write turns it on', async () => {
     const app = makeApp(userId)
     const initial = await request(app, '/api/webssh/settings')
-    expect(await initial.json()).toEqual({ recording: { enabled: false, retentionDays: 30 } })
+    expect(await initial.json()).toEqual({
+      recording: { enabled: false, retentionDays: 30 },
+      hostKeys: { autoTrustFirst: true },
+    })
 
     const enable = await request(app, '/api/webssh/settings/recording', {
       method: 'PUT',
@@ -196,9 +199,12 @@ describe('recording settings', () => {
       body: JSON.stringify({ enabled: true }),
     })
     expect(enable.status).toBe(200)
-    expect(await enable.json()).toEqual({ recording: { enabled: true, retentionDays: 30 } })
+    expect(await enable.json()).toEqual({
+      recording: { enabled: true, retentionDays: 30 },
+      hostKeys: { autoTrustFirst: true },
+    })
     expect(sqlite.prepare('SELECT settings FROM webssh_settings WHERE user_id = ?').get(userId))
-      .toEqual({ settings: '{"recording":{"enabled":true}}' })
+      .toEqual({ settings: '{"recording":{"enabled":true},"hostKeys":{"autoTrustFirst":true}}' })
 
     const invalid = await request(app, '/api/webssh/settings/recording', {
       method: 'PUT',
@@ -216,7 +222,38 @@ describe('recording settings', () => {
       body: JSON.stringify({ enabled: true }),
     })
     const other = await request(makeApp(newId()), '/api/webssh/settings')
-    expect(await other.json()).toEqual({ recording: { enabled: false, retentionDays: 30 } })
+    expect(await other.json()).toEqual({
+      recording: { enabled: false, retentionDays: 30 },
+      hostKeys: { autoTrustFirst: true },
+    })
+  })
+
+  it('keeps the host-key switch independent from recording', async () => {
+    const app = makeApp(userId)
+    const off = await request(app, '/api/webssh/settings/host-keys', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autoTrustFirst: false }),
+    })
+    expect(off.status).toBe(200)
+    expect(await off.json()).toMatchObject({ hostKeys: { autoTrustFirst: false }, recording: { enabled: false } })
+
+    const recording = await request(app, '/api/webssh/settings/recording', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    })
+    expect(await recording.json()).toMatchObject({
+      recording: { enabled: true, retentionDays: 30 },
+      hostKeys: { autoTrustFirst: false },
+    })
+
+    const invalid = await request(app, '/api/webssh/settings/host-keys', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autoTrustFirst: 'yes' }),
+    })
+    expect(invalid.status).toBe(400)
   })
 })
 

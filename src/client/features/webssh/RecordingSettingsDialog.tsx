@@ -8,6 +8,7 @@ import { websshApi } from './api'
 
 export function RecordingSettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [enabled, setEnabled] = useState(false)
+  const [autoTrustFirst, setAutoTrustFirst] = useState(true)
   const [days, setDays] = useState(30)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -22,6 +23,7 @@ export function RecordingSettingsDialog({ open, onClose }: { open: boolean; onCl
       .then((view) => {
         if (cancelled) return
         setEnabled(view.recording.enabled)
+        setAutoTrustFirst(view.hostKeys?.autoTrustFirst ?? true)
         setDays(view.recording.retentionDays)
       })
       .catch((caught: unknown) => {
@@ -39,8 +41,10 @@ export function RecordingSettingsDialog({ open, onClose }: { open: boolean; onCl
     setSaving(true)
     setError(null)
     try {
-      const view = await websshApi.updateRecordingSettings(enabled)
+      let view = await websshApi.updateRecordingSettings(enabled)
+      view = await websshApi.updateHostKeySettings(autoTrustFirst)
       setEnabled(view.recording.enabled)
+      setAutoTrustFirst(view.hostKeys.autoTrustFirst)
       setDays(view.recording.retentionDays)
       onClose()
     } catch (caught) {
@@ -54,8 +58,8 @@ export function RecordingSettingsDialog({ open, onClose }: { open: boolean; onCl
     <Modal
       open={open}
       onClose={onClose}
-      title={t('webssh.recording.title')}
-      description={t('webssh.recording.description')}
+      title={t('webssh.session_settings.title')}
+      description={t('webssh.session_settings.description')}
       width={460}
       footer={
         <>
@@ -75,6 +79,17 @@ export function RecordingSettingsDialog({ open, onClose }: { open: boolean; onCl
           onChange={setEnabled}
           disabled={loading || saving}
           label={t('webssh.recording.enabled')}
+        />
+      </SettingRow>
+      <SettingRow
+        title={t('webssh.settings.auto_trust')}
+        description={t('webssh.settings.auto_trust_hint')}
+      >
+        <Switch
+          checked={autoTrustFirst}
+          onChange={setAutoTrustFirst}
+          disabled={loading || saving}
+          label={t('webssh.settings.auto_trust')}
         />
       </SettingRow>
       {error && <p className="mt-2 text-[length:var(--text-11-5)] text-[var(--danger)]">{error}</p>}

@@ -375,6 +375,10 @@ export interface WebsshRecordingSettingsView {
     enabled: boolean
     retentionDays: number
   }
+  hostKeys: {
+    /** First-seen host keys are trusted without a prompt when true (the default). */
+    autoTrustFirst: boolean
+  }
 }
 
 /**

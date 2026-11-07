@@ -85,6 +85,32 @@ export async function recordHostKeySighting(
     .run()
 }
 
+/**
+ * Marks the first-seen key as trusted without a user prompt, but only when the state machine already
+ * decided it is untrusted (no trusted key and not revoked). A changed key never reaches this call.
+ */
+export async function autoTrustHostKey(
+  db: D1Database,
+  userId: string,
+  hostId: string,
+  algorithm: string,
+  fingerprint: string,
+  now = Date.now(),
+): Promise<void> {
+  await db.prepare(
+    `INSERT INTO webssh_host_keys
+       (user_id, host_id, algorithm, fingerprint, first_seen_at, last_seen_at, trusted_at, revoked_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?5, NULL)
+     ON CONFLICT(user_id, host_id, fingerprint) DO UPDATE SET
+       algorithm = excluded.algorithm,
+       last_seen_at = excluded.last_seen_at,
+       trusted_at = excluded.trusted_at,
+       revoked_at = NULL`,
+  )
+    .bind(userId, hostId, algorithm, fingerprint, now)
+    .run()
+}
+
 /** The host row's own "last connected" marker, which W3's list sorts by. */
 export async function markHostConnected(
   db: D1Database,
