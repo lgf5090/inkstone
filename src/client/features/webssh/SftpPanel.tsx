@@ -17,6 +17,7 @@ import { Empty } from '../../components/feedback'
 import { Field, Input } from '../../components/form'
 import { Modal, Tooltip, confirm } from '../../components/overlay'
 import { ApiError } from '../../lib/api'
+import { isImeComposing } from '../../lib/ime'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { websshApi } from './api'
@@ -213,7 +214,9 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
           }
           await websshApi.completeUpload(sessionId, created.transferId)
         } catch (caught) {
-          await websshApi.cancelUpload(sessionId, created.transferId).catch(() => undefined)
+          await websshApi.cancelUpload(sessionId, created.transferId).catch((error: unknown) => {
+            console.warn('[inkstone] Could not cancel staged upload:', error)
+          })
           throw caught
         }
         toast(t('webssh.sftp.upload_done', { name: file.name }))
@@ -281,6 +284,7 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
           onChange={(event) => setPathDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
+              if (isImeComposing(event)) return
               event.preventDefault()
               setPath(pathDraft.trim() || '/')
             }

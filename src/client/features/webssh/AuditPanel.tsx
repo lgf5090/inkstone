@@ -6,7 +6,8 @@ import { Activity, ShieldCheck } from 'lucide-react'
 import type { WebsshAuditEventView, WebsshHealthReport } from '@shared/webssh/types'
 import { WEBSSH_AUDIT_EVENT_TYPES } from '@shared/webssh/types'
 import { Button, Spinner } from '../../components/primitives'
-import { Input, Select } from '../../components/form'
+import { DatePicker } from '../../components/date-picker'
+import { Select } from '../../components/form'
 import { Empty } from '../../components/feedback'
 import { Modal } from '../../components/overlay'
 import { cn } from '../../lib/cn'
@@ -146,14 +147,18 @@ export function AuditPanel({ open, onClose }: { open: boolean; onClose: () => vo
                   {WEBSSH_AUDIT_EVENT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
                 </Select>
               </label>
-              <label className="flex flex-col gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-                {t('webssh.audit.from')}
-                <Input type="date" value={fromInput} onChange={(event) => setFromInput(event.target.value)} aria-label={t('webssh.audit.from')} />
-              </label>
-              <label className="flex flex-col gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-                {t('webssh.audit.to')}
-                <Input type="date" value={toInput} onChange={(event) => setToInput(event.target.value)} aria-label={t('webssh.audit.to')} />
-              </label>
+              <DatePicker
+                label={t('webssh.audit.from')}
+                value={fromInput}
+                onChange={setFromInput}
+                className="w-[150px] shrink-0"
+              />
+              <DatePicker
+                label={t('webssh.audit.to')}
+                value={toInput}
+                onChange={setToInput}
+                className="w-[150px] shrink-0"
+              />
               <Button size="sm" variant="primary" onClick={apply}>{t('webssh.audit.apply')}</Button>
               <Button size="sm" variant="ghost" onClick={reset}>{t('webssh.audit.reset')}</Button>
             </div>

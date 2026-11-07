@@ -129,7 +129,11 @@ export function FileEditorDialog({ open, entry, sessionId, onClose, onSaved }: {
         }
         await websshApi.completeUpload(sessionId, created.transferId)
       } catch (caught) {
-        await websshApi.cancelUpload(sessionId, created.transferId).catch(() => undefined)
+        // Staging cleanup is best effort: the completed save already failed, and a leftover transfer
+        // is collected by the 24-hour sweep.
+        await websshApi.cancelUpload(sessionId, created.transferId).catch((error: unknown) => {
+          console.warn('[inkstone] Could not cancel staged editor upload:', error)
+        })
         throw caught
       }
       setOriginal(text)

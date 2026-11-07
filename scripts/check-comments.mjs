@@ -20032,6 +20032,8 @@ const allowed = new Map([
     "// through staged upload chunks only after an explicit overwrite confirmation.",
     "// Local guards (size, encoding) throw plain Errors with a user-facing message; only show a generic",
     "// string when nothing carried one.",
+    "// Staging cleanup is best effort: the completed save already failed, and a leftover transfer",
+    "// is collected by the 24-hour sweep.",
   ]],
   ["src/client/features/webssh/ImportDialog.tsx", [
     "// Host import dialog (plan W7-02). Parsing is server-side so the same rules guard the API and the",
