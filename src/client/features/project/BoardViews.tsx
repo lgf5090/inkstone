@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactElement } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { ArrowUpDown, Eye, Filter, Plus, Trash2 } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCard, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
 import { groupProjectCards, matchProjectFilterGroup, sortProjectCards } from '@shared/project/view-eval'
@@ -8,6 +8,7 @@ import { IconButton } from '../../components/primitives'
 import { Select } from '../../components/form'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
+import { FilterModal, PropertiesModal, SortModal } from './ViewSettingsModals'
 
 const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   board: 'project.view.board',
@@ -54,6 +55,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const [activeId, setActiveId] = useState<string | null>(null)
   const addAnchor = useRef<HTMLButtonElement>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [settings, setSettings] = useState<'sort' | 'filter' | 'properties' | null>(null)
   const active = bundle.views.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
   const fields = active?.fields ?? emptyProjectViewFields()
   const viewType = active?.viewType ?? 'table'
@@ -110,6 +112,13 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             ))}
           </Select>
         )}
+        {active && (
+          <span className={`flex items-center gap-1 ${viewType === 'board' ? '' : 'ml-auto'}`}>
+            <IconButton label={t('project.view.sort')} size="sm" onClick={() => setSettings('sort')}><ArrowUpDown size={15} /></IconButton>
+            <IconButton label={t('project.view.filter')} size="sm" onClick={() => setSettings('filter')}><Filter size={15} /></IconButton>
+            <IconButton label={t('project.view.properties')} size="sm" onClick={() => setSettings('properties')}><Eye size={15} /></IconButton>
+          </span>
+        )}
       </div>
       {sorted.length === 0
         ? <Empty art="folder" title={t('project.board.empty_cards')} />
@@ -147,6 +156,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                 </table>
               </div>
             )}
+      {active && settings === 'sort' && <SortModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(fields) => onPatchView(active.id, { fields })} />}
+      {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(fields) => onPatchView(active.id, { fields })} />}
+      {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(fields) => onPatchView(active.id, { fields })} />}
     </div>
   )
 }
