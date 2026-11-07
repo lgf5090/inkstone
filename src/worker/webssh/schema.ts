@@ -224,9 +224,39 @@ export const WEBSSH_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
 ]
 
+export const WEBSSH_HOST_METADATA_STATEMENTS: readonly string[] = [
+  `ALTER TABLE webssh_hosts ADD COLUMN provider TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE webssh_hosts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE webssh_hosts ADD COLUMN icon_kind TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE webssh_hosts ADD COLUMN icon_value TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE webssh_hosts ADD COLUMN icon_key TEXT NOT NULL DEFAULT ''`,
+]
+
+export const WEBSSH_PROVIDERS_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS webssh_providers (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_webssh_providers_name
+     ON webssh_providers(user_id, lower(label))`,
+]
+
+export const WEBSSH_HOST_FILTER_INDEX_STATEMENTS: readonly string[] = [
+  `CREATE INDEX IF NOT EXISTS idx_webssh_hosts_provider
+     ON webssh_hosts(user_id, provider, sort_order)`,
+  `CREATE INDEX IF NOT EXISTS idx_webssh_hosts_pinned
+     ON webssh_hosts(user_id, pinned, sort_order)`,
+]
+
 export const WEBSSH_REQUIRED_TABLES: readonly string[] = [
   'webssh_host_groups',
   'webssh_hosts',
+  'webssh_providers',
   'webssh_credentials',
   'webssh_keys',
   'webssh_host_keys',
@@ -245,6 +275,8 @@ export const WEBSSH_REQUIRED_INDEXES: readonly string[] = [
   'idx_webssh_hosts_group',
   'idx_webssh_hosts_name',
   'idx_webssh_hosts_recent',
+  'idx_webssh_hosts_provider',
+  'idx_webssh_hosts_pinned',
   'idx_webssh_credentials_user',
   'idx_webssh_keys_user',
   'idx_webssh_keys_fingerprint',
@@ -274,8 +306,10 @@ export const WEBSSH_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>
   webssh_hosts: [
     'user_id', 'id', 'name', 'name_folded', 'host', 'port', 'username', 'group_id', 'auth_method',
     'credential_id', 'key_id', 'encoding', 'term_type', 'initial_command', 'color', 'tags', 'notes',
-    'favorite', 'sort_order', 'last_connected_at', 'created_at', 'updated_at', 'deleted_at',
+    'favorite', 'pinned', 'sort_order', 'provider', 'icon_kind', 'icon_value', 'icon_key',
+    'last_connected_at', 'created_at', 'updated_at', 'deleted_at',
   ],
+  webssh_providers: ['user_id', 'id', 'label', 'color', 'created_at', 'updated_at'],
   webssh_credentials: [
     'user_id', 'id', 'label', 'password_ciphertext', 'created_at', 'updated_at', 'last_used_at', 'deleted_at',
   ],

@@ -11,6 +11,7 @@ import {
   normalizeHostTags,
   normalizeHostUsername,
 } from './hosts'
+import { normalizeProviderId } from '@shared/webssh/providers'
 
 export const WEBSSH_IMPORT_CONTENT_MAX = 1024 * 1024
 export const WEBSSH_IMPORT_CANDIDATE_MAX = 200
@@ -47,13 +48,14 @@ function issueList(candidate: Omit<WebsshImportCandidate, 'issues'>): string[] {
   return issues
 }
 
-function toCandidate(raw: { name: string; host: string; port: number; username: string; tags: string[] }): WebsshImportCandidate {
+function toCandidate(raw: { name: string; host: string; port: number; username: string; tags: string[]; provider?: string }): WebsshImportCandidate {
   const candidate = {
     name: raw.name.trim(),
     host: raw.host.trim(),
     port: raw.port,
     username: raw.username.trim(),
     tags: raw.tags,
+    provider: normalizeProviderId(raw.provider ?? ''),
   }
   return { ...candidate, issues: issueList(candidate) }
 }
@@ -108,7 +110,7 @@ export function detectImportFormat(content: string): 'ssh-config' | 'csv' {
 export function parseSshConfig(content: string): WebsshImportPreview {
   const candidates: WebsshImportCandidate[] = []
   let rejected = 0
-  let block: { aliases: string[]; hostname: string; port: number; username: string } | null = null
+  let block: { aliases: string[]; hostname: string; port: number; username: string; provider: string } | null = null
   let skipBlock = false
 
   const flush = () => {
@@ -125,12 +127,18 @@ export function parseSshConfig(content: string): WebsshImportPreview {
       port: block.port,
       username: block.username,
       tags: [],
+      provider: block.provider,
     }))
     block = null
   }
 
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.replace(/\s+#.*$/, '').trim()
+    const comment = /^\s*#\s*provider\s*:\s*(\S+)/i.exec(rawLine)
+    if (comment) {
+      if (block) block.provider = normalizeProviderId(comment[1])
+      continue
+    }
     if (!line || line.startsWith('#')) continue
     const match = /^(\S+)(?:\s+(.*))?$/.exec(line)
     if (!match) continue
@@ -139,7 +147,7 @@ export function parseSshConfig(content: string): WebsshImportPreview {
     if (keyword === 'host') {
       flush()
       const aliases = argument.split(/\s+/).filter(Boolean)
-      block = { aliases, hostname: '', port: 22, username: '' }
+      block = { aliases, hostname: '', port: 22, username: '', provider: 'other' }
       // A pattern entry describes many machines; importing it as one host would be a guess.
       skipBlock = aliases.length === 0 || aliases.some((alias) => WILDCARD.test(alias))
       continue
@@ -167,7 +175,7 @@ export function parseCsv(content: string): WebsshImportPreview {
   const lines = content.replace(/^\uFEFF/, '').split(/\r?\n/)
   const candidates: WebsshImportCandidate[] = []
   let rejected = 0
-  let columns: { name: number; host: number; port: number; username: number; tags: number } | null = null
+  let columns: { name: number; host: number; port: number; username: number; tags: number; provider: number } | null = null
 
   for (const line of lines) {
     if (!line.trim()) continue
@@ -181,10 +189,11 @@ export function parseCsv(content: string): WebsshImportPreview {
           port: header.indexOf('port'),
           username: Math.max(header.indexOf('username'), header.indexOf('user')),
           tags: header.indexOf('tags'),
+          provider: header.indexOf('provider'),
         }
         continue
       }
-      columns = { name: 0, host: 1, port: 2, username: 3, tags: 4 }
+      columns = { name: 0, host: 1, port: 2, username: 3, tags: 4, provider: 5 }
     }
     try {
       const name = (cells[columns.name] ?? '').trim()
@@ -199,6 +208,7 @@ export function parseCsv(content: string): WebsshImportPreview {
         port: parsePort(cells[columns.port] ?? ''),
         username: (cells[columns.username] ?? '').trim(),
         tags: columns.tags >= 0 ? splitTags(cells[columns.tags] ?? '') : [],
+        provider: columns.provider >= 0 ? cells[columns.provider] ?? '' : '',
       }))
     } catch {
       rejected += 1
@@ -232,6 +242,7 @@ export interface WebsshImportCommitInput {
   port: number
   username: string
   tags: string[]
+  provider?: string
 }
 
 /** Validates one confirmed row and returns the normalized host input, or the reasons it was skipped. */
@@ -269,5 +280,7 @@ export function normalizeImportCommit(value: unknown): { input: WebsshImportComm
   } catch {
     issues.push('tags_invalid')
   }
-  return issues.length ? { input: null, issues } : { input: { name, host, port, username, tags }, issues }
+  return issues.length
+    ? { input: null, issues }
+    : { input: { name, host, port, username, tags, provider: normalizeProviderId(raw.provider) }, issues }
 }

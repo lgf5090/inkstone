@@ -100,6 +100,7 @@ export interface WebsshImportCandidate {
   port: number
   username: string
   tags: string[]
+  provider: string
   issues: string[]
 }
 
@@ -224,6 +225,9 @@ export interface WebsshHostGroup {
   updatedAt: number
 }
 
+/** The icon a row paints: the provider monogram, a curated Lucide glyph, an emoji or an uploaded image. */
+export type WebsshHostIconKind = '' | 'lucide' | 'emoji' | 'image'
+
 export interface WebsshHost {
   id: string
   name: string
@@ -241,7 +245,13 @@ export interface WebsshHost {
   tags: string[]
   notes: string
   favorite: boolean
+  pinned: boolean
   sortOrder: number
+  provider: string
+  iconKind: WebsshHostIconKind
+  iconValue: string
+  /** Same-origin URL of an uploaded icon; empty when the chosen icon is not an image. */
+  iconUrl: string
   lastConnectedAt: number | null
   createdAt: number
   updatedAt: number
@@ -255,10 +265,43 @@ export interface WebsshHostListResponse {
 }
 
 /** Ordering the list offers; `manual` is the drag-reordered position inside a folder. */
-export type WebsshHostSort = 'manual' | 'name' | 'recent' | 'created'
+export type WebsshHostSort = 'manual' | 'name' | 'recent' | 'created' | 'provider'
 
-/** The rail views: every host, the starred ones, and those that have connected at least once. */
-export type WebsshHostQuickView = 'all' | 'favorites' | 'recent'
+/** The rail views: every host, the starred ones, the pinned ones, and those that have connected. */
+export type WebsshHostQuickView = 'all' | 'favorites' | 'pinned' | 'recent'
+
+/** Connection state the filter can ask for; empty means no restriction. */
+export type WebsshHostStatusFilter = '' | 'connected' | 'never'
+
+/** A user-defined provider row; built-ins live in the shared provider table. */
+export interface WebsshProvider {
+  id: string
+  label: string
+  color: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** A provider's host count and how many sessions its hosts have opened. */
+export interface WebsshProviderCount {
+  id: string
+  hostCount: number
+  connectionCount: number
+}
+
+export interface WebsshHostTimeRange {
+  from: string
+  to: string
+}
+
+/** The combinable list filters; nil/empty fields place no restriction. */
+export interface WebsshHostFilters {
+  provider: string
+  pinned: boolean
+  status: WebsshHostStatusFilter
+  connected: WebsshHostTimeRange
+  created: WebsshHostTimeRange
+}
 
 /** A folder row with its direct host count, so the rail can print a number beside every name. */
 export interface WebsshHostFolder extends WebsshHostGroup {
@@ -274,13 +317,17 @@ export interface WebsshHostTagCount {
 export interface WebsshHostsOverview {
   total: number
   favorites: number
+  pinned: number
   /** Hosts with at least one recorded connection. */
   connected: number
+  /** Hosts that have never connected. */
+  never: number
   folders: WebsshHostFolder[]
   tags: WebsshHostTagCount[]
+  providers: WebsshProviderCount[]
 }
 
-export type WebsshHostBatchAction = 'move' | 'tag' | 'favorite' | 'unfavorite' | 'delete'
+export type WebsshHostBatchAction = 'move' | 'tag' | 'favorite' | 'unfavorite' | 'delete' | 'provider'
 
 export interface WebsshHostBatchInput {
   action: WebsshHostBatchAction
@@ -289,6 +336,8 @@ export interface WebsshHostBatchInput {
   groupId?: string
   /** Required for `tag`; added to each host's existing tags. */
   tags?: string[]
+  /** Required for `provider`. */
+  provider?: string
 }
 
 export interface WebsshHostBatchResult {

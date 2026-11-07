@@ -20038,6 +20038,15 @@ const allowed = new Map([
   ["src/client/features/webssh/HostDialog.tsx", [
     "/** A new host started from a folder row opens with that folder already chosen. */",
   ]],
+  ["src/client/features/webssh/HostFiltersDialog.tsx", [
+    "/**\n * The advanced filter sheet: provider, connection state, pinned, and two date ranges.\n *\n * Every value is a plain piece of the URL query, so the same screen can be shared as a link. The\n * dialog edits a draft and only writes it back on Apply, which keeps half-typed dates out of the list.\n */",
+  ]],
+  ["src/client/features/webssh/HostIcon.tsx", [
+    "/**\n * The leading icon of a host row and detail header.\n *\n * Resolution order is image → Lucide → emoji → provider monogram → the host's first letter. A failed\n * image load silently falls through to the same provider monogram, so a broken upload never leaves a\n * hole in the row.\n */",
+  ]],
+  ["src/client/features/webssh/HostIconPicker.tsx", [
+    "/**\n * Chooses the icon source for one host: provider monogram, a curated Lucide glyph, an emoji or an\n * uploaded image. Uploaded files are decoded, scaled to at most 256 px and re-encoded as WebP before\n * they leave the browser, so the row never downloads the original camera-sized picture.\n */",
+  ]],
   ["src/client/features/webssh/HostList.tsx", [
     "/**\n * The host list between the rail and the details pane.\n *\n * Rows carry what a connection decision needs: the folder, tags, a star, and when it last connected.\n * The menu is the app's own `Menu`, so the same row is reachable by right click, Shift+F10 and the\n * trailing button; drag reordering has a menu equivalent because a keyboard cannot drag.\n */",
   ]],
@@ -20082,6 +20091,7 @@ const allowed = new Map([
   ["src/client/features/webssh/WebsshApp.tsx", [
     "// The header badge is a convenience; the audit panel surfaces a failed health read.",
     "// A blocked storage area only costs the preference, not the action that set it.",
+    "// A blocked history/storage API only costs the shareable URL, not the list state.",
   ]],
   ["src/client/features/webssh/api.ts", [
     "// A binary or empty error body still maps to the status line below.",
@@ -34143,6 +34153,10 @@ const allowed = new Map([
     "// nothing left to do here.",
     "// The leaf's `Text` already carries its own description, and `Result` is the same words as markup.",
   ]],
+  ["src/shared/webssh/providers.ts", [
+    "/**\n * The provider vocabulary shared by the worker and the list UI.\n *\n * A provider is a stable id, a brand colour and a two-letter monogram; the monogram is the fallback\n * icon when a host has no chosen Lucide/emoji/image icon, so a row never renders a blank tile. Built-in\n * ids are reserved, and a custom provider keeps its own user-scoped id (`custom:<26-char id>`).\n */",
+    "/** Built-in ids stay lowercase ASCII; a custom provider must carry the user-scoped prefix. */",
+  ]],
   ["src/shared/webssh/types.ts", [
     "/** The session row as the owner-facing status route returns it. */",
     "/** The finished same-origin WebSocket URL, ticket included. */",
@@ -34172,13 +34186,21 @@ const allowed = new Map([
     "/** A recording in the owner's library, joined with the host label for grouping. */",
     "/** First-seen host keys are trusted without a prompt when true (the default). */",
     "/** Ordering the list offers; `manual` is the drag-reordered position inside a folder. */",
-    "/** The rail views: every host, the starred ones, and those that have connected at least once. */",
     "/** A folder row with its direct host count, so the rail can print a number beside every name. */",
     "/** Everything the rail needs without asking for a page of hosts. */",
     "/** Hosts with at least one recorded connection. */",
     "/** Required for `move`. */",
     "/** Required for `tag`; added to each host's existing tags. */",
     "/** One prior connection of a host, for the detail pane's history section. */",
+    "/** The icon a row paints: the provider monogram, a curated Lucide glyph, an emoji or an uploaded image. */",
+    "/** Same-origin URL of an uploaded icon; empty when the chosen icon is not an image. */",
+    "/** The rail views: every host, the starred ones, the pinned ones, and those that have connected. */",
+    "/** Connection state the filter can ask for; empty means no restriction. */",
+    "/** A user-defined provider row; built-ins live in the shared provider table. */",
+    "/** A provider's host count and how many sessions its hosts have opened. */",
+    "/** The combinable list filters; nil/empty fields place no restriction. */",
+    "/** Hosts that have never connected. */",
+    "/** Required for `provider`. */",
   ]],
   ["src/shared/youtube/model.ts", [
     "/**\n * The YouTube app's shared vocabulary: the upstream shapes the API hands over, the library rows a\n * reader saves, the address that names a view, and the pure formatting/tree rules both sides use.\n *\n * Nothing here touches the network or the DOM. The worker's transforms and the reader's rendering\n * have to agree on every field, so the types live once and are imported by both builds.\n */",
@@ -44178,6 +44200,8 @@ const allowed = new Map([
     "/** Copies everything a connection needs, leaving the new row unstarred and unlinked history. */",
     "/**\n   * Moves one host inside a folder, optionally just before another row. The midpoint between the\n   * neighbours keeps the move to one statement instead of renumbering every sibling.\n   */",
     "/** Every live host in one ordered pass; export is the one caller that needs no page. */",
+    "/** A `YYYY-MM-DD` filter value becomes the first or last millisecond of that UTC day. */",
+    "/** Writes the uploaded icon object key; an empty key returns the row to its provider monogram. */",
   ]],
   ["src/worker/webssh/import.ts", [
     "// Host import (plan W7-02): `~/.ssh/config` and CSV are parsed to a preview first, then the confirmed",
@@ -44269,6 +44293,7 @@ const allowed = new Map([
   ]],
   ["src/worker/webssh/routes-hosts.ts", [
     "/** A valid OpenSSH block per host; the alias is derived from the display name and de-duplicated. */",
+    "/** The list and export share one filter parser so a filtered export cannot drift from the screen. */",
   ]],
   ["src/worker/webssh/routes-recordings.ts", [
     "// Replay API for recorded sessions. Everything is session-scoped and owner-only: another account",

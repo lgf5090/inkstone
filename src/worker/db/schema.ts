@@ -96,6 +96,9 @@ import {
   CLOUDDRIVE_SCHEMA_STATEMENTS,
 } from '../clouddrive/schema'
 import {
+  WEBSSH_HOST_FILTER_INDEX_STATEMENTS,
+  WEBSSH_HOST_METADATA_STATEMENTS,
+  WEBSSH_PROVIDERS_SCHEMA_STATEMENTS,
   WEBSSH_REQUIRED_COLUMNS,
   WEBSSH_REQUIRED_INDEXES,
   WEBSSH_REQUIRED_TABLES,
@@ -3876,6 +3879,18 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 298,
     statements: WEBSSH_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 315,
+    statements: WEBSSH_HOST_METADATA_STATEMENTS,
+  },
+  {
+    version: 316,
+    statements: WEBSSH_PROVIDERS_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 317,
+    statements: WEBSSH_HOST_FILTER_INDEX_STATEMENTS,
   },
 ]
 

@@ -3,11 +3,15 @@ import type {
   WebsshHost,
   WebsshHostBatchInput,
   WebsshHostBatchResult,
+  WebsshHostFilters,
+  WebsshHostIconKind,
   WebsshHostListResponse,
   WebsshHostQuickView,
   WebsshHostSessionSummary,
   WebsshHostTagCount,
+  WebsshProviderCount,
 } from '@shared/webssh/types'
+import { normalizeProviderId } from '@shared/webssh/providers'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { escapeLikePattern, WebsshStore, WEBSSH_PAGE_SIZE_DEFAULT, WEBSSH_PAGE_SIZE_MAX } from './store'
@@ -29,7 +33,12 @@ export interface WebsshHostRow {
   tags: string
   notes: string
   favorite: number
+  pinned: number
   sort_order: number
+  provider: string
+  icon_kind: string
+  icon_value: string
+  icon_key: string
   last_connected_at: number | null
   created_at: number
   updated_at: number
@@ -49,7 +58,7 @@ const TERM_TYPE_PATTERN = /^[A-Za-z0-9._+-]+$/
 /** D1 caps bound parameters per statement, so a bulk read or delete stays under that ceiling. */
 const BATCH_CHUNK = 90
 
-export type WebsshHostSort = 'manual' | 'name' | 'recent' | 'created'
+export type WebsshHostSort = 'manual' | 'name' | 'recent' | 'created' | 'provider'
 
 export interface WebsshHostListOptions {
   query: string
@@ -57,6 +66,7 @@ export interface WebsshHostListOptions {
   quick: WebsshHostQuickView
   tag: string
   sort: WebsshHostSort
+  filters: WebsshHostFilters
   page: number
   pageSize: number
 }
@@ -77,6 +87,11 @@ export interface WebsshHostInput {
   tags: string[]
   notes: string
   favorite: boolean
+  pinned: boolean
+  provider: string
+  iconKind: WebsshHostIconKind
+  iconValue: string
+  iconKey: string
   sortOrder?: number
 }
 
@@ -107,7 +122,12 @@ export function toHost(row: WebsshHostRow): WebsshHost {
     tags: parseHostTags(row.tags),
     notes: row.notes,
     favorite: row.favorite === 1,
+    pinned: row.pinned === 1,
     sortOrder: row.sort_order,
+    provider: row.provider || 'other',
+    iconKind: (row.icon_kind === 'lucide' || row.icon_kind === 'emoji' || row.icon_kind === 'image' ? row.icon_kind : '') as WebsshHostIconKind,
+    iconValue: row.icon_value,
+    iconUrl: row.icon_key ? `/api/webssh/icons/${row.id}` : '',
     lastConnectedAt: row.last_connected_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -211,8 +231,28 @@ export function normalizeHostNotes(value: unknown): string {
 }
 
 export function parseHostSort(value: string | undefined): WebsshHostSort {
-  if (value === 'name' || value === 'recent' || value === 'created') return value
+  if (value === 'name' || value === 'recent' || value === 'created' || value === 'provider') return value
   return 'manual'
+}
+
+export function normalizeHostProvider(value: unknown, fallback?: string): string {
+  if (value === undefined || value === null) return normalizeProviderId(fallback ?? '')
+  return normalizeProviderId(value)
+}
+
+export function normalizeHostIconKind(value: unknown, fallback: WebsshHostIconKind = ''): WebsshHostIconKind {
+  if (value === undefined || value === null || value === '') return fallback
+  if (value === 'lucide' || value === 'emoji' || value === 'image') return value
+  throw ApiError.badRequest('iconKind must be lucide, emoji, image or empty')
+}
+
+export function normalizeHostIconValue(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value !== 'string') throw ApiError.badRequest('iconValue must be a string')
+  const icon = value.trim()
+  if (icon.length > 64) throw ApiError.badRequest('iconValue cannot exceed 64 characters')
+  if (/[\u0000-\u001f\u007f]/.test(icon)) throw ApiError.badRequest('iconValue cannot contain control characters')
+  return icon
 }
 
 export function clampPage(value: string | undefined, fallback: number): number {
@@ -229,22 +269,65 @@ export function clampPageSize(value: string | undefined): number {
   return Math.min(WEBSSH_PAGE_SIZE_MAX, Math.max(1, Math.trunc(parsed)))
 }
 
+/** A `YYYY-MM-DD` filter value becomes the first or last millisecond of that UTC day. */
+function dateBound(value: string, endOfDay: boolean): number | null {
+  if (!value) return null
+  const parsed = Date.parse(`${value}T00:00:00Z`)
+  if (!Number.isFinite(parsed)) return null
+  return endOfDay ? parsed + 86_399_999 : parsed
+}
+
 export class WebsshHostsStore extends WebsshStore {
   async list(options: WebsshHostListOptions): Promise<WebsshHostListResponse> {
-    const where = `user_id = ?1 AND deleted_at IS NULL
-        AND (?2 = '' OR group_id = ?2)
-        AND (?3 = 0 OR favorite = 1)
-        AND (?4 = 0 OR last_connected_at IS NOT NULL)
-        AND (?5 = 0 OR name_folded LIKE ?6 ESCAPE '\\' OR host LIKE ?6 ESCAPE '\\' OR username LIKE ?6 ESCAPE '\\')
-        AND (?7 = '' OR EXISTS (
-          SELECT 1 FROM json_each(webssh_hosts.tags) AS host_tag WHERE host_tag.value = ?7
-        ))`
+    const where: string[] = ['user_id = ?1', 'deleted_at IS NULL']
+    const binds: Array<string | number> = [this.userId]
+    if (options.groupId) {
+      where.push(`group_id = ?${binds.length + 1}`)
+      binds.push(options.groupId)
+    }
+    if (options.quick === 'favorites') where.push('favorite = 1')
+    if (options.quick === 'pinned') where.push('pinned = 1')
+    if (options.quick === 'recent') where.push('last_connected_at IS NOT NULL')
+    if (options.tag) {
+      where.push(`EXISTS (SELECT 1 FROM json_each(webssh_hosts.tags) AS host_tag WHERE host_tag.value = ?${binds.length + 1})`)
+      binds.push(options.tag)
+    }
     const query = options.query.trim()
-    const pattern = query ? `%${escapeLikePattern(query.toLowerCase())}%` : ''
-    const favorite = options.quick === 'favorites' ? 1 : 0
-    const recent = options.quick === 'recent' ? 1 : 0
-    const totalRow = await this.db.prepare(`SELECT COUNT(*) AS total FROM webssh_hosts WHERE ${where}`)
-      .bind(this.userId, options.groupId, favorite, recent, query ? 1 : 0, pattern, options.tag)
+    if (query) {
+      where.push(`(name_folded LIKE ?${binds.length + 1} ESCAPE '\\' OR host LIKE ?${binds.length + 1} ESCAPE '\\' OR username LIKE ?${binds.length + 1} ESCAPE '\\')`)
+      binds.push(`%${escapeLikePattern(query.toLowerCase())}%`)
+    }
+    const filters = options.filters
+    if (filters.provider) {
+      where.push(`provider = ?${binds.length + 1}`)
+      binds.push(filters.provider)
+    }
+    if (filters.pinned) where.push('pinned = 1')
+    if (filters.status === 'connected') where.push('last_connected_at IS NOT NULL')
+    if (filters.status === 'never') where.push('last_connected_at IS NULL')
+    const connectedFrom = dateBound(filters.connected.from, false)
+    const connectedTo = dateBound(filters.connected.to, true)
+    if (connectedFrom !== null) {
+      where.push(`last_connected_at >= ?${binds.length + 1}`)
+      binds.push(connectedFrom)
+    }
+    if (connectedTo !== null) {
+      where.push(`last_connected_at <= ?${binds.length + 1}`)
+      binds.push(connectedTo)
+    }
+    const createdFrom = dateBound(filters.created.from, false)
+    const createdTo = dateBound(filters.created.to, true)
+    if (createdFrom !== null) {
+      where.push(`created_at >= ?${binds.length + 1}`)
+      binds.push(createdFrom)
+    }
+    if (createdTo !== null) {
+      where.push(`created_at <= ?${binds.length + 1}`)
+      binds.push(createdTo)
+    }
+    const clause = where.join(' AND ')
+    const totalRow = await this.db.prepare(`SELECT COUNT(*) AS total FROM webssh_hosts WHERE ${clause}`)
+      .bind(...binds)
       .first<{ total: number }>()
     const total = Number(totalRow?.total ?? 0)
     const page = Math.min(options.page, Math.max(1, Math.ceil(total / options.pageSize) || 1))
@@ -255,31 +338,42 @@ export class WebsshHostsStore extends WebsshStore {
         ? 'COALESCE(last_connected_at, 0) DESC, name_folded'
         : options.sort === 'created'
           ? 'created_at DESC, name_folded'
-          : 'sort_order, created_at DESC'
+          : options.sort === 'provider'
+            ? 'provider, sort_order, name_folded'
+            : 'sort_order, created_at DESC'
     const rows = await this.db.prepare(
       `SELECT id, name, host, port, username, group_id, auth_method, credential_id, key_id,
-              encoding, term_type, initial_command, color, tags, notes, favorite, sort_order,
-              last_connected_at, created_at, updated_at
+              encoding, term_type, initial_command, color, tags, notes, favorite, pinned, sort_order,
+              provider, icon_kind, icon_value, icon_key, last_connected_at, created_at, updated_at
          FROM webssh_hosts
-        WHERE ${where}
+        WHERE ${clause}
         ORDER BY ${order}
-        LIMIT ?8 OFFSET ?9`,
+        LIMIT ?${binds.length + 1} OFFSET ?${binds.length + 2}`,
     )
-      .bind(this.userId, options.groupId, favorite, recent, query ? 1 : 0, pattern, options.tag, options.pageSize, offset)
+      .bind(...binds, options.pageSize, offset)
       .all<WebsshHostRow>()
     return { items: rows.results.map(toHost), total, page, pageSize: options.pageSize }
   }
 
   /** Counts and tag names for the rail; no host rows travel, so the rail stays cheap. */
-  async overview(): Promise<{ total: number; favorites: number; connected: number; tags: WebsshHostTagCount[] }> {
+  async overview(): Promise<{
+    total: number
+    favorites: number
+    pinned: number
+    connected: number
+    never: number
+    tags: WebsshHostTagCount[]
+    providers: WebsshProviderCount[]
+  }> {
     const counts = await this.db.prepare(
       `SELECT COUNT(*) AS total,
               COALESCE(SUM(CASE WHEN favorite = 1 THEN 1 ELSE 0 END), 0) AS favorites,
+              COALESCE(SUM(CASE WHEN pinned = 1 THEN 1 ELSE 0 END), 0) AS pinned,
               COALESCE(SUM(CASE WHEN last_connected_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS connected
          FROM webssh_hosts WHERE user_id = ?1 AND deleted_at IS NULL`,
     )
       .bind(this.userId)
-      .first<{ total: number; favorites: number; connected: number }>()
+      .first<{ total: number; favorites: number; pinned: number; connected: number }>()
     const tagRows = await this.db.prepare(
       `SELECT host_tag.value AS name, COUNT(*) AS count
          FROM webssh_hosts, json_each(webssh_hosts.tags) AS host_tag
@@ -289,11 +383,33 @@ export class WebsshHostsStore extends WebsshStore {
     )
       .bind(this.userId)
       .all<{ name: string; count: number }>()
+    const providerRows = await this.db.prepare(
+      `SELECT h.provider AS id, COUNT(*) AS hostCount,
+              COALESCE((SELECT COUNT(*) FROM webssh_sessions s
+                WHERE s.user_id = ?1 AND s.host_id IN (
+                  SELECT h2.id FROM webssh_hosts h2
+                  WHERE h2.user_id = ?1 AND h2.deleted_at IS NULL AND h2.provider = h.provider
+                )), 0) AS connectionCount
+         FROM webssh_hosts h
+        WHERE h.user_id = ?1 AND h.deleted_at IS NULL
+        GROUP BY h.provider`,
+    )
+      .bind(this.userId)
+      .all<{ id: string; hostCount: number; connectionCount: number }>()
+    const total = Number(counts?.total ?? 0)
+    const connected = Number(counts?.connected ?? 0)
     return {
-      total: Number(counts?.total ?? 0),
+      total,
       favorites: Number(counts?.favorites ?? 0),
-      connected: Number(counts?.connected ?? 0),
+      pinned: Number(counts?.pinned ?? 0),
+      connected,
+      never: total - connected,
       tags: tagRows.results.map((row) => ({ name: row.name, count: Number(row.count) })),
+      providers: providerRows.results.map((row) => ({
+        id: row.id || 'other',
+        hostCount: Number(row.hostCount),
+        connectionCount: Number(row.connectionCount),
+      })),
     }
   }
 
@@ -319,8 +435,8 @@ export class WebsshHostsStore extends WebsshStore {
     if (!isValidId(id)) return null
     return await this.db.prepare(
       `SELECT id, name, host, port, username, group_id, auth_method, credential_id, key_id,
-              encoding, term_type, initial_command, color, tags, notes, favorite, sort_order,
-              last_connected_at, created_at, updated_at
+              encoding, term_type, initial_command, color, tags, notes, favorite, pinned, sort_order,
+              provider, icon_kind, icon_value, icon_key, last_connected_at, created_at, updated_at
          FROM webssh_hosts
         WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
     )
@@ -383,16 +499,16 @@ export class WebsshHostsStore extends WebsshStore {
    * Creates a host from an import without a credential or key. The row is deliberately usable only
    * after the owner attaches a secret, so a bulk import never invents an authentication method.
    */
-  async createImported(input: { name: string; host: string; port: number; username: string; tags: string[] }): Promise<WebsshHost> {
+  async createImported(input: { name: string; host: string; port: number; username: string; tags: string[]; provider?: string }): Promise<WebsshHost> {
     const id = newId()
     const sortOrder = await this.nextSortOrder('')
     await this.db.prepare(
       `INSERT INTO webssh_hosts (
          user_id, id, name, name_folded, host, port, username, group_id, auth_method, credential_id,
-         key_id, encoding, term_type, initial_command, color, tags, notes, favorite, sort_order,
-         created_at, updated_at
+         key_id, encoding, term_type, initial_command, color, tags, notes, favorite, pinned, sort_order,
+         provider, icon_kind, icon_value, icon_key, created_at, updated_at
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '', 'password', '', '', 'utf-8', 'xterm-256color', '',
-                 '', ?8, '', 0, ?9, ?10, ?10)`,
+                 '', ?8, '', 0, 0, ?9, ?10, '', '', '', ?11, ?11)`,
     )
       .bind(
         this.userId,
@@ -404,6 +520,7 @@ export class WebsshHostsStore extends WebsshStore {
         input.username,
         JSON.stringify(input.tags),
         sortOrder,
+        normalizeProviderId(input.provider ?? ''),
         this.now,
       )
       .run()
@@ -430,9 +547,10 @@ export class WebsshHostsStore extends WebsshStore {
     await this.db.prepare(
       `INSERT INTO webssh_hosts (
          user_id, id, name, name_folded, host, port, username, group_id, auth_method, credential_id,
-         key_id, encoding, term_type, initial_command, color, tags, notes, favorite, sort_order,
-         created_at, updated_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?20)`,
+         key_id, encoding, term_type, initial_command, color, tags, notes, favorite, pinned, sort_order,
+         provider, icon_kind, icon_value, icon_key, created_at, updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
+                 ?21, ?22, ?23, ?24, ?25, ?25)`,
     )
       .bind(
         this.userId,
@@ -453,7 +571,12 @@ export class WebsshHostsStore extends WebsshStore {
         JSON.stringify(input.tags),
         input.notes,
         input.favorite ? 1 : 0,
+        input.pinned ? 1 : 0,
         sortOrder,
+        input.provider,
+        input.iconKind,
+        input.iconValue,
+        input.iconKey,
         createdAt,
       )
       .run()
@@ -466,12 +589,15 @@ export class WebsshHostsStore extends WebsshStore {
     await this.assertReferences(input)
     const updatedAt = Math.max(this.now, existing.updatedAt + 1)
     const sortOrder = input.sortOrder ?? (input.groupId !== existing.groupId ? await this.nextSortOrder(input.groupId) : existing.sortOrder)
+    const current = await this.row(id)
+    const iconKey = input.iconKind === 'image' ? (current?.icon_key ?? '') : ''
     await this.db.prepare(
       `UPDATE webssh_hosts
           SET name = ?3, name_folded = ?4, host = ?5, port = ?6, username = ?7, group_id = ?8,
               auth_method = ?9, credential_id = ?10, key_id = ?11, encoding = ?12, term_type = ?13,
               initial_command = ?14, color = ?15, tags = ?16, notes = ?17, favorite = ?18,
-              sort_order = ?19, updated_at = ?20
+              pinned = ?19, sort_order = ?20, provider = ?21, icon_kind = ?22, icon_value = ?23,
+              icon_key = ?24, updated_at = ?25
         WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
     )
       .bind(
@@ -493,7 +619,12 @@ export class WebsshHostsStore extends WebsshStore {
         JSON.stringify(input.tags),
         input.notes,
         input.favorite ? 1 : 0,
+        input.pinned ? 1 : 0,
         sortOrder,
+        input.provider,
+        input.iconKind,
+        input.iconValue,
+        iconKey,
         updatedAt,
       )
       .run()
@@ -520,6 +651,16 @@ export class WebsshHostsStore extends WebsshStore {
       'UPDATE webssh_hosts SET last_connected_at = ?3 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL',
     )
       .bind(this.userId, id, at)
+      .run()
+  }
+
+  /** Writes the uploaded icon object key; an empty key returns the row to its provider monogram. */
+  async setIcon(id: string, key: string, kind: WebsshHostIconKind): Promise<void> {
+    await this.db.prepare(
+      `UPDATE webssh_hosts SET icon_key = ?3, icon_kind = ?4, icon_value = '', updated_at = ?5
+        WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
+    )
+      .bind(this.userId, id, key, kind, this.now)
       .run()
   }
 
@@ -568,6 +709,14 @@ export class WebsshHostsStore extends WebsshStore {
       return { affected: found.length, skipped: input.ids.length - found.length }
     }
 
+    if (input.action === 'provider') {
+      const provider = normalizeProviderId(input.provider ?? '')
+      await this.db.batch(found.map((row) => this.db.prepare(
+        'UPDATE webssh_hosts SET provider = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL',
+      ).bind(this.userId, row.id, provider, now)))
+      return { affected: found.length, skipped: input.ids.length - found.length }
+    }
+
     if (input.action === 'favorite' || input.action === 'unfavorite') {
       const favorite = input.action === 'favorite' ? 1 : 0
       await this.db.batch(found.map((row) => this.db.prepare(
@@ -611,6 +760,11 @@ export class WebsshHostsStore extends WebsshStore {
       tags: source.tags,
       notes: source.notes,
       favorite: false,
+      pinned: false,
+      provider: source.provider,
+      iconKind: source.iconKind,
+      iconValue: source.iconValue,
+      iconKey: source.iconUrl ? `webssh/icons/${this.userId}/${id}` : '',
       sortOrder: undefined,
     })
   }
@@ -666,8 +820,8 @@ export class WebsshHostsStore extends WebsshStore {
   async allForExport(): Promise<WebsshHost[]> {
     const rows = await this.db.prepare(
       `SELECT id, name, host, port, username, group_id, auth_method, credential_id, key_id,
-              encoding, term_type, initial_command, color, tags, notes, favorite, sort_order,
-              last_connected_at, created_at, updated_at
+              encoding, term_type, initial_command, color, tags, notes, favorite, pinned, sort_order,
+              provider, icon_kind, icon_value, icon_key, last_connected_at, created_at, updated_at
          FROM webssh_hosts
         WHERE user_id = ?1 AND deleted_at IS NULL
         ORDER BY group_id, sort_order, name_folded`,

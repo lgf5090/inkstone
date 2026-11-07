@@ -15,6 +15,7 @@ import type {
   WebsshHostSessionSummary,
   WebsshHostsOverview,
   WebsshKey,
+  WebsshProvider,
 } from '../src/shared/webssh/types'
 import { createApp } from '../src/worker/app'
 import { CredentialVault } from '../src/worker/durable/credential-vault'
@@ -431,9 +432,31 @@ describe('host organization and list tools', () => {
     const csv = await call('GET', '/api/webssh/hosts/export?format=csv')
     expect(csv.headers.get('content-type')).toContain('text/csv')
     const csvText = await csv.text()
-    expect(csvText.split('\r\n')[0]).toBe('name,host,port,username,tags')
-    expect(csvText).toContain('"Alpine Box","10.0.0.5","22","deploy","prod,ops,edge"')
+    expect(csvText.split('\r\n')[0]).toBe('name,host,port,username,tags,provider')
+    expect(csvText).toContain('"Alpine Box","10.0.0.5","22","deploy","prod,ops,edge","other"')
     expect(csvText).not.toContain('correct-horse')
+  })
+
+  it('creates a custom provider, filters by it, batches it and demotes on delete', async () => {
+    const created = await json<{ provider: WebsshProvider }>(await call('POST', '/api/webssh/providers', {
+      body: { label: 'Lab Cloud', color: '#123456' },
+    }))
+    expect(created.provider.id.startsWith('custom:')).toBe(true)
+    const host = await createHost({ name: 'provider-host', provider: created.provider.id })
+    expect(host.provider).toBe(created.provider.id)
+    const filtered = await json<WebsshHostListResponse>(await call('GET', `/api/webssh/hosts?provider=${encodeURIComponent(created.provider.id)}`))
+    expect(filtered.total).toBe(1)
+    const overview = await json<WebsshHostsOverview>(await call('GET', '/api/webssh/hosts/overview'))
+    expect(overview.providers.find((provider) => provider.id === created.provider.id)?.hostCount).toBe(1)
+    const other = await createHost({ name: 'provider-other', provider: 'aws' })
+    const batch = await call('POST', '/api/webssh/hosts/batch', {
+      body: { action: 'provider', ids: [other.id], provider: created.provider.id },
+    })
+    expect(batch.status).toBe(200)
+    expect((await json<{ host: WebsshHost }>(await call('GET', `/api/webssh/hosts/${other.id}`))).host.provider).toBe(created.provider.id)
+    const removed = await call('DELETE', `/api/webssh/providers/${created.provider.id}`)
+    expect(removed.status).toBe(200)
+    expect((await json<{ host: WebsshHost }>(await call('GET', `/api/webssh/hosts/${host.id}`))).host.provider).toBe('other')
   })
 
   it('lists the recent sessions of one host', async () => {

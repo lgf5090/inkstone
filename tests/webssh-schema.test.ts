@@ -45,7 +45,7 @@ describe('the WebSSH tables', () => {
   it('create every declared table', () => {
     const present = tables()
     for (const table of WEBSSH_REQUIRED_TABLES) expect(present.has(table)).toBe(true)
-    expect(WEBSSH_REQUIRED_TABLES).toHaveLength(12)
+    expect(WEBSSH_REQUIRED_TABLES).toHaveLength(13)
   })
 
   it('create every declared index', () => {
@@ -88,8 +88,10 @@ describe('the WebSSH tables', () => {
   it('keeps the numbered ledger unique and free of the reserved shortlinks range', () => {
     const versions = SCHEMA_MIGRATIONS.map((migration) => migration.version)
     expect(new Set(versions).size).toBe(versions.length)
-    expect(Math.max(...versions)).toBe(298)
+    expect(Math.max(...versions)).toBe(317)
     expect(versions.some((version) => version >= 289 && version <= 297)).toBe(false)
     expect(versions.filter((version) => version === 298)).toHaveLength(1)
+    for (const version of [315, 316, 317]) expect(versions.filter((entry) => entry === version)).toHaveLength(1)
+    expect(versions.includes(314), '314 is reserved for the shortlink branch').toBe(false)
   })
 })
