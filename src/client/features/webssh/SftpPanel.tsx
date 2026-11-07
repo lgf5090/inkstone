@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
 import {
   ArrowUp,
   Download,
   FilePen,
   Folder,
   FolderPlus,
+  Maximize2,
+  Minimize2,
+  PanelLeft,
   Pencil,
   RefreshCw,
   Trash2,
@@ -23,6 +26,13 @@ import { t } from '../../lib/i18n'
 import { websshApi } from './api'
 import { FileGlyph, isEditableTextEntry } from './file-icons'
 import { FileEditorDialog } from './FileEditorDialog'
+import { FileTree } from './FileTree'
+import {
+  candidatesFromFileInput,
+  collectDropCandidates,
+  useSftpTransfers,
+} from './use-sftp-transfers'
+import { loadSftpDirectory, saveSftpDirectory } from './prefs'
 
 function joinPath(parent: string, name: string): string {
   if (parent === '/') return `/${name}`
@@ -52,21 +62,54 @@ function errorText(caught: unknown): string {
   return caught instanceof ApiError ? caught.message : t('webssh.error.generic')
 }
 
-export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: string; homePath?: string; onClose: () => void }) {
+const ROW_GRID = 'grid min-w-[720px] grid-cols-[minmax(180px,1fr)_70px_80px_130px_90px_90px_100px_104px] items-center gap-2 px-2'
+
+export function SftpPanel({
+  sessionId,
+  hostId,
+  homePath = '/',
+  followPath,
+  fullscreen = false,
+  onToggleFullscreen,
+  onClose,
+}: {
+  sessionId: string
+  hostId: string
+  homePath?: string
+  followPath?: { path: string; token: number } | null
+  fullscreen?: boolean
+  onToggleFullscreen?: () => void
+  onClose: () => void
+}) {
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const [path, setPath] = useState(homePath)
-  const [pathDraft, setPathDraft] = useState(homePath)
+  const folderInputRef = useRef<HTMLInputElement | null>(null)
+  const initialDirectory = useMemo(() => loadSftpDirectory(hostId) ?? homePath, [hostId, homePath])
+  const [path, setPath] = useState(initialDirectory)
+  const [pathDraft, setPathDraft] = useState(initialDirectory)
   const [entries, setEntries] = useState<WebsshSftpEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
   const [busy, setBusy] = useState(false)
-  const [progress, setProgress] = useState<{ label: string; value: number } | null>(null)
   const [mkdirOpen, setMkdirOpen] = useState(false)
   const [mkdirName, setMkdirName] = useState('')
   const [renameTarget, setRenameTarget] = useState<WebsshSftpEntry | null>(null)
   const [renameName, setRenameName] = useState('')
   const [editorTarget, setEditorTarget] = useState<WebsshSftpEntry | null>(null)
+  const [treeOpen, setTreeOpen] = useState(false)
+  const [dragActive, setDragActive] = useState(false)
+  const [followEnabled, setFollowEnabled] = useState(true)
+  const [focusedIndex, setFocusedIndex] = useState(0)
+  const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const followTokenRef = useRef(0)
+
+  const refresh = () => setReloadToken((value) => value + 1)
+  const transfers = useSftpTransfers(sessionId, refresh)
+
+  useEffect(() => {
+    folderInputRef.current?.setAttribute('webkitdirectory', '')
+    folderInputRef.current?.setAttribute('directory', '')
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -82,6 +125,8 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
           if (right.kind === 'directory' && left.kind !== 'directory') return 1
           return left.name.localeCompare(right.name)
         }))
+        setFocusedIndex(0)
+        saveSftpDirectory(hostId, listing.path)
       })
       .catch((caught: unknown) => {
         if (!cancelled) setError(errorText(caught))
@@ -92,16 +137,26 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
     return () => {
       cancelled = true
     }
-  }, [sessionId, path, reloadToken])
+  }, [sessionId, path, reloadToken, hostId])
 
-  const refresh = () => setReloadToken((value) => value + 1)
+  useEffect(() => {
+    if (!followEnabled || !followPath || followPath.token === followTokenRef.current) return
+    followTokenRef.current = followPath.token
+    setPath(followPath.path)
+  }, [followEnabled, followPath])
+
+  useEffect(() => {
+    const row = rowRefs.current[focusedIndex]
+    if (!row) return
+    row.tabIndex = 0
+  }, [focusedIndex, entries])
 
   const toast = (title: string, tone: 'success' | 'warning' | 'danger' = 'success') => {
     useUi.getState().toast({ title, tone })
   }
 
   const download = async (entry: WebsshSftpEntry) => {
-    setProgress({ label: t('webssh.sftp.downloading', { name: entry.name }), value: 0 })
+    setBusy(true)
     try {
       const chunks: Blob[] = []
       let offset = 0
@@ -113,12 +168,6 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
         const blob = await response.blob()
         chunks.push(blob)
         offset += blob.size
-        if (total > 0) {
-          setProgress({
-            label: t('webssh.sftp.downloading', { name: entry.name }),
-            value: Math.min(1, offset / total),
-          })
-        }
         if (blob.size === 0 || offset >= total) break
       }
       const url = URL.createObjectURL(new Blob(chunks))
@@ -131,7 +180,7 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
     } catch (caught) {
       toast(errorText(caught), 'danger')
     } finally {
-      setProgress(null)
+      setBusy(false)
     }
   }
 
@@ -189,57 +238,86 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
     }
   }
 
-  const uploadFiles = async (files: FileList | null) => {
-    if (!files?.length) return
-    const list = Array.from(files)
-    setBusy(true)
-    try {
-      for (const file of list) {
-        if (file.size > 2 * 1024 * 1024 * 1024) {
-          toast(t('webssh.sftp.too_large', { name: file.name }), 'danger')
-          continue
-        }
-        setProgress({ label: t('webssh.sftp.uploading', { name: file.name }), value: 0 })
-        const created = await websshApi.createUpload(sessionId, joinPath(path, file.name), file.size)
-        let offset = 0
-        try {
-          while (offset < file.size) {
-            const chunk = file.slice(offset, Math.min(offset + created.chunkSize, file.size))
-            await websshApi.putChunk(sessionId, created.transferId, offset, chunk)
-            offset += chunk.size
-            setProgress({
-              label: t('webssh.sftp.uploading', { name: file.name }),
-              value: file.size === 0 ? 1 : offset / file.size,
-            })
-          }
-          await websshApi.completeUpload(sessionId, created.transferId)
-        } catch (caught) {
-          await websshApi.cancelUpload(sessionId, created.transferId).catch((error: unknown) => {
-            console.warn('[inkstone] Could not cancel staged upload:', error)
-          })
-          throw caught
-        }
-        toast(t('webssh.sftp.upload_done', { name: file.name }))
-      }
-      refresh()
-    } catch (caught) {
-      toast(errorText(caught), 'danger')
-    } finally {
-      setProgress(null)
-      setBusy(false)
+  const uploadFiles = async (candidates: ReturnType<typeof candidatesFromFileInput>) => {
+    if (candidates.length === 0) return
+    await transfers.enqueue(candidates, path)
+  }
+
+  const onDrop = async (event: DragEvent<HTMLElement>) => {
+    event.preventDefault()
+    setDragActive(false)
+    const candidates = await collectDropCandidates(event.dataTransfer)
+    await uploadFiles(candidates)
+  }
+
+  const moveFocus = (next: number) => {
+    if (entries.length === 0) return
+    const index = Math.max(0, Math.min(entries.length - 1, next))
+    setFocusedIndex(index)
+    rowRefs.current.forEach((row, rowIndex) => {
+      if (row) row.tabIndex = rowIndex === index ? 0 : -1
+    })
+    rowRefs.current[index]?.focus()
+  }
+
+  const onRowKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      moveFocus(index + 1)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      moveFocus(index - 1)
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      moveFocus(0)
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      moveFocus(entries.length - 1)
     }
   }
+
+  const typeLabel = (entry: WebsshSftpEntry) => {
+    if (entry.kind === 'directory') return t('webssh.sftp.type.directory')
+    if (entry.kind === 'file') return t('webssh.sftp.type.file')
+    if (entry.kind === 'symlink') return t('webssh.sftp.type.symlink')
+    return t('webssh.sftp.type.other')
+  }
+
+  const percent = transfers.summary.totalBytes > 0
+    ? Math.min(1, transfers.summary.uploadedBytes / transfers.summary.totalBytes)
+    : 0
 
   return (
     <section
       aria-label={t('webssh.sftp.title')}
-      className="flex min-h-0 w-full flex-col border-[var(--border-subtle)] bg-[var(--bg-surface)] md:w-[380px] md:shrink-0 md:border-s"
+      className={fullscreen
+        ? 'absolute inset-0 z-30 flex min-h-0 w-full flex-col bg-[var(--bg-surface)]'
+        : 'relative flex min-h-0 w-full flex-col border-[var(--border-subtle)] bg-[var(--bg-surface)] md:w-[560px] md:shrink-0 md:border-s'}
+      onDragOver={(event) => {
+        event.preventDefault()
+        setDragActive(true)
+      }}
+      onDragLeave={() => setDragActive(false)}
+      onDrop={(event) => void onDrop(event)}
     >
       <div className="flex shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-2 py-1.5">
         <Folder size={14} aria-hidden="true" className="shrink-0 text-[var(--text-secondary)]" />
         <h2 className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">
           {t('webssh.sftp.title')}
         </h2>
+        {transfers.summary.active + transfers.summary.queued > 0 && (
+          <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+            {t('webssh.sftp.transfers.active', {
+              active: transfers.summary.active,
+              queued: transfers.summary.queued,
+            })}
+          </span>
+        )}
+        <Tooltip label={t('webssh.sftp.tree.toggle')}>
+          <IconButton label={t('webssh.sftp.tree.toggle')} size="sm" onClick={() => setTreeOpen((value) => !value)}>
+            <PanelLeft size={14} aria-hidden="true" />
+          </IconButton>
+        </Tooltip>
         <Tooltip label={t('webssh.sftp.parent')}>
           <IconButton label={t('webssh.sftp.parent')} size="sm" onClick={() => setPath(parentPath(path))}>
             <ArrowUp size={14} aria-hidden="true" />
@@ -260,6 +338,22 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
             <Upload size={14} aria-hidden="true" />
           </IconButton>
         </Tooltip>
+        <Tooltip label={t('webssh.sftp.upload_folder')}>
+          <IconButton label={t('webssh.sftp.upload_folder')} size="sm" onClick={() => folderInputRef.current?.click()}>
+            <FolderPlus size={14} aria-hidden="true" />
+          </IconButton>
+        </Tooltip>
+        {onToggleFullscreen && (
+          <Tooltip label={fullscreen ? t('webssh.sftp.exit_fullscreen') : t('webssh.sftp.fullscreen')}>
+            <IconButton
+              label={fullscreen ? t('webssh.sftp.exit_fullscreen') : t('webssh.sftp.fullscreen')}
+              size="sm"
+              onClick={onToggleFullscreen}
+            >
+              {fullscreen ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />}
+            </IconButton>
+          </Tooltip>
+        )}
         <IconButton label={t('webssh.actions.close')} size="sm" onClick={onClose}>
           <X size={14} aria-hidden="true" />
         </IconButton>
@@ -269,7 +363,17 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
           multiple
           className="hidden"
           onChange={(event) => {
-            void uploadFiles(event.target.files)
+            void uploadFiles(candidatesFromFileInput(event.target.files))
+            event.target.value = ''
+          }}
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            void uploadFiles(candidatesFromFileInput(event.target.files))
             event.target.value = ''
           }}
         />
@@ -290,99 +394,187 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
             }
           }}
         />
+        <label className="flex shrink-0 items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+          <input
+            type="checkbox"
+            checked={followEnabled}
+            onChange={(event) => setFollowEnabled(event.target.checked)}
+          />
+          {t('webssh.sftp.follow')}
+        </label>
         <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
           {t('webssh.sftp.count', { count: entries.length })}
         </span>
       </div>
 
-      {progress && (
-        <div className="shrink-0 border-b border-[var(--border-subtle)] px-3 py-2">
-          <div className="mb-1 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{progress.label}</div>
-          <div
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(progress.value * 100)}
-            aria-valuetext={`${Math.round(progress.value * 100)}%`}
-            className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-inset)]"
-          >
-            <div className="h-full bg-[var(--accent)] transition-[width] duration-150" style={{ width: `${Math.round(progress.value * 100)}%` }} />
+      <div className="flex min-h-0 flex-1">
+        {treeOpen && (
+          <FileTree
+            sessionId={sessionId}
+            rootPath={homePath}
+            currentPath={path}
+            onNavigate={setPath}
+            onClose={() => setTreeOpen(false)}
+          />
+        )}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {transfers.jobs.length > 0 && (
+            <div className="shrink-0 border-b border-[var(--border-subtle)] px-3 py-2">
+              <div className="mb-1 flex items-center gap-2 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+                <span className="min-w-0 flex-1 truncate">
+                  {t('webssh.sftp.transfers.summary', {
+                    done: Math.round(percent * 100),
+                    failed: transfers.summary.failed,
+                  })}
+                </span>
+                <Button size="sm" variant="ghost" onClick={transfers.cancelAll}>
+                  {t('webssh.sftp.transfers.cancel_all')}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={transfers.clearFinished}>
+                  {t('webssh.sftp.transfers.clear')}
+                </Button>
+              </div>
+              <div
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(percent * 100)}
+                aria-valuetext={`${Math.round(percent * 100)}%`}
+                className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-inset)]"
+              >
+                <div className="h-full bg-[var(--accent)] transition-[width] duration-150" style={{ width: `${Math.round(percent * 100)}%` }} />
+              </div>
+              <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto">
+                {transfers.jobs.slice(0, 8).map((job) => (
+                  <li key={job.id} className="flex items-center gap-2 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
+                    <span className="min-w-0 flex-1 truncate">{job.relativePath}</span>
+                    <span className="shrink-0">
+                      {job.status === 'done'
+                        ? t('webssh.sftp.transfers.done')
+                        : job.status === 'cancelled'
+                          ? t('webssh.sftp.transfers.cancelled')
+                          : job.status === 'error'
+                            ? t('webssh.sftp.transfers.failed')
+                            : `${Math.round(job.size === 0 ? 100 : job.uploaded / job.size * 100)}%`}
+                    </span>
+                    {(job.status === 'uploading' || job.status === 'queued') && (
+                      <button
+                        type="button"
+                        className="shrink-0 text-[var(--danger)] underline"
+                        onClick={() => transfers.cancel(job.id)}
+                      >
+                        {t('webssh.sftp.transfers.cancel')}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="shrink-0 overflow-x-auto">
+            <div className={ROW_GRID + ' border-b border-[var(--border-subtle)] py-1 text-[length:var(--text-10-5)] uppercase tracking-wide text-[var(--text-quaternary)]'}>
+              <span>{t('webssh.sftp.column.name')}</span>
+              <span>{t('webssh.sftp.column.size')}</span>
+              <span>{t('webssh.sftp.column.type')}</span>
+              <span>{t('webssh.sftp.column.modified')}</span>
+              <span>{t('webssh.sftp.column.owner')}</span>
+              <span>{t('webssh.sftp.column.group')}</span>
+              <span>{t('webssh.sftp.column.permissions')}</span>
+              <span>{t('webssh.sftp.column.actions')}</span>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto">
+            {loading ? (
+              <div className="flex items-center justify-center p-6"><Spinner size={16} /></div>
+            ) : error ? (
+              <div className="p-4">
+                <Empty art="folder" title={t('webssh.sftp.error_title')} description={error} action={<Button size="sm" onClick={refresh}>{t('webssh.actions.retry')}</Button>} />
+              </div>
+            ) : entries.length === 0 ? (
+              <div className="p-4">
+                <Empty art="folder" compact title={t('webssh.sftp.empty_title')} description={t('webssh.sftp.empty_description')} />
+              </div>
+            ) : (
+              <ul aria-label={t('webssh.sftp.list_label')}>
+                {entries.map((entry, index) => {
+                  const isDirectory = entry.kind === 'directory'
+                  return (
+                    <li
+                      key={entry.path}
+                      className={ROW_GRID + ' border-b border-[var(--border-subtle)] py-1 hover:bg-[var(--bg-hover)]'}
+                    >
+                      <button
+                        type="button"
+                        ref={(element) => { rowRefs.current[index] = element }}
+                        tabIndex={index === focusedIndex ? 0 : -1}
+                        className="flex min-w-0 items-center gap-2 text-start"
+                        onClick={() => {
+                          setFocusedIndex(index)
+                          if (isDirectory) setPath(entry.path)
+                          else void download(entry)
+                        }}
+                        onKeyDown={(event) => onRowKeyDown(event, index)}
+                      >
+                        <FileGlyph entry={entry} />
+                        <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{entry.name}</span>
+                      </button>
+                      <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{isDirectory ? '' : formatBytes(entry.size)}</span>
+                      <span className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{typeLabel(entry)}</span>
+                      <span className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{formatMode(entry.mtime)}</span>
+                      <span className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{entry.owner}</span>
+                      <span className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{entry.group}</span>
+                      <span className="truncate font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{entry.permissions}</span>
+                      <span className="flex shrink-0 items-center gap-0.5">
+                        {!isDirectory && (
+                          <Tooltip label={t('webssh.sftp.download')}>
+                            <IconButton label={t('webssh.sftp.download')} size="xs" onClick={() => void download(entry)}>
+                              <Download size={13} aria-hidden="true" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {isEditableTextEntry(entry) && (
+                          <Tooltip label={t('webssh.editor.open')}>
+                            <IconButton label={t('webssh.editor.open')} size="xs" onClick={() => setEditorTarget(entry)}>
+                              <FilePen size={13} aria-hidden="true" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        <Tooltip label={t('webssh.actions.rename')}>
+                          <IconButton
+                            label={t('webssh.actions.rename')}
+                            size="xs"
+                            onClick={() => {
+                              setRenameTarget(entry)
+                              setRenameName(entry.name)
+                            }}
+                          >
+                            <Pencil size={13} aria-hidden="true" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip label={t('webssh.actions.delete')}>
+                          <IconButton label={t('webssh.actions.delete')} size="xs" onClick={() => void removeEntry(entry)} disabled={busy}>
+                            <Trash2 size={13} aria-hidden="true" />
+                          </IconButton>
+                        </Tooltip>
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[var(--accent-soft)]/40">
+          <div className="rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-2 text-[length:var(--text-12-5)] text-[var(--text-primary)] shadow-[var(--shadow-md)]">
+            {t('webssh.sftp.drop_hint')}
           </div>
         </div>
       )}
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {loading ? (
-          <div className="flex items-center justify-center p-6"><Spinner size={16} /></div>
-        ) : error ? (
-          <div className="p-4">
-            <Empty art="folder" title={t('webssh.sftp.error_title')} description={error} action={<Button size="sm" onClick={refresh}>{t('webssh.actions.retry')}</Button>} />
-          </div>
-        ) : entries.length === 0 ? (
-          <div className="p-4">
-            <Empty art="folder" compact title={t('webssh.sftp.empty_title')} description={t('webssh.sftp.empty_description')} />
-          </div>
-        ) : (
-          <ul className="divide-y divide-[var(--border-subtle)]">
-            {entries.map((entry) => {
-              const isDirectory = entry.kind === 'directory'
-              return (
-                <li key={entry.path} className="flex items-center gap-2 px-2 py-1.5 hover:bg-[var(--bg-hover)]">
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 items-center gap-2 text-start"
-                    onClick={() => {
-                      if (isDirectory) setPath(entry.path)
-                      else void download(entry)
-                    }}
-                  >
-                    <FileGlyph entry={entry} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{entry.name}</span>
-                      <span className="block truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-                        {isDirectory ? entry.permissions : `${formatBytes(entry.size)} · ${formatMode(entry.mtime)}`}
-                      </span>
-                    </span>
-                  </button>
-                  <span className="flex shrink-0 items-center gap-0.5">
-                    {!isDirectory && (
-                      <Tooltip label={t('webssh.sftp.download')}>
-                        <IconButton label={t('webssh.sftp.download')} size="xs" onClick={() => void download(entry)}>
-                          <Download size={13} aria-hidden="true" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {isEditableTextEntry(entry) && (
-                      <Tooltip label={t('webssh.editor.open')}>
-                        <IconButton label={t('webssh.editor.open')} size="xs" onClick={() => setEditorTarget(entry)}>
-                          <FilePen size={13} aria-hidden="true" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    <Tooltip label={t('webssh.actions.rename')}>
-                      <IconButton
-                        label={t('webssh.actions.rename')}
-                        size="xs"
-                        onClick={() => {
-                          setRenameTarget(entry)
-                          setRenameName(entry.name)
-                        }}
-                      >
-                        <Pencil size={13} aria-hidden="true" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip label={t('webssh.actions.delete')}>
-                      <IconButton label={t('webssh.actions.delete')} size="xs" onClick={() => void removeEntry(entry)} disabled={busy}>
-                        <Trash2 size={13} aria-hidden="true" />
-                      </IconButton>
-                    </Tooltip>
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </div>
 
       <Modal
         open={mkdirOpen}

@@ -6,6 +6,7 @@ import { websshHostRoutes } from './routes-hosts'
 import { websshKeyRoutes } from './routes-keys'
 import { websshSessionRoutes } from './routes-session'
 import { websshSftpRoutes } from './routes-sftp'
+import { websshForwardRoutes } from './routes-forward'
 import { websshSettingsRoutes } from './routes-settings'
 import { websshRecordingRoutes } from './routes-recordings'
 import { websshShareRoutes } from './routes-share'
@@ -22,6 +23,7 @@ websshRoutes.route('/', websshHostRoutes)
 websshRoutes.route('/', websshKeyRoutes)
 websshRoutes.route('/', websshSessionRoutes)
 websshRoutes.route('/', websshSftpRoutes)
+websshRoutes.route('/', websshForwardRoutes)
 websshRoutes.route('/', websshSettingsRoutes)
 websshRoutes.route('/', websshRecordingRoutes)
 websshRoutes.route('/', websshShareRoutes)

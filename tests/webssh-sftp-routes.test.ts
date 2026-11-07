@@ -140,6 +140,34 @@ describe('SFTP proxying', () => {
     expect(await json(response)).toMatchObject({ path: '/home/test', entries: [] })
   })
 
+  it('forwards a stat read for the editor mtime check', async () => {
+    const id = newId()
+    insertSession(id, userId, 'active')
+    doResponse = () => new Response(JSON.stringify({
+      entry: {
+        name: 'app.conf',
+        path: '/home/test/app.conf',
+        kind: 'file',
+        size: 12,
+        mtime: 1700000000,
+        permissions: '-rw-r--r--',
+        uid: 1000,
+        gid: 1000,
+        owner: 'deploy',
+        group: 'deploy',
+        longname: '',
+      },
+    }), { headers: { 'content-type': 'application/json' } })
+    const response = await request(`/api/webssh/sessions/${id}/sftp/stat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path: '/home/test/app.conf' }),
+    })
+    expect(response.status).toBe(200)
+    expect(doRequests[0]?.body).toMatchObject({ op: 'stat', path: '/home/test/app.conf' })
+    expect((await json(response)).entry).toMatchObject({ mtime: 1700000000 })
+  })
+
   it('forwards mkdir, remove and rename operation bodies', async () => {
     const id = newId()
     insertSession(id, userId, 'active')

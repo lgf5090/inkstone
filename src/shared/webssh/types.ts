@@ -45,7 +45,15 @@ export interface WebsshSftpEntry {
   mtime: number | null
   /** `ls`-style permission string such as `drwxr-xr-x`. */
   permissions: string
+  uid: number | null
+  gid: number | null
+  owner: string
+  group: string
   longname: string
+}
+
+export interface WebsshSftpStatResponse {
+  entry: WebsshSftpEntry
 }
 
 export interface WebsshSftpListing {
@@ -69,6 +77,37 @@ export interface WebsshSftpUploadStatus {
 
 export interface WebsshSftpMutationResult {
   ok: true
+}
+
+export interface WebsshForwardRule {
+  id: string
+  name: string
+  hostId: string
+  targetHost: string
+  targetPort: number
+  mode: 'trusted'
+  createdAt: number
+  updatedAt: number
+}
+
+export interface WebsshForwardRuleListResponse {
+  items: WebsshForwardRule[]
+}
+
+export interface WebsshForwardGrant {
+  token: string
+  sessionId: string
+  hostId: string
+  targetHost: string
+  targetPort: number
+  url: string
+  createdAt: number
+  expiresAt: number
+  requests: number
+}
+
+export interface WebsshForwardStatusResponse {
+  grants: WebsshForwardGrant[]
 }
 
 /** A saved command snippet; `command` is the text inserted into the terminal. */
@@ -136,6 +175,9 @@ export const WEBSSH_AUDIT_EVENT_TYPES = [
   'file_delete',
   'file_rename',
   'dir_create',
+  'forward_create',
+  'forward_stop',
+  'forward_blocked',
   'recording_start',
   'recording_finalize',
   'recording_fail',

@@ -224,6 +224,25 @@ export const WEBSSH_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
 ]
 
+export const WEBSSH_FORWARD_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS webssh_forward_rules (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    host_id TEXT NOT NULL,
+    target_host TEXT NOT NULL,
+    target_port INTEGER NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'trusted',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_webssh_forward_rules_host
+     ON webssh_forward_rules(user_id, host_id, created_at DESC)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_webssh_forward_rules_name
+     ON webssh_forward_rules(user_id, host_id, lower(name))`,
+]
+
 export const WEBSSH_REQUIRED_TABLES: readonly string[] = [
   'webssh_host_groups',
   'webssh_hosts',
@@ -237,6 +256,7 @@ export const WEBSSH_REQUIRED_TABLES: readonly string[] = [
   'webssh_snippets',
   'webssh_audit_events',
   'webssh_settings',
+  'webssh_forward_rules',
 ]
 
 export const WEBSSH_REQUIRED_INDEXES: readonly string[] = [
@@ -265,6 +285,8 @@ export const WEBSSH_REQUIRED_INDEXES: readonly string[] = [
   'idx_webssh_audit_user',
   'idx_webssh_audit_event',
   'idx_webssh_audit_session',
+  'idx_webssh_forward_rules_host',
+  'idx_webssh_forward_rules_name',
 ]
 
 export const WEBSSH_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -309,4 +331,7 @@ export const WEBSSH_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>
     'id', 'user_id', 'session_id', 'host_id', 'event_type', 'metadata', 'ip_hash', 'created_at',
   ],
   webssh_settings: ['user_id', 'settings', 'updated_at'],
+  webssh_forward_rules: [
+    'user_id', 'id', 'name', 'host_id', 'target_host', 'target_port', 'mode', 'created_at', 'updated_at',
+  ],
 }

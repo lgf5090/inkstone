@@ -1,6 +1,10 @@
 import type {
   WebsshAuditListResponse,
   WebsshCredential,
+  WebsshForwardGrant,
+  WebsshForwardRule,
+  WebsshForwardRuleListResponse,
+  WebsshForwardStatusResponse,
   WebsshHealthReport,
   WebsshHost,
   WebsshHostGroup,
@@ -25,6 +29,7 @@ import type {
   WebsshSnippetListResponse,
   WebsshSftpListing,
   WebsshSftpMutationResult,
+  WebsshSftpStatResponse,
   WebsshSftpUploadCreated,
   WebsshSftpUploadStatus,
 } from '@shared/webssh/types'
@@ -120,6 +125,11 @@ export const websshApi = {
 
   listDir: async (sessionId: string, path: string) =>
     await request<WebsshSftpListing>(`/api/webssh/sessions/${sessionId}/sftp/list?path=${encodeURIComponent(path)}`),
+  stat: async (sessionId: string, path: string) =>
+    (await request<WebsshSftpStatResponse>(`/api/webssh/sessions/${sessionId}/sftp/stat`, {
+      method: 'POST',
+      body: { path },
+    })).entry,
   download: async (sessionId: string, path: string, offset = 0, length?: number) => {
     const search = new URLSearchParams({ path, offset: String(offset) })
     if (length !== undefined) search.set('length', String(length))
@@ -157,6 +167,23 @@ export const websshApi = {
   cancelUpload: async (sessionId: string, transferId: string) => {
     await request(`/api/webssh/sessions/${sessionId}/sftp/uploads/${transferId}`, { method: 'DELETE' })
   },
+
+  listForwardRules: async (hostId: string) =>
+    (await request<WebsshForwardRuleListResponse>(`/api/webssh/forward/rules?hostId=${encodeURIComponent(hostId)}`)).items,
+  createForwardRule: async (body: { name: string; hostId: string; targetHost: string; targetPort: number }) =>
+    (await request<{ rule: WebsshForwardRule }>('/api/webssh/forward/rules', { method: 'POST', body })).rule,
+  deleteForwardRule: async (id: string) => {
+    await request(`/api/webssh/forward/rules/${id}`, { method: 'DELETE' })
+  },
+  createForward: async (sessionId: string, host: string, port: number) =>
+    (await request<{ grant: WebsshForwardGrant }>(`/api/webssh/sessions/${sessionId}/forward`, {
+      method: 'POST',
+      body: { host, port },
+    })).grant,
+  forwardStatus: async (sessionId: string) =>
+    (await request<WebsshForwardStatusResponse>(`/api/webssh/sessions/${sessionId}/forward`)).grants,
+  stopForward: async (sessionId: string, token: string) =>
+    await request<{ stopped: boolean }>(`/api/webssh/sessions/${sessionId}/forward/${token}`, { method: 'DELETE' }),
 
   recording: async (sessionId: string) =>
     await request<WebsshRecordingView>(`/api/webssh/sessions/${sessionId}/recording`),
