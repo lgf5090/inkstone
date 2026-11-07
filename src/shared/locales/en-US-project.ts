@@ -105,4 +105,10 @@ export const EN_US_PROJECT = {
     "project.board.activity": "Activity",
     "project.board.export_md": "Export Markdown",
     "project.view.summary": "Summary",
+    "project.view.density": "Density",
+    "project.view.density_compact": "Compact",
+    "project.view.density_comfortable": "Comfortable",
+    "project.view.density_spacious": "Spacious",
+    "project.card.save_as_template": "Save as template",
+    "project.card.from_template": "From template",
 } as const

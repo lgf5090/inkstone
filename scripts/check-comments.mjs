@@ -41040,6 +41040,7 @@ const allowed = new Map([
   ["src/worker/project/enhance.ts", [
     "/**\n * Board activity trail (X-7) and card dependencies (X-3). Activity rows are append-only facts about\n * who changed what; the dependency graph is a set of directed 'blocks' edges with cycle detection so\n * a board can never deadlock itself. Both reuse tables created with the core schema.\n */",
     "/** Adding a 'blocks' edge that would close a cycle is refused, keeping the dependency graph acyclic. */",
+    "/** New card from a template card: copies its values and content blocks into a fresh live card. */",
   ]],
   ["src/worker/project/insights.ts", [
     "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.\n */",

@@ -5,7 +5,7 @@ import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Input, Select, Textarea } from '../../components/form'
 import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
-import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, fetchCardComments, fetchCardLinks, patchCardContent, patchProjectCard, removeCardLink } from './api'
+import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, fetchCardComments, fetchCardLinks, patchCardContent, patchProjectCard, removeCardLink, saveCardAsTemplate } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
 
 interface CardDialogProps {
@@ -125,6 +125,9 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           onBlur={commitTitle}
           onKeyDown={(event) => { if (event.key === 'Enter') commitTitle() }}
         />
+        {canEdit && (
+          <Button size="sm" variant="ghost" onClick={() => { void saveCardAsTemplate(card.id).then(onRefresh) }}>{t('project.card.save_as_template')}</Button>
+        )}
         <section aria-label={t('project.card.properties')} className="space-y-2">
           <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.properties')}</h3>
           {properties.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</p>}

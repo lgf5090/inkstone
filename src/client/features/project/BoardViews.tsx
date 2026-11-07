@@ -63,6 +63,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const viewType = active?.viewType ?? 'table'
   const filtered = bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties))
   const sorted = sortProjectCards(filtered, fields.sortOptions, bundle.properties)
+  const density = fields.cardSize ?? 'comfortable'
+  const rowPad = density === 'compact' ? 'py-0.5' : density === 'spacious' ? 'py-3' : 'py-2'
   const columns = fields.visiblePropertyIds.length
     ? fields.visiblePropertyIds.map((id) => bundle.properties.find((p) => p.id === id)).filter((p): p is ProjectProperty => Boolean(p))
     : bundle.properties
@@ -116,6 +118,17 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         )}
         {active && (
           <span className={`flex items-center gap-1 ${viewType === 'board' ? '' : 'ml-auto'}`}>
+            <Select
+              className="w-28"
+              value={density}
+              aria-label={t('project.view.density')}
+              disabled={!canEdit}
+              onChange={(event) => onPatchView(active.id, { fields: { cardSize: event.target.value as 'compact' | 'comfortable' | 'spacious' } })}
+            >
+              <option value="compact">{t('project.view.density_compact')}</option>
+              <option value="comfortable">{t('project.view.density_comfortable')}</option>
+              <option value="spacious">{t('project.view.density_spacious')}</option>
+            </Select>
             <IconButton label={t('project.view.sort')} size="sm" onClick={() => setSettings('sort')}><ArrowUpDown size={15} /></IconButton>
             <IconButton label={t('project.view.filter')} size="sm" onClick={() => setSettings('filter')}><Filter size={15} /></IconButton>
             <IconButton label={t('project.view.properties')} size="sm" onClick={() => setSettings('properties')}><Eye size={15} /></IconButton>
@@ -127,7 +140,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         : sorted.length === 0
           ? <Empty art="folder" title={t('project.board.empty_cards')} />
           : viewType === 'board'
-            ? <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />
+            ? <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />
             : viewType === 'gallery'
               ? <GalleryView cards={sorted} onOpenCard={onOpenCard} />
               : (
@@ -142,7 +155,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                   </thead>
                   <tbody>
                     {sorted.map((card) => (
-                      <tr key={card.id} className="border-b border-[var(--border-subtle)]" data-project-card={card.id}>
+                      <tr key={card.id} className={`border-b border-[var(--border-subtle)] ${rowPad}`} data-project-card={card.id}>
                         <td className="px-3 py-2 text-[var(--text-primary)]">
                           <button type="button" className="min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
                             {card.title || t('project.board.untitled_card')}
@@ -194,7 +207,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   )
 }
 
-function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onOpenCard, fields, onPatch }: {
+function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onOpenCard, fields, density, onPatch }: {
   cards: ProjectCard[]
   groupById?: string
   properties: ProjectProperty[]
@@ -202,8 +215,10 @@ function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onO
   onDeleteCard: (id: string) => void
   onOpenCard: (id: string) => void
   fields: ProjectViewFields
+  density: 'compact' | 'comfortable' | 'spacious'
   onPatch: (fields: Partial<ProjectViewFields>) => void
 }): ReactElement {
+  const cardPad = density === 'compact' ? 'px-2 py-1' : density === 'spacious' ? 'px-3 py-3' : 'px-2 py-2'
   const groupProperty = properties.find((property) => property.id === groupById)
   const groups = groupProjectCards(cards, groupById, properties)
   const columnKeys = groupProperty && groupProperty.options.length
@@ -236,7 +251,7 @@ function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onO
             <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
               {bucket.length === 0 && <li className="px-1 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.empty_column')}</li>}
               {bucket.map((card) => (
-                <li key={card.id} className="flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--bg-base)] px-2 py-2 shadow-[var(--shadow-1)]" data-project-card={card.id}>
+                <li key={card.id} className={`flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--bg-base)] shadow-[var(--shadow-1)] ${cardPad}`} data-project-card={card.id}>
                   <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
                     {card.title || t('project.board.untitled_card')}
                   </button>

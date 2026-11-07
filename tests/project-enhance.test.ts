@@ -65,3 +65,19 @@ describe('activity and markdown', () => {
     expect(md).toContain('### Beta')
   })
 })
+
+describe('card templates', () => {
+  it('saves a card as template and creates a live copy from it', async () => {
+    const { board, a } = await setup()
+    await req('POST', `/cards/${a.id}/contents`, { type: 'text', title: 'body text' })
+    expect((await req('POST', `/cards/${a.id}/save-as-template`)).status).toBe(200)
+    const created = await req('POST', `/boards/${board.id}/cards/from-template`, { templateId: a.id })
+    expect(created.status).toBe(201)
+    const copy = ((await created.json()) as { card: ProjectCard }).card
+    expect(copy.id).not.toBe(a.id)
+    expect(copy.isTemplate).toBe(false)
+    expect(copy.title).toBe('Alpha')
+    const bundle = ((await (await req('GET', `/boards/${board.id}/bundle`)).json()) as { contents: { cardId: string, title: string }[] })
+    expect(bundle.contents.some((c) => c.cardId === copy.id && c.title === 'body text')).toBe(true)
+  })
+})

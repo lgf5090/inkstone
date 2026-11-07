@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import type { ProjectShare } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
@@ -47,6 +48,7 @@ export function ShareDialog({ boardId, onClose }: { boardId: string, onClose: ()
                   <Button size="sm" onClick={() => { void navigator.clipboard.writeText(link).then(() => toast({ title: t('project.share.copy'), tone: 'success' })) }}>{t('project.share.copy')}</Button>
                 </div>
                 <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.share.views', { count: share.views })}</p>
+                <div className="flex justify-center rounded-[var(--r-md)] bg-white p-3"><QRCodeSVG value={link} size={120} /></div>
                 <form
                   className="flex items-center gap-2"
                   onSubmit={(event) => {

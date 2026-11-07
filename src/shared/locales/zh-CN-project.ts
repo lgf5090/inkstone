@@ -105,4 +105,10 @@ export const ZH_CN_PROJECT = {
     "project.board.activity": "动态",
     "project.board.export_md": "导出 Markdown",
     "project.view.summary": "汇总",
+    "project.view.density": "密度",
+    "project.view.density_compact": "紧凑",
+    "project.view.density_comfortable": "舒适",
+    "project.view.density_spacious": "宽松",
+    "project.card.save_as_template": "另存为模板",
+    "project.card.from_template": "从模板新建",
 } as const

@@ -206,3 +206,12 @@ export async function fetchBoardActivity(boardId: string, signal?: AbortSignal):
   const body = await request<{ activity: ProjectActivityEntry[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/activity`, { signal })
   return body.activity
 }
+
+export async function saveCardAsTemplate(cardId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/cards/${encodeURIComponent(cardId)}/save-as-template`, { method: 'POST', body: {} })
+}
+
+export async function createCardFromTemplate(boardId: string, templateId: string): Promise<ProjectCard> {
+  const body = await request<{ card: ProjectCard }>(`/api/project/boards/${encodeURIComponent(boardId)}/cards/from-template`, { method: 'POST', body: { templateId } })
+  return body.card
+}

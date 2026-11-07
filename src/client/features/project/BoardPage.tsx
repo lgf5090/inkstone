@@ -5,10 +5,10 @@ import { projectRoleAtLeast } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { Button, IconButton } from '../../components/primitives'
-import { Input } from '../../components/form'
+import { Input, Select } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Modal } from '../../components/overlay'
-import { createProjectCard, createProjectView, deleteProjectCard, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectView } from './api'
+import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectView } from './api'
 import { BoardViews } from './BoardViews'
 import { BoardPropertiesDialog } from './BoardPropertiesDialog'
 import { CardDialog } from './CardDialog'
@@ -155,6 +155,21 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           <Button type="submit" variant="primary" disabled={busy || !title.trim()} icon={<Plus size={15} />}>
             {t('project.board.new_card')}
           </Button>
+          {canEdit && bundle.cards.some((card) => card.isTemplate) && (
+            <Select
+              className="w-36"
+              value=""
+              aria-label={t('project.card.from_template')}
+              onChange={(event) => {
+                const templateId = event.target.value
+                if (!templateId) return
+                void createCardFromTemplate(boardId, templateId).then((card) => setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current)))
+              }}
+            >
+              <option value="">{t('project.card.from_template')}</option>
+              {bundle.cards.filter((card) => card.isTemplate).map((card) => <option key={card.id} value={card.id}>{card.title}</option>)}
+            </Select>
+          )}
         </form>
       )}
       <BoardViews

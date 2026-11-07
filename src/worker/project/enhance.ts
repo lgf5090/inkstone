@@ -3,11 +3,29 @@
  * who changed what; the dependency graph is a set of directed 'blocks' edges with cycle detection so
  * a board can never deadlock itself. Both reuse tables created with the core schema.
  */
-import type { ProjectActivityEntry, ProjectCardLink, ProjectCardLinkKind } from '@shared/project/model'
+import type { ProjectActivityEntry, ProjectBoard, ProjectCard, ProjectCardLink, ProjectCardLinkKind } from '@shared/project/model'
 import { newProjectId } from '@shared/project/limits'
 import { ApiError } from '../lib/errors'
+import { createProjectCard, getProjectCard } from './cards'
+import { createProjectContent } from './contents'
 
 export type { ProjectActivityEntry, ProjectCardLink }
+
+export async function saveCardAsTemplate(db: D1Database, cardId: string, now: number): Promise<void> {
+  await db.prepare('UPDATE project_cards SET is_template = 1, update_at = ?1 WHERE id = ?2').bind(now, cardId).run()
+}
+
+/** New card from a template card: copies its values and content blocks into a fresh live card. */
+export async function createCardFromTemplate(db: D1Database, board: ProjectBoard, userId: string, templateId: string, now: number): Promise<ProjectCard> {
+  const template = await getProjectCard(db, templateId)
+  if (!template || !template.isTemplate || template.boardId !== board.id) throw ApiError.notFound('Template not found')
+  const card = await createProjectCard(db, board, userId, { title: template.title, icon: template.icon, parentId: '', isTemplate: false, values: template.values }, now)
+  const { results } = await db.prepare('SELECT * FROM project_card_contents WHERE card_id = ?1 AND delete_at = 0 ORDER BY position, id').bind(templateId).all<{ type: string, title: string, fields: string }>()
+  for (const row of results) {
+    await createProjectContent(db, card, userId, { type: row.type as 'text', title: row.title, fields: JSON.parse(row.fields) as { checked?: boolean } }, now)
+  }
+  return card
+}
 
 export async function recordProjectActivity(
   db: D1Database,

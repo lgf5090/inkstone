@@ -208,6 +208,7 @@ export interface ProjectKanbanCalculation {
 export interface ProjectViewFields {
   groupById?: string
   dateDisplayPropertyId?: string
+  cardSize?: 'compact' | 'comfortable' | 'spacious'
   sortOptions: ProjectSortOption[]
   visiblePropertyIds: string[]
   visibleOptionIds: string[]

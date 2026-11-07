@@ -89,7 +89,7 @@ import {
 import { ProjectStore } from './store'
 import { searchProject } from './search'
 import { topProjectBoards } from './insights'
-import { addCardLink, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink } from './enhance'
+import { addCardLink, createCardFromTemplate, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate } from './enhance'
 import { projectBoardToMarkdown } from '@shared/project/markdown'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
 import { projectStatistics } from './statistics'
@@ -403,6 +403,18 @@ projectRoutes.post('/cards/:id/undelete', async (c) => {
 projectRoutes.post('/cards/:id/duplicate', async (c) => {
   const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
   return c.json({ card: await duplicateProjectCard(c.env.DB, card, userId, Date.now()) }, 201)
+})
+
+projectRoutes.post('/cards/:id/save-as-template', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  await saveCardAsTemplate(c.env.DB, card.id, Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.post('/boards/:id/cards/from-template', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectBoardFromTemplateSchema, JSON_BODY_LIMITS.small)
+  return c.json({ card: await createCardFromTemplate(c.env.DB, board, userId, input.templateId, Date.now()) }, 201)
 })
 
 projectRoutes.get('/views/:id', async (c) => {
