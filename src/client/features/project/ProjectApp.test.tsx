@@ -7,7 +7,17 @@ import * as api from './api'
 import { useProjectStore } from './store'
 import { ProjectApp } from './ProjectApp'
 
-vi.mock('./api', () => ({ fetchProjectBoards: vi.fn() }))
+vi.mock('./api', () => ({
+  fetchProjectBoards: vi.fn(),
+  createProjectBoard: vi.fn(),
+  deleteProjectBoard: vi.fn(),
+  duplicateProjectBoard: vi.fn(),
+  renameProjectBoard: vi.fn(),
+  fetchProjectBoardBundle: vi.fn(),
+  createProjectCard: vi.fn(),
+  deleteProjectCard: vi.fn(),
+  patchProjectCard: vi.fn(),
+}))
 
 const board: ProjectBoardSummary = {
   id: 'b'.repeat(27),
@@ -87,8 +97,8 @@ describe('the project container', () => {
     await mount()
     expect(text()).toContain(t('project.boards.load_failed'))
     expect(text()).toContain('the read failed')
-    const retry = view.container.querySelector('button')
-    expect(retry?.textContent).toBe(t('common.retry'))
+    const retry = [...view.container.querySelectorAll('button')].find((button) => button.textContent === t('common.retry'))
+    expect(retry).toBeDefined()
     await act(async () => { retry?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
     expect(api.fetchProjectBoards).toHaveBeenCalledTimes(2)
     expect(rows()).toHaveLength(1)

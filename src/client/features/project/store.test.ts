@@ -3,7 +3,13 @@ import type { ProjectBoardSummary } from '@shared/project/model'
 import * as api from './api'
 import { useProjectStore } from './store'
 
-vi.mock('./api', () => ({ fetchProjectBoards: vi.fn() }))
+vi.mock('./api', () => ({
+  fetchProjectBoards: vi.fn(),
+  createProjectBoard: vi.fn(),
+  deleteProjectBoard: vi.fn(),
+  duplicateProjectBoard: vi.fn(),
+  renameProjectBoard: vi.fn(),
+}))
 
 const board: ProjectBoardSummary = {
   id: 'b'.repeat(27),
@@ -82,5 +88,36 @@ describe('the boot kick', () => {
     expect(api.fetchProjectBoards).toHaveBeenCalledTimes(1)
     settle([board])
     await vi.waitFor(() => expect(useProjectStore.getState().boardsStatus).toBe('ready'))
+  })
+})
+
+describe('board mutations keep the list in step', () => {
+  it('prepends a created board and returns it for navigation', async () => {
+    useProjectStore.setState({ boards: [board], boardsStatus: 'ready' })
+    const created = { ...board, id: 'n'.repeat(27), title: 'New' }
+    vi.mocked(api.createProjectBoard).mockResolvedValue(created)
+    const result = await useProjectStore.getState().addBoard('New')
+    expect(api.createProjectBoard).toHaveBeenCalledWith({ title: 'New' })
+    expect(result.id).toBe(created.id)
+    expect(useProjectStore.getState().boards.map((b) => b.id)).toEqual([created.id, board.id])
+  })
+
+  it('drops a deleted board from the list', async () => {
+    useProjectStore.setState({ boards: [board], boardsStatus: 'ready' })
+    vi.mocked(api.deleteProjectBoard).mockResolvedValue(undefined)
+    await useProjectStore.getState().removeBoard(board.id)
+    expect(api.deleteProjectBoard).toHaveBeenCalledWith(board.id)
+    expect(useProjectStore.getState().boards).toEqual([])
+  })
+
+  it('prepends a duplicate and renames in place', async () => {
+    useProjectStore.setState({ boards: [board], boardsStatus: 'ready' })
+    const copy = { ...board, id: 'd'.repeat(27) }
+    vi.mocked(api.duplicateProjectBoard).mockResolvedValue(copy)
+    await useProjectStore.getState().copyBoard(board.id)
+    expect(useProjectStore.getState().boards.map((b) => b.id)).toEqual([copy.id, board.id])
+    vi.mocked(api.renameProjectBoard).mockResolvedValue({ ...board, title: 'Renamed' })
+    await useProjectStore.getState().renameBoard(board.id, 'Renamed')
+    expect(useProjectStore.getState().boards.find((b) => b.id === board.id)?.title).toBe('Renamed')
   })
 })
