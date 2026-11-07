@@ -5,6 +5,7 @@
 import type { Env } from '../../env'
 import { recordAudit } from '../audit'
 import { WEBSSH_RECORDING_PURGE_BATCH } from '../constants'
+import { deleteSharesForRecording } from '../shares'
 
 export interface ExpiredRecordingRow {
   id: string
@@ -49,6 +50,9 @@ export async function purgeExpiredRecording(env: Env, row: ExpiredRecordingRow, 
     )
     .bind(row.id, row.user_id, now)
     .run()
+  // The link is part of the recording's life: once the object is gone, a share that still resolved
+  // would hand a visitor a broken player. Dropped before the audit so the two cannot disagree.
+  await deleteSharesForRecording(env.DB, row.id).catch(report)
   await recordAudit(env.DB, {
     userId: row.user_id,
     sessionId: row.session_id,

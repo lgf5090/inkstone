@@ -4,6 +4,8 @@
 import type { Env } from '../env'
 import { WEBSSH_IDLE_TIMEOUT_MS } from './constants'
 import { purgeExpiredRecordings } from './recording/retention'
+import { purgeExpiredShares } from './shares'
+import { purgeStagingUploads } from './staging'
 
 const CONSUMED_TICKET_KEEP_MS = 60 * 60 * 1000
 
@@ -40,6 +42,20 @@ export async function runWebsshRetention(env: Env, now: number): Promise<number>
   // leaves the row marked so the next fire retries instead of losing the reference.
   removed += await purgeExpiredRecordings(env, now).catch((error) => {
     console.warn('[inkstone] WebSSH recording retention failed:', (error as Error).message)
+    return 0
+  })
+
+  // Links that outlived their recording (or their own expiry) go in the same fire, so a revoked or
+  // expired address is never left pointing at an object the sweep above just removed.
+  removed += await purgeExpiredShares(env.DB, now).catch((error) => {
+    console.warn('[inkstone] WebSSH share retention failed:', (error as Error).message)
+    return 0
+  })
+
+  // Abandoned staged uploads from interrupted SFTP transfers. The sweep checks D1 for a live session
+  // before deleting anything, because that is the only row that could still complete the transfer.
+  removed += await purgeStagingUploads(env, now).catch((error) => {
+    console.warn('[inkstone] WebSSH staging retention failed:', (error as Error).message)
     return 0
   })
 

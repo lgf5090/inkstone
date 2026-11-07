@@ -55,6 +55,26 @@ beforeEach(() => {
       ip_hash TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE webssh_shares (
+      slug TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      recording_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      passcode_hash TEXT NOT NULL DEFAULT '',
+      expires_at INTEGER NOT NULL DEFAULT 0,
+      max_views INTEGER NOT NULL DEFAULT 0,
+      views INTEGER NOT NULL DEFAULT 0,
+      is_enabled INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      last_viewed_at INTEGER
+    );
+    CREATE TABLE share_asset_sessions (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
   `)
   env = { DB: makeD1(sqlite) } as Env
 })
