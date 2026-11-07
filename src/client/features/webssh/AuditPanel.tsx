@@ -2,10 +2,11 @@
 // delete control: the trail is append-only by construction, so the UI can only filter and page it.
 
 import { useEffect, useState } from 'react'
-import { Activity, ShieldCheck } from 'lucide-react'
+import { Activity, ShieldCheck, Sparkles } from 'lucide-react'
+import type { WebsshAiAuditSummaryResult } from '@shared/webssh/ai'
 import type { WebsshAuditEventView, WebsshHealthReport } from '@shared/webssh/types'
 import { WEBSSH_AUDIT_EVENT_TYPES } from '@shared/webssh/types'
-import { Button, Spinner } from '../../components/primitives'
+import { Badge, Button, Spinner } from '../../components/primitives'
 import { DatePicker } from '../../components/date-picker'
 import { Select } from '../../components/form'
 import { Empty } from '../../components/feedback'
@@ -14,6 +15,8 @@ import { cn } from '../../lib/cn'
 import { ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { websshApi } from './api'
+import { websshAiApi } from './ai-client'
+import { websshAiErrorText } from './ai-error'
 
 function errorText(caught: unknown): string {
   return caught instanceof ApiError ? caught.message : t('webssh.error.generic')
@@ -53,6 +56,9 @@ export function AuditPanel({ open, onClose }: { open: boolean; onClose: () => vo
   const [health, setHealth] = useState<WebsshHealthReport | null>(null)
   const [healthLoading, setHealthLoading] = useState(false)
   const [healthError, setHealthError] = useState<string | null>(null)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiResult, setAiResult] = useState<WebsshAiAuditSummaryResult | null>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open || tab !== 'events') return
@@ -109,6 +115,19 @@ export function AuditPanel({ open, onClose }: { open: boolean; onClose: () => vo
     setToInput('')
     setFilters({ eventType: '', from: 0, to: 0 })
     setPage(1)
+  }
+
+  const summarize = async () => {
+    setAiBusy(true)
+    setAiError(null)
+    setAiResult(null)
+    try {
+      setAiResult(await websshAiApi.auditSummary({ days: 7 }))
+    } catch (caught) {
+      setAiError(websshAiErrorText(caught))
+    } finally {
+      setAiBusy(false)
+    }
   }
 
   const pages = Math.max(1, Math.ceil(total / pageSize))
@@ -262,6 +281,50 @@ export function AuditPanel({ open, onClose }: { open: boolean; onClose: () => vo
                   </ul>
                 )}
                 <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('webssh.health.description')}</p>
+
+                <section aria-label={t('webssh.ai.audit.section')} className="space-y-2 border-t border-[var(--border-subtle)] pt-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="min-w-0 flex-1 text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{t('webssh.ai.audit.section')}</h3>
+                    <Button size="sm" variant="secondary" loading={aiBusy} onClick={() => void summarize()} icon={<Sparkles size={13} aria-hidden="true" />}>
+                      {t('webssh.ai.audit.summarize')}
+                    </Button>
+                  </div>
+                  <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('webssh.ai.audit.description')}</p>
+                  {aiBusy && <div role="status" aria-live="polite" className="flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><Spinner size={12} />{t('webssh.ai.thinking')}</div>}
+                  {aiError && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{aiError}</p>}
+                  {aiResult && (
+                    <div className="space-y-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3">
+                      <p className="text-[length:var(--text-12)] text-[var(--text-primary)]">
+                        {aiResult.overview || t('webssh.ai.audit.no_events')}
+                      </p>
+                      {aiResult.anomalies.length > 0 ? (
+                        <ul className="space-y-1.5">
+                          {aiResult.anomalies.map((anomaly) => (
+                            <li key={`${anomaly.severity}-${anomaly.title}`} className="flex items-start gap-1.5">
+                              <Badge tone={anomaly.severity === 'danger' ? 'danger' : 'warning'}>
+                                {anomaly.severity === 'danger' ? t('webssh.health.severity_danger') : t('webssh.health.severity_warning')}
+                              </Badge>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[length:var(--text-11-5)] font-medium text-[var(--text-primary)]">{anomaly.title}</p>
+                                {anomaly.detail && <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{anomaly.detail}</p>}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-[length:var(--text-11-5)] text-[var(--success)]">{t('webssh.ai.audit.no_anomalies')}</p>
+                      )}
+                      {aiResult.recommendations.length > 0 && (
+                        <div>
+                          <p className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('webssh.ai.audit.recommendations')}</p>
+                          <ul className="list-inside list-disc text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+                            {aiResult.recommendations.map((item) => <li key={item}>{item}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </section>
               </>
             ) : null}
           </div>

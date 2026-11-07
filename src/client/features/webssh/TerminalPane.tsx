@@ -18,6 +18,7 @@ import {
   Power,
   RefreshCw,
   Search,
+  ShieldAlert,
   WifiOff,
 } from 'lucide-react'
 import { t } from '../../lib/i18n'
@@ -26,7 +27,9 @@ import { copyText } from '../../lib/clipboard'
 import { useMediaQuery } from '../../lib/hooks'
 import { useUi } from '../../store/ui'
 import { Button, IconButton, Spinner } from '../../components/primitives'
-import { Tooltip, useEscape, useLockScroll } from '../../components/overlay'
+import { Modal, Tooltip, useEscape, useLockScroll } from '../../components/overlay'
+import { commandFromPromptLine, detectCommandRisk, type CommandRiskMatch, type CommandRiskResult } from './command-risk'
+import type { WebsshAiTerminalSource } from './WebsshAiPanel'
 import { MobileKeyBar } from './MobileKeyBar'
 import type { WebsshAppearance } from './appearance'
 import { resolveTerminalTheme } from './terminal-themes'
@@ -68,6 +71,9 @@ const SEARCH_DECORATIONS_LIGHT = {
   activeMatchColorOverviewRuler: '#bb4430',
 }
 
+/** Keys arrive as raw escape sequences; the line tracker only wants the printable tail. */
+const INPUT_ESCAPE = /\x1b(?:\][^\x07]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g
+
 const PHASE_TONE: Record<TerminalSessionPhase, string> = {
   connecting: 'text-[var(--warning)]',
   open: 'text-[var(--success)]',
@@ -97,6 +103,7 @@ export function TerminalPane({
   onSessionId,
   onCwd,
   onController,
+  onSourceReady,
   insertRequest,
 }: {
   session: TerminalPaneSession
@@ -111,6 +118,8 @@ export function TerminalPane({
   onSessionId?: (sessionId: string) => void
   onCwd?: (path: string) => void
   onController?: (id: string, controller: TerminalPaneController | null) => void
+  /** Hand the AI panel a way to read this tab's tail without copying it on every keystroke. */
+  onSourceReady?: (id: string, source: WebsshAiTerminalSource) => void
   /** A snippet the workspace asked to type into this tab; `token` makes repeats distinguishable. */
   insertRequest?: { text: string; token: number } | null
 }) {
@@ -119,7 +128,9 @@ export function TerminalPane({
   const apiRef = useRef<XtermController | null>(null)
   const insertTokenRef = useRef(0)
   const cwdRef = useRef(homePath)
-  const commandRef = useRef('')
+  const inputLineRef = useRef('')
+  const lastCommandRef = useRef('')
+  const outputSinceCommandRef = useRef('')
   const hintId = useId()
   const [hasSelection, setHasSelection] = useState(false)
   const [dimensions, setDimensions] = useState({ cols: 80, rows: 24 })
@@ -130,6 +141,8 @@ export function TerminalPane({
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false)
   const [searchRegex, setSearchRegex] = useState(false)
   const [searchResults, setSearchResults] = useState({ resultIndex: -1, resultCount: 0 })
+  const [riskNotice, setRiskNotice] = useState<CommandRiskResult>({ level: 'safe', matches: [] })
+  const [pendingDanger, setPendingDanger] = useState<{ command: string; matches: CommandRiskMatch[] } | null>(null)
 
   const coarsePointer = useMediaQuery('(pointer: coarse)')
   const narrow = useMediaQuery('(max-width: 767px)')
@@ -155,33 +168,71 @@ export function TerminalPane({
         onCwd?.(oscPath)
       }
       writeRef.current(data)
+      // The last command's output is what a diagnosis needs; keep a bounded tail so a noisy build
+      // cannot grow the buffer without limit.
+      outputSinceCommandRef.current = (outputSinceCommandRef.current + data).slice(-20000)
     },
     onSessionId,
   })
 
-  const trackCommand = (data: string) => {
-    for (const character of data) {
-      if (character === '\r' || character === '\n') {
-        const line = commandRef.current
-        commandRef.current = ''
-        const nextPath = resolveCdCommand(line, cwdRef.current, homePath)
-        if (nextPath) {
-          cwdRef.current = nextPath
-          onCwd?.(nextPath)
-        }
-        continue
+  /**
+   * Typed input, with the line tracker, the cwd tracker and the danger gate on the way through.
+   *
+   * A full-screen program owns the alternate buffer and its keys are not shell commands, so the gate
+   * steps aside there. Everywhere else, a line that matches a destructive rule stops before the
+   * Enter reaches the host and asks in a dialog; cancelling leaves the command at the prompt to edit.
+   */
+  const handleInput = (data: string) => {
+    if (pendingDanger) return
+    const updateLine = (chunk: string) => {
+      for (const char of chunk.replace(INPUT_ESCAPE, '')) {
+        if (char === '\x7f') inputLineRef.current = inputLineRef.current.slice(0, -1)
+        else if (char === '\x15' || char === '\x03') inputLineRef.current = ''
+        else if (char >= ' ' && char !== '\x7f') inputLineRef.current += char
       }
-      if (character === '\x7f') {
-        commandRef.current = commandRef.current.slice(0, -1)
-        continue
-      }
-      if (character === '\x03' || character === '\x15') {
-        commandRef.current = ''
-        continue
-      }
-      if (character < ' ') continue
-      if (commandRef.current.length < 4096) commandRef.current += character
     }
+    const enterAt = data.search(/[\r\n]/)
+    if (enterAt < 0 || apiRef.current?.isAlternateScreen()) {
+      updateLine(data)
+      setRiskNotice(detectCommandRisk(commandFromPromptLine(inputLineRef.current)))
+      connection.send(data)
+      return
+    }
+
+    updateLine(data.slice(0, enterAt))
+    const typed = commandFromPromptLine(inputLineRef.current)
+    // The visible line also carries a command recalled from history, which the tracker never saw.
+    const visible = commandFromPromptLine(apiRef.current?.getCurrentLine() ?? '')
+    const command = visible.length >= typed.length ? visible : typed
+    const nextPath = resolveCdCommand(command, cwdRef.current, homePath)
+    if (nextPath) {
+      cwdRef.current = nextPath
+      onCwd?.(nextPath)
+    }
+    if (!command) {
+      inputLineRef.current = ''
+      outputSinceCommandRef.current = ''
+      connection.send(data)
+      return
+    }
+
+    const risk = detectCommandRisk(command)
+    if (risk.level === 'danger') {
+      const beforeEnter = data.slice(0, enterAt)
+      if (beforeEnter) connection.send(beforeEnter)
+      inputLineRef.current = ''
+      lastCommandRef.current = command
+      outputSinceCommandRef.current = ''
+      setRiskNotice(risk)
+      setPendingDanger({ command, matches: risk.matches })
+      return
+    }
+
+    inputLineRef.current = ''
+    lastCommandRef.current = command
+    outputSinceCommandRef.current = ''
+    // The line has left the prompt: the notice about what it would do is no longer a decision.
+    setRiskNotice({ level: 'safe', matches: [] })
     connection.send(data)
   }
 
@@ -295,7 +346,7 @@ export function TerminalPane({
     theme,
     fontSize: settings.fontSize,
     cursorBlink: !reducedMotion,
-    onInput: trackCommand,
+    onInput: handleInput,
     onResize: (cols, rows) => {
       setDimensions({ cols, rows })
       connection.resize(cols, rows)
@@ -310,6 +361,17 @@ export function TerminalPane({
   })
   writeRef.current = xterm.write
   apiRef.current = xterm
+
+  const reportSource = onSourceReady
+  useEffect(() => {
+    if (!reportSource) return
+    reportSource(session.id, {
+      transcript: () => apiRef.current?.getTranscript() ?? '',
+      currentLine: () => commandFromPromptLine(apiRef.current?.getCurrentLine() ?? '') || commandFromPromptLine(inputLineRef.current),
+      lastCommand: () => lastCommandRef.current,
+      lastOutput: () => outputSinceCommandRef.current,
+    })
+  }, [reportSource, session.id])
 
   const notifyPhase = onPhaseChange
   useEffect(() => {
@@ -447,6 +509,26 @@ export function TerminalPane({
           className="webssh-terminal h-full w-full px-2 py-1"
         />
       </div>
+      {riskNotice.level !== 'safe' && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={cn(
+            'flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 border-t px-3 py-1 text-[length:var(--text-11-5)]',
+            riskNotice.level === 'danger'
+              ? 'border-[var(--danger)]/30 bg-[var(--danger-soft)] text-[var(--danger)]'
+              : 'border-[var(--warning)]/30 bg-[var(--warning-softer)] text-[var(--warning)]',
+          )}
+        >
+          <ShieldAlert size={13} aria-hidden="true" className="shrink-0" />
+          <span className="shrink-0 font-medium">
+            {t(riskNotice.level === 'danger' ? 'webssh.ai.risk.banner_danger' : 'webssh.ai.risk.banner_caution')}
+          </span>
+          <span className="min-w-0 flex-1 truncate">
+            {riskNotice.matches.map((match) => t(match.messageKey)).join(' · ')}
+          </span>
+        </div>
+      )}
       <p id={hintId} className="sr-only">
         {t('webssh.terminal.hint')}
       </p>
@@ -532,6 +614,50 @@ export function TerminalPane({
           )}
         </div>
       </div>
+      <Modal
+        open={pendingDanger !== null}
+        onClose={() => {
+          setPendingDanger(null)
+          apiRef.current?.focus()
+        }}
+        title={t('webssh.ai.risk.confirm_title')}
+        description={t('webssh.ai.risk.confirm_description')}
+        width={540}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              data-autofocus
+              onClick={() => {
+                setPendingDanger(null)
+                apiRef.current?.focus()
+              }}
+            >
+              {t('webssh.ai.risk.cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                connection.send('\r')
+                setPendingDanger(null)
+                setRiskNotice({ level: 'safe', matches: [] })
+                apiRef.current?.focus()
+              }}
+            >
+              {t('webssh.ai.risk.confirm_run')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          <pre className="whitespace-pre-wrap break-all rounded-[var(--r-sm)] bg-[var(--bg-inset)] p-2 font-mono text-[length:var(--text-12)] text-[var(--text-primary)]">{pendingDanger?.command}</pre>
+          {pendingDanger && pendingDanger.matches.length > 0 && (
+            <ul className="list-inside list-disc space-y-0.5 text-[length:var(--text-12)] text-[var(--text-danger)]">
+              {pendingDanger.matches.map((match) => <li key={match.ruleId}>{t(match.messageKey)}</li>)}
+            </ul>
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }

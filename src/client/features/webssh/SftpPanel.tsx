@@ -10,6 +10,7 @@ import {
   PanelLeft,
   Pencil,
   RefreshCw,
+  Sparkles,
   Trash2,
   Upload,
   X,
@@ -33,6 +34,7 @@ import {
   useSftpTransfers,
 } from './use-sftp-transfers'
 import { loadSftpDirectory, saveSftpDirectory } from './prefs'
+import { FileAiDialog } from './FileAiDialog'
 
 function joinPath(parent: string, name: string): string {
   if (parent === '/') return `/${name}`
@@ -110,6 +112,7 @@ export function SftpPanel({
     folderInputRef.current?.setAttribute('webkitdirectory', '')
     folderInputRef.current?.setAttribute('directory', '')
   }, [])
+  const [askTarget, setAskTarget] = useState<WebsshSftpEntry | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -541,6 +544,13 @@ export function SftpPanel({
                             </IconButton>
                           </Tooltip>
                         )}
+                        {isEditableTextEntry(entry) && (
+                          <Tooltip label={t('webssh.ai.file.open')}>
+                            <IconButton label={t('webssh.ai.file.open')} size="xs" onClick={() => setAskTarget(entry)}>
+                              <Sparkles size={13} aria-hidden="true" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         <Tooltip label={t('webssh.actions.rename')}>
                           <IconButton
                             label={t('webssh.actions.rename')}
@@ -601,6 +611,13 @@ export function SftpPanel({
         sessionId={sessionId}
         onClose={() => setEditorTarget(null)}
         onSaved={refresh}
+      />
+
+      <FileAiDialog
+        open={askTarget !== null}
+        entry={askTarget}
+        sessionId={sessionId}
+        onClose={() => setAskTarget(null)}
       />
 
       <Modal

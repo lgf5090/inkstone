@@ -163,6 +163,7 @@ import {
   updateEmailSettingsAgent,
   updateEmailTagAgent,
 } from '../email/agent'
+import { listWebsshToolHosts, listWebsshToolSessions } from '../webssh/assistant-tools'
 import { NavStore } from '../nav/store'
 import {
   NavToolError,
@@ -4963,6 +4964,56 @@ const MUSIC_TOOLS: ToolDefinition[] = [
   }),
 ]
 
+/**
+ * Read-only views of the reader's SSH inventory.
+ *
+ * These exist so the assistant can answer "which host was that" and "what did my last session do"
+ * without a model ever seeing a credential: the queries select host labels, session state and audit
+ * metadata, and the credential and key tables are not mentioned here at all.
+ */
+export const WEBSSH_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'webssh_list_hosts',
+    permission: 'read',
+    maxCallsPerTurn: 3,
+    description: 'List the reader\'s saved SSH hosts: name, address, username, authentication type, tags and last connection. Never returns passwords, private keys or credential ids.',
+    fields: {
+      query: { type: 'string', description: 'Only hosts whose name or address contains this text.', maxLength: 200, optional: true },
+      favorite: { type: 'boolean', description: 'Only hosts marked as a favorite.', optional: true },
+      limit: { type: 'integer', description: 'How many hosts to return, at most 50.', minimum: 1, maximum: 50, optional: true },
+    },
+    async run(args, ctx) {
+      return {
+        hosts: await listWebsshToolHosts(ctx.env, ctx.store.userId, {
+          query: typeof args.query === 'string' ? args.query : undefined,
+          favorite: args.favorite === true,
+          limit: typeof args.limit === 'number' ? args.limit : undefined,
+        }),
+      }
+    },
+  }),
+  tool({
+    name: 'webssh_list_sessions',
+    permission: 'read',
+    maxCallsPerTurn: 3,
+    description: 'List recent WebSSH sessions with their host label, status, start and end times and close reason. Use webssh_list_hosts for the host ids this tool accepts.',
+    fields: {
+      hostId: { type: 'string', description: 'Only sessions on this host id, as returned by webssh_list_hosts.', maxLength: 64, optional: true },
+      status: { type: 'string', description: 'Only sessions in this state.', enum: ['pending', 'connecting', 'active', 'closed', 'error'], optional: true },
+      limit: { type: 'integer', description: 'How many sessions to return, at most 40.', minimum: 1, maximum: 40, optional: true },
+    },
+    async run(args, ctx) {
+      return {
+        sessions: await listWebsshToolSessions(ctx.env, ctx.store.userId, {
+          hostId: typeof args.hostId === 'string' ? args.hostId : undefined,
+          status: typeof args.status === 'string' ? args.status : undefined,
+          limit: typeof args.limit === 'number' ? args.limit : undefined,
+        }),
+      }
+    },
+  }),
+]
+
 export const ALL_TOOLS: ToolDefinition[] = [
   ...TASK_TOOLS,
   ...MEMORY_TOOLS,
@@ -4970,6 +5021,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...ARTIFACT_TOOLS,
   ...NAV_TOOLS,
   ...EMAIL_TOOLS,
+  ...WEBSSH_TOOLS,
   ...AUTOMATION_TOOLS,
   ...PROJECT_TOOLS,
   ...SEARCH_TOOLS,

@@ -44,6 +44,12 @@ export interface XtermController {
   findPrevious: (term: string, options: ISearchOptions) => boolean
   clearSearch: () => void
   dimensions: () => { cols: number; rows: number }
+  /** The last `maxLines` of scrollback as plain text, for the AI panel's context. */
+  getTranscript: (maxLines?: number) => string
+  /** The line under the cursor, prompt included; the caller strips the prompt. */
+  getCurrentLine: () => string
+  /** True while a full-screen program (vim, less, top) owns the alternate buffer. */
+  isAlternateScreen: () => boolean
 }
 
 function monoFontFamily(): string {
@@ -196,6 +202,27 @@ export function useXterm(containerRef: RefObject<HTMLDivElement | null>, options
       cols: terminalRef.current?.cols ?? 80,
       rows: terminalRef.current?.rows ?? 24,
     }),
+    getTranscript: (maxLines = 1200) => {
+      const terminal = terminalRef.current
+      if (!terminal) return ''
+      const buffer = terminal.buffer.active
+      const start = Math.max(0, buffer.length - Math.max(1, maxLines))
+      const lines: string[] = []
+      for (let index = start; index < buffer.length; index += 1) {
+        const line = buffer.getLine(index)
+        if (!line) continue
+        lines.push(line.translateToString(true))
+      }
+      return lines.join('\n').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trimEnd()
+    },
+    getCurrentLine: () => {
+      const terminal = terminalRef.current
+      if (!terminal) return ''
+      const buffer = terminal.buffer.active
+      const line = buffer.getLine(buffer.baseY + buffer.cursorY)
+      return line?.translateToString(true) ?? ''
+    },
+    isAlternateScreen: () => terminalRef.current?.buffer.active.type === 'alternate',
   })
   return controller.current
 }

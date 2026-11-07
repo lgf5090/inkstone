@@ -1,13 +1,17 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { Sparkles, X } from 'lucide-react'
+import type { WebsshAiHandoffView } from '@shared/webssh/ai'
 import type { WebsshHost } from '@shared/webssh/types'
 import { t } from '../../lib/i18n'
 import { useBreakpoint, useThemeDark } from '../../lib/hooks'
-import { Button } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
+import { websshAiApi } from './ai-client'
 import { Empty } from '../../components/feedback'
 import { useUi } from '../../store/ui'
 import { TerminalTabs, type TerminalTabView } from './TerminalTabs'
 import { TerminalPane, type TerminalPaneController } from './TerminalPane'
 import { SftpPanel } from './SftpPanel'
+import { WebsshAiPanel, type WebsshAiTerminalSource } from './WebsshAiPanel'
 import { RecordingPlayerDialog } from './RecordingPlayerDialog'
 import { RecordingSettingsDialog } from './RecordingSettingsDialog'
 import { SnippetsPanel } from './SnippetsPanel'
@@ -25,6 +29,14 @@ import type { TerminalSessionPhase } from './use-terminal-session'
 
 const PANEL_ID = 'webssh-sessions'
 
+/** What the global assistant is told about the terminal on screen: labels and state, never a secret. */
+export interface WebsshActiveSessionView {
+  sessionId: string | null
+  hostId: string
+  hostName: string
+  status: TerminalSessionPhase | null
+}
+
 interface WorkspaceTab extends TerminalTabView {
   sessionId: string | null
 }
@@ -33,10 +45,12 @@ export function TerminalWorkspace({
   host,
   newTabToken = 0,
   appearance,
+  onActiveSession,
 }: {
   host: WebsshHost
   newTabToken?: number
   appearance: WebsshAppearance
+  onActiveSession?: (view: WebsshActiveSessionView | null) => void
 }) {
   const isMobile = useBreakpoint() === 'mobile'
   const [tabs, setTabs] = useState<WorkspaceTab[]>(() => [{ id: 'session-1', title: host.name, sessionId: null }])
@@ -52,6 +66,11 @@ export function TerminalWorkspace({
   const [cwdPath, setCwdPath] = useState<string | null>(null)
   const [cwdToken, setCwdToken] = useState(0)
   const [quickOpen, setQuickOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiInitialTab, setAiInitialTab] = useState<'command' | 'session'>('command')
+  const [handoff, setHandoff] = useState<WebsshAiHandoffView | null>(null)
+  const [handoffDismissed, setHandoffDismissed] = useState(false)
+  const [sources, setSources] = useState<Record<string, WebsshAiTerminalSource>>({})
   const [replayOpen, setReplayOpen] = useState(false)
   const [recordingOpen, setRecordingOpen] = useState(false)
   const [snippetsOpen, setSnippetsOpen] = useState(false)
@@ -77,6 +96,8 @@ export function TerminalWorkspace({
     setCwdPath(null)
     setCwdToken(0)
     setQuickOpen(false)
+    setAiOpen(false)
+    setAiInitialTab('command')
     setReplayOpen(false)
     setSnippetsOpen(false)
     setForwardOpen(false)
@@ -84,6 +105,8 @@ export function TerminalWorkspace({
     setMonitorOpen(false)
     setView('terminal')
     controllersRef.current.clear()
+    setHandoff(null)
+    setHandoffDismissed(false)
   }, [host.id, host.name])
 
   useEffect(() => {
@@ -99,6 +122,24 @@ export function TerminalWorkspace({
     setTabs((current) => [...current, next])
     setActiveId(next.id)
   }, [newTabToken, host.name])
+
+  // The last handoff is a database read, not a model call: reconnecting to a host shows what the
+  // previous session left unfinished without spending the reader's quota to say so.
+  useEffect(() => {
+    let cancelled = false
+    websshAiApi.handoff(host.id)
+      .then((next) => {
+        if (!cancelled) setHandoff(next)
+      })
+      .catch((error: unknown) => {
+        // The card is a convenience; a failed read must not keep the terminal from opening, and the
+        // assistant panel surfaces the same failure when the reader asks there.
+        console.warn('[inkstone] WebSSH handoff read failed:', error instanceof Error ? error.message : error)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [host.id])
 
   const insertSnippet = (text: string) => {
     insertTokenRef.current += 1
@@ -141,6 +182,10 @@ export function TerminalWorkspace({
     setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, sessionId } : tab)))
   }, [])
 
+  const reportSource = useCallback((id: string, source: WebsshAiTerminalSource) => {
+    setSources((current) => (current[id] === source ? current : { ...current, [id]: source }))
+  }, [])
+
   const createSession = () => {
     const nextSequence = sequenceRef.current + 1
     sequenceRef.current = nextSequence
@@ -170,6 +215,20 @@ export function TerminalWorkspace({
 
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? null
   const activeSessionId = activeTab?.sessionId ?? null
+  const activeSource = activeId ? sources[activeId] : undefined
+
+  const reportActiveSession = onActiveSession
+  useEffect(() => {
+    if (!reportActiveSession) return
+    reportActiveSession(activeId
+      ? {
+        sessionId: activeSessionId,
+        hostId: host.id,
+        hostName: host.name,
+        status: statuses[activeId] ?? null,
+      }
+      : null)
+  }, [reportActiveSession, activeId, activeSessionId, host.id, host.name, statuses])
 
   const reportCwd = useCallback((path: string) => {
     setCwdPath(path)
@@ -196,6 +255,7 @@ export function TerminalWorkspace({
         onOpenFiles={() => {
           setFilesOpen((value) => !value)
           if (isMobile) setQuickOpen(false)
+          setAiOpen(false)
         }}
         filesOpen={filesOpen}
         filesDisabled={!activeSessionId}
@@ -204,6 +264,13 @@ export function TerminalWorkspace({
           if (isMobile) setFilesOpen(false)
         }}
         quickOpen={quickOpen}
+        onOpenAi={() => {
+          setAiInitialTab('command')
+          setAiOpen((value) => !value)
+          setFilesOpen(false)
+        }}
+        aiOpen={aiOpen}
+        aiDisabled={!activeSessionId}
         onOpenSnippets={() => setSnippetsOpen(true)}
         snippetsDisabled={!activeSessionId}
         onOpenReplay={() => setReplayOpen(true)}
@@ -218,6 +285,39 @@ export function TerminalWorkspace({
         dashboardActive={view === 'dashboard'}
         panelId={PANEL_ID}
       />
+      {handoff && !handoffDismissed && (
+        <aside
+          aria-label={t('webssh.ai.handoff.banner_title')}
+          className="flex shrink-0 flex-wrap items-start gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5"
+        >
+          <Sparkles size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--accent)]" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)]">
+              {t('webssh.ai.handoff.banner_title')}
+            </p>
+            <p className="line-clamp-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{handoff.summary}</p>
+            {handoff.openIssues.length > 0 && (
+              <p className="text-[length:var(--text-10-5)] text-[var(--warning)]">
+                {t('webssh.ai.handoff.open_issues_count', { count: handoff.openIssues.length })}
+              </p>
+            )}
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setAiInitialTab('session')
+              setAiOpen(true)
+              setFilesOpen(false)
+            }}
+          >
+            {t('webssh.ai.handoff.view')}
+          </Button>
+          <IconButton label={t('webssh.ai.handoff.dismiss')} size="xs" onClick={() => setHandoffDismissed(true)}>
+            <X size={12} aria-hidden="true" />
+          </IconButton>
+        </aside>
+      )}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {view === 'dashboard' && <DashboardGrid sessionId={activeSessionId} />}
         {quickOpen && (
@@ -261,6 +361,7 @@ export function TerminalWorkspace({
                 onSessionId={(sessionId) => reportSession(tab.id, sessionId)}
                 onCwd={tab.id === activeId ? reportCwd : undefined}
                 onController={registerController}
+                onSourceReady={reportSource}
               />
             ))
           )}
@@ -284,6 +385,18 @@ export function TerminalWorkspace({
         {view === 'terminal' && monitorOpen && activeSessionId && (
           <div className={isMobile ? 'absolute inset-0 z-20 bg-[var(--bg-surface)]' : 'flex min-h-0'}>
             <MonitorPanel sessionId={activeSessionId} onClose={() => setMonitorOpen(false)} />
+          </div>
+        )}
+        {aiOpen && activeSessionId && activeSource && (
+          <div className={isMobile ? 'absolute inset-0 z-20 bg-[var(--bg-surface)]' : 'flex min-h-0'}>
+            <WebsshAiPanel
+              host={host}
+              sessionId={activeSessionId}
+              source={activeSource}
+              onInsert={insertSnippet}
+              onClose={() => setAiOpen(false)}
+              initialTab={aiInitialTab}
+            />
           </div>
         )}
       </div>

@@ -306,6 +306,31 @@ export const WEBSSH_FORWARD_SCHEMA_STATEMENTS: readonly string[] = [
      ON webssh_forward_rules(user_id, host_id, lower(name))`,
 ]
 
+/**
+ * The one AI row that outlives a session: the handoff note for the next connection to a host.
+ *
+ * The primary key is (account, host, kind) rather than the session, because a handoff is read by
+ * the host the reader reconnects to and the latest one replaces the last. A session summary that
+ * nobody asked to keep is not stored at all.
+ */
+export const WEBSSH_AI_SUMMARY_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS webssh_ai_summaries (
+    user_id TEXT NOT NULL,
+    host_id TEXT NOT NULL,
+    session_id TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    highlights TEXT NOT NULL DEFAULT '[]',
+    open_issues TEXT NOT NULL DEFAULT '[]',
+    next_steps TEXT NOT NULL DEFAULT '[]',
+    model TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, host_id, kind)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_webssh_ai_summaries_user
+     ON webssh_ai_summaries(user_id, created_at DESC)`,
+]
+
 export const WEBSSH_REQUIRED_TABLES: readonly string[] = [
   'webssh_host_groups',
   'webssh_hosts',
@@ -323,6 +348,7 @@ export const WEBSSH_REQUIRED_TABLES: readonly string[] = [
   'webssh_dashboards',
   'webssh_dashboard_widgets',
   'webssh_forward_rules',
+  'webssh_ai_summaries',
 ]
 
 export const WEBSSH_REQUIRED_INDEXES: readonly string[] = [
@@ -357,6 +383,7 @@ export const WEBSSH_REQUIRED_INDEXES: readonly string[] = [
   'idx_webssh_dashboard_widgets_dashboard',
   'idx_webssh_forward_rules_host',
   'idx_webssh_forward_rules_name',
+  'idx_webssh_ai_summaries_user',
 ]
 
 export const WEBSSH_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -409,5 +436,9 @@ export const WEBSSH_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>
   ],
   webssh_forward_rules: [
     'user_id', 'id', 'name', 'host_id', 'target_host', 'target_port', 'mode', 'created_at', 'updated_at',
+  ],
+  webssh_ai_summaries: [
+    'user_id', 'host_id', 'session_id', 'kind', 'summary', 'highlights', 'open_issues', 'next_steps',
+    'model', 'created_at',
   ],
 }

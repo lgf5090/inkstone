@@ -108,6 +108,7 @@ import {
   WEBSSH_PROVIDERS_SCHEMA_STATEMENTS,
   WEBSSH_REQUIRED_COLUMNS,
   WEBSSH_REQUIRED_INDEXES,
+  WEBSSH_AI_SUMMARY_SCHEMA_STATEMENTS,
   WEBSSH_REQUIRED_TABLES,
   WEBSSH_SCHEMA_STATEMENTS,
 } from '../webssh/schema'
@@ -4025,6 +4026,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 304,
     statements: WEBSSH_FORWARD_SCHEMA_STATEMENTS,
+  },
+  {
+    // The WebSSH AI handoff note. 313 is the first free number above the other WebSSH lanes
+    // (301 monitoring, 304 files/forwarding); every statement is `IF NOT EXISTS`, so a fresh
+    // database and one already past this number agree.
+    version: 313,
+    statements: WEBSSH_AI_SUMMARY_SCHEMA_STATEMENTS,
   },
   {
     // Open Graph preview payloads for social crawlers. 314 is the first free short-link number:

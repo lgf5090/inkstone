@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { initializeDatabase, SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import {
+  WEBSSH_AI_SUMMARY_SCHEMA_STATEMENTS,
   WEBSSH_FORWARD_SCHEMA_STATEMENTS,
   WEBSSH_REQUIRED_COLUMNS,
   WEBSSH_REQUIRED_INDEXES,
@@ -51,7 +52,15 @@ describe('the WebSSH tables', () => {
   it('create every declared table', () => {
     const present = tables()
     for (const table of WEBSSH_REQUIRED_TABLES) expect(present.has(table)).toBe(true)
-    expect(WEBSSH_REQUIRED_TABLES).toHaveLength(13)
+    expect(WEBSSH_REQUIRED_TABLES).toHaveLength(17)
+  })
+
+  it('own the AI handoff table in migration 313, not in the boot statements', () => {
+    const migration = SCHEMA_MIGRATIONS.find((candidate) => candidate.version === 313)
+    expect(migration?.statements).toEqual(WEBSSH_AI_SUMMARY_SCHEMA_STATEMENTS)
+    for (const statement of WEBSSH_AI_SUMMARY_SCHEMA_STATEMENTS) {
+      expect(SCHEMA_STATEMENTS.some((candidate) => candidate.includes(statement.slice(0, 60)))).toBe(false)
+    }
   })
 
   it('create every declared index', () => {

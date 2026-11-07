@@ -319,6 +319,9 @@ export const WEBSSH_AUDIT_EVENT_TYPES = [
   'share_access',
   'retention_fail',
   'process_kill',
+  // A model was spent on this account's behalf. Metadata names the feature, the model and the
+  // token spend; it never carries the prompt, the transcript or any credential.
+  'ai_request',
 ] as const
 
 export type WebsshAuditEventType = typeof WEBSSH_AUDIT_EVENT_TYPES[number]

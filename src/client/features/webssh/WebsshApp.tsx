@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Download,
@@ -12,10 +12,12 @@ import {
   Palette,
   ScrollText,
   ShieldCheck,
+  Sparkles,
   SquareTerminal,
   Trash2,
   Upload,
 } from 'lucide-react'
+import type { AssistantPageContext } from '@shared/assistant'
 import type {
   WebsshCredential,
   WebsshHost,
@@ -47,7 +49,8 @@ import { GroupDialog } from './GroupDialog'
 import { CredentialDialog } from './CredentialDialog'
 import { KeyManagerDialog } from './KeyManagerDialog'
 import { FingerprintDialog } from './FingerprintDialog'
-import { TerminalWorkspace } from './TerminalWorkspace'
+import { TerminalWorkspace, type WebsshActiveSessionView } from './TerminalWorkspace'
+import { AssistantDock } from '../chat/AssistantDock'
 import { SnippetsPanel } from './SnippetsPanel'
 import { AppearanceSettingsDialog } from './AppearanceSettingsDialog'
 import { loadAppearance, saveAppearance, siteTitle, type WebsshAppearance } from './appearance'
@@ -193,6 +196,8 @@ export function WebsshApp() {
   const exportMenuAnchor = useRef<HTMLButtonElement>(null)
   const [appearance, setAppearance] = useState<WebsshAppearance>(loadAppearance)
   const [appearanceOpen, setAppearanceOpen] = useState(false)
+  const [activeSession, setActiveSession] = useState<WebsshActiveSessionView | null>(null)
+  const assistantDockOpen = useUi((state) => state.assistantDockOpen)
 
   const refresh = () => setRefreshToken((value) => value + 1)
   const selected = hosts.find((host) => host.id === selectedId) ?? pinnedHost
@@ -254,6 +259,31 @@ export function WebsshApp() {
   useEffect(() => {
     saveAppearance(appearance)
   }, [appearance])
+
+  /**
+   * What "this page" means to the global assistant.
+   *
+   * It names the host and the live session so "what did I just run" has an anchor, and it never
+   * carries a credential label, a password, a private key or a credential id: those live in tables
+   * this page never reads into a prompt.
+   */
+  const pageContext = useMemo<AssistantPageContext>(() => {
+    const host = workspaceHost
+    if (!host) {
+      return { surface: 'webssh', label: t('webssh.app.title'), facts: [`saved hosts: ${total}`] }
+    }
+    const facts = [
+      `host id: ${host.id}`,
+      `address: ${host.username}@${host.host}:${host.port}`,
+      `term type: ${host.termType}`,
+    ]
+    if (host.tags.length) facts.push(`tags: ${host.tags.slice(0, 5).join(', ')}`)
+    if (activeSession?.sessionId) {
+      facts.push(`session id: ${activeSession.sessionId}`)
+      facts.push(`session status: ${activeSession.status ?? 'unknown'}`)
+    }
+    return { surface: 'webssh', label: host.name, facts }
+  }, [workspaceHost, total, activeSession])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -467,7 +497,12 @@ export function WebsshApp() {
           {workspaceHost.username}@{workspaceHost.host}:{workspaceHost.port}
         </span>
       </div>
-      <TerminalWorkspace host={workspaceHost} newTabToken={newTabToken} appearance={appearance} />
+      <TerminalWorkspace
+        host={workspaceHost}
+        newTabToken={newTabToken}
+        appearance={appearance}
+        onActiveSession={setActiveSession}
+      />
     </section>
   ) : null
 
@@ -574,6 +609,14 @@ export function WebsshApp() {
           </IconButton>
           <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)} icon={<Upload size={13} aria-hidden="true" />}>{t('webssh.actions.import')}</Button>
           <Button size="sm" variant="ghost" onClick={() => setRecordingsOpen(true)} icon={<History size={13} aria-hidden="true" />}>{t('webssh.recordings.open')}</Button>
+          <IconButton
+            label={t('webssh.ai.title')}
+            size="sm"
+            active={assistantDockOpen}
+            onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
+          >
+            <Sparkles size={14} aria-hidden="true" />
+          </IconButton>
           <Button size="sm" variant="ghost" onClick={() => setAuditOpen(true)} icon={<ShieldCheck size={13} aria-hidden="true" />}>
             {t('webssh.audit.open')}
             {alertCount > 0 && (
@@ -591,7 +634,8 @@ export function WebsshApp() {
         )}
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
         <HostSidebar
           mobile={isMobile}
           open={isMobile ? drawerOpen : sidebarOpen}
@@ -671,6 +715,8 @@ export function WebsshApp() {
           />
         )}
         {(!isMobile || selected || workspaceHost) && rightPane}
+        </div>
+        {assistantDockOpen && <AssistantDock surface="webssh" pageContext={pageContext} />}
       </div>
 
       <Menu anchor={exportMenuAnchor} open={exportMenuOpen} onClose={() => setExportMenuOpen(false)} items={exportItems} align="end" width={190} />

@@ -14,12 +14,17 @@ import { websshSnippetRoutes } from './routes-snippets'
 import { websshAuditRoutes } from './routes-audit'
 import { websshMonitorRoutes } from './routes-monitor'
 import { websshDashboardRoutes } from './routes-dashboards'
+import { websshAiRoutes } from './routes-ai'
 
 export const websshRoutes = new Hono<AppBindings>()
 
 websshRoutes.use('*', requireAuth)
 
 websshRoutes.get('/health', (c) => c.json<WebsshHealth>({ ok: true, module: 'webssh' }))
+
+// The AI surface is its own sub-app so every route under `/ai` shares one validation and metering
+// boundary; the session, SFTP, recording and audit routers stay unaware of it.
+websshRoutes.route('/ai', websshAiRoutes)
 
 websshRoutes.route('/', websshHostRoutes)
 websshRoutes.route('/', websshKeyRoutes)
