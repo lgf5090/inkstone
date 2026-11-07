@@ -32330,6 +32330,14 @@ const allowed = new Map([
     "// An emptied thread carries no reading order, so it drops out rather than lingering as [].",
     "/**\n * Move a top-level block before or after another. The id is lifted out first so moving onto its own\n * neighbour cannot duplicate it; a target that is not a top-level entry leaves the block at the end,\n * which is the safe reading of an ambiguous destination rather than a silent drop.\n */",
   ]],
+  ["src/shared/project/csv.test.ts", [
+    "// A minimal RFC4180 reader, test-only, so the export is verified by parsing it back rather than by",
+    "// asserting on the producer's own string shape.",
+  ]],
+  ["src/shared/project/csv.ts", [
+    "/**\n * CSV export of a board's cards (§6.5). Columns are the visible properties in board order (not view\n * column order); a calendar view appends its date property if it is not already shown. Two deliberate\n * deviations from the reference are registered in the plan: a UTF-8 BOM so Excel reads Chinese, and\n * header cells escaped like data cells (the reference left them raw, so a comma in a property name\n * broke the file). The reference's `#`→token dance existed only for its data-URI transport; raw CSV\n * keeps `#` literal, which removes that whole class of bug rather than patching it.\n */",
+    "// A scalar masquerading as a multi-value falls through to ordinary text.",
+  ]],
   ["src/shared/project/limits.ts", [
     "/**\n * The project app's budgets, in one place so the server that enforces them and the client that\n * explains them cannot disagree about a number.\n *\n * The first three come from the reference's block model, where they were MySQL TEXT ceilings; D1 has\n * no such ceiling, but an archive exported there has to import here without truncation. The rest are\n * this port's own limits: the reference gated capacity behind a paid cloud plan, and a self-hosted\n * board needs a stated ceiling instead of an unbounded table.\n */",
     "/** The reference's MySQL TEXT ceiling divided by four: the most bytes one rune can cost. */",
@@ -41015,6 +41023,10 @@ const allowed = new Map([
     "// project_fts is deliberately absent: the boot's column repair replays CREATE TABLE declarations, and",
     "// an fts5 virtual table has none to replay — its columns are changed by rebuilding it, not by ADD COLUMN.",
   ]],
+  ["src/worker/project/statistics.ts", [
+    "/**\n * Personal statistics: how many boards this account can see and how many cards live on them. The\n * reference reported site-wide counts; a self-hosted instance only needs the caller's own. Visibility\n * is the same rule the board list uses, so the two never disagree about what counts.\n */",
+    "// D1 caps bound parameters per query, so a wide board list is counted in chunks rather than one IN.",
+  ]],
   ["src/worker/project/store.ts", [
     "/**\n * The project app's reads and writes, in one place so no route file carries SQL.\n *\n * Board-scoped rows key on the board rather than the account, so every query here either names the\n * account explicitly (the boards it owns) or reaches it through the membership table.\n */",
     "/**\n   * Owned boards and boards shared with this account, in one statement: a per-membership lookup\n   * would turn a sidebar of fifty boards into fifty round trips.\n   */",
@@ -47608,6 +47620,9 @@ const allowed = new Map([
   ]],
   ["tests/project-archive.test.ts", [
     "// Import into a fresh instance: the archive's ids are preserved, so the source board must be gone.",
+  ]],
+  ["tests/project-stats-csv.test.ts", [
+    "// Response.text() strips a leading UTF-8 BOM by spec, so verify the bytes on the wire instead.",
   ]],
   ["tests/push-catchup.test.ts", [
     "/** A notification id, used only to prove a nudge does not carry one. */",

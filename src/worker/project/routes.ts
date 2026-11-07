@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono'
+import { projectBoardToCsv } from '@shared/project/csv'
 import {
   ProjectBoardCreateSchema,
   ProjectBoardPatchSchema,
@@ -81,6 +82,7 @@ import {
   setProjectMemberRole,
 } from './members'
 import { ProjectStore } from './store'
+import { projectStatistics } from './statistics'
 import { listProjectSubscriptions, subscribeProject, unsubscribeProject } from './subscriptions'
 import {
   createProjectView,
@@ -101,6 +103,10 @@ function store(c: Context<AppBindings>): ProjectStore {
 
 projectRoutes.get('/boards', async (c) => {
   return c.json({ boards: await store(c).boards() })
+})
+
+projectRoutes.get('/statistics', async (c) => {
+  return c.json(await projectStatistics(c.env.DB, projectUserId(c)))
 })
 
 projectRoutes.post('/boards', async (c) => {
@@ -182,6 +188,17 @@ projectRoutes.get('/boards/:id/archive', async (c) => {
     headers: {
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename="${board.id}.boardarchive"`,
+    },
+  })
+})
+
+projectRoutes.get('/boards/:id/csv', async (c) => {
+  const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  return new Response(projectBoardToCsv(bundle), {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${board.id}.csv"`,
     },
   })
 })
