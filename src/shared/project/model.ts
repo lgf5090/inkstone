@@ -118,6 +118,21 @@ export type ProjectSubscriptionBlock = (typeof PROJECT_SUBSCRIPTION_BLOCKS)[numb
 export const PROJECT_CARD_LINK_KINDS = ['blocks', 'parent'] as const
 export type ProjectCardLinkKind = (typeof PROJECT_CARD_LINK_KINDS)[number]
 
+export interface ProjectCardLink {
+  fromCardId: string
+  toCardId: string
+  kind: ProjectCardLinkKind
+}
+
+export interface ProjectActivityEntry {
+  id: string
+  actorId: string
+  type: string
+  targetId: string
+  summary: string
+  createdAt: number
+}
+
 export const PROJECT_STORAGE_KINDS = ['r2', 'kv'] as const
 export type ProjectStorageKind = (typeof PROJECT_STORAGE_KINDS)[number]
 

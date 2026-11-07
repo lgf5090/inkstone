@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
-import { ArrowLeft, Plus, Settings2, Share2, SquareKanban } from 'lucide-react'
-import type { ProjectBoardBundle, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
+import { ArrowLeft, FileDown, History, Plus, Settings2, Share2, SquareKanban } from 'lucide-react'
+import type { ProjectActivityEntry, ProjectBoardBundle, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { projectRoleAtLeast } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
-import { confirm } from '../../components/overlay'
-import { createProjectCard, createProjectView, deleteProjectCard, fetchProjectBoardBundle, patchProjectBoard, patchProjectView } from './api'
+import { confirm, Modal } from '../../components/overlay'
+import { createProjectCard, createProjectView, deleteProjectCard, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectView } from './api'
 import { BoardViews } from './BoardViews'
 import { BoardPropertiesDialog } from './BoardPropertiesDialog'
 import { CardDialog } from './CardDialog'
@@ -25,6 +25,16 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [openCardId, setOpenCardId] = useState<string | null>(null)
   const [showProps, setShowProps] = useState(false)
   const [showShare, setShowShare] = useState(false)
+  const [showActivity, setShowActivity] = useState(false)
+  const [activity, setActivity] = useState<ProjectActivityEntry[]>([])
+
+  const openActivity = () => {
+    setShowActivity(true)
+    fetchBoardActivity(boardId).then(setActivity).catch(() => setActivity([]))
+  }
+  const exportMarkdown = () => {
+    window.open(`/api/project/boards/${encodeURIComponent(boardId)}/markdown`, '_blank')
+  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -124,6 +134,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
             <Share2 size={16} />
           </IconButton>
         )}
+        <IconButton label={t('project.board.activity')} size="sm" onClick={openActivity}><History size={16} /></IconButton>
+        <IconButton label={t('project.board.export_md')} size="sm" onClick={exportMarkdown}><FileDown size={16} /></IconButton>
       </header>
       {canEdit && (
         <form
@@ -162,15 +174,29 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         />
       )}
       {showShare && <ShareDialog boardId={boardId} onClose={() => setShowShare(false)} />}
+      {showActivity && (
+        <Modal open onClose={() => setShowActivity(false)} title={t('project.board.activity')} width={480}>
+          <ul className="space-y-2">
+            {activity.map((entry) => (
+              <li key={entry.id} className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                <span className="text-[var(--text-tertiary)]">{new Date(entry.createdAt).toLocaleString()}</span> — {entry.summary}
+              </li>
+            ))}
+            {activity.length === 0 && <li className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</li>}
+          </ul>
+        </Modal>
+      )}
       {openCard && (
         <CardDialog
           card={openCard}
           properties={bundle.properties}
           members={bundle.members}
           contents={bundle.contents.filter((content) => content.cardId === openCard.id)}
+          siblings={bundle.cards}
           canEdit={canEdit}
           onClose={() => setOpenCardId(null)}
           onUpdated={(updated) => setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current))}
+          onRefresh={() => { void fetchProjectBoardBundle(boardId).then(setBundle).catch(() => undefined) }}
         />
       )}
     </div>

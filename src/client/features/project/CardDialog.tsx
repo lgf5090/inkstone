@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { CheckSquare, Minus, Plus, Trash2, Type } from 'lucide-react'
-import type { ProjectBoardMember, ProjectCard, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
+import type { ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
-import { Checkbox, Input, Textarea } from '../../components/form'
+import { Checkbox, Input, Select, Textarea } from '../../components/form'
 import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
-import { createCardComment, createCardContent, deleteCardContent, fetchCardComments, patchCardContent, patchProjectCard } from './api'
+import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, fetchCardComments, fetchCardLinks, patchCardContent, patchProjectCard, removeCardLink } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
 
 interface CardDialogProps {
@@ -13,19 +13,27 @@ interface CardDialogProps {
   properties: ProjectProperty[]
   members: ProjectBoardMember[]
   contents: ProjectContent[]
+  siblings: ProjectCard[]
   canEdit: boolean
   onClose: () => void
   onUpdated: (card: ProjectCard) => void
+  onRefresh: () => void
 }
 
-export function CardDialog({ card, properties, members, contents, canEdit, onClose, onUpdated }: CardDialogProps): ReactElement {
+export function CardDialog({ card, properties, members, contents, siblings, canEdit, onClose, onUpdated, onRefresh }: CardDialogProps): ReactElement {
   const [title, setTitle] = useState(card.title)
   const [comments, setComments] = useState<ProjectComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
   const [posting, setPosting] = useState(false)
   const [blocks, setBlocks] = useState<ProjectContent[]>(contents)
+  const [links, setLinks] = useState<ProjectCardLink[]>([])
+  const [blocker, setBlocker] = useState('')
   const addAnchor = useRef<HTMLButtonElement>(null)
   const [addOpen, setAddOpen] = useState(false)
+
+  useEffect(() => {
+    fetchCardLinks(card.id).then(setLinks).catch(() => setLinks([]))
+  }, [card.id])
 
   useEffect(() => { setTitle(card.title) }, [card.title])
   useEffect(() => {
@@ -85,6 +93,26 @@ export function CardDialog({ card, properties, members, contents, canEdit, onClo
     { id: 'divider', label: t('project.card.divider_block'), icon: <Minus size={15} />, onSelect: () => void addBlock('divider') },
   ]
 
+  const subtasks = siblings.filter((sibling) => sibling.parentId === card.id)
+  const blockers = links.filter((link) => link.toCardId === card.id && link.kind === 'blocks')
+
+  const addSubtask = async () => {
+    const name = await prompt({ title: t('project.card.add_subtask'), confirmLabel: t('project.card.add_subtask') })
+    if (name === null || !name.trim()) return
+    await createProjectCard(card.boardId, { title: name.trim(), parentId: card.id })
+    onRefresh()
+  }
+  const addDependency = async () => {
+    if (!blocker) return
+    await addCardLink(blocker, card.id, 'blocks')
+    setLinks(await fetchCardLinks(card.id))
+    setBlocker('')
+  }
+  const removeDependency = async (fromId: string) => {
+    await removeCardLink(fromId, card.id, 'blocks')
+    setLinks(await fetchCardLinks(card.id))
+  }
+
   return (
     <Modal open onClose={onClose} title={card.title || t('project.board.untitled_card')} width={640}>
       <div className="space-y-4">
@@ -142,6 +170,37 @@ export function CardDialog({ card, properties, members, contents, canEdit, onClo
               </div>
             ))}
           </div>
+        </section>
+        <section aria-label={t('project.card.subtasks')} className="space-y-2">
+          <div className="flex items-center gap-2">
+            <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.subtasks')}</h3>
+            {canEdit && <Button size="sm" icon={<Plus size={14} />} onClick={() => void addSubtask()}>{t('project.card.add_subtask')}</Button>}
+          </div>
+          <ul className="space-y-1">
+            {subtasks.map((subtask) => (
+              <li key={subtask.id} className="text-[length:var(--text-13)] text-[var(--text-primary)]">{subtask.title || t('project.board.untitled_card')}</li>
+            ))}
+          </ul>
+        </section>
+        <section aria-label={t('project.card.dependencies')} className="space-y-2">
+          <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.dependencies')}</h3>
+          <ul className="space-y-1">
+            {blockers.map((link) => (
+              <li key={link.fromCardId} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{siblings.find((s) => s.id === link.fromCardId)?.title ?? link.fromCardId}</span>
+                {canEdit && <IconButton label={t('common.delete')} size="sm" onClick={() => void removeDependency(link.fromCardId)}><Trash2 size={14} /></IconButton>}
+              </li>
+            ))}
+          </ul>
+          {canEdit && (
+            <div className="flex items-center gap-2">
+              <Select className="min-w-0 flex-1" value={blocker} aria-label={t('project.card.add_dependency')} onChange={(event) => setBlocker(event.target.value)}>
+                <option value="">{t('project.card.add_dependency')}</option>
+                {siblings.filter((s) => s.id !== card.id).map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+              </Select>
+              <Button size="sm" disabled={!blocker} onClick={() => void addDependency()}>{t('project.card.add_dependency')}</Button>
+            </div>
+          )}
         </section>
         <section aria-label={t('project.card.comments')} className="space-y-2">
           <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.comments')}</h3>

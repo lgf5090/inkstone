@@ -32355,6 +32355,10 @@ const allowed = new Map([
     "/**\n * Ids are 27 lowercase alphanumerics: one type character and 26 drawn from an alphabet without the\n * letters a reader mistakes for digits. The reference's zbase32 ids fit the same shape, which is what\n * lets an archive keep its own ids on import instead of remapping every cross-reference.\n */",
     "/**\n * The reference's own built-in templates spell property and option ids as UUIDs, so an import has to\n * take both spellings. Neither admits a slash, a dot or a space, which is what keeps an id safe to\n * put in an object key.\n */",
   ]],
+  ["src/shared/project/markdown.ts", [
+    "/**\n * Board-as-Markdown (X-12): a readable report of a board's cards, grouped by the active grouping\n * property when present, with each card's property values and text content. Pure so it can be tested\n * and reused by any export surface.\n */",
+    "/* scalar */",
+  ]],
   ["src/shared/project/model.ts", [
     "/**\n * The project app's vocabulary: what a board, a card, a property and a view are, spelled once for the\n * server that stores them and the client that draws them.\n *\n * The shapes follow Focalboard's block model rather than inventing a new one, because an archive\n * exported there has to import here field for field. Where this port deliberately differs, the\n * reason is stated at the declaration.\n */",
     "/** Ordered weakest to strongest: a member's effective role is the stronger of two of these. */",
@@ -41027,6 +41031,10 @@ const allowed = new Map([
     "/**\n * Copying a board or a card. A copy gets fresh ids for the board and every child row (those are global\n * primary keys) but keeps property and option ids (those are board-scoped), so the only references\n * that need rewriting are the ones pointing at cards, contents and comments: a card's contentOrder,\n * a view's cardOrder and its default template. Members and share links are deliberately not copied.\n */",
     "/**\n * A card copy carries its values and content blocks but not its comments: a comment is conversation,\n * not content, so the copy starts a fresh thread. The contentOrder keeps only the copied blocks.\n */",
   ]],
+  ["src/worker/project/enhance.ts", [
+    "/**\n * Board activity trail (X-7) and card dependencies (X-3). Activity rows are append-only facts about\n * who changed what; the dependency graph is a set of directed 'blocks' edges with cycle detection so\n * a board can never deadlock itself. Both reuse tables created with the core schema.\n */",
+    "/** Adding a 'blocks' edge that would close a cycle is refused, keeping the dependency graph acyclic. */",
+  ]],
   ["src/worker/project/insights.ts", [
     "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.\n */",
   ]],
@@ -41043,6 +41051,8 @@ const allowed = new Map([
   ["src/worker/project/routes.ts", [
     "/** Public read-only share reader: no session, the slug (plus optional password) is the capability. */",
     "/**\n * After any successful board-scoped write, tell every member's sync hub so open boards refetch. The\n * board id comes from the path for /boards/:id and from a row lookup for the child entities; routes\n * that own no board (categories, subscriptions, import) fall through untouched.\n */",
+    "// Best-effort: the test harness fetches without an ExecutionContext, whose getter throws.",
+    "/* no ExecutionContext in tests */",
   ]],
   ["src/worker/project/schema.ts", [
     "/**\n * The project app's tables, in arrays so a fresh database and a migrated one arrive at the same shape\n * by the same text: `SCHEMA_STATEMENTS` spreads these, and migrations 287-291 apply the very same\n * arrays to a database that predates the app.\n *\n * Boards are shared objects, so a board-scoped row keys on its own id and reaches its audience through\n * `project_board_members`; only the account's own furniture (categories, settings) keys on the account.\n * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.\n */",

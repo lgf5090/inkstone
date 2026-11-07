@@ -7,6 +7,7 @@ import {
   ProjectBatchDeleteSchema,
   ProjectBatchSchema,
   ProjectCardCreateSchema,
+  ProjectCardLinkSchema,
   ProjectCardPatchSchema,
   ProjectCategoryBoardHiddenSchema,
   ProjectCategoryBoardOrderSchema,
@@ -88,6 +89,8 @@ import {
 import { ProjectStore } from './store'
 import { searchProject } from './search'
 import { topProjectBoards } from './insights'
+import { addCardLink, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink } from './enhance'
+import { projectBoardToMarkdown } from '@shared/project/markdown'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
 import { projectStatistics } from './statistics'
 import { createBoardFromTemplate, listProjectTemplates, saveBoardAsTemplate } from './templates'
@@ -128,7 +131,14 @@ projectRoutes.use('*', async (c, next) => {
     }
   }
   if (!boardId) return
-  const task = broadcastProjectChange(c.env, boardId, Date.now(), originOf(c), (t) => c.executionCtx?.waitUntil(t))
+  const now = Date.now()
+  const actor = c.get('userId') ?? c.get('user')?.id ?? ''
+  const record = recordProjectActivity(c.env.DB, boardId, actor, method.toLowerCase(), path.split('/').pop() ?? '', `${method} ${path}`, now)
+  record.catch((error: unknown) => console.warn('[inkstone] project activity record failed:', error instanceof Error ? error.message : error))
+  const task = broadcastProjectChange(c.env, boardId, now, originOf(c), (t) => {
+    // Best-effort: the test harness fetches without an ExecutionContext, whose getter throws.
+    try { c.executionCtx?.waitUntil(t) } catch { /* no ExecutionContext in tests */ }
+  })
   task.catch((error: unknown) => console.warn('[inkstone] project fan-out failed:', error instanceof Error ? error.message : error))
 })
 
@@ -161,6 +171,40 @@ projectRoutes.get('/insights/top-boards', async (c) => {
   const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 10) || 10, 1), 50)
   const offset = Math.max(Number(c.req.query('offset') ?? 0) || 0, 0)
   return c.json(await topProjectBoards(c.env.DB, projectUserId(c), limit, offset))
+})
+
+projectRoutes.get('/boards/:id/activity', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 50) || 50, 1), 200)
+  return c.json({ activity: await listProjectActivity(c.env.DB, board.id, limit) })
+})
+
+projectRoutes.get('/boards/:id/markdown', async (c) => {
+  const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  const markdown = projectBoardToMarkdown(bundle, c.req.query('groupById'))
+  return new Response(markdown, {
+    headers: { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename="${board.id}.md"` },
+  })
+})
+
+projectRoutes.get('/cards/:id/links', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ links: await listCardLinks(c.env.DB, card.id) })
+})
+
+projectRoutes.post('/cards/:id/links', async (c) => {
+  const { card, board } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectCardLinkSchema, JSON_BODY_LIMITS.small)
+  await addCardLink(c.env.DB, board.id, card.id, input.toCardId, input.kind, Date.now())
+  return c.json({ ok: true }, 201)
+})
+
+projectRoutes.delete('/cards/:id/links/:toId', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  const kind = (c.req.query('kind') ?? 'blocks') as 'blocks' | 'parent'
+  await removeCardLink(c.env.DB, card.id, c.req.param('toId'), kind)
+  return c.json({ ok: true })
 })
 
 projectRoutes.get('/templates', async (c) => {

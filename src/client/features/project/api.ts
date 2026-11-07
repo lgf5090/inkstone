@@ -2,11 +2,13 @@
 import { CLIENT_HEADER } from '@shared/constants'
 import { request } from '../../lib/api'
 import type {
+  ProjectActivityEntry,
   ProjectBoard,
   ProjectBoardBundle,
   ProjectBoardPatch,
   ProjectBoardSummary,
   ProjectCard,
+  ProjectCardLink,
   ProjectCategory,
   ProjectCategoryBoard,
   ProjectComment,
@@ -185,4 +187,22 @@ export async function importProjectArchive(bytes: Uint8Array): Promise<ProjectBo
   }
   const body = await response.json() as { board: ProjectBoardSummary }
   return body.board
+}
+
+export async function fetchCardLinks(cardId: string): Promise<ProjectCardLink[]> {
+  const body = await request<{ links: ProjectCardLink[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/links`)
+  return body.links
+}
+
+export async function addCardLink(cardId: string, toCardId: string, kind: ProjectCardLink['kind']): Promise<void> {
+  await request<{ ok: true }>(`/api/project/cards/${encodeURIComponent(cardId)}/links`, { method: 'POST', body: { toCardId, kind } })
+}
+
+export async function removeCardLink(cardId: string, toCardId: string, kind: ProjectCardLink['kind']): Promise<void> {
+  await request<{ ok: true }>(`/api/project/cards/${encodeURIComponent(cardId)}/links/${encodeURIComponent(toCardId)}?kind=${kind}`, { method: 'DELETE' })
+}
+
+export async function fetchBoardActivity(boardId: string, signal?: AbortSignal): Promise<ProjectActivityEntry[]> {
+  const body = await request<{ activity: ProjectActivityEntry[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/activity`, { signal })
+  return body.activity
 }

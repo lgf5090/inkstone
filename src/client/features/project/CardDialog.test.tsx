@@ -13,6 +13,10 @@ vi.mock('./api', () => ({
   createCardContent: vi.fn(),
   patchCardContent: vi.fn(),
   deleteCardContent: vi.fn(),
+  fetchCardLinks: vi.fn(),
+  createProjectCard: vi.fn(),
+  addCardLink: vi.fn(),
+  removeCardLink: vi.fn(),
 }))
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
@@ -26,13 +30,14 @@ let view: RenderedElement
 async function mount(): Promise<void> {
   await act(async () => {
     view = renderElement(createElement(CardDialog, {
-      card, properties, members: [], contents: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(),
+      card, properties, members: [], contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(),
     }))
   })
 }
 beforeEach(async () => {
   vi.clearAllMocks()
   vi.mocked(api.fetchCardComments).mockResolvedValue([])
+  vi.mocked(api.fetchCardLinks).mockResolvedValue([])
   await initI18n()
 })
 afterEach(() => { view?.unmount() })
@@ -71,7 +76,7 @@ describe('the card dialog', () => {
     vi.mocked(api.patchCardContent).mockResolvedValue({ ...block, fields: { checked: true } })
     await act(async () => {
       view = renderElement(createElement(CardDialog, {
-        card, properties, members: [], contents: [block], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(),
+        card, properties, members: [], contents: [block], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(),
       }))
     })
     const checkbox = document.body.querySelector('[data-project-content="a1"] [role="checkbox"]') as HTMLButtonElement

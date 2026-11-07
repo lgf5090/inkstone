@@ -98,4 +98,10 @@ export const EN_US_PROJECT = {
     "project.import.choose": "Choose file",
     "project.import.submit": "Import",
     "project.import.no_file": "Choose a file first",
+    "project.card.subtasks": "Subtasks",
+    "project.card.add_subtask": "Add subtask",
+    "project.card.dependencies": "Dependencies",
+    "project.card.add_dependency": "Block by…",
+    "project.board.activity": "Activity",
+    "project.board.export_md": "Export Markdown",
 } as const

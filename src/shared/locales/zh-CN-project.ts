@@ -98,4 +98,10 @@ export const ZH_CN_PROJECT = {
     "project.import.choose": "选择文件",
     "project.import.submit": "导入",
     "project.import.no_file": "请先选择文件",
+    "project.card.subtasks": "子任务",
+    "project.card.add_subtask": "添加子任务",
+    "project.card.dependencies": "依赖",
+    "project.card.add_dependency": "阻塞于…",
+    "project.board.activity": "动态",
+    "project.board.export_md": "导出 Markdown",
 } as const
