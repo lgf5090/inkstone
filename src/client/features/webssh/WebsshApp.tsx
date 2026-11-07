@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   ArrowLeft,
   FolderTree,
+  History,
   KeyRound,
   Pencil,
   ScrollText,
@@ -36,6 +37,7 @@ import { TerminalWorkspace } from './TerminalWorkspace'
 import { SnippetsPanel } from './SnippetsPanel'
 import { ImportDialog } from './ImportDialog'
 import { AuditPanel } from './AuditPanel'
+import { RecordingsPanel } from './RecordingsPanel'
 import '@xterm/xterm/css/xterm.css'
 import './webssh.css'
 
@@ -77,6 +79,7 @@ export function WebsshApp() {
   const [snippetsOpen, setSnippetsOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [auditOpen, setAuditOpen] = useState(false)
+  const [recordingsOpen, setRecordingsOpen] = useState(false)
   const [alertCount, setAlertCount] = useState(0)
   const [fingerprintOpen, setFingerprintOpen] = useState(false)
   const [fingerprints, setFingerprints] = useState<WebsshHostKey[]>([])
@@ -280,6 +283,9 @@ export function WebsshApp() {
           <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)} icon={<Upload size={13} aria-hidden="true" />}>
             {t('webssh.actions.import')}
           </Button>
+          <Button size="sm" variant="ghost" onClick={() => setRecordingsOpen(true)} icon={<History size={13} aria-hidden="true" />}>
+            {t('webssh.recordings.open')}
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => setAuditOpen(true)} icon={<ShieldCheck size={13} aria-hidden="true" />}>
             {t('webssh.audit.open')}
             {alertCount > 0 && (
@@ -380,6 +386,8 @@ export function WebsshApp() {
           refresh()
         }}
       />
+
+      <RecordingsPanel open={recordingsOpen} onClose={() => setRecordingsOpen(false)} />
 
       <AuditPanel open={auditOpen} onClose={() => setAuditOpen(false)} />
 

@@ -3,11 +3,13 @@
 // byte ranges so one request never pulls a whole recording into the Worker.
 
 import { Hono, type Context } from 'hono'
-import type { WebsshRecordingFrames, WebsshRecordingView } from '@shared/webssh/types'
+import type { WebsshRecordingFrames, WebsshRecordingListResponse, WebsshRecordingView } from '@shared/webssh/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { recordAudit } from './audit'
-import { loadSessionRecording, requireReadyRecording, type RecordingRow } from './recording/repository'
+import { clampPage, clampPageSize } from './hosts'
+import { loadSessionRecording, RECORDING_COLUMNS, requireReadyRecording, type RecordingRow } from './recording/repository'
+import { purgeExpiredRecording } from './recording/retention'
 import { parseSliceBounds, readCastSlice } from './recording/slice'
 
 function toView(row: RecordingRow): WebsshRecordingView {
@@ -41,10 +43,54 @@ function auditAccess(c: Context<AppBindings>, row: RecordingRow, action: 'metada
 
 export const websshRecordingRoutes = new Hono<AppBindings>()
 
+interface RecordingListRow extends RecordingRow {
+  host_name: string
+}
+
+/** The owner's recording library, newest first and joined with the host label. */
+websshRecordingRoutes.get('/recordings', async (c) => {
+  const userId = c.get('userId')
+  const now = Date.now()
+  const pageSize = clampPageSize(c.req.query('pageSize'))
+  const where = `r.user_id = ?1 AND r.status != 'deleted' AND r.deleted_at IS NULL AND r.expires_at > ?2`
+  const totalRow = await c.env.DB.prepare(`SELECT COUNT(*) AS total FROM webssh_recordings r WHERE ${where}`)
+    .bind(userId, now)
+    .first<{ total: number }>()
+  const total = Number(totalRow?.total ?? 0)
+  const page = Math.min(clampPage(c.req.query('page'), 1), Math.max(1, Math.ceil(total / pageSize) || 1))
+  const rows = await c.env.DB.prepare(
+    `SELECT ${RECORDING_COLUMNS.split(', ').map((column) => `r.${column}`).join(', ')},
+            COALESCE(h.name, '') AS host_name
+       FROM webssh_recordings r
+       LEFT JOIN webssh_hosts h ON h.user_id = r.user_id AND h.id = r.host_id
+      WHERE ${where}
+      ORDER BY r.created_at DESC
+      LIMIT ?3 OFFSET ?4`,
+  )
+    .bind(userId, now, pageSize, (page - 1) * pageSize)
+    .all<RecordingListRow>()
+  return c.json<WebsshRecordingListResponse>({
+    items: rows.results.map((row) => ({ ...toView(row), hostName: row.host_name })),
+    total,
+    page,
+    pageSize,
+  })
+})
+
 websshRecordingRoutes.get('/sessions/:id/recording', async (c) => {
   const row = await loadSessionRecording(c.env, c.get('userId'), c.req.param('id'))
   auditAccess(c, row, 'metadata')
   return c.json<WebsshRecordingView>(toView(row))
+})
+
+/** Owner-initiated deletion; the same sweep path removes the object, links and audit-safe row state. */
+websshRecordingRoutes.delete('/sessions/:id/recording', async (c) => {
+  const row = await loadSessionRecording(c.env, c.get('userId'), c.req.param('id'))
+  const removed = await purgeExpiredRecording(c.env, row, Date.now())
+  if (!removed) {
+    throw new ApiError(503, 'storage_unavailable', 'The recording was marked for deletion but the object store did not confirm removal')
+  }
+  return c.json({ ok: true })
 })
 
 /** One byte-addressed slice of the cast file; the slicing rules live in `recording/slice.ts`. */

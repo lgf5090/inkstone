@@ -69,6 +69,7 @@ function insertRecording(input: {
   object: Uint8Array
   status?: string
   expiresAt?: number
+  hostId?: string
 }): { recordingId: string; r2Key: string } {
   const recordingId = newId()
   const r2Key = `webssh/txt/recordings/${input.ownerId}/2026/11/${input.sessionId}.cast`
@@ -82,7 +83,7 @@ function insertRecording(input: {
     recordingId,
     input.ownerId,
     input.sessionId,
-    newId(),
+    input.hostId ?? newId(),
     r2Key,
     input.object.byteLength,
     input.status ?? 'ready',
@@ -164,6 +165,12 @@ beforeEach(() => {
       password_hash TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL
+    );
+    CREATE TABLE webssh_hosts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      deleted_at INTEGER
     );
   `)
   db = makeD1(sqlite)
@@ -322,5 +329,53 @@ describe('lazy retention', () => {
     expect(bucket.objects.has(r2Key)).toBe(false)
     expect(sqlite.prepare('SELECT status, deleted_at FROM webssh_recordings WHERE id = ?').get(recordingId))
       .toMatchObject({ status: 'deleted', deleted_at: expect.any(Number) })
+  })
+})
+
+describe('recording library', () => {
+  it('lists only live rows for the account, newest first, with the host label', async () => {
+    const hostId = newId()
+    sqlite.prepare('INSERT INTO webssh_hosts (id, user_id, name, deleted_at) VALUES (?, ?, ?, NULL)')
+      .run(hostId, userId, 'Prod web')
+    const older = insertSession(userId)
+    const newer = insertSession(userId)
+    const olderRecording = insertRecording({ ownerId: userId, sessionId: older, hostId, object: wholeCast() })
+    const newerRecording = insertRecording({ ownerId: userId, sessionId: newer, hostId, object: wholeCast() })
+    sqlite.prepare('UPDATE webssh_recordings SET created_at = 100 WHERE id = ?').run(olderRecording.recordingId)
+    sqlite.prepare('UPDATE webssh_recordings SET created_at = 300 WHERE id = ?').run(newerRecording.recordingId)
+    insertRecording({ ownerId: userId, sessionId: insertSession(userId), hostId, object: wholeCast(), expiresAt: 1 })
+    insertRecording({ ownerId: userId, sessionId: insertSession(userId), hostId, object: wholeCast(), status: 'deleted' })
+    const foreignSession = insertSession(newId())
+    insertRecording({ ownerId: newId(), sessionId: foreignSession, object: wholeCast() })
+
+    const response = await request(makeApp(userId), '/api/webssh/recordings?pageSize=10')
+    expect(response.status).toBe(200)
+    const body = await response.json() as { items: Array<{ sessionId: string; hostName: string }>; total: number }
+    expect(body.total).toBe(2)
+    expect(body.items.map((item) => item.sessionId)).toEqual([newer, older])
+    expect(body.items.every((item) => item.hostName === 'Prod web')).toBe(true)
+
+    const foreign = await request(makeApp(newId()), '/api/webssh/recordings')
+    expect((await foreign.json() as { total: number }).total).toBe(0)
+  })
+
+  it('deletes the object and share, and refuses another account', async () => {
+    const sessionId = insertSession(userId)
+    const { recordingId, r2Key } = insertRecording({ ownerId: userId, sessionId, object: wholeCast() })
+    sqlite.prepare(
+      `INSERT INTO webssh_shares (slug, user_id, recording_id, created_at) VALUES ('abc', ?, ?, 100)`,
+    ).run(userId, recordingId)
+
+    const denied = await request(makeApp(newId()), `/api/webssh/sessions/${sessionId}/recording`, { method: 'DELETE' })
+    expect(denied.status).toBe(404)
+    expect(bucket.objects.has(r2Key)).toBe(true)
+
+    const removed = await request(makeApp(userId), `/api/webssh/sessions/${sessionId}/recording`, { method: 'DELETE' })
+    expect(removed.status).toBe(200)
+    expect(bucket.objects.has(r2Key)).toBe(false)
+    expect(sqlite.prepare('SELECT status, deleted_at FROM webssh_recordings WHERE id = ?').get(recordingId))
+      .toMatchObject({ status: 'deleted', deleted_at: expect.any(Number) })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM webssh_shares').get()).toMatchObject({ count: 0 })
+    expect((await request(makeApp(userId), `/api/webssh/sessions/${sessionId}/recording`)).status).toBe(404)
   })
 })

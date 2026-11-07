@@ -20047,6 +20047,10 @@ const allowed = new Map([
   ["src/client/features/webssh/NewSessionDialog.tsx", [
     "/**\n * W3 owns the host and credential library. Until it lands this dialog only names a demo session,\n * and the description says exactly that — no host, port or password field is shown, so nothing here\n * can be mistaken for a real connection form.\n */",
   ]],
+  ["src/client/features/webssh/RecordingsPanel.tsx", [
+    "// Recording library (W6-02). Rows are grouped by host, newest first, and each row opens the same",
+    "// replay/share dialog the terminal uses, so the share capability has one implementation.",
+  ]],
   ["src/client/features/webssh/SnippetsPanel.tsx", [
     "// The snippet library (plan W7-02). It is a dialog rather than a docked pane so the host list and",
     "// the terminal can both open it; `onInsert` is present only when a terminal tab is active, and the",
@@ -34150,6 +34154,7 @@ const allowed = new Map([
     "/** The append-only event vocabulary, shared so the filter and the writer cannot drift. */",
     "/** One append-only audit row, with metadata already parsed for the read-only viewer. */",
     "/** Local-only statistics; nothing in this shape triggers an external notification. */",
+    "/** A recording in the owner's library, joined with the host label for grouping. */",
   ]],
   ["src/shared/youtube/model.ts", [
     "/**\n * The YouTube app's shared vocabulary: the upstream shapes the API hands over, the library rows a\n * reader saves, the address that names a view, and the pure formatting/tree rules both sides use.\n *\n * Nothing here touches the network or the DOM. The worker's transforms and the reader's rendering\n * have to agree on every field, so the types live once and are imported by both builds.\n */",
@@ -44236,6 +44241,8 @@ const allowed = new Map([
     "// byte ranges so one request never pulls a whole recording into the Worker.",
     "/** The whole cast as a stream; no range is held in memory, the R2 body is passed through. */",
     "/** One byte-addressed slice of the cast file; the slicing rules live in `recording/slice.ts`. */",
+    "/** The owner's recording library, newest first and joined with the host label. */",
+    "/** Owner-initiated deletion; the same sweep path removes the object, links and audit-safe row state. */",
   ]],
   ["src/worker/webssh/routes-session.ts", [
     "// REST surface for WebSSH sessions: create, mint a one-time ticket, read status, and upgrade.",

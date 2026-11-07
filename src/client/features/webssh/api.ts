@@ -14,6 +14,7 @@ import type {
   WebsshPublicShareFrames,
   WebsshPublicShareView,
   WebsshRecordingFrames,
+  WebsshRecordingListResponse,
   WebsshRecordingSettingsView,
   WebsshRecordingView,
   WebsshSessionCreated,
@@ -222,6 +223,17 @@ export const websshApi = {
     return await request<WebsshAuditListResponse>(`/api/webssh/audit${query ? `?${query}` : ''}`)
   },
   auditHealth: async () => await request<WebsshHealthReport>('/api/webssh/audit/health'),
+
+  listRecordings: async (params: { page?: number; pageSize?: number } = {}) => {
+    const search = new URLSearchParams()
+    if (params.page) search.set('page', String(params.page))
+    if (params.pageSize) search.set('pageSize', String(params.pageSize))
+    const query = search.toString()
+    return await request<WebsshRecordingListResponse>(`/api/webssh/recordings${query ? `?${query}` : ''}`)
+  },
+  deleteRecording: async (sessionId: string) => {
+    await request(`/api/webssh/sessions/${sessionId}/recording`, { method: 'DELETE' })
+  },
 }
 
 async function rawRequest(path: string, init: RequestInit = {}): Promise<Response> {

@@ -341,6 +341,18 @@ export interface WebsshRecordingView {
   expiresAt: number
 }
 
+/** A recording in the owner's library, joined with the host label for grouping. */
+export interface WebsshRecordingListItem extends WebsshRecordingView {
+  hostName: string
+}
+
+export interface WebsshRecordingListResponse {
+  items: WebsshRecordingListItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 /**
  * One byte-addressed slice of a cast file. `offset` is the requested offset, `startOffset` the byte
  * the first returned line begins at (a partial first line is skipped), and `nextOffset` the byte
