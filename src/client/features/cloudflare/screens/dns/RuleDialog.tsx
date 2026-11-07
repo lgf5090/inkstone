@@ -8,7 +8,7 @@
  * for anything the fields cannot say — switching back parses it, so a mistake is caught before saving.
  */
 import { useMemo, useState } from 'react'
-import { Field, Input, Switch, Textarea } from '../../../../components/form'
+import { Checkbox, Field, Input, Switch, Textarea } from '../../../../components/form'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
 import { SelectMenu } from '../../../../components/select-menu'
@@ -17,12 +17,14 @@ import { useUi } from '../../../../store/ui'
 import { cfErrorText } from '../../api/client'
 import { dnsApi, type DnsRule, type RuleInput, type RulePhase } from '../../api/dns'
 import { useCfT } from '../../i18n'
-import { RULE_PHASE_ACTIONS } from './options'
+import { COMPRESSION_ALGORITHMS, RULE_PHASE_ACTIONS } from './options'
 import { SwitchRow } from './SwitchRow'
 import {
   buildPayload,
+  CONFIG_FLAG_KEYS,
   emptyRuleForm,
   formFromRule,
+  type RuleConfigFlags,
   type RuleFormState,
   type RuleMatchType,
 } from './rule-builder'
@@ -37,7 +39,17 @@ const MATCH_LABEL_KEYS = {
   custom: 'cloudflare.tunnels.match_custom',
 } as const
 
-const REDIRECT_STATUSES = [301, 302, 307, 308] as const
+const CONFIG_FLAG_KEYS_I18N: Record<keyof RuleConfigFlags, string> = {
+  automatic_https_rewrites: 'cloudflare.dns.config_flags.automatic_https_rewrites',
+  bic: 'cloudflare.dns.config_flags.bic',
+  email_obfuscation: 'cloudflare.dns.config_flags.email_obfuscation',
+  fonts: 'cloudflare.dns.config_flags.fonts',
+  hotlink_protection: 'cloudflare.dns.config_flags.hotlink_protection',
+  opportunistic_encryption: 'cloudflare.dns.config_flags.opportunistic_encryption',
+  rocket_loader: 'cloudflare.dns.config_flags.rocket_loader',
+}
+
+const REDIRECT_STATUSES = [301, 302, 303, 307, 308] as const
 
 function parseObject(text: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(text)
@@ -123,13 +135,24 @@ export function RuleDialog({
   /** What the form still needs before it can be sent, as the sentence to show. */
   function missingField(): string | null {
     if (!payload) return t('cloudflare.tunnels.expression')
-    if (phase === 'redirect' && !form.redirectUrl.trim()) return t('cloudflare.tunnels.rule_redirect_url')
+    if ((phase === 'redirect' || phase === 'single_redirect') && !form.redirectUrl.trim()) {
+      return t('cloudflare.tunnels.rule_redirect_url')
+    }
     if ((phase === 'request_headers' || phase === 'response_headers') && !form.headerName.trim()) {
       return t('cloudflare.tunnels.header_name')
     }
     if (phase === 'origin' && (form.port < 1 || form.port > 65535)) return t('cloudflare.tunnels.rule_port')
     if (phase === 'cache_settings' && form.ttlMode === 'custom' && form.ttlSeconds < 0) {
       return t('cloudflare.tunnels.ttl_seconds')
+    }
+    if (phase === 'config' && Object.values(form.configFlags).every((value) => value === undefined)) {
+      return t('cloudflare.dns.rule_config_required')
+    }
+    if (phase === 'compression' && form.compressionAlgorithms.length === 0) {
+      return t('cloudflare.dns.rule_algorithm_required')
+    }
+    if (phase === 'custom_errors' && !form.errorContent.trim()) {
+      return t('cloudflare.dns.rule_error_content_required')
     }
     if (phase === 'rate_limit' && (form.limitPeriod < 1 || form.limitRequests < 1)) {
       return t('cloudflare.tunnels.ratelimit_requests')
@@ -223,7 +246,7 @@ export function RuleDialog({
         </Field>
       ) : null}
 
-      {phase === 'redirect' ? (
+      {phase === 'redirect' || phase === 'single_redirect' ? (
         <>
           <Field label={t('cloudflare.tunnels.rule_redirect_url')} required>
             <Input
@@ -238,6 +261,84 @@ export function RuleDialog({
               value={String(form.redirectStatus)}
               options={REDIRECT_STATUSES.map((status) => ({ value: String(status), label: String(status) }))}
               onChange={(value) => patch({ redirectStatus: Number(value) })}
+            />
+          </Field>
+          {phase === 'single_redirect' ? (
+            <SwitchRow
+              label={t('cloudflare.dns.rule_preserve_query')}
+              checked={form.redirectPreserveQuery}
+              onChange={(next) => patch({ redirectPreserveQuery: next })}
+            />
+          ) : null}
+        </>
+      ) : null}
+
+      {phase === 'config' ? (
+        <Field label={t('cloudflare.dns.rule_config_settings')}>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {CONFIG_FLAG_KEYS.map((key) => (
+              <Checkbox
+                key={key}
+                checked={form.configFlags[key] === true}
+                onChange={(next) => patch({ configFlags: { ...form.configFlags, [key]: next } })}
+                label={t(CONFIG_FLAG_KEYS_I18N[key] as Parameters<typeof t>[0])}
+              />
+            ))}
+          </div>
+        </Field>
+      ) : null}
+
+      {phase === 'compression' ? (
+        <Field label={t('cloudflare.dns.rule_compression_algorithms')}>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {COMPRESSION_ALGORITHMS.map((choice) => (
+              <Checkbox
+                key={choice.value}
+                checked={form.compressionAlgorithms.includes(choice.value)}
+                onChange={(next) => patch({
+                  compressionAlgorithms: next
+                    ? [...form.compressionAlgorithms.filter((item) => item !== choice.value), choice.value]
+                    : form.compressionAlgorithms.filter((item) => item !== choice.value),
+                })}
+                label={choice.label}
+              />
+            ))}
+          </div>
+        </Field>
+      ) : null}
+
+      {phase === 'custom_errors' ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={t('cloudflare.dns.rule_content_type')}>
+              <SelectMenu
+                label={t('cloudflare.dns.rule_content_type')}
+                value={form.errorContentType}
+                options={[
+                  { value: 'text/html', label: 'text/html' },
+                  { value: 'text/plain', label: 'text/plain' },
+                  { value: 'application/json', label: 'application/json' },
+                ]}
+                onChange={(value) => patch({ errorContentType: value })}
+              />
+            </Field>
+            <Field label={t('cloudflare.dns.rule_status_code')}>
+              <Input
+                type="number"
+                min={400}
+                max={999}
+                value={form.errorStatusCode}
+                placeholder="503"
+                onChange={(event) => patch({ errorStatusCode: event.target.value })}
+              />
+            </Field>
+          </div>
+          <Field label={t('cloudflare.dns.rule_error_content')} required>
+            <Textarea
+              rows={4}
+              value={form.errorContent}
+              onChange={(event) => patch({ errorContent: event.target.value })}
+              className="font-mono text-[length:var(--text-11-5)]"
             />
           </Field>
         </>

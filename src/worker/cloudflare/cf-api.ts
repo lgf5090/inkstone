@@ -66,6 +66,13 @@ export interface CfRequestInit {
 }
 
 async function send(auth: CloudflareAuth, path: string, init: CfRequestInit = {}): Promise<Response> {
+  // Built before the try: a missing credential is a configuration error, and wrapping it as "Cloudflare
+  // could not be reached" would hide that from callers that classify auth failures.
+  const headers = {
+    'Content-Type': 'application/json',
+    ...authHeaders(auth),
+    ...(init.headers ?? {}),
+  }
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), init.timeoutMs ?? CF_TIMEOUT_MS)
   if (init.signal) {
@@ -75,11 +82,7 @@ async function send(auth: CloudflareAuth, path: string, init: CfRequestInit = {}
   try {
     return await fetch(`${CF_API_BASE}${path}`, {
       method: init.method ?? 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders(auth),
-        ...(init.headers ?? {}),
-      },
+      headers,
       ...(init.body === undefined
         ? {}
         : { body: typeof init.body === 'string' ? init.body : JSON.stringify(init.body) }),
@@ -202,9 +205,14 @@ export function upstreamApiError(error: unknown): ApiError {
       error.status === 429 ? 429 : 502,
       'cloudflare_upstream',
       error.message,
-      // The platform's own code travels beside the message so a reader (or the audit trail) can name
-      // the failure without parsing an English sentence that Cloudflare is free to reword.
-      error.cfCode === undefined ? undefined : { cf_code: error.cfCode },
+      // The platform's own code and status travel beside the message so a reader (or the audit trail)
+      // can name the failure without parsing an English sentence that Cloudflare is free to reword.
+      // `upstream_status` is what lets a credential check tell "Cloudflare refused this key" from
+      // "Cloudflare never answered": the route sees both as a 502 otherwise.
+      {
+        ...(error.cfCode === undefined ? {} : { cf_code: error.cfCode }),
+        upstream_status: error.status,
+      },
     )
   }
   return new ApiError(

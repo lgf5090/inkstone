@@ -71,10 +71,14 @@ export const BROWSER_TTL_CHOICES: readonly Choice<number>[] = [
 export const RULE_PHASE_CHOICES: ReadonlyArray<{ value: RulePhase; labelKey: CloudflareMessageKey }> = [
   { value: 'origin', labelKey: 'cloudflare.tunnels.rule_phases.origin' },
   { value: 'redirect', labelKey: 'cloudflare.tunnels.rule_phases.redirect' },
+  { value: 'single_redirect', labelKey: 'cloudflare.tunnels.rule_phases.single_redirect' },
   { value: 'transform', labelKey: 'cloudflare.tunnels.rule_phases.transform' },
   { value: 'request_headers', labelKey: 'cloudflare.tunnels.rule_phases.request_headers' },
   { value: 'response_headers', labelKey: 'cloudflare.tunnels.rule_phases.response_headers' },
   { value: 'cache_settings', labelKey: 'cloudflare.tunnels.rule_phases.cache_settings' },
+  { value: 'config', labelKey: 'cloudflare.tunnels.rule_phases.config' },
+  { value: 'compression', labelKey: 'cloudflare.tunnels.rule_phases.compression' },
+  { value: 'custom_errors', labelKey: 'cloudflare.tunnels.rule_phases.custom_errors' },
   { value: 'firewall', labelKey: 'cloudflare.tunnels.rule_phases.firewall' },
   { value: 'rate_limit', labelKey: 'cloudflare.tunnels.rule_phases.rate_limit' },
 ]
@@ -83,13 +87,33 @@ export const RULE_PHASE_CHOICES: ReadonlyArray<{ value: RulePhase; labelKey: Clo
 export const RULE_PHASE_ACTIONS: Readonly<Record<RulePhase, readonly string[]>> = {
   origin: ['route'],
   redirect: ['redirect'],
+  single_redirect: ['redirect'],
   transform: ['rewrite'],
   request_headers: ['rewrite'],
   response_headers: ['rewrite'],
   cache_settings: ['set_cache_settings'],
+  config: ['set_config'],
+  compression: ['compress_response'],
+  custom_errors: ['serve_error'],
   firewall: ['block', 'managed_challenge', 'js_challenge', 'challenge', 'log'],
   rate_limit: ['block', 'managed_challenge', 'js_challenge', 'challenge'],
 }
+
+export const MIN_TLS_VERSION_CHOICES: readonly Choice[] = [
+  { value: '1.0', label: 'TLS 1.0' },
+  { value: '1.1', label: 'TLS 1.1' },
+  { value: '1.2', label: 'TLS 1.2' },
+  { value: '1.3', label: 'TLS 1.3' },
+]
+
+export const COMPRESSION_ALGORITHMS: readonly Choice[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'default', label: 'Default' },
+  { value: 'gzip', label: 'Gzip' },
+  { value: 'brotli', label: 'Brotli' },
+  { value: 'zstd', label: 'Zstd' },
+  { value: 'none', label: 'None' },
+]
 
 export const STATUS_LABEL_KEYS: Readonly<Record<string, CloudflareMessageKey>> = {
   active: 'cloudflare.dns.status_active',

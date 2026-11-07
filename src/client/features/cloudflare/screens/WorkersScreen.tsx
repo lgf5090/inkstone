@@ -26,6 +26,7 @@ import { DeployDialog } from './workers/DeployDialog'
 import { LogsDrawer } from './workers/LogsDrawer'
 import { PagesSettingsDrawer } from './workers/PagesSettingsDrawer'
 import { WorkerSettingsDrawer } from './workers/WorkerSettingsDrawer'
+import { WorkerMetricsDrawer } from './workers/WorkerMetricsDrawer'
 import { WorkerTable, formatCpuTime } from './workers/WorkerTable'
 
 const FREE_DAILY_REQUESTS = 100_000
@@ -45,6 +46,7 @@ export function WorkersScreen() {
   const [redeploy, setRedeploy] = useState<{ type: WorkerRow['type']; name: string; accountId: string } | null>(null)
   const [settings, setSettings] = useState<WorkerRow | null>(null)
   const [logs, setLogs] = useState<WorkerRow | null>(null)
+  const [metrics, setMetrics] = useState<WorkerRow | null>(null)
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -235,6 +237,7 @@ export function WorkersScreen() {
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={pct}
+                  aria-valuetext={`${pct}%`}
                   className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-sunken)]"
                 >
                   <span
@@ -300,6 +303,7 @@ export function WorkersScreen() {
               onDeploy={openDeploy}
               onSettings={setSettings}
               onLogs={setLogs}
+              onMetrics={setMetrics}
               onDelete={(row) => void deleteRow(row)}
               isDemo={isDemo}
             />
@@ -339,6 +343,16 @@ export function WorkersScreen() {
           accountId={logs.accountId}
           name={logs.name}
           onClose={() => setLogs(null)}
+        />
+      )}
+
+      {metrics && (
+        <WorkerMetricsDrawer
+          key={`metrics-${metrics.accountId}-${metrics.name}`}
+          open
+          accountId={metrics.accountId}
+          name={metrics.name}
+          onClose={() => setMetrics(null)}
         />
       )}
 

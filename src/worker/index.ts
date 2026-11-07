@@ -26,6 +26,8 @@ import { dispatchInboundEmail } from './email/dispatch'
 import { runEmailTrashCleanup } from './email/trash'
 import { runMusicMaintenance } from './music/cleanup'
 import { runImgbedMaintenanceSafely } from './imgbed/cleanup'
+import { cleanupExpiredResponses } from './cloudflare/ai-gateway-responses'
+import { cleanupGatewayMedia } from './cloudflare/ai-gateway-media'
 import { runNavMaintenance } from './nav/cleanup'
 import { runEmailAutoDraftJobs } from './email/auto-draft'
 import { runEmailSnoozeWake } from './email/snooze'
@@ -170,6 +172,14 @@ export default {
               return null
             }),
             runImgbedMaintenanceSafely(env),
+            (async () => {
+              const responses = await cleanupExpiredResponses(env)
+              const media = await cleanupGatewayMedia(env)
+              return { responses, media }
+            })().catch((error) => {
+              console.warn('[inkstone] AI gateway retention sweep failed:', (error as Error).message)
+              return null
+            }),
             runMusicMaintenance(env).catch((error) => {
               console.warn('[inkstone] Music maintenance sweep failed:', (error as Error).message)
               return null

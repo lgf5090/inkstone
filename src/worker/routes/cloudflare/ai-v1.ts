@@ -23,6 +23,7 @@ import {
   type LoadedAccount,
 } from '../../cloudflare/accounts'
 import { cfFetchRaw } from '../../cloudflare/cf-api'
+import { gatewayHeadersForAccount } from '../../cloudflare/ai-gateway-routing'
 import { createAuditLog } from '../../cloudflare/audit'
 import {
   estimateImageNeurons,
@@ -558,6 +559,8 @@ aiV1Router.post('/chat/completions', async (c) => {
         accountPath(account, '/ai/v1/chat/completions'),
         upstreamBody,
         NON_STREAM_TIMEOUT_MS,
+        undefined,
+        await gatewayHeadersForAccount(c.env, userId, account.row.id),
       )
       if (!response.ok) {
         return { ok: false, failure: { status: response.status, body: await response.text() } }
@@ -676,6 +679,7 @@ aiV1Router.post('/chat/completions', async (c) => {
           upstreamBody,
           STREAM_TIMEOUT_MS,
           upstreamController.signal,
+          await gatewayHeadersForAccount(c.env, userId, account.row.id),
         )
         if (candidate.ok) {
           response = candidate

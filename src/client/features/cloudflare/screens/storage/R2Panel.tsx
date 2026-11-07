@@ -6,7 +6,7 @@
  * still has download and delete beside it.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Folder, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Folder, Loader2, Plus, Settings, Trash2 } from 'lucide-react'
 import type { CloudflareAccount } from '@shared/cloudflare/model'
 import { Checkbox, Input } from '../../../../components/form'
 import { Empty } from '../../../../components/feedback'
@@ -22,6 +22,7 @@ import { Table, TableScroll, TBody, Td, Th, THead, Tr } from '../../components/T
 import { useCfT } from '../../i18n'
 import { formatBytes, formatDateTime } from '../../lib/format'
 import { CreateNameDialog } from './CreateNameDialog'
+import { R2BucketSettingsDialog } from './R2BucketSettingsDialog'
 import { R2PreviewDialog } from './R2PreviewDialog'
 import { R2UploadDialog } from './R2UploadDialog'
 import { StorageError } from './StorageError'
@@ -69,6 +70,7 @@ export function R2Panel({ account }: { account: CloudflareAccount }) {
   const [createOpen, setCreateOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [previewObject, setPreviewObject] = useState<R2ObjectInfo | null>(null)
+  const [settingsBucket, setSettingsBucket] = useState<string | null>(null)
 
   const bucketName = selectedBucket?.name ?? null
 
@@ -301,6 +303,13 @@ export function R2Panel({ account }: { account: CloudflareAccount }) {
                     >
                       {bucket.name}
                     </button>
+                    <IconButton
+                      label={t('cloudflare.storage.r2_settings')}
+                      size="xs"
+                      onClick={() => setSettingsBucket(bucket.name)}
+                    >
+                      <Settings size={13} />
+                    </IconButton>
                     {!readOnly && (
                       <IconButton
                         label={uiT('common.delete')}
@@ -492,6 +501,16 @@ export function R2Panel({ account }: { account: CloudflareAccount }) {
             toast({ title: t('cloudflare.storage.msg.upload_success'), tone: 'success' })
             void loadObjects(prefix, null, false)
           }}
+        />
+      )}
+
+      {settingsBucket && (
+        <R2BucketSettingsDialog
+          open
+          accountId={account.id}
+          bucket={settingsBucket}
+          readOnly={readOnly}
+          onClose={() => setSettingsBucket(null)}
         />
       )}
 

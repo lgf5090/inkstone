@@ -147,6 +147,15 @@ describe('POST /accounts', () => {
     expect([...bed.files.objects.keys()]).toEqual([])
   })
 
+  it('keeps a transport failure as an upstream error instead of calling the request malformed', async () => {
+    stubCloudflare(() => { throw new TypeError('fetch failed') })
+    const response = await send('POST', '/', { name: 'Offline', auth_type: 'token', api_token: 'tok' })
+    expect(response.status).toBe(502)
+    const body = await readJson<{ error: { code: string; message: string } }>(response)
+    expect(body.error.code).toBe('cloudflare_upstream')
+    expect(body.error.message).toContain('could not be reached')
+  })
+
   it('refuses an email that is not an address, and stores the one that is', async () => {
     stubHappyCloudflare()
     const refused = await send('POST', '/', {

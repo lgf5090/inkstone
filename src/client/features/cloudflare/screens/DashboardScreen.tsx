@@ -29,6 +29,9 @@ import { Panel, PanelEmpty, PanelError } from './dashboard/Panel'
 import { ResourcesPanel } from './dashboard/ResourcesPanel'
 import { TrafficPanel } from './dashboard/TrafficPanel'
 import { AuditLogPanel } from './dashboard/AuditLogPanel'
+import { CloudflareAuditPanel } from './dashboard/CloudflareAuditPanel'
+import { StatusPanel } from './dashboard/StatusPanel'
+import { SubscriptionPanel } from './dashboard/SubscriptionPanel'
 
 type AccountSort = 'name' | 'name-desc' | 'usage-desc' | 'usage-asc'
 
@@ -220,6 +223,9 @@ export function DashboardScreen() {
         </>
       )}
       <AuditLogPanel />
+      <CloudflareAuditPanel accounts={accounts} />
+      <SubscriptionPanel accounts={accounts} />
+      <StatusPanel />
 
       <Modal
         open={detail !== null}
@@ -252,6 +258,7 @@ export function DashboardScreen() {
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={percent}
+                    aria-valuetext={`${percent}%`}
                     aria-label={`${label}: ${percent}%`}
                     className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-sunken)]"
                   >

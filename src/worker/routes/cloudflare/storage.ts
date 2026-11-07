@@ -33,23 +33,32 @@ import {
 import {
   createD1Database,
   deleteD1Database,
+  deleteD1Row,
   getD1TableSchema,
   listD1Databases,
   listD1Tables,
+  readD1Rows,
   runD1Query,
+  updateD1Row,
 } from '../../cloudflare/storage-d1'
 import {
   assertValidBucketName,
   assertValidR2Key,
+  attachR2CustomDomain,
   bulkDeleteR2Objects,
   createR2Bucket,
   deleteR2Bucket,
   deleteR2Object,
+  detachR2CustomDomain,
   fetchR2Object,
   listR2Buckets,
   listR2Objects,
   R2_UPLOAD_MAX_BYTES,
+  readR2BucketSettings,
+  setR2ManagedDomainEnabled,
   uploadR2Object,
+  writeR2CorsPolicy,
+  writeR2LifecycleRules,
 } from '../../cloudflare/storage-r2'
 import { isWriteSql } from '../../../shared/cloudflare/sql-utils'
 
@@ -253,6 +262,44 @@ storageRouter.get('/:accountId/d1/:dbId/tables/:tableName/schema', async (c) => 
   return c.json({ schema: await getD1TableSchema(auth, cfAccountId, dbId, tableName) })
 })
 
+storageRouter.get('/:accountId/d1/:dbId/tables/:tableName/rows', async (c) => {
+  const { auth, cfAccountId } = await requireAccount(c, c.req.param('accountId'))
+  const dbId = pathId(c.req.param('dbId'), DATABASE_ID, 'database id')
+  const tableName = c.req.param('tableName')
+  const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 50), 1), 100)
+  const offset = Math.min(Math.max(Number(c.req.query('offset') ?? 0), 0), 1_000_000)
+  const search = (c.req.query('search') ?? '').slice(0, 200)
+  if (!Number.isInteger(limit) || !Number.isInteger(offset)) throw ApiError.badRequest('Invalid pagination')
+  return c.json(await readD1Rows(auth, cfAccountId, dbId, tableName, { limit, offset, search }))
+})
+
+storageRouter.patch('/:accountId/d1/:dbId/tables/:tableName/rows', async (c) => {
+  const { row, auth, cfAccountId } = await requireAccount(c, c.req.param('accountId'))
+  const dbId = pathId(c.req.param('dbId'), DATABASE_ID, 'database id')
+  const tableName = c.req.param('tableName')
+  const body = await readJson<Record<string, unknown>>(c, 64 * 1024)
+  if (body.allowWrite !== true) throw ApiError.forbidden('Row edits need the allow-write switch')
+  await assertNotDemo(c.env, c.get('userId'), row.id)
+  const result = await updateD1Row(auth, cfAccountId, dbId, tableName, {
+    key: body.key,
+    values: body.values,
+  })
+  await audit(c, row.id, 'd1_row_update', tableName, 'one row updated')
+  return c.json(result)
+})
+
+storageRouter.delete('/:accountId/d1/:dbId/tables/:tableName/rows', async (c) => {
+  const { row, auth, cfAccountId } = await requireAccount(c, c.req.param('accountId'))
+  const dbId = pathId(c.req.param('dbId'), DATABASE_ID, 'database id')
+  const tableName = c.req.param('tableName')
+  const body = await readJson<Record<string, unknown>>(c, 64 * 1024)
+  if (body.allowWrite !== true) throw ApiError.forbidden('Row deletes need the allow-write switch')
+  await assertNotDemo(c.env, c.get('userId'), row.id)
+  const result = await deleteD1Row(auth, cfAccountId, dbId, tableName, body.key)
+  await audit(c, row.id, 'd1_row_delete', tableName, 'one row deleted')
+  return c.json(result)
+})
+
 storageRouter.post('/:accountId/d1/:dbId/query', async (c) => {
   const { row, auth, cfAccountId } = await requireAccount(c, c.req.param('accountId'))
   const dbId = pathId(c.req.param('dbId'), DATABASE_ID, 'database id')
@@ -361,6 +408,73 @@ storageRouter.delete('/:accountId/r2/:bucket/objects', async (c) => {
   await assertNotDemo(c.env, c.get('userId'), row.id)
   await deleteR2Object(auth, cfAccountId, bucket, key)
   await audit(c, row.id, 'delete_r2_object', `${bucket}/${key}`, 'object deleted')
+  return c.json({ deleted: true })
+})
+
+storageRouter.get('/:accountId/r2/:bucket/settings', async (c) => {
+  const { auth, cfAccountId } = await requireR2Account(c, c.req.param('accountId'))
+  const bucket = c.req.param('bucket')
+  assertValidBucketName(bucket)
+  return c.json(await readR2BucketSettings(auth, cfAccountId, bucket))
+})
+
+storageRouter.put('/:accountId/r2/:bucket/cors', async (c) => {
+  const { row, auth, cfAccountId } = await requireR2Account(c, c.req.param('accountId'))
+  const bucket = c.req.param('bucket')
+  const body = await readJson<Record<string, unknown>>(c)
+  await assertNotDemo(c.env, c.get('userId'), row.id)
+  await writeR2CorsPolicy(auth, cfAccountId, bucket, body.rules)
+  await audit(c, row.id, 'update_r2_cors', bucket, 'CORS policy replaced')
+  return c.json({ saved: true })
+})
+
+storageRouter.put('/:accountId/r2/:bucket/lifecycle', async (c) => {
+  const { row, auth, cfAccountId } = await requireR2Account(c, c.req.param('accountId'))
+  const bucket = c.req.param('bucket')
+  const body = await readJson<Record<string, unknown>>(c)
+  await assertNotDemo(c.env, c.get('userId'), row.id)
+  await writeR2LifecycleRules(auth, cfAccountId, bucket, body.rules)
+  await audit(c, row.id, 'update_r2_lifecycle', bucket, 'lifecycle policy replaced')
+  return c.json({ saved: true })
+})
+
+storageRouter.put('/:accountId/r2/:bucket/domains/managed', async (c) => {
+  const { row, auth, cfAccountId } = await requireR2Account(c, c.req.param('accountId'))
+  const bucket = c.req.param('bucket')
+  const body = await readJson<Record<string, unknown>>(c)
+  if (typeof body.enabled !== 'boolean') throw ApiError.badRequest('enabled must be true or false')
+  await assertNotDemo(c.env, c.get('userId'), row.id)
+  await setR2ManagedDomainEnabled(auth, cfAccountId, bucket, body.enabled)
+  await audit(c, row.id, 'update_r2_managed_domain', bucket, body.enabled ? 'enabled' : 'disabled')
+  return c.json({ saved: true })
+})
+
+storageRouter.post('/:accountId/r2/:bucket/domains/custom', async (c) => {
+  const { row, auth, cfAccountId } = await requireR2Account(c, c.req.param('accountId'))
+  const bucket = c.req.param('bucket')
+  const body = await readJson<Record<string, unknown>>(c)
+  if (typeof body.domain !== 'string') throw ApiError.badRequest('A domain is required')
+  if (typeof body.zoneId !== 'string') throw ApiError.badRequest('A zone id is required')
+  if (body.minTLS !== undefined && typeof body.minTLS !== 'string') {
+    throw ApiError.badRequest('minTLS must be a string')
+  }
+  await assertNotDemo(c.env, c.get('userId'), row.id)
+  await attachR2CustomDomain(auth, cfAccountId, bucket, {
+    domain: body.domain,
+    zoneId: body.zoneId,
+    ...(body.minTLS ? { minTLS: body.minTLS } : {}),
+  })
+  await audit(c, row.id, 'attach_r2_custom_domain', `${bucket}/${body.domain}`, 'custom domain attached')
+  return c.json({ saved: true }, 201)
+})
+
+storageRouter.delete('/:accountId/r2/:bucket/domains/custom/:domain', async (c) => {
+  const { row, auth, cfAccountId } = await requireR2Account(c, c.req.param('accountId'))
+  const bucket = c.req.param('bucket')
+  const domain = c.req.param('domain')
+  await assertNotDemo(c.env, c.get('userId'), row.id)
+  await detachR2CustomDomain(auth, cfAccountId, bucket, domain)
+  await audit(c, row.id, 'detach_r2_custom_domain', `${bucket}/${domain}`, 'custom domain detached')
   return c.json({ deleted: true })
 })
 

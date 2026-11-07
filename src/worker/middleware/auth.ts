@@ -145,6 +145,11 @@ function isShortlinksApiKeyRequest(c: Context<AppBindings>): boolean {
   return /^Bearer sl_[A-Za-z0-9_-]+$/.test(c.req.header('Authorization') ?? '')
 }
 
+/** The public AI gateway is a bearer-key data plane, not a cookie-authenticated browser API. */
+function isGatewayRequest(c: Context<AppBindings>): boolean {
+  return c.req.path === '/api/gateway' || c.req.path.startsWith('/api/gateway/')
+}
+
 export const requireClientHeader = createMiddleware<AppBindings>(async (c, next) => {
   const method = c.req.method.toUpperCase()
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
@@ -153,6 +158,7 @@ export const requireClientHeader = createMiddleware<AppBindings>(async (c, next)
       !isMemoPatRequest(c) &&
       !isImgbedTokenRequest(c) &&
       !isShortlinksApiKeyRequest(c) &&
+      !isGatewayRequest(c) &&
       c.req.header(CLIENT_HEADER) !== '1'
     ) {
       throw new ApiError(403, 'forbidden', `Missing client identification header. Web clients must send ${CLIENT_HEADER}: 1`)

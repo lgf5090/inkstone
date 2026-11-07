@@ -299,9 +299,19 @@ export const SETTING_PATHS: Readonly<Record<string, string>> = {
   minify: 'minify',
   brotli: 'brotli',
   zero_rtt: '0rtt',
+  tls_1_3: 'tls_1_3',
+  min_tls_version: 'min_tls_version',
+  http2: 'http2',
+  http3: 'http3',
+  websockets: 'websockets',
+  ipv6: 'ipv6',
+  always_online: 'always_online',
+  early_hints: 'early_hints',
+  opportunistic_encryption: 'opportunistic_encryption',
 }
 
 const SSL_MODES = ['off', 'flexible', 'full', 'strict'] as const
+const MIN_TLS_VERSIONS = ['1.0', '1.1', '1.2', '1.3'] as const
 const SECURITY_LEVELS = ['essentially_off', 'low', 'medium', 'high', 'under_attack'] as const
 const CACHE_LEVELS = ['off', 'simplify', 'aggressive'] as const
 const BROWSER_TTLS: ReadonlySet<number> = new Set([0, 30, 60, 300, 1200, 1800, 3600, 7200, 10800, 14400, 28800, 43200, 57600, 86400])
@@ -357,6 +367,9 @@ export function parseSettingsPatch(body: Record<string, unknown>): SettingEntry[
       case 'cache_level':
         normalized = readEnum(value, key, CACHE_LEVELS)
         break
+      case 'min_tls_version':
+        normalized = readEnum(value, key, MIN_TLS_VERSIONS)
+        break
       case 'browser_cache_ttl':
         if (typeof value !== 'number' || !BROWSER_TTLS.has(value)) {
           throw ApiError.badRequest('browser_cache_ttl must be one of the Cloudflare-supported values')
@@ -378,13 +391,69 @@ export function parseSettingsPatch(body: Record<string, unknown>): SettingEntry[
   return entries
 }
 
+/** The URL-shaped purge targets (`files` and `prefixes`): absolute http(s) only. */
+export function readPurgeUrls(value: unknown, label: string, limit: number): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw ApiError.badRequest(`${label} must be a non-empty array`)
+  }
+  if (value.length > limit) {
+    throw ApiError.badRequest(`${label} may contain at most ${limit} items`)
+  }
+  const urls: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') throw ApiError.badRequest(`${label} must contain only strings`)
+    const url = item.trim()
+    if (!/^https?:\/\//i.test(url)) throw ApiError.badRequest(`Not a URL: ${url}`)
+    try {
+      new URL(url)
+    } catch {
+      throw ApiError.badRequest(`Not a URL: ${url}`)
+    }
+    if (!urls.includes(url)) urls.push(url)
+  }
+  return urls
+}
+
+/** Purge-by-host takes a bare hostname (no scheme, no path). */
+export function readPurgeHosts(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) throw ApiError.badRequest('hosts must be a non-empty array')
+  if (value.length > 100) throw ApiError.badRequest('hosts may contain at most 100 items')
+  const hosts: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') throw ApiError.badRequest('hosts must contain only strings')
+    const host = item.trim().toLowerCase()
+    if (!isHostname(host)) throw ApiError.badRequest(`Not a hostname: ${item}`)
+    if (!hosts.includes(host)) hosts.push(host)
+  }
+  return hosts
+}
+
+/** Cache tags are Cloudflare-defined strings; Cloudflare accepts at most 100 per purge. */
+export function readPurgeTags(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) throw ApiError.badRequest('tags must be a non-empty array')
+  if (value.length > 100) throw ApiError.badRequest('tags may contain at most 100 items')
+  const tags: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') throw ApiError.badRequest('tags must contain only strings')
+    const tag = item.trim()
+    if (!tag) throw ApiError.badRequest('A cache tag cannot be empty')
+    if (tag.length > 1024) throw ApiError.badRequest(`A cache tag is too long: ${tag.slice(0, 32)}…`)
+    if (!tags.includes(tag)) tags.push(tag)
+  }
+  return tags
+}
+
 export const RULE_PHASES = {
   origin: { phase: 'http_request_origin', scope: 'zone' },
   redirect: { phase: 'http_request_redirect', scope: 'account' },
+  single_redirect: { phase: 'http_request_dynamic_redirect', scope: 'zone' },
   transform: { phase: 'http_request_transform', scope: 'zone' },
   request_headers: { phase: 'http_request_late_transform', scope: 'zone' },
   response_headers: { phase: 'http_response_headers_transform', scope: 'zone' },
   cache_settings: { phase: 'http_request_cache_settings', scope: 'zone' },
+  config: { phase: 'http_config_settings', scope: 'zone' },
+  compression: { phase: 'http_response_compression', scope: 'zone' },
+  custom_errors: { phase: 'http_custom_errors', scope: 'zone' },
   firewall: { phase: 'http_request_firewall_custom', scope: 'zone' },
   rate_limit: { phase: 'http_ratelimit', scope: 'zone' },
 } as const

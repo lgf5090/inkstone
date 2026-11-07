@@ -12,8 +12,10 @@ import { Segmented } from '../../../../components/form'
 import { SelectMenu } from '../../../../components/select-menu'
 import { useCfT, type CloudflareMessageKey } from '../../i18n'
 import {
+  getDashboardCountries,
   getDashboardTraffic,
   getDashboardZones,
+  type DashboardCountriesResponse,
   type DashboardTrafficResponse,
   type DashboardTrafficSeries,
   type DashboardZone,
@@ -60,6 +62,10 @@ export function TrafficPanel({ accounts }: { accounts: readonly AccountQuotaView
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [trafficReload, setTrafficReload] = useState(0)
+  const [countryDays, setCountryDays] = useState<'1' | '7' | '30'>('7')
+  const [countries, setCountries] = useState<DashboardCountriesResponse | null>(null)
+  const [countryLoading, setCountryLoading] = useState(false)
+  const [countryError, setCountryError] = useState<unknown>(null)
 
   const effectiveAccountId = accounts.some((account) => account.account_id === accountId)
     ? accountId
@@ -127,6 +133,34 @@ export function TrafficPanel({ accounts }: { accounts: readonly AccountQuotaView
     }
   }, [effectiveAccountId, effectiveZoneId, days, trafficReload])
 
+  useEffect(() => {
+    if (!effectiveAccountId || !effectiveZoneId) {
+      setCountries(null)
+      return
+    }
+    let cancelled = false
+    setCountryLoading(true)
+    setCountryError(null)
+    setCountries(null)
+    void getDashboardCountries({
+      accountId: effectiveAccountId,
+      zoneId: effectiveZoneId,
+      days: Number(countryDays),
+    })
+      .then((body) => {
+        if (!cancelled) setCountries(body)
+      })
+      .catch((failure: unknown) => {
+        if (!cancelled) setCountryError(failure)
+      })
+      .finally(() => {
+        if (!cancelled) setCountryLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [effectiveAccountId, effectiveZoneId, countryDays, trafficReload])
+
   const accountOptions = accounts.map((account) => ({
     value: account.account_id,
     label: account.account_name,
@@ -138,6 +172,13 @@ export function TrafficPanel({ accounts }: { accounts: readonly AccountQuotaView
       ? tcf('cloudflare.dashboard.traffic.range24h')
       : tcf('cloudflare.dashboard.traffic.range_days', { days: Number(value) }),
   }))
+  const countryRangeOptions = (['1', '7', '30'] as const).map((value) => ({
+    value,
+    label: value === '1'
+      ? tcf('cloudflare.dashboard.traffic.range24h')
+      : tcf('cloudflare.dashboard.traffic.range_days', { days: Number(value) }),
+  }))
+  const countryPeak = countries?.countries[0]?.requests ?? 0
 
   return (
     <Panel
@@ -242,6 +283,53 @@ export function TrafficPanel({ accounts }: { accounts: readonly AccountQuotaView
           })}
         </div>
       )}
+
+      {effectiveZoneId ? (
+        <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
+              {tcf('cloudflare.dashboard.country.title')}
+            </span>
+            <Segmented
+              value={countryDays}
+              options={countryRangeOptions}
+              onChange={(value) => setCountryDays(value as '1' | '7' | '30')}
+              size="sm"
+              label={tcf('cloudflare.dashboard.country.title')}
+            />
+          </div>
+          {countryError ? (
+            <PanelError
+              message={cfErrorText(countryError)}
+              detail={cfErrorDetail(countryError)}
+              onRetry={() => setTrafficReload((value) => value + 1)}
+            />
+          ) : countryLoading ? (
+            <LoadingBlock />
+          ) : !countries || countries.countries.length === 0 ? (
+            <PanelEmpty>{tcf('cloudflare.dashboard.country.empty')}</PanelEmpty>
+          ) : (
+            <ul className="flex flex-col gap-2" aria-label={tcf('cloudflare.dashboard.country.title')}>
+              {countries.countries.map((slice) => (
+                <li key={slice.code}>
+                  <div className="flex items-center justify-between gap-2 text-[length:var(--text-12)]">
+                    <span className="font-mono text-[var(--text-secondary)]">{slice.code}</span>
+                    <span className="tabular-nums text-[var(--text-tertiary)]">
+                      {formatNumber(slice.requests)}
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1.5 rounded-full bg-[var(--bg-sunken)]" aria-hidden="true">
+                    <div
+                      className="h-full rounded-full bg-[var(--chart-2)]"
+                      style={{ width: `${countryPeak > 0 ? Math.max(2, (slice.requests / countryPeak) * 100) : 0}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
     </Panel>
   )
 }

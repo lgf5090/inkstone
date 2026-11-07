@@ -7,9 +7,9 @@ import {
 
 describe('the Cloudflare address space', () => {
   it('answers the dashboard for the bare tab path and for anything it never links to', () => {
-    expect(parseCloudflareAddress('/cloudflare')).toEqual({ screen: 'dashboard', aiTab: 'stats' })
-    expect(parseCloudflareAddress('/cloudflare/')).toEqual({ screen: 'dashboard', aiTab: 'stats' })
-    expect(parseCloudflareAddress('/cloudflare/nope')).toEqual({ screen: 'dashboard', aiTab: 'stats' })
+    expect(parseCloudflareAddress('/cloudflare')).toEqual({ screen: 'dashboard', aiTab: 'requests' })
+    expect(parseCloudflareAddress('/cloudflare/')).toEqual({ screen: 'dashboard', aiTab: 'requests' })
+    expect(parseCloudflareAddress('/cloudflare/nope')).toEqual({ screen: 'dashboard', aiTab: 'requests' })
   })
 
   it('reads every screen it names, and only those', () => {
@@ -20,15 +20,16 @@ describe('the Cloudflare address space', () => {
     expect(cloudflareScreenPath('storage')).toBe('/cloudflare/storage')
   })
 
-  it('keeps the AI tab in the query, defaulting to the statistics tab', () => {
-    expect(parseCloudflareAddress('/cloudflare/ai').aiTab).toBe('stats')
+  it('keeps the AI tab in the query, defaulting to the request log', () => {
+    expect(parseCloudflareAddress('/cloudflare/ai').aiTab).toBe('requests')
+    expect(parseCloudflareAddress('/cloudflare/ai', '?tab=stats').aiTab).toBe('stats')
     expect(parseCloudflareAddress('/cloudflare/ai', '?tab=chat').aiTab).toBe('chat')
     expect(parseCloudflareAddress('/cloudflare/ai', '?tab=translate').aiTab).toBe('translate')
-    expect(parseCloudflareAddress('/cloudflare/ai', '?tab=nowhere').aiTab).toBe('stats')
+    expect(parseCloudflareAddress('/cloudflare/ai', '?tab=nowhere').aiTab).toBe('requests')
   })
 
   it('does not claim another app’s address', () => {
-    expect(parseCloudflareAddress('/music')).toEqual({ screen: 'dashboard', aiTab: 'stats' })
-    expect(parseCloudflareAddress('/cloudflarex/dns')).toEqual({ screen: 'dashboard', aiTab: 'stats' })
+    expect(parseCloudflareAddress('/music')).toEqual({ screen: 'dashboard', aiTab: 'requests' })
+    expect(parseCloudflareAddress('/cloudflarex/dns')).toEqual({ screen: 'dashboard', aiTab: 'requests' })
   })
 })

@@ -31,6 +31,7 @@ import {
   workerSummary,
   workersUsage,
 } from '../../cloudflare/workers'
+import { readWorkerMetrics } from '../../cloudflare/worker-metrics'
 import {
   deployPagesProject,
   deployWorkerScript,
@@ -584,6 +585,83 @@ workersRouter.delete('/:accountId/workers/:name', async (c) => {
   return c.json({ success: true })
 })
 
+workersRouter.get('/:accountId/workers/:name/metrics', async (c) => {
+  const { account, name } = await workerTarget(c)
+  const raw = Number(c.req.query('days') ?? 7)
+  if (!Number.isInteger(raw) || raw < 1 || raw > 30) {
+    throw ApiError.badRequest('days must be a whole number between 1 and 30')
+  }
+  const cfAccountId = account.row.cf_account_id ?? ''
+  return c.json(await readWorkerMetrics(account.auth, cfAccountId, name, raw))
+})
+
+/**
+ * A live tail: create Cloudflare's tail session, open the upstream WebSocket from this Worker and
+ * bridge it to the browser's socket.
+ *
+ * The upstream is fetched as an HTTP upgrade (not a `wss://` URL), which is how the Worker runtime
+ * connects to a WebSocket server. The tail URL already carries Cloudflare's one-time token; the
+ * reader's own credential is only used to create and delete the session.
+ */
+workersRouter.get('/:accountId/workers/:name/tail', async (c) => {
+  if (c.req.header('Upgrade')?.toLowerCase() !== 'websocket') {
+    throw ApiError.badRequest('This endpoint accepts only WebSocket upgrade requests.')
+  }
+  const origin = c.req.header('Origin')
+  if (origin && origin !== new URL(c.req.url).origin) {
+    throw ApiError.forbidden('The tail connection origin is not trusted')
+  }
+  const { account, name } = await workerTarget(c)
+  await assertNotDemo(c.env, c.get('userId'), account.row.id)
+
+  const session = await cfFetch<{ result?: { id?: string; url?: string } }>(
+    account.auth,
+    `${scriptPath(account, name)}/tails`,
+    { method: 'POST', body: {} },
+  )
+  const tailId = session.result?.id ?? ''
+  const tailUrl = session.result?.url ?? ''
+  if (!tailUrl) throw new ApiError(502, 'cloudflare_upstream', 'Cloudflare did not return a tail URL')
+
+  const target = new URL(tailUrl)
+  target.protocol = target.protocol === 'wss:' ? 'https:' : 'http:'
+  const upstreamResponse = await fetch(target.toString(), { headers: { Upgrade: 'websocket' } })
+  const upstream = upstreamResponse.webSocket
+  if (!upstream) {
+    throw new ApiError(502, 'cloudflare_upstream', `Cloudflare refused the tail socket (HTTP ${upstreamResponse.status})`)
+  }
+  upstream.accept()
+
+  const pair = new WebSocketPair()
+  const [client, server] = [pair[0], pair[1]]
+  server.accept()
+  let closed = false
+  const finish = async (): Promise<void> => {
+    if (closed) return
+    closed = true
+    try { server.close(1000, 'tail closed') } catch { /* already closed */ }
+    try { upstream.close(1000, 'tail closed') } catch { /* already closed */ }
+    if (tailId) {
+      await cfFetch(account.auth, `${scriptPath(account, name)}/tails/${encodeURIComponent(tailId)}`, {
+        method: 'DELETE',
+      }).catch((error: unknown) => {
+        console.warn('[inkstone] Tail session cleanup failed:', errorText(error))
+      })
+    }
+  }
+
+  upstream.addEventListener('message', (event) => {
+    if (typeof event.data !== 'string') return
+    try { server.send(event.data) } catch { void finish() }
+  })
+  upstream.addEventListener('close', () => { void finish() })
+  upstream.addEventListener('error', () => { void finish() })
+  server.addEventListener('close', () => { void finish() })
+  server.addEventListener('message', () => { /* the tail stream is read-only */ })
+
+  return new Response(null, { status: 101, webSocket: client })
+})
+
 workersRouter.get('/:accountId/workers/:name/deployments', async (c) => {
   const { account, name } = await workerTarget(c)
   return c.json(await readWorkerDeployments(account, name))
@@ -1002,6 +1080,38 @@ workersRouter.get('/:accountId/pages/:name/deployments', async (c) => {
     `/accounts/${encodeURIComponent(cfId)}/pages/projects/${encodeURIComponent(name)}/deployments`,
   )
   return c.json(body.result ?? [])
+})
+
+workersRouter.post('/:accountId/pages/:name/deployments/:id/retry', async (c) => {
+  const { account, name } = await pagesTarget(c)
+  const deploymentId = assertSafeId(c.req.param('id') ?? '', 'deployment id')
+  await assertNotDemo(c.env, c.get('userId'), account.row.id)
+  const cfId = account.row.cf_account_id ?? ''
+  const result = await audited(c, account, 'retry_pages_deployment', `${name}/${deploymentId}`, async () => {
+    const answer = await cfFetch<{ result?: Record<string, unknown> | unknown[] }>(
+      account.auth,
+      `/accounts/${encodeURIComponent(cfId)}/pages/projects/${encodeURIComponent(name)}/deployments/${encodeURIComponent(deploymentId)}/retry`,
+      { method: 'POST', body: {} },
+    )
+    return answer.result ?? answer
+  })
+  return c.json(result)
+})
+
+workersRouter.post('/:accountId/pages/:name/deployments/:id/rollback', async (c) => {
+  const { account, name } = await pagesTarget(c)
+  const deploymentId = assertSafeId(c.req.param('id') ?? '', 'deployment id')
+  await assertNotDemo(c.env, c.get('userId'), account.row.id)
+  const cfId = account.row.cf_account_id ?? ''
+  const result = await audited(c, account, 'rollback_pages_deployment', `${name}/${deploymentId}`, async () => {
+    const answer = await cfFetch<{ result?: Record<string, unknown> | unknown[] }>(
+      account.auth,
+      `/accounts/${encodeURIComponent(cfId)}/pages/projects/${encodeURIComponent(name)}/deployments/${encodeURIComponent(deploymentId)}/rollback`,
+      { method: 'POST', body: {} },
+    )
+    return answer.result ?? answer
+  })
+  return c.json(result)
 })
 
 workersRouter.delete('/:accountId/pages/:name/deployments', async (c) => {

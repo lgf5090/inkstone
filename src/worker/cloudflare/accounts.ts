@@ -530,13 +530,29 @@ export async function testAccount(
  *
  * This is deliberately the only verification call: every Cloudflare product answers 403 for a token
  * scoped to another product, and using a product endpoint here would refuse valid narrow tokens.
+ *
+ * A transport failure is not the credential's fault. `cfFetch` reports those without a Cloudflare
+ * `cf_code`, and wrapping them as a 400 made the screen say "the request is malformed" for what was
+ * really a timeout. They keep their 502; only an answer Cloudflare actually sent becomes a refusal.
  */
 export async function verifyCredential(auth: CloudflareAuth): Promise<void> {
   try {
     await cfFetch<{ result?: unknown }>(auth, '/user')
   } catch (error) {
+    if (error instanceof ApiError) {
+      const details = error.details as { cf_code?: number; upstream_status?: number } | undefined
+      const upstreamStatus = details?.upstream_status
+      // A transport failure never carries an upstream status. A 5xx or a 429 is Cloudflare's own
+      // availability problem, not this credential's; only a 4xx answer is a refusal.
+      if (upstreamStatus === undefined || upstreamStatus >= 500 || upstreamStatus === 429) throw error
+      throw new ApiError(
+        400,
+        'cloudflare_credential_refused',
+        error.message,
+      )
+    }
     const message = error instanceof CloudflareApiError ? error.message : (error as Error)?.message
-    throw ApiError.badRequest(`Cloudflare refused this credential: ${message ?? 'unknown error'}`)
+    throw new ApiError(400, 'cloudflare_credential_refused', message ?? 'Cloudflare refused this credential')
   }
 }
 

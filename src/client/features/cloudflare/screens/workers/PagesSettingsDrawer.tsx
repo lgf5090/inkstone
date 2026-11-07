@@ -111,6 +111,7 @@ export function PagesSettingsDrawer({
 
   const [selectedDeployments, setSelectedDeployments] = useState<string[]>([])
   const [deploymentPage, setDeploymentPage] = useState(1)
+  const [deploymentAction, setDeploymentAction] = useState('')
 
   const production = project?.deployment_configs?.production
   const envVars = useMemo(() => {
@@ -449,6 +450,51 @@ export function PagesSettingsDrawer({
     ))
   }
 
+  async function retryDeployment(row: PagesDeployment): Promise<void> {
+    const ok = await confirm({
+      title: t('cloudflare.pages_settings.retry'),
+      description: t('cloudflare.pages_settings.retry_confirm', { id: row.id }),
+      confirmLabel: t('cloudflare.pages_settings.retry'),
+      cancelLabel: uiT('common.cancel'),
+      tone: 'default',
+    })
+    if (!ok) return
+    setDeploymentAction(row.id)
+    try {
+      await workersApi.retryPagesDeployment(accountId, name, row.id)
+      toast({ title: t('cloudflare.pages_settings.msg.retry_success'), tone: 'success' })
+      await loadDeployments()
+    } catch (failure) {
+      toast({ title: t('cloudflare.pages_settings.msg.retry_failed'), description: cfErrorText(failure), tone: 'danger' })
+    } finally {
+      setDeploymentAction('')
+    }
+  }
+
+  async function rollbackDeployment(row: PagesDeployment): Promise<void> {
+    const production = row.environment === 'production'
+    const ok = await confirm({
+      title: t('cloudflare.pages_settings.rollback'),
+      description: `${t('cloudflare.pages_settings.rollback_confirm', { id: row.id })}${
+        production ? ` ${t('cloudflare.pages_settings.rollback_production_warning')}` : ''
+      }`,
+      confirmLabel: t('cloudflare.pages_settings.rollback'),
+      cancelLabel: uiT('common.cancel'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    setDeploymentAction(row.id)
+    try {
+      await workersApi.rollbackPagesDeployment(accountId, name, row.id)
+      toast({ title: t('cloudflare.pages_settings.msg.rollback_success'), tone: 'success' })
+      await loadDeployments()
+    } catch (failure) {
+      toast({ title: t('cloudflare.pages_settings.msg.rollback_failed'), description: cfErrorText(failure), tone: 'danger' })
+    } finally {
+      setDeploymentAction('')
+    }
+  }
+
   async function deleteDeployments(): Promise<void> {
     const ids = [...selectedDeployments]
     if (ids.length === 0) return
@@ -755,6 +801,7 @@ export function PagesSettingsDrawer({
                       <Th>{t('cloudflare.pages_settings.stage')}</Th>
                       <Th>{t('cloudflare.workers.url')}</Th>
                       <Th>{t('cloudflare.pages_settings.created_time')}</Th>
+                      <Th>{t('cloudflare.network.actions')}</Th>
                     </Tr>
                   </THead>
                   <TBody>
@@ -788,11 +835,32 @@ export function PagesSettingsDrawer({
                           ) : '—'}
                         </Td>
                         <Td>{dateText(row.created_on)}</Td>
+                        <Td>
+                          <div className="flex flex-wrap gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              loading={deploymentAction === row.id}
+                              disabled={Boolean(deploymentAction)}
+                              onClick={() => void retryDeployment(row)}
+                            >
+                              {t('cloudflare.pages_settings.retry')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={Boolean(deploymentAction)}
+                              onClick={() => void rollbackDeployment(row)}
+                            >
+                              {t('cloudflare.pages_settings.rollback')}
+                            </Button>
+                          </div>
+                        </Td>
                       </Tr>
                     ))}
                     {deployments.length === 0 && (
                       <Tr>
-                        <Td colSpan={6} className="py-6 text-center text-[var(--text-tertiary)]">
+                        <Td colSpan={7} className="py-6 text-center text-[var(--text-tertiary)]">
                           {t('share.no_data_yet')}
                         </Td>
                       </Tr>

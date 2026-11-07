@@ -54,6 +54,20 @@ export interface DashboardTrafficResponse {
   series: DashboardTrafficSeries
 }
 
+export interface DashboardCountrySlice {
+  code: string
+  requests: number
+}
+
+export interface DashboardCountriesResponse {
+  zoneId: string
+  zoneName: string
+  accountId: string
+  days: number
+  countries: DashboardCountrySlice[]
+  total: number
+}
+
 export interface AuditLogQuery {
   action?: string
   q?: string
@@ -68,6 +82,64 @@ export interface AuditLogPage {
   logs: CloudflareAuditLog[]
   total: number
   actions: string[]
+}
+
+export interface CfAuditEntry {
+  id: string
+  time: string | null
+  description: string | null
+  result: string | null
+  actor_email: string | null
+  actor_type: string | null
+  actor_context: string | null
+  actor_ip: string | null
+  resource_type: string | null
+  resource_product: string | null
+  resource_id: string | null
+  method: string | null
+  uri: string | null
+  status_code: number | null
+  zone_name: string | null
+}
+
+export interface CfAuditPage {
+  accountId: string
+  accountName: string
+  entries: CfAuditEntry[]
+  cursor: string | null
+}
+
+export interface CloudflareSubscription {
+  id: string
+  name: string
+  state: string
+  price: number | null
+  currency: string
+  frequency: string
+}
+
+export interface CloudflareStatusComponent {
+  id: string
+  name: string
+  status: string
+  group: string
+}
+
+export interface CloudflareStatusIncident {
+  id: string
+  name: string
+  status: string
+  impact: string
+  created_at: string
+  shortlink: string
+}
+
+export interface CloudflareStatusSummary {
+  indicator: string
+  description: string
+  components: CloudflareStatusComponent[]
+  incidents: CloudflareStatusIncident[]
+  fetched_at: number
 }
 
 function withQuery(path: string, params: Record<string, string | number | undefined>): string {
@@ -104,6 +176,18 @@ export function getDashboardTraffic(params: {
   }))
 }
 
+export function getDashboardCountries(params: {
+  accountId: string
+  zoneId: string
+  days: number
+}): Promise<DashboardCountriesResponse> {
+  return cfRequest<DashboardCountriesResponse>(withQuery('/dashboard/countries', {
+    accountId: params.accountId,
+    zoneId: params.zoneId,
+    days: params.days,
+  }))
+}
+
 export function getAuditLogs(query: AuditLogQuery): Promise<AuditLogPage> {
   return cfRequest<AuditLogPage>(withQuery('/audit-log', {
     action: query.action,
@@ -118,4 +202,30 @@ export function getAuditLogs(query: AuditLogQuery): Promise<AuditLogPage> {
 
 export function getAuditActions(): Promise<{ actions: string[] }> {
   return cfRequest<{ actions: string[] }>('/audit-log/actions')
+}
+
+export function getCloudflareAudit(params: {
+  accountId: string
+  since: number
+  before: number
+  limit?: number
+  cursor?: string
+}): Promise<CfAuditPage> {
+  return cfRequest<CfAuditPage>(withQuery('/audit-logs', {
+    accountId: params.accountId,
+    since: params.since,
+    before: params.before,
+    limit: params.limit,
+    cursor: params.cursor,
+  }))
+}
+
+export function getSubscriptions(accountId: string): Promise<{ accountId: string; subscriptions: CloudflareSubscription[] }> {
+  return cfRequest<{ accountId: string; subscriptions: CloudflareSubscription[] }>(
+    withQuery('/dashboard/subscription', { accountId }),
+  )
+}
+
+export function getCloudflareStatus(): Promise<CloudflareStatusSummary> {
+  return cfRequest<CloudflareStatusSummary>('/dashboard/status')
 }

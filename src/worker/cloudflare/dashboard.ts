@@ -345,3 +345,52 @@ export function mapTrafficGroups(
     },
   }
 }
+
+export interface CountryGroup {
+  count?: number
+  dimensions?: { clientCountryName?: string }
+}
+
+export interface CountrySlice {
+  code: string
+  requests: number
+}
+
+export interface CountriesQuery {
+  query: string
+  variables: Record<string, unknown>
+}
+
+/**
+ * Country breakdowns only exist on the adaptive dataset: `httpRequests1dGroups` has no
+ * `clientCountryName` dimension on this account. The adaptive dataset is sampled, so the answer is a
+ * request count rather than an exact byte total.
+ */
+export function buildCountriesQuery(zoneId: string, days: number, now = new Date()): CountriesQuery {
+  const since = new Date(now.getTime() - days * 86_400_000)
+  return {
+    query: `query CfCountries($zoneTag: String!, $since: String!, $until: String!) {
+      viewer { zones(filter: {zoneTag: $zoneTag}) {
+        httpRequestsAdaptiveGroups(
+          limit: 100
+          filter: { datetime_geq: $since, datetime_leq: $until }
+          orderBy: [count_DESC]
+        ) {
+          count
+          dimensions { clientCountryName }
+        }
+      } }
+    }`,
+    variables: { zoneTag: zoneId, since: since.toISOString(), until: now.toISOString() },
+  }
+}
+
+export function mapCountryGroups(groups: readonly CountryGroup[]): CountrySlice[] {
+  return [...groups]
+    .map((group) => ({
+      code: group.dimensions?.clientCountryName?.trim() ?? '',
+      requests: typeof group.count === 'number' ? group.count : 0,
+    }))
+    .filter((slice) => slice.code.length > 0)
+    .sort((left, right) => right.requests - left.requests)
+}

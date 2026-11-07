@@ -19,12 +19,16 @@ import { useCfT } from '../i18n'
 import { AddDomainDialog, DomainResultDialog } from './dns/AddDomainDialog'
 import { CachePanel } from './dns/CachePanel'
 import { DomainList } from './dns/DomainList'
+import { IpAccessPanel } from './dns/IpAccessPanel'
+import { PageRulesPanel } from './dns/PageRulesPanel'
 import { RecordsPanel } from './dns/RecordsPanel'
 import { RulesPanel } from './dns/RulesPanel'
+import { SslPanel } from './dns/SslPanel'
+import { UrlNormalizationPanel } from './dns/UrlNormalizationPanel'
 import { statusText, statusTone } from './dns/options'
 import { ZoneSettingsPanel } from './dns/ZoneSettingsPanel'
 
-type DnsTab = 'records' | 'settings' | 'cache' | 'rules'
+type DnsTab = 'records' | 'settings' | 'cache' | 'rules' | 'ssl' | 'ip-access' | 'legacy'
 
 export function DnsScreen() {
   const t = useCfT()
@@ -139,6 +143,9 @@ export function DnsScreen() {
     { value: 'settings' as const, label: t('cloudflare.dns.zone_settings') },
     { value: 'cache' as const, label: t('cloudflare.dns.cache_and_status') },
     { value: 'rules' as const, label: t('cloudflare.tunnels.rules_engine') },
+    { value: 'ssl' as const, label: t('cloudflare.dns.ssl_and_certificates') },
+    { value: 'ip-access' as const, label: t('cloudflare.dns.ip_access_rules') },
+    { value: 'legacy' as const, label: t('cloudflare.dns.legacy_rules') },
   ]
 
   return (
@@ -220,6 +227,24 @@ export function DnsScreen() {
                 />
               )}
               {tab === 'rules' && <RulesPanel key={zone.name} domain={zone.name} />}
+              {tab === 'ssl' && <SslPanel key={zone.name} domain={zone.name} />}
+              {tab === 'ip-access' && <IpAccessPanel key={zone.name} domain={zone.name} />}
+              {tab === 'legacy' && (
+                <div key={zone.name} className="space-y-6">
+                  <div className="space-y-3">
+                    <h3 className="text-[length:var(--text-12)] font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
+                      {t('cloudflare.dns.page_rules')}
+                    </h3>
+                    <PageRulesPanel domain={zone.name} />
+                  </div>
+                  <div className="space-y-3 border-t border-[var(--border-subtle)] pt-4">
+                    <h3 className="text-[length:var(--text-12)] font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
+                      {t('cloudflare.dns.url_normalization')}
+                    </h3>
+                    <UrlNormalizationPanel domain={zone.name} />
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <Empty title={t('cloudflare.dns.select_from_left')} />

@@ -6293,10 +6293,19 @@ const allowed = new Map([
     "/**\n * The accounts slice's calls.\n *\n * Every request goes through `cfRequest`, which carries the notebook's client header and turns the\n * route's error envelope into the sentence the screen shows. The CSV import is a multipart form, so\n * it hands `request()` a `FormData` instead of a JSON body.\n */",
     "/** Present for completeness; the screen does not offer it because Workers cannot proxy outbound. */",
   ]],
+  ["src/client/features/cloudflare/api/ai-gateway-platform.ts", [
+    "/**\n * The read-only contract for the Cloudflare AI Gateway management panel.\n *\n * The shapes mirror the Worker routes, which in turn take their fields from the official SDK. Keeping\n * the subset here means a screen never has to know how a gateway is fetched.\n */",
+  ]],
+  ["src/client/features/cloudflare/api/ai-gateway.ts", [
+    "/**\n * The management-side contract for the self-hosted gateway. Only session-authenticated calls live\n * here; the public `gw_` data plane is consumed by external clients, not by this screen.\n */",
+  ]],
   ["src/client/features/cloudflare/api/ai.ts", [
     "/**\n * The Cloudflare AI contract between the app and `/api/cloudflare/v1`.\n *\n * The endpoints are OpenAI-shaped on purpose: they are a proxy to Cloudflare's own OpenAI-compatible\n * API, the reference module's screens already read that shape, and it is what a reader pasting a\n * request from another tool expects. Account selection travels in the body (`accountId`) rather than a\n * custom header, so the streaming path and the JSON path share one request shape.\n */",
     "/** The caller owns the stream and must cancel the reader when it stops. */",
     "/** Parse one SSE chunk payload into the delta fields the chat screen shows. */",
+  ]],
+  ["src/client/features/cloudflare/api/alerting.ts", [
+    "/**\n * The alerting screen's door to `/api/cloudflare/alerting`.\n */",
   ]],
   ["src/client/features/cloudflare/api/browser-render.ts", [
     "/** The browser-rendering door. */",
@@ -6314,8 +6323,17 @@ const allowed = new Map([
   ["src/client/features/cloudflare/api/dashboard.ts", [
     "/**\n * The dashboard's requests, one function per route.\n *\n * Response shapes mirror the worker's own interfaces; they are not shared with it because the\n * Cloudflare module's shared contracts belong to the foundation slice and this screen is their first\n * consumer. A field added here without the route would fail the screen's own loading state, which is\n * the place a mismatch should surface.\n */",
   ]],
+  ["src/client/features/cloudflare/api/dns-security.ts", [
+    "/**\n * The DNS screen's door to the zone-level extras: Page Rules, URL normalization, SSL packs and IP\n * Access Rules. Every path is encoded here, and the domain is part of the path, never of a body.\n */",
+  ]],
   ["src/client/features/cloudflare/api/dns.ts", [
     "/**\n * The DNS screen's door to `/api/cloudflare/dns`.\n *\n * The screen never builds a URL beyond a domain or a rule id, and both are encoded here so a name a\n * reader typed cannot change which endpoint a call reaches.\n */",
+  ]],
+  ["src/client/features/cloudflare/api/network.ts", [
+    "/**\n * The network screen's door to `/api/cloudflare/network`.\n *\n * Reads and the create/delete pairs the screen exposes. Every write here is a single, named action;\n * nothing is a generic proxy.\n */",
+  ]],
+  ["src/client/features/cloudflare/api/platform.ts", [
+    "/**\n * The developer-platform screen's door to `/api/cloudflare/platform`.\n *\n * Each product has its own list/detail pair and the create/delete the backend exposes. Durable Object\n * namespaces are read-only here because Cloudflare creates them from a Worker deployment.\n */",
   ]],
   ["src/client/features/cloudflare/api/settings.ts", [
     "/** The module's own configuration: deployment facts and the demo-account list. */",
@@ -6330,11 +6348,18 @@ const allowed = new Map([
   ["src/client/features/cloudflare/api/tasks.ts", [
     "/** Scheduled maintenance tasks and their execution history. */",
   ]],
+  ["src/client/features/cloudflare/api/toolbox.ts", [
+    "/**\n * The toolbox screen's door to `/api/cloudflare/toolbox`.\n */",
+  ]],
   ["src/client/features/cloudflare/api/tunnels.ts", [
     "/** The tunnels door: account-scoped tunnel management, the wizard, and zone rulesets. */",
   ]],
   ["src/client/features/cloudflare/api/workers.ts", [
     "/**\n * The Workers screen's door to `/api/cloudflare/workers`.\n *\n * Every account id and worker name is encoded here, so a name a reader typed cannot change which\n * endpoint a call reaches. Batch deploys are multipart because the script is a file, not JSON.\n */",
+    "/** The same-origin WebSocket address for a live tail; the browser sends the session cookie itself. */",
+  ]],
+  ["src/client/features/cloudflare/api/zero-trust.ts", [
+    "/**\n * The Zero Trust screen's door to `/api/cloudflare/zero-trust`.\n */",
   ]],
   ["src/client/features/cloudflare/cloudflare-address.ts", [
     "/**\n * The Cloudflare app's address space, parsed into the screen it names.\n *\n * `/cloudflare` is one tab on the notebook's rail; every screen under it belongs to the app. A path\n * this app never links to answers the dashboard rather than a not-found card: the rail has already\n * told the reader they are in the Cloudflare app, and there is nothing behind them to go back to.\n */",
@@ -6394,6 +6419,9 @@ const allowed = new Map([
     "/** Re-render a component when the catalogue arrives or the language changes. */",
     "/** What a Cloudflare screen may ask for: its own copy, or one of the shell's shared lines. */",
   ]],
+  ["src/client/features/cloudflare/lib/cidr.ts", [
+    "/**\n * CIDR arithmetic for the toolbox.\n *\n * IPv4 and IPv6 share one BigInt path; the IPv4 result additionally reports the broadcast address and\n * excludes it from the usable-host count, which is the number a reader expects from a subnet card.\n */",
+  ]],
   ["src/client/features/cloudflare/lib/download.ts", [
     "/** Save a data URL the browser produced: a screenshot, a PDF, a rendered document. */",
   ]],
@@ -6428,6 +6456,9 @@ const allowed = new Map([
     "// The default tab still names itself in the address, so every view here can be shared.",
     "/**\n * The AI workspace: five tabs under one address.\n *\n * The tab is the query rather than local state, so a reader can paste the address of the tab they\n * mean and the back button walks the tabs they visited. That is also why this switch is a `<nav>` of\n * links with `aria-current` rather than the shared `Segmented`: a control that owns an address has to\n * be a link, while the switches that swap a panel in place (the storage, worker and tunnel drawers)\n * stay radiogroups.\n */",
   ]],
+  ["src/client/features/cloudflare/screens/AlertingScreen.tsx", [
+    "/**\n * Notification policies: list, create, edit and delete.\n *\n * The auto-created billing-budget policy is listed like any other row; the screen does not hide or\n * rewrite it unless the reader chooses to edit or delete it. Recipients are entered as a comma-\n * separated list and sent as email mechanisms.\n */",
+  ]],
   ["src/client/features/cloudflare/screens/BrowserRenderScreen.tsx", [
     "/**\n * Render a page through Cloudflare's browser and show what came back.\n *\n * Each mode has its own way of being useful: a screenshot is an image, PDF is a download, HTML is a\n * sandboxed preview beside its source, Markdown is rendered prose, and links are a table. The usage\n * card is read from the same quota endpoint the dashboard uses, so the number beside the button is the\n * one Cloudflare bills.\n */",
     "// A failed refresh only leaves yesterday's numbers on screen; the render itself succeeded.",
@@ -6438,17 +6469,29 @@ const allowed = new Map([
   ["src/client/features/cloudflare/screens/DnsScreen.tsx", [
     "/**\n * DNS management: the domain list on the left, the selected zone's four panels on the right.\n *\n * The screen owns only what is shared between the panels — which domain is open, the filters, the\n * selection and the add/result dialogs. Each panel fetches its own data and draws its own\n * loading/empty/error states, so a slow ruleset list never blanks the records table.\n */",
   ]],
+  ["src/client/features/cloudflare/screens/NetworkScreen.tsx", [
+    "/**\n * Network & routing: load balancing, Bulk Redirects, Email Routing and Snippets.\n *\n * Four read-only surfaces that share one account/zone selector. Each tab owns its fetch and its\n * loading/empty/error states, so one Cloudflare product being unavailable (or not included in the\n * plan) never blanks the others. Each surface has a create/delete pair wired to an audited route;\n * edit-in-place is intentionally absent because Cloudflare's update payloads differ per product.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/PlatformScreen.tsx", [
+    "/**\n * Developer platform: Queues, Durable Object namespaces and Hyperdrive.\n *\n * One account selector and three panels, each with its own fetch. Queues and Hyperdrive have the\n * create/delete pair Cloudflare offers; Durable Object namespaces are read-only because they are\n * created by deploying a Worker that declares the class.\n */",
+  ]],
   ["src/client/features/cloudflare/screens/SettingsScreen.tsx", [
     "/**\n * The module's settings: what the deployment has, the one cache, the demo accounts, and the scheduled\n * tasks.\n *\n * The reference screen also carried a global proxy and a Resin pool. Neither is here: an outbound\n * proxy is a Node transport, and this deployment cannot use one, so a form that saved it would be a\n * lie. What remains is everything that actually changes behaviour on this platform.\n */",
   ]],
   ["src/client/features/cloudflare/screens/StorageScreen.tsx", [
     "/**\n * Storage: one account, three products, each panel owning its own data.\n *\n * The Account selector is the only state this screen shares with its panels: switching it remounts the\n * panel, so no namespace, database or bucket from the previous account can leak into the next one.\n * R2 is dropped from the tabs when the account has already reported that it is not enabled.\n */",
   ]],
+  ["src/client/features/cloudflare/screens/ToolboxScreen.tsx", [
+    "/**\n * The toolbox: DNS lookup, RDAP, HTTP probe, Cloudflare trace and a CIDR calculator.\n *\n * Four of the five tools call a public endpoint through the worker; the CIDR calculator runs locally.\n * Every panel owns its form and result, so a blocked endpoint never hides the others.\n */",
+  ]],
   ["src/client/features/cloudflare/screens/TunnelsScreen.tsx", [
     "/**\n * Tunnels: the tunnels themselves, their ingress configuration, the one-step origin wizard, and the\n * zone rulesets that sit in front of them.\n *\n * A tunnel is a connector a reader runs on their own machine; this screen can create it, hand over the\n * token and describe where traffic should go, but it cannot run `cloudflared`. The configuration editor\n * is therefore the important half: the ingress list is what the connector reads on connect, and the\n * catch-all rule has to stay last or Cloudflare refuses the configuration.\n */",
   ]],
   ["src/client/features/cloudflare/screens/WorkersScreen.tsx", [
     "/**\n * Workers and Pages: account cards, one merged table, and the drawers behind a row.\n *\n * The data comes from two calls because they answer different questions: the list is Workers and\n * Pages per account, the summary is today's requests and error counts. Both are joined by account id\n * in the table, so a failed usage query leaves the list readable instead of blanking it.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/ZeroTrustScreen.tsx", [
+    "/**\n * Zero Trust: Access applications, groups, service tokens, identity providers and devices.\n *\n * Applications, groups and service tokens have the create/delete pair this screen exposes. Identity\n * providers, the organization and device policies are read-only: the account already has them and the\n * panel must not rewrite configuration that was set up outside it.\n */",
   ]],
   ["src/client/features/cloudflare/screens/accounts/AccountFormDialog.tsx", [
     "/**\n * One dialog for adding and editing an account.\n *\n * On an edit the token fields start empty and an empty field means \"keep what is stored\", which is\n * why the placeholders say so. The API patch only sends what the reader typed, so an untouched field\n * cannot accidentally clear a credential. Switching the auth type is the one case that needs a fresh\n * value, and the route says which one is missing.\n */",
@@ -6487,8 +6530,17 @@ const allowed = new Map([
     "// Re-armed on every mount: StrictMode cleans a fresh mount up, and a flag left false there would",
     "// discard every streamed answer for the rest of the session.",
   ]],
+  ["src/client/features/cloudflare/screens/ai/GatewayTab.tsx", [
+    "/**\n * The gateway tab is an operator view, not a chat surface: it shows the local quota gate, the\n * weighted scheduler order, issued keys, the per-account routing switches and the two OpenAI entry\n * points. Request evidence moved to the request-log tab, which is the workspace's landing view.\n */",
+  ]],
   ["src/client/features/cloudflare/screens/ai/ImageTab.tsx", [
     "/**\n * The image tab: text-to-image and image-to-image against the model family the reader picked.\n *\n * The family decides which controls exist — Stable Diffusion takes width, height, guidance and a\n * negative prompt, FLUX does not — and the request builder is what turns that into the body.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/ai/PlatformGatewayTab.tsx", [
+    "/**\n * The Cloudflare-hosted AI Gateway tab: gateways, logs, routing, BYOK, spend limits, analytics and\n * logpush. The account is the one the Cloudflare app already stores; this screen never handles a\n * token.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/ai/RequestsTab.tsx", [
+    "/**\n * The relay's own request log, and the AI workspace's landing view.\n *\n * Cloudflare's AI Gateway logs only exist when a request was explicitly routed through a gateway.\n * This table is the opposite: every request the self-hosted relay served, whichever account answered\n * it, recorded at the moment it finished. It is the first place to look when usage or failures need\n * an explanation.\n */",
   ]],
   ["src/client/features/cloudflare/screens/ai/StatsTab.tsx", [
     "/**\n * The AI statistics tab: five headline numbers, the usage rings, the model ranking and one card per\n * account.\n *\n * The ring pair is the point of the page. The outer ring is how today's neurons divide between the\n * accounts, the inner one is how much of the combined quota that whole is, and the small rings answer\n * the question a reader actually acts on — how close each account is to its own 10,000. The bars rank\n * models across accounts. Every shape is printed with its number beside it: an angle or a length is\n * something a reader may not be able to resolve, and a colour never carries a value on its own.\n */",
@@ -6524,6 +6576,9 @@ const allowed = new Map([
     "// Best effort: the list answer carries the same distinct actions, so a failure here only leaves",
     "// the menu one response behind, and the next query fills it.",
   ]],
+  ["src/client/features/cloudflare/screens/dashboard/CloudflareAuditPanel.tsx", [
+    "/**\n * Cloudflare's own account audit log, separate from the module's local activity table below.\n *\n * The v2 endpoint is cursor-paged and needs a time window, so the panel offers an account, a window\n * and a \"load more\" that continues from Cloudflare's cursor. A failure (a token without\n * `account-settings.read`, for example) is shown as Cloudflare said it, never as an empty page.\n */",
+  ]],
   ["src/client/features/cloudflare/screens/dashboard/CompactAccountCard.tsx", [
     "/**\n * One account as a compact row: its name and one dot per allowance it has.\n *\n * The dots are a glance, not the reading. Opening the row is what shows the percentages, and the row\n * is a button so that press is the same with a keyboard as with a pointer.\n */",
   ]],
@@ -6532,6 +6587,12 @@ const allowed = new Map([
   ]],
   ["src/client/features/cloudflare/screens/dashboard/ResourcesPanel.tsx", [
     "/**\n * Resources and today's usage for one account.\n *\n * A product Cloudflare would not answer shows an em dash instead of a zero. The ring is only drawn\n * when there is a number behind it; a ring at 0% would be a claim the route never made.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/dashboard/StatusPanel.tsx", [
+    "/**\n * The public Cloudflare service status (cloudflarestatus.com), which needs no reader credential.\n *\n * The panel lists only components that are not operational and unresolved incidents: a healthy\n * status page with hundreds of green components is not a useful card. The whole feed is cached by the\n * worker for five minutes, so opening the dashboard repeatedly does not hammer the public endpoint.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/dashboard/SubscriptionPanel.tsx", [
+    "/**\n * The account's Cloudflare subscriptions (the plan behind the quota cards).\n *\n * A subscription row is account-level, so the panel needs an account even when the reader has only\n * one. An account whose token cannot read billing answers with Cloudflare's error, and that error is\n * shown instead of an empty \"free\" claim.\n */",
   ]],
   ["src/client/features/cloudflare/screens/dashboard/TrafficPanel.tsx", [
     "/**\n * Zone traffic: four series over the same window, drawn with the app's own SVG chart.\n *\n * The account selector lists the accounts the quota read already returned, and the domain selector\n * asks the route for zones in that account only. A zone that is not in the answer never reaches the\n * chart, which is the same ownership check the route makes again on the server.\n */",
@@ -6544,6 +6605,12 @@ const allowed = new Map([
   ]],
   ["src/client/features/cloudflare/screens/dns/DomainList.tsx", [
     "/**\n * The left column: every domain, filtered by account and name, with multi-select for batch delete.\n *\n * A domain row is a checkbox and a button side by side rather than one clickable box: the checkbox\n * selects for deletion and the button opens the domain, and a nested button would make both actions\n * unreachable by keyboard.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/dns/IpAccessPanel.tsx", [
+    "/**\n * Legacy IP Access Rules (the zone's firewall access list): block, challenge or allow one address,\n * range, country or ASN.\n *\n * Cloudflare's own ruleset engine has the newer WAF rules; this list still exists on every zone and\n * is where most readers already keep their IP allow/deny entries. The form mirrors Cloudflare's shape:\n * a mode, a target kind and a value, with the value validated server-side against the chosen target.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/dns/PageRulesPanel.tsx", [
+    "/**\n * Legacy Page Rules: list, toggle and delete.\n *\n * The reference client deliberately does not create or edit Page Rules — Cloudflare's own dashboard\n * is the editor for this deprecated feature. Reading, enabling and deleting are the operations the\n * screen offers, and each write is followed by a reload so the table never drifts from Cloudflare.\n */",
   ]],
   ["src/client/features/cloudflare/screens/dns/PanelError.tsx", [
     "/** The inline failure every panel shows instead of an empty screen. */",
@@ -6563,8 +6630,14 @@ const allowed = new Map([
   ["src/client/features/cloudflare/screens/dns/RulesPanel.tsx", [
     "/**\n * The Rules engine tab: one phase at a time, its rules in a table, and a dialog that creates,\n * edits or deletes them.\n */",
   ]],
+  ["src/client/features/cloudflare/screens/dns/SslPanel.tsx", [
+    "/**\n * SSL certificate packs and the Universal SSL switch.\n *\n * A pack is Cloudflare's own certificate bundle; the table shows the hosts, whether it is active and\n * when the first certificate expires. Deleting a pack is irreversible, so it asks first. Universal\n * SSL is one boolean and is written on its own rather than bundled with a Save button.\n */",
+  ]],
   ["src/client/features/cloudflare/screens/dns/SwitchRow.tsx", [
     "/** A labelled switch on a bordered row, the shape both settings panels use. */",
+  ]],
+  ["src/client/features/cloudflare/screens/dns/UrlNormalizationPanel.tsx", [
+    "/**\n * URL normalization is two enums, not a table of settings: the normalization type and whether it\n * applies only to incoming requests or to both directions. Saving reloads the form from Cloudflare's\n * answer, so the switch always reflects what the zone actually holds.\n */",
   ]],
   ["src/client/features/cloudflare/screens/dns/ZoneSettingsPanel.tsx", [
     "/**\n * The Zone settings tab: SSL/TLS, security and the performance switches.\n *\n * The form starts from what Cloudflare returned and falls back to the reference module's defaults\n * only for keys the API did not list, so saving never invents a value for a setting that exists.\n */",
@@ -6584,6 +6657,7 @@ const allowed = new Map([
     "/**\n * The action half, as the phase expects it.\n *\n * A phase fixes the action unless it offers a set (firewall and rate limiting do), which is why the\n * caller passes the chosen one in rather than having this invent it.\n */",
     "/** What the dialog sends: the expression, the action and the parameters that go with it. */",
     "/**\n * Read a stored rule back into the form, so an edit starts from the rule's own words.\n *\n * An expression that none of the five shapes describe keeps itself: the form switches to `custom` and\n * carries the expression verbatim, which is the only honest way to edit something the fields cannot\n * express.\n */",
+    "/** The configuration-rule switches the form offers; unknown keys are preserved only in advanced JSON. */",
   ]],
   ["src/client/features/cloudflare/screens/dns/use-panel-load.ts", [
     "/**\n * One fetch per panel, with the three states the panels draw.\n *\n * The caller passes a key naming what the request depends on. `loader` is deliberately not a\n * dependency: every caller writes an inline closure, and depending on its identity would refetch on\n * every render. `reload` asks for the same request again.\n */",
@@ -6597,6 +6671,9 @@ const allowed = new Map([
   ["src/client/features/cloudflare/screens/storage/D1Panel.tsx", [
     "/**\n * D1: databases on the left, tables below them, and the query workbench on the right.\n *\n * The editor can draft before a database is chosen, but every command is disabled until one is. The\n * allow-write switch is only a convenience for the reader: the route checks the SQL again and refuses\n * writes without it, so the switch cannot be bypassed by editing the page.\n */",
   ]],
+  ["src/client/features/cloudflare/screens/storage/D1RowsDialog.tsx", [
+    "/**\n * A window onto one D1 table: pageable rows, a search across every column, cell viewing, and\n * single-row edit/delete once the reader explicitly turns writes on. The key is the table's primary\n * key; the server rebuilds both statements from the schema and binds every value.\n */",
+  ]],
   ["src/client/features/cloudflare/screens/storage/D1SchemaDialog.tsx", [
     "/**\n * A table's columns, their constraints, and the four schema edits D1 allows without opening the SQL\n * editor. Each edit is a normal ALTER/DROP statement sent through the query route with writes allowed;\n * nothing here bypasses the route's own guard.\n */",
   ]],
@@ -6605,6 +6682,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/cloudflare/screens/storage/KvValueDialog.tsx", [
     "/**\n * The KV value editor. A new key can be named; an existing key is fixed, because renaming one is a\n * delete plus a write and the dialog says so by keeping the field read-only.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/storage/R2BucketSettingsDialog.tsx", [
+    "/**\n * One bucket's public-access settings: CORS, lifecycle rules and custom domains.\n *\n * Each section is read from the bucket's own endpoints and written back as the whole policy, because\n * that is the only shape R2 accepts for CORS and lifecycle. Rules arrive from the API as complete\n * objects and go back untouched except for the fields edited here, so a transition this dialog does\n * not draw survives a save. A demo account sees the settings and cannot change them.\n */",
   ]],
   ["src/client/features/cloudflare/screens/storage/R2Panel.tsx", [
     "/**\n * R2: buckets on the left, the selected bucket's folder on the right.\n *\n * Folders are the API's delimited prefixes, not real objects, so they are drawn as navigation and never\n * selected for deletion. A file name opens a preview only when its type can be shown inline; every file\n * still has download and delete beside it.\n */",
@@ -6667,12 +6747,15 @@ const allowed = new Map([
     "/**\n * Copying environment variables and secrets from one Worker to others.\n *\n * Cloudflare never returns secret plaintext, so the dialog asks only for the values it is about to\n * write. Preview compares names (and plain values) and leaves the actual send to an explicit execute.\n */",
   ]],
   ["src/client/features/cloudflare/screens/workers/LogsDrawer.tsx", [
-    "/**\n * A Worker's logs, read when the drawer opens.\n *\n * The route asks Cloudflare for the script's tails; whatever comes back is printed as text because\n * Cloudflare's log shape is not stable enough to table. The loading, empty and failed states are all\n * visible here rather than in the screen, so one failed fetch never blanks the list behind it.\n */",
+    "/**\n * A Worker's logs: the existing tail sessions, plus a live tail opened through the Worker bridge.\n *\n * The live connection is a real WebSocket to `/workers/:account/workers/:name/tail`; the Worker\n * creates Cloudflare's tail session, opens the upstream socket, and forwards each frame. There is no\n * polling here: the status line says whether the socket is connecting, connected, closed or failed.\n */",
   ]],
   ["src/client/features/cloudflare/screens/workers/PagesSettingsDrawer.tsx", [
     "/**\n * A Pages project's settings: information, custom domains, environment variables, resource bindings\n * and deployment history.\n *\n * Pages keeps environment and binding configuration under `deployment_configs`, once for production\n * and once for preview. Every write here merges into the existing section rather than replacing it,\n * because a form that sends only its own fields would delete the rest of the project's configuration.\n */",
     "// The loaders read accountId/name; reopening on another project is the only reason to reload.",
     "// eslint-disable-next-line react-hooks/exhaustive-deps",
+  ]],
+  ["src/client/features/cloudflare/screens/workers/WorkerMetricsDrawer.tsx", [
+    "/**\n * One Worker's metrics over 1, 7 or 30 days, in Cloudflare's own reporting units.\n *\n * Requests, errors, subrequests and CPU quantiles come from `workersInvocationsAdaptive`; the error\n * rate is derived from those two counts and is labelled as a rate, never sent back as a Cloudflare\n * field. A failed CPU-total query hides only that card rather than blanking the rest.\n */",
   ]],
   ["src/client/features/cloudflare/screens/workers/WorkerSettingsDrawer.tsx", [
     "/**\n * A Worker's settings: variables and secrets, cron triggers, custom domains, workers.dev, script\n * settings, routes, source and deployment history.\n *\n * Each tab loads its own slice of Cloudflare's API when the drawer opens. Saving a plain variable is\n * a redeploy (Cloudflare has no variable-only endpoint); a secret goes through the secrets endpoint.\n * The drawer keeps the two paths distinct so a secret is never written as plain text.\n */",
@@ -31823,6 +31906,9 @@ const allowed = new Map([
   ["src/shared/locales/en-US-cloudflare-ai.ts", [
     "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: ai.\n */",
   ]],
+  ["src/shared/locales/en-US-cloudflare-alerting.ts", [
+    "/**\n * English copy for the notification-policy screen.\n */",
+  ]],
   ["src/shared/locales/en-US-cloudflare-browser-render.ts", [
     "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: browser-render.\n */",
   ]],
@@ -31831,6 +31917,12 @@ const allowed = new Map([
   ]],
   ["src/shared/locales/en-US-cloudflare-dns.ts", [
     "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: dns.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-network.ts", [
+    "/**\n * English copy for the network screen (load balancing, Bulk Redirects, Email Routing, Snippets).\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-platform.ts", [
+    "/**\n * English copy for the developer-platform screen (Queues, Durable Objects, Hyperdrive).\n */",
   ]],
   ["src/shared/locales/en-US-cloudflare-settings.ts", [
     "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: settings.\n */",
@@ -31841,11 +31933,17 @@ const allowed = new Map([
   ["src/shared/locales/en-US-cloudflare-store.ts", [
     "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: store.\n */",
   ]],
+  ["src/shared/locales/en-US-cloudflare-toolbox.ts", [
+    "/**\n * English copy for the toolbox screen.\n */",
+  ]],
   ["src/shared/locales/en-US-cloudflare-tunnels.ts", [
     "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: tunnels.\n */",
   ]],
   ["src/shared/locales/en-US-cloudflare-workers.ts", [
     "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: workers.\n */",
+  ]],
+  ["src/shared/locales/en-US-cloudflare-zero-trust.ts", [
+    "/**\n * English copy for the Zero Trust screen.\n */",
   ]],
   ["src/shared/locales/en-US-cloudflare.ts", [
     "/**\n * The Cloudflare app's catalogue, one language at a time.\n *\n * Loaded by the app when a reader opens it and never by the shell: the module carries 1,200-odd keys\n * of its own, and a reader who never visits /cloudflare should pay none of them.\n */",
@@ -31915,6 +32013,9 @@ const allowed = new Map([
   ["src/shared/locales/zh-CN-cloudflare-ai.ts", [
     "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: ai.\n */",
   ]],
+  ["src/shared/locales/zh-CN-cloudflare-alerting.ts", [
+    "/**\n * Chinese copy for the notification-policy screen.\n */",
+  ]],
   ["src/shared/locales/zh-CN-cloudflare-browser-render.ts", [
     "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: browser-render.\n */",
   ]],
@@ -31923,6 +32024,12 @@ const allowed = new Map([
   ]],
   ["src/shared/locales/zh-CN-cloudflare-dns.ts", [
     "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: dns.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-network.ts", [
+    "/**\n * Chinese copy for the network screen (load balancing, Bulk Redirects, Email Routing, Snippets).\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-platform.ts", [
+    "/**\n * Chinese copy for the developer-platform screen (Queues, Durable Objects, Hyperdrive).\n */",
   ]],
   ["src/shared/locales/zh-CN-cloudflare-settings.ts", [
     "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: settings.\n */",
@@ -31933,11 +32040,17 @@ const allowed = new Map([
   ["src/shared/locales/zh-CN-cloudflare-store.ts", [
     "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: store.\n */",
   ]],
+  ["src/shared/locales/zh-CN-cloudflare-toolbox.ts", [
+    "/**\n * Chinese copy for the toolbox screen.\n */",
+  ]],
   ["src/shared/locales/zh-CN-cloudflare-tunnels.ts", [
     "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: tunnels.\n */",
   ]],
   ["src/shared/locales/zh-CN-cloudflare-workers.ts", [
     "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: workers.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-zero-trust.ts", [
+    "/**\n * Chinese copy for the Zero Trust screen.\n */",
   ]],
   ["src/shared/locales/zh-CN-cloudflare.ts", [
     "/**\n * The Cloudflare app's catalogue, one language at a time.\n *\n * Loaded by the app when a reader opens it and never by the shell: the module carries 1,200-odd keys\n * of its own, and a reader who never visits /cloudflare should pay none of them.\n */",
@@ -34094,6 +34207,8 @@ const allowed = new Map([
     "// A response that can vary by cookie (the app shell, an unlock form, a share page) must not be",
     "// stored by the CDN. Existing HTML routes already say so explicitly; this is the default for the",
     "// ones that do not, and the API has always been no-store for the same reason.",
+    "// Public gateway first: it authenticates with its own `gw_` bearer key, so the session middleware",
+    "// on `/api/cloudflare` must never see it.",
   ]],
   ["src/worker/assistant/attachments.ts", [
     "/**\n * The token each attachment line starts with.\n *\n * It is English on purpose: this block is model-facing prompt text, never the reader's UI, and the\n * reader's own labels come from the locale catalog the composer draws.\n */",
@@ -38511,7 +38626,6 @@ const allowed = new Map([
     "// Both follow-ups are best-effort facts about the credential, not the write itself: a token that",
     "// verified but cannot list accounts is still a usable token for some products.",
     "/** Re-check a stored credential against Cloudflare, and refresh what the account can do. */",
-    "/**\n * Verify one credential pair against `/user`.\n *\n * This is deliberately the only verification call: every Cloudflare product answers 403 for a token\n * scoped to another product, and using a product endpoint here would refuse valid narrow tokens.\n */",
     "/** Whether R2 is switched on for this account, as the string the account row stores. */",
     "/** Every target a batch test can run against; the unverified filter is the screen's own. */",
     "/** The emails a CSV import may not duplicate, lower-cased. */",
@@ -38521,6 +38635,68 @@ const allowed = new Map([
     "/** How long a deleted account can be brought back before its credential file goes with it. */",
     "/** Take a deletion back, within the grace window only: past it the row has been purged. */",
     "/**\n * Drop whatever outlived the undo window, credential file included.\n *\n * Runs on the account list rather than on a timer: the list is where a reader notices the trash, and a\n * deployment that never opens it has nothing to leak.\n */",
+    "/**\n * Verify one credential pair against `/user`.\n *\n * This is deliberately the only verification call: every Cloudflare product answers 403 for a token\n * scoped to another product, and using a product endpoint here would refuse valid narrow tokens.\n *\n * A transport failure is not the credential's fault. `cfFetch` reports those without a Cloudflare\n * `cf_code`, and wrapping them as a 400 made the screen say \"the request is malformed\" for what was\n * really a timeout. They keep their 502; only an answer Cloudflare actually sent becomes a refusal.\n */",
+    "// A transport failure never carries an upstream status. A 5xx or a 429 is Cloudflare's own",
+    "// availability problem, not this credential's; only a 4xx answer is a refusal.",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-audio.ts", [
+    "/**\n * OpenAI audio compatibility (speech-to-text, translation and text-to-speech).\n *\n * Whisper accepts base64 audio and returns text plus word timings; the gateway turns those words into\n * the `srt`, `vtt` and `verbose_json` shapes the OpenAI clients expect. Speech uses Deepgram Aura so\n * OpenAI voice names map to real speakers and most output encodings are available. None of these\n * calls stream, so a retry can move to another account before any byte reaches the client.\n */",
+    "/**\n * Duration is what the quota gate needs before the model runs. RIFF/WAVE carries its own byte rate;\n * compressed audio is assumed to be at 16 kbps, the low end of the formats OpenAI clients upload, so\n * the estimate is longer rather than shorter than the real file.\n */",
+    "/** Whisper's VTT is one cue per recognised word in practice; both cue shapes are accepted. */",
+    "/** Aura answers with an audio body; older JSON shapes carry a base64 `audio` field. */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-images.ts", [
+    "/**\n * OpenAI Images support on top of Workers AI and the existing image bed.\n *\n * Text-to-image is `flux-1-schnell`; image editing is Stable Diffusion img2img/inpainting. The\n * gateway never writes R2 itself: a `url` response calls the image bed's `uploadSingle`, so the bytes,\n * the channel, the URL format and the delete path are the ones a manual upload already uses. A\n * content-hash filename lets a repeated generation reuse the file already in the bed.\n */",
+    "/** flux-1-schnell takes no width/height; 1024x1024 is the shape its catalog page documents. */",
+    "/** `/ai/run` may answer JSON with a base64 image or the image bytes directly. */",
+    "/**\n * The channel's own public domain first, then the image bed's configured link prefix, then this\n * deployment's origin. When the bed's whitelist mode would block an origin link, there is no URL.\n */",
+    "/** Content-hash id inside the gateway's own folder; a hit is reused when its bytes still exist. */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-keys.ts", [
+    "/**\n * Gateway keys are issued by Inkstone, not by Cloudflare.\n *\n * Only the SHA-256 hash and a short prefix are stored; the plaintext is returned once at creation and\n * never written to a log or audit row. The per-key daily request counter lives in its own row so the\n * hot path does not update the key metadata.\n */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-log.ts", [
+    "/**\n * Request evidence for the gateway. Bodies are deliberately absent: this table answers \"who called,\n * which account served it, what did it cost and why did it fail\" without becoming a second copy of\n * user prompts.\n */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-media.ts", [
+    "/**\n * Retention ledger for images the gateway generates and hands back as a URL.\n *\n * The bytes are not copied here: they already live in the image bed's channel, written by the same\n * `uploadSingle` service a manual upload uses. This table only answers \"which image files did the\n * gateway create, when do they expire, and have we deleted them yet\". The sweep reuses the image\n * bed's own delete path, so a channel's object and its row are removed together.\n */",
+    "/**\n * Deletes expired gateway images through the image bed's channel-aware delete path. A missing file\n * row (already removed by hand) is still marked deleted, so the sweep does not retry it forever.\n */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-models.ts", [
+    "/**\n * The two OpenAI faces of the gateway: Chat Completions and Responses.\n *\n * Both are normalised to one canonical messages array before quota estimation and before the upstream\n * call. That is what makes \"the same content\" cost the same neurons in either format and keeps the\n * Responses path from quietly under-counting `instructions` or tool turns.\n */",
+    "/** OpenAI fields the Workers AI OpenAI-compatible endpoint accepts; kept as data, not as booleans. */",
+    "/** Responses-only context material, echoed back in the response object and stored for chaining. */",
+    "/** OpenAI's chat response_format uses the nested `json_schema` object; `text` is the default. */",
+    "/** The Responses API puts the schema fields on `text.format`; the upstream chat endpoint wants them nested. */",
+    "/** Embedding models are a separate capability: sending one to /chat/completions would fail upstream. */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-platform.ts", [
+    "/**\n * The provider-config update the SDK does not declare.\n *\n * Real calls answered PUT on this path and the only field that read back changed was the secret;\n * alias, provider slug, default flag and rate limits were accepted but not applied. The caller\n * therefore sends the current values back unchanged and lets this endpoint rotate the secret.\n */",
+    "/**\n * The Cloudflare AI Gateway management layer behind the panel.\n *\n * The official `cloudflare` SDK is the field contract: response and parameter types are imported\n * from it, while every call goes through `cfFetch`, the single door that already carries account\n * headers, the timeout and the error mapping. Instantiating the SDK's client would pull every\n * Cloudflare resource into the Worker bundle, so the SDK stays type-only here.\n */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-quota.ts", [
+    "/**\n * The self-hosted gateway's quota gate.\n *\n * Cloudflare's GraphQL total is authoritative but late; this ledger is what stops a request before it\n * is sent. Every reservation is one conditional UPDATE so two isolates racing on the same account see\n * each other's increment, and a reservation never shrinks: settling only raises `actual`/`reserved`\n * and reconciliation only raises them further. The hard limit is 10,000 neurons per account/day.\n */",
+    "// One UPSERT, not \"UPDATE then INSERT\": several requests can be reserving at the same instant and",
+    "// the fallback INSERT would then collide on the primary key.",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-responses.ts", [
+    "/**\n * Stored Responses objects and the `previous_response_id` chain.\n *\n * OpenAI's Responses API keeps the conversation on the server; this gateway is stateless at the\n * transport layer but not at the semantic one. The row holds the canonical messages that were sent\n * upstream and the output items that came back, so the next turn can rebuild exactly the same\n * conversation and reserve quota against the full prompt rather than only the new input.\n */",
+    "/** Text and tool calls from one response become the assistant turn the next request continues from. */",
+    "/**\n * Prior messages + prior output + the new input. A new `instructions` replaces the previous system\n * message rather than stacking a second one; without new instructions the previous one stays.\n */",
+    "/** Called by the minute cron; expired rows are also removed lazily when someone reads them. */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-routing.ts", [
+    "/**\n * Per-account routing switches for the self-hosted relay.\n *\n * Off is the default and a missing row means off, so the relay keeps calling Cloudflare directly\n * until a reader turns a switch on. Turning it on only adds the AI Gateway header to `/ai/v1`\n * requests; it never enables caching. Payload collection is a second switch and is never implied by\n * the first one, because it sends prompt bodies to Cloudflare's log store.\n */",
+    "/** What a row that does not exist means: both switches off, no gateway remembered. */",
+    "/** Gateway ids are slugs; a value that cannot be one is rejected rather than silently ignored. */",
+    "/**\n * Validate what the settings form sent. Payload collection is forced off while routing is off, so the\n * stored value cannot describe a header that would never be sent.\n */",
+    "/** One query for the settings panel rather than one per account. */",
+    "/** The headers a `/ai/v1` call adds when routing is on. Empty means byte-for-byte the old request. */",
+  ]],
+  ["src/worker/cloudflare/ai-gateway-schema.ts", [
+    "/**\n * The self-hosted AI gateway's local ledger.\n *\n * Cloudflare's GraphQL atoms are the authoritative daily total, but they arrive late. These tables are\n * the gate: an account/day row is updated with one conditional statement so concurrent requests cannot\n * reserve past the threshold, while the request and snapshot tables keep the evidence needed to audit\n * what happened. No request or response bodies are stored here.\n */",
+    "/**\n * Responses persistence and generated-image retention (migration 288).\n *\n * A stored response keeps the canonical messages that were sent upstream and the output items that\n * were returned, which is exactly what `previous_response_id` needs to rebuild the next turn. The\n * media table is a retention ledger rather than a second image store: the bytes live in the image\n * bed's channel and only the file id, URL and expiry are kept here.\n */",
+    "/**\n * Per-account routing switches for the self-hosted relay (migration 299).\n *\n * Both switches default to off, and a missing row means off: the relay's default is a direct call to\n * Cloudflare, exactly as it was before this table existed. `gateway_id` is only honoured while\n * `enabled` is 1, so a remembered id cannot turn routing on by itself.\n */",
   ]],
   ["src/worker/cloudflare/ai-models.ts", [
     "/**\n * Cloudflare's AI catalogue, and the parts of a model schema this app has to understand.\n *\n * The model list is live (Cloudflare adds and retires models), while a model's input schema is\n * stable enough to keep for an hour — the TTS screens ask for it on every open, and the schema call\n * is one more round trip per model. The body a speech model accepts is derived from that schema\n * rather than hard-coded: melotts takes `prompt` and aura takes `text`, and the speaker enums differ\n * per model.\n */",
@@ -38530,6 +38706,12 @@ const allowed = new Map([
     "/** The speaker choices and default a speech model's schema declares, if it has any. */",
     "/** The optional schema properties the speech screens offer as advanced settings. */",
     "/**\n * The request body one speech model accepts.\n *\n * With a schema every field is written only when the schema declares it. Without one the model\n * family decides the text field, which keeps melotts and the aura line working when the schema\n * lookup is down — the call may still fail upstream, but it fails for the right reason.\n */",
+  ]],
+  ["src/worker/cloudflare/alerting.ts", [
+    "/**\n * Account notification policies.\n *\n * A policy pairs an alert type with delivery mechanisms. Email recipients are the only mechanism this\n * screen edits, because the account already has an eligible email destination; PagerDuty and webhooks\n * are left to Cloudflare's own dashboard rather than guessed at here.\n */",
+    "/** Cloudflare keys available alerts by product; the screen wants one flat list. */",
+    "// The create answer carries the id but not the fields, so the screen's refresh uses the list; the",
+    "// API answer is completed here so a caller does not have to guess whether the write landed.",
   ]],
   ["src/worker/cloudflare/audit-log.ts", [
     "/**\n * The audit trail, read back as rows.\n *\n * Filters, ordering and page bounds are SQL because the table can outgrow a browser copy; every\n * condition starts with the reader's id, so a log line is visible only to the person who caused it.\n * Parsing the query string into these fields belongs to the route.\n */",
@@ -38583,8 +38765,12 @@ const allowed = new Map([
     "/** The GraphQL door. Cloudflare reports query problems in a 200 body, so both shapes are checked. */",
     "/** The error a route rethrows when an operation relied on Cloudflare and the call did not land. */",
     "/** True when the page cap stopped the walk with pages left: the listing is not the whole set. */",
-    "// The platform's own code travels beside the message so a reader (or the audit trail) can name",
-    "// the failure without parsing an English sentence that Cloudflare is free to reword.",
+    "// The platform's own code and status travel beside the message so a reader (or the audit trail)",
+    "// can name the failure without parsing an English sentence that Cloudflare is free to reword.",
+    "// `upstream_status` is what lets a credential check tell \"Cloudflare refused this key\" from",
+    "// \"Cloudflare never answered\": the route sees both as a 502 otherwise.",
+    "// Built before the try: a missing credential is a configuration error, and wrapping it as \"Cloudflare",
+    "// could not be reached\" would hide that from callers that classify auth failures.",
   ]],
   ["src/worker/cloudflare/chat-sessions.ts", [
     "/**\n * The AI conversation history, as rows.\n *\n * Every statement carries the reader's id; the session id alone never proves ownership, and a query\n * that finds nothing is answered as missing rather than forbidden so ids cannot be probed. The route\n * above this module parses bodies and maps refusals to HTTP; it does not know the schema.\n */",
@@ -38608,6 +38794,7 @@ const allowed = new Map([
     "/**\n * One day is read by the hour and anything longer by the day; the source module switched the same\n * way, because an hourly series over a month is a line nobody can read.\n */",
     "/** Groups become parallel arrays because that is the shape `LineChart` reads. */",
     "/** The zone dataset matches the resolution: `httpRequests1hGroups` is hourly, `…1dGroups` is daily. */",
+    "/**\n * Country breakdowns only exist on the adaptive dataset: `httpRequests1dGroups` has no\n * `clientCountryName` dimension on this account. The adaptive dataset is sampled, so the answer is a\n * request count rather than an exact byte total.\n */",
   ]],
   ["src/worker/cloudflare/deploy.ts", [
     "/**\n * Uploading Workers and Pages, and the two batch operations that surround them.\n *\n * A Worker deployment is the same multipart PUT wrangler performs: one metadata JSON part and one\n * part per module. A Pages deployment is a direct upload: a manifest naming each file by the hash it\n * is stored under. Both live here rather than in the router so the store slice and this one have one\n * place to agree with Cloudflare.\n */",
@@ -38619,6 +38806,13 @@ const allowed = new Map([
     "/** Names present in the source and absent or different in a target. */",
     "/**\n * Apply selected environment keys to targets.\n *\n * A secret is written through the secrets endpoint. A plain variable can only change with a deploy,\n * so the target's current modules are uploaded again with the merged variable set.\n */",
   ]],
+  ["src/worker/cloudflare/dns-security.ts", [
+    "/**\n * Zone-level security extras that Cloudflare keeps outside the ruleset engine: legacy Page Rules,\n * URL normalization, SSL certificate packs and legacy IP Access Rules.\n *\n * Each converter keeps only the fields the screen shows. Cloudflare returns many more (certificate\n * bundles, rule targets with unknown shapes); passing them through would invite the screen to render\n * values it never modelled, while dropping them entirely would leave an edit unable to round-trip.\n */",
+    "/** One row of Cloudflare's Page Rules list; the target and action ids are all the table shows. */",
+    "/** Cloudflare's URL normalization result is a small enum pair, not an object of settings. */",
+    "/** Validates an IP Access Rule body before it reaches Cloudflare. */",
+    "/** The Cloudflare body for create/update: exactly the fields that were supplied. */",
+  ]],
   ["src/worker/cloudflare/dns.ts", [
     "/**\n * DNS zones and the shapes their endpoints accept.\n *\n * The reference module resolved a domain by listing every active account's zones on every call, and\n * that is kept: Cloudflare has no \"zone by name\" lookup, and a cached mapping would go stale exactly\n * when a reader adds or removes a zone. What is not kept is the reference's silent swallowing of\n * per-account failures — a listing keeps the other accounts, while a lookup that could not check\n * every account says so instead of reporting a 404 it cannot prove.\n */",
     "/** The reader's account row id, not Cloudflare's account id. */",
@@ -38629,9 +38823,21 @@ const allowed = new Map([
     "/** Zone settings the screens may read and write, and the Cloudflare setting id each one maps to. */",
     "/** Validates a settings patch; unknown keys are an error rather than a silently skipped item. */",
     "/** Rule bodies come back from Cloudflare as unknown objects; keep only the fields the screens use. */",
+    "/** The URL-shaped purge targets (`files` and `prefixes`): absolute http(s) only. */",
+    "/** Purge-by-host takes a bare hostname (no scheme, no path). */",
+    "/** Cache tags are Cloudflare-defined strings; Cloudflare accepts at most 100 per purge. */",
   ]],
   ["src/worker/cloudflare/model-pricing.ts", [
     "/**\n * Cloudflare's published neuron rates, as the reference module ships them.\n *\n * Data rather than code: the table changes when Cloudflare reprices a model, and the estimates in\n * `pricing.ts` are only as honest as this file. Kept as a TypeScript module so the worker's project\n * includes it without a JSON-in-program exception.\n */",
+  ]],
+  ["src/worker/cloudflare/network.ts", [
+    "/**\n * The read shapes and the write calls for the four network surfaces added in Phase 2.\n *\n * Cloudflare returns much more than each table shows; every converter here keeps the fields the\n * screen actually draws. Missing values stay `null`/`''` instead of becoming a plausible default,\n * because \"Cloudflare did not say\" and \"Cloudflare said zero\" are different answers. Writes are\n * only the create/delete pairs the screens expose; a reader never gets a half-implemented editor.\n */",
+    "/** Snippet uploads are multipart, so this one call does not go through `cfFetch`'s JSON body handling. */",
+    "/** Enable adds and locks MX/SPF records; disable removes the extra MX records Cloudflare added. */",
+  ]],
+  ["src/worker/cloudflare/platform.ts", [
+    "/**\n * The developer-platform read shapes and write calls: Queues, Durable Object namespaces and\n * Hyperdrive configs.\n *\n * These products live under the account, not a zone. Cloudflare answers each list with a paginated\n * envelope, so the converters drop the envelope and keep the fields the screens actually draw.\n * Hyperdrive's password is write-only: the create call sends it, and nothing here ever returns it.\n */",
+    "/**\n * Account-level creation only supports SQLite-backed namespaces: Cloudflare refuses KV-backed ones\n * (`10099`) and asks for a `new_sqlite_classes` migration instead. Sending `use_sqlite` is therefore a\n * requirement, not a preference.\n */",
   ]],
   ["src/worker/cloudflare/pricing.ts", [
     "/**\n * What one AI request costs, in Cloudflare's neurons.\n *\n * The numbers come from `model-pricing.json`, which the reference module and this port share. A model\n * the table does not know falls back to the file's own default rather than to zero: a free-looking\n * estimate would let the quota screens stay green while the account is being drained.\n */",
@@ -38665,6 +38871,9 @@ const allowed = new Map([
     "// trip however many tables the database holds.",
     "/** A table as the sidebar shows it; the count is filled only when someone asked for it. */",
     "/**\n * The tables of a database, with row counts only when asked.\n *\n * `COUNT(*)` walks the table (or its smallest index), so counting every table turns opening a\n * database into a scan of the whole database — and D1 bills for that CPU. Listing names is one small\n * query; the panel offers the counts as a separate, visible action.\n */",
+    "/**\n * One page of a table's rows, optionally filtered across every column.\n *\n * The table name comes from the database's own listing and is re-quoted; the search text is bound\n * as a parameter, never spliced into the statement. Filtering casts each column to text so an\n * integer or blob column can still match a reader's search without guessing its type.\n *\n * This is read-only: it never builds an UPDATE or DELETE.\n */",
+    "/** Update one row selected by its primary key; identifiers come from the schema, values are bound. */",
+    "/** Delete one row selected by its primary key; identifiers come from the schema, values are bound. */",
   ]],
   ["src/worker/cloudflare/storage-kv.ts", [
     "/**\n * KV namespaces, keys and values through the Cloudflare REST API.\n *\n * The service speaks only to Cloudflare; account ownership and demo protection belong to the route.\n * Values are written as raw text with the TTL in the query string, which avoids multipart on a PUT\n * that only carries one field.\n */",
@@ -38673,6 +38882,10 @@ const allowed = new Map([
   ["src/worker/cloudflare/storage-r2.ts", [
     "/**\n * R2 buckets and objects.\n *\n * Uploads and downloads bypass `cfFetchRaw`'s JSON body handling: an object is bytes, not a value to\n * stringify, so those two calls are made here against the same origin with the account's own headers.\n * Keys are validated before any path is built, because a key is the one part of an R2 URL a reader\n * controls.\n */",
     "/** R2 has no bulk-delete endpoint, so keys go in bounded concurrent batches. */",
+    "/** Cloudflare answers 404 for a bucket that has no policy at all; that is an empty setting, not a failure. */",
+    "/**\n * Every bucket setting the screen shows, read in one round of parallel calls.\n *\n * A section Cloudflare answers 404 for comes back empty: a bucket with no CORS or lifecycle policy is\n * a normal configuration, not a failure. Any other error is passed through so the screen can name it.\n */",
+    "/** Replaces the bucket's whole CORS policy; an empty list removes it with the API's own DELETE. */",
+    "/** Replaces the whole lifecycle policy; an empty list removes it with the API's own DELETE. */",
   ]],
   ["src/worker/cloudflare/store-deploy.ts", [
     "/**\n * Deploying a catalogue template: one Worker half, one Pages half, and the rule that neither half\n * starts until both have been validated.\n *\n * The Worker endpoint is the same multipart upload wrangler performs. The Pages endpoint is a direct\n * upload: a project is created when missing, the template's zip is read in memory, and every asset is\n * sent once under the hash the manifest names it by. Multipart bodies bypass `cfFetch` because that\n * helper always serialises JSON; the auth headers are still the shared ones.\n */",
@@ -38699,6 +38912,12 @@ const allowed = new Map([
     "// The claim is against the wall-clock minute the run happens in, not the fire's timestamp: the two",
     "// can differ when a retried event arrives late, and the run is what must not happen twice.",
   ]],
+  ["src/worker/cloudflare/toolbox.ts", [
+    "/**\n * The toolbox's server-side probes.\n *\n * Everything here is a read: DNS over HTTPS, RDAP, an HTTP probe and Cloudflare's own trace endpoint.\n * Inputs are validated before a request is built, and the probe refuses literal addresses so a reader\n * cannot aim the deployment at a private service.\n */",
+    "// Different networks block different DoH hosts; trying the two standard JSON endpoints in order",
+    "// keeps the tool useful without pretending a failed lookup is an empty answer.",
+    "/** IANA's bootstrap file maps a TLD to the registry's RDAP base URL; rdap.org itself rejects this deployment. */",
+  ]],
   ["src/worker/cloudflare/tunnels.ts", [
     "/**\n * Cloudflare Tunnels, the origin wizard, and the zone rules engine the tunnel screen also drives.\n *\n * A tunnel is addressed through the reader's own Cloudflare account, so every helper here receives an\n * already-owner-checked account row. Zone lookups and rulesets are exported too: the DNS surface needs\n * the same phase mapping, and keeping one copy means the two screens cannot drift apart.\n *\n * The reference wizard appended a catch-all only when the last row happened to carry a hostname, and\n * kept whatever the existing list ended with. Here the catch-all is an invariant: exactly one\n * `http_status:404` entry, always last, on every read and every write.\n */",
     "/* -------------------------------------------------------------------------------------------------\n * Accounts and zones\n * ---------------------------------------------------------------------------------------------- */",
@@ -38719,6 +38938,9 @@ const allowed = new Map([
     "// The total is left unrounded: the model rows below are not rounded either, and a share taken",
     "// against a rounded whole can exceed 100%.",
   ]],
+  ["src/worker/cloudflare/worker-metrics.ts", [
+    "/**\n * Per-script Worker metrics, read from Cloudflare's documented `workersInvocationsAdaptive` dataset.\n *\n * The field names and the three queries mirror the reference client's analytics service: one summary,\n * one per-status breakdown, and one series whose dimension is hourly for a one-day window and daily\n * otherwise. CPU is reported both as p50/p99 (quantiles) and as a total in microseconds, because\n * Cloudflare exposes them through two separate shapes and neither can be derived from the other.\n */",
+  ]],
   ["src/worker/cloudflare/workers.ts", [
     "/**\n * Workers and Pages, read the way the screen needs them.\n *\n * One Cloudflare account is one upstream fan-out: a script list and a Pages project list, each of\n * which may fail on its own. A failed half is logged and left out, because an account with a revoked\n * Pages scope still has usable Workers, and a screen that shows nothing tells the reader less than one\n * that shows the half that answered.\n */",
     "/** A name ends up in a URL path; the alphabet comes from Cloudflare's own worker-name rule. */",
@@ -38729,6 +38951,9 @@ const allowed = new Map([
     "/**\n * The parts of a multipart body, without Node's Buffer or a streaming parser.\n *\n * Cloudflare's script download is multipart for module workers. The body is small enough for the\n * Worker's memory (scripts are capped well below it), so one pass over the bytes is the whole job.\n */",
     "/** The entry module of a script download, preferring an explicit name, then the conventional ones. */",
     "/** The script text of a module download, or null when there is no JavaScript part. */",
+  ]],
+  ["src/worker/cloudflare/zero-trust.ts", [
+    "/**\n * Zero Trust (Access) reads and the three create/delete pairs this screen exposes.\n *\n * Access applications, groups and service tokens are account-scoped. Identity providers, the\n * organization and device policies are read-only here: the account already has one IdP, one\n * organization and a default WARP policy, and the panel must not rewrite them.\n */",
   ]],
   ["src/worker/db/fts.ts", [
     "/**\n * Queues every live note for re-indexing in one statement. Rebuilding in the request path\n * costs ~3 round trips per 50 notes (600 trips for 10k notes) plus a full-text tokenize\n * pass, which cannot finish inside one invocation; the queue drains in the background.\n */",
@@ -39461,6 +39686,14 @@ const allowed = new Map([
     "// existed and was withdrawn before it ran out.",
     "// A preview read arrives with the token and nothing else, so the lookup has to find the row by",
     "// its hash. The primary key starts with the owner, which would make that lookup a scan.",
+    "// The self-hosted AI gateway keeps its own quota ledger, key table and request evidence. Cloudflare's",
+    "// GraphQL total reconciles it, but the gate must be local or concurrent requests would overshoot.",
+    "// 287 starts here: 277–286 are already claimed on `test` (286 by the blog layout fix).",
+    "// Responses persistence (`previous_response_id`) and the retention ledger for generated images.",
+    "// 288 follows 287; nothing above is touched.",
+    "// Per-account switches for routing relay traffic through an AI Gateway. 299 is the first number",
+    "// free here: the short-link batch holds 289–297 and WebSSH spent 298 on its own branch.",
+    "// A fresh database also gets the table from `SCHEMA_STATEMENTS`, where `IF NOT EXISTS` applies.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -39683,6 +39916,10 @@ const allowed = new Map([
     "/** HMAC secret for protected-post unlock tokens; unset disables the unlock endpoint. */",
     "/** Click-detail retention in days; unset keeps the default, `0` disables the sweep. */",
     "/** Set only when the request authenticated with a Memos access token rather than a session. */",
+    "/**\n   * The local gate for the self-hosted AI gateway, in neurons per account/day. Unset means the 9,500\n   * safety threshold; it never exceeds the 10,000 hard limit. A local verification run may set it to\n   * a tiny number to prove the gate stops concurrent requests.\n   */",
+    "/** TTL for stored Responses objects, in hours. Default 168 (7 days); 0 keeps them forever. */",
+    "/** Largest serialised Responses object the gateway will store, in bytes. Default 512 KiB. */",
+    "/** TTL for gateway-generated images, in hours. Default 168 (7 days); 0 keeps them forever. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -40222,6 +40459,7 @@ const allowed = new Map([
   ]],
   ["src/worker/middleware/auth.ts", [
     "/**\n * How stale `users.last_seen_at` may get before a request writes a fresh one.\n *\n * A reader's every request would otherwise take a write to the `users` row, so the bump is rate-limited\n * to one per interval; the same number is the guard in the `UPDATE` so two concurrent requests cannot\n * both decide they were the one that crossed the interval.\n */",
+    "/** The public AI gateway is a bearer-key data plane, not a cookie-authenticated browser API. */",
   ]],
   ["src/worker/music/assistant-context.ts", [
     "/**\n * The music screen, read from a turn's body and written into its prompt.\n *\n * This is the trust boundary for the music context: the client is not allowed to decide what the\n * model sees. Only a page the app actually has, bounded strings and one enumerated cloud source get\n * through, and anything else is dropped rather than passed along as an empty value the prompt would\n * have to interpret.\n */",
@@ -41501,6 +41739,9 @@ const allowed = new Map([
     "// ------------------------------------------------------------- countdowns",
     "/**\n * Countdown rows, which are not events and never travel through the range query.\n *\n * The list is small by construction (a couple hundred at most), so it is read whole: a countdown's\n * distance depends on the day it is read, and a windowed read would hide the ones a reader most wants\n * to see — the ones still a year away.\n */",
   ]],
+  ["src/worker/routes/cloudflare/account-info.ts", [
+    "/**\n * `/api/cloudflare/dashboard` account information: the Cloudflare plan/subscriptions and the public\n * service-status page.\n *\n * The status page is the only call here that does not need the reader's credential; it is cached for\n * five minutes because it is a public feed and the dashboard is the only consumer. The subscription\n * list is account-scoped and needs the account row, like every other dashboard call.\n */",
+  ]],
   ["src/worker/routes/cloudflare/accounts.ts", [
     "/**\n * `/api/cloudflare/accounts` — the account list, its credential bundle, and the batch operations the\n * screen's buttons call.\n *\n * Hono answers in registration order, so every fixed path (`/test-batch`, `/import-csv`, `/batch/*`)\n * is registered before the `/:id` arms. Every query carries the reader's id; another reader's account\n * is answered as missing rather than forbidden, so an id cannot be used to prove it exists.\n *\n * Every write is paired with an audit row. The route owns those for edits and deletes because the\n * store functions are also called by other screens and should not guess a reader's intent; CSV rows\n * are audited one by one because each creates an account of its own.\n */",
     "// ---------------------------------------------------------------------------------------------",
@@ -41516,6 +41757,23 @@ const allowed = new Map([
     "// One account",
     "/**\n * The account's email: absent for a token account, and when present it has to be an address.\n *\n * It is sent to Cloudflare as `X-Auth-Email` on every global-key call and echoed back on the accounts\n * screen, so a placeholder there fails much later and much less clearly than a refusal here.\n */",
     "/** The undo behind a delete: only possible while the trash still holds the row. */",
+  ]],
+  ["src/worker/routes/cloudflare/ai-gateway-platform.ts", [
+    "/**\n * `/api/cloudflare/ai-gateway-platform` — the Cloudflare AI Gateway management surface.\n *\n * Every endpoint is addressed through an account the reader owns, and the account's Cloudflare id\n * is the only thing sent upstream. Reads and writes share this router; every write reads before it\n * writes, reads the result back and rolls back when the platform did not apply it.\n */",
+    "// Omit `store_id` on purpose: Cloudflare keeps the current store when the field is absent.",
+    "/** 9106 is Cloudflare's \"missing auth headers\", not a capability gate. Name it that way. */",
+    "/** 7020 means the new secret is still propagating in Secrets Store: a retry, not a failure. */",
+    "/** Normalise the new gateway-level spend limits; the old `/billing/spending-limit` is deprecated. */",
+    "// Keep the gateway-level spend limits when this request is only editing the rest of the config.",
+    "/**\n * Gateway-level spend limits: the replacement for the deprecated account-level endpoint.\n *\n * The write is a gateway update because Cloudflare stores these rules on the gateway itself. The\n * full gateway snapshot is sent with the new rules so the rest of the config cannot be reset as a\n * side effect, and the previous snapshot is written back when the read-back does not match.\n */",
+    "/**\n * Creating a dynamic route is available; the earlier `400 / 9106` was a missing-auth probe, not a\n * capability gate. The single-version delete is the one real gap: deleting a route removes its\n * versions and deployments instead.\n */",
+    "/**\n * Provider-key update and delete.\n *\n * The SDK declares only create/list for this resource, but real calls answered PUT and DELETE. A\n * field-by-field probe found that PUT only applies the secret: alias, provider slug, default flag\n * and rate limits came back unchanged. This route therefore rotates the secret only and sends the\n * current metadata back untouched.\n */",
+    "// The deprecated create endpoint always answers 403, so this delete has no rollback: the old",
+    "// limit can only be removed, not recreated. Say that plainly instead of pretending to restore.",
+  ]],
+  ["src/worker/routes/cloudflare/ai-gateway.ts", [
+    "/**\n * `/api/cloudflare/ai-gateway` — the session-authenticated management surface for the self-hosted\n * gateway. The public data plane lives under `/api/gateway` and authenticates with `gw_` keys instead.\n */",
+    "/**\n * The two per-account switches behind the relay's `/ai/v1` calls.\n *\n * The response lists every active AI account, not only the accounts that already have a row, so the\n * panel can show \"off\" as a real value instead of treating a missing row as unknown.\n */",
   ]],
   ["src/worker/routes/cloudflare/ai-v1.ts", [
     "/**\n * `/api/cloudflare/v1` — the OpenAI-compatible face of Cloudflare Workers AI.\n *\n * The shapes are OpenAI's on purpose: the screens already speak them, and a request copied from\n * another tool works unchanged. Account selection travels in the body (`accountId`), because the\n * streaming and JSON paths share one request shape and a custom header would only be readable by one\n * of them.\n *\n * Cloudflare's free allowance is per account and per UTC day. A refusal that means \"today is used up\"\n * marks the account exhausted and moves to the next one, so a reader with several accounts never sees\n * a limit before every account has one. The upstream's own words are kept, truncated, for the account\n * owner to read; they are never turned into a status Cloudflare did not send.\n */",
@@ -41548,9 +41806,18 @@ const allowed = new Map([
     "// exhausted account still needs an explicit reset before it can be used again.",
     "/** Why the number is the local count rather than Cloudflare's, when it is. */",
   ]],
+  ["src/worker/routes/cloudflare/alerting.ts", [
+    "/**\n * `/api/cloudflare/alerting` — notification policies for one of the reader's accounts.\n *\n * Reads are account-scoped; writes are audited and refused for demo accounts. The route never touches\n * the auto-created billing-budget policy unless the reader explicitly edits or deletes it.\n */",
+  ]],
   ["src/worker/routes/cloudflare/audit-log.ts", [
     "/**\n * `/api/cloudflare/audit-log` — the reader's own trail, filtered and paged.\n *\n * The route turns query strings into numbers and dates, and answers refusals as 400. The SQL and the\n * row shape live in `cloudflare/audit-log.ts`; this file never names a table.\n */",
     "/** Dates arrive as `YYYY-MM-DD` from the date fields; milliseconds are accepted for API callers. */",
+  ]],
+  ["src/worker/routes/cloudflare/audit-logs-v2.ts", [
+    "/**\n * Cloudflare's account audit log (Audit Logs v2), read-only.\n *\n * This is not the module's own `cloudflare_log` table: that one records what this app did through the\n * reader's accounts. This endpoint asks Cloudflare what *everyone* did on the account — dashboard\n * logins, API calls, membership changes — which the reference client calls \"Audit Logs\". The two\n * views are kept apart on purpose.\n *\n * The v2 API paginates by `cursor` inside `result_info`, and the time window (`since`/`before`) is\n * mandatory. A revoked token or a missing `account-settings.read` scope comes back as Cloudflare's\n * own error, shown verbatim rather than turned into an empty page.\n */",
+    "/** Cursor is opaque; anything else in a \"cursor\" parameter position is refused. */",
+    "// The v2 API needs a bounded time window. Default to the last 30 days, which is also what the",
+    "// reference client shows.",
   ]],
   ["src/worker/routes/cloudflare/browser-render.ts", [
     "/**\n * `/api/cloudflare/browser-render` — one URL, one rendering mode.\n *\n * The response is the render itself (a data URL, HTML, Markdown or a link list) with the browser\n * time it cost. Every refusal is an `ApiError`: the client's ordinary error path already shows the\n * sentence and the status, and a second envelope would only give it two shapes to read.\n */",
@@ -41562,15 +41829,47 @@ const allowed = new Map([
     "/**\n * `/api/cloudflare/dashboard` — the account's resources, today's usage and a zone's traffic.\n *\n * A count that Cloudflare would not answer is `null`, not zero: \"no number\" is a fact the screen can\n * show honestly, while a zero is a claim that the account has none. The same rule applies to each\n * usage figure, which is why their queries are issued separately.\n */",
     "/** Cloudflare's DNS record count needs one call per zone; beyond this the dashboard shows no total. */",
   ]],
+  ["src/worker/routes/cloudflare/dns-security.ts", [
+    "/**\n * `/api/cloudflare/dns` extras: Page Rules, URL normalization, SSL certificate packs and legacy IP\n * Access Rules.\n *\n * These are registered on a second router under the same `/dns` prefix rather than folded into\n * `dns.ts`: the existing file owns zones/records/settings/rulesets, and each of these four uses a\n * different Cloudflare API family. Hono matches by path, and none of these paths overlap the first\n * router's.\n *\n * Every domain-addressed call starts at `findDnsZone`, exactly like `dns.ts`, so a domain belonging\n * to another reader's account is a 404 rather than an upstream call with this reader's credential.\n */",
+    "// ---------------------------------------------------------------------------------------------",
+    "// Page Rules (legacy)",
+    "// URL normalization",
+    "// SSL certificates and Universal SSL",
+    "// IP Access Rules (legacy firewall)",
+  ]],
   ["src/worker/routes/cloudflare/dns.ts", [
     "/**\n * `/api/cloudflare/dns` — zones, records, zone settings, cache, status and rulesets.\n *\n * Every domain-addressed call starts at `findDnsZone`: it lists the reader's own accounts and matches\n * the name exactly, so a domain belonging to somebody else's account is a 404 rather than a request\n * with this reader's token. Rule phases are accepted as a fixed set of slugs and mapped to Cloudflare\n * phases here; a raw phase in the URL would let a caller name any ruleset path it liked.\n */",
     "/** The phase's ruleset, created on first use the way Cloudflare expects. */",
+    "/**\n * Every ruleset the zone owns, with its phase and rule count.\n *\n * The per-phase routes answer \"what is in this phase\"; this one answers \"what rulesets exist at all\",\n * which is what an audit of an accidental empty ruleset needs. Cloudflare's list may omit `rules`, so\n * a row without them is fetched once to count. Read-only.\n */",
   ]],
   ["src/worker/routes/cloudflare/index.ts", [
     "/**\n * The `/api/cloudflare/*` surface.\n *\n * Everything under it needs a session: these routes act with a reader's own Cloudflare credentials,\n * and an unauthenticated caller has none. The routers are mounted with their static prefixes first —\n * `/ai/chat/sessions` before `/ai`, `/workers/summary` inside that router before its `/:accountId`\n * arm — because Hono answers in registration order.\n */",
     "/** What the module needs from the deployment. Answers, it does not guess. */",
     "// Before `/ai`: the chat history is an `/ai/chat/sessions` address, and an `/ai` router mounted first",
     "// would answer it with its own not-found before this one saw the request.",
+    "// Page Rules / URL normalization / SSL packs / IP Access Rules. Registered under the same prefix",
+    "// because they are all zone-addressed; none of their paths overlap `dnsRouter`'s.",
+    "// The Cloudflare-hosted AI Gateway management panel, distinct from the self-hosted relay above.",
+  ]],
+  ["src/worker/routes/cloudflare/network.ts", [
+    "// ---------------------------------------------------------------------------------------------",
+    "// Load balancing: account pools/monitors, zone load balancers, pool health.",
+    "// Bulk Redirects: account-level lists and their items.",
+    "// Email routing: settings, rules and account-level destination addresses.",
+    "// Snippets: zone snippets and the rules that select them.",
+    "// A zone that never created a snippet rule has no entrypoint ruleset; Cloudflare answers the rules",
+    "// endpoint with a 404 envelope. That is an empty list, not an unsupported product.",
+    "/**\n * `/api/cloudflare/network` — the four network surfaces added in Phase 2.\n *\n * Account-level resources (pools, monitors, redirect lists) need the reader's own account row; zone\n * resources (zone load balancers, email routing, snippets) also need the zone to belong to that\n * account, which `loadZoneForAccount` proves. Every write is audited and refused for a demo account.\n */",
+    "// Writes: create/delete only, so every control the screen draws has one endpoint behind it.",
+    "/** A load-balancer write refused with \"Access Failed\" means the account lacks the product, not a bad payload. */",
+  ]],
+  ["src/worker/routes/cloudflare/platform.ts", [
+    "/**\n * `/api/cloudflare/platform` — Queues, Durable Object namespaces and Hyperdrive configs.\n *\n * All three are account-scoped. Reads fan out to Cloudflare and writes are audited. Durable Object\n * namespaces are created by deploying a Worker that declares the class, so this router exposes the\n * list and the namespace's objects but no namespace create/delete call that Cloudflare does not offer.\n */",
+    "// ---------------------------------------------------------------------------------------------",
+    "// Queues.",
+    "// Hyperdrive. The origin password is write-only and is never echoed by Cloudflare or by this API.",
+    "// Durable Object namespaces. Account-level creation only produces SQLite-backed namespaces; the",
+    "// namespace's class still arrives through a Worker deployment.",
   ]],
   ["src/worker/routes/cloudflare/quota.ts", [
     "/**\n * `/api/cloudflare/quota` — today's allowance.\n *\n * The numbers come from the store the previous visit refreshed; Cloudflare is asked again behind the\n * response, so opening the dashboard costs one read instead of one GraphQL call per product per\n * account. The exception is a day with nothing counted yet: that answer would be blank, so it waits.\n */",
@@ -41603,6 +41902,9 @@ const allowed = new Map([
   ["src/worker/routes/cloudflare/tasks.ts", [
     "/**\n * `/api/cloudflare/tasks` — the scheduled maintenance rows and their history.\n *\n * The platform's cron trigger is what runs them (`runDueCloudflareTasks` in `cloudflare/tasks.ts`);\n * these routes only create, edit, enable and run on demand. A malformed cron is refused here rather\n * than stored and silently never fired.\n */",
   ]],
+  ["src/worker/routes/cloudflare/toolbox.ts", [
+    "/**\n * `/api/cloudflare/toolbox` — read-only DNS, RDAP, HTTP probe and Cloudflare trace helpers.\n *\n * There is no Cloudflare product API behind these tools; they call public endpoints. No writes, no\n * audit rows, and no reader credentials leave this deployment.\n */",
+  ]],
   ["src/worker/routes/cloudflare/tunnels.ts", [
     "/**\n * `/api/cloudflare/tunnels` — tunnels, their ingress, the origin wizard, and zone rulesets.\n *\n * Everything is addressed through an account the reader owns, and the account's Cloudflare id is the\n * only thing sent upstream. Tunnel ids are validated before they reach a path. The rules endpoints\n * live here under `/accounts/:id/zones/:zoneId/rules/:phase` because this file cannot mount a second\n * router at `/dns`; the aggregate router does not expose that DNS-shaped address yet.\n */",
     "/* -------------------------------------------------------------------------------------------------\n * Rulesets, addressable without the DNS screen\n * ---------------------------------------------------------------------------------------------- */",
@@ -41615,6 +41917,12 @@ const allowed = new Map([
     "// Resources used by the deploy dialog.",
     "// Pages.",
     "/** A listing route whose path carries no worker name: only the notebook account is needed. */",
+    "/**\n * A live tail: create Cloudflare's tail session, open the upstream WebSocket from this Worker and\n * bridge it to the browser's socket.\n *\n * The upstream is fetched as an HTTP upgrade (not a `wss://` URL), which is how the Worker runtime\n * connects to a WebSocket server. The tail URL already carries Cloudflare's one-time token; the\n * reader's own credential is only used to create and delete the session.\n */",
+    "/* already closed */",
+    "/* the tail stream is read-only */",
+  ]],
+  ["src/worker/routes/cloudflare/zero-trust.ts", [
+    "/**\n * `/api/cloudflare/zero-trust` — Access applications, groups, service tokens, IdPs, the organization\n * and the device inventory.\n *\n * Writes are limited to applications, groups and service tokens; IdPs, the organization and device\n * policies are read-only because the account already has them configured and this panel has no\n * business rewriting them.\n */",
   ]],
   ["src/worker/routes/community-templates.ts", [
     "/**\n * Publishing counts against a per-account hourly budget so one account cannot\n * flood the shared directory. Updating your own template spends the same\n * budget, which is the point: an edit is another write.\n */",
@@ -41662,6 +41970,16 @@ const allowed = new Map([
     "// placeholders are counted against; `updated_at` is appended by the store.",
     "// Both strategies answer the same way: a batch that matched no folder row is a folder that moved or",
     "// was edited underneath, and the route reports that instead of half-emptying the tree.",
+  ]],
+  ["src/worker/routes/gateway.ts", [
+    "/**\n * The public face of the self-hosted gateway.\n *\n * Two OpenAI formats share one canonical messages array, one reservation, one upstream call, and one\n * usage/neuron calculation. The router itself is unauthenticated; a `gw_` bearer key is the only\n * credential, and every response error is rewritten to OpenAI's `{error:{message,type,code}}` shape so\n * an Inkstone internal error can never leak to an external caller.\n */",
+    "/* ignore a malformed deployment URL */",
+    "/** Cloudflare's OpenAI-compatible endpoint reports the billed neurons alongside the token counts. */",
+    "/* not Cloudflare's JSON error envelope */",
+    "// Cloudflare also answers 403 for a model capability the account's token cannot change",
+    "// (\"This model doesn't support JSON Schema\"). That is a client error, not a broken credential.",
+    "// The account is healthy; the request was not something the model can serve. Do not cool the",
+    "// account down for a client error.",
   ]],
   ["src/worker/routes/inknote-assets.ts", [
     "/** HTTP surface for Inknote assets: upload, owner-only reads with Range, delete and prune. */",
@@ -44035,6 +44353,12 @@ const allowed = new Map([
     "// The batch call fails, then every item is retried on its own.",
     "// Clear the backoff and the item is attempted again, incrementing attempts.",
   ]],
+  ["tests/ai-gateway-platform.test.ts", [
+    "/**\n * The AI Gateway platform routes: reads, and the writes that read back and roll back.\n */",
+  ]],
+  ["tests/ai-gateway-routing.test.ts", [
+    "/**\n * The per-account routing switches behind the relay's `/ai/v1` calls.\n *\n * The contract under test is the default: a missing row means direct, no gateway header and no\n * payload header. Only an explicit switch adds `cf-aig-gateway-id`, and payload collection is its own\n * opt-in.\n */",
+  ]],
   ["tests/ai-proxy-guard.test.ts", [
     "/**\n * The one predicate every relay asks before it points a request at an address the account configured.\n *\n * What is decided here is the text of an address, so the spellings are the whole test: `2130706433` is\n * `127.0.0.1`, `0x7f000001` is `127.0.0.1`, and an IPv6 literal carries the same address in words that\n * only look unlike it. A public host and a public number have to stay allowed, or the guard is a way of\n * breaking the product rather than a guard.\n */",
   ]],
@@ -46162,6 +46486,7 @@ const allowed = new Map([
     "// A compound `SELECT … UNION ALL` per table is what SQLite rejects on a real database, so the",
     "// counts must arrive as scalar subqueries in one select list.",
     "// Counting walks every table, so opening a database must not do it.",
+    "// The search text is bound, never spliced into SQL, and every column can match it as text.",
   ]],
   ["tests/cloudflare-store.test.ts", [
     "// A README badge is usually SVG; it is served, but inert and typed as what it is.",

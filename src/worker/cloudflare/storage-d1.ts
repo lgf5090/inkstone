@@ -119,12 +119,13 @@ export async function runD1Query(
   cfAccountId: string,
   databaseId: string,
   sql: string,
+  params: readonly unknown[] = [],
 ): Promise<D1QueryResult> {
   if (!sql.trim()) throw ApiError.badRequest('SQL is required')
   const body = await cfFetch<{ result?: CfQueryEntry | CfQueryEntry[] | null }>(
     auth,
     `${d1Path(cfAccountId, databaseId)}/query`,
-    { method: 'POST', body: { sql } },
+    { method: 'POST', body: { sql, ...(params.length > 0 ? { params } : {}) } },
   )
   const entries = Array.isArray(body.result) ? body.result : body.result ? [body.result] : []
   const first = entries.find((entry) => Array.isArray(entry.results)) ?? entries[0]
@@ -246,4 +247,192 @@ export async function getD1TableSchema(
     })
   }
   return columns.sort((left, right) => left.cid - right.cid)
+}
+
+export interface D1RowsPage {
+  columns: string[]
+  primaryKey: string[]
+  rows: Record<string, unknown>[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface D1RowWriteResult {
+  changes: number
+}
+
+function primaryKeyOf(columns: readonly D1Column[]): D1Column[] {
+  return columns.filter((column) => column.pk > 0).sort((left, right) => left.pk - right.pk)
+}
+
+function rowValue(value: unknown, label: string): string | number | null {
+  if (value === null) return null
+  if (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))) return value
+  throw ApiError.badRequest(`${label} must be a string, number or null`)
+}
+
+function readRowKey(
+  value: unknown,
+  primaryKey: readonly D1Column[],
+): Array<string | number | null> {
+  if (primaryKey.length === 0) throw ApiError.badRequest('This table has no primary key')
+  const row = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+  if (!row) throw ApiError.badRequest('A row key is required')
+  const allowed = new Set(primaryKey.map((column) => column.name))
+  for (const name of Object.keys(row)) {
+    if (!allowed.has(name)) throw ApiError.badRequest(`Unexpected key column: ${name}`)
+  }
+  return primaryKey.map((column) => {
+    if (!(column.name in row)) throw ApiError.badRequest(`Missing key column: ${column.name}`)
+    const current = row[column.name]
+    if (current === null || current === undefined) throw ApiError.badRequest(`Key column ${column.name} is null`)
+    return rowValue(current, `Key column ${column.name}`)
+  })
+}
+
+function readRowValues(
+  value: unknown,
+  columns: readonly D1Column[],
+  primaryKey: readonly D1Column[],
+): Array<{ column: D1Column; value: string | number | null }> {
+  const row = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+  if (!row) throw ApiError.badRequest('Row values are required')
+  const names = Object.keys(row)
+  if (names.length === 0) throw ApiError.badRequest('No values were supplied')
+  const primaryNames = new Set(primaryKey.map((column) => column.name))
+  for (const name of names) {
+    if (primaryNames.has(name)) throw ApiError.badRequest(`Primary key column ${name} cannot be edited`)
+  }
+  return names.map((name) => {
+    const column = columns.find((entry) => entry.name === name)
+    if (!column) throw ApiError.badRequest(`Unknown column: ${name}`)
+    return { column, value: rowValue(row[name], `Column ${name}`) }
+  })
+}
+
+function assertSingleRow(changes: number | undefined): D1RowWriteResult {
+  if (changes === undefined) throw new ApiError(502, 'cloudflare_upstream', 'Cloudflare did not report the affected rows')
+  if (changes === 0) throw ApiError.notFound('No row matched the primary key')
+  if (changes > 1) throw new ApiError(502, 'cloudflare_upstream', 'More than one row matched the primary key')
+  return { changes }
+}
+
+/** Update one row selected by its primary key; identifiers come from the schema, values are bound. */
+export async function updateD1Row(
+  auth: CloudflareAuth,
+  cfAccountId: string,
+  databaseId: string,
+  tableName: string,
+  input: { key: unknown; values: unknown },
+): Promise<D1RowWriteResult> {
+  if (!tableName || tableName.length > 128 || /[\u0000-\u001f]/.test(tableName)) {
+    throw ApiError.badRequest('Invalid table name')
+  }
+  const columns = await getD1TableSchema(auth, cfAccountId, databaseId, tableName)
+  if (columns.length === 0) throw ApiError.notFound('That table has no columns')
+  const primaryKey = primaryKeyOf(columns)
+  const keyValues = readRowKey(input.key, primaryKey)
+  const values = readRowValues(input.values, columns, primaryKey)
+  const assignments = values.map(({ column }) => `${quoteIdent(column.name)} = ?`).join(', ')
+  const where = primaryKey.map((column) => `${quoteIdent(column.name)} = ?`).join(' AND ')
+  const result = await runD1Query(
+    auth,
+    cfAccountId,
+    databaseId,
+    `UPDATE ${quoteIdent(tableName)} SET ${assignments} WHERE ${where}`,
+    [...values.map(({ value }) => value), ...keyValues],
+  )
+  return assertSingleRow(result.meta.changes)
+}
+
+/** Delete one row selected by its primary key; identifiers come from the schema, values are bound. */
+export async function deleteD1Row(
+  auth: CloudflareAuth,
+  cfAccountId: string,
+  databaseId: string,
+  tableName: string,
+  key: unknown,
+): Promise<D1RowWriteResult> {
+  if (!tableName || tableName.length > 128 || /[\u0000-\u001f]/.test(tableName)) {
+    throw ApiError.badRequest('Invalid table name')
+  }
+  const columns = await getD1TableSchema(auth, cfAccountId, databaseId, tableName)
+  if (columns.length === 0) throw ApiError.notFound('That table has no columns')
+  const primaryKey = primaryKeyOf(columns)
+  const keyValues = readRowKey(key, primaryKey)
+  const where = primaryKey.map((column) => `${quoteIdent(column.name)} = ?`).join(' AND ')
+  const result = await runD1Query(
+    auth,
+    cfAccountId,
+    databaseId,
+    `DELETE FROM ${quoteIdent(tableName)} WHERE ${where}`,
+    keyValues,
+  )
+  return assertSingleRow(result.meta.changes)
+}
+
+/**
+ * One page of a table's rows, optionally filtered across every column.
+ *
+ * The table name comes from the database's own listing and is re-quoted; the search text is bound
+ * as a parameter, never spliced into the statement. Filtering casts each column to text so an
+ * integer or blob column can still match a reader's search without guessing its type.
+ *
+ * This is read-only: it never builds an UPDATE or DELETE.
+ */
+export async function readD1Rows(
+  auth: CloudflareAuth,
+  cfAccountId: string,
+  databaseId: string,
+  tableName: string,
+  options: { limit: number; offset: number; search: string },
+): Promise<D1RowsPage> {
+  if (!tableName || tableName.length > 128 || /[\u0000-\u001f]/.test(tableName)) {
+    throw ApiError.badRequest('Invalid table name')
+  }
+  const columns = await getD1TableSchema(auth, cfAccountId, databaseId, tableName)
+  if (columns.length === 0) throw ApiError.notFound('That table has no columns')
+  const search = options.search.trim()
+  if (search.length > 200) throw ApiError.badRequest('The search text is longer than 200 characters')
+
+  let where = ''
+  const params: unknown[] = []
+  if (search) {
+    where = ` WHERE ${columns.map((column) => `CAST(${quoteIdent(column.name)} AS TEXT) LIKE ?`).join(' OR ')}`
+    for (let index = 0; index < columns.length; index += 1) params.push(`%${search}%`)
+  }
+  const identifier = quoteIdent(tableName)
+  const counted = await runD1Query(
+    auth,
+    cfAccountId,
+    databaseId,
+    `SELECT COUNT(*) AS total FROM ${identifier}${where}`,
+    params,
+  )
+  const total = numberOrUndefined(counted.results[0]?.total) ?? 0
+
+  const order = columns.filter((column) => column.pk > 0).sort((left, right) => left.pk - right.pk)
+  const orderBy = order.length > 0
+    ? ` ORDER BY ${order.map((column) => quoteIdent(column.name)).join(', ')}`
+    : ''
+  const page = await runD1Query(
+    auth,
+    cfAccountId,
+    databaseId,
+    `SELECT * FROM ${identifier}${where}${orderBy} LIMIT ? OFFSET ?`,
+    [...params, options.limit, options.offset],
+  )
+  return {
+    columns: columns.map((column) => column.name),
+    primaryKey: primaryKeyOf(columns).map((column) => column.name),
+    rows: page.results,
+    total,
+    limit: options.limit,
+    offset: options.offset,
+  }
 }

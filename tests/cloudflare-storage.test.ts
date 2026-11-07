@@ -309,6 +309,128 @@ describe('D1 routes', () => {
     expect(other.status).toBe(404)
     expect(calls).toHaveLength(0)
   })
+
+  it('reads one page of rows with a bound search and a primary-key order', async () => {
+    const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-d', accountId: 'cf-d' })
+    const statements: Array<{ sql: string; params?: unknown[] }> = []
+    stubApi(({ method, path, body }) => {
+      if (method !== 'POST' || path !== '/accounts/cf-d/d1/database/db-1/query') return null
+      const payload = body as { sql: string; params?: unknown[] }
+      statements.push(payload)
+      if (payload.sql.startsWith('PRAGMA table_info')) {
+        return cfJson([{
+          results: [
+            { cid: 0, name: 'id', type: 'INTEGER', notnull: 1, dflt_value: null, pk: 1 },
+            { cid: 1, name: 'title', type: 'TEXT', notnull: 1, dflt_value: null, pk: 0 },
+          ],
+          meta: { duration: 1 },
+        }])
+      }
+      if (payload.sql.includes('COUNT(*)')) {
+        return cfJson([{ results: [{ total: 3 }], meta: { duration: 1 } }])
+      }
+      return cfJson([{
+        results: [{ id: 2, title: 'two' }, { id: 3, title: 'three' }],
+        meta: { duration: 2 },
+      }])
+    })
+
+    const response = await send('GET', `/${account.id}/d1/db-1/tables/users/rows?limit=2&offset=1&search=two`)
+    expect(response.status).toBe(200)
+    expect(await readJson(response)).toEqual({
+      columns: ['id', 'title'],
+      primaryKey: ['id'],
+      rows: [{ id: 2, title: 'two' }, { id: 3, title: 'three' }],
+      total: 3,
+      limit: 2,
+      offset: 1,
+    })
+    const counted = statements.find((entry) => entry.sql.includes('COUNT(*)'))
+    // The search text is bound, never spliced into SQL, and every column can match it as text.
+    expect(counted?.sql).toContain('CAST("id" AS TEXT) LIKE ?')
+    expect(counted?.params).toEqual(['%two%', '%two%'])
+    const page = statements.at(-1)
+    expect(page?.sql).toContain('ORDER BY "id"')
+    expect(page?.params).toEqual(['%two%', '%two%', 2, 1])
+    expect(statements.some((entry) => /(UPDATE|DELETE|INSERT|DROP|ALTER)/i.test(entry.sql))).toBe(false)
+  })
+
+  it('updates and deletes one row by its primary key, binding every value', async () => {
+    const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-g', accountId: 'cf-g' })
+    const writes: Array<{ sql: string; params?: unknown[] }> = []
+    stubApi(({ method, path, body }) => {
+      if (method !== 'POST' || path !== '/accounts/cf-g/d1/database/db-1/query') return null
+      const payload = body as { sql: string; params?: unknown[] }
+      if (payload.sql.startsWith('PRAGMA table_info')) {
+        return cfJson([{
+          results: [
+            { cid: 0, name: 'id', type: 'INTEGER', notnull: 1, dflt_value: null, pk: 1 },
+            { cid: 1, name: 'title', type: 'TEXT', notnull: 1, dflt_value: null, pk: 0 },
+          ],
+          meta: { duration: 1 },
+        }])
+      }
+      writes.push(payload)
+      return cfJson([{ results: [], meta: { duration: 1, changes: 1 } }])
+    })
+
+    const updated = await send('PATCH', `/${account.id}/d1/db-1/tables/users/rows`, {
+      key: { id: 1 },
+      values: { title: "edited'value" },
+      allowWrite: true,
+    })
+    expect(updated.status).toBe(200)
+    expect(await readJson(updated)).toEqual({ changes: 1 })
+    expect(writes[0]?.sql).toBe('UPDATE "users" SET "title" = ? WHERE "id" = ?')
+    expect(writes[0]?.params).toEqual(["edited'value", 1])
+
+    const deleted = await send('DELETE', `/${account.id}/d1/db-1/tables/users/rows`, {
+      key: { id: 1 },
+      allowWrite: true,
+    })
+    expect(deleted.status).toBe(200)
+    expect(await readJson(deleted)).toEqual({ changes: 1 })
+    expect(writes[1]?.sql).toBe('DELETE FROM "users" WHERE "id" = ?')
+    expect(writes[1]?.params).toEqual([1])
+    expect(await auditActions()).toEqual(expect.arrayContaining(['d1_row_update', 'd1_row_delete']))
+  })
+
+  it('refuses row writes without the switch and rejects unknown or primary-key columns', async () => {
+    const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-h', accountId: 'cf-h' })
+    let queries = 0
+    stubApi(({ method, path, body }) => {
+      if (method !== 'POST' || path !== '/accounts/cf-h/d1/database/db-1/query') return null
+      const payload = body as { sql: string }
+      if (payload.sql.startsWith('PRAGMA table_info')) {
+        queries += 1
+        return cfJson({
+          results: [{ cid: 0, name: 'id', type: 'INTEGER', notnull: 1, dflt_value: null, pk: 1 }],
+          meta: { duration: 1 },
+        })
+      }
+      queries += 1
+      return cfJson([{ results: [], meta: { duration: 1, changes: 1 } }])
+    })
+
+    const noSwitch = await send('PATCH', `/${account.id}/d1/db-1/tables/users/rows`, {
+      key: { id: 1 },
+      values: { title: 'x' },
+    })
+    expect(noSwitch.status).toBe(403)
+    const keyColumn = await send('PATCH', `/${account.id}/d1/db-1/tables/users/rows`, {
+      key: { id: 1 },
+      values: { id: 2 },
+      allowWrite: true,
+    })
+    expect(keyColumn.status).toBe(400)
+    const unknownColumn = await send('PATCH', `/${account.id}/d1/db-1/tables/users/rows`, {
+      key: { id: 1 },
+      values: { missing: 'x' },
+      allowWrite: true,
+    })
+    expect(unknownColumn.status).toBe(400)
+    expect(queries).toBe(2)
+  })
 })
 
   it('reads the row-count batches concurrently and keys them by table', async () => {
@@ -480,5 +602,100 @@ describe('R2 routes', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('reads bucket settings, treating a missing policy as an empty one', async () => {
+    const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-e', accountId: 'cf-e' })
+    stubApi(({ method, path }) => {
+      if (method !== 'GET') return null
+      const base = '/accounts/cf-e/r2/buckets/bucket-a'
+      if (path === `${base}/cors`) return new Response('{"success":false,"errors":[]}', { status: 404 })
+      if (path === `${base}/domains/managed`) return cfJson({ domain: 'pub-example.r2.dev', enabled: false })
+      if (path === `${base}/domains/custom`) {
+        return cfJson({
+          domains: [{
+            domain: 'cdn.example.com',
+            enabled: true,
+            status: { ownership: 'active', ssl: 'active' },
+            zoneId: 'zone-1',
+            zoneName: 'example.com',
+            minTLS: '1.2',
+          }],
+        })
+      }
+      if (path === `${base}/lifecycle`) {
+        return cfJson({
+          rules: [{
+            id: 'expire',
+            enabled: true,
+            conditions: { prefix: 'tmp/' },
+            deleteObjectsTransition: { condition: { type: 'Age', maxAge: 86_400 } },
+          }],
+        })
+      }
+      return null
+    })
 
+    const response = await send('GET', `/${account.id}/r2/bucket-a/settings`)
+    expect(response.status).toBe(200)
+    expect(await readJson(response)).toEqual({
+      cors: [],
+      managed_domain: { domain: 'pub-example.r2.dev', enabled: false },
+      custom_domains: [{
+        domain: 'cdn.example.com',
+        enabled: true,
+        status: { ownership: 'active', ssl: 'active' },
+        zoneId: 'zone-1',
+        zoneName: 'example.com',
+        minTLS: '1.2',
+      }],
+      lifecycle: [{
+        id: 'expire',
+        enabled: true,
+        conditions: { prefix: 'tmp/' },
+        deleteObjectsTransition: { condition: { type: 'Age', maxAge: 86_400 } },
+      }],
+    })
+  })
+
+  it('writes whole CORS and lifecycle policies, access, and a custom domain', async () => {
+    const account = await seedAccount(bed, TEST_USER, { id: ACCOUNT_A, token: 'token-f', accountId: 'cf-f' })
+    stubApi(({ method, path }) => {
+      const base = '/accounts/cf-f/r2/buckets/bucket-a'
+      if (method === 'PUT' && path === `${base}/cors`) return cfJson({})
+      if (method === 'PUT' && path === `${base}/lifecycle`) return cfJson({})
+      if (method === 'PUT' && path === `${base}/domains/managed`) return cfJson({})
+      if (method === 'POST' && path === `${base}/domains/custom`) return cfJson({})
+      if (method === 'DELETE' && path === `${base}/domains/custom/cdn.example.com`) return cfJson({})
+      return null
+    })
+
+    const cors = [{ allowed: { origins: ['https://app.example'], methods: ['GET'] }, maxAgeSeconds: 3600 }]
+    expect((await send('PUT', `/${account.id}/r2/bucket-a/cors`, { rules: cors })).status).toBe(200)
+    const lifecycle = [{
+      enabled: true,
+      conditions: { prefix: 'tmp/' },
+      deleteObjectsTransition: { condition: { type: 'Age', maxAge: 86_400 } },
+    }]
+    expect((await send('PUT', `/${account.id}/r2/bucket-a/lifecycle`, { rules: lifecycle })).status).toBe(200)
+    expect((await send('PUT', `/${account.id}/r2/bucket-a/domains/managed`, { enabled: true })).status).toBe(200)
+    expect((await send('POST', `/${account.id}/r2/bucket-a/domains/custom`, {
+      domain: 'cdn.example.com',
+      zoneId: '0123456789abcdef0123456789abcdef',
+      minTLS: '1.2',
+    })).status).toBe(201)
+    expect((await send('DELETE', `/${account.id}/r2/bucket-a/domains/custom/cdn.example.com`)).status).toBe(200)
+
+    const corsCall = calls.find((call) => call.path.endsWith('/cors') && call.method === 'PUT')
+    expect(corsCall?.body).toEqual({ rules: cors })
+    const lifecycleCall = calls.find((call) => call.path.endsWith('/lifecycle') && call.method === 'PUT')
+    expect(lifecycleCall?.body).toEqual({ rules: lifecycle })
+    const managedCall = calls.find((call) => call.path.endsWith('/domains/managed'))
+    expect(managedCall?.body).toEqual({ enabled: true })
+    expect(await auditActions()).toEqual(expect.arrayContaining([
+      'update_r2_cors',
+      'update_r2_lifecycle',
+      'update_r2_managed_domain',
+      'attach_r2_custom_domain',
+      'detach_r2_custom_domain',
+    ]))
+  })
 })

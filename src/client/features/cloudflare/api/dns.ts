@@ -72,6 +72,15 @@ export interface ZoneSettings {
   minify?: ZoneMinify
   brotli?: string
   zero_rtt?: string
+  tls_1_3?: string
+  min_tls_version?: string
+  http2?: string
+  http3?: string
+  websockets?: string
+  ipv6?: string
+  always_online?: string
+  early_hints?: string
+  opportunistic_encryption?: string
 }
 
 export interface UpdateSettingsResult {
@@ -103,15 +112,22 @@ export interface CreateDomainsInput {
 export interface PurgeCacheInput {
   purge_everything?: boolean
   files?: string[]
+  prefixes?: string[]
+  hosts?: string[]
+  tags?: string[]
 }
 
 export type RulePhase =
   | 'origin'
   | 'redirect'
+  | 'single_redirect'
   | 'transform'
   | 'request_headers'
   | 'response_headers'
   | 'cache_settings'
+  | 'config'
+  | 'compression'
+  | 'custom_errors'
   | 'firewall'
   | 'rate_limit'
 
