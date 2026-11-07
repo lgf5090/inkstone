@@ -147,6 +147,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           card={openCard}
           properties={bundle.properties}
           members={bundle.members}
+          contents={bundle.contents.filter((content) => content.cardId === openCard.id)}
           canEdit={canEdit}
           onClose={() => setOpenCardId(null)}
           onUpdated={(updated) => setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current))}

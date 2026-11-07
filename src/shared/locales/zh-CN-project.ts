@@ -62,4 +62,9 @@ export const ZH_CN_PROJECT = {
     "project.view.filter_value": "值",
     "project.view.no_sorts": "暂无排序",
     "project.view.no_filters": "暂无过滤",
+    "project.card.content": "正文",
+    "project.card.add_content": "添加内容",
+    "project.card.text_block": "文本",
+    "project.card.checkbox_block": "复选框",
+    "project.card.divider_block": "分隔线",
 } as const

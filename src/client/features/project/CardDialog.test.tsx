@@ -10,6 +10,9 @@ vi.mock('./api', () => ({
   patchProjectCard: vi.fn(),
   fetchCardComments: vi.fn(),
   createCardComment: vi.fn(),
+  createCardContent: vi.fn(),
+  patchCardContent: vi.fn(),
+  deleteCardContent: vi.fn(),
 }))
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
@@ -23,7 +26,7 @@ let view: RenderedElement
 async function mount(): Promise<void> {
   await act(async () => {
     view = renderElement(createElement(CardDialog, {
-      card, properties, members: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(),
+      card, properties, members: [], contents: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(),
     }))
   })
 }
@@ -61,5 +64,19 @@ describe('the card dialog', () => {
     await act(async () => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
     expect(api.createCardComment).toHaveBeenCalledWith('c1', 'Hello')
     expect(document.body.textContent).toContain('Hello')
+  })
+
+  it('toggles a checkbox content block through patchCardContent', async () => {
+    const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'checkbox' as const, title: 'Step', fields: { checked: false }, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
+    vi.mocked(api.patchCardContent).mockResolvedValue({ ...block, fields: { checked: true } })
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, {
+        card, properties, members: [], contents: [block], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(),
+      }))
+    })
+    const checkbox = document.body.querySelector('[data-project-content="a1"] [role="checkbox"]') as HTMLButtonElement
+    expect(checkbox).not.toBeNull()
+    await act(async () => { checkbox.click() })
+    expect(api.patchCardContent).toHaveBeenCalledWith('a1', { fields: { checked: true } })
   })
 })

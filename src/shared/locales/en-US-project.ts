@@ -62,4 +62,9 @@ export const EN_US_PROJECT = {
     "project.view.filter_value": "Value",
     "project.view.no_sorts": "No sorts",
     "project.view.no_filters": "No filters",
+    "project.card.content": "Content",
+    "project.card.add_content": "Add content",
+    "project.card.text_block": "Text",
+    "project.card.checkbox_block": "Checkbox",
+    "project.card.divider_block": "Divider",
 } as const

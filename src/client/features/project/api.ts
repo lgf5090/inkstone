@@ -7,10 +7,12 @@ import type {
   ProjectBoardSummary,
   ProjectCard,
   ProjectComment,
+  ProjectContent,
   ProjectView,
   ProjectViewPatch,
   ProjectViewType,
 } from '@shared/project/model'
+import type { ProjectContentCreateInput, ProjectContentPatchInput } from '@shared/project/validation'
 import type { ProjectBoardCreateInput, ProjectCardCreateInput } from '@shared/project/validation'
 
 export async function fetchProjectBoards(signal?: AbortSignal): Promise<ProjectBoardSummary[]> {
@@ -77,4 +79,18 @@ export async function fetchCardComments(cardId: string, signal?: AbortSignal): P
 export async function createCardComment(cardId: string, body: string): Promise<ProjectComment> {
   const result = await request<{ comment: ProjectComment }>(`/api/project/cards/${encodeURIComponent(cardId)}/comments`, { method: 'POST', body: { body } })
   return result.comment
+}
+
+export async function createCardContent(cardId: string, input: Partial<ProjectContentCreateInput>): Promise<ProjectContent> {
+  const result = await request<{ content: ProjectContent }>(`/api/project/cards/${encodeURIComponent(cardId)}/contents`, { method: 'POST', body: input })
+  return result.content
+}
+
+export async function patchCardContent(id: string, patch: ProjectContentPatchInput): Promise<ProjectContent> {
+  const result = await request<{ content: ProjectContent }>(`/api/project/contents/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
+  return result.content
+}
+
+export async function deleteCardContent(id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/contents/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
