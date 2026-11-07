@@ -497,6 +497,16 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   ['tools_shortlinks_api_keys', 'id INTEGER PRIMARY KEY AUTOINCREMENT, lookup by unique key_hash; management binds user_id'],
   ['tools_compare_projects', 'id INTEGER PRIMARY KEY AUTOINCREMENT; every read filters on user_id, and the public share is addressed by an unguessable slug'],
   ['tools_compare_runs', 'id INTEGER PRIMARY KEY AUTOINCREMENT append-only comparison ledger; every read binds user_id'],
+  // The project app's boards are shared objects, so a membership edge keys on the board it grants
+  // rather than on the account it grants to: `board_id` is a `newProjectId('board')` (27 characters,
+  // 26 of them crypto-random) and no other account can name it. Reads resolve the board first.
+  ['project_board_members', 'composite (board_id, user_id) on newProjectId() boards'],
+  ['project_todo_links', 'composite (card_id, todo_id) on newProjectId() cards; the unique index on todo_id keeps one card per todo'],
+  ['project_attachments', 'id is a 27-character newProjectId(); every read binds user_id'],
+  // Public by slug, and the link is the capability: a reader who is not signed in has no account to
+  // lead the key with. Minted by `newSlug()` (worker/lib/id.ts), the same unguessable 20-character
+  // generator the note and conversation shares were verified on; management binds user_id.
+  ['project_shares', 'newSlug(), unguessable; public read by slug alone'],
 ])
 
 /** The tables that carry a `user_id` column yet key on something else. */
