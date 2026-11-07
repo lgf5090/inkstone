@@ -9,6 +9,7 @@ import { Select } from '../../components/form'
 import { Menu, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { FilterModal, PropertiesModal, SortModal } from './ViewSettingsModals'
+import { CalendarView, GalleryView } from './GalleryCalendar'
 
 const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   board: 'project.view.board',
@@ -90,7 +91,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               open={addOpen}
               onClose={() => setAddOpen(false)}
               label={t('project.view.add')}
-              items={([['table', 'project.view.table'], ['board', 'project.view.board']] as const).map(([type, key]) => ({
+              items={([['table', 'project.view.table'], ['board', 'project.view.board'], ['gallery', 'project.view.gallery'], ['calendar', 'project.view.calendar']] as const).map(([type, key]) => ({
                 id: type,
                 label: t(key),
                 onSelect: () => onCreateView(type),
@@ -120,11 +121,15 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           </span>
         )}
       </div>
-      {sorted.length === 0
-        ? <Empty art="folder" title={t('project.board.empty_cards')} />
-        : viewType === 'board'
-          ? <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} />
-          : (
+      {viewType === 'calendar'
+        ? <CalendarView cards={sorted} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} onOpenCard={onOpenCard} />
+        : sorted.length === 0
+          ? <Empty art="folder" title={t('project.board.empty_cards')} />
+          : viewType === 'board'
+            ? <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} />
+            : viewType === 'gallery'
+              ? <GalleryView cards={sorted} onOpenCard={onOpenCard} />
+              : (
               <div className="min-h-0 flex-1 overflow-auto">
                 <table className="w-full border-collapse text-[length:var(--text-13)]">
                   <thead>

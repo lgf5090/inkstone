@@ -67,4 +67,6 @@ export const EN_US_PROJECT = {
     "project.card.text_block": "Text",
     "project.card.checkbox_block": "Checkbox",
     "project.card.divider_block": "Divider",
+    "project.view.prev_month": "Previous month",
+    "project.view.next_month": "Next month",
 } as const

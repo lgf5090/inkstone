@@ -67,4 +67,6 @@ export const ZH_CN_PROJECT = {
     "project.card.text_block": "文本",
     "project.card.checkbox_block": "复选框",
     "project.card.divider_block": "分隔线",
+    "project.view.prev_month": "上个月",
+    "project.view.next_month": "下个月",
 } as const
