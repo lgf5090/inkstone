@@ -26,7 +26,14 @@ export function sftpSize(value: SFTPAttrs['size'] | undefined): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
 }
 
+function longnameOwner(longname: string): { owner: string; group: string } | null {
+  const parts = longname.trim().split(/\s+/)
+  if (parts.length < 4 || !/^[\d,]+$/.test(parts[1] ?? '')) return null
+  return { owner: parts[2] ?? '', group: parts[3] ?? '' }
+}
+
 function entryFromAttrs(directory: string, name: string, longname: string, attrs: SFTPAttrs): WebsshSftpEntry {
+  const names = longnameOwner(longname)
   return {
     name,
     path: joinRemotePath(directory, name),
@@ -34,8 +41,19 @@ function entryFromAttrs(directory: string, name: string, longname: string, attrs
     size: sftpSize(attrs.size),
     mtime: attrs.mtime ?? null,
     permissions: formatSftpPermissions(attrs),
+    uid: attrs.uid ?? null,
+    gid: attrs.gid ?? null,
+    owner: names?.owner ?? (attrs.uid === undefined ? '' : String(attrs.uid)),
+    group: names?.group ?? (attrs.gid === undefined ? '' : String(attrs.gid)),
     longname,
   }
+}
+
+export async function statEntry(client: SFTPClient, path: string): Promise<WebsshSftpEntry> {
+  const attrs = await client.stat(path)
+  const name = path.split('/').filter(Boolean).pop() ?? '/'
+  const directory = path === '/' ? '/' : path.slice(0, Math.max(1, path.lastIndexOf('/')))
+  return entryFromAttrs(directory, name, '', attrs)
 }
 
 /** REALPATH + OPENDIR/READDIR until EOF; `.`/`..` and unsafe names are dropped. */

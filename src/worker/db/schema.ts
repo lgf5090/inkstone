@@ -102,6 +102,7 @@ import {
 } from '../clouddrive/schema'
 import {
   WEBSSH_DASHBOARD_SCHEMA_STATEMENTS,
+  WEBSSH_FORWARD_SCHEMA_STATEMENTS,
   WEBSSH_HOST_FILTER_INDEX_STATEMENTS,
   WEBSSH_HOST_METADATA_STATEMENTS,
   WEBSSH_PROVIDERS_SCHEMA_STATEMENTS,
@@ -4020,6 +4021,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 301,
     statements: WEBSSH_DASHBOARD_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 304,
+    statements: WEBSSH_FORWARD_SCHEMA_STATEMENTS,
   },
   {
     // Open Graph preview payloads for social crawlers. 314 is the first free short-link number:

@@ -30,6 +30,7 @@ import type { TerminalTransportFactory } from './transport/types'
 import { MAX_RECONNECT_ATTEMPTS } from './session-retry'
 import { useTerminalSession, type TerminalSessionPhase } from './use-terminal-session'
 import { useXterm, type XtermController } from './use-xterm'
+import { parseOsc7Path, resolveCdCommand } from './use-terminal-cwd'
 
 export interface TerminalPaneSession {
   id: string
@@ -59,8 +60,10 @@ export function TerminalPane({
   isDark,
   createTransport,
   panelId,
+  homePath,
   onPhaseChange,
   onSessionId,
+  onCwd,
   insertRequest,
 }: {
   session: TerminalPaneSession
@@ -69,8 +72,10 @@ export function TerminalPane({
   isDark: boolean
   createTransport: TerminalTransportFactory
   panelId: string
+  homePath: string
   onPhaseChange?: (id: string, phase: TerminalSessionPhase) => void
   onSessionId?: (sessionId: string) => void
+  onCwd?: (path: string) => void
   /** A snippet the workspace asked to type into this tab; `token` makes repeats distinguishable. */
   insertRequest?: { text: string; token: number } | null
 }) {
@@ -78,6 +83,8 @@ export function TerminalPane({
   const writeRef = useRef<(data: string) => void>(() => {})
   const apiRef = useRef<XtermController | null>(null)
   const insertTokenRef = useRef(0)
+  const cwdRef = useRef(homePath)
+  const commandRef = useRef('')
   const hintId = useId()
   const [hasSelection, setHasSelection] = useState(false)
   const [dimensions, setDimensions] = useState({ cols: 80, rows: 24 })
@@ -94,9 +101,42 @@ export function TerminalPane({
     createTransport,
     initialCols: dimensions.cols,
     initialRows: dimensions.rows,
-    onOutput: (data) => writeRef.current(data),
+    onOutput: (data) => {
+      const oscPath = parseOsc7Path(data)
+      if (oscPath) {
+        cwdRef.current = oscPath
+        onCwd?.(oscPath)
+      }
+      writeRef.current(data)
+    },
     onSessionId,
   })
+
+  const trackCommand = (data: string) => {
+    for (const character of data) {
+      if (character === '\r' || character === '\n') {
+        const line = commandRef.current
+        commandRef.current = ''
+        const nextPath = resolveCdCommand(line, cwdRef.current, homePath)
+        if (nextPath) {
+          cwdRef.current = nextPath
+          onCwd?.(nextPath)
+        }
+        continue
+      }
+      if (character === '\x7f') {
+        commandRef.current = commandRef.current.slice(0, -1)
+        continue
+      }
+      if (character === '\x03' || character === '\x15') {
+        commandRef.current = ''
+        continue
+      }
+      if (character < ' ') continue
+      if (commandRef.current.length < 4096) commandRef.current += character
+    }
+    connection.send(data)
+  }
 
   const toast = (title: string, tone: 'success' | 'warning' | 'danger' = 'success') => {
     useUi.getState().toast({ title, tone })
@@ -159,7 +199,7 @@ export function TerminalPane({
     theme,
     fontSize: settings.fontSize,
     cursorBlink: !reducedMotion,
-    onInput: connection.send,
+    onInput: trackCommand,
     onResize: (cols, rows) => {
       setDimensions({ cols, rows })
       connection.resize(cols, rows)

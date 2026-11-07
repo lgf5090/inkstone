@@ -5,10 +5,10 @@
 // then resolves/opens the SSH connection. Frames are the frozen W4 text protocol; terminal bytes are
 // never interpreted here.
 
-import type { WebsshMonitorKillResult, WebsshMonitorSnapshot, WebsshServerFrame, WebsshSessionStatus } from '@shared/webssh/types'
+import type { WebsshForwardGrant, WebsshMonitorKillResult, WebsshMonitorSnapshot, WebsshServerFrame, WebsshSessionStatus } from '@shared/webssh/types'
 import type { Env } from '../../env'
 import { decryptWebsshSecret } from '../../lib/crypto'
-import { isValidId } from '../../lib/id'
+import { isValidId, newId } from '../../lib/id'
 import { SSHSession, type SSHExecChannel, type SSHSubsystemChannel } from '../ssh/session'
 import { SSHSessionError } from '../ssh/errors'
 import type {
@@ -22,7 +22,7 @@ import type {
 import { normalizeTerminalSize } from '../ssh/types'
 import { SFTPClient, SFTPStatusError } from '../sftp/client'
 import { SFTP_STATUS } from '../sftp/types'
-import { listDirectory, readFileRange, writeFileChunks, SftpOperationError } from '../sftp/operations'
+import { listDirectory, readFileRange, statEntry, writeFileChunks, SftpOperationError } from '../sftp/operations'
 import { SftpPathError, normalizeSftpPath } from '../sftp/paths'
 import { WEBSSH_SFTP_MAX_FILE_BYTES, WEBSSH_SFTP_MAX_UPLOAD_PARTS } from '../sftp/limits'
 import {
@@ -34,11 +34,16 @@ import {
 } from '../connection'
 import {
   WEBSSH_ACTIVITY_PERSIST_MS,
+  WEBSSH_API_PREFIX,
+  WEBSSH_FORWARD_MAX_ACTIVE_PER_SESSION,
+  WEBSSH_FORWARD_MAX_REQUEST_BYTES,
+  WEBSSH_FORWARD_TTL_MS,
   WEBSSH_IDLE_TIMEOUT_MS,
   WEBSSH_MAX_FRAME_BYTES,
   WEBSSH_MAX_INITIAL_COMMAND_LENGTH,
   WEBSSH_PRE_READY_OUTPUT_LIMIT,
 } from '../constants'
+import { ForwardProxyError, forwardHttpRequest, isLoopbackTargetHost, normalizeForwardHost, normalizeForwardPort } from '../forwarding/proxy'
 import { recordAudit } from '../audit'
 import { WebsshSessionRecorder } from '../recording/recorder'
 import { isWebsshAutoTrustFirst, isWebsshRecordingEnabled } from '../settings'
@@ -81,6 +86,15 @@ interface RuntimeConfig {
   initialCommand: string
   credentialId: string
   keyId: string
+}
+
+interface ForwardGrantRow {
+  token: string
+  host: string
+  port: number
+  createdAt: number
+  expiresAt: number
+  requests: number
 }
 
 const HANDSHAKE_TIMEOUT_MS = 20_000
@@ -132,6 +146,8 @@ export class WebsshSession implements DurableObject {
   private sftpClient: SFTPClient | null = null
   private sftpChannel: SSHSubsystemChannel | null = null
   private sftpChain: Promise<unknown> = Promise.resolve()
+  private readonly forwardGrants = new Map<string, ForwardGrantRow>()
+  private forwardChain: Promise<unknown> = Promise.resolve()
   private recorder: WebsshSessionRecorder | null = null
   private monitorCounters: MonitorCounters | null = null
   private monitorSnapshot: WebsshMonitorSnapshot | null = null
@@ -155,6 +171,12 @@ export class WebsshSession implements DurableObject {
     }
     if (url.pathname === '/internal/monitor') {
       return this.handleMonitorRequest(request, sessionId, userId)
+    }
+    if (url.pathname === '/internal/forward') {
+      return this.handleForwardManagement(request, sessionId, userId)
+    }
+    if (url.pathname === '/internal/forward/proxy') {
+      return this.handleForwardProxy(request, sessionId, userId)
     }
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
       return new Response('This session runtime accepts only WebSocket upgrades', { status: 426 })
@@ -550,6 +572,12 @@ export class WebsshSession implements DurableObject {
         },
       })
     }
+    if (op === 'stat') {
+      const client = await this.ensureSftpClient()
+      const path = normalizeSftpPath(body.path)
+      const entry = await statEntry(client, path)
+      return sftpJson({ entry })
+    }
     if (op === 'mkdir') {
       const client = await this.ensureSftpClient()
       const path = normalizeSftpPath(body.path)
@@ -844,6 +872,147 @@ export class WebsshSession implements DurableObject {
     })
   }
 
+  private async loadActiveForwardSession(sessionId: string, userId: string): Promise<string | null> {
+    const row = await this.env.DB.prepare(
+      `SELECT status, host_id FROM webssh_sessions WHERE id = ?1 AND user_id = ?2`,
+    )
+      .bind(sessionId, userId)
+      .first<{ status: string; host_id: string }>()
+    if (!row || row.status !== 'active' || this.finalized) return null
+    this.sessionId = sessionId
+    this.userId = userId
+    this.hostId = row.host_id
+    this.touch()
+    return row.host_id
+  }
+
+  private pruneForwardGrants(now: number): void {
+    for (const [token, grant] of this.forwardGrants) {
+      if (grant.expiresAt <= now) this.forwardGrants.delete(token)
+    }
+  }
+
+  private forwardGrantView(grant: ForwardGrantRow): WebsshForwardGrant {
+    return {
+      token: grant.token,
+      sessionId: this.sessionId,
+      hostId: this.hostId,
+      targetHost: grant.host,
+      targetPort: grant.port,
+      url: `${WEBSSH_API_PREFIX}/sessions/${this.sessionId}/forward/${grant.token}/`,
+      createdAt: grant.createdAt,
+      expiresAt: grant.expiresAt,
+      requests: grant.requests,
+    }
+  }
+
+  private async handleForwardManagement(request: Request, sessionId: string, userId: string): Promise<Response> {
+    if (request.method !== 'POST') return sftpJsonError(405, 'method_not_allowed', 'Forward operations are POST-only')
+    if (!await this.loadActiveForwardSession(sessionId, userId)) {
+      return sftpJsonError(409, 'session_not_ready', 'The SSH session is not active')
+    }
+    let body: Record<string, unknown>
+    try {
+      const parsed: unknown = await request.json()
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid body')
+      body = parsed as Record<string, unknown>
+    } catch {
+      return sftpJsonError(400, 'bad_request', 'The forward body must be a JSON object')
+    }
+
+    const now = Date.now()
+    this.pruneForwardGrants(now)
+    const op = body.op
+    if (op === 'status') {
+      return sftpJson({ grants: [...this.forwardGrants.values()].map((grant) => this.forwardGrantView(grant)) })
+    }
+    if (op === 'stop') {
+      const token = body.token
+      if (typeof token !== 'string' || token.length === 0) return sftpJsonError(400, 'bad_request', 'A forward token is required')
+      const stopped = this.forwardGrants.delete(token)
+      if (stopped) await this.audit('forward_stop', { hostId: this.hostId, metadata: { token } })
+      return sftpJson({ stopped })
+    }
+    if (op !== 'create') return sftpJsonError(400, 'bad_request', 'Unsupported forward operation')
+
+    const host = normalizeForwardHost(body.host)
+    const port = normalizeForwardPort(body.port)
+    if (!host || !port) return sftpJsonError(400, 'bad_request', 'The forward target host or port is invalid')
+    const allowPrivate = readDevAllowPrivateHosts(this.env.WEBSSH_DEV_ALLOW_PRIVATE_HOSTS)
+    if (!isLoopbackTargetHost(host) && !allowPrivate) {
+      await this.audit('forward_blocked', { hostId: this.hostId, metadata: { host, port, reason: 'non_loopback' } })
+      return sftpJsonError(403, 'forward_blocked', 'Only loopback forward targets are allowed')
+    }
+    if (this.forwardGrants.size >= WEBSSH_FORWARD_MAX_ACTIVE_PER_SESSION) {
+      return sftpJsonError(429, 'too_many_requests', 'Too many active forwards for this session')
+    }
+    const grant: ForwardGrantRow = {
+      token: newId(),
+      host,
+      port,
+      createdAt: now,
+      expiresAt: now + WEBSSH_FORWARD_TTL_MS,
+      requests: 0,
+    }
+    this.forwardGrants.set(grant.token, grant)
+    await this.audit('forward_create', {
+      hostId: this.hostId,
+      metadata: { host, port, token: grant.token, expiresAt: grant.expiresAt },
+    })
+    return sftpJson({ grant: this.forwardGrantView(grant) }, 201)
+  }
+
+  private async handleForwardProxy(request: Request, sessionId: string, userId: string): Promise<Response> {
+    if (!await this.loadActiveForwardSession(sessionId, userId)) {
+      return sftpJsonError(409, 'session_not_ready', 'The SSH session is not active')
+    }
+    const token = new URL(request.url).searchParams.get('t') ?? ''
+    const grant = this.forwardGrants.get(token)
+    const now = Date.now()
+    if (!grant || grant.expiresAt <= now) {
+      if (grant) this.forwardGrants.delete(token)
+      return sftpJsonError(410, 'forward_expired', 'That forward link has expired or was stopped')
+    }
+    const path = request.headers.get('x-webssh-forward-path') ?? ''
+    if (!path.startsWith('/') || path.length > 4096 || /[\0\r\n]/.test(path)) {
+      return sftpJsonError(400, 'invalid_path', 'The forwarded path is invalid')
+    }
+    let body: Uint8Array
+    try {
+      body = new Uint8Array(await request.arrayBuffer())
+    } catch {
+      return sftpJsonError(400, 'bad_request', 'The forwarded request body could not be read')
+    }
+    if (body.length > WEBSSH_FORWARD_MAX_REQUEST_BYTES) {
+      return sftpJsonError(413, 'payload_too_large', 'The forwarded request body exceeds the size limit')
+    }
+    const session = this.session
+    if (!session) return sftpJsonError(409, 'session_not_ready', 'The SSH session is not connected')
+
+    grant.requests += 1
+    this.touch()
+    const run = this.forwardChain.then(() => forwardHttpRequest(session, grant.host, grant.port, {
+      method: request.method,
+      path,
+      headers: request.headers,
+      body,
+    }))
+    this.forwardChain = run.catch(() => undefined)
+    try {
+      const response = await run
+      return response
+    } catch (error) {
+      if (error instanceof ForwardProxyError) {
+        if (error.code === 'forward_method_blocked') {
+          await this.audit('forward_blocked', { hostId: this.hostId, metadata: { host: grant.host, port: grant.port, reason: error.code } })
+        }
+        return sftpJsonError(error.status, error.code, error.message)
+      }
+      return sftpJsonError(502, 'forward_error', error instanceof Error ? error.message : 'The forward request failed')
+    }
+  }
+
+
   private onOutput(data: Uint8Array): void {
     this.bytesOut += data.length
     this.recorder?.tapOutput(data)
@@ -930,6 +1099,7 @@ export class WebsshSession implements DurableObject {
     this.monitorSnapshot = null
     this.monitorCachedAt = 0
     this.monitorCounters = null
+    this.forwardGrants.clear()
     const now = Date.now()
     // Finish the recording before the runtime can be evicted; its own status row is authoritative.
     const recorder = this.recorder

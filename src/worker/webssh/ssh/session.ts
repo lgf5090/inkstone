@@ -102,13 +102,16 @@ interface AuxHandlers {
   onClose?(): void
 }
 
+export type SSHDirectTCPIPHandlers = SSHSubsystemHandlers
+export type SSHDirectTCPIPChannel = SSHSubsystemChannel
+
 interface ShellEntry {
   kind: 'shell'
   channel: SSHChannel
 }
 
-interface SubsystemEntry {
-  kind: 'subsystem' | 'exec'
+interface AuxiliaryEntry {
+  kind: 'subsystem' | 'exec' | 'tcpip'
   localId: number
   /** Empty for exec channels. */
   name: string
@@ -128,7 +131,7 @@ interface SubsystemEntry {
   exitSignal: string | null
 }
 
-type ChannelEntry = ShellEntry | SubsystemEntry
+type ChannelEntry = ShellEntry | AuxiliaryEntry
 
 /**
  * A single SSH terminal session over an already-connected TCP socket. `start()` returns once the
@@ -236,75 +239,37 @@ export class SSHSession {
    * exactly as it did before the channel table existed.
    */
   async openSubsystem(name: string, handlers: SSHSubsystemHandlers): Promise<SSHSubsystemChannel> {
-    if (this.phase !== 'ready') throw new SSHSessionError('channel_rejected', 'The SSH session is not ready for a subsystem channel')
     if (!/^[A-Za-z0-9@._+-]{1,64}$/.test(name)) throw new SSHSessionError('channel_rejected', 'Invalid SSH subsystem name')
-    const localId = this.nextSubsystemChannelId++
-    if (localId > 0xffffffff) throw new SSHSessionError('protocol_error', 'SSH channel identifiers are exhausted')
-    if (this.channels.has(localId)) throw new SSHSessionError('protocol_error', 'SSH channel identifier collision')
-
-    const channel = new SSHChannel()
-    const entry: SubsystemEntry = {
-      kind: 'subsystem',
-      localId,
-      name,
-      command: '',
-      channel,
-      handlers,
-      stage: 'opening',
-      openResolve: null,
-      openReject: null,
-      timer: null,
-      queue: [],
-      headOffset: 0,
-      flushing: false,
-      waiters: [],
-      exitCode: null,
-      exitSignal: null,
-    }
-    this.channels.set(localId, entry)
-    const opened = new Promise<void>((resolve, reject) => {
-      entry.openResolve = resolve
-      entry.openReject = reject
-    })
-    entry.timer = setTimeout(() => {
-      this.failSubsystem(entry, new SSHSessionError('channel_rejected', `The SSH server did not open the ${name} subsystem in time`))
-    }, SUBSYSTEM_OPEN_TIMEOUT_MS)
-
-    try {
-      await this.sendEncrypted(channel.buildOpenSession(localId))
-      await opened
-    } catch (error) {
-      this.removeSubsystem(entry)
-      throw error instanceof SSHSessionError
-        ? error
-        : new SSHSessionError('channel_rejected', error instanceof Error ? error.message : String(error), { cause: error })
-    }
-    return {
-      localId,
-      write: (data) => this.writeSubsystem(entry, data),
-      close: () => this.closeSubsystem(entry),
-    }
+    return this.openAuxiliaryChannel('subsystem', name, handlers, (channel, localId) => channel.buildOpenSession(localId))
   }
 
-  /**
-   * Opens an RFC 4254 `session` channel and runs one command on it (the connection protocol's `exec`
-   * request). Output streams through the handlers; `onExit` reports the channel's exit status. The
-   * command is a single line because `buildExecRequest` refuses CR/LF and NUL.
-   */
-  async openExec(command: string, handlers: SSHExecHandlers): Promise<SSHExecChannel> {
-    if (this.phase !== 'ready') throw new SSHSessionError('channel_rejected', 'The SSH session is not ready for an exec channel')
-    if (typeof command !== 'string' || command.length === 0 || command.length > 4096 || /[\0\r\n]/.test(command)) {
-      throw new SSHSessionError('channel_rejected', 'Invalid SSH exec command')
+  async openForward(host: string, port: number, handlers: SSHDirectTCPIPHandlers): Promise<SSHDirectTCPIPChannel> {
+    if (typeof host !== 'string' || host.length === 0 || host.length > 255 || /[\0\r\n]/.test(host)) {
+      throw new SSHSessionError('channel_rejected', 'Invalid forward target host')
     }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new SSHSessionError('channel_rejected', 'Invalid forward target port')
+    }
+    return this.openAuxiliaryChannel('tcpip', `${host}:${port}`, handlers, (channel, localId) => channel.buildOpenDirectTCPIP(localId, host, port))
+  }
+
+  private async openAuxiliaryChannel(
+    kind: 'subsystem' | 'exec' | 'tcpip',
+    name: string,
+    handlers: AuxHandlers,
+    buildOpen: (channel: SSHChannel, localId: number) => Uint8Array,
+    command = '',
+  ): Promise<SSHSubsystemChannel> {
+    if (this.phase !== 'ready') throw new SSHSessionError('channel_rejected', 'The SSH session is not ready for an auxiliary channel')
     const localId = this.nextSubsystemChannelId++
     if (localId > 0xffffffff) throw new SSHSessionError('protocol_error', 'SSH channel identifiers are exhausted')
     if (this.channels.has(localId)) throw new SSHSessionError('protocol_error', 'SSH channel identifier collision')
 
     const channel = new SSHChannel()
-    const entry: SubsystemEntry = {
-      kind: 'exec',
+    const entry: AuxiliaryEntry = {
+      kind,
       localId,
-      name: '',
+      name,
       command,
       channel,
       handlers,
@@ -325,29 +290,43 @@ export class SSHSession {
       entry.openReject = reject
     })
     entry.timer = setTimeout(() => {
-      this.failSubsystem(entry, new SSHSessionError('channel_rejected', 'The SSH server did not open the exec channel in time'))
+      this.failAuxiliary(entry, new SSHSessionError('channel_rejected', `The SSH server did not open the ${name} channel in time`))
     }, SUBSYSTEM_OPEN_TIMEOUT_MS)
 
     try {
-      await this.sendEncrypted(channel.buildOpenSession(localId))
+      await this.sendEncrypted(buildOpen(channel, localId))
       await opened
     } catch (error) {
-      this.removeSubsystem(entry)
+      this.removeAuxiliary(entry)
       throw error instanceof SSHSessionError
         ? error
         : new SSHSessionError('channel_rejected', error instanceof Error ? error.message : String(error), { cause: error })
     }
     return {
       localId,
-      close: () => this.closeSubsystem(entry),
+      write: (data) => this.writeAuxiliary(entry, data),
+      close: () => this.closeAuxiliary(entry),
     }
+  }
+
+  /**
+   * Opens an RFC 4254 `session` channel and runs one command on it (the connection protocol's `exec`
+   * request). Output streams through the handlers; `onExit` reports the channel's exit status. The
+   * command is a single line because `buildExecRequest` refuses CR/LF and NUL.
+   */
+  async openExec(command: string, handlers: SSHExecHandlers): Promise<SSHExecChannel> {
+    if (this.phase !== 'ready') throw new SSHSessionError('channel_rejected', 'The SSH session is not ready for an exec channel')
+    if (typeof command !== 'string' || command.length === 0 || command.length > 4096 || /[\0\r\n]/.test(command)) {
+      throw new SSHSessionError('channel_rejected', 'Invalid SSH exec command')
+    }
+    return this.openAuxiliaryChannel('exec', 'exec', handlers, (channel, localId) => channel.buildOpenSession(localId), command)
   }
 
   close(): void {
     if (this.phase === 'closed') return
     this.phase = 'closed'
     this.clearTimers()
-    this.failSubsystems(new SSHSessionError('channel_rejected', 'The SSH session is closed'))
+    this.failAuxiliaryChannels(new SSHSessionError('channel_rejected', 'The SSH session is closed'))
     this.inputQueue = []
     this.queuedBytes = 0
     this.config.password = undefined
@@ -856,7 +835,7 @@ export class SSHSession {
       await this.handleShellChannel(type, payload, entry.channel)
       return
     }
-    await this.handleSubsystemChannel(type, payload, entry)
+    await this.handleAuxiliaryChannel(type, payload, entry)
   }
 
   private async handleShellChannel(type: number, payload: Uint8Array, channel: SSHChannel): Promise<void> {
@@ -935,10 +914,14 @@ export class SSHSession {
     }
   }
 
-  private async handleSubsystemChannel(type: number, payload: Uint8Array, entry: SubsystemEntry): Promise<void> {
+  private async handleAuxiliaryChannel(type: number, payload: Uint8Array, entry: AuxiliaryEntry): Promise<void> {
     if (type === SSH_MSG_CHANNEL_OPEN_CONFIRMATION) {
       entry.channel.handleOpenConfirmation(payload)
       if (entry.stage !== 'opening') throw new SSHSessionError('protocol_error', 'Unexpected auxiliary channel open confirmation')
+      if (entry.kind === 'tcpip') {
+        this.markAuxiliaryReady(entry)
+        return
+      }
       entry.stage = 'requesting'
       await this.sendEncrypted(entry.kind === 'exec'
         ? entry.channel.buildExecRequest(entry.command)
@@ -947,24 +930,20 @@ export class SSHSession {
     }
     if (type === SSH_MSG_CHANNEL_OPEN_FAILURE) {
       entry.channel.handleOpenFailure(payload)
-      this.failSubsystem(entry, new SSHSessionError('channel_rejected', 'SSH server rejected the auxiliary channel'))
+      this.failAuxiliary(entry, new SSHSessionError('channel_rejected', `SSH server rejected the ${entry.name} channel`))
       return
     }
     if (type === SSH_MSG_CHANNEL_SUCCESS || type === SSH_MSG_CHANNEL_FAILURE) {
       entry.channel.handleRequestResult(payload)
-      if (entry.stage !== 'requesting') throw new SSHSessionError('protocol_error', 'Unexpected auxiliary channel request result')
+      if (entry.kind === 'tcpip' || entry.stage !== 'requesting') {
+        throw new SSHSessionError('protocol_error', 'Unexpected auxiliary channel request result')
+      }
       if (type === SSH_MSG_CHANNEL_FAILURE) {
         const label = entry.kind === 'exec' ? 'exec' : `${entry.name} subsystem`
-        this.failSubsystem(entry, new SSHSessionError('channel_rejected', `SSH server rejected the ${label} request`))
+        this.failAuxiliary(entry, new SSHSessionError('channel_rejected', `SSH server rejected the ${label} request`))
         return
       }
-      entry.stage = 'ready'
-      if (entry.timer) clearTimeout(entry.timer)
-      entry.timer = null
-      const resolve = entry.openResolve
-      entry.openResolve = null
-      entry.openReject = null
-      resolve?.()
+      this.markAuxiliaryReady(entry)
       return
     }
     if (type === SSH_MSG_CHANNEL_DATA || type === SSH_MSG_CHANNEL_EXTENDED_DATA) {
@@ -978,7 +957,7 @@ export class SSHSession {
           entry.handlers.onData(output)
         }
       } catch (error) {
-        this.failSubsystem(entry, error)
+        this.failAuxiliary(entry, error)
         return
       }
       await this.adjustLocalWindow(entry.channel)
@@ -990,7 +969,7 @@ export class SSHSession {
     }
     if (type === SSH_MSG_CHANNEL_WINDOW_ADJUST) {
       entry.channel.handleWindowAdjust(payload)
-      void this.drainSubsystem(entry)
+      void this.drainAuxiliary(entry)
       return
     }
     if (type === SSH_MSG_CHANNEL_EOF) {
@@ -1003,27 +982,37 @@ export class SSHSession {
       if (!entry.channel.hasSentClose()) {
         await this.sendEncrypted(entry.channel.buildClose()).catch(() => undefined)
       }
-      this.removeSubsystem(entry)
+      this.removeAuxiliary(entry)
       entry.handlers.onExit?.(entry.exitCode, entry.exitSignal)
       entry.handlers.onClose?.()
       return
     }
   }
 
+  private markAuxiliaryReady(entry: AuxiliaryEntry): void {
+    entry.stage = 'ready'
+    if (entry.timer) clearTimeout(entry.timer)
+    entry.timer = null
+    const resolve = entry.openResolve
+    entry.openResolve = null
+    entry.openReject = null
+    resolve?.()
+  }
+
   /** Writes a subsystem packet, waiting for the remote window when it is full. */
-  private writeSubsystem(entry: SubsystemEntry, data: Uint8Array): Promise<void> {
+  private writeAuxiliary(entry: AuxiliaryEntry, data: Uint8Array): Promise<void> {
     if (entry.stage !== 'ready' || this.phase === 'closed') {
-      return Promise.reject(new SSHSessionError('channel_rejected', 'The subsystem channel is not ready'))
+      return Promise.reject(new SSHSessionError('channel_rejected', 'The auxiliary channel is not ready'))
     }
     if (data.length === 0) return Promise.resolve()
     return new Promise<void>((resolve, reject) => {
       entry.waiters.push({ resolve, reject })
       entry.queue.push(new Uint8Array(data))
-      void this.drainSubsystem(entry)
+      void this.drainAuxiliary(entry)
     })
   }
 
-  private async drainSubsystem(entry: SubsystemEntry): Promise<void> {
+  private async drainAuxiliary(entry: AuxiliaryEntry): Promise<void> {
     if (entry.flushing || entry.stage === 'closed' || this.phase === 'closed') return
     entry.flushing = true
     try {
@@ -1039,27 +1028,27 @@ export class SSHSession {
         }
       }
     } catch (error) {
-      this.failSubsystem(entry, error)
+      this.failAuxiliary(entry, error)
       return
     } finally {
       entry.flushing = false
     }
-    if (entry.queue.length === 0) this.resolveSubsystemWaiters(entry)
+    if (entry.queue.length === 0) this.resolveAuxiliaryWaiters(entry)
   }
 
-  private resolveSubsystemWaiters(entry: SubsystemEntry): void {
+  private resolveAuxiliaryWaiters(entry: AuxiliaryEntry): void {
     const waiters = entry.waiters
     entry.waiters = []
     for (const waiter of waiters) waiter.resolve()
   }
 
-  private rejectSubsystemWaiters(entry: SubsystemEntry, error: unknown): void {
+  private rejectAuxiliaryWaiters(entry: AuxiliaryEntry, error: unknown): void {
     const waiters = entry.waiters
     entry.waiters = []
     for (const waiter of waiters) waiter.reject(error)
   }
 
-  private async closeSubsystem(entry: SubsystemEntry): Promise<void> {
+  private async closeAuxiliary(entry: AuxiliaryEntry): Promise<void> {
     if (entry.stage === 'closed') return
     entry.stage = 'closed'
     if (entry.timer) clearTimeout(entry.timer)
@@ -1071,44 +1060,44 @@ export class SSHSession {
     } catch {
       // The socket may already be gone; the session-level close reports it.
     }
-    this.channels.delete(entry.localId)
-    this.rejectSubsystemWaiters(entry, new SSHSessionError('channel_rejected', 'The subsystem channel was closed'))
+    this.rejectAuxiliaryWaiters(entry, new SSHSessionError('channel_rejected', 'The auxiliary channel was closed'))
+    entry.timer = setTimeout(() => this.removeAuxiliary(entry), 5_000)
   }
 
-  private failSubsystem(entry: SubsystemEntry, error: unknown): void {
+  private failAuxiliary(entry: AuxiliaryEntry, error: unknown): void {
     const normalized = error instanceof SSHSessionError
       ? error
       : new SSHSessionError('protocol_error', error instanceof Error ? error.message : String(error), { cause: error })
-    this.removeSubsystem(entry)
+    this.removeAuxiliary(entry)
     const reject = entry.openReject
     entry.openResolve = null
     entry.openReject = null
     reject?.(normalized)
-    this.rejectSubsystemWaiters(entry, normalized)
+    this.rejectAuxiliaryWaiters(entry, normalized)
     entry.handlers.onClose?.()
   }
 
-  private removeSubsystem(entry: SubsystemEntry): void {
+  private removeAuxiliary(entry: AuxiliaryEntry): void {
     entry.stage = 'closed'
     if (entry.timer) clearTimeout(entry.timer)
     entry.timer = null
     this.channels.delete(entry.localId)
   }
 
-  private failSubsystems(error: Error): void {
+  private failAuxiliaryChannels(error: Error): void {
     for (const entry of this.channels.values()) {
-      if (entry.kind !== 'subsystem' && entry.kind !== 'exec') continue
+      if (entry.kind === 'shell') continue
       entry.openReject?.(error)
       entry.openResolve = null
       entry.openReject = null
-      this.rejectSubsystemWaiters(entry, error)
+      this.rejectAuxiliaryWaiters(entry, error)
       entry.handlers.onExit?.(entry.exitCode, entry.exitSignal)
       entry.handlers.onClose?.()
     }
     this.channels.clear()
   }
 
-  private async handleChannelRequest(channel: SSHChannel, payload: Uint8Array, entry?: SubsystemEntry): Promise<void> {
+  private async handleChannelRequest(channel: SSHChannel, payload: Uint8Array, entry?: AuxiliaryEntry): Promise<void> {
     const request = this.readString(payload, 5)
     const offset = request.next
     if (offset >= payload.length || payload[offset] > 1) {

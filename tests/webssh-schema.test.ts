@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { initializeDatabase, SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import {
+  WEBSSH_FORWARD_SCHEMA_STATEMENTS,
   WEBSSH_REQUIRED_COLUMNS,
   WEBSSH_REQUIRED_INDEXES,
   WEBSSH_REQUIRED_TABLES,
@@ -40,6 +41,11 @@ describe('the WebSSH tables', () => {
     for (const statement of WEBSSH_SCHEMA_STATEMENTS) {
       expect(SCHEMA_STATEMENTS.some((candidate) => candidate.includes(statement.slice(0, 60)))).toBe(false)
     }
+  })
+
+  it('are extended by migration 304 with the forward rule table', () => {
+    const migration = SCHEMA_MIGRATIONS.find((candidate) => candidate.version === 304)
+    expect(migration?.statements).toEqual(WEBSSH_FORWARD_SCHEMA_STATEMENTS)
   })
 
   it('create every declared table', () => {
@@ -85,13 +91,13 @@ describe('the WebSSH tables', () => {
     expect(ids.map((row) => row.id)).toEqual(['host-a'])
   })
 
-  it('keeps the numbered ledger unique and free of the reserved shortlinks range', () => {
+  it('keeps the numbered ledger unique and every lane migration represented once', () => {
     const versions = SCHEMA_MIGRATIONS.map((migration) => migration.version)
     expect(new Set(versions).size).toBe(versions.length)
     expect(Math.max(...versions)).toBe(317)
-    expect(versions.some((version) => version >= 289 && version <= 297)).toBe(false)
     expect(versions.filter((version) => version === 298)).toHaveLength(1)
-    for (const version of [315, 316, 317]) expect(versions.filter((entry) => entry === version)).toHaveLength(1)
-    expect(versions.includes(314), '314 is reserved for the shortlink branch').toBe(false)
+    for (const version of [301, 304, 313, 314, 315, 316, 317]) {
+      expect(versions.filter((entry) => entry === version)).toHaveLength(1)
+    }
   })
 })

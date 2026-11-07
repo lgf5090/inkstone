@@ -10,6 +10,7 @@ export interface TerminalSettings {
 }
 
 export const TERMINAL_SETTINGS_STORAGE_KEY = 'inkstone.webssh.terminal'
+export const SFTP_DIRECTORY_STORAGE_KEY = 'inkstone.webssh.sftp.directories'
 export const TERMINAL_FONT_SIZE_MIN = 11
 export const TERMINAL_FONT_SIZE_MAX = 22
 export const TERMINAL_FONT_SIZE_DEFAULT = 14
@@ -50,4 +51,29 @@ export function loadTerminalSettings(): TerminalSettings {
 export function saveTerminalSettings(settings: TerminalSettings): void {
   if (typeof localStorage === 'undefined') return
   localStorage.setItem(TERMINAL_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+}
+
+export function loadSftpDirectory(hostId: string): string | null {
+  if (typeof localStorage === 'undefined') return null
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(SFTP_DIRECTORY_STORAGE_KEY) ?? '{}')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    const value = (parsed as Record<string, unknown>)[hostId]
+    return typeof value === 'string' && value.startsWith('/') ? value : null
+  } catch {
+    return null
+  }
+}
+
+export function saveSftpDirectory(hostId: string, path: string): void {
+  if (typeof localStorage === 'undefined' || !path.startsWith('/')) return
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(SFTP_DIRECTORY_STORAGE_KEY) ?? '{}')
+    const current = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {}
+    localStorage.setItem(SFTP_DIRECTORY_STORAGE_KEY, JSON.stringify({ ...current, [hostId]: path }))
+  } catch {
+    localStorage.removeItem(SFTP_DIRECTORY_STORAGE_KEY)
+  }
 }

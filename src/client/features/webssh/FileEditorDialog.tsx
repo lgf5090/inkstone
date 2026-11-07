@@ -10,6 +10,7 @@ import { ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { websshApi } from './api'
+import { SftpCodeEditor, fileEditorLanguage } from './SftpCodeEditor'
 
 const EDIT_LIMIT = 2 * 1024 * 1024
 
@@ -40,6 +41,7 @@ export function FileEditorDialog({ open, entry, sessionId, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
+  const [baseMtime, setBaseMtime] = useState<number | null>(null)
 
   useEffect(() => {
     if (!open || !entry) return
@@ -48,6 +50,7 @@ export function FileEditorDialog({ open, entry, sessionId, onClose, onSaved }: {
     setError(null)
     setText('')
     setOriginal('')
+    setBaseMtime(entry.mtime)
     void (async () => {
       if (entry.size > EDIT_LIMIT) throw new Error(t('webssh.editor.too_large', { name: entry.name }))
       const chunks: Blob[] = []
@@ -87,6 +90,7 @@ export function FileEditorDialog({ open, entry, sessionId, onClose, onSaved }: {
   const dirty = text !== original
   const lines = useMemo(() => (text ? text.split('\n').length : 0), [text])
   const bytes = useMemo(() => new TextEncoder().encode(text).byteLength, [text])
+  const language = useMemo(() => fileEditorLanguage(entry?.name ?? ''), [entry?.name])
 
   const close = async () => {
     if (saving) return
@@ -109,16 +113,23 @@ export function FileEditorDialog({ open, entry, sessionId, onClose, onSaved }: {
       setError(t('webssh.editor.too_large', { name: entry.name }))
       return
     }
-    const approved = await confirm({
-      title: t('webssh.editor.overwrite_title'),
-      description: t('webssh.editor.overwrite_description', { name: entry.name }),
-      tone: 'danger',
-      confirmLabel: t('webssh.editor.confirm_overwrite'),
-    })
-    if (!approved) return
     setSaving(true)
     setError(null)
     try {
+      const latest = await websshApi.stat(sessionId, entry.path)
+      const changed = baseMtime !== null && latest.mtime !== null && latest.mtime !== baseMtime
+      const approved = await confirm({
+        title: changed ? t('webssh.editor.conflict_title') : t('webssh.editor.overwrite_title'),
+        description: changed
+          ? t('webssh.editor.conflict_description', { name: entry.name })
+          : t('webssh.editor.overwrite_description', { name: entry.name }),
+        tone: 'danger',
+        confirmLabel: changed ? t('webssh.editor.confirm_conflict') : t('webssh.editor.confirm_overwrite'),
+      })
+      if (!approved) {
+        setSaving(false)
+        return
+      }
       const created = await websshApi.createUpload(sessionId, entry.path, buffer.byteLength)
       let offset = 0
       try {
@@ -136,6 +147,8 @@ export function FileEditorDialog({ open, entry, sessionId, onClose, onSaved }: {
         })
         throw caught
       }
+      const after = await websshApi.stat(sessionId, entry.path).catch(() => null)
+      setBaseMtime(after?.mtime ?? latest.mtime)
       setOriginal(text)
       useUi.getState().toast({ title: t('webssh.editor.saved', { name: entry.name }), tone: 'success' })
       onSaved()
@@ -189,12 +202,11 @@ export function FileEditorDialog({ open, entry, sessionId, onClose, onSaved }: {
             {t('webssh.editor.loading', { name: entry?.name ?? '' })}
           </div>
         ) : (
-          <textarea
+          <SftpCodeEditor
             value={text}
-            spellCheck={false}
-            aria-label={t('webssh.editor.title')}
-            className="h-[46vh] min-h-[220px] w-full resize-y rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-editor)] p-2 font-mono text-[length:var(--text-12)] leading-relaxed text-[var(--text-primary)] outline-none focus:border-[var(--border-strong)]"
-            onChange={(event) => setText(event.target.value)}
+            onChange={setText}
+            language={language}
+            ariaLabel={t('webssh.editor.title')}
           />
         )}
       </div>

@@ -10,6 +10,7 @@ import { SftpPanel } from './SftpPanel'
 import { RecordingPlayerDialog } from './RecordingPlayerDialog'
 import { RecordingSettingsDialog } from './RecordingSettingsDialog'
 import { SnippetsPanel } from './SnippetsPanel'
+import { ForwardPanel } from './ForwardPanel'
 import { TerminalSettingsDialog } from './TerminalSettingsDialog'
 import { TerminalShortcutsDialog } from './TerminalShortcutsDialog'
 import { MonitorPanel } from './MonitorPanel'
@@ -36,11 +37,15 @@ export function TerminalWorkspace({ host, newTabToken = 0 }: { host: WebsshHost;
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [filesOpen, setFilesOpen] = useState(false)
+  const [filesFullscreen, setFilesFullscreen] = useState(false)
+  const [cwdPath, setCwdPath] = useState<string | null>(null)
+  const [cwdToken, setCwdToken] = useState(0)
   const [replayOpen, setReplayOpen] = useState(false)
   const [recordingOpen, setRecordingOpen] = useState(false)
   const [snippetsOpen, setSnippetsOpen] = useState(false)
   const [monitorOpen, setMonitorOpen] = useState(false)
   const [view, setView] = useState<'terminal' | 'dashboard'>('terminal')
+  const [forwardOpen, setForwardOpen] = useState(false)
   const [insertRequest, setInsertRequest] = useState<{ text: string; token: number } | null>(null)
   const insertTokenRef = useRef(0)
   const isDark = useThemeDark()
@@ -55,8 +60,12 @@ export function TerminalWorkspace({ host, newTabToken = 0 }: { host: WebsshHost;
     setStatuses({})
     sequenceRef.current = 1
     setFilesOpen(false)
+    setFilesFullscreen(false)
+    setCwdPath(null)
+    setCwdToken(0)
     setReplayOpen(false)
     setSnippetsOpen(false)
+    setForwardOpen(false)
     setInsertRequest(null)
     setMonitorOpen(false)
     setView('terminal')
@@ -119,6 +128,11 @@ export function TerminalWorkspace({ host, newTabToken = 0 }: { host: WebsshHost;
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? null
   const activeSessionId = activeTab?.sessionId ?? null
 
+  const reportCwd = useCallback((path: string) => {
+    setCwdPath(path)
+    setCwdToken((value) => value + 1)
+  }, [])
+
   const homePath = host.username === 'root' ? '/root' : `/home/${host.username}`
   const factoryFor = (): TerminalTransportFactory => (handlers) =>
     new WebSocketTerminalTransport(handlers, { hostId: host.id, cols: 80, rows: 24 })
@@ -141,6 +155,8 @@ export function TerminalWorkspace({ host, newTabToken = 0 }: { host: WebsshHost;
         snippetsDisabled={!activeSessionId}
         onOpenReplay={() => setReplayOpen(true)}
         replayDisabled={!activeSessionId}
+        onOpenForward={() => setForwardOpen(true)}
+        forwardDisabled={!activeSessionId}
         onOpenRecordingSettings={() => setRecordingOpen(true)}
         onOpenMonitor={() => setMonitorOpen((value) => !value)}
         monitorOpen={monitorOpen}
@@ -173,16 +189,29 @@ export function TerminalWorkspace({ host, newTabToken = 0 }: { host: WebsshHost;
                 isDark={isDark}
                 createTransport={factoryFor()}
                 panelId={PANEL_ID}
+                homePath={homePath}
                 insertRequest={tab.id === activeId ? insertRequest : null}
                 onPhaseChange={reportPhase}
                 onSessionId={(sessionId) => reportSession(tab.id, sessionId)}
+                onCwd={tab.id === activeId ? reportCwd : undefined}
               />
             ))
           )}
         </div>
         {filesOpen && activeSessionId && (
-          <div className={isMobile ? 'absolute inset-0 z-20 bg-[var(--bg-surface)]' : 'flex min-h-0'}>
-            <SftpPanel sessionId={activeSessionId} homePath={homePath} onClose={() => setFilesOpen(false)} />
+          <div className={filesFullscreen ? 'contents' : isMobile ? 'absolute inset-0 z-20 bg-[var(--bg-surface)]' : 'flex min-h-0'}>
+            <SftpPanel
+              sessionId={activeSessionId}
+              hostId={host.id}
+              homePath={homePath}
+              followPath={cwdPath ? { path: cwdPath, token: cwdToken } : null}
+              fullscreen={filesFullscreen}
+              onToggleFullscreen={() => setFilesFullscreen((value) => !value)}
+              onClose={() => {
+                setFilesOpen(false)
+                setFilesFullscreen(false)
+              }}
+            />
           </div>
         )}
         {view === 'terminal' && monitorOpen && activeSessionId && (
@@ -204,6 +233,12 @@ export function TerminalWorkspace({ host, newTabToken = 0 }: { host: WebsshHost;
         open={snippetsOpen}
         onClose={() => setSnippetsOpen(false)}
         onInsert={activeSessionId ? insertSnippet : undefined}
+      />
+      <ForwardPanel
+        open={forwardOpen}
+        sessionId={activeSessionId}
+        hostId={host.id}
+        onClose={() => setForwardOpen(false)}
       />
     </div>
   )

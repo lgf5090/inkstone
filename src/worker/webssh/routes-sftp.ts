@@ -7,6 +7,7 @@
 import { Hono, type Context } from 'hono'
 import type {
   WebsshSftpMutationResult,
+  WebsshSftpStatResponse,
   WebsshSftpUploadCreated,
   WebsshSftpUploadStatus,
 } from '@shared/webssh/types'
@@ -200,6 +201,22 @@ websshSftpRoutes.get('/sessions/:id/sftp/download', async (c) => {
   const headers = new Headers(response.headers)
   headers.set('cache-control', 'private, no-store')
   return new Response(response.body, { status: 200, headers })
+})
+
+websshSftpRoutes.post('/sessions/:id/sftp/stat', async (c) => {
+  const userId = c.get('userId')
+  const sessionId = c.req.param('id')
+  const row = await loadOwnedSession(c, userId, sessionId)
+  requireActive(row)
+  const body = await readJson<{ path?: unknown }>(c, SFTP_JSON_LIMIT)
+  let path: string
+  try {
+    path = normalizeSftpPath(body.path)
+  } catch (error) {
+    badPath(error)
+  }
+  const response = await callSessionSftp(c, sessionId, { op: 'stat', path })
+  return c.json<WebsshSftpStatResponse>(await response.json() as WebsshSftpStatResponse)
 })
 
 function parseNonNegative(value: string | undefined, fallback: number): number {
