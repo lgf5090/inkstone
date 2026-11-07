@@ -1889,7 +1889,9 @@ export class ShortlinksStore {
       .bind(this.userId, backupId)
       .first<{ r2_key: string }>()
     if (!row) throw ApiError.notFound('Backup not found')
-    if (r2Bucket) await r2Bucket.delete(row.r2_key).catch(() => {})
+    if (r2Bucket) await r2Bucket.delete(row.r2_key).catch(() => {
+      // The D1 row goes away below either way; an object that is already gone has nothing left to release.
+    })
     await this.db
       .prepare('DELETE FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
       .bind(this.userId, backupId)
@@ -1903,7 +1905,9 @@ export class ShortlinksStore {
       .bind(this.userId)
       .all<{ id: string; r2_key: string }>()
     for (const row of (rows.results ?? []).slice(keep)) {
-      if (r2Bucket) await r2Bucket.delete(row.r2_key).catch(() => {})
+      if (r2Bucket) await r2Bucket.delete(row.r2_key).catch(() => {
+        // The row is pruned below regardless; a refused delete only leaves the object for the next prune.
+      })
       await this.db
         .prepare('DELETE FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
         .bind(this.userId, row.id)

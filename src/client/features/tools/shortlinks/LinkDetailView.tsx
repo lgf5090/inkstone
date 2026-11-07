@@ -16,7 +16,8 @@ import {
 import type { ChartConfiguration } from 'chart.js'
 import { ChartCanvas, withAlpha, type ChartColors } from '../../../components/chart-canvas'
 import { LoadingBlock } from '../../../components/feedback'
-import { Segmented, Input } from '../../../components/form'
+import { Segmented } from '../../../components/form'
+import { DatePicker } from '../../../components/date-picker'
 import { Button, IconButton } from '../../../components/primitives'
 import { confirm } from '../../../components/overlay'
 import { t, type MessageKey } from '../../../lib/i18n'
@@ -349,18 +350,16 @@ export function LinkDetailView() {
               onChange={(next) => setTimelineRange(next)}
               options={RANGES.map((r) => ({ value: r.id, label: t(r.labelKey) }))}
             />
-            <Input
-              type="date"
+            <DatePicker
+              label={t('tools.shortlinks.detail.custom_from')}
               value={customFrom}
-              onChange={(e) => setCustomFrom(e.target.value)}
-              aria-label={t('tools.shortlinks.detail.custom_from')}
+              onChange={setCustomFrom}
               className="h-8 w-36"
             />
-            <Input
-              type="date"
+            <DatePicker
+              label={t('tools.shortlinks.detail.custom_to')}
               value={customTo}
-              onChange={(e) => setCustomTo(e.target.value)}
-              aria-label={t('tools.shortlinks.detail.custom_to')}
+              onChange={setCustomTo}
               className="h-8 w-36"
             />
             <Button

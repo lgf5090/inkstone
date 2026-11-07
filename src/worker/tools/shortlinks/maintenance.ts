@@ -70,7 +70,9 @@ export async function sweepStaleShortlinkBuckets(db: D1Database, before: number)
 /** Deletes click rows past the retention window in bounded chunks so one fire never blocks the tick. */
 export async function runShortlinksRetention(env: Env, nowMs: number): Promise<number> {
   const now = Math.floor(nowMs / 1000)
-  await sweepStaleShortlinkBuckets(env.DB, now - STALE_BUCKET_SECONDS).catch(() => {})
+  await sweepStaleShortlinkBuckets(env.DB, now - STALE_BUCKET_SECONDS).catch(() => {
+    // The tick runs every hour; a failed sweep leaves the same expired buckets for the next pass.
+  })
 
   const days = retentionDays(env)
   if (days <= 0) return 0

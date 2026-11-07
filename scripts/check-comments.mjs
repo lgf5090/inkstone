@@ -43832,6 +43832,7 @@ const allowed = new Map([
     "/** Deletes click rows past the retention window in bounded chunks so one fire never blocks the tick. */",
     "/**\n * Drops click rows past the retention window and keeps `links.total_clicks` truthful.\n *\n * The counter was incremented per click and never touched by the sweep, so after a year the list\n * showed a lifetime number while the analytics range showed the surviving rows. RETURNING hands\n * back exactly which links lost rows, and those counters are adjusted in bounded batches.\n */",
     "/** Rate-limit and password-attempt buckets are keyed forever unless the sweep retires them. */",
+    "// The tick runs every hour; a failed sweep leaves the same expired buckets for the next pass.",
   ]],
   ["src/worker/tools/shortlinks/password-gate.ts", [
     "/**\n * The stored hash signs the cookie instead of travelling in it, so changing the password retires\n * every cookie issued under the old one. Legacy unsalted digests are recognised here and upgraded.\n */",
@@ -43903,6 +43904,8 @@ const allowed = new Map([
     "// A slug that is still live on this account cannot be restored; the rest of the backup still lands.",
     "/**\n   * Rebuilds the daily rollups from the raw click ledger. Re-runnable: both tables are cleared for\n   * this account first, and the raw table stays the source of truth for every custom range.\n   */",
     "/**\n   * Link-level lifecycle: disabling or archiving takes every alias down together, because a reader\n   * who saved a secondary slug must see the same 404 as the primary. Reactivating restores them.\n   */",
+    "// The D1 row goes away below either way; an object that is already gone has nothing left to release.",
+    "// The row is pruned below regardless; a refused delete only leaves the object for the next prune.",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",
