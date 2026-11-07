@@ -2,14 +2,23 @@ import { Hono, type Context } from 'hono'
 import {
   ProjectBoardCreateSchema,
   ProjectBoardPatchSchema,
+  ProjectCardCreateSchema,
+  ProjectCardPatchSchema,
   ProjectMemberAddSchema,
   ProjectMemberPatchSchema,
 } from '@shared/project/validation'
 import type { AppBindings } from '../env'
 import { JSON_BODY_LIMITS } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { projectBody, projectUserId, requireBoard } from './auth'
+import { projectBody, projectUserId, requireBoard, requireCard } from './auth'
 import { readProjectBoardBundle } from './bundle'
+import {
+  createProjectCard,
+  getProjectCard,
+  patchProjectCard,
+  softDeleteProjectCard,
+  undeleteProjectCard,
+} from './cards'
 import {
   createProjectBoard,
   getProjectBoardRow,
@@ -55,6 +64,12 @@ projectRoutes.get('/boards/:id', async (c) => {
 projectRoutes.get('/boards/:id/bundle', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
   return c.json(await readProjectBoardBundle(c.env.DB, board, role))
+})
+
+projectRoutes.post('/boards/:id/cards', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectCardCreateSchema)
+  return c.json({ card: await createProjectCard(c.env.DB, board, userId, input, Date.now()) }, 201)
 })
 
 projectRoutes.patch('/boards/:id', async (c) => {
@@ -115,4 +130,27 @@ projectRoutes.post('/boards/:id/leave', async (c) => {
   const { board, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
   await leaveProjectBoard(c.env.DB, board, userId)
   return c.json({ ok: true })
+})
+
+projectRoutes.get('/cards/:id', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ card })
+})
+
+projectRoutes.patch('/cards/:id', async (c) => {
+  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  const patch = await projectBody(c, ProjectCardPatchSchema)
+  return c.json({ card: await patchProjectCard(c.env.DB, card, patch, userId, Date.now()) })
+})
+
+projectRoutes.delete('/cards/:id', async (c) => {
+  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  await softDeleteProjectCard(c.env.DB, card.id, userId, Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.post('/cards/:id/undelete', async (c) => {
+  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor', { allowDeleted: true })
+  await undeleteProjectCard(c.env.DB, card.id, userId, Date.now())
+  return c.json({ card: await getProjectCard(c.env.DB, card.id) })
 })

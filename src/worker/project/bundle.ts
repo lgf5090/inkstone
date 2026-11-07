@@ -17,7 +17,7 @@ import type {
 import { readBoardProperties } from './boards'
 import { listProjectMembers } from './members'
 
-interface CardRow {
+export interface CardRow {
   id: string
   board_id: string
   parent_id: string
@@ -32,7 +32,7 @@ interface CardRow {
   delete_at: number
 }
 
-interface ValueRow {
+export interface ValueRow {
   card_id: string
   property_id: string
   value: string
@@ -78,7 +78,7 @@ interface CommentRow {
   delete_at: number
 }
 
-function rowToCard(row: CardRow, values: Record<string, string>): ProjectCard {
+export function rowToCard(row: CardRow, values: Record<string, string>): ProjectCard {
   return {
     id: row.id,
     boardId: row.board_id,

@@ -40938,6 +40938,7 @@ const allowed = new Map([
   ["src/worker/project/auth.ts", [
     "/** Every project write parses through this, so a rejected field reads the same on every route. */",
     "/**\n * The trust boundary every board-scoped route crosses. A board the caller cannot see at all answers\n * 404 rather than 403, so a private board's existence never leaks; one they can see but lack the role\n * for answers 403. The effective role folds the owner rule and the open-board minimum in one place.\n */",
+    "/**\n * A card-scoped route resolves the board from the card row, then crosses the same board boundary. A\n * card on a board the caller cannot see answers 404, never 403, so the card's existence stays private\n * too. The board itself must be alive even when undeleting a card: a card cannot outlive its board.\n */",
   ]],
   ["src/worker/project/boards.ts", [
     "/**\n * A new board belongs to its creator, who gets an admin membership row so the member picker and the\n * last-admin count both see them. Properties are written in the order given, position = index.\n */",
@@ -40946,6 +40947,11 @@ const allowed = new Map([
   ["src/worker/project/bundle.ts", [
     "/**\n * The whole-board read. The reference made the client page through blocks and stitch them together;\n * every screen that opens a board needs all of it, so this gathers board, properties, views, cards,\n * values, contents, comments and members in one round trip. The cursor is the newest update stamp\n * across them all, which is what a realtime `changed` notification carries so a client knows whether\n * its copy is stale.\n */",
     "// Values are keyed to a card, so a deleted card's values drop out with it rather than lingering.",
+  ]],
+  ["src/worker/project/cards.ts", [
+    "/**\n * Cards and their property values. A card is a row plus a bag of values keyed by property id; the\n * value bag lives in its own table so changing one property never rewrites the whole card. Writes\n * land in one D1 batch, and a delete is a stamp so a card can come back with its values intact.\n */",
+    "/**\n * A new card counts against the board's ceiling before it is written. The count is a guard against a\n * client flooding creates, not a serialization point: two concurrent creates can both pass it, which\n * is acceptable for a soft DoS ceiling rather than a billed quota.\n */",
+    "/**\n * A card patch. A null value deletes that one property's row; a string upserts it. The card's own\n * fields are a sparse update, and the whole thing lands in one batch so a half-applied edit cannot\n * survive. The caller passes the card it already read so the board id need not be looked up again.\n */",
   ]],
   ["src/worker/project/members.ts", [
     "/**\n * The reference guards the last admin only in the client; here the server refuses the write that would\n * leave a board with no admin member, because a client check is not a trust boundary.\n */",
