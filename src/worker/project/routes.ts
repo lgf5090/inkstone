@@ -4,15 +4,21 @@ import {
   ProjectBoardPatchSchema,
   ProjectCardCreateSchema,
   ProjectCardPatchSchema,
+  ProjectCommentCreateSchema,
+  ProjectCommentPatchSchema,
+  ProjectContentCreateSchema,
+  ProjectContentMoveSchema,
+  ProjectContentPatchSchema,
   ProjectMemberAddSchema,
   ProjectMemberPatchSchema,
   ProjectViewCreateSchema,
   ProjectViewPatchSchema,
 } from '@shared/project/validation'
 import type { AppBindings } from '../env'
+import { ApiError } from '../lib/errors'
 import { JSON_BODY_LIMITS } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { projectBody, projectUserId, requireBoard, requireCard, requireView } from './auth'
+import { projectBody, projectUserId, requireBoard, requireCard, requireComment, requireContent, requireView } from './auth'
 import { readProjectBoardBundle } from './bundle'
 import {
   createProjectCard,
@@ -21,6 +27,20 @@ import {
   softDeleteProjectCard,
   undeleteProjectCard,
 } from './cards'
+import {
+  createProjectComment,
+  listCardComments,
+  patchProjectComment,
+  softDeleteProjectComment,
+} from './comments'
+import {
+  createProjectContent,
+  getProjectContent,
+  moveProjectContent,
+  patchProjectContent,
+  softDeleteProjectContent,
+  undeleteProjectContent,
+} from './contents'
 import {
   createProjectBoard,
   getProjectBoardRow,
@@ -197,4 +217,64 @@ projectRoutes.post('/views/:id/undelete', async (c) => {
 projectRoutes.post('/views/:id/duplicate', async (c) => {
   const { view, userId } = await requireView(c, c.req.param('id'), 'editor')
   return c.json({ view: await duplicateProjectView(c.env.DB, view, userId, Date.now()) }, 201)
+})
+
+projectRoutes.post('/cards/:id/contents', async (c) => {
+  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectContentCreateSchema)
+  return c.json({ content: await createProjectContent(c.env.DB, card, userId, input, Date.now()) }, 201)
+})
+
+projectRoutes.get('/contents/:id', async (c) => {
+  const { content } = await requireContent(c, c.req.param('id'), 'viewer')
+  return c.json({ content })
+})
+
+projectRoutes.patch('/contents/:id', async (c) => {
+  const { content, userId } = await requireContent(c, c.req.param('id'), 'editor')
+  const patch = await projectBody(c, ProjectContentPatchSchema)
+  return c.json({ content: await patchProjectContent(c.env.DB, content, patch, userId, Date.now()) })
+})
+
+projectRoutes.delete('/contents/:id', async (c) => {
+  const { content, userId } = await requireContent(c, c.req.param('id'), 'editor')
+  await softDeleteProjectContent(c.env.DB, content, userId, Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.post('/contents/:id/undelete', async (c) => {
+  const { content, userId } = await requireContent(c, c.req.param('id'), 'editor', { allowDeleted: true })
+  await undeleteProjectContent(c.env.DB, content, userId, Date.now())
+  return c.json({ content: await getProjectContent(c.env.DB, content.id) })
+})
+
+projectRoutes.post('/contents/:id/move', async (c) => {
+  const { content, userId } = await requireContent(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectContentMoveSchema, JSON_BODY_LIMITS.small)
+  return c.json({ content: await moveProjectContent(c.env.DB, content, input.targetId, input.where, userId, Date.now()) })
+})
+
+projectRoutes.get('/cards/:id/comments', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ comments: await listCardComments(c.env.DB, card.id) })
+})
+
+projectRoutes.post('/cards/:id/comments', async (c) => {
+  const { card, userId } = await requireCard(c, c.req.param('id'), 'commenter')
+  const input = await projectBody(c, ProjectCommentCreateSchema)
+  return c.json({ comment: await createProjectComment(c.env.DB, card, userId, input, Date.now()) }, 201)
+})
+
+projectRoutes.patch('/comments/:id', async (c) => {
+  const { comment, userId } = await requireComment(c, c.req.param('id'), 'commenter')
+  if (comment.authorId !== userId) throw ApiError.forbidden()
+  const input = await projectBody(c, ProjectCommentPatchSchema)
+  return c.json({ comment: await patchProjectComment(c.env.DB, comment, input.body, Date.now()) })
+})
+
+projectRoutes.delete('/comments/:id', async (c) => {
+  const { comment, userId } = await requireComment(c, c.req.param('id'), 'commenter')
+  if (comment.authorId !== userId) throw ApiError.forbidden()
+  await softDeleteProjectComment(c.env.DB, comment, userId, Date.now())
+  return c.json({ ok: true })
 })

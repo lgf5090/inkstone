@@ -32317,6 +32317,11 @@ const allowed = new Map([
     "/**\n * Read one `board.jsonl`.\n *\n * The board itself arrives two ways. A current export writes it as a `board` line; the reference's own\n * built-in templates predate that and carry it as a `block` line whose `data.type` is `board` and\n * whose parent is empty. Dispatching on the outer type alone reads none of those seven templates.\n */",
     "/** The board hidden in a legacy `block` line, or null when the block is an ordinary child. */",
   ]],
+  ["src/shared/project/content-order.ts", [
+    "/**\n * A card's reading order. It interleaves content-block ids with comment ids, and a nested array\n * threads comments under one block — an order the per-row position column cannot express, so the\n * card carries it (DV-12). These helpers keep that array honest as blocks and comments come and go:\n * append on create, scrub on delete (including inside threads), and splice on move.\n */",
+    "// An emptied thread carries no reading order, so it drops out rather than lingering as [].",
+    "/**\n * Move a top-level block before or after another. The id is lifted out first so moving onto its own\n * neighbour cannot duplicate it; a target that is not a top-level entry leaves the block at the end,\n * which is the safe reading of an ambiguous destination rather than a silent drop.\n */",
+  ]],
   ["src/shared/project/limits.ts", [
     "/**\n * The project app's budgets, in one place so the server that enforces them and the client that\n * explains them cannot disagree about a number.\n *\n * The first three come from the reference's block model, where they were MySQL TEXT ceilings; D1 has\n * no such ceiling, but an archive exported there has to import here without truncation. The rest are\n * this port's own limits: the reference gated capacity behind a paid cloud plan, and a self-hosted\n * board needs a stated ceiling instead of an unbounded table.\n */",
     "/** The reference's MySQL TEXT ceiling divided by four: the most bytes one rune can cost. */",
@@ -40953,6 +40958,13 @@ const allowed = new Map([
     "/**\n * Cards and their property values. A card is a row plus a bag of values keyed by property id; the\n * value bag lives in its own table so changing one property never rewrites the whole card. Writes\n * land in one D1 batch, and a delete is a stamp so a card can come back with its values intact.\n */",
     "/**\n * A new card counts against the board's ceiling before it is written. The count is a guard against a\n * client flooding creates, not a serialization point: two concurrent creates can both pass it, which\n * is acceptable for a soft DoS ceiling rather than a billed quota.\n */",
     "/**\n * A card patch. A null value deletes that one property's row; a string upserts it. The card's own\n * fields are a sparse update, and the whole thing lands in one batch so a half-applied edit cannot\n * survive. The caller passes the card it already read so the board id need not be looked up again.\n */",
+  ]],
+  ["src/worker/project/comments.ts", [
+    "/**\n * Comments on a card. Like content blocks they join the card's reading order, so posting appends the\n * comment id and deleting scrubs it (a threaded comment lives in a nested array). Only the author may\n * edit or delete a comment; the route enforces that after the board boundary, since the board role\n * alone says nothing about who wrote a given comment.\n */",
+  ]],
+  ["src/worker/project/contents.ts", [
+    "/**\n * The ordered blocks that make up a card's body. The position column keeps the bundle's contents in\n * a stable order, but the card's contentOrder array is the reading order the client draws (it also\n * threads comments), so every create, delete and move here keeps the two in step in one batch.\n */",
+    "/**\n * Move reorders the card's reading order, then reindexes the position of every top-level content\n * block to match it, so the bundle's position order and the drawn contentOrder cannot drift apart.\n * Comment ids in the order are skipped: they have no position column.\n */",
   ]],
   ["src/worker/project/members.ts", [
     "/**\n * The reference guards the last admin only in the client; here the server refuses the write that would\n * leave a board with no admin member, because a client check is not a trust boundary.\n */",

@@ -52,7 +52,7 @@ export interface ViewRow {
   delete_at: number
 }
 
-interface ContentRow {
+export interface ContentRow {
   id: string
   card_id: string
   board_id: string
@@ -67,7 +67,7 @@ interface ContentRow {
   delete_at: number
 }
 
-interface CommentRow {
+export interface CommentRow {
   id: string
   card_id: string
   board_id: string
@@ -112,7 +112,7 @@ export function rowToView(row: ViewRow): ProjectView {
   }
 }
 
-function rowToContent(row: ContentRow): ProjectContent {
+export function rowToContent(row: ContentRow): ProjectContent {
   return {
     id: row.id,
     cardId: row.card_id,
@@ -129,7 +129,7 @@ function rowToContent(row: ContentRow): ProjectContent {
   }
 }
 
-function rowToComment(row: CommentRow): ProjectComment {
+export function rowToComment(row: CommentRow): ProjectComment {
   return {
     id: row.id,
     cardId: row.card_id,

@@ -1,12 +1,14 @@
 import type { Context } from 'hono'
 import type { ZodType } from 'zod'
-import type { ProjectBoard, ProjectCard, ProjectRole, ProjectView } from '@shared/project/model'
+import type { ProjectBoard, ProjectCard, ProjectComment, ProjectContent, ProjectRole, ProjectView } from '@shared/project/model'
 import { effectiveProjectRole, projectRoleAtLeast } from '@shared/project/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
-import { rowToCard, rowToView } from './bundle'
+import { rowToCard, rowToComment, rowToContent, rowToView } from './bundle'
 import { getProjectCardRow, readCardValues } from './cards'
+import { getProjectCommentRow } from './comments'
+import { getProjectContentRow } from './contents'
 import { rowToBoard, type ProjectBoardRow } from './permissions'
 import { getProjectViewRow } from './views'
 
@@ -109,4 +111,35 @@ export async function requireView(
   if (!row || (!options.allowDeleted && row.delete_at !== 0)) throw ApiError.notFound('View not found')
   const access = await requireBoard(c, row.board_id, required)
   return { ...access, view: rowToView(row) }
+}
+
+export interface ProjectContentAccess extends ProjectBoardAccess {
+  content: ProjectContent
+}
+
+export async function requireContent(
+  c: Context<AppBindings>,
+  contentId: string,
+  required: ProjectRole,
+  options: { allowDeleted?: boolean } = {},
+): Promise<ProjectContentAccess> {
+  const row = await getProjectContentRow(c.env.DB, contentId)
+  if (!row || (!options.allowDeleted && row.delete_at !== 0)) throw ApiError.notFound('Content not found')
+  const access = await requireBoard(c, row.board_id, required)
+  return { ...access, content: rowToContent(row) }
+}
+
+export interface ProjectCommentAccess extends ProjectBoardAccess {
+  comment: ProjectComment
+}
+
+export async function requireComment(
+  c: Context<AppBindings>,
+  commentId: string,
+  required: ProjectRole,
+): Promise<ProjectCommentAccess> {
+  const row = await getProjectCommentRow(c.env.DB, commentId)
+  if (!row || row.delete_at !== 0) throw ApiError.notFound('Comment not found')
+  const access = await requireBoard(c, row.board_id, required)
+  return { ...access, comment: rowToComment(row) }
 }

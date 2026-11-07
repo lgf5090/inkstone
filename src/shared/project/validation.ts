@@ -193,6 +193,7 @@ export const ProjectCommentCreateSchema = z.object({
     'comment too long',
   ),
 })
+export type ProjectCommentCreateInput = z.infer<typeof ProjectCommentCreateSchema>
 
 export const ProjectCommentPatchSchema = ProjectCommentCreateSchema.omit({ id: true })
 
