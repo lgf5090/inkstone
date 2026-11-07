@@ -111,3 +111,63 @@ export interface WebsshRecordingSettingsView {
     retentionDays: number
   }
 }
+
+/**
+ * The owner-facing view of one public replay link. `url` is the `/w/<slug>` address a browser opens
+ * and `hasPassword` says whether a passcode stands in front of it; the recording's R2 key is never
+ * part of this shape.
+ */
+export interface WebsshShareView {
+  slug: string
+  recordingId: string
+  title: string
+  url: string
+  hasPassword: boolean
+  expiresAt: number
+  maxViews: number
+  views: number
+  isEnabled: boolean
+  createdAt: number
+  lastViewedAt: number | null
+}
+
+/** What a visitor is told about a recording once the link's gate has been passed. */
+export interface WebsshPublicShareRecording {
+  format: 'cast'
+  sizeBytes: number
+  durationMs: number
+  cols: number
+  rows: number
+  createdAt: number
+  finalizedAt: number | null
+}
+
+/**
+ * The public metadata read. It names the share, never the session: no recording id, session id, host
+ * id, account id, R2 key or host address reaches a visitor.
+ */
+export interface WebsshPublicShareView {
+  share: {
+    slug: string
+    title: string
+    createdAt: number
+    expiresAt: number
+    maxViews: number
+    views: number
+  }
+  recording: WebsshPublicShareRecording
+}
+
+/**
+ * One byte-addressed slice of a shared cast. The slicing rules are the owner-side replay's, but the
+ * answer carries no recording or session identity.
+ */
+export interface WebsshPublicShareFrames {
+  offset: number
+  startOffset: number
+  nextOffset: number
+  totalSize: number
+  complete: boolean
+  header?: WebsshCastHeader
+  frames: WebsshCastEvent[]
+}

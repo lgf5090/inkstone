@@ -85,6 +85,7 @@ import { isXgetProxyPath } from './development/xget/paths'
 import { developmentApiTesterRoutes } from './routes/development-api-tester'
 import { developmentGithubRoutes } from './routes/development-github'
 import { websshRoutes } from './webssh/routes'
+import { websshPublicShareRoutes } from './webssh/routes-share'
 import { imgbedUploadRoutes } from './imgbed/upload-routes'
 import { youtubeRoutes } from './youtube/routes'
 import {
@@ -349,6 +350,7 @@ export function createApp() {
   app.route('/api/share', shareManageRoutes)
   app.route('/api/public', publicCollectionRoutes)
   app.route('/api/public/music', musicSharePublicRoutes)
+  app.route('/api/public/webssh', websshPublicShareRoutes)
   app.route('/api/public', shareRoutes)
   app.route('/api', transferRoutes)
 

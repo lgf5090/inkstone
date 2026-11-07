@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth'
 import { websshSessionRoutes } from './routes-session'
 import { websshSettingsRoutes } from './routes-settings'
 import { websshRecordingRoutes } from './routes-recordings'
+import { websshShareRoutes } from './routes-share'
 
 export const websshRoutes = new Hono<AppBindings>()
 
@@ -15,3 +16,4 @@ websshRoutes.get('/health', (c) => c.json<WebsshHealth>({ ok: true, module: 'web
 websshRoutes.route('/', websshSessionRoutes)
 websshRoutes.route('/', websshSettingsRoutes)
 websshRoutes.route('/', websshRecordingRoutes)
+websshRoutes.route('/', websshShareRoutes)
