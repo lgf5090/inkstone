@@ -202,12 +202,14 @@ export const ProjectCategoryCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
   type: z.enum(PROJECT_CATEGORY_TYPES).default('custom'),
 })
+export type ProjectCategoryCreateInput = z.infer<typeof ProjectCategoryCreateSchema>
 
 export const ProjectCategoryPatchSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   collapsed: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(1_000_000).optional(),
 })
+export type ProjectCategoryPatchInput = z.infer<typeof ProjectCategoryPatchSchema>
 
 export const ProjectCategoryOrderSchema = z.object({
   categoryIds: z.array(projectId).max(200),

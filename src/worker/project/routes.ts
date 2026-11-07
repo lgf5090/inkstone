@@ -4,6 +4,11 @@ import {
   ProjectBoardPatchSchema,
   ProjectCardCreateSchema,
   ProjectCardPatchSchema,
+  ProjectCategoryBoardHiddenSchema,
+  ProjectCategoryBoardOrderSchema,
+  ProjectCategoryCreateSchema,
+  ProjectCategoryOrderSchema,
+  ProjectCategoryPatchSchema,
   ProjectCommentCreateSchema,
   ProjectCommentPatchSchema,
   ProjectContentCreateSchema,
@@ -22,6 +27,17 @@ import { requireAuth } from '../middleware/auth'
 import { exportProjectBoardArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireCard, requireComment, requireContent, requireView } from './auth'
 import { readProjectBoardBundle } from './bundle'
+import {
+  addBoardToCategory,
+  createProjectCategory,
+  deleteProjectCategory,
+  listProjectCategories,
+  listProjectCategoryBoards,
+  patchProjectCategory,
+  reorderCategoryBoards,
+  reorderProjectCategories,
+  setCategoryBoardHidden,
+} from './categories'
 import {
   createProjectCard,
   getProjectCard,
@@ -315,4 +331,53 @@ projectRoutes.get('/subscriptions', async (c) => {
 projectRoutes.delete('/subscriptions/:blockId', async (c) => {
   await unsubscribeProject(c.env.DB, projectUserId(c), c.req.param('blockId'), Date.now())
   return c.json({ ok: true })
+})
+
+projectRoutes.post('/categories', async (c) => {
+  const input = await projectBody(c, ProjectCategoryCreateSchema, JSON_BODY_LIMITS.small)
+  return c.json({ category: await createProjectCategory(c.env.DB, projectUserId(c), input, Date.now()) }, 201)
+})
+
+projectRoutes.get('/categories', async (c) => {
+  const userId = projectUserId(c)
+  const [categories, categoryBoards] = await Promise.all([
+    listProjectCategories(c.env.DB, userId),
+    listProjectCategoryBoards(c.env.DB, userId),
+  ])
+  return c.json({ categories, categoryBoards })
+})
+
+projectRoutes.put('/categories/order', async (c) => {
+  const input = await projectBody(c, ProjectCategoryOrderSchema, JSON_BODY_LIMITS.small)
+  await reorderProjectCategories(c.env.DB, projectUserId(c), input.categoryIds, Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.patch('/categories/:id', async (c) => {
+  const input = await projectBody(c, ProjectCategoryPatchSchema, JSON_BODY_LIMITS.small)
+  return c.json({ category: await patchProjectCategory(c.env.DB, projectUserId(c), c.req.param('id'), input, Date.now()) })
+})
+
+projectRoutes.delete('/categories/:id', async (c) => {
+  await deleteProjectCategory(c.env.DB, projectUserId(c), c.req.param('id'), Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.put('/categories/:id/boards/order', async (c) => {
+  const input = await projectBody(c, ProjectCategoryBoardOrderSchema, JSON_BODY_LIMITS.small)
+  await reorderCategoryBoards(c.env.DB, projectUserId(c), c.req.param('id'), input.boardIds, Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.post('/categories/:id/boards/:boardId', async (c) => {
+  const userId = projectUserId(c)
+  await requireBoard(c, c.req.param('boardId'), 'viewer')
+  const edge = await addBoardToCategory(c.env.DB, userId, c.req.param('id'), c.req.param('boardId'), Date.now())
+  return c.json({ categoryBoard: edge }, 201)
+})
+
+projectRoutes.put('/categories/:id/boards/:boardId/hidden', async (c) => {
+  const input = await projectBody(c, ProjectCategoryBoardHiddenSchema, JSON_BODY_LIMITS.small)
+  const edge = await setCategoryBoardHidden(c.env.DB, projectUserId(c), c.req.param('id'), c.req.param('boardId'), input.hidden, Date.now())
+  return c.json({ categoryBoard: edge })
 })

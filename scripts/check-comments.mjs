@@ -40972,6 +40972,11 @@ const allowed = new Map([
     "/**\n * A new card counts against the board's ceiling before it is written. The count is a guard against a\n * client flooding creates, not a serialization point: two concurrent creates can both pass it, which\n * is acceptable for a soft DoS ceiling rather than a billed quota.\n */",
     "/**\n * A card patch. A null value deletes that one property's row; a string upserts it. The card's own\n * fields are a sparse update, and the whole thing lands in one batch so a half-applied edit cannot\n * survive. The caller passes the card it already read so the board id need not be looked up again.\n */",
   ]],
+  ["src/worker/project/categories.ts", [
+    "/**\n * The sidebar's furniture: categories and the boards filed under them. These rows belong to the\n * account, not the board, so two people can file the same shared board differently. A board lives in\n * one category at a time — adding it to a new one moves it out of the old — and hiding is a flag on\n * that filing, not on the board itself.\n */",
+    "// The reorder endpoint caps its id list at 200; creation shares that ceiling so the two cannot disagree.",
+    "/**\n * File a board under a category, moving it out of any other category first: the sidebar shows a board\n * once, so a second filing would duplicate it. The position lands after the category's last board.\n */",
+  ]],
   ["src/worker/project/comments.ts", [
     "/**\n * Comments on a card. Like content blocks they join the card's reading order, so posting appends the\n * comment id and deleting scrubs it (a threaded comment lives in a nested array). Only the author may\n * edit or delete a comment; the route enforces that after the board boundary, since the board role\n * alone says nothing about who wrote a given comment.\n */",
   ]],
