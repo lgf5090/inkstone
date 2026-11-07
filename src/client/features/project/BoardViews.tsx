@@ -1,10 +1,12 @@
-import { useState, type ReactElement } from 'react'
+import { useRef, useState, type ReactElement } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
-import type { ProjectBoardBundle, ProjectCard, ProjectProperty, ProjectViewType } from '@shared/project/model'
+import type { ProjectBoardBundle, ProjectCard, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
 import { groupProjectCards, matchProjectFilterGroup, sortProjectCards } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
+import { Select } from '../../components/form'
+import { Menu, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 
 const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
@@ -45,10 +47,13 @@ interface BoardViewsProps {
   onDeleteCard: (id: string) => void
   onCreateView: (type: ProjectViewType) => void
   onOpenCard: (id: string) => void
+  onPatchView: (viewId: string, patch: ProjectViewPatch) => void
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(null)
+  const addAnchor = useRef<HTMLButtonElement>(null)
+  const [addOpen, setAddOpen] = useState(false)
   const active = bundle.views.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
   const fields = active?.fields ?? emptyProjectViewFields()
   const viewType = active?.viewType ?? 'table'
@@ -75,10 +80,35 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         ))}
         {canEdit && (
           <>
-            <IconButton label={t('project.view.add')} size="sm" onClick={() => onCreateView('table')}>
+            <IconButton ref={addAnchor} label={t('project.view.add')} size="sm" onClick={() => setAddOpen(true)}>
               <Plus size={15} />
             </IconButton>
+            <Menu
+              anchor={addAnchor}
+              open={addOpen}
+              onClose={() => setAddOpen(false)}
+              label={t('project.view.add')}
+              items={([['table', 'project.view.table'], ['board', 'project.view.board']] as const).map(([type, key]) => ({
+                id: type,
+                label: t(key),
+                onSelect: () => onCreateView(type),
+              })) as MenuItem[]}
+            />
           </>
+        )}
+        {active && viewType === 'board' && (
+          <Select
+            className="ml-auto w-40"
+            value={fields.groupById ?? ''}
+            aria-label={t('project.view.group_by')}
+            disabled={!canEdit}
+            onChange={(event) => onPatchView(active.id, { fields: { groupById: event.target.value || undefined } })}
+          >
+            <option value="">{t('project.view.group_by')}</option>
+            {bundle.properties.filter((property) => property.type === 'select' || property.type === 'person').map((property) => (
+              <option key={property.id} value={property.id}>{property.name}</option>
+            ))}
+          </Select>
         )}
       </div>
       {sorted.length === 0

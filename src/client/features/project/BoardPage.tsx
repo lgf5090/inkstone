@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
-import { ArrowLeft, Plus, SquareKanban } from 'lucide-react'
-import type { ProjectBoardBundle, ProjectViewType } from '@shared/project/model'
+import { ArrowLeft, Plus, Settings2, SquareKanban } from 'lucide-react'
+import type { ProjectBoardBundle, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { projectRoleAtLeast } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -8,8 +8,9 @@ import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm } from '../../components/overlay'
-import { createProjectCard, createProjectView, deleteProjectCard, fetchProjectBoardBundle } from './api'
+import { createProjectCard, createProjectView, deleteProjectCard, fetchProjectBoardBundle, patchProjectBoard, patchProjectView } from './api'
 import { BoardViews } from './BoardViews'
+import { BoardPropertiesDialog } from './BoardPropertiesDialog'
 import { CardDialog } from './CardDialog'
 
 type Status = 'loading' | 'ready' | 'error' | 'notfound'
@@ -21,6 +22,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [openCardId, setOpenCardId] = useState<string | null>(null)
+  const [showProps, setShowProps] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -65,6 +67,16 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     setBundle((current) => (current ? { ...current, views: [...current.views, view] } : current))
   }, [boardId])
 
+  const saveProps = useCallback(async (properties: ProjectProperty[], deletedIds: string[]) => {
+    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, deletedCardProperties: deletedIds })
+    setBundle((current) => (current ? { ...current, properties: result.properties } : current))
+  }, [boardId])
+
+  const patchView = useCallback(async (viewId: string, patch: ProjectViewPatch) => {
+    const view = await patchProjectView(viewId, patch)
+    setBundle((current) => (current ? { ...current, views: current.views.map((entry) => (entry.id === viewId ? view : entry)) } : current))
+  }, [])
+
   if (status === 'loading') return <LoadingBlock />
   if (status === 'notfound') return <Empty art="select" title={t('project.board.not_found')} action={<Button onClick={() => navigateToPath('/project')}>{t('project.board.back')}</Button>} />
   if (status === 'error' || !bundle) {
@@ -88,6 +100,11 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         <span className="ml-auto shrink-0 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
           {t('project.board.cards_count', { count: bundle.cards.length })}
         </span>
+        {canEdit && (
+          <IconButton label={t('project.props.title')} size="sm" onClick={() => setShowProps(true)}>
+            <Settings2 size={16} />
+          </IconButton>
+        )}
       </header>
       {canEdit && (
         <form
@@ -115,7 +132,16 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         onDeleteCard={(id) => void removeCard(id)}
         onCreateView={(type) => void addView(type)}
         onOpenCard={setOpenCardId}
+        onPatchView={(id, patch) => void patchView(id, patch)}
       />
+      {showProps && (
+        <BoardPropertiesDialog
+          boardId={boardId}
+          properties={bundle.properties}
+          onClose={() => setShowProps(false)}
+          onSave={saveProps}
+        />
+      )}
       {openCard && (
         <CardDialog
           card={openCard}

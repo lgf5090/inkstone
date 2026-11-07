@@ -31,7 +31,7 @@ function bundle(): ProjectBoardBundle {
 let view: RenderedElement
 async function mount(): Promise<void> {
   await act(async () => {
-    view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn() }))
+    view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn() }))
   })
 }
 beforeEach(async () => { await initI18n() })

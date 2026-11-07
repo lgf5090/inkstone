@@ -3,10 +3,12 @@ import { request } from '../../lib/api'
 import type {
   ProjectBoard,
   ProjectBoardBundle,
+  ProjectBoardPatch,
   ProjectBoardSummary,
   ProjectCard,
   ProjectComment,
   ProjectView,
+  ProjectViewPatch,
   ProjectViewType,
 } from '@shared/project/model'
 import type { ProjectBoardCreateInput, ProjectCardCreateInput } from '@shared/project/validation'
@@ -55,6 +57,15 @@ export async function patchProjectCard(id: string, patch: Record<string, unknown
 
 export async function createProjectView(boardId: string, viewType: ProjectViewType): Promise<ProjectView> {
   const body = await request<{ view: ProjectView }>(`/api/project/boards/${encodeURIComponent(boardId)}/views`, { method: 'POST', body: { viewType } })
+  return body.view
+}
+
+export async function patchProjectBoard(id: string, patch: ProjectBoardPatch): Promise<{ board: ProjectBoard, properties: ProjectBoardBundle['properties'] }> {
+  return request<{ board: ProjectBoard, properties: ProjectBoardBundle['properties'] }>(`/api/project/boards/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
+}
+
+export async function patchProjectView(id: string, patch: ProjectViewPatch): Promise<ProjectView> {
+  const body = await request<{ view: ProjectView }>(`/api/project/views/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
   return body.view
 }
 
