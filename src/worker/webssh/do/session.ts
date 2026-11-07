@@ -40,6 +40,8 @@ import {
   WEBSSH_PRE_READY_OUTPUT_LIMIT,
 } from '../constants'
 import { recordAudit } from '../audit'
+import { WebsshSessionRecorder } from '../recording/recorder'
+import { isWebsshRecordingEnabled } from '../settings'
 import {
   hostKeyDecision,
   markHostConnected,
@@ -121,6 +123,7 @@ export class WebsshSession implements DurableObject {
   private sftpClient: SFTPClient | null = null
   private sftpChannel: SSHSubsystemChannel | null = null
   private sftpChain: Promise<unknown> = Promise.resolve()
+  private recorder: WebsshSessionRecorder | null = null
 
   constructor(state: DurableObjectState, env: Env) {
     this.ctx = state
@@ -218,6 +221,7 @@ export class WebsshSession implements DurableObject {
         },
       })
       const socket = await openSshSocket(target)
+      await this.startRecording(runtime.config.term)
       const session = new SSHSession(socket as SSHTransportSocket, runtime.config, this.createSink())
       this.session = session
       this.initialCommand = runtime.initialCommand
@@ -226,6 +230,30 @@ export class WebsshSession implements DurableObject {
       await session.start()
     } catch (error) {
       this.fail(error)
+    }
+  }
+
+  /**
+   * Recording is opt-in and off unless the account's explicit setting says otherwise. With it off
+   * this method only reads one settings row: no recording row, no object, no extra write.
+   */
+  private async startRecording(term: string): Promise<void> {
+    const bucket = this.env.FILES
+    if (!bucket) return
+    try {
+      if (!(await isWebsshRecordingEnabled(this.env.DB, this.userId))) return
+      this.recorder = await WebsshSessionRecorder.start({
+        db: this.env.DB,
+        bucket,
+        userId: this.userId,
+        sessionId: this.sessionId,
+        hostId: this.hostId,
+        cols: this.cols,
+        rows: this.rows,
+        term,
+      })
+    } catch (error) {
+      console.warn('[inkstone] WebSSH recording unavailable:', failureMessage(error))
     }
   }
 
@@ -627,6 +655,7 @@ export class WebsshSession implements DurableObject {
 
   private onOutput(data: Uint8Array): void {
     this.bytesOut += data.length
+    this.recorder?.tapOutput(data)
     this.touch()
     if (this.readySent) {
       this.writeOutput(data)
@@ -708,6 +737,16 @@ export class WebsshSession implements DurableObject {
     this.clearTimers()
     this.disposeSftp(new Error('The WebSSH session ended'))
     const now = Date.now()
+    // Finish the recording before the runtime can be evicted; its own status row is authoritative.
+    const recorder = this.recorder
+    this.recorder = null
+    if (recorder) {
+      this.ctx.waitUntil(
+        recorder.finish(now).catch((error) => {
+          console.warn('[inkstone] WebSSH recording finish failed:', failureMessage(error))
+        }),
+      )
+    }
     const session = this.session
     this.session = null
     try {
@@ -800,6 +839,7 @@ export class WebsshSession implements DurableObject {
       }
       this.cols = size.cols
       this.rows = size.rows
+      this.recorder?.resize(size.cols, size.rows)
       if (!this.readySent) {
         this.pendingResize = size
         return

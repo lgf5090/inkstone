@@ -23,6 +23,11 @@ export type WebsshAuditEventType =
   | 'file_delete'
   | 'file_rename'
   | 'dir_create'
+  | 'recording_start'
+  | 'recording_finalize'
+  | 'recording_fail'
+  | 'recording_delete'
+  | 'recording_access'
 
 export interface WebsshAuditInput {
   userId: string

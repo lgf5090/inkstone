@@ -16,6 +16,8 @@ export interface WebsshSessionView {
   lastActivityAt: number
   closeReason: string
   errorCode: string
+  /** Empty when this session was not recorded (recording is off by default). */
+  recordingId: string
 }
 
 export interface WebsshSessionCreated {
@@ -181,4 +183,63 @@ export interface WebsshHostPreflight {
   credentialLabel: string | null
   keyLabel: string | null
   hostKey: WebsshHostKeyCheck | null
+}
+
+/**
+ * An asciinema cast v2 header. `timestamp` is in whole seconds; terminal output and resize events
+ * follow as one JSON tuple per line.
+ */
+export interface WebsshCastHeader {
+  version: 2
+  width: number
+  height: number
+  timestamp: number
+  env?: Record<string, string>
+}
+
+/** `[seconds since the recording started, kind, payload]` — `o` output text, `r` `colsxrows`. */
+export type WebsshCastEvent =
+  | [number, 'o', string]
+  | [number, 'r', string]
+
+export type WebsshRecordingStatus = 'recording' | 'finalizing' | 'ready' | 'failed' | 'deleted'
+
+/** The owner-facing metadata of one session recording. */
+export interface WebsshRecordingView {
+  id: string
+  sessionId: string
+  hostId: string
+  format: 'cast'
+  status: WebsshRecordingStatus
+  sizeBytes: number
+  durationMs: number
+  cols: number
+  rows: number
+  createdAt: number
+  finalizedAt: number | null
+  expiresAt: number
+}
+
+/**
+ * One byte-addressed slice of a cast file. `offset` is the requested offset, `startOffset` the byte
+ * the first returned line begins at (a partial first line is skipped), and `nextOffset` the byte
+ * after the last complete line — the value to pass as `offset` for the next slice.
+ */
+export interface WebsshRecordingFrames {
+  recordingId: string
+  sessionId: string
+  offset: number
+  startOffset: number
+  nextOffset: number
+  totalSize: number
+  complete: boolean
+  header?: WebsshCastHeader
+  frames: WebsshCastEvent[]
+}
+
+export interface WebsshRecordingSettingsView {
+  recording: {
+    enabled: boolean
+    retentionDays: number
+  }
 }

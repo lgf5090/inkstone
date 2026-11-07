@@ -34,6 +34,27 @@ beforeEach(() => {
       close_reason TEXT NOT NULL DEFAULT '',
       error_code TEXT NOT NULL DEFAULT ''
     );
+    CREATE TABLE webssh_recordings (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      host_id TEXT NOT NULL,
+      format TEXT NOT NULL DEFAULT 'cast',
+      r2_key TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'recording',
+      expires_at INTEGER NOT NULL DEFAULT 0,
+      deleted_at INTEGER
+    );
+    CREATE TABLE webssh_audit_events (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      session_id TEXT NOT NULL DEFAULT '',
+      host_id TEXT NOT NULL DEFAULT '',
+      event_type TEXT NOT NULL,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      ip_hash TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
+    );
   `)
   env = { DB: makeD1(sqlite) } as Env
 })

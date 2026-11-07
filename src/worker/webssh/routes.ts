@@ -6,6 +6,8 @@ import { websshHostRoutes } from './routes-hosts'
 import { websshKeyRoutes } from './routes-keys'
 import { websshSessionRoutes } from './routes-session'
 import { websshSftpRoutes } from './routes-sftp'
+import { websshSettingsRoutes } from './routes-settings'
+import { websshRecordingRoutes } from './routes-recordings'
 
 export const websshRoutes = new Hono<AppBindings>()
 
@@ -17,3 +19,5 @@ websshRoutes.route('/', websshHostRoutes)
 websshRoutes.route('/', websshKeyRoutes)
 websshRoutes.route('/', websshSessionRoutes)
 websshRoutes.route('/', websshSftpRoutes)
+websshRoutes.route('/', websshSettingsRoutes)
+websshRoutes.route('/', websshRecordingRoutes)
