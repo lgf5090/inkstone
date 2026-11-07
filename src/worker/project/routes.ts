@@ -59,6 +59,7 @@ import {
   softDeleteProjectContent,
   undeleteProjectContent,
 } from './contents'
+import { duplicateProjectBoard, duplicateProjectCard } from './duplicate'
 import {
   createProjectBoard,
   getProjectBoardRow,
@@ -146,6 +147,12 @@ projectRoutes.post('/boards/:id/undelete', async (c) => {
   return c.json({ board: await getProjectBoardRow(c.env.DB, board.id) })
 })
 
+projectRoutes.post('/boards/:id/duplicate', async (c) => {
+  const { board, role, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  return c.json({ board: await duplicateProjectBoard(c.env.DB, bundle, userId, Date.now()) }, 201)
+})
+
 projectRoutes.get('/boards/:id/metadata', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
   return c.json(await projectBoardMetadata(c.env.DB, board.id))
@@ -226,6 +233,11 @@ projectRoutes.post('/cards/:id/undelete', async (c) => {
   const { card, userId } = await requireCard(c, c.req.param('id'), 'editor', { allowDeleted: true })
   await undeleteProjectCard(c.env.DB, card.id, userId, Date.now())
   return c.json({ card: await getProjectCard(c.env.DB, card.id) })
+})
+
+projectRoutes.post('/cards/:id/duplicate', async (c) => {
+  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  return c.json({ card: await duplicateProjectCard(c.env.DB, card, userId, Date.now()) }, 201)
 })
 
 projectRoutes.get('/views/:id', async (c) => {

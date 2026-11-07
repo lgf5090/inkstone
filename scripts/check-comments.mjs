@@ -40984,6 +40984,10 @@ const allowed = new Map([
     "/**\n * The ordered blocks that make up a card's body. The position column keeps the bundle's contents in\n * a stable order, but the card's contentOrder array is the reading order the client draws (it also\n * threads comments), so every create, delete and move here keeps the two in step in one batch.\n */",
     "/**\n * Move reorders the card's reading order, then reindexes the position of every top-level content\n * block to match it, so the bundle's position order and the drawn contentOrder cannot drift apart.\n * Comment ids in the order are skipped: they have no position column.\n */",
   ]],
+  ["src/worker/project/duplicate.ts", [
+    "/**\n * Copying a board or a card. A copy gets fresh ids for the board and every child row (those are global\n * primary keys) but keeps property and option ids (those are board-scoped), so the only references\n * that need rewriting are the ones pointing at cards, contents and comments: a card's contentOrder,\n * a view's cardOrder and its default template. Members and share links are deliberately not copied.\n */",
+    "/**\n * A card copy carries its values and content blocks but not its comments: a comment is conversation,\n * not content, so the copy starts a fresh thread. The contentOrder keeps only the copied blocks.\n */",
+  ]],
   ["src/worker/project/members.ts", [
     "/**\n * The reference guards the last admin only in the client; here the server refuses the write that would\n * leave a board with no admin member, because a client check is not a trust boundary.\n */",
     "/** Joining an open board writes the board's minimum role; re-joining never downgrades an existing grant. */",
