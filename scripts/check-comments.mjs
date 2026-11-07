@@ -33823,6 +33823,13 @@ const allowed = new Map([
     "/**\n * Parses the import formats the Short Links tool itself can export: header-based CSV, the\n * `[slug] -> url (label)` TXT shape, and bare URL lines from other tools.\n */",
     "/** A quoted CSV cell exists in exported labels; splitting on every comma breaks them. */",
   ]],
+  ["src/shared/tools/shortlinks/routing.ts", [
+    "/**\n * Per-link routing rules: a status code, device targets and country targets.\n *\n * The rules travel as JSON in one column so an edge redirect never needs a second table look-up.\n * Only the exact shapes the editor writes are accepted; anything else is treated as \"no rules\".\n */",
+    "/** The device target wins over the country target, so a phone abroad still gets the mobile page. */",
+    "/** Formats country targets as one `US=https://...` line per rule for the editor. */",
+    "/** Reads the editor's line format back, ignoring blank lines and malformed entries. */",
+    "/** Builds the rules object from the three editor fields, returning null when every field is empty. */",
+  ]],
   ["src/shared/tools/shortlinks/schemas.ts", [
     "/**\n * Shared Zod schemas for Short Links manager under Tools (`tools/shortlinks`).\n */",
     "/**\n * Why a target URL may not be stored, or null when it may.\n *\n * A short link is handed to a browser as a `Location` header, and `z.string().url()` also accepts\n * `javascript:`, `data:` and `ftp:`. Only the two schemes a redirect can honestly mean are kept, and\n * credentials are refused because the address bar would otherwise show a host the reader never sees.\n */",

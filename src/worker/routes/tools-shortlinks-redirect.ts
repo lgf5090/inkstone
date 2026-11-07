@@ -7,6 +7,7 @@ import { getCookie } from 'hono/cookie'
 import { EN_US_SHORTLINKS_PUBLIC, type ShortlinksPublicCopy } from '@shared/locales/en-US-shortlinks-public'
 import { ZH_CN_SHORTLINKS_PUBLIC } from '@shared/locales/zh-CN-shortlinks-public'
 import { urlProblem } from '@shared/tools/shortlinks/schemas'
+import { parseRoutingRules, pickRoutingTarget } from '@shared/tools/shortlinks/routing'
 import type { AppBindings } from '../env'
 import { escapeHtml } from '../lib/encoding'
 import { verifyPassword } from '../lib/password'
@@ -293,6 +294,7 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
     expires_at: dbRecord.expires_at,
     password_hash: dbRecord.password_hash,
     edge_flags: dbRecord.edge_flags,
+    routing_rules: dbRecord.routing_rules,
   }
 
   // 2. Status checks
@@ -428,7 +430,10 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
   }
 
   // A protected hop depends on a cookie, so a cached 302 would replay it for whoever shares the cache.
+  const rules = parseRoutingRules(entry.routing_rules)
   let destination = entry.url
+  const routed = pickRoutingTarget(rules, uaInfo.deviceType, country)
+  if (routed.target && !urlProblem(routed.target)) destination = routed.target
   if (entry.edge_flags & 2) {
     const target = new URL(destination)
     for (const [key, value] of new URL(c.req.url).searchParams) {
@@ -440,6 +445,7 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
     Location: destination,
     'Cache-Control': entry.password_hash || unsafeConfirmed ? 'no-store' : 'private, max-age=30',
   }
+  if (rules.devices) headers.Vary = 'User-Agent'
 
   if (issuedCookie) {
     const secure = new URL(c.req.url).protocol === 'https:' ? '; Secure' : ''
@@ -448,7 +454,7 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
   }
 
   return new Response(null, {
-    status: 302,
+    status: routed.status,
     headers,
   })
 }

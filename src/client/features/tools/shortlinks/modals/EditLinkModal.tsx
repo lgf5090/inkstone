@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
-import { Input } from '../../../../components/form'
+import { Input, Select, Textarea } from '../../../../components/form'
 import { DatePicker } from '../../../../components/date-picker'
+import { buildRoutingRules, routingCountriesToText } from '@shared/tools/shortlinks/routing'
 import { t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
 import { useShortlinksStore } from '../store'
@@ -22,6 +23,9 @@ export function EditLinkModal() {
   const [expiresAt, setExpiresAt] = useState('')
   const [unsafe, setUnsafe] = useState(false)
   const [redirectWithQuery, setRedirectWithQuery] = useState(false)
+  const [redirectStatus, setRedirectStatus] = useState('')
+  const [mobileTarget, setMobileTarget] = useState('')
+  const [countryTargets, setCountryTargets] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -32,6 +36,9 @@ export function EditLinkModal() {
       setPassword('')
       setUnsafe(Boolean(link.unsafe))
       setRedirectWithQuery(Boolean(link.redirect_with_query))
+      setRedirectStatus(link.routing_rules?.status ? String(link.routing_rules.status) : '')
+      setMobileTarget(link.routing_rules?.devices?.mobile ?? '')
+      setCountryTargets(routingCountriesToText(link.routing_rules?.countries))
       if (link.expires_at) {
         const d = new Date(link.expires_at * 1000)
         const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`)
@@ -60,6 +67,11 @@ export function EditLinkModal() {
         expires_at: expTs,
         unsafe,
         redirect_with_query: redirectWithQuery,
+        routing_rules: buildRoutingRules({
+          status: redirectStatus,
+          mobile: mobileTarget,
+          countries: countryTargets,
+        }),
       })
 
       useUiStore.getState().toast(t('tools.shortlinks.links.status_updated'), 'success')
@@ -186,6 +198,49 @@ export function EditLinkModal() {
               {t('tools.shortlinks.modal.redirect_query_desc')}
             </span>
           </label>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="shortlinks-edit-status"
+                className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1"
+              >
+                {t('tools.shortlinks.modal.redirect_status_label')}
+              </label>
+              <Select
+                id="shortlinks-edit-status"
+                value={redirectStatus}
+                onChange={(e) => setRedirectStatus(e.target.value)}
+                className="h-9"
+              >
+                <option value="">{t('tools.shortlinks.modal.redirect_status_default')}</option>
+                <option value="302">{t('tools.shortlinks.modal.redirect_status_302')}</option>
+                <option value="301">{t('tools.shortlinks.modal.redirect_status_301')}</option>
+              </Select>
+            </div>
+            <div>
+              <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
+                {t('tools.shortlinks.modal.mobile_target_label')}
+              </label>
+              <Input
+                value={mobileTarget}
+                onChange={(e) => setMobileTarget(e.target.value)}
+                placeholder={t('tools.shortlinks.modal.mobile_target_placeholder')}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
+              {t('tools.shortlinks.modal.country_targets_label')}
+            </label>
+            <Textarea
+              value={countryTargets}
+              onChange={(e) => setCountryTargets(e.target.value)}
+              placeholder={t('tools.shortlinks.modal.country_targets_placeholder')}
+              rows={3}
+            />
+          </div>
         </div>
       </form>
     </Modal>

@@ -67,6 +67,20 @@ const HttpUrlSchema = z
     if (problem) context.addIssue({ code: z.ZodIssueCode.custom, message: problem })
   })
 
+const CountryCodeSchema = z.string().regex(/^[A-Z]{2}$/, 'Country codes are two uppercase letters')
+
+export const RoutingRulesSchema = z.object({
+  status: z.union([z.literal(301), z.literal(302)]).optional(),
+  devices: z
+    .object({
+      mobile: HttpUrlSchema.optional(),
+      tablet: HttpUrlSchema.optional(),
+      desktop: HttpUrlSchema.optional(),
+    })
+    .optional(),
+  countries: z.record(CountryCodeSchema, HttpUrlSchema).optional(),
+})
+
 const ExpiresAtSchema = z
   .number()
   .int()
@@ -84,6 +98,7 @@ export const CreateLinkSchema = z.object({
   unsafe: z.boolean().optional(),
   redirect_with_query: z.boolean().optional(),
   tags: TagsSchema.optional(),
+  routing_rules: RoutingRulesSchema.optional().nullable(),
 })
 
 export const UpdateLinkSchema = z.object({
@@ -94,6 +109,7 @@ export const UpdateLinkSchema = z.object({
   unsafe: z.boolean().optional(),
   redirect_with_query: z.boolean().optional(),
   tags: TagsSchema.optional(),
+  routing_rules: RoutingRulesSchema.optional().nullable(),
 })
 
 export const AddSlugSchema = z.object({

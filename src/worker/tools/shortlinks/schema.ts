@@ -18,7 +18,8 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
     last_clicked_at INTEGER,
     lifecycle_state TEXT NOT NULL DEFAULT 'active',
     normalized_url TEXT,
-    edge_flags INTEGER NOT NULL DEFAULT 0
+    edge_flags INTEGER NOT NULL DEFAULT 0,
+    routing_rules TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_user 
     ON tools_shortlinks_links(user_id, created_at DESC)`,
@@ -273,6 +274,7 @@ export const TOOLS_SHORTLINKS_REQUIRED_COLUMNS: Readonly<Record<string, readonly
     'lifecycle_state',
     'normalized_url',
     'edge_flags',
+    'routing_rules',
   ],
   tools_shortlinks_slugs: [
     'slug',

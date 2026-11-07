@@ -12,6 +12,7 @@ import type {
   ClickData,
   ClickStats,
   DashboardStats,
+  RoutingRules,
   ShortLink,
   ShortLinkBundle,
   ShortLinkSlug,
@@ -29,6 +30,7 @@ import {
 } from '@shared/tools/shortlinks/types'
 import { ApiError } from '../../lib/errors'
 import { sha256Hex } from '../../lib/encoding'
+import { parseRoutingRules } from '@shared/tools/shortlinks/routing'
 import { hashPassword } from '../../lib/password'
 import {
   computeDelta,
@@ -57,6 +59,11 @@ const CLICK_DEDUPE_WINDOW_SECONDS = 30
  * per link plus a trailing scope id, so wide pages, exports and bundle reads have to ask in slices.
  */
 const LINK_ID_CHUNK_SIZE = 50
+
+function routingRulesFromRow(raw: string | null | undefined): RoutingRules | null {
+  const rules = parseRoutingRules(raw)
+  return Object.keys(rules).length > 0 ? rules : null
+}
 
 export function normalizeUrl(rawUrl: string): string {
   return rawUrl.trim().replace(/[?#]+$/, '')
@@ -254,6 +261,7 @@ export class ShortlinksStore {
     unsafe?: boolean
     redirect_with_query?: boolean
     tags?: string[]
+    routing_rules?: RoutingRules | null
   }): Promise<ShortLink> {
     const url = normalizeUrl(params.url)
     const normalizedUrl = params.allow_duplicate ? null : url.toLowerCase()
@@ -307,6 +315,10 @@ export class ShortlinksStore {
 
     const now = Math.floor(Date.now() / 1000)
     const edgeFlags = (params.unsafe ? 1 : 0) | (params.redirect_with_query ? 2 : 0)
+    const routingRules =
+      params.routing_rules && Object.keys(params.routing_rules).length > 0
+        ? JSON.stringify(params.routing_rules)
+        : null
     // The link row and its first slug commit together: a generated slug lost to a concurrent create
     // must not leave a link that no short code can ever resolve.
     let linkId = 0
@@ -315,8 +327,8 @@ export class ShortlinksStore {
         await this.db.batch([
           this.db
             .prepare(
-              `INSERT INTO tools_shortlinks_links (user_id, url, normalized_url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by, edge_flags)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO tools_shortlinks_links (user_id, url, normalized_url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by, edge_flags, routing_rules)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
               this.userId,
@@ -330,6 +342,7 @@ export class ShortlinksStore {
               params.created_via || 'app',
               'user',
               edgeFlags,
+              routingRules,
             ),
           this.db
             .prepare(
@@ -402,6 +415,7 @@ export class ShortlinksStore {
         total_clicks: number
         lifecycle_state: 'active' | 'disabled' | 'archived'
         edge_flags: number
+        routing_rules: string | null
       }>()
 
     if (!linkRow) return null
@@ -451,6 +465,7 @@ export class ShortlinksStore {
       lifecycle_state: linkRow.lifecycle_state,
       unsafe: Boolean(linkRow.edge_flags & 1),
       redirect_with_query: Boolean(linkRow.edge_flags & 2),
+      routing_rules: routingRulesFromRow(linkRow.routing_rules),
       tags: tagMap.get(linkRow.id) || [],
     }
   }
@@ -630,6 +645,7 @@ export class ShortlinksStore {
       total_clicks: number
       lifecycle_state: 'active' | 'disabled' | 'archived'
       edge_flags: number
+      routing_rules: string | null
     }>()
 
     const linkIds = (rows.results ?? []).map((r) => r.id)
@@ -656,6 +672,7 @@ export class ShortlinksStore {
       lifecycle_state: r.lifecycle_state,
       unsafe: Boolean(r.edge_flags & 1),
       redirect_with_query: Boolean(r.edge_flags & 2),
+      routing_rules: routingRulesFromRow(r.routing_rules),
       tags: tagMap.get(r.id) || [],
     }))
 
@@ -672,6 +689,7 @@ export class ShortlinksStore {
       unsafe?: boolean
       redirect_with_query?: boolean
       tags?: string[]
+      routing_rules?: RoutingRules | null
     },
   ): Promise<ShortLink> {
     const existing = await this.getLinkById(id)
@@ -718,6 +736,11 @@ export class ShortlinksStore {
       }
       updates.push('edge_flags = ?')
       binds.push(flags)
+    }
+    if (data.routing_rules !== undefined) {
+      updates.push('routing_rules = ?')
+      const rules = data.routing_rules && Object.keys(data.routing_rules).length > 0 ? JSON.stringify(data.routing_rules) : null
+      binds.push(rules)
     }
 
     if (updates.length > 0) {
@@ -931,10 +954,11 @@ export class ShortlinksStore {
     password_hash: string | null
     is_password_protected: boolean
     edge_flags: number
+    routing_rules: string | null
   } | null> {
     const row = await this.db
       .prepare(
-        `SELECT s.slug, s.link_id, s.user_id, s.disabled_at, l.url, l.expires_at, l.password_hash, l.is_password_protected, l.edge_flags
+        `SELECT s.slug, s.link_id, s.user_id, s.disabled_at, l.url, l.expires_at, l.password_hash, l.is_password_protected, l.edge_flags, l.routing_rules
          FROM tools_shortlinks_slugs s
          JOIN tools_shortlinks_links l ON s.link_id = l.id
          WHERE s.slug = ? AND l.lifecycle_state = 'active'`,
@@ -950,6 +974,7 @@ export class ShortlinksStore {
         password_hash: string | null
         is_password_protected: number
         edge_flags: number
+        routing_rules: string | null
       }>()
 
     if (!row) return null
@@ -964,6 +989,7 @@ export class ShortlinksStore {
       password_hash: row.password_hash,
       is_password_protected: Boolean(row.password_hash),
       edge_flags: row.edge_flags,
+      routing_rules: row.routing_rules,
     }
   }
 
@@ -1737,6 +1763,7 @@ export class ShortlinksStore {
         total_clicks: number
         lifecycle_state: 'active' | 'disabled' | 'archived'
         edge_flags: number
+        routing_rules: string | null
       }>()
 
     const linkIds = (rows.results ?? []).map((r) => r.id)
@@ -1760,6 +1787,7 @@ export class ShortlinksStore {
       lifecycle_state: r.lifecycle_state,
       unsafe: Boolean(r.edge_flags & 1),
       redirect_with_query: Boolean(r.edge_flags & 2),
+      routing_rules: routingRulesFromRow(r.routing_rules),
       tags: tagMap.get(r.id) || [],
     }))
   }
@@ -2250,6 +2278,7 @@ export class ShortlinksStore {
         password_protected?: boolean
         password_hash?: string | null
         tags?: string[]
+        routing_rules?: RoutingRules | null
         slugs?: Array<{ slug: string; is_primary?: boolean; is_custom?: boolean; disabled_at?: number | null }>
       }>
       bundles?: Array<{
@@ -2324,6 +2353,7 @@ export class ShortlinksStore {
           expires_at: link.expires_at ?? null,
           allow_duplicate: true,
           tags: Array.isArray(link.tags) ? link.tags : undefined,
+          routing_rules: link.routing_rules ?? null,
         })
         if (typeof link.id === 'number') linkMap.set(link.id, created.id)
         imported++

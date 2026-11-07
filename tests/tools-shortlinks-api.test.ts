@@ -854,3 +854,54 @@ describe('Shortlinks edge behaviour', () => {
     expect(after.password_protected).toBe(false)
   })
 })
+
+describe('Shortlinks routing rules', () => {
+  const DESKTOP =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+  const MOBILE =
+    'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
+
+  it('routes phones and countries separately and returns the configured status', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      body: {
+        url: 'https://routing.example.com/default',
+        custom_slug: 'route-me',
+        routing_rules: {
+          status: 301,
+          devices: { mobile: 'https://routing.example.com/mobile' },
+          countries: { US: 'https://routing.example.com/us' },
+        },
+      },
+    })
+
+    const mobile = await call('GET', '/l/route-me', { user: null, headers: { 'user-agent': MOBILE } })
+    expect(mobile.status).toBe(301)
+    expect(mobile.headers.get('location')).toBe('https://routing.example.com/mobile')
+    expect(mobile.headers.get('vary')).toContain('User-Agent')
+
+    const us = await call('GET', '/l/route-me', {
+      user: null,
+      headers: { 'user-agent': DESKTOP, 'cf-ipcountry': 'US' },
+    })
+    expect(us.status).toBe(301)
+    expect(us.headers.get('location')).toBe('https://routing.example.com/us')
+
+    const fallback = await call('GET', '/l/route-me', {
+      user: null,
+      headers: { 'user-agent': DESKTOP, 'cf-ipcountry': 'DE' },
+    })
+    expect(fallback.status).toBe(301)
+    expect(fallback.headers.get('location')).toBe('https://routing.example.com/default')
+  })
+
+  it('rejects a routing rule that points at a non-web address', async () => {
+    const response = await call('POST', '/api/tools/shortlinks/links', {
+      body: {
+        url: 'https://routing.example.com/safe',
+        custom_slug: 'route-bad',
+        routing_rules: { devices: { mobile: 'javascript:alert(1)' } },
+      },
+    })
+    expect(response.status).toBe(400)
+  })
+})

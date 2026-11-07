@@ -23,6 +23,14 @@ export const MAX_TAG_LENGTH = 24
 
 export type BundleAccent = 'orange' | 'red' | 'green' | 'blue' | 'purple'
 
+export type RouteDevice = 'mobile' | 'tablet' | 'desktop'
+
+export interface RoutingRules {
+  status?: 301 | 302
+  devices?: Partial<Record<RouteDevice, string>>
+  countries?: Record<string, string>
+}
+
 export interface ShortLinkSlug {
   slug: string
   link_id: number
@@ -49,6 +57,7 @@ export interface ShortLink {
   unsafe?: boolean
   redirect_with_query?: boolean
   tags?: string[]
+  routing_rules?: RoutingRules | null
 }
 
 export interface ShortLinkBundle {

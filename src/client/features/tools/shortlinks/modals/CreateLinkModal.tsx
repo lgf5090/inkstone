@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
-import { Input, Select } from '../../../../components/form'
+import { Input, Select, Textarea } from '../../../../components/form'
 import { DatePicker } from '../../../../components/date-picker'
+import { buildRoutingRules } from '@shared/tools/shortlinks/routing'
 import { t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
 import { useShortlinksStore } from '../store'
@@ -25,6 +26,9 @@ export function CreateLinkModal() {
   const [bundleId, setBundleId] = useState<number | ''>('')
   const [unsafe, setUnsafe] = useState(false)
   const [redirectWithQuery, setRedirectWithQuery] = useState(false)
+  const [redirectStatus, setRedirectStatus] = useState('')
+  const [mobileTarget, setMobileTarget] = useState('')
+  const [countryTargets, setCountryTargets] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const handleClose = () => {
@@ -37,6 +41,9 @@ export function CreateLinkModal() {
     setBundleId('')
     setUnsafe(false)
     setRedirectWithQuery(false)
+    setRedirectStatus('')
+    setMobileTarget('')
+    setCountryTargets('')
     setOpen(false)
   }
 
@@ -58,6 +65,11 @@ export function CreateLinkModal() {
         expires_at: expTs,
         unsafe,
         redirect_with_query: redirectWithQuery,
+        routing_rules: buildRoutingRules({
+          status: redirectStatus,
+          mobile: mobileTarget,
+          countries: countryTargets,
+        }),
       })
       if (!link) return
 
@@ -233,6 +245,49 @@ export function CreateLinkModal() {
             {t('tools.shortlinks.modal.redirect_query_desc')}
           </span>
         </label>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label
+              htmlFor="shortlinks-create-status"
+              className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1"
+            >
+              {t('tools.shortlinks.modal.redirect_status_label')}
+            </label>
+            <Select
+              id="shortlinks-create-status"
+              value={redirectStatus}
+              onChange={(e) => setRedirectStatus(e.target.value)}
+              className="h-9"
+            >
+              <option value="">{t('tools.shortlinks.modal.redirect_status_default')}</option>
+              <option value="302">{t('tools.shortlinks.modal.redirect_status_302')}</option>
+              <option value="301">{t('tools.shortlinks.modal.redirect_status_301')}</option>
+            </Select>
+          </div>
+          <div>
+            <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
+              {t('tools.shortlinks.modal.mobile_target_label')}
+            </label>
+            <Input
+              value={mobileTarget}
+              onChange={(e) => setMobileTarget(e.target.value)}
+              placeholder={t('tools.shortlinks.modal.mobile_target_placeholder')}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
+            {t('tools.shortlinks.modal.country_targets_label')}
+          </label>
+          <Textarea
+            value={countryTargets}
+            onChange={(e) => setCountryTargets(e.target.value)}
+            placeholder={t('tools.shortlinks.modal.country_targets_placeholder')}
+            rows={3}
+          />
+        </div>
       </form>
     </Modal>
   )
