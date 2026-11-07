@@ -17,6 +17,18 @@ export interface OpenSshKeyInfo {
   encrypted: boolean
 }
 
+/**
+ * The parsed key plus the decrypted, still-padded private section. The protocol core needs the raw
+ * section to lift a signing key out of it; callers that only need metadata use
+ * `inspectOpenSshPrivateKey`.
+ */
+export interface OpenSshKeyMaterial extends OpenSshKeyInfo {
+  publicKeyBlob: Uint8Array
+  privateKeySection: Uint8Array
+  /** Padding block size of the decrypted private section: 8 unencrypted, 16 for AES. */
+  blockSize: number
+}
+
 const OPENSSH_HEADER = /^-----BEGIN OPENSSH PRIVATE KEY-----([A-Za-z0-9+/=\s]+)-----END OPENSSH PRIVATE KEY-----$/
 const OPENSSH_MAGIC = utf8('openssh-key-v1\0')
 const MAX_PRIVATE_KEY_BYTES = 16 * 1024
@@ -85,6 +97,11 @@ export function publicKeyAlgorithm(blob: Uint8Array): string {
 }
 
 export async function inspectOpenSshPrivateKey(pem: string, passphrase?: string): Promise<OpenSshKeyInfo> {
+  const { algorithm, publicKey, fingerprint, encrypted } = await openOpenSshPrivateKey(pem, passphrase)
+  return { algorithm, publicKey, fingerprint, encrypted }
+}
+
+export async function openOpenSshPrivateKey(pem: string, passphrase?: string): Promise<OpenSshKeyMaterial> {
   const trimmed = pem.trim()
   const match = OPENSSH_HEADER.exec(trimmed)
   if (!match) throw unsupported('Only OpenSSH-format private keys are supported')
@@ -144,6 +161,9 @@ export async function inspectOpenSshPrivateKey(pem: string, passphrase?: string)
     publicKey: `${algorithm} ${encodedPublicKey}`,
     fingerprint,
     encrypted,
+    publicKeyBlob,
+    privateKeySection: plaintext,
+    blockSize: encrypted ? 16 : 8,
   }
 }
 

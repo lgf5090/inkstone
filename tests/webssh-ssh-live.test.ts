@@ -134,6 +134,22 @@ describe.skipIf(!LIVE)('live OpenSSH server', () => {
     session.close()
   })
 
+  it('authenticates with a passphrase-encrypted Ed25519 key', async () => {
+    const live = await connect(LIVE_HOST as string, LIVE_PORT)
+    const sink = makeTestSink()
+    const session = new SSHSession(live.socket, config({
+      authMethod: 'publickey',
+      password: undefined,
+      privateKey: fixture('throwaway-ed25519-enc'),
+      privateKeyPassphrase: 'w3-passphrase',
+    }), sink)
+    await session.start()
+    await withTimeout(sink.readySignal.promise, 15_000, 'shell ready')
+    session.write(encoder.encode("printf 'KEY_ENCRYPTED=%s\\n' ok\n"))
+    await sink.waitForText('KEY_ENCRYPTED=ok', 10_000)
+    session.close()
+  })
+
   it('reports auth_failed for a wrong password', async () => {
     const live = await connect(LIVE_HOST as string, LIVE_PORT)
     const sink = makeTestSink()

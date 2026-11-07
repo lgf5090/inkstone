@@ -76,21 +76,19 @@ describe('OpenSSH private key parsing', () => {
 
   it('rejects a non-OpenSSH key format', async () => {
     const pkcs8 = '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----'
-    await expect(SSHAuth.publicKeyInfo(pkcs8)).rejects.toThrow('only OpenSSH keys are accepted')
+    await expect(SSHAuth.publicKeyInfo(pkcs8)).rejects.toThrow('Only OpenSSH-format private keys are supported')
   })
 
-  it('rejects an encrypted key with an explicit message', async () => {
-    const encoder = new TextEncoder()
-    const kdfOptions = concat(encodeString('salt-bytes'), new Uint8Array([0, 0, 0, 16]))
-    const raw = concat(
-      encoder.encode('openssh-key-v1\u0000'),
-      encodeString('aes256-ctr'),
-      encodeString('bcrypt'),
-      encodeString(kdfOptions),
-    )
-    const body = Buffer.from(raw).toString('base64').match(/.{1,70}/g)?.join('\n') ?? ''
-    const pem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----`
-    await expect(SSHAuth.publicKeyInfo(pem)).rejects.toThrow('Encrypted OpenSSH private keys are not supported')
+  it('requires the passphrase for an encrypted key and rejects a wrong one', async () => {
+    const pem = readKey('throwaway-ed25519-enc')
+    await expect(SSHAuth.publicKeyInfo(pem)).rejects.toThrow('This private key is encrypted; enter its passphrase')
+    await expect(SSHAuth.publicKeyInfo(pem, 'wrong-passphrase')).rejects.toThrow('The passphrase does not decrypt this private key')
+  })
+
+  it('extracts the public key of an encrypted key with its passphrase', async () => {
+    const info = await SSHAuth.publicKeyInfo(readKey('throwaway-ed25519-enc'), 'w3-passphrase')
+    expect(info.publicKey.startsWith('ssh-ed25519 ')).toBe(true)
+    expect(info.fingerprint).toBe('SHA256:DKCSOm3f7YTyX2lAUeATITlkGpl6EeYQGAktWz2nNj8')
   })
 
   it('rejects a corrupted check integer pair', async () => {
@@ -109,7 +107,7 @@ describe('OpenSSH private key parsing', () => {
     binary[offset + 3] ^= 0x01
     const body = Buffer.from(binary).toString('base64').match(/.{1,70}/g)?.join('\n') ?? ''
     const pem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----`
-    await expect(SSHAuth.publicKeyInfo(pem)).rejects.toThrow('Private key check integers do not match')
+    await expect(SSHAuth.publicKeyInfo(pem)).rejects.toThrow('The private key check integers do not match')
   })
 })
 
@@ -150,6 +148,38 @@ describe('public-key authentication request', () => {
     const rawKey = readField(parts.publicKey, blobType.next)
     const key = await crypto.subtle.importKey('raw', toBufferSource(rawKey.bytes), { name: 'Ed25519' }, false, ['verify'])
     expect(await crypto.subtle.verify('Ed25519', key, toBufferSource(parts.signatureValue), toBufferSource(parts.dataToSign))).toBe(true)
+  })
+
+  it('signs an encrypted Ed25519 request when the passphrase is supplied', async () => {
+    const request = await SSHAuth.buildPublicKeyAuthRequest(
+      'testuser',
+      readKey('throwaway-ed25519-enc'),
+      sessionId,
+      undefined,
+      'w3-passphrase',
+    )
+    expect(request[0]).toBe(50)
+    const username = readString(request, 1)
+    const service = readString(request, username.next)
+    const method = readString(request, service.next)
+    const algorithm = readString(request, method.next + 1)
+    expect(algorithm.value).toBe('ssh-ed25519')
+    const publicKey = readField(request, algorithm.next)
+    const signature = readField(request, publicKey.next)
+    const requestBody = request.subarray(0, publicKey.next)
+    const dataToSign = concat(encodeString(sessionId), requestBody)
+    const blobType = readString(publicKey.bytes, 0)
+    const rawKey = readField(publicKey.bytes, blobType.next)
+    const key = await crypto.subtle.importKey('raw', toBufferSource(rawKey.bytes), { name: 'Ed25519' }, false, ['verify'])
+    const signatureType = readString(signature.bytes, 0)
+    const signatureValue = readField(signature.bytes, signatureType.next)
+    expect(signatureType.value).toBe('ssh-ed25519')
+    expect(await crypto.subtle.verify(
+      'Ed25519',
+      key,
+      toBufferSource(signatureValue.bytes),
+      toBufferSource(dataToSign),
+    )).toBe(true)
   })
 
   it('signs an RSA request with rsa-sha2-256', async () => {

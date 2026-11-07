@@ -1,9 +1,11 @@
 // Derived from EdgeSSH 2026-11 snapshot (Apache-2.0) src/ssh/auth.ts, with Inkstone adaptations.
-// OpenSSH private-key parsing (ed25519 / RSA / ECDSA) and RFC 4252 public-key authentication.
-// Encrypted (passphrase) keys are deferred to M2 together with bcrypt_pbkdf; plaintext keys only.
+// OpenSSH private-key extraction (ed25519 / RSA / ECDSA) and RFC 4252 public-key authentication.
+// The container (including bcrypt-encrypted keys) is parsed by the shared W3 `openssh-key.ts`; this
+// file only consumes its decrypted private section to build signing keys.
 
 import { SSH_MSG_USERAUTH_REQUEST } from './types'
 import { encodeString, concat, readUint32, toBufferSource } from './utils'
+import { openOpenSshPrivateKey } from '../openssh-key'
 import {
   buildKeyboardInteractiveAuthRequest,
   buildKeyboardInteractiveResponse,
@@ -14,8 +16,6 @@ import {
   type KeyboardInteractiveChallenge,
   type PasswordPromptIdentity,
 } from './auth-password'
-
-const UNENCRYPTED_PRIVATE_KEY_BLOCK_BYTES = 8
 
 const SSH_ED25519 = 'ssh-ed25519'
 const SSH_RSA = 'ssh-rsa'
@@ -38,8 +38,8 @@ interface ParsedKey {
 }
 
 export class SSHAuth {
-  static async publicKeyInfo(privateKey: string): Promise<{ publicKey: string; fingerprint: string }> {
-    const { keyType, publicKeyBlob } = await this.parsePrivateKey(privateKey)
+  static async publicKeyInfo(privateKey: string, passphrase?: string): Promise<{ publicKey: string; fingerprint: string }> {
+    const { keyType, publicKeyBlob } = await this.parsePrivateKey(privateKey, passphrase)
     const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
     const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', toBufferSource(publicKeyBlob)))
     return { publicKey: `${keyType} ${encode(publicKeyBlob)}`, fingerprint: `SHA256:${encode(hash).replace(/=+$/, '')}` }
@@ -79,8 +79,9 @@ export class SSHAuth {
     privateKeyPEM: string,
     sessionID: Uint8Array,
     serverSigAlgs?: string[],
+    passphrase?: string,
   ): Promise<Uint8Array> {
-    const { signingKey, publicKeyBlob, keyType, rsaPkcs8 } = await this.parsePrivateKey(privateKeyPEM)
+    const { signingKey, publicKeyBlob, keyType, rsaPkcs8 } = await this.parsePrivateKey(privateKeyPEM, passphrase)
 
     let requestAlgo = keyType
     let signatureAlgo = keyType
@@ -192,104 +193,25 @@ export class SSHAuth {
     throw new Error(`Invalid ECDSA signature length: expected ${coordBytes * 2}; received ${sigBytes.length}`)
   }
 
-  /** Parse an unencrypted OpenSSH private key and detect its type. */
-  private static async parsePrivateKey(pem: string): Promise<ParsedKey> {
-    // Real-world exports occasionally carry trailing spaces/tabs on each line; tolerance stops at
-    // whitespace, and only the Base64 body itself is decoded strictly.
-    const match = /^-----BEGIN OPENSSH PRIVATE KEY-----\r?\n([A-Za-z0-9+/=\s]+)\r?\n-----END OPENSSH PRIVATE KEY-----$/.exec(pem.trim())
-    if (!match) throw new Error('Unsupported private key format; only OpenSSH keys are accepted')
-    const b64 = match[1].replace(/\s+/g, '')
-    if (b64.length === 0 || b64.length % 4 !== 0) throw new Error('Malformed OpenSSH private key Base64 data')
-    let raw: Uint8Array
-    try {
-      const binary = atob(b64)
-      raw = Uint8Array.from(binary, (c) => c.charCodeAt(0))
-      const canonical = btoa(binary)
-      if (canonical !== b64) throw new Error('non-canonical Base64')
-    } catch {
-      throw new Error('Malformed OpenSSH private key Base64 data')
-    }
+  /** Lift a signing key out of the private section parsed by the shared OpenSSH container reader. */
+  private static async parsePrivateKey(pem: string, passphrase?: string): Promise<ParsedKey> {
+    const material = await openOpenSshPrivateKey(pem, passphrase)
+    const privateSection = material.privateKeySection
 
-    const magic = 'openssh-key-v1\0'
-    const magicBytes = new TextEncoder().encode(magic)
-    if (raw.length < magicBytes.length) {
-      throw new Error('Private key data is too short')
-    }
-    for (let i = 0; i < magicBytes.length; i++) {
-      if (raw[i] !== magicBytes[i]) {
-        throw new Error('Unsupported private key format; only OpenSSH keys are accepted')
-      }
-    }
-    let offset = magicBytes.length
-
-    if (offset + 4 > raw.length) throw new Error('Malformed private key cipher length')
-    const cipherLen = readUint32(raw, offset)
-    offset += 4
-    if (offset + cipherLen > raw.length) throw new Error('Malformed private key cipher field')
-    const cipher = this.decodeText(raw.slice(offset, offset + cipherLen), 'private key cipher')
-    offset += cipherLen
-
-    if (offset + 4 > raw.length) throw new Error('Malformed private key KDF length')
-    const kdfLen = readUint32(raw, offset)
-    offset += 4
-    if (offset + kdfLen > raw.length) throw new Error('Malformed private key KDF field')
-    const kdf = this.decodeText(raw.slice(offset, offset + kdfLen), 'private key KDF')
-    offset += kdfLen
-
-    if (offset + 4 > raw.length) throw new Error('Malformed private key KDF options length')
-    const kdfOptLen = readUint32(raw, offset)
-    offset += 4
-    if (offset + kdfOptLen > raw.length) throw new Error('Malformed private key KDF options')
-    offset += kdfOptLen
-
-    if (cipher !== 'none' || kdf !== 'none' || kdfOptLen !== 0) {
-      throw new Error('Encrypted OpenSSH private keys are not supported in this batch; provide an unencrypted key')
-    }
-    const blockSize = UNENCRYPTED_PRIVATE_KEY_BLOCK_BYTES
-
-    if (offset + 4 > raw.length) throw new Error('Malformed private key count')
-    const numKeys = readUint32(raw, offset)
-    offset += 4
-    if (numKeys !== 1) throw new Error('Only single-key files are supported')
-
-    if (offset + 4 > raw.length) throw new Error('Malformed public key section length')
-    const pubSecLen = readUint32(raw, offset)
-    offset += 4
-    if (offset + pubSecLen > raw.length) throw new Error('Malformed public key section')
-    const publicKeyBlob = raw.slice(offset, offset + pubSecLen)
-    offset += pubSecLen
-
-    if (offset + 4 > raw.length) throw new Error('Malformed private key section length')
-    const privSecLen = readUint32(raw, offset)
-    offset += 4
-    if (offset + privSecLen > raw.length) throw new Error('Malformed private key section')
-    const privateBytes = raw.slice(offset, offset + privSecLen)
-    offset += privSecLen
-    if (offset !== raw.length) throw new Error('Trailing data after private key section')
-
-    let po = 0
-    if (privateBytes.length < 8) throw new Error('Malformed private key check integers')
-    const checkint1 = readUint32(privateBytes, po)
-    po += 4
-    const checkint2 = readUint32(privateBytes, po)
-    po += 4
-    if (checkint1 !== checkint2) {
-      throw new Error('Private key check integers do not match')
-    }
-
-    if (po + 4 > privateBytes.length) throw new Error('Malformed private key type length')
-    const ktLen = readUint32(privateBytes, po)
-    po += 4
-    if (po + ktLen > privateBytes.length) throw new Error('Malformed private key type')
-    const keyType = this.decodeText(privateBytes.slice(po, po + ktLen), 'private key type')
-    po += ktLen
+    // The container parser has already verified the two check integers; skip them, then read the
+    // key-type string that opens the private section.
+    let po = 8
+    const typeField = this.readSSHString(privateSection, po, 'private key type')
+    po = typeField.offset
+    const keyType = this.decodeText(typeField.value, 'private key type')
+    if (keyType !== material.algorithm) throw new Error('The private and public halves of this key describe different algorithms')
 
     if (keyType === SSH_ED25519) {
-      return this.parseEd25519Key(privateBytes, po, publicKeyBlob, blockSize)
+      return this.parseEd25519Key(privateSection, po, material.publicKeyBlob, material.blockSize)
     } else if (keyType === SSH_RSA) {
-      return this.parseRSAKey(privateBytes, po, publicKeyBlob, blockSize)
+      return this.parseRSAKey(privateSection, po, material.publicKeyBlob, material.blockSize)
     } else if (keyType.startsWith('ecdsa-sha2-')) {
-      return this.parseECDSAKey(privateBytes, po, keyType, publicKeyBlob, blockSize)
+      return this.parseECDSAKey(privateSection, po, keyType, material.publicKeyBlob, material.blockSize)
     } else {
       throw new Error(`Unsupported key type: ${keyType}`)
     }

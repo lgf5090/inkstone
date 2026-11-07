@@ -48,6 +48,8 @@ export interface SSHConnectionConfig {
   authMethod: 'password' | 'publickey'
   password?: string
   privateKey?: string
+  /** Passphrase for an encrypted OpenSSH private key; never sent or persisted beyond the handshake. */
+  privateKeyPassphrase?: string
   cols: number
   rows: number
   term: string
@@ -169,12 +171,16 @@ export function normalizeConnectionConfig(input: SSHConnectionConfig): SSHConnec
   }
   if (input.authMethod !== 'password' && input.authMethod !== 'publickey') throw new Error('Invalid authentication method')
   if (input.authMethod === 'password') {
-    if (typeof input.password !== 'string' || input.password.length > 4096 || input.privateKey !== undefined) {
+    if (typeof input.password !== 'string' || input.password.length > 4096 || input.privateKey !== undefined || input.privateKeyPassphrase !== undefined) {
       throw new Error('Password authentication requires exactly one password credential')
     }
   } else {
     if (typeof input.privateKey !== 'string' || input.privateKey.length > 128 * 1024 || !input.privateKey.includes('BEGIN OPENSSH PRIVATE KEY') || input.password !== undefined) {
       throw new Error('Public-key authentication requires exactly one OpenSSH private key')
+    }
+    if (input.privateKeyPassphrase !== undefined
+      && (typeof input.privateKeyPassphrase !== 'string' || input.privateKeyPassphrase.length > 1024)) {
+      throw new Error('Invalid private key passphrase')
     }
   }
   if (input.expectedFingerprint !== undefined && !/^SHA256:[A-Za-z0-9+/]{43}$/.test(input.expectedFingerprint)) {
@@ -193,6 +199,7 @@ export function normalizeConnectionConfig(input: SSHConnectionConfig): SSHConnec
     authMethod: input.authMethod,
     password: input.password,
     privateKey: input.privateKey,
+    privateKeyPassphrase: input.privateKeyPassphrase,
     cols: size.cols,
     rows: size.rows,
     term,

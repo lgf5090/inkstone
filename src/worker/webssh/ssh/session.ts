@@ -264,6 +264,7 @@ export class SSHSession {
     this.queuedBytes = 0
     this.config.password = undefined
     this.config.privateKey = undefined
+    this.config.privateKeyPassphrase = undefined
     try {
       this.reader?.cancel().catch(() => undefined)
     } catch {
@@ -682,11 +683,20 @@ export class SSHSession {
       }
       if (this.authRequestSent) throw new SSHSessionError('protocol_error', 'Duplicate SSH user authentication service acceptance')
       const request = this.config.authMethod === 'publickey'
-        ? await SSHAuth.buildPublicKeyAuthRequest(this.config.username, this.config.privateKey!, this.sessionId!, this.serverSigAlgs)
+        ? await SSHAuth.buildPublicKeyAuthRequest(
+          this.config.username,
+          this.config.privateKey!,
+          this.sessionId!,
+          this.serverSigAlgs,
+          this.config.privateKeyPassphrase,
+        )
         : SSHAuth.buildPasswordAuthRequest(this.config.username, this.config.password!)
       this.authRequestSent = true
       // The private key is cleared as soon as its signature exists.
-      if (this.config.authMethod === 'publickey') this.config.privateKey = undefined
+      if (this.config.authMethod === 'publickey') {
+        this.config.privateKey = undefined
+        this.config.privateKeyPassphrase = undefined
+      }
       await this.sendEncrypted(request)
       return
     }
@@ -722,6 +732,7 @@ export class SSHSession {
       if (!this.authRequestSent) throw new SSHSessionError('auth_failed', 'SSH authentication completed before credentials were sent')
       this.config.password = undefined
       this.config.privateKey = undefined
+      this.config.privateKeyPassphrase = undefined
       if (this.handshakeTimer) clearTimeout(this.handshakeTimer)
       this.handshakeTimer = null
       this.sink.status('auth_success', 'SSH authentication succeeded; opening terminal')

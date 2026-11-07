@@ -275,6 +275,7 @@ export class WebsshSession implements DurableObject {
 
     let password: string | undefined
     let privateKey: string | undefined
+    let privateKeyPassphrase: string | undefined
     let credentialId = ''
     let keyId = ''
     if (host.auth_method === 'password') {
@@ -303,12 +304,11 @@ export class WebsshSession implements DurableObject {
       const secret = await decryptWebsshSecret(this.env, keyId, row.private_key_ciphertext).catch(() => null)
       if (!secret?.privateKey) throw new WebsshSessionFailure('key_unreadable', 'The stored private key could not be opened')
       if (row.passphrase_ciphertext) {
-        // W1's container parser rejects encrypted keys until the W3 parser merge; say so explicitly
-        // instead of letting the handshake fail with an opaque protocol error.
-        throw new WebsshSessionFailure(
-          'unsupported_encrypted_key',
-          'Encrypted private keys cannot be used until the W3 key parser is merged',
-        )
+        const opened = await decryptWebsshSecret(this.env, keyId, row.passphrase_ciphertext).catch(() => null)
+        if (!opened?.passphrase) {
+          throw new WebsshSessionFailure('key_unreadable', 'The stored key passphrase could not be opened')
+        }
+        privateKeyPassphrase = opened.passphrase
       }
       privateKey = secret.privateKey
     }
@@ -322,6 +322,7 @@ export class WebsshSession implements DurableObject {
       authMethod: host.auth_method,
       ...(password ? { password } : {}),
       ...(privateKey ? { privateKey } : {}),
+      ...(privateKeyPassphrase ? { privateKeyPassphrase } : {}),
       cols: this.cols,
       rows: this.rows,
       term,
