@@ -405,6 +405,14 @@ const cloudflareCatalogFiles = {
         [path.join(localeRoot, 'zh-CN-cloudflare-settings.ts'), 'ZH_CN_CLOUDFLARE_SETTINGS'],
     ],
 };
+const projectCatalogFiles = {
+    en: [
+        [path.join(localeRoot, 'en-US-project.ts'), 'EN_US_PROJECT'],
+    ],
+    zh: [
+        [path.join(localeRoot, 'zh-CN-project.ts'), 'ZH_CN_PROJECT'],
+    ],
+};
 const inknoteCatalogFiles = {
     en: [[path.join(localeRoot, 'en-US-inknote.ts'), 'EN_US_INKNOTE']],
     zh: [[path.join(localeRoot, 'zh-CN-inknote.ts'), 'ZH_CN_INKNOTE']],
@@ -440,8 +448,8 @@ const blogAdminCatalogFiles = {
     ],
 };
 const catalogFragments = {
-    en: [[path.join(localeRoot, 'en-US.ts'), 'CORE_MESSAGES_TAIL'], noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...clouddriveCatalogFiles.en, ...imgbedCatalogFiles.en, ...navCatalogFiles.en, ...toolsCatalogFiles.en, ...scriptshubCatalogFiles.en, ...youtubeCatalogFiles.en, ...calendarCatalogFiles.en, ...cloudflareCatalogFiles.en, ...inkCatalogFiles.en, ...inknoteCatalogFiles.en, ...blogAdminCatalogFiles.en, ...developmentCatalogFiles.en],
-    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...clouddriveCatalogFiles.zh, ...imgbedCatalogFiles.zh, ...navCatalogFiles.zh, ...toolsCatalogFiles.zh, ...scriptshubCatalogFiles.zh, ...youtubeCatalogFiles.zh, ...calendarCatalogFiles.zh, ...cloudflareCatalogFiles.zh, ...inkCatalogFiles.zh, ...inknoteCatalogFiles.zh, ...blogAdminCatalogFiles.zh, ...developmentCatalogFiles.zh],
+    en: [[path.join(localeRoot, 'en-US.ts'), 'CORE_MESSAGES_TAIL'], noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...clouddriveCatalogFiles.en, ...imgbedCatalogFiles.en, ...navCatalogFiles.en, ...toolsCatalogFiles.en, ...scriptshubCatalogFiles.en, ...youtubeCatalogFiles.en, ...calendarCatalogFiles.en, ...cloudflareCatalogFiles.en, ...inkCatalogFiles.en, ...inknoteCatalogFiles.en, ...blogAdminCatalogFiles.en, ...developmentCatalogFiles.en, ...projectCatalogFiles.en],
+    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...clouddriveCatalogFiles.zh, ...imgbedCatalogFiles.zh, ...navCatalogFiles.zh, ...toolsCatalogFiles.zh, ...scriptshubCatalogFiles.zh, ...youtubeCatalogFiles.zh, ...calendarCatalogFiles.zh, ...cloudflareCatalogFiles.zh, ...inkCatalogFiles.zh, ...inknoteCatalogFiles.zh, ...blogAdminCatalogFiles.zh, ...developmentCatalogFiles.zh, ...projectCatalogFiles.zh],
 };
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must

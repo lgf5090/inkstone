@@ -237,6 +237,11 @@ export interface ProjectBoard {
   deleteAt: number
 }
 
+/** A board as the caller sees it: the stored fields plus the role this caller actually holds. */
+export interface ProjectBoardSummary extends ProjectBoard {
+  role: ProjectRole
+}
+
 /**
  * A board edit. Absent means "leave alone"; the two property lists are whole-object replacements
  * matched by id, and a property id never seen before is appended rather than inserted.

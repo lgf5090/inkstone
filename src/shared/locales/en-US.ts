@@ -40,6 +40,7 @@ import { EN_US_DEVELOPMENT_XGET_SETTINGS } from './en-US-development-xget-settin
 import { EN_US_INK } from './en-US-ink';
 import { EN_US_INK_ELEMENTS } from './en-US-ink-elements';
 import { EN_US_INK_SETTINGS } from './en-US-ink-settings';
+import { EN_US_PROJECT } from './en-US-project';
 const CORE_MESSAGES = {
     "template.kanban_sprint_board.name": "Sprint Board",
     "template.kanban_sprint_board.description": "A kanban board with the four columns a sprint actually needs.",
@@ -6560,6 +6561,7 @@ const CORE_MESSAGES_TAIL = {
     "app.tabs.inknote": "Handwriting",
     "app.tabs.calendar": "Calendar",
     "app.tabs.todo": "To-do",
+    "app.tabs.project": "Projects",
     "app.tabs.email": "Mail",
     "app.tabs.nav": "Navigator",
     "app.tabs.chat": "Chat",
@@ -10919,6 +10921,7 @@ const CORE_MESSAGES_TAIL = {
     ...EN_US_INK,
     ...EN_US_INK_ELEMENTS,
     ...EN_US_INK_SETTINGS,
+    ...EN_US_PROJECT,
 } as const;
 
 const CORE_MESSAGES_ALL: typeof CORE_MESSAGES & typeof CORE_MESSAGES_TAIL = { ...CORE_MESSAGES, ...CORE_MESSAGES_TAIL };

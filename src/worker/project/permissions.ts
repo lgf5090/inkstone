@@ -1,4 +1,4 @@
-import type { ProjectBoard, ProjectBoardType, ProjectMinimumRole, ProjectRole } from '@shared/project/model'
+import type { ProjectBoard, ProjectBoardSummary, ProjectBoardType, ProjectMinimumRole, ProjectRole } from '@shared/project/model'
 import { effectiveProjectRole } from '@shared/project/model'
 
 export interface ProjectBoardRow {
@@ -22,11 +22,6 @@ export interface ProjectBoardRow {
 export interface ProjectMembershipRow {
   board_id: string
   role: string
-}
-
-/** A board as the caller sees it: the stored fields plus the role this caller actually holds. */
-export interface ProjectBoardSummary extends ProjectBoard {
-  role: ProjectRole
 }
 
 export function rowToBoard(row: ProjectBoardRow): ProjectBoard {

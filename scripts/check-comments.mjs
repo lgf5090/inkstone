@@ -12497,6 +12497,12 @@ const allowed = new Map([
     "// The last branch is for `[[#heading]]`, whose target lives in that same datum. A span without one",
     "// is not a wiki link, and the card it used to produce only repeated the note already on screen.",
   ]],
+  ["src/client/features/project/api.ts", [
+    "/** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */",
+  ]],
+  ["src/client/features/project/store.ts", [
+    "/** The project tab's board list: what this account can open, and whether the last read succeeded. */",
+  ]],
   ["src/client/features/quickadd/bridge.test.ts", [
     "// `mount(undefined)` would take the helper's own default, so the prop is set here directly.",
   ]],
@@ -32336,6 +32342,7 @@ const allowed = new Map([
     "/**\n * One board, whole. The reference made the client fetch blocks page by page and assemble them; this\n * reads the board in one round trip because every screen that opens a board needs all of it anyway.\n */",
     "/** The caller's effective role, already resolved against the board's minimum role. */",
     "/**\n * The role a request actually carries. An open board grants its minimum to every signed-in account,\n * a private one grants nothing beyond an explicit membership, and the owner is always an admin.\n * The server resolves this before every write; the client resolves it only to decide what to draw.\n */",
+    "/** A board as the caller sees it: the stored fields plus the role this caller actually holds. */",
   ]],
   ["src/shared/project/validation.ts", [
     "/**\n * The shapes a project request may take. The server runs every write through these before it touches\n * D1; the client runs the same schemas so a rejected field is reported at the control that typed it.\n *\n * Bounds come from `./limits` rather than being restated, so raising a ceiling is one edit.\n */",
@@ -40922,7 +40929,6 @@ const allowed = new Map([
     "/**\n   * Whether this edit's text belongs in the AI index. A lock writes ciphertext, which must not be\n   * embedded; ordinary edits leave this unset and keep the queue statement.\n   */",
   ]],
   ["src/worker/project/permissions.ts", [
-    "/** A board as the caller sees it: the stored fields plus the role this caller actually holds. */",
     "/**\n * Which boards the sidebar lists, and what the caller may do with each.\n *\n * A board reaches its audience two ways — the account owns it, or a membership row names it — so the\n * list is the union of the two, and a board the caller can no longer read is dropped rather than\n * shown greyed out. The role is resolved here so no caller has to remember the open-board rule.\n */",
   ]],
   ["src/worker/project/schema.ts", [

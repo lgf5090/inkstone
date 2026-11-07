@@ -1,4 +1,4 @@
-import type { ProjectBoardSummary } from './permissions'
+import type { ProjectBoardSummary } from '@shared/project/model'
 import { visibleProjectBoards, type ProjectBoardRow, type ProjectMembershipRow } from './permissions'
 
 /**

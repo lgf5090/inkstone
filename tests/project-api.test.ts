@@ -5,7 +5,7 @@ import { createApp } from '../src/worker/app'
 import { createSession } from '../src/worker/lib/session-store'
 import { LEGACY_SESSION_COOKIE } from '../src/shared/constants'
 import type { Env } from '../src/worker/env'
-import type { ProjectBoardSummary } from '../src/worker/project/permissions'
+import type { ProjectBoardSummary } from '../src/shared/project/model'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 

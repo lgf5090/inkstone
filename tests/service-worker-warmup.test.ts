@@ -135,6 +135,9 @@ function buildServiceWorker() {
     'assets/excalidraw-6.js': chunk('assets/excalidraw-6.js'),
     'assets/notes-4.js': chunk('assets/notes-4.js'),
     'assets/pele-5.js': chunk('assets/pele-5.js'),
+    'assets/ProjectApp-9.js': chunk('assets/ProjectApp-9.js', {
+      facadeModuleId: '/src/client/features/project/ProjectApp.tsx',
+    }),
     'vendor/excalidraw/excalidraw.production.min.js':
       asset('vendor/excalidraw/excalidraw.production.min.js', 'engine'),
     'vendor/excalidraw/fonts/Xiaolai/Xiaolai-Regular-abc.woff2':
@@ -289,6 +292,17 @@ it('keeps the drawing engine out of the background download but warms ordinary c
   expect(last?.total).toBe(14)
   expect(last?.completed).toBe(14)
   expect(await manifestPath(worker)).toHaveLength(1)
+})
+
+it('keeps the project container out of the background download but caches it on first use', async () => {
+  const worker = bootServiceWorker({ previousShell: true })
+  await expect(worker.install()).resolves.toHaveLength(1)
+  const chunk = '/assets/ProjectApp-9.js'
+  expect(worker.fetched).not.toContain(chunk)
+  expect((await worker.assetCache()).has(ORIGIN + chunk)).toBe(false)
+
+  await expect(worker.requestPath(chunk)).resolves.toBeInstanceOf(FakeResponse)
+  expect((await worker.assetCache()).has(ORIGIN + chunk)).toBe(true)
 })
 
 it('caches a dropped drawing engine file on first use instead of at install', async () => {
