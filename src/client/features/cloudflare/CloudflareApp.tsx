@@ -11,7 +11,7 @@
 import { useEffect, useState, type ComponentType, type ReactElement } from 'react'
 import './cloudflare.css'
 import {
-  Boxes, Cloud, Database, Globe, LayoutDashboard, MonitorSmartphone, Network, Settings, Sparkles, Store, Users, Waypoints,
+  Boxes, Bell, Cloud, Database, Globe, Layers, LayoutDashboard, MonitorSmartphone, Network, Settings, Sparkles, Store, Users, Waypoints, Wrench,
 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { navigateToAddress, usePathname, useSearch } from '../../lib/app-history'
@@ -35,6 +35,9 @@ import { DashboardScreen } from './screens/DashboardScreen'
 import { AccountsScreen } from './screens/AccountsScreen'
 import { DnsScreen } from './screens/DnsScreen'
 import { NetworkScreen } from './screens/NetworkScreen'
+import { PlatformScreen } from './screens/PlatformScreen'
+import { AlertingScreen } from './screens/AlertingScreen'
+import { ToolboxScreen } from './screens/ToolboxScreen'
 import { WorkersScreen } from './screens/WorkersScreen'
 import { StorageScreen } from './screens/StorageScreen'
 import { TunnelsScreen } from './screens/TunnelsScreen'
@@ -54,6 +57,9 @@ const NAV_ITEMS: readonly NavItem[] = [
   { screen: 'accounts', labelKey: 'cloudflare.accounts.title', icon: Users },
   { screen: 'dns', labelKey: 'cloudflare.dns.title', icon: Globe },
   { screen: 'network', labelKey: 'cloudflare.network.title', icon: Network },
+  { screen: 'platform', labelKey: 'cloudflare.platform.title', icon: Layers },
+  { screen: 'alerting', labelKey: 'cloudflare.alerting.title', icon: Bell },
+  { screen: 'toolbox', labelKey: 'cloudflare.toolbox.title', icon: Wrench },
   { screen: 'workers', labelKey: 'cloudflare.workers.title', icon: Boxes },
   { screen: 'storage', labelKey: 'cloudflare.storage.title', icon: Database },
   { screen: 'tunnels', labelKey: 'cloudflare.tunnels.tunnel_management', icon: Waypoints },
@@ -96,6 +102,9 @@ function Screen({ screen, aiTab }: { screen: CloudflareScreen; aiTab: Cloudflare
     case 'accounts': return <AccountsScreen />
     case 'dns': return <DnsScreen />
     case 'network': return <NetworkScreen />
+    case 'platform': return <PlatformScreen />
+    case 'alerting': return <AlertingScreen />
+    case 'toolbox': return <ToolboxScreen />
     case 'workers': return <WorkersScreen />
     case 'storage': return <StorageScreen />
     case 'tunnels': return <TunnelsScreen />

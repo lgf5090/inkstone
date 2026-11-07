@@ -101,4 +101,6 @@ export const EN_US_CLOUDFLARE_DASHBOARD = {
   "cloudflare.dashboard.no_subscription": "No readable subscription for this account",
   "cloudflare.dashboard.service_status": "Cloudflare service status",
   "cloudflare.dashboard.all_operational": "All Cloudflare components are operational",
+  "cloudflare.dashboard.country.title": "Country distribution",
+  "cloudflare.dashboard.country.empty": "No country dimension data in this window",
 }

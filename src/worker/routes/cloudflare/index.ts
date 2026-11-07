@@ -13,6 +13,7 @@ import { accountsRouter } from './accounts'
 import { accountInfoRouter } from './account-info'
 import { aiRouter } from './ai'
 import { aiV1Router } from './ai-v1'
+import { alertingRouter } from './alerting'
 import { aiGatewayRouter } from './ai-gateway'
 import { aiGatewayPlatformRouter } from './ai-gateway-platform'
 import { auditLogRouter } from './audit-log'
@@ -23,11 +24,13 @@ import { dashboardRouter } from './dashboard'
 import { dnsRouter } from './dns'
 import { dnsSecurityRouter } from './dns-security'
 import { networkRouter } from './network'
+import { platformRouter } from './platform'
 import { quotaRouter } from './quota'
 import { settingsRouter } from './settings'
 import { storageRouter } from './storage'
 import { storeRouter } from './store'
 import { tasksRouter } from './tasks'
+import { toolboxRouter } from './toolbox'
 import { tunnelsRouter } from './tunnels'
 import { workersRouter } from './workers'
 
@@ -52,6 +55,9 @@ cloudflareRoutes.route('/dns', dnsRouter)
 // because they are all zone-addressed; none of their paths overlap `dnsRouter`'s.
 cloudflareRoutes.route('/dns', dnsSecurityRouter)
 cloudflareRoutes.route('/network', networkRouter)
+cloudflareRoutes.route('/platform', platformRouter)
+cloudflareRoutes.route('/alerting', alertingRouter)
+cloudflareRoutes.route('/toolbox', toolboxRouter)
 cloudflareRoutes.route('/workers', workersRouter)
 cloudflareRoutes.route('/storage', storageRouter)
 cloudflareRoutes.route('/tunnels', tunnelsRouter)

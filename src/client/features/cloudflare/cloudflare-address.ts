@@ -12,6 +12,9 @@ export type CloudflareScreen =
   | 'accounts'
   | 'dns'
   | 'network'
+  | 'platform'
+  | 'alerting'
+  | 'toolbox'
   | 'workers'
   | 'storage'
   | 'tunnels'
@@ -25,6 +28,9 @@ export const CLOUDFLARE_SCREENS: readonly CloudflareScreen[] = [
   'accounts',
   'dns',
   'network',
+  'platform',
+  'alerting',
+  'toolbox',
   'workers',
   'storage',
   'tunnels',

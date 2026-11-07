@@ -11,6 +11,7 @@ import { ApiError } from '../../lib/errors'
 import { loadAccount } from '../../cloudflare/accounts'
 import { cfFetch, cfFetchAll, cfGraphQL, type CloudflareAuth } from '../../cloudflare/cf-api'
 import {
+  buildCountriesQuery,
   buildTrafficQuery,
   fetchD1WritesToday,
   fetchKvReadsToday,
@@ -18,7 +19,9 @@ import {
   fetchWorkersRequestsToday,
   listAccountZones,
   loadZoneForAccount,
+  mapCountryGroups,
   mapTrafficGroups,
+  type CountryGroup,
   type DashboardZone,
   type TrafficDataset,
   type TrafficGroup,
@@ -193,5 +196,31 @@ dashboardRouter.get('/traffic', async (c) => {
     granularity: query.granularity,
     labels: points.labels,
     series: points.series,
+  })
+})
+
+dashboardRouter.get('/countries', async (c) => {
+  const { row, auth, cfAccountId } = await loadAccountForRequest(c)
+  const zoneId = (c.req.query('zoneId') ?? '').trim()
+  if (!zoneId) throw ApiError.badRequest('zoneId is required')
+  const days = Number(c.req.query('days') ?? 7)
+  if (!Number.isInteger(days) || days < 1 || days > 90) {
+    throw ApiError.badRequest('days must be a whole number between 1 and 90')
+  }
+  const zone = await loadZoneForAccount(auth, cfAccountId, zoneId)
+  const query = buildCountriesQuery(zone.id, days, new Date())
+  const data = await cfGraphQL<{ viewer?: { zones?: Array<{ httpRequestsAdaptiveGroups?: CountryGroup[] }> } }>(
+    auth,
+    query.query,
+    query.variables,
+  )
+  const countries = mapCountryGroups(data.viewer?.zones?.[0]?.httpRequestsAdaptiveGroups ?? [])
+  return c.json({
+    zoneId: zone.id,
+    zoneName: zone.name,
+    accountId: row.id,
+    days,
+    countries,
+    total: countries.reduce((sum, slice) => sum + slice.requests, 0),
   })
 })

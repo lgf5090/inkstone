@@ -383,6 +383,9 @@ const cloudflareCatalogFiles = {
         [path.join(localeRoot, 'en-US-cloudflare-browser-render.ts'), 'EN_US_CLOUDFLARE_BROWSER_RENDER'],
         [path.join(localeRoot, 'en-US-cloudflare-store.ts'), 'EN_US_CLOUDFLARE_STORE'],
         [path.join(localeRoot, 'en-US-cloudflare-settings.ts'), 'EN_US_CLOUDFLARE_SETTINGS'],
+        [path.join(localeRoot, 'en-US-cloudflare-platform.ts'), 'EN_US_CLOUDFLARE_PLATFORM'],
+        [path.join(localeRoot, 'en-US-cloudflare-alerting.ts'), 'EN_US_CLOUDFLARE_ALERTING'],
+        [path.join(localeRoot, 'en-US-cloudflare-toolbox.ts'), 'EN_US_CLOUDFLARE_TOOLBOX'],
     ],
     zh: [
         [path.join(localeRoot, 'zh-CN-cloudflare-accounts.ts'), 'ZH_CN_CLOUDFLARE_ACCOUNTS'],
@@ -396,6 +399,9 @@ const cloudflareCatalogFiles = {
         [path.join(localeRoot, 'zh-CN-cloudflare-browser-render.ts'), 'ZH_CN_CLOUDFLARE_BROWSER_RENDER'],
         [path.join(localeRoot, 'zh-CN-cloudflare-store.ts'), 'ZH_CN_CLOUDFLARE_STORE'],
         [path.join(localeRoot, 'zh-CN-cloudflare-settings.ts'), 'ZH_CN_CLOUDFLARE_SETTINGS'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-platform.ts'), 'ZH_CN_CLOUDFLARE_PLATFORM'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-alerting.ts'), 'ZH_CN_CLOUDFLARE_ALERTING'],
+        [path.join(localeRoot, 'zh-CN-cloudflare-toolbox.ts'), 'ZH_CN_CLOUDFLARE_TOOLBOX'],
     ],
 };
 const inknoteCatalogFiles = {

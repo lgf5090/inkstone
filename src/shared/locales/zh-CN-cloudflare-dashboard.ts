@@ -101,4 +101,6 @@ export const ZH_CN_CLOUDFLARE_DASHBOARD = {
   "cloudflare.dashboard.no_subscription": "该账号没有可读取的订阅记录",
   "cloudflare.dashboard.service_status": "Cloudflare 服务状态",
   "cloudflare.dashboard.all_operational": "所有 Cloudflare 组件运行正常",
+  "cloudflare.dashboard.country.title": "国家/地区分布",
+  "cloudflare.dashboard.country.empty": "该时间范围内没有国家维度数据",
 }

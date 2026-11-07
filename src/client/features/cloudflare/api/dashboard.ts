@@ -54,6 +54,20 @@ export interface DashboardTrafficResponse {
   series: DashboardTrafficSeries
 }
 
+export interface DashboardCountrySlice {
+  code: string
+  requests: number
+}
+
+export interface DashboardCountriesResponse {
+  zoneId: string
+  zoneName: string
+  accountId: string
+  days: number
+  countries: DashboardCountrySlice[]
+  total: number
+}
+
 export interface AuditLogQuery {
   action?: string
   q?: string
@@ -156,6 +170,18 @@ export function getDashboardTraffic(params: {
   days: number
 }): Promise<DashboardTrafficResponse> {
   return cfRequest<DashboardTrafficResponse>(withQuery('/dashboard/traffic', {
+    accountId: params.accountId,
+    zoneId: params.zoneId,
+    days: params.days,
+  }))
+}
+
+export function getDashboardCountries(params: {
+  accountId: string
+  zoneId: string
+  days: number
+}): Promise<DashboardCountriesResponse> {
+  return cfRequest<DashboardCountriesResponse>(withQuery('/dashboard/countries', {
     accountId: params.accountId,
     zoneId: params.zoneId,
     days: params.days,
