@@ -29,6 +29,9 @@ export function CreateLinkModal() {
   const [redirectStatus, setRedirectStatus] = useState('')
   const [mobileTarget, setMobileTarget] = useState('')
   const [countryTargets, setCountryTargets] = useState('')
+  const [ogTitle, setOgTitle] = useState('')
+  const [ogDescription, setOgDescription] = useState('')
+  const [ogImage, setOgImage] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const handleClose = () => {
@@ -44,6 +47,9 @@ export function CreateLinkModal() {
     setRedirectStatus('')
     setMobileTarget('')
     setCountryTargets('')
+    setOgTitle('')
+    setOgDescription('')
+    setOgImage('')
     setOpen(false)
   }
 
@@ -70,6 +76,14 @@ export function CreateLinkModal() {
           mobile: mobileTarget,
           countries: countryTargets,
         }),
+        og_preview:
+          ogTitle.trim() || ogDescription.trim() || ogImage.trim()
+            ? {
+              title: ogTitle.trim() || undefined,
+              description: ogDescription.trim() || undefined,
+              image: ogImage.trim() || undefined,
+            }
+            : null,
       })
       if (!link) return
 
@@ -286,6 +300,30 @@ export function CreateLinkModal() {
             onChange={(e) => setCountryTargets(e.target.value)}
             placeholder={t('tools.shortlinks.modal.country_targets_placeholder')}
             rows={3}
+          />
+        </div>
+
+        <div className="space-y-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3">
+          <div className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
+            {t('tools.shortlinks.modal.og_label')}
+          </div>
+          <Input
+            value={ogTitle}
+            onChange={(e) => setOgTitle(e.target.value)}
+            placeholder={t('tools.shortlinks.modal.og_title_placeholder')}
+            maxLength={120}
+          />
+          <Textarea
+            value={ogDescription}
+            onChange={(e) => setOgDescription(e.target.value)}
+            placeholder={t('tools.shortlinks.modal.og_description_placeholder')}
+            maxLength={200}
+            rows={2}
+          />
+          <Input
+            value={ogImage}
+            onChange={(e) => setOgImage(e.target.value)}
+            placeholder={t('tools.shortlinks.modal.og_image_placeholder')}
           />
         </div>
       </form>

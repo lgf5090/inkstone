@@ -81,6 +81,12 @@ export const RoutingRulesSchema = z.object({
   countries: z.record(CountryCodeSchema, HttpUrlSchema).optional(),
 })
 
+export const OgPreviewSchema = z.object({
+  title: z.string().trim().max(120, 'Preview title exceeds 120 characters').optional(),
+  description: z.string().trim().max(200, 'Preview description exceeds 200 characters').optional(),
+  image: HttpUrlSchema.optional(),
+})
+
 const ExpiresAtSchema = z
   .number()
   .int()
@@ -99,6 +105,7 @@ export const CreateLinkSchema = z.object({
   redirect_with_query: z.boolean().optional(),
   tags: TagsSchema.optional(),
   routing_rules: RoutingRulesSchema.optional().nullable(),
+  og_preview: OgPreviewSchema.optional().nullable(),
 })
 
 export const UpdateLinkSchema = z.object({
@@ -110,6 +117,7 @@ export const UpdateLinkSchema = z.object({
   redirect_with_query: z.boolean().optional(),
   tags: TagsSchema.optional(),
   routing_rules: RoutingRulesSchema.optional().nullable(),
+  og_preview: OgPreviewSchema.optional().nullable(),
 })
 
 export const AddSlugSchema = z.object({

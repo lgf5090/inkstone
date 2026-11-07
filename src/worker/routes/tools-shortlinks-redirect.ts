@@ -22,6 +22,8 @@ import {
   verifyAuthToken,
 } from '../tools/shortlinks/password-gate'
 import { isSelfReferrer, parseReferrerHost } from '../tools/shortlinks/referrer'
+import { isSocialCrawler, parseOgPreview, renderOgPage } from '../tools/shortlinks/og'
+import { fetchPageMetadata } from '../tools/shortlinks/title-fetch'
 import { ShortlinksStore } from '../tools/shortlinks/store'
 import { parseUserAgentInfo } from '../tools/shortlinks/ua'
 
@@ -295,6 +297,8 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
     password_hash: dbRecord.password_hash,
     edge_flags: dbRecord.edge_flags,
     routing_rules: dbRecord.routing_rules,
+    og_preview: dbRecord.og_preview,
+    label: dbRecord.label,
   }
 
   // 2. Status checks
@@ -381,6 +385,35 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
   const uaInfo = parseUserAgentInfo(ua)
   const referrerHost = parseReferrerHost(referer)
   const isLoop = isSelfReferrer(referer, requestHost)
+
+  // Social crawlers see a preview page instead of the redirect. Stored overrides win; missing pieces
+  // are read from the target under a short timeout, and a slow or broken target falls back to the
+  // ordinary redirect so a preview can never hold the hop hostage.
+  const storedOg = parseOgPreview(entry.og_preview)
+  if (isSocialCrawler(ua)) {
+    const missingOg = !storedOg?.title || !storedOg?.description || !storedOg?.image
+    const fetchedOg = missingOg ? await fetchPageMetadata(entry.url, 1200) : null
+    const title = storedOg?.title || fetchedOg?.title || null
+    const description = storedOg?.description || fetchedOg?.description || null
+    const image = storedOg?.image || fetchedOg?.image || null
+    if (title || description || image) {
+      const html = renderOgPage({
+        title: title || entry.label || entry.url,
+        description,
+        image,
+        shortUrl: new URL(c.req.url).toString(),
+        target: entry.url,
+        locale,
+      })
+      return new Response(html, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': fetchedOg ? 'no-store' : 'public, max-age=300',
+        },
+      })
+    }
+  }
 
   const urlObj = new URL(c.req.url)
   const utmSource = urlObj.searchParams.get('utm_source')

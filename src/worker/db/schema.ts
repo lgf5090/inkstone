@@ -3975,6 +3975,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE tools_shortlinks_links ADD COLUMN routing_rules TEXT`,
     ],
   },
+  {
+    version: 314,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'og_preview' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN og_preview TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

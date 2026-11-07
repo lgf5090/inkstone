@@ -12,6 +12,7 @@ import type {
   ClickData,
   ClickStats,
   DashboardStats,
+  OgPreview,
   RealtimeClick,
   RealtimeFeed,
   RoutingRules,
@@ -33,6 +34,7 @@ import {
 import { ApiError } from '../../lib/errors'
 import { sha256Hex } from '../../lib/encoding'
 import { parseRoutingRules } from '@shared/tools/shortlinks/routing'
+import { parseOgPreview } from './og'
 import { hashPassword } from '../../lib/password'
 import {
   computeDelta,
@@ -65,6 +67,10 @@ const LINK_ID_CHUNK_SIZE = 50
 function routingRulesFromRow(raw: string | null | undefined): RoutingRules | null {
   const rules = parseRoutingRules(raw)
   return Object.keys(rules).length > 0 ? rules : null
+}
+
+function ogPreviewFromRow(raw: string | null | undefined): OgPreview | null {
+  return parseOgPreview(raw)
 }
 
 export function normalizeUrl(rawUrl: string): string {
@@ -264,6 +270,7 @@ export class ShortlinksStore {
     redirect_with_query?: boolean
     tags?: string[]
     routing_rules?: RoutingRules | null
+    og_preview?: OgPreview | null
   }): Promise<ShortLink> {
     const url = normalizeUrl(params.url)
     const normalizedUrl = params.allow_duplicate ? null : url.toLowerCase()
@@ -321,6 +328,10 @@ export class ShortlinksStore {
       params.routing_rules && Object.keys(params.routing_rules).length > 0
         ? JSON.stringify(params.routing_rules)
         : null
+    const ogPreview =
+      params.og_preview && Object.keys(params.og_preview).length > 0
+        ? JSON.stringify(params.og_preview)
+        : null
     // The link row and its first slug commit together: a generated slug lost to a concurrent create
     // must not leave a link that no short code can ever resolve.
     let linkId = 0
@@ -329,8 +340,8 @@ export class ShortlinksStore {
         await this.db.batch([
           this.db
             .prepare(
-              `INSERT INTO tools_shortlinks_links (user_id, url, normalized_url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by, edge_flags, routing_rules)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO tools_shortlinks_links (user_id, url, normalized_url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by, edge_flags, routing_rules, og_preview)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
               this.userId,
@@ -345,6 +356,7 @@ export class ShortlinksStore {
               'user',
               edgeFlags,
               routingRules,
+              ogPreview,
             ),
           this.db
             .prepare(
@@ -418,6 +430,7 @@ export class ShortlinksStore {
         lifecycle_state: 'active' | 'disabled' | 'archived'
         edge_flags: number
         routing_rules: string | null
+        og_preview: string | null
       }>()
 
     if (!linkRow) return null
@@ -468,6 +481,7 @@ export class ShortlinksStore {
       unsafe: Boolean(linkRow.edge_flags & 1),
       redirect_with_query: Boolean(linkRow.edge_flags & 2),
       routing_rules: routingRulesFromRow(linkRow.routing_rules),
+      og_preview: ogPreviewFromRow(linkRow.og_preview),
       tags: tagMap.get(linkRow.id) || [],
     }
   }
@@ -648,6 +662,7 @@ export class ShortlinksStore {
       lifecycle_state: 'active' | 'disabled' | 'archived'
       edge_flags: number
       routing_rules: string | null
+      og_preview: string | null
     }>()
 
     const linkIds = (rows.results ?? []).map((r) => r.id)
@@ -675,6 +690,7 @@ export class ShortlinksStore {
       unsafe: Boolean(r.edge_flags & 1),
       redirect_with_query: Boolean(r.edge_flags & 2),
       routing_rules: routingRulesFromRow(r.routing_rules),
+      og_preview: ogPreviewFromRow(r.og_preview),
       tags: tagMap.get(r.id) || [],
     }))
 
@@ -692,6 +708,7 @@ export class ShortlinksStore {
       redirect_with_query?: boolean
       tags?: string[]
       routing_rules?: RoutingRules | null
+      og_preview?: OgPreview | null
     },
   ): Promise<ShortLink> {
     const existing = await this.getLinkById(id)
@@ -743,6 +760,11 @@ export class ShortlinksStore {
       updates.push('routing_rules = ?')
       const rules = data.routing_rules && Object.keys(data.routing_rules).length > 0 ? JSON.stringify(data.routing_rules) : null
       binds.push(rules)
+    }
+    if (data.og_preview !== undefined) {
+      updates.push('og_preview = ?')
+      const preview = data.og_preview && Object.keys(data.og_preview).length > 0 ? JSON.stringify(data.og_preview) : null
+      binds.push(preview)
     }
 
     if (updates.length > 0) {
@@ -953,10 +975,12 @@ export class ShortlinksStore {
     is_password_protected: boolean
     edge_flags: number
     routing_rules: string | null
+    og_preview: string | null
+    label: string | null
   } | null> {
     const row = await this.db
       .prepare(
-        `SELECT s.slug, s.link_id, s.user_id, s.disabled_at, l.url, l.expires_at, l.password_hash, l.is_password_protected, l.edge_flags, l.routing_rules
+        `SELECT s.slug, s.link_id, s.user_id, s.disabled_at, l.url, l.label, l.expires_at, l.password_hash, l.is_password_protected, l.edge_flags, l.routing_rules, l.og_preview
          FROM tools_shortlinks_slugs s
          JOIN tools_shortlinks_links l ON s.link_id = l.id
          WHERE s.slug = ? AND l.lifecycle_state = 'active'`,
@@ -973,6 +997,8 @@ export class ShortlinksStore {
         is_password_protected: number
         edge_flags: number
         routing_rules: string | null
+        og_preview: string | null
+        label: string | null
       }>()
 
     if (!row) return null
@@ -988,6 +1014,8 @@ export class ShortlinksStore {
       is_password_protected: Boolean(row.password_hash),
       edge_flags: row.edge_flags,
       routing_rules: row.routing_rules,
+      og_preview: row.og_preview,
+      label: row.label,
     }
   }
 
@@ -1830,6 +1858,7 @@ export class ShortlinksStore {
         lifecycle_state: 'active' | 'disabled' | 'archived'
         edge_flags: number
         routing_rules: string | null
+        og_preview: string | null
       }>()
 
     const linkIds = (rows.results ?? []).map((r) => r.id)
@@ -1854,6 +1883,7 @@ export class ShortlinksStore {
       unsafe: Boolean(r.edge_flags & 1),
       redirect_with_query: Boolean(r.edge_flags & 2),
       routing_rules: routingRulesFromRow(r.routing_rules),
+      og_preview: ogPreviewFromRow(r.og_preview),
       tags: tagMap.get(r.id) || [],
     }))
   }
@@ -2345,6 +2375,7 @@ export class ShortlinksStore {
         password_hash?: string | null
         tags?: string[]
         routing_rules?: RoutingRules | null
+        og_preview?: OgPreview | null
         slugs?: Array<{ slug: string; is_primary?: boolean; is_custom?: boolean; disabled_at?: number | null }>
       }>
       bundles?: Array<{
@@ -2420,6 +2451,7 @@ export class ShortlinksStore {
           allow_duplicate: true,
           tags: Array.isArray(link.tags) ? link.tags : undefined,
           routing_rules: link.routing_rules ?? null,
+          og_preview: link.og_preview ?? null,
         })
         if (typeof link.id === 'number') linkMap.set(link.id, created.id)
         imported++

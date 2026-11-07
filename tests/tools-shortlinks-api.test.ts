@@ -905,3 +905,44 @@ describe('Shortlinks routing rules', () => {
     expect(response.status).toBe(400)
   })
 })
+
+describe('Shortlinks Open Graph preview', () => {
+  const CRAWLER = 'Twitterbot/1.0'
+
+  it('serves escaped stored overrides to a social crawler and redirects a browser', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      body: {
+        url: 'https://og.example.com/target',
+        custom_slug: 'og-one',
+        og_preview: {
+          title: '<b>Escaped</b>',
+          description: 'Preview description',
+          image: 'https://cdn.example.com/cover.png',
+        },
+      },
+    })
+
+    const preview = await call('GET', '/l/og-one', { user: null, headers: { 'user-agent': CRAWLER } })
+    expect(preview.status).toBe(200)
+    const html = await preview.text()
+    expect(html).toContain('&lt;b&gt;Escaped&lt;/b&gt;')
+    expect(html).not.toContain('<b>Escaped</b>')
+    expect(html).toContain('og:image')
+    expect(preview.headers.get('cache-control')).toContain('max-age=300')
+
+    const browser = await call('GET', '/l/og-one', {
+      user: null,
+      headers: { 'user-agent': 'Mozilla/5.0 Chrome/131 Safari/537.36' },
+    })
+    expect(browser.status).toBe(302)
+    expect(browser.headers.get('location')).toBe('https://og.example.com/target')
+  })
+
+  it('falls back to the ordinary redirect when no preview can be built', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      body: { url: 'http://127.0.0.1:9/none', custom_slug: 'og-none' },
+    })
+    const res = await call('GET', '/l/og-none', { user: null, headers: { 'user-agent': CRAWLER } })
+    expect(res.status).toBe(302)
+  })
+})

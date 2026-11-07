@@ -30,6 +30,12 @@ export interface RoutingRules {
   countries?: Record<string, string>
 }
 
+export interface OgPreview {
+  title?: string
+  description?: string
+  image?: string
+}
+
 export interface ShortLinkSlug {
   slug: string
   link_id: number
@@ -57,6 +63,7 @@ export interface ShortLink {
   redirect_with_query?: boolean
   tags?: string[]
   routing_rules?: RoutingRules | null
+  og_preview?: OgPreview | null
 }
 
 export interface ShortLinkBundle {

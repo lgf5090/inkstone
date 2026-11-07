@@ -42485,6 +42485,9 @@ const allowed = new Map([
     "/**\n * The language a public page answers in.\n *\n * A short link is opened by whoever received it, not by the deployment's owner, so the deployment\n * setting would be the wrong guess. `Accept-Language` is the reader's own statement; anything that\n * does not ask for Chinese gets English, which is the catalog's source language.\n */",
     "// A stored target that is not a web address cannot be handed to a browser as `Location`; older",
     "// rows may predate the schema check, so the same rule is enforced again at the edge.",
+    "// Social crawlers see a preview page instead of the redirect. Stored overrides win; missing pieces",
+    "// are read from the target under a short timeout, and a slow or broken target falls back to the",
+    "// ordinary redirect so a preview can never hold the hop hostage.",
   ]],
   ["src/worker/routes/tools-shortlinks.ts", [
     "/**\n * Short Links Manager API routes (`/api/tools/shortlinks/*`).\n */",
@@ -43843,6 +43846,10 @@ const allowed = new Map([
     "/** Rate-limit and password-attempt buckets are keyed forever unless the sweep retires them. */",
     "// The tick runs every hour; a failed sweep leaves the same expired buckets for the next pass.",
   ]],
+  ["src/worker/tools/shortlinks/og.ts", [
+    "/**\n * Open Graph preview helpers for social crawlers: parse stored overrides, read a target page's\n * head with the same SSRF/timeout rules as the title sniff, and render an escaped page.\n */",
+    "/** Reads OG/Twitter/title/description tags out of an already-fetched head. */",
+  ]],
   ["src/worker/tools/shortlinks/password-gate.ts", [
     "/**\n * The stored hash signs the cookie instead of travelling in it, so changing the password retires\n * every cookie issued under the old one. Legacy unsalted digests are recognised here and upgraded.\n */",
     "/** The row stores only this digest, never the visitor address. */",
@@ -43923,7 +43930,7 @@ const allowed = new Map([
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",
     "// Best-effort cancel of stream reading",
-    "// Non-fatal: title sniffing is best-effort and failures safely fallback to null",
+    "// Non-fatal: preview sniffing is best-effort and failures safely fallback to null",
   ]],
   ["src/worker/tools/shortlinks/ua.ts", [
     "/**\n * Lightweight User-Agent parser for analytics. Zero external dependencies.\n */",
