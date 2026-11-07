@@ -23,12 +23,12 @@ export function RealtimePanel() {
   const [paused, setPaused] = useState(false)
   const [connected, setConnected] = useState(true)
   const cursorRef = useRef(0)
-  const busyRef = useRef(false)
 
   useEffect(() => {
     if (paused) return
     let timer: number | undefined
     let disposed = false
+    let busy = false
     let backoff = POLL_INTERVAL_MS
 
     const schedule = (delay: number) => {
@@ -42,8 +42,8 @@ export function RealtimePanel() {
         timer = undefined
         return
       }
-      if (busyRef.current) return
-      busyRef.current = true
+      if (busy) return
+      busy = true
       try {
         const feed = await shortlinksApi.getRealtime(cursorRef.current || undefined)
         if (feed.items.length > 0) {
@@ -60,7 +60,7 @@ export function RealtimePanel() {
         setConnected(false)
         backoff = Math.min(backoff * 2, MAX_BACKOFF_MS)
       } finally {
-        busyRef.current = false
+        busy = false
         schedule(backoff)
       }
     }
