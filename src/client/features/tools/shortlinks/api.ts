@@ -39,6 +39,7 @@ export interface GetLinksParams {
   sort_by?: 'created_at' | 'clicks' | 'url' | 'label'
   sort_order?: 'asc' | 'desc'
   bundle_id?: number
+  tag?: string
 }
 
 /** The browser's IANA zone, so daily buckets follow the reader's midnight rather than UTC. */
@@ -74,6 +75,7 @@ export const shortlinksApi = {
     if (params?.sort_by) q.set('sort_by', params.sort_by)
     if (params?.sort_order) q.set('sort_order', params.sort_order)
     if (params?.bundle_id) q.set('bundle_id', String(params.bundle_id))
+    if (params?.tag) q.set('tag', params.tag)
     const queryStr = q.toString()
     return request<{
       data: { items: ShortLink[]; total: number; limit: number; offset: number }

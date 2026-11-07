@@ -5,6 +5,8 @@
 import { z } from 'zod'
 import {
   MAX_SLUG_LENGTH,
+  MAX_TAGS_PER_LINK,
+  MAX_TAG_LENGTH,
   MIN_SLUG_LENGTH,
   TIMELINE_RANGES,
 } from './types'
@@ -19,6 +21,20 @@ export const CustomSlugSchema = z.preprocess(
     .max(MAX_SLUG_LENGTH)
     .regex(CustomSlugRegex, 'Slug must contain only lowercase letters, digits and hyphens, and cannot start or end with a hyphen'),
 )
+
+export const TagSchema = z.preprocess(
+  (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
+  z
+    .string()
+    .min(1)
+    .max(MAX_TAG_LENGTH, `Tag exceeds ${MAX_TAG_LENGTH} characters`)
+    .regex(/^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u, 'Tag may contain letters, numbers, spaces, hyphens and underscores'),
+)
+
+export const TagsSchema = z
+  .array(TagSchema)
+  .max(MAX_TAGS_PER_LINK, `A link may carry at most ${MAX_TAGS_PER_LINK} tags`)
+  .transform((tags) => [...new Set(tags)])
 
 /**
  * Why a target URL may not be stored, or null when it may.
@@ -67,6 +83,7 @@ export const CreateLinkSchema = z.object({
   custom_slug: CustomSlugSchema.optional().nullable(),
   unsafe: z.boolean().optional(),
   redirect_with_query: z.boolean().optional(),
+  tags: TagsSchema.optional(),
 })
 
 export const UpdateLinkSchema = z.object({
@@ -76,6 +93,7 @@ export const UpdateLinkSchema = z.object({
   expires_at: ExpiresAtSchema.nullable().optional(),
   unsafe: z.boolean().optional(),
   redirect_with_query: z.boolean().optional(),
+  tags: TagsSchema.optional(),
 })
 
 export const AddSlugSchema = z.object({
@@ -141,6 +159,7 @@ export const ListLinksQuerySchema = z.object({
   sort_order: z.enum(['asc', 'desc']).default('desc'),
   search: z.string().max(200).optional(),
   bundle_id: z.coerce.number().int().positive().optional(),
+  tag: TagSchema.optional(),
 })
 
 export const BREAKDOWN_DIMENSIONS = [

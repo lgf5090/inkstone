@@ -20014,10 +20014,10 @@ const allowed = new Map([
     "// Breakdown Modal state",
     "// Modals",
     "// Breakdown",
-    "// A keystroke in the search box is debounced; every other filter change fetches at once.",
     "// The saved default range seeds the analytics range once; a later refetch must not undo a",
     "// range the reader picked by hand.",
     "// A search typed against one dimension must not narrow the next one.",
+    "// A keystroke in the search or tag box is debounced; every other filter change fetches at once.",
   ]],
   ["src/client/features/tools/store.ts", [
     "// Best effort background persist",
@@ -43907,6 +43907,8 @@ const allowed = new Map([
     "// inside the window; the dedupe key carries the slug so a reader who opens two aliases of the same",
     "// link still produces a click for each alias. Bots are stored with `is_bot = 1` so the settings",
     "// switch can decide later whether analytics include them.",
+    "/** Loads the tag names of a set of links in the same slices as the slug loader. */",
+    "/** Replaces every tag of one link, keeping the user's tag names canonical in one table. */",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",

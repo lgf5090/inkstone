@@ -154,6 +154,7 @@ toolsShortlinksRoutes.get('/links', async (c) => {
     sort_order: query.sort_order,
     bundle_id: query.bundle_id,
     search: query.search,
+    tag: query.tag,
     offset: query.offset,
     limit: query.limit,
   })

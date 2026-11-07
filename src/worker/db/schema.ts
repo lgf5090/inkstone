@@ -3949,6 +3949,25 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE tools_shortlinks_links ADD COLUMN edge_flags INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    version: 296,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS tools_shortlinks_tags (
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, name)
+      )`,
+      `CREATE TABLE IF NOT EXISTS tools_shortlinks_link_tags (
+        user_id TEXT NOT NULL,
+        link_id INTEGER NOT NULL,
+        tag_name TEXT NOT NULL,
+        PRIMARY KEY (user_id, link_id, tag_name)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_link_tags_tag
+         ON tools_shortlinks_link_tags(user_id, tag_name)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

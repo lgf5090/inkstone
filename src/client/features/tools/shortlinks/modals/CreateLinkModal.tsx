@@ -18,6 +18,7 @@ export function CreateLinkModal() {
 
   const [url, setUrl] = useState('')
   const [label, setLabel] = useState('')
+  const [tags, setTags] = useState('')
   const [customSlug, setCustomSlug] = useState('')
   const [password, setPassword] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
@@ -29,6 +30,7 @@ export function CreateLinkModal() {
   const handleClose = () => {
     setUrl('')
     setLabel('')
+    setTags('')
     setCustomSlug('')
     setPassword('')
     setExpiresAt('')
@@ -51,6 +53,7 @@ export function CreateLinkModal() {
         url: trimmedUrl,
         label: label.trim() || undefined,
         custom_slug: customSlug.trim() || undefined,
+        tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
         password: password.trim() || undefined,
         expires_at: expTs,
         unsafe,
@@ -125,6 +128,17 @@ export function CreateLinkModal() {
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder={t('tools.shortlinks.modal.label_placeholder')}
+          />
+        </div>
+
+        <div>
+          <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
+            {t('tools.shortlinks.modal.tags_label')}
+          </label>
+          <Input
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            placeholder={t('tools.shortlinks.modal.tags_placeholder')}
           />
         </div>
 

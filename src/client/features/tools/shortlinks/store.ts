@@ -42,6 +42,7 @@ export interface LinksFilter {
   sortBy: 'created_at' | 'clicks' | 'url' | 'label'
   sortOrder: 'asc' | 'desc'
   bundleId?: number
+  tag?: string
 }
 
 export interface ShortlinksStoreState {
@@ -164,8 +165,8 @@ export const useShortlinksStore = create<ShortlinksStoreState>((set, get) => ({
   },
   setFilter: (patch) => {
     set((state) => ({ filter: { ...state.filter, ...patch } }))
-    // A keystroke in the search box is debounced; every other filter change fetches at once.
-    if (patch.search !== undefined) scheduleLinksFetch(get().fetchLinks)
+    // A keystroke in the search or tag box is debounced; every other filter change fetches at once.
+    if (patch.search !== undefined || patch.tag !== undefined) scheduleLinksFetch(get().fetchLinks)
     else void get().fetchLinks()
   },
   fetchLinks: async () => {
@@ -178,6 +179,7 @@ export const useShortlinksStore = create<ShortlinksStoreState>((set, get) => ({
         offset: (filter.page - 1) * filter.pageSize,
         search: filter.search || undefined,
         status: filter.status,
+        tag: filter.tag || undefined,
         sort_by: filter.sortBy,
         sort_order: filter.sortOrder,
         bundle_id: filter.bundleId,

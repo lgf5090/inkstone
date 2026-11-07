@@ -17,6 +17,7 @@ export function EditLinkModal() {
 
   const [url, setUrl] = useState('')
   const [label, setLabel] = useState('')
+  const [tags, setTags] = useState('')
   const [password, setPassword] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
   const [unsafe, setUnsafe] = useState(false)
@@ -27,6 +28,7 @@ export function EditLinkModal() {
     if (link) {
       setUrl(link.url)
       setLabel(link.label || '')
+      setTags((link.tags || []).join(', '))
       setPassword('')
       setUnsafe(Boolean(link.unsafe))
       setRedirectWithQuery(Boolean(link.redirect_with_query))
@@ -53,6 +55,7 @@ export function EditLinkModal() {
       await shortlinksApi.updateLink(link.id, {
         url: trimmedUrl,
         label: label.trim() ? label.trim() : null,
+        tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
         password: password.trim() ? password.trim() : null,
         expires_at: expTs,
         unsafe,
@@ -114,6 +117,17 @@ export function EditLinkModal() {
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder={t('tools.shortlinks.modal.label_placeholder')}
+          />
+        </div>
+
+        <div>
+          <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
+            {t('tools.shortlinks.modal.tags_label')}
+          </label>
+          <Input
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            placeholder={t('tools.shortlinks.modal.tags_placeholder')}
           />
         </div>
 

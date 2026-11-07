@@ -195,6 +195,21 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_backups_user 
     ON tools_shortlinks_backups(user_id, created_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS tools_shortlinks_tags (
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, name)
+  )`,
+  `CREATE TABLE IF NOT EXISTS tools_shortlinks_link_tags (
+    user_id TEXT NOT NULL,
+    link_id INTEGER NOT NULL,
+    tag_name TEXT NOT NULL,
+    PRIMARY KEY (user_id, link_id, tag_name)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_link_tags_tag
+    ON tools_shortlinks_link_tags(user_id, tag_name)`,
 ]
 
 export const TOOLS_SHORTLINKS_REQUIRED_TABLES: readonly string[] = [
@@ -210,6 +225,8 @@ export const TOOLS_SHORTLINKS_REQUIRED_TABLES: readonly string[] = [
   'tools_shortlinks_password_attempts',
   'tools_shortlinks_api_keys',
   'tools_shortlinks_backups',
+  'tools_shortlinks_tags',
+  'tools_shortlinks_link_tags',
 ]
 
 export const TOOLS_SHORTLINKS_REQUIRED_INDEXES: readonly string[] = [
@@ -236,6 +253,7 @@ export const TOOLS_SHORTLINKS_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_shortlinks_api_keys_user',
   'idx_tools_shortlinks_api_keys_hash',
   'idx_tools_shortlinks_backups_user',
+  'idx_tools_shortlinks_link_tags_tag',
 ]
 
 export const TOOLS_SHORTLINKS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {

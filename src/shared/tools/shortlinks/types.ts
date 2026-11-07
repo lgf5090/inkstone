@@ -18,6 +18,9 @@ export type PaginatedDimension = (typeof PAGINATED_DIMENSIONS)[number]
 export const BREAKDOWN_PAGE_SIZE = 10
 export const MAX_BREAKDOWN_LIMIT = 100
 
+export const MAX_TAGS_PER_LINK = 10
+export const MAX_TAG_LENGTH = 24
+
 export type BundleAccent = 'orange' | 'red' | 'green' | 'blue' | 'purple'
 
 export interface ShortLinkSlug {
@@ -45,6 +48,7 @@ export interface ShortLink {
   lifecycle_state?: 'active' | 'disabled' | 'archived'
   unsafe?: boolean
   redirect_with_query?: boolean
+  tags?: string[]
 }
 
 export interface ShortLinkBundle {

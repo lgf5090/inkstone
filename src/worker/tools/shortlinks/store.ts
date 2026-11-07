@@ -24,6 +24,8 @@ import type {
 import {
   DEFAULT_SLUG_LENGTH,
   DEFAULT_TIMELINE_RANGE,
+  MAX_TAGS_PER_LINK,
+  MAX_TAG_LENGTH,
 } from '@shared/tools/shortlinks/types'
 import { ApiError } from '../../lib/errors'
 import { sha256Hex } from '../../lib/encoding'
@@ -251,6 +253,7 @@ export class ShortlinksStore {
     created_via?: string
     unsafe?: boolean
     redirect_with_query?: boolean
+    tags?: string[]
   }): Promise<ShortLink> {
     const url = normalizeUrl(params.url)
     const normalizedUrl = params.allow_duplicate ? null : url.toLowerCase()
@@ -360,6 +363,8 @@ export class ShortlinksStore {
     }
     linkId = inserted.link_id
 
+    if (params.tags !== undefined) await this.setLinkTags(linkId, params.tags)
+
     return (await this.getLinkById(linkId))!
   }
 
@@ -429,6 +434,8 @@ export class ShortlinksStore {
       disabled_at: s.disabled_at,
     }))
 
+    const tagMap = await this.tagsForLinks([linkRow.id])
+
     return {
       id: linkRow.id,
       user_id: linkRow.user_id,
@@ -444,6 +451,7 @@ export class ShortlinksStore {
       lifecycle_state: linkRow.lifecycle_state,
       unsafe: Boolean(linkRow.edge_flags & 1),
       redirect_with_query: Boolean(linkRow.edge_flags & 2),
+      tags: tagMap.get(linkRow.id) || [],
     }
   }
 
@@ -491,6 +499,58 @@ export class ShortlinksStore {
     return slugMap
   }
 
+  /** Loads the tag names of a set of links in the same slices as the slug loader. */
+  private async tagsForLinks(linkIds: number[]): Promise<Map<number, string[]>> {
+    const tagMap = new Map<number, string[]>()
+    for (let offset = 0; offset < linkIds.length; offset += LINK_ID_CHUNK_SIZE) {
+      const chunk = linkIds.slice(offset, offset + LINK_ID_CHUNK_SIZE)
+      const placeholders = chunk.map(() => '?').join(',')
+      const rows = await this.db
+        .prepare(
+          `SELECT lt.link_id, lt.tag_name AS name
+           FROM tools_shortlinks_link_tags lt
+           WHERE lt.user_id = ? AND lt.link_id IN (${placeholders})
+           ORDER BY lt.tag_name ASC`,
+        )
+        .bind(this.userId, ...chunk)
+        .all<{ link_id: number; name: string }>()
+      for (const row of rows.results ?? []) {
+        const list = tagMap.get(row.link_id) || []
+        list.push(row.name)
+        tagMap.set(row.link_id, list)
+      }
+    }
+    return tagMap
+  }
+
+  /** Replaces every tag of one link, keeping the user's tag names canonical in one table. */
+  private async setLinkTags(linkId: number, tags: string[]): Promise<void> {
+    const names = [...new Set(
+      tags
+        .map((tag) => tag.trim().toLowerCase())
+        .filter((tag) => tag.length > 0 && tag.length <= MAX_TAG_LENGTH),
+    )].slice(0, MAX_TAGS_PER_LINK)
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .prepare('DELETE FROM tools_shortlinks_link_tags WHERE link_id = ? AND user_id = ?')
+      .bind(linkId, this.userId)
+      .run()
+    if (names.length === 0) return
+
+    const statements = []
+    for (const name of names) {
+      statements.push(
+        this.db
+          .prepare('INSERT OR IGNORE INTO tools_shortlinks_tags (user_id, name, created_at) VALUES (?, ?, ?)')
+          .bind(this.userId, name, now),
+        this.db
+          .prepare('INSERT OR IGNORE INTO tools_shortlinks_link_tags (user_id, link_id, tag_name) VALUES (?, ?, ?)')
+          .bind(this.userId, linkId, name),
+      )
+    }
+    await this.db.batch(statements)
+  }
+
   async listLinks(params: {
     filter?: 'all' | 'active' | 'disabled'
     status?: 'all' | 'active' | 'disabled'
@@ -499,6 +559,7 @@ export class ShortlinksStore {
     sort_order?: 'asc' | 'desc'
     bundle_id?: number
     search?: string
+    tag?: string
     offset?: number
     limit?: number
   }): Promise<{ items: ShortLink[]; links: ShortLink[]; total: number }> {
@@ -529,6 +590,12 @@ export class ShortlinksStore {
       const q = `%${params.search.trim()}%`
       whereClause += ' AND (l.url LIKE ? OR l.label LIKE ? OR EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = l.id AND s.slug LIKE ?))'
       binds.push(q, q, q)
+    }
+
+    if (params.tag && params.tag.trim().length > 0) {
+      whereClause += ` AND l.id IN (SELECT lt.link_id FROM tools_shortlinks_link_tags lt
+        WHERE lt.user_id = ? AND lt.tag_name = ?)`
+      binds.push(this.userId, params.tag.trim().toLowerCase())
     }
 
     // Count total
@@ -572,6 +639,7 @@ export class ShortlinksStore {
 
     // Batch load slugs in slices so a full page stays inside D1's bound-parameter limit.
     const slugMap = await this.slugsForLinks(linkIds)
+    const tagMap = await this.tagsForLinks(linkIds)
 
     const items: ShortLink[] = (rows.results ?? []).map((r) => ({
       id: r.id,
@@ -588,6 +656,7 @@ export class ShortlinksStore {
       lifecycle_state: r.lifecycle_state,
       unsafe: Boolean(r.edge_flags & 1),
       redirect_with_query: Boolean(r.edge_flags & 2),
+      tags: tagMap.get(r.id) || [],
     }))
 
     return { items, links: items, total }
@@ -602,6 +671,7 @@ export class ShortlinksStore {
       expires_at?: number | null
       unsafe?: boolean
       redirect_with_query?: boolean
+      tags?: string[]
     },
   ): Promise<ShortLink> {
     const existing = await this.getLinkById(id)
@@ -656,6 +726,8 @@ export class ShortlinksStore {
       await this.db.prepare(sql).bind(...binds).run()
     }
 
+    if (data.tags !== undefined) await this.setLinkTags(id, data.tags)
+
     return (await this.getLinkById(id))!
   }
 
@@ -669,10 +741,14 @@ export class ShortlinksStore {
       throw ApiError.conflict('This link has click history and can only be archived, so its analytics stay readable')
     }
 
-    await this.db
-      .prepare('DELETE FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
-      .bind(id, this.userId)
-      .run()
+    await this.db.batch([
+      this.db
+        .prepare('DELETE FROM tools_shortlinks_link_tags WHERE link_id = ? AND user_id = ?')
+        .bind(id, this.userId),
+      this.db
+        .prepare('DELETE FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
+        .bind(id, this.userId),
+    ])
   }
 
   /**
@@ -1667,6 +1743,7 @@ export class ShortlinksStore {
     if (linkIds.length === 0) return []
 
     const slugMap = await this.slugsForLinks(linkIds)
+    const tagMap = await this.tagsForLinks(linkIds)
 
     return (rows.results ?? []).map((r) => ({
       id: r.id,
@@ -1683,6 +1760,7 @@ export class ShortlinksStore {
       lifecycle_state: r.lifecycle_state,
       unsafe: Boolean(r.edge_flags & 1),
       redirect_with_query: Boolean(r.edge_flags & 2),
+      tags: tagMap.get(r.id) || [],
     }))
   }
 
@@ -2171,6 +2249,7 @@ export class ShortlinksStore {
         expires_at?: number | null
         password_protected?: boolean
         password_hash?: string | null
+        tags?: string[]
         slugs?: Array<{ slug: string; is_primary?: boolean; is_custom?: boolean; disabled_at?: number | null }>
       }>
       bundles?: Array<{
@@ -2244,6 +2323,7 @@ export class ShortlinksStore {
           custom_slug: primary,
           expires_at: link.expires_at ?? null,
           allow_duplicate: true,
+          tags: Array.isArray(link.tags) ? link.tags : undefined,
         })
         if (typeof link.id === 'number') linkMap.set(link.id, created.id)
         imported++
