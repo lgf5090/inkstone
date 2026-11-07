@@ -269,6 +269,15 @@ export async function listAssets(db: D1Database, userId: string, input: ListInpu
     values.push(value)
     where.push(sql.replace('?', `?${values.length}`))
   }
+  let searchRowIds: number[] | null = null
+  if (input.q && input.q.trim().length >= 3) {
+    const query = `"${input.q.trim().replace(/"/g, '""')}"`
+    const matches = await db.prepare(
+      `SELECT rowid FROM development_icons_fts WHERE development_icons_fts MATCH ?1 AND user_id = ?2 LIMIT 80`,
+    ).bind(query, userId).all<{ rowid: number }>()
+    searchRowIds = (matches.results ?? []).map((row) => row.rowid)
+    if (!searchRowIds.length) return { items: [], nextCursor: null, hasMore: false }
+  }
   if (input.collectionId) add('a.collection_id = ?', input.collectionId)
   if (input.format) add('a.format = ?', input.format)
   if (input.tagId) add('EXISTS (SELECT 1 FROM development_icons_tag_links l WHERE l.user_id = a.user_id AND l.asset_id = a.id AND l.tag_id = ?)', input.tagId)
@@ -278,10 +287,13 @@ export async function listAssets(db: D1Database, userId: string, input: ListInpu
   if (input.state === 'uncategorized') where.push('a.collection_id IS NULL')
   if (input.q) {
     const query = input.q.trim()
-    if (query.length >= 3) {
-      values.push(query)
-      where.push(`a.rowid IN (SELECT rowid FROM development_icons_fts WHERE development_icons_fts MATCH ?${values.length} AND user_id = ?1)`)
-    } else {
+    if (query.length >= 3 && searchRowIds) {
+      const marks = searchRowIds.map((rowid) => {
+        values.push(rowid)
+        return `?${values.length}`
+      })
+      where.push(`a.rowid IN (${marks.join(', ')})`)
+    } else if (query.length < 3) {
       add('a.name_key LIKE ?', `${query.toLowerCase()}%`)
     }
   }
