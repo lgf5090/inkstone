@@ -16,8 +16,9 @@ import {
 } from '@shared/project/validation'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { JSON_BODY_LIMITS } from '../lib/request'
+import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
+import { exportProjectBoardArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireCard, requireComment, requireContent, requireView } from './auth'
 import { readProjectBoardBundle } from './bundle'
 import {
@@ -130,6 +131,24 @@ projectRoutes.post('/boards/:id/undelete', async (c) => {
 projectRoutes.get('/boards/:id/metadata', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
   return c.json(await projectBoardMetadata(c.env.DB, board.id))
+})
+
+projectRoutes.get('/boards/:id/archive', async (c) => {
+  const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const bytes = await exportProjectBoardArchive(c.env.DB, board, role)
+  return new Response(bytes, {
+    headers: {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${board.id}.boardarchive"`,
+    },
+  })
+})
+
+projectRoutes.post('/boards/import', async (c) => {
+  const userId = projectUserId(c)
+  assertDeclaredBodySize(c.req, FORM_BODY_LIMITS.import)
+  const bytes = await readBytesWithinLimit(c.req.raw.body, FORM_BODY_LIMITS.import)
+  return c.json(await importProjectBoardArchive(c.env.DB, userId, bytes, Date.now()), 201)
 })
 
 projectRoutes.get('/boards/:id/members', async (c) => {

@@ -34,6 +34,8 @@ export const ProjectArchiveBlockSchema = z.object({
   boardId: z.string().default(''),
   title: z.string().default(''),
   fields: z.record(z.string(), z.unknown()).default({}),
+  createdBy: z.string().default(''),
+  modifiedBy: z.string().default(''),
   createAt: z.number().int().default(0),
   updateAt: z.number().int().default(0),
   deleteAt: z.number().int().default(0),

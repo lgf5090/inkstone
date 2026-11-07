@@ -32310,6 +32310,14 @@ const allowed = new Map([
     "// An overnight window's after-midnight half belongs to the weekday it started on.",
     "/**\n * The window in force at `date`, or null when the base price applies.\n *\n * The first matching window wins. Overlaps are allowed rather than refused because a reader building a\n * schedule out of several named windows is the normal case, and reordering is a smaller cost than a\n * save that refuses work they already did. A window with neither side priced still matches; it just\n * cannot change the cost, which is the same result as no window and is left to the caller to skip.\n */",
   ]],
+  ["src/shared/project/archive-mapping.ts", [
+    "/**\n * Maps between this port's bundle and the reference's archive blocks, field for field, so an export\n * here imports there and vice versa. The reference keeps a card's property values in\n * `fields.properties` (multi-valued types as arrays), a view's type inside `fields.viewType`, a\n * comment's text in `title`, and a checkbox state in `fields.value`; this port stores them as value\n * rows, a top-level viewType, a body column and `fields.checked`. These two functions are the only\n * place that translation lives, and the round-trip test pins them against each other.\n */",
+    "/** A stored value is text; the reference wants an array for the two multi-valued property types. */",
+    "// A non-JSON scalar is a legitimate single value; fall through and keep it as text.",
+    "/** The reference's heading/list/quote blocks collapse to Markdown text here (D-09); the body is kept. */",
+    "/**\n * Read an archive into the rows the importer will write. Deleted blocks are dropped: an export only\n * ever carries live entities (the bundle excludes the trash), so skipping them keeps a round trip\n * clean and never resurrects deleted data on import.\n */",
+    "// viewType travels inside fields in the archive but is a top-level column here; drop the duplicate.",
+  ]],
   ["src/shared/project/archive.ts", [
     "/**\n * The archive envelope, shared by the exporter, the importer and the six external converters.\n *\n * A v2 archive is a ZIP holding `version.json`, one `<boardId>/board.jsonl` per board, and the boards'\n * binaries beside it. This module owns the JSONL only — the ZIP is the server's business — so a\n * converter running in the browser can produce exactly what the server reads without either side\n * knowing about the other's transport.\n */",
     "/**\n * The reference's writer emits three line kinds and its reader accepts four: `board_block` is an\n * older spelling of `block` that still appears in archives people have on disk.\n */",
@@ -40940,6 +40948,11 @@ const allowed = new Map([
     "/**\n * The dependent-table cleanup for one page of trashed note ids, in the order the cascade\n * needs: link retargeting before the notes go, share sessions before their shares.\n * Statements bind `?1` = account, `?2` = JSON id page, `?3` = timestamp.\n *\n * Every child-table write re-checks that the note is *still* trashed. The page is read before the\n * batch runs, so another device can restore one of its notes in between; without the guard that\n * batch would strip the tags, versions, shares and links of a note whose row itself survives (the\n * final delete already carries the same `deleted_at IS NOT NULL` predicate).\n *\n * A free function rather than a method because the bulk purge builds it per page and the batch test\n * builds it directly: neither wants a store that exists only to hold a connection.\n */",
     "/**\n   * Whether this edit's text belongs in the AI index. A lock writes ciphertext, which must not be\n   * embedded; ordinary edits leave this unset and keep the queue statement.\n   */",
   ]],
+  ["src/worker/project/archive.ts", [
+    "/**\n * The archive transport: a v2 ZIP out, a v2 ZIP or a v1 JSON in. The JSONL mapping itself lives in\n * the shared module so the browser converters and this server agree byte for byte; this file only\n * zips, unzips, and writes the imported rows. Import preserves the archive's ids (so a round trip is\n * field-equal) but the new board belongs to whoever imports it, and members are matched to local\n * accounts rather than trusted blindly.\n */",
+    "// Not a ZIP: the reference's v1 export is a single JSON object with a blocks array.",
+    "// D1 caps a batch at 1000 statements; a large board can exceed that, so the import runs in chunks.",
+  ]],
   ["src/worker/project/auth.ts", [
     "/** Every project write parses through this, so a rejected field reads the same on every route. */",
     "/**\n * The trust boundary every board-scoped route crosses. A board the caller cannot see at all answers\n * 404 rather than 403, so a private board's existence never leaks; one they can see but lack the role\n * for answers 403. The effective role folds the owner rule and the open-board minimum in one place.\n */",
@@ -47574,6 +47587,9 @@ const allowed = new Map([
     "// 2026-10-19 is a Monday; 01:00 on Tuesday belongs to Monday night.",
     "// Saturday 01:00 is still Friday night, which is in the weekday set.",
     "// Sunday night starts a new week, so Monday 01:00 is not in the window.",
+  ]],
+  ["tests/project-archive.test.ts", [
+    "// Import into a fresh instance: the archive's ids are preserved, so the source board must be gone.",
   ]],
   ["tests/push-catchup.test.ts", [
     "/** A notification id, used only to prove a nudge does not carry one. */",

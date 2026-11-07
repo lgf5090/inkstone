@@ -1,0 +1,185 @@
+/**
+ * The archive transport: a v2 ZIP out, a v2 ZIP or a v1 JSON in. The JSONL mapping itself lives in
+ * the shared module so the browser converters and this server agree byte for byte; this file only
+ * zips, unzips, and writes the imported rows. Import preserves the archive's ids (so a round trip is
+ * field-equal) but the new board belongs to whoever imports it, and members are matched to local
+ * accounts rather than trusted blindly.
+ */
+import { strFromU8, strToU8, unzipSync, zipSync, type Unzipped } from 'fflate'
+import type { ProjectBoard, ProjectBoardSummary, ProjectRole } from '@shared/project/model'
+import { PROJECT_ROLES } from '@shared/project/model'
+import {
+  PROJECT_ARCHIVE_VERSION,
+  ProjectArchiveBlockSchema,
+  ProjectArchiveHeaderSchema,
+  parseProjectArchiveLines,
+  serializeProjectArchiveLines,
+  type ProjectArchiveLine,
+} from '@shared/project/archive'
+import { projectArchiveLinesToImport, projectBundleToArchiveLines } from '@shared/project/archive-mapping'
+import { PROJECT_LIMITS } from '@shared/project/limits'
+import { ApiError } from '../lib/errors'
+import { readProjectBoardBundle } from './bundle'
+
+export async function exportProjectBoardArchive(
+  db: D1Database,
+  board: ProjectBoard,
+  role: ProjectRole,
+): Promise<Uint8Array> {
+  const bundle = await readProjectBoardBundle(db, board, role)
+  const lines = projectBundleToArchiveLines(bundle)
+  return zipSync({
+    'version.json': strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() })),
+    [`${board.id}/board.jsonl`]: strToU8(serializeProjectArchiveLines(lines)),
+  })
+}
+
+function linesFromArchiveBytes(bytes: Uint8Array): ProjectArchiveLine[] {
+  let files: Unzipped | null = null
+  try {
+    files = unzipSync(bytes)
+  } catch {
+    files = null
+  }
+  if (files) {
+    const jsonl = Object.keys(files).find((name) => name.endsWith('board.jsonl'))
+    if (!jsonl) throw ApiError.badRequest('archive ZIP has no board.jsonl')
+    const versionRaw = files['version.json']
+    if (versionRaw) {
+      const header = ProjectArchiveHeaderSchema.safeParse(JSON.parse(strFromU8(versionRaw)))
+      if (!header.success) throw ApiError.badRequest('archive version.json is invalid')
+    }
+    return parseProjectArchiveLines(strFromU8(files[jsonl]!))
+  }
+  // Not a ZIP: the reference's v1 export is a single JSON object with a blocks array.
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(strFromU8(bytes))
+  } catch {
+    throw ApiError.badRequest('archive is neither a ZIP nor JSON')
+  }
+  const header = ProjectArchiveHeaderSchema.safeParse(parsed)
+  if (!header.success) throw ApiError.badRequest('archive header is invalid')
+  const blocks = (parsed as { blocks?: unknown }).blocks
+  if (!Array.isArray(blocks)) throw ApiError.badRequest('v1 archive has no blocks array')
+  const lines: ProjectArchiveLine[] = []
+  for (const block of blocks) {
+    const result = ProjectArchiveBlockSchema.safeParse(block)
+    if (!result.success) throw ApiError.badRequest('v1 archive block is invalid')
+    lines.push({ type: 'block', data: result.data })
+  }
+  return lines
+}
+
+export interface ProjectArchiveImportResult {
+  board: ProjectBoardSummary
+  skippedMembers: string[]
+}
+
+// D1 caps a batch at 1000 statements; a large board can exceed that, so the import runs in chunks.
+const IMPORT_BATCH_SIZE = 500
+
+export async function importProjectBoardArchive(
+  db: D1Database,
+  userId: string,
+  bytes: Uint8Array,
+  now: number,
+): Promise<ProjectArchiveImportResult> {
+  const imported = projectArchiveLinesToImport(linesFromArchiveBytes(bytes))
+  const source = imported.board
+  if (!source.id) throw ApiError.badRequest('archive board has no id')
+  const existing = await db.prepare('SELECT id FROM project_boards WHERE id = ?1').bind(source.id).first()
+  if (existing) throw ApiError.conflict('board id already exists')
+  if (imported.cards.length > PROJECT_LIMITS.cardsPerBoard) throw ApiError.conflict('PROJECT_MAX_CARDS_PER_BOARD')
+  if (imported.views.length > PROJECT_LIMITS.viewsPerBoard) throw ApiError.conflict('PROJECT_MAX_VIEWS_PER_BOARD')
+  if (imported.properties.length > PROJECT_LIMITS.propertiesPerBoard) throw ApiError.conflict('PROJECT_MAX_PROPERTIES_PER_BOARD')
+
+  const createAt = source.createAt || now
+  const updateAt = source.updateAt || now
+  const statements: D1PreparedStatement[] = [
+    db.prepare(
+      `INSERT INTO project_boards
+         (id, owner_id, type, minimum_role, title, description, icon, show_description, is_template,
+          template_version, created_by, modified_by, create_at, update_at, delete_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?2, ?2, ?11, ?12, 0)`,
+    ).bind(
+      source.id, userId, source.type, source.minimumRole, source.title, source.description, source.icon,
+      source.showDescription ? 1 : 0, source.isTemplate ? 1 : 0, source.templateVersion, createAt, updateAt,
+    ),
+    db.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)')
+      .bind(source.id, userId, 'admin', now),
+  ]
+  imported.properties.forEach((property, index) => {
+    statements.push(db.prepare(
+      `INSERT INTO project_properties (board_id, id, name, type, options, position, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`,
+    ).bind(source.id, property.id, property.name, property.type, JSON.stringify(property.options), index, now))
+  })
+  for (const card of imported.cards) {
+    statements.push(db.prepare(
+      `INSERT INTO project_cards
+         (id, board_id, parent_id, title, icon, is_template, content_order, created_by, modified_by, create_at, update_at, delete_at)
+       VALUES (?1, ?2, '', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)`,
+    ).bind(
+      card.id, source.id, card.title, card.icon, card.isTemplate ? 1 : 0, JSON.stringify(card.contentOrder),
+      card.createdBy || userId, card.modifiedBy || userId, card.createAt || now, card.updateAt || now,
+    ))
+    for (const [propertyId, value] of Object.entries(card.values)) {
+      statements.push(db.prepare(
+        'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4)',
+      ).bind(card.id, propertyId, value, now))
+    }
+  }
+  for (const view of imported.views) {
+    statements.push(db.prepare(
+      `INSERT INTO project_views
+         (id, board_id, title, view_type, fields, position, created_by, modified_by, create_at, update_at, delete_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)`,
+    ).bind(
+      view.id, source.id, view.title, view.viewType, JSON.stringify(view.fields), view.position,
+      view.createdBy || userId, view.modifiedBy || userId, view.createAt || now, view.updateAt || now,
+    ))
+  }
+  for (const content of imported.contents) {
+    statements.push(db.prepare(
+      `INSERT INTO project_card_contents
+         (id, card_id, board_id, type, title, fields, position, created_by, modified_by, create_at, update_at, delete_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0)`,
+    ).bind(
+      content.id, content.cardId, source.id, content.type, content.title, JSON.stringify(content.fields), content.position,
+      content.createdBy || userId, content.modifiedBy || userId, content.createAt || now, content.updateAt || now,
+    ))
+  }
+  for (const comment of imported.comments) {
+    statements.push(db.prepare(
+      `INSERT INTO project_comments (id, card_id, board_id, author_id, body, create_at, update_at, delete_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)`,
+    ).bind(comment.id, comment.cardId, source.id, comment.authorId || userId, comment.body, comment.createAt || now, comment.updateAt || now))
+  }
+
+  const skippedMembers: string[] = []
+  for (const member of imported.members) {
+    if (member.userId === userId) continue
+    const user = await db.prepare('SELECT id FROM users WHERE id = ?1 OR username = ?1 OR login = ?1')
+      .bind(member.userId).first<{ id: string }>()
+    if (!user) {
+      skippedMembers.push(member.userId)
+      continue
+    }
+    const role = (PROJECT_ROLES as readonly string[]).includes(member.role) ? member.role : 'viewer'
+    statements.push(db.prepare(
+      'INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)',
+    ).bind(source.id, user.id, role, now))
+  }
+
+  for (let index = 0; index < statements.length; index += IMPORT_BATCH_SIZE) {
+    await db.batch(statements.slice(index, index + IMPORT_BATCH_SIZE))
+  }
+  const board: ProjectBoard = {
+    id: source.id, ownerId: userId, type: source.type, minimumRole: source.minimumRole as ProjectBoard['minimumRole'],
+    title: source.title, description: source.description, icon: source.icon, showDescription: source.showDescription,
+    isTemplate: source.isTemplate, templateVersion: source.templateVersion, createdBy: userId, modifiedBy: userId,
+    createAt, updateAt, deleteAt: 0,
+  }
+  return { board: { ...board, role: 'admin' }, skippedMembers }
+}
