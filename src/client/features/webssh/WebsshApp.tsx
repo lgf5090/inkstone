@@ -35,9 +35,8 @@ import '@xterm/xterm/css/xterm.css'
 import './webssh.css'
 
 /**
- * The demo transport is still the only implementation the terminal has. Until the host-to-session
- * wiring replaces it, the badge stays visible: a terminal that looks live must never be mistaken
- * for a real SSH connection.
+ * The demo transport is the only one W4 ships; the badge is the one sentence that must never be
+ * hidden, because a terminal that looks live must not be mistaken for a real SSH connection.
  */
 const DEMO_TRANSPORT = true
 
