@@ -6350,6 +6350,9 @@ const allowed = new Map([
     "/**\n * The Workers screen's door to `/api/cloudflare/workers`.\n *\n * Every account id and worker name is encoded here, so a name a reader typed cannot change which\n * endpoint a call reaches. Batch deploys are multipart because the script is a file, not JSON.\n */",
     "/** The same-origin WebSocket address for a live tail; the browser sends the session cookie itself. */",
   ]],
+  ["src/client/features/cloudflare/api/zero-trust.ts", [
+    "/**\n * The Zero Trust screen's door to `/api/cloudflare/zero-trust`.\n */",
+  ]],
   ["src/client/features/cloudflare/cloudflare-address.ts", [
     "/**\n * The Cloudflare app's address space, parsed into the screen it names.\n *\n * `/cloudflare` is one tab on the notebook's rail; every screen under it belongs to the app. A path\n * this app never links to answers the dashboard rather than a not-found card: the rail has already\n * told the reader they are in the Cloudflare app, and there is nothing behind them to go back to.\n */",
     "/** The address one screen answers to; the tab links and the rail both use it. */",
@@ -6478,6 +6481,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/cloudflare/screens/WorkersScreen.tsx", [
     "/**\n * Workers and Pages: account cards, one merged table, and the drawers behind a row.\n *\n * The data comes from two calls because they answer different questions: the list is Workers and\n * Pages per account, the summary is today's requests and error counts. Both are joined by account id\n * in the table, so a failed usage query leaves the list readable instead of blanking it.\n */",
+  ]],
+  ["src/client/features/cloudflare/screens/ZeroTrustScreen.tsx", [
+    "/**\n * Zero Trust: Access applications, groups, service tokens, identity providers and devices.\n *\n * Applications, groups and service tokens have the create/delete pair this screen exposes. Identity\n * providers, the organization and device policies are read-only: the account already has them and the\n * panel must not rewrite configuration that was set up outside it.\n */",
   ]],
   ["src/client/features/cloudflare/screens/accounts/AccountFormDialog.tsx", [
     "/**\n * One dialog for adding and editing an account.\n *\n * On an edit the token fields start empty and an empty field means \"keep what is stored\", which is\n * why the placeholders say so. The API patch only sends what the reader typed, so an untouched field\n * cannot accidentally clear a credential. Switching the auth type is the one case that needs a fresh\n * value, and the route says which one is missing.\n */",
@@ -31858,6 +31864,9 @@ const allowed = new Map([
   ["src/shared/locales/en-US-cloudflare-workers.ts", [
     "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: workers.\n */",
   ]],
+  ["src/shared/locales/en-US-cloudflare-zero-trust.ts", [
+    "/**\n * English copy for the Zero Trust screen.\n */",
+  ]],
   ["src/shared/locales/en-US-cloudflare.ts", [
     "/**\n * The Cloudflare app's catalogue, one language at a time.\n *\n * Loaded by the app when a reader opens it and never by the shell: the module carries 1,200-odd keys\n * of its own, and a reader who never visits /cloudflare should pay none of them.\n */",
   ]],
@@ -31961,6 +31970,9 @@ const allowed = new Map([
   ]],
   ["src/shared/locales/zh-CN-cloudflare-workers.ts", [
     "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: workers.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-cloudflare-zero-trust.ts", [
+    "/**\n * Chinese copy for the Zero Trust screen.\n */",
   ]],
   ["src/shared/locales/zh-CN-cloudflare.ts", [
     "/**\n * The Cloudflare app's catalogue, one language at a time.\n *\n * Loaded by the app when a reader opens it and never by the shell: the module carries 1,200-odd keys\n * of its own, and a reader who never visits /cloudflare should pay none of them.\n */",
@@ -38823,6 +38835,9 @@ const allowed = new Map([
     "/** The entry module of a script download, preferring an explicit name, then the conventional ones. */",
     "/** The script text of a module download, or null when there is no JavaScript part. */",
   ]],
+  ["src/worker/cloudflare/zero-trust.ts", [
+    "/**\n * Zero Trust (Access) reads and the three create/delete pairs this screen exposes.\n *\n * Access applications, groups and service tokens are account-scoped. Identity providers, the\n * organization and device policies are read-only here: the account already has one IdP, one\n * organization and a default WARP policy, and the panel must not rewrite them.\n */",
+  ]],
   ["src/worker/db/fts.ts", [
     "/**\n * Queues every live note for re-indexing in one statement. Rebuilding in the request path\n * costs ~3 round trips per 50 notes (600 trips for 10k notes) plus a full-text tokenize\n * pass, which cannot finish inside one invocation; the queue drains in the background.\n */",
     "/** Removes search rows whose note no longer exists or was deleted. */",
@@ -41785,6 +41800,9 @@ const allowed = new Map([
     "/**\n * A live tail: create Cloudflare's tail session, open the upstream WebSocket from this Worker and\n * bridge it to the browser's socket.\n *\n * The upstream is fetched as an HTTP upgrade (not a `wss://` URL), which is how the Worker runtime\n * connects to a WebSocket server. The tail URL already carries Cloudflare's one-time token; the\n * reader's own credential is only used to create and delete the session.\n */",
     "/* already closed */",
     "/* the tail stream is read-only */",
+  ]],
+  ["src/worker/routes/cloudflare/zero-trust.ts", [
+    "/**\n * `/api/cloudflare/zero-trust` — Access applications, groups, service tokens, IdPs, the organization\n * and the device inventory.\n *\n * Writes are limited to applications, groups and service tokens; IdPs, the organization and device\n * policies are read-only because the account already has them configured and this panel has no\n * business rewriting them.\n */",
   ]],
   ["src/worker/routes/community-templates.ts", [
     "/**\n * Publishing counts against a per-account hourly budget so one account cannot\n * flood the shared directory. Updating your own template spends the same\n * budget, which is the point: an edit is another write.\n */",

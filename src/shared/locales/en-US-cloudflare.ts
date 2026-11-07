@@ -17,6 +17,7 @@ import { EN_US_CLOUDFLARE_AI } from './en-US-cloudflare-ai'
 import { EN_US_CLOUDFLARE_BROWSER_RENDER } from './en-US-cloudflare-browser-render'
 import { EN_US_CLOUDFLARE_STORE } from './en-US-cloudflare-store'
 import { EN_US_CLOUDFLARE_TOOLBOX } from './en-US-cloudflare-toolbox'
+import { EN_US_CLOUDFLARE_ZERO_TRUST } from './en-US-cloudflare-zero-trust'
 import { EN_US_CLOUDFLARE_SETTINGS } from './en-US-cloudflare-settings'
 
 export const EN_US_CLOUDFLARE = {
@@ -33,5 +34,6 @@ export const EN_US_CLOUDFLARE = {
   ...EN_US_CLOUDFLARE_BROWSER_RENDER,
   ...EN_US_CLOUDFLARE_STORE,
   ...EN_US_CLOUDFLARE_TOOLBOX,
+  ...EN_US_CLOUDFLARE_ZERO_TRUST,
   ...EN_US_CLOUDFLARE_SETTINGS,
 }

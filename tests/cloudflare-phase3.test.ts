@@ -11,6 +11,12 @@ import {
   toQueue,
 } from '../src/worker/cloudflare/platform'
 import { parseCidr } from '../src/client/features/cloudflare/lib/cidr'
+import {
+  toAccessApp,
+  toAccessGroup,
+  toDevicePolicy,
+  toServiceToken,
+} from '../src/worker/cloudflare/zero-trust'
 
 describe('phase 3 converters', () => {
   it('keeps queue producers, consumers and settings', () => {
@@ -93,6 +99,26 @@ describe('country analytics', () => {
       { code: 'BE', requests: 30 },
       { code: 'US', requests: 10 },
     ])
+  })
+})
+
+describe('Zero Trust converters', () => {
+  it('keeps the self-hosted application domain', () => {
+    expect(toAccessApp({ id: 'a1', name: 'internal', domain: 'app.example.com', type: 'self_hosted' }))
+      .toMatchObject({ id: 'a1', name: 'internal', domain: 'app.example.com', type: 'self_hosted' })
+  })
+
+  it('maps group and device policy fields', () => {
+    expect(toAccessGroup({ id: 'g1', name: 'staff' })).toMatchObject({ id: 'g1', name: 'staff' })
+    expect(toDevicePolicy({ policy_id: 'd1', default: true, enabled: true, profile_type: 'warp' }))
+      .toMatchObject({ id: 'd1', default: true, enabled: true, profileType: 'warp' })
+  })
+
+  it('carries the one-time service token secret only when Cloudflare returns it', () => {
+    const created = toServiceToken({ id: 't1', name: 'ci', client_id: 'client', client_secret: 'secret' })
+    const listed = toServiceToken({ id: 't1', name: 'ci', client_id: 'client' })
+    expect(created?.clientSecret).toBe('secret')
+    expect(listed?.clientSecret).toBeUndefined()
   })
 })
 

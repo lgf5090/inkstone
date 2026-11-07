@@ -33,6 +33,7 @@ import { tasksRouter } from './tasks'
 import { toolboxRouter } from './toolbox'
 import { tunnelsRouter } from './tunnels'
 import { workersRouter } from './workers'
+import { zeroTrustRouter } from './zero-trust'
 
 export const cloudflareRoutes = new Hono<AppBindings>()
 
@@ -58,6 +59,7 @@ cloudflareRoutes.route('/network', networkRouter)
 cloudflareRoutes.route('/platform', platformRouter)
 cloudflareRoutes.route('/alerting', alertingRouter)
 cloudflareRoutes.route('/toolbox', toolboxRouter)
+cloudflareRoutes.route('/zero-trust', zeroTrustRouter)
 cloudflareRoutes.route('/workers', workersRouter)
 cloudflareRoutes.route('/storage', storageRouter)
 cloudflareRoutes.route('/tunnels', tunnelsRouter)

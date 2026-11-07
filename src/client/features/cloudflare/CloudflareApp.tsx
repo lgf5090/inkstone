@@ -11,7 +11,7 @@
 import { useEffect, useState, type ComponentType, type ReactElement } from 'react'
 import './cloudflare.css'
 import {
-  Boxes, Bell, Cloud, Database, Globe, Layers, LayoutDashboard, MonitorSmartphone, Network, Settings, Sparkles, Store, Users, Waypoints, Wrench,
+  Boxes, Bell, Cloud, Database, Globe, Layers, LayoutDashboard, MonitorSmartphone, Network, Settings, Shield, Sparkles, Store, Users, Waypoints, Wrench,
 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { navigateToAddress, usePathname, useSearch } from '../../lib/app-history'
@@ -38,6 +38,7 @@ import { NetworkScreen } from './screens/NetworkScreen'
 import { PlatformScreen } from './screens/PlatformScreen'
 import { AlertingScreen } from './screens/AlertingScreen'
 import { ToolboxScreen } from './screens/ToolboxScreen'
+import { ZeroTrustScreen } from './screens/ZeroTrustScreen'
 import { WorkersScreen } from './screens/WorkersScreen'
 import { StorageScreen } from './screens/StorageScreen'
 import { TunnelsScreen } from './screens/TunnelsScreen'
@@ -60,6 +61,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { screen: 'platform', labelKey: 'cloudflare.platform.title', icon: Layers },
   { screen: 'alerting', labelKey: 'cloudflare.alerting.title', icon: Bell },
   { screen: 'toolbox', labelKey: 'cloudflare.toolbox.title', icon: Wrench },
+  { screen: 'zero-trust', labelKey: 'cloudflare.zt.title', icon: Shield },
   { screen: 'workers', labelKey: 'cloudflare.workers.title', icon: Boxes },
   { screen: 'storage', labelKey: 'cloudflare.storage.title', icon: Database },
   { screen: 'tunnels', labelKey: 'cloudflare.tunnels.tunnel_management', icon: Waypoints },
@@ -105,6 +107,7 @@ function Screen({ screen, aiTab }: { screen: CloudflareScreen; aiTab: Cloudflare
     case 'platform': return <PlatformScreen />
     case 'alerting': return <AlertingScreen />
     case 'toolbox': return <ToolboxScreen />
+    case 'zero-trust': return <ZeroTrustScreen />
     case 'workers': return <WorkersScreen />
     case 'storage': return <StorageScreen />
     case 'tunnels': return <TunnelsScreen />

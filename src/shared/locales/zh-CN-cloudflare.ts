@@ -17,6 +17,7 @@ import { ZH_CN_CLOUDFLARE_AI } from './zh-CN-cloudflare-ai'
 import { ZH_CN_CLOUDFLARE_BROWSER_RENDER } from './zh-CN-cloudflare-browser-render'
 import { ZH_CN_CLOUDFLARE_STORE } from './zh-CN-cloudflare-store'
 import { ZH_CN_CLOUDFLARE_TOOLBOX } from './zh-CN-cloudflare-toolbox'
+import { ZH_CN_CLOUDFLARE_ZERO_TRUST } from './zh-CN-cloudflare-zero-trust'
 import { ZH_CN_CLOUDFLARE_SETTINGS } from './zh-CN-cloudflare-settings'
 
 export const ZH_CN_CLOUDFLARE = {
@@ -33,5 +34,6 @@ export const ZH_CN_CLOUDFLARE = {
   ...ZH_CN_CLOUDFLARE_BROWSER_RENDER,
   ...ZH_CN_CLOUDFLARE_STORE,
   ...ZH_CN_CLOUDFLARE_TOOLBOX,
+  ...ZH_CN_CLOUDFLARE_ZERO_TRUST,
   ...ZH_CN_CLOUDFLARE_SETTINGS,
 }
