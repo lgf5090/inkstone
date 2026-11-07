@@ -242,6 +242,13 @@ export interface ProjectBoardSummary extends ProjectBoard {
   role: ProjectRole
 }
 
+/** The counts the board list shows as a subtitle (reference BoardMetadata). */
+export interface ProjectBoardMetadata {
+  cardCount: number
+  propertyCount: number
+  viewCount: number
+}
+
 /**
  * A board edit. Absent means "leave alone"; the two property lists are whole-object replacements
  * matched by id, and a property id never seen before is appended rather than inserted.

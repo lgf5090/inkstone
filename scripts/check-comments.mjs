@@ -32343,6 +32343,10 @@ const allowed = new Map([
     "/** The caller's effective role, already resolved against the board's minimum role. */",
     "/**\n * The role a request actually carries. An open board grants its minimum to every signed-in account,\n * a private one grants nothing beyond an explicit membership, and the owner is always an admin.\n * The server resolves this before every write; the client resolves it only to decide what to draw.\n */",
     "/** A board as the caller sees it: the stored fields plus the role this caller actually holds. */",
+    "/** The counts the board list shows as a subtitle (reference BoardMetadata). */",
+  ]],
+  ["src/shared/project/property-patch.ts", [
+    "/**\n * The reference's cardProperties patch, step for step (board.go Patch): a whole-object replacement\n * matched by id, where a never-seen id is appended rather than inserted, and a deletion leaves the\n * survivors in their original relative order. Entries without a string id are skipped, not rejected.\n *\n * One guard the reference lacks: a deleted id leaves the order list immediately, so an id both deleted\n * and re-added in the same patch lands at the end exactly once. The reference keeps the deleted id in\n * the order list and would emit it twice; here a property id is a primary key, so a duplicate cannot be\n * stored and the order list must not name it twice.\n */",
   ]],
   ["src/shared/project/validation.ts", [
     "/**\n * The shapes a project request may take. The server runs every write through these before it touches\n * D1; the client runs the same schemas so a rejected field is reported at the control that typed it.\n *\n * Bounds come from `./limits` rather than being restated, so raising a ceiling is one edit.\n */",
@@ -39954,6 +39958,9 @@ const allowed = new Map([
     "// A hub batch names up to a hundred files, and a tag write can carry a hundred tags of a hundred",
     "// characters each — the most either route can legitimately be asked to parse.",
     "// The shared number, because the settings lists in `@shared/constants` were sized against it.",
+    "// A board write can carry the 800000-rune description field (up to four bytes a rune) plus a hundred",
+    "// property templates, so the coarse body ceiling has to sit above that field's own zod limit rather",
+    "// than below it — otherwise a legitimate long description is refused as a body before it is parsed.",
   ]],
   ["src/worker/lib/rewrite-drain.ts", [
     "/** Notes a single queue row may rewrite per round; the tail is re-queued for the next one. */",
@@ -40931,6 +40938,10 @@ const allowed = new Map([
   ["src/worker/project/auth.ts", [
     "/** Every project write parses through this, so a rejected field reads the same on every route. */",
     "/**\n * The trust boundary every board-scoped route crosses. A board the caller cannot see at all answers\n * 404 rather than 403, so a private board's existence never leaks; one they can see but lack the role\n * for answers 403. The effective role folds the owner rule and the open-board minimum in one place.\n */",
+  ]],
+  ["src/worker/project/boards.ts", [
+    "/**\n * A new board belongs to its creator, who gets an admin membership row so the member picker and the\n * last-admin count both see them. Properties are written in the order given, position = index.\n */",
+    "/**\n * A board patch. The two property lists run through the shared ordering rule (§6.2); the board's own\n * fields are a sparse update. Everything lands in one D1 batch so a half-applied patch cannot survive.\n */",
   ]],
   ["src/worker/project/members.ts", [
     "/**\n * The reference guards the last admin only in the client; here the server refuses the write that would\n * leave a board with no admin member, because a client check is not a trust boundary.\n */",

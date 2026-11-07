@@ -14,8 +14,12 @@ export function projectUserId(c: Context<AppBindings>): string {
 }
 
 /** Every project write parses through this, so a rejected field reads the same on every route. */
-export async function projectBody<T>(c: Context<AppBindings>, schema: ZodType<T>): Promise<T> {
-  const raw = await readJson<unknown>(c, JSON_BODY_LIMITS.small)
+export async function projectBody<T>(
+  c: Context<AppBindings>,
+  schema: ZodType<T>,
+  maxBytes: number = JSON_BODY_LIMITS.project,
+): Promise<T> {
+  const raw = await readJson<unknown>(c, maxBytes)
   const result = schema.safeParse(raw)
   if (!result.success) {
     const issue = result.error.issues[0]
