@@ -110,6 +110,7 @@ import { navIconRoutes } from './nav/icons'
 import { navAiRoutes } from './nav/ai'
 import { navCheckRoutes } from './nav/check'
 import { calendarRoutes } from './routes/calendar'
+import { projectRoutes } from './project/routes'
 import { calendarContactRoutes } from './routes/calendar-contacts'
 import { calendarTemplateRoutes } from './routes/calendar-templates'
 import { calendarCsvRoutes } from './routes/calendar-csv'
@@ -293,6 +294,7 @@ export function createApp() {
   // paths carry the extra `/attachments` segment, which the task router would never match.
   app.route('/api/todos', todoAttachmentRoutes)
   app.route('/api/todos', todoRoutes)
+  app.route('/api/project', projectRoutes)
   app.route('/api/email', emailSearchesRoutes)
   app.route('/api/email', emailTemplatesRoutes)
   app.route('/api/email', emailRulesRoutes)

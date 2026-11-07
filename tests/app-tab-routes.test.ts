@@ -60,4 +60,13 @@ describe('the addresses the client routes on its own', () => {
     expect(tabIdForPath('/development/database')).toBe('development')
     expect(tabIdForPath('/development/github')).toBe('development')
   })
+
+  for (const config of CONFIGS) {
+    it(`asks the worker for the project app's own and public addresses in ${config}`, () => {
+      // A board deep link and a published board are both documents the worker has to dress in its
+      // security headers; the rail's own path is covered by the loop above once the tab exists.
+      const paths = workerFirstPaths(config)
+      for (const path of ['/project', '/project/*', '/p', '/p/*']) expect(paths).toContain(path)
+    })
+  }
 })

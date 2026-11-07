@@ -40921,6 +40921,10 @@ const allowed = new Map([
     "/**\n * The dependent-table cleanup for one page of trashed note ids, in the order the cascade\n * needs: link retargeting before the notes go, share sessions before their shares.\n * Statements bind `?1` = account, `?2` = JSON id page, `?3` = timestamp.\n *\n * Every child-table write re-checks that the note is *still* trashed. The page is read before the\n * batch runs, so another device can restore one of its notes in between; without the guard that\n * batch would strip the tags, versions, shares and links of a note whose row itself survives (the\n * final delete already carries the same `deleted_at IS NOT NULL` predicate).\n *\n * A free function rather than a method because the bulk purge builds it per page and the batch test\n * builds it directly: neither wants a store that exists only to hold a connection.\n */",
     "/**\n   * Whether this edit's text belongs in the AI index. A lock writes ciphertext, which must not be\n   * embedded; ordinary edits leave this unset and keep the queue statement.\n   */",
   ]],
+  ["src/worker/project/permissions.ts", [
+    "/** A board as the caller sees it: the stored fields plus the role this caller actually holds. */",
+    "/**\n * Which boards the sidebar lists, and what the caller may do with each.\n *\n * A board reaches its audience two ways — the account owns it, or a membership row names it — so the\n * list is the union of the two, and a board the caller can no longer read is dropped rather than\n * shown greyed out. The role is resolved here so no caller has to remember the open-board rule.\n */",
+  ]],
   ["src/worker/project/schema.ts", [
     "/**\n * The project app's tables, in arrays so a fresh database and a migrated one arrive at the same shape\n * by the same text: `SCHEMA_STATEMENTS` spreads these, and migrations 287-291 apply the very same\n * arrays to a database that predates the app.\n *\n * Boards are shared objects, so a board-scoped row keys on its own id and reaches its audience through\n * `project_board_members`; only the account's own furniture (categories, settings) keys on the account.\n * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.\n */",
     "// One role column rather than the reference's four scheme booleans: its own editor assigns them",
@@ -40934,6 +40938,10 @@ const allowed = new Map([
     "// FROM notes, so sharing it would mean editing the notes search write path.",
     "// project_fts is deliberately absent: the boot's column repair replays CREATE TABLE declarations, and",
     "// an fts5 virtual table has none to replay — its columns are changed by rebuilding it, not by ADD COLUMN.",
+  ]],
+  ["src/worker/project/store.ts", [
+    "/**\n * The project app's reads and writes, in one place so no route file carries SQL.\n *\n * Board-scoped rows key on the board rather than the account, so every query here either names the\n * account explicitly (the boards it owns) or reaches it through the membership table.\n */",
+    "/**\n   * Owned boards and boards shared with this account, in one statement: a per-membership lookup\n   * would turn a sidebar of fifty boards into fifty round trips.\n   */",
   ]],
   ["src/worker/quickadd/store.ts", [
     "/**\n * Every read and write the QuickAdd HTTP routes make against D1.\n *\n * The shape follows `share/store.ts`: a store built per request from the account it serves, methods\n * that hand back rows, the boolean a guarded write matched, or the answers the route prints, and no\n * `Response` in between. Two kinds of read live here:\n *  - the library envelope on the account's own `users` row. `WHERE id = ?1` binds `c.get('userId')`,\n *    and `users.id` *is* the account, so one device can neither read nor overwrite another's library.\n *    The envelope text is the route's to build and to parse; the store only moves the column;\n *  - the property scans behind `{{FIELD:}}`. Their `user_id` predicate is not a literal in the\n *    template but the first clause `fieldScopeWhere()` always splices — `n.user_id = ?1` bound to the\n *    account the store was built with — because the optional folder/tag scopes are named by the\n *    caller and have to be numbered after it.\n *\n * The scan's three bounds (`FIELD_SCAN_LIMIT`, `FIELD_VALUE_LIMIT`, `FIELD_VALUE_MAX_LENGTH`) are part\n * of the answer rather than configuration: a value list is a convenience, and a slow one is worse than\n * the author typing the word.\n */",
@@ -44114,6 +44122,8 @@ const allowed = new Map([
     "// which never reaches the worker, so the document arrives without our Content-Security-Policy.",
     "// A rail entry whose container is missing opens the placeholder instead of an app, which is how",
     "// the old `projects` row looked like a real feature that had never been built.",
+    "// A board deep link and a published board are both documents the worker has to dress in its",
+    "// security headers; the rail's own path is covered by the loop above once the tab exists.",
   ]],
   ["tests/assistant-artifact-context.test.ts", [
     "/**\n * The draft in the system prompt.\n *\n * The model has to know which document is on screen, but the document is user text: it goes inside a\n * tag that says so, and a long one is cut to its head and tail with a pointer to the tool that reads the\n * rest. A prompt that quietly showed a truncated body would invite the model to rewrite from a fragment.\n */",
