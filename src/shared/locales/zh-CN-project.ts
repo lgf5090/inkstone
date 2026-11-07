@@ -30,4 +30,11 @@ export const ZH_CN_PROJECT = {
     "project.board.untitled_card": "未命名卡片",
     "project.board.delete_card": "删除卡片",
     "project.board.title_column": "名称",
+    "project.view.add": "添加视图",
+    "project.view.board": "看板",
+    "project.view.table": "表格",
+    "project.view.gallery": "画廊",
+    "project.view.calendar": "日历",
+    "project.view.no_value": "无值",
+    "project.view.empty_column": "暂无卡片",
 } as const

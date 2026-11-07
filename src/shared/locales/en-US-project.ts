@@ -30,4 +30,11 @@ export const EN_US_PROJECT = {
     "project.board.untitled_card": "Untitled card",
     "project.board.delete_card": "Delete card",
     "project.board.title_column": "Name",
+    "project.view.add": "Add view",
+    "project.view.board": "Board",
+    "project.view.table": "Table",
+    "project.view.gallery": "Gallery",
+    "project.view.calendar": "Calendar",
+    "project.view.no_value": "No value",
+    "project.view.empty_column": "No cards",
 } as const
