@@ -160,7 +160,6 @@ describe('Tools container architecture and collapsible sidebar', () => {
         t('tools.compare.module_name'),
         t('tools.network_panel.module_name'),
         t('tools.prompt_optimizer.module_name'),
-        t('webssh.tools.entry'),
       ]
       expect([...railLabels].sort()).toEqual([t('tools.sidebar.expand'), ...moduleLabels].sort())
 

@@ -1,6 +1,5 @@
 export const EN_US_WEBSSH = {
   "app.tabs.webssh": "WebSSH",
-  "webssh.tools.entry": "WebSSH",
   "webssh.app.title": "WebSSH",
   "webssh.replay.missing": "This replay link does not exist, has expired, or has not been published yet.",
   "webssh.actions.add": "Add",

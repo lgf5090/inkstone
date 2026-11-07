@@ -43,7 +43,6 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
-  SquareTerminal,
   Star,
   TextCursorInput,
   Users,
@@ -343,18 +342,6 @@ export function ToolsSidebar({
         </div>
 
         <div className="flex w-full flex-col items-center gap-1 py-2">
-          <Tooltip label={t('webssh.tools.entry')} side="right">
-            <IconButton
-              label={t('webssh.tools.entry')}
-              size="sm"
-              onClick={() => {
-                navigateToPath('/webssh')
-                onNavigate?.()
-              }}
-            >
-              <SquareTerminal size={16} />
-            </IconButton>
-          </Tooltip>
           <Tooltip label={t('tools.shortlinks.module_name')} side="right">
             <IconButton
               label={t('tools.shortlinks.module_name')}
@@ -503,22 +490,6 @@ export function ToolsSidebar({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 space-y-1">
-        <button
-          type="button"
-          onClick={() => {
-            navigateToPath('/webssh')
-            onNavigate?.()
-          }}
-          className={cn(
-            'flex w-full items-center gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
-            'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-            'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
-          )}
-        >
-          <SquareTerminal size={16} className="shrink-0 text-[var(--accent)]" />
-          <span className="truncate">{t('webssh.tools.entry')}</span>
-        </button>
-
         {/* First submodule: Short Links (tools/shortlinks) */}
         <div>
           <button

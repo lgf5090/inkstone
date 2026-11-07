@@ -1,6 +1,5 @@
 export const ZH_CN_WEBSSH = {
   "app.tabs.webssh": "WebSSH",
-  "webssh.tools.entry": "WebSSH",
   "webssh.app.title": "WebSSH",
   "webssh.replay.missing": "该回放链接不存在、已过期，或尚未发布。",
   "webssh.actions.add": "添加",
