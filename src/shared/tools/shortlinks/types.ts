@@ -134,6 +134,8 @@ export interface ClickData {
 export interface ClickStats {
   total_clicks: number
   unique_visitors: number
+  bot_clicks: number
+  bot_ratio: number
   avg_clicks_per_day: number | string
   countries: { name: string; count: number }[]
   referrers: { name: string; count: number }[]
@@ -172,6 +174,8 @@ export interface DashboardStats {
   active_links: number
   total_clicks: number
   unique_visitors: number
+  bot_clicks: number
+  bot_ratio: number
   delta_clicks?: number
   avg_clicks_per_day: number | string
   timeline: { labels: string[]; values: number[] }

@@ -1364,6 +1364,7 @@ export const EN_US_TOOLS = {
   'tools.shortlinks.dashboard.total_clicks': 'Total Clicks',
   'tools.shortlinks.dashboard.unique_visitors': 'Unique Visitors',
   'tools.shortlinks.dashboard.unique_visitors_hint': 'Daily dedupe total',
+  'tools.shortlinks.dashboard.bot_clicks': '{count} bot hits · {percent}% of all traffic',
   'tools.shortlinks.dashboard.active_links': 'Active Links',
   'tools.shortlinks.dashboard.total_links': 'Total Links',
   'tools.shortlinks.dashboard.avg_per_day': 'Avg Clicks / Day',

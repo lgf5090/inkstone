@@ -896,10 +896,10 @@ export class ShortlinksStore {
 
     // A public redirect is an unauthenticated write. A crawler that ignores the 302, a page that
     // refreshes itself, or one reader holding down a shortcut would otherwise turn `/l/:slug` into an
-    // unbounded D1 writer and inflate the owner's statistics. Bots are not a reader at all, and one
-    // fingerprint counts once per slug inside the window; the dedupe key carries the slug so a
-    // reader who opens two aliases of the same link still produces a click for each alias.
-    if (click.isBot) return
+    // unbounded D1 writer and inflate the owner's statistics. The fingerprint counts once per slug
+    // inside the window; the dedupe key carries the slug so a reader who opens two aliases of the same
+    // link still produces a click for each alias. Bots are stored with `is_bot = 1` so the settings
+    // switch can decide later whether analytics include them.
     if (click.visitorFp) {
       const recent = await this.db
         .prepare(
@@ -987,18 +987,19 @@ export class ShortlinksStore {
       .prepare('SELECT created_at FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
       .bind(linkId, this.userId)
       .first<{ created_at: number }>()
-    let where = `user_id = ? AND link_id = ?${this.clickScope(settings)}`
+    let scope = `user_id = ? AND link_id = ?`
     const binds: (string | number)[] = [this.userId, linkId]
 
     const sinceTs = bounds?.from ?? rangeToSinceTs(range)
     if (sinceTs !== undefined) {
-      where += ' AND clicked_at >= ?'
+      scope += ' AND clicked_at >= ?'
       binds.push(sinceTs)
     }
     if (bounds?.to !== undefined) {
-      where += ' AND clicked_at < ?'
+      scope += ' AND clicked_at < ?'
       binds.push(bounds.to)
     }
+    const where = `${scope}${this.clickScope(settings)}`
 
     const [
       totalRow,
@@ -1018,6 +1019,8 @@ export class ShortlinksStore {
       numHostsRow,
       numOsRow,
       numBrowsersRow,
+      botClicksRow,
+      allClicksRow,
     ] = await Promise.all([
       this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${where}`).bind(...binds).first<{ cnt: number }>(),
       this.db.prepare(`SELECT COUNT(DISTINCT visitor_fp) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND visitor_fp IS NOT NULL`).bind(...binds).first<{ cnt: number }>(),
@@ -1036,6 +1039,8 @@ export class ShortlinksStore {
       this.db.prepare(`SELECT COUNT(DISTINCT referrer_host) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND referrer_host IS NOT NULL`).bind(...binds).first<{ cnt: number }>(),
       this.db.prepare(`SELECT COUNT(DISTINCT os) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND os IS NOT NULL`).bind(...binds).first<{ cnt: number }>(),
       this.db.prepare(`SELECT COUNT(DISTINCT browser) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND browser IS NOT NULL`).bind(...binds).first<{ cnt: number }>(),
+      this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${scope} AND is_bot = 1`).bind(...binds).first<{ cnt: number }>(),
+      this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${scope}`).bind(...binds).first<{ cnt: number }>(),
     ])
 
     return {
@@ -1057,6 +1062,8 @@ export class ShortlinksStore {
       num_referrer_hosts: numHostsRow?.cnt || 0,
       num_os: numOsRow?.cnt || 0,
       num_browsers: numBrowsersRow?.cnt || 0,
+      bot_clicks: botClicksRow?.cnt || 0,
+      bot_ratio: allClicksRow?.cnt ? (botClicksRow?.cnt || 0) / allClicksRow.cnt : 0,
     }
   }
 
@@ -1289,7 +1296,8 @@ export class ShortlinksStore {
     const sinceTs = rangeToSinceTs(range, now)
     const prevSinceTs = sinceTs !== undefined ? sinceTs - (now - sinceTs) : undefined
 
-    let where = `user_id = ?${this.clickScope(settings)}`
+    const scope = 'user_id = ?'
+    const where = `${scope}${this.clickScope(settings)}`
     const binds: (string | number)[] = [this.userId]
 
     let timeFilter = ''
@@ -1318,6 +1326,14 @@ export class ShortlinksStore {
       .prepare(`SELECT COUNT(DISTINCT visitor_fp) as cnt FROM tools_shortlinks_clicks WHERE ${where}${timeFilter} AND visitor_fp IS NOT NULL`)
       .bind(...binds)
       .first<{ cnt: number }>()
+    const botClicksRow = await this.db
+      .prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${scope}${timeFilter} AND is_bot = 1`)
+      .bind(...binds)
+      .first<{ cnt: number }>()
+    const allClicksRow = await this.db
+      .prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${scope}${timeFilter}`)
+      .bind(...binds)
+      .first<{ cnt: number }>()
 
     let totalClicksPrevious = 0
     if (sinceTs !== undefined && prevSinceTs !== undefined) {
@@ -1344,6 +1360,8 @@ export class ShortlinksStore {
       active_links: totalLinksRow?.active || 0,
       total_clicks: totalClicks,
       unique_visitors: uniqueVisitorsRow?.cnt || 0,
+      bot_clicks: botClicksRow?.cnt || 0,
+      bot_ratio: allClicksRow?.cnt ? (botClicksRow?.cnt || 0) / allClicksRow.cnt : 0,
       delta_clicks: deltaClicks,
       avg_clicks_per_day: formatAvgPerDay(totalClicks, range),
       timeline: {

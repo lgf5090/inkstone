@@ -1364,6 +1364,7 @@ export const ZH_CN_TOOLS = {
   'tools.shortlinks.dashboard.total_clicks': '总点击次数',
   'tools.shortlinks.dashboard.unique_visitors': '独立访客',
   'tools.shortlinks.dashboard.unique_visitors_hint': '按日去重合计',
+  'tools.shortlinks.dashboard.bot_clicks': '爬虫点击 {count} 次 · 占全部流量 {percent}%',
   'tools.shortlinks.dashboard.active_links': '活跃链接数',
   'tools.shortlinks.dashboard.total_links': '全部链接数',
   'tools.shortlinks.dashboard.avg_per_day': '日均点击数',

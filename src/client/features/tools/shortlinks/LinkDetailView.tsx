@@ -383,6 +383,14 @@ export function LinkDetailView() {
           <div className="mt-2 text-2xl font-bold font-mono text-[var(--text-primary)]">
             {(stats?.total_clicks ?? 0).toLocaleString()}
           </div>
+          {stats && stats.bot_clicks > 0 ? (
+            <div className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+              {t('tools.shortlinks.dashboard.bot_clicks', {
+                count: stats.bot_clicks,
+                percent: Math.round(stats.bot_ratio * 100),
+              })}
+            </div>
+          ) : null}
         </div>
 
         <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">

@@ -195,6 +195,14 @@ export function DashboardView() {
             ) : null}
             <span>{t('tools.shortlinks.detail.range_30d')}</span>
           </div>
+          {stats && stats.bot_clicks > 0 ? (
+            <div className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+              {t('tools.shortlinks.dashboard.bot_clicks', {
+                count: stats.bot_clicks,
+                percent: Math.round(stats.bot_ratio * 100),
+              })}
+            </div>
+          ) : null}
         </div>
 
         {/* Unique Visitors */}

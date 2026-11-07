@@ -327,7 +327,7 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     expect((await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data.total_clicks).toBe(2)
   })
 
-  it('does not write a click for a crawler', async () => {
+  it('stores a crawler click as a bot and keeps it out of filtered analytics', async () => {
     env = testBindings(makeD1(sqlite), { FILES: testR2Bucket(), SHORTLINKS_SECRET: 'test-secret' })
     const link = (await json<any>(
       await call('POST', '/api/tools/shortlinks/links', {
@@ -341,7 +341,10 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
         'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
       },
     })
-    expect((await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data.total_clicks).toBe(0)
+    expect((await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data.total_clicks).toBe(1)
+    const stats = (await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}/stats`))).data
+    expect(stats.total_clicks).toBe(0)
+    expect(stats.bot_clicks).toBe(1)
   })
 
   it('refuses a target that is not an http address', async () => {

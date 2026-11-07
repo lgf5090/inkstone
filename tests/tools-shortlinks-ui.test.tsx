@@ -33,6 +33,8 @@ describe('Shortlinks Frontend Feature UI & State Tests', () => {
       dashboardStats: {
         total_clicks: 1250,
         unique_visitors: 480,
+        bot_clicks: 50,
+        bot_ratio: 0.04,
         active_links: 12,
         total_links: 15,
         avg_clicks_per_day: 42,
