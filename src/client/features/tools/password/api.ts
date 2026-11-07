@@ -4,7 +4,6 @@ import type {
   PasswordAccount,
   PasswordSettings,
   PasswordBackupRecord,
-  WebdavConfig,
 } from '@shared/tools/password/types'
 
 const BASE_URL = '/api/tools/password'
@@ -89,9 +88,17 @@ export const passwordApi = {
       body: JSON.stringify({ password }),
     }),
 
-  wipeVault: () =>
+  /** Mints the short-lived token destructive routes require (wipe, restore, delete snapshot). */
+  reauth: (password: string) =>
+    request<{ token: string; expiresInMs: number }>('/vault/re-auth', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+
+  wipeVault: (confirmToken: string) =>
     request<{ ok: boolean }>('/vault/wipe', {
       method: 'POST',
+      headers: { 'X-Inkstone-Confirm': confirmToken },
       body: JSON.stringify({ confirm: 'delete-all' }),
     }),
 
@@ -106,6 +113,7 @@ export const passwordApi = {
       password: string
       link: string
       remark: string
+      totpSecret: string
     }>
   }) =>
     request<{ ok: boolean }>('/vault/reset', {
@@ -132,12 +140,6 @@ export const passwordApi = {
       method: 'DELETE',
     }),
 
-  reorderGroups: (groups: Array<{ id: string; parentId: string; sort: number }>) =>
-    request<{ ok: boolean }>('/groups/reorder', {
-      method: 'PUT',
-      body: JSON.stringify({ groups }),
-    }),
-
   getAccounts: (groupId?: string) =>
     request<PasswordAccount[]>(groupId ? `/accounts?groupId=${encodeURIComponent(groupId)}` : '/accounts'),
 
@@ -147,7 +149,7 @@ export const passwordApi = {
       body: JSON.stringify(data),
     }),
 
-  updateAccount: (id: string, data: Partial<PasswordAccount>) =>
+  updateAccount: (id: string, data: Partial<PasswordAccount> & { expectedUpdatedAt?: number }) =>
     request<PasswordAccount>(`/accounts/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -184,31 +186,16 @@ export const passwordApi = {
 
   getSettings: () => request<PasswordSettings>('/settings'),
 
-  // The route speaks flat columns; this module's public shape is nested. Translating here keeps the
-  // one contract in a single place — the callers below hand over a `PasswordSettings` and the wire
-  // format is nobody else's concern. A falsy password is omitted rather than sent as '', because the
-  // server reads "absent" as "keep the stored credential" and GET never echoes it back.
+  // The route takes flat optional fields. Sending only the values the caller actually changed keeps
+  // "absent" meaning "keep what is stored".
   saveSettings: (settings: Partial<PasswordSettings>) => {
     const body: Record<string, unknown> = {}
-    if (settings.webdav) {
-      body.webdavUrl = settings.webdav.url ?? ''
-      body.webdavUsername = settings.webdav.username ?? ''
-      body.webdavEnabled = Boolean(settings.webdav.enabled)
-      if (settings.webdav.password) body.webdavPassword = settings.webdav.password
-    }
-    if (settings.autoBackupEnabled !== undefined) body.autoBackupEnabled = settings.autoBackupEnabled
     if (settings.autoLockMinutes !== undefined) body.autoLockMinutes = settings.autoLockMinutes
     return request<PasswordSettings>('/settings', {
       method: 'PUT',
       body: JSON.stringify(body),
     })
   },
-
-  testWebdav: (config: WebdavConfig) =>
-    request<{ ok: boolean; error?: string }>('/settings/webdav-test', {
-      method: 'POST',
-      body: JSON.stringify(config),
-    }),
 
   getBackups: () => request<PasswordBackupRecord[]>('/backups'),
 
@@ -217,22 +204,22 @@ export const passwordApi = {
       method: 'POST',
     }),
 
-  restoreBackup: (backupId: string) =>
+  restoreBackup: (backupId: string, confirmToken: string) =>
     request<{ ok: boolean; count: number }>(`/backups/${backupId}/restore`, {
       method: 'POST',
+      headers: { 'X-Inkstone-Confirm': confirmToken },
     }),
 
-  deleteBackup: (backupId: string) =>
+  restoreLocalBackup: (data: unknown, confirmToken: string) =>
+    request<{ groupsCount: number; accountsCount: number }>('/backups/restore-local', {
+      method: 'POST',
+      headers: { 'X-Inkstone-Confirm': confirmToken },
+      body: JSON.stringify(data),
+    }),
+
+  deleteBackup: (backupId: string, confirmToken: string) =>
     request<{ ok: boolean }>(`/backups/${backupId}`, {
       method: 'DELETE',
+      headers: { 'X-Inkstone-Confirm': confirmToken },
     }),
-
-  exportPlaintext: (format: 'txt' | 'csv', content: string) =>
-    request<{ fileId: string; downloadUrl: string; size: number; type: 'txt' | 'csv'; filename: string }>(
-      '/export',
-      {
-        method: 'POST',
-        body: JSON.stringify({ type: format, content }),
-      },
-    ),
 }

@@ -17,7 +17,46 @@ import {
   hashMasterPassword,
 } from './crypto'
 import { reencryptAccounts } from './utils/reencrypt'
+import { clearClipboardSecret } from './utils/clipboard'
 import { t } from '../../../lib/i18n'
+
+/** One tab locking must lock the others: a second tab left open kept the plaintext on screen. */
+const LOCK_CHANNEL_NAME = 'inkstone-password-lock'
+
+let lockChannel: BroadcastChannel | null = null
+
+function lockedState(state: PasswordVaultStore): Partial<PasswordVaultStore> {
+  return {
+    keyEpoch: state.keyEpoch + 1,
+    isUnlocked: false,
+    keyIV: null,
+    selectedAccountId: null,
+    // The plaintext and the metadata both go: group names and per-group counts are not secrets the
+    // locked pane should keep showing. Unlock repopulates them from the server.
+    groups: [],
+    groupTree: [],
+    accounts: [],
+    selectedGroupId: null,
+    decryptedAccounts: {},
+  }
+}
+
+/**
+ * The channel is opened on first unlock, so every tab that could receive a lock is already
+ * listening. Environments without `BroadcastChannel` (older browsers, jsdom) just skip the sync.
+ */
+function lockChannelRef(): BroadcastChannel | null {
+  if (lockChannel) return lockChannel
+  if (typeof BroadcastChannel === 'undefined') return null
+
+  lockChannel = new BroadcastChannel(LOCK_CHANNEL_NAME)
+  lockChannel.onmessage = (event: MessageEvent) => {
+    if (event.data !== 'lock') return
+    clearClipboardSecret()
+    usePasswordVaultStore.setState((state) => lockedState(state))
+  }
+  return lockChannel
+}
 
 export type PasswordViewMode =
   | 'all'
@@ -41,7 +80,6 @@ export interface PasswordVaultStore {
   selectedAccountId: string | null
   selectedGroupId: string | null
   activeView: PasswordViewMode
-  searchQuery: string
   isLoading: boolean
   lastActiveTime: number
   /**
@@ -56,7 +94,6 @@ export interface PasswordVaultStore {
   isResetOpen: boolean
   isRecoverOpen: boolean
   isGeneratorModalOpen: boolean
-  isQuickAddModalOpen: boolean
   isBatchOperationsOpen: boolean
   isExportModalOpen: boolean
   isImportModalOpen: boolean
@@ -75,7 +112,6 @@ export interface PasswordVaultStore {
   setSelectedAccountId: (id: string | null) => void
   setSelectedGroupId: (id: string | null) => void
   setActiveView: (view: PasswordViewMode) => void
-  setSearchQuery: (query: string) => void
   touchActivity: () => void
 
   // CRUD
@@ -102,8 +138,6 @@ export interface PasswordVaultStore {
   closeRecover: () => void
   openGeneratorModal: () => void
   closeGeneratorModal: () => void
-  openQuickAddModal: () => void
-  closeQuickAddModal: () => void
   openBatchOperations: () => void
   closeBatchOperations: () => void
   openExportModal: (group?: PasswordGroup) => void
@@ -119,7 +153,7 @@ function buildTree(groups: PasswordGroup[]): PasswordGroup[] {
   const rootGroups: PasswordGroup[] = []
 
   const sorted = [...groups].sort((a, b) =>
-    a.name.localeCompare(b.name, 'zh-Hans-CN', { sensitivity: 'accent' })
+    a.sort !== b.sort ? a.sort - b.sort : a.name.localeCompare(b.name, 'zh-Hans-CN', { sensitivity: 'accent' })
   )
 
   for (const g of sorted) {
@@ -138,26 +172,47 @@ function buildTree(groups: PasswordGroup[]): PasswordGroup[] {
   return rootGroups
 }
 
+function sealedAad(accountId: string, field: string): string {
+  return `${field}:${accountId}`
+}
+
 function decryptAccount(acc: PasswordAccount, keyiv: KeyIV): DecryptedAccount {
-  const tryDecrypt = (val: string) => {
+  let decryptUnreadable = false
+  const tryDecrypt = (field: string, val: string) => {
     if (!val) return ''
     try {
-      return decryptValue(keyiv, val)
+      return decryptValue(keyiv, val, sealedAad(acc.id, field))
     } catch {
-      return val
+      decryptUnreadable = true
+      return ''
+    }
+  }
+
+  // A TOTP secret is the one field whose failure must be visible: showing the ciphertext as if it
+  // were the secret makes the live code silently wrong, and a reset that dropped it leaves nothing
+  // to notice. An unreadable non-empty value is reported so the UI can ask for the secret again.
+  let totpUnreadable = false
+  const sealedTotp = acc.totpSecret ?? ''
+  let totpSecret = ''
+  if (sealedTotp) {
+    try {
+      totpSecret = decryptValue(keyiv, sealedTotp, sealedAad(acc.id, 'totpSecret'))
+    } catch {
+      totpUnreadable = true
     }
   }
 
   return {
     id: acc.id,
     groupId: acc.groupId,
-    title: tryDecrypt(acc.title),
-    username: tryDecrypt(acc.username),
-    password: tryDecrypt(acc.password),
-    link: tryDecrypt(acc.link),
-    remark: tryDecrypt(acc.remark),
-    totpSecret: tryDecrypt(acc.totpSecret ?? ''),
-    favicon: acc.favicon || '',
+    title: tryDecrypt('title', acc.title),
+    username: tryDecrypt('username', acc.username),
+    password: tryDecrypt('password', acc.password),
+    link: tryDecrypt('link', acc.link),
+    remark: tryDecrypt('remark', acc.remark),
+    totpSecret,
+    totpUnreadable,
+    decryptUnreadable,
     isFavorite: acc.isFavorite,
     sort: acc.sort,
     createdAt: acc.createdAt,
@@ -177,7 +232,6 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   selectedAccountId: null,
   selectedGroupId: null,
   activeView: 'all',
-  searchQuery: '',
   isLoading: false,
   lastActiveTime: Date.now(),
   keyEpoch: 0,
@@ -186,7 +240,6 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   isResetOpen: false,
   isRecoverOpen: false,
   isGeneratorModalOpen: false,
-  isQuickAddModalOpen: false,
   isBatchOperationsOpen: false,
   isExportModalOpen: false,
   isImportModalOpen: false,
@@ -213,6 +266,9 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   },
 
   unlock: (keyiv: KeyIV) => {
+    // Open the lock channel now rather than on the first local lock: a tab that never locked still
+    // has to hear the tab next to it lock.
+    lockChannelRef()
     set((state) => ({
       keyEpoch: state.keyEpoch + 1,
       isUnlocked: true,
@@ -259,15 +315,11 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   },
 
   lock: () => {
-    set((state) => ({
-      keyEpoch: state.keyEpoch + 1,
-      isUnlocked: false,
-      keyIV: null,
-      selectedAccountId: null,
-      // The ciphertext can stay; the plaintext must not. Anything already in flight is discarded
-      // by the epoch check in refreshData/updateAccount.
-      decryptedAccounts: {},
-    }))
+    set(lockedState)
+    clearClipboardSecret()
+    // Tell the other tabs. `postMessage` does not deliver to the sender, so this tab does not
+    // re-enter the handler.
+    lockChannelRef()?.postMessage('lock')
   },
 
   clearVaultState: () => {
@@ -282,7 +334,6 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
       decryptedAccounts: {},
       selectedAccountId: null,
       selectedGroupId: null,
-      searchQuery: '',
     }))
   },
 
@@ -301,7 +352,6 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
       decryptedAccounts: {},
       selectedAccountId: null,
       selectedGroupId: null,
-      searchQuery: '',
       isSettingOpen: false,
       isResetOpen: false,
       isRecoverOpen: false,
@@ -309,7 +359,6 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
       isImportModalOpen: false,
       isBackupSettingsOpen: false,
       isBatchOperationsOpen: false,
-      isQuickAddModalOpen: false,
       isGeneratorModalOpen: false,
       targetGroupForExportImport: null,
     }))
@@ -357,21 +406,23 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   setSelectedAccountId: (id) => set({ selectedAccountId: id }),
   setSelectedGroupId: (id) => set({ selectedGroupId: id }),
   setActiveView: (view) => set({ activeView: view }),
-  setSearchQuery: (query) => set({ searchQuery: query }),
 
   createAccount: async (data) => {
     const { keyIV, decryptedAccounts, accounts } = get()
     if (!keyIV) throw new Error('Vault is locked')
 
-    const encryptedPayload: Partial<PasswordAccount> & { groupId: string } = {
+    // The id is chosen before the first seal: it is the associated data, so the ciphertext can only
+    // be opened for this row.
+    const id = data.id ?? crypto.randomUUID()
+    const encryptedPayload: Partial<PasswordAccount> & { groupId: string; id: string } = {
+      id,
       groupId: data.groupId,
-      title: data.title ? encryptValue(keyIV, data.title) : '',
-      username: data.username ? encryptValue(keyIV, data.username) : '',
-      password: data.password ? encryptValue(keyIV, data.password) : '',
-      link: data.link ? encryptValue(keyIV, data.link) : '',
-      remark: data.remark ? encryptValue(keyIV, data.remark) : '',
-      totpSecret: data.totpSecret ? encryptValue(keyIV, data.totpSecret) : '',
-      favicon: data.favicon || '',
+      title: data.title ? encryptValue(keyIV, data.title, sealedAad(id, 'title')) : '',
+      username: data.username ? encryptValue(keyIV, data.username, sealedAad(id, 'username')) : '',
+      password: data.password ? encryptValue(keyIV, data.password, sealedAad(id, 'password')) : '',
+      link: data.link ? encryptValue(keyIV, data.link, sealedAad(id, 'link')) : '',
+      remark: data.remark ? encryptValue(keyIV, data.remark, sealedAad(id, 'remark')) : '',
+      totpSecret: data.totpSecret ? encryptValue(keyIV, data.totpSecret, sealedAad(id, 'totpSecret')) : '',
       isFavorite: Boolean(data.isFavorite),
       sort: data.sort ?? accounts.length,
     }
@@ -389,18 +440,21 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   },
 
   updateAccount: async (id, data) => {
-    const { keyIV, keyEpoch } = get()
+    const { keyIV, keyEpoch, accounts } = get()
     if (!keyIV) throw new Error('Vault is locked')
 
-    const encryptedUpdates: Partial<PasswordAccount> = {}
+    const encryptedUpdates: Partial<PasswordAccount> & { expectedUpdatedAt?: number } = {}
+    // The version the editor last saw: a second tab that wrote in the meantime gets a conflict
+    // instead of being silently overwritten.
+    const known = accounts.find((account) => account.id === id)
+    if (known) encryptedUpdates.expectedUpdatedAt = known.updatedAt
     if (data.groupId !== undefined) encryptedUpdates.groupId = data.groupId
-    if (data.title !== undefined) encryptedUpdates.title = encryptValue(keyIV, data.title)
-    if (data.username !== undefined) encryptedUpdates.username = encryptValue(keyIV, data.username)
-    if (data.password !== undefined) encryptedUpdates.password = encryptValue(keyIV, data.password)
-    if (data.link !== undefined) encryptedUpdates.link = encryptValue(keyIV, data.link)
-    if (data.remark !== undefined) encryptedUpdates.remark = encryptValue(keyIV, data.remark)
-    if (data.totpSecret !== undefined) encryptedUpdates.totpSecret = encryptValue(keyIV, data.totpSecret)
-    if (data.favicon !== undefined) encryptedUpdates.favicon = data.favicon
+    if (data.title !== undefined) encryptedUpdates.title = encryptValue(keyIV, data.title, sealedAad(id, 'title'))
+    if (data.username !== undefined) encryptedUpdates.username = encryptValue(keyIV, data.username, sealedAad(id, 'username'))
+    if (data.password !== undefined) encryptedUpdates.password = encryptValue(keyIV, data.password, sealedAad(id, 'password'))
+    if (data.link !== undefined) encryptedUpdates.link = encryptValue(keyIV, data.link, sealedAad(id, 'link'))
+    if (data.remark !== undefined) encryptedUpdates.remark = encryptValue(keyIV, data.remark, sealedAad(id, 'remark'))
+    if (data.totpSecret !== undefined) encryptedUpdates.totpSecret = encryptValue(keyIV, data.totpSecret, sealedAad(id, 'totpSecret'))
     if (data.isFavorite !== undefined) encryptedUpdates.isFavorite = data.isFavorite
     if (data.sort !== undefined) encryptedUpdates.sort = data.sort
 
@@ -509,9 +563,11 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
     await passwordApi.reorderAccounts(items)
     const { accounts } = get()
     const sortMap = new Map(items.map((i) => [i.id, i.sort]))
-    const nextAccounts = accounts.map((a) =>
-      sortMap.has(a.id) ? { ...a, sort: sortMap.get(a.id)! } : a
-    )
+    // Reorder the array as well: updating `sort` alone left the list in its old order until the next
+    // full refresh, so a drag looked like it had done nothing.
+    const nextAccounts = accounts
+      .map((a) => (sortMap.has(a.id) ? { ...a, sort: sortMap.get(a.id)! } : a))
+      .sort((a, b) => a.sort - b.sort || a.id.localeCompare(b.id))
     set({ accounts: nextAccounts })
   },
 
@@ -523,8 +579,6 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   closeRecover: () => set({ isRecoverOpen: false }),
   openGeneratorModal: () => set({ isGeneratorModalOpen: true }),
   closeGeneratorModal: () => set({ isGeneratorModalOpen: false }),
-  openQuickAddModal: () => set({ isQuickAddModalOpen: true }),
-  closeQuickAddModal: () => set({ isQuickAddModalOpen: false }),
   openBatchOperations: () => set({ isBatchOperationsOpen: true }),
   closeBatchOperations: () => set({ isBatchOperationsOpen: false }),
   openExportModal: (group) => set({ isExportModalOpen: true, targetGroupForExportImport: group || null }),

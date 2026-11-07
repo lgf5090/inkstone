@@ -100,6 +100,16 @@ export function Reset({ open, onClose }: ResetProps) {
         return
       }
 
+      // A second, independent guard for the field that was lost once: if the row count of non-empty
+      // TOTP secrets changes across the re-seal, stop before anything is written. This catches a
+      // future regression in REENCRYPT_FIELDS even when every field it does handle succeeds.
+      const totpBefore = allAccounts.filter((account) => Boolean(account.totpSecret)).length
+      const totpAfter = reencrypted.filter((row) => Boolean(row.totpSecret)).length
+      if (totpBefore !== totpAfter) {
+        setError(t('tools.password.reset.totp_mismatch', { before: String(totpBefore), after: String(totpAfter) }))
+        return
+      }
+
       // 3. Call API to reset master password and replace ciphertexts
       await passwordApi.resetMasterPassword({
         oldPassword,
@@ -110,7 +120,14 @@ export function Reset({ open, onClose }: ResetProps) {
 
       // 4. Update memory keys and unlock
       unlock(newKeyIv)
+      // The salt changed with the key: refresh the cached vault state so a local backup written from
+      // this session records the new salt instead of the one the old key used.
+      void usePasswordVaultStore.getState().checkVaultAndAutoUnlock()
       handleClose()
+      // Do not keep the old or new master password in a component that stays mounted.
+      setOldPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
 
       useUi.getState().toast({
         title: t('tools.password.reset.title'),

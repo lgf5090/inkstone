@@ -50,9 +50,35 @@ export async function fetchFavicon(domain: string): Promise<FaviconResult | null
       .toLowerCase()
     if (!contentType.startsWith('image/')) return null
 
-    const bytes = await response.arrayBuffer()
-    if (bytes.byteLength === 0 || bytes.byteLength > MAX_ICON_BYTES) return null
-    return { bytes, contentType }
+    // The cap is applied while reading: reading the whole body first let a host answer with an
+    // arbitrarily large image and only then be rejected, which is a memory exhaustion primitive.
+    if (!response.body) return null
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let total = 0
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        total += value.byteLength
+        if (total > MAX_ICON_BYTES) {
+          await reader.cancel().catch(() => {})
+          return null
+        }
+        chunks.push(value)
+      }
+    } finally {
+      reader.releaseLock()
+    }
+    if (total === 0) return null
+
+    const bytes = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return { bytes: bytes.buffer, contentType }
   } catch {
     // Offline, timed out, DNS failure, or a body that never finished: the caller draws a letter.
     return null

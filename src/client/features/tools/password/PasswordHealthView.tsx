@@ -9,8 +9,15 @@ import { analyzeVault } from './utils/health'
 const SECTIONS = [
   { key: 'weak', labelKey: 'tools.password.health.weak', tone: 'text-[var(--danger)]' },
   { key: 'reused', labelKey: 'tools.password.health.reused', tone: 'text-[var(--warning)]' },
-  { key: 'stale', labelKey: 'tools.password.health.stale', tone: 'text-[var(--warning)]' },
+  {
+    key: 'stale',
+    labelKey: 'tools.password.health.stale',
+    tone: 'text-[var(--warning)]',
+    hintKey: 'tools.password.health.stale_hint',
+  },
   { key: 'incomplete', labelKey: 'tools.password.health.incomplete', tone: 'text-[var(--text-secondary)]' },
+  { key: 'totpUnreadable', labelKey: 'tools.password.health.totp_unreadable', tone: 'text-[var(--danger)]' },
+  { key: 'decryptUnreadable', labelKey: 'tools.password.health.decrypt_unreadable', tone: 'text-[var(--danger)]' },
 ] as const
 
 /**
@@ -92,24 +99,31 @@ export function PasswordHealthView() {
                     {t('tools.password.health.clear')}
                   </p>
                 ) : (
-                  <ul className="max-h-56 divide-y divide-[var(--border-subtle)] overflow-y-auto">
-                    {items.map((account) => (
-                      <li key={`${section.key}-${account.id}`}>
-                        <button
-                          type="button"
-                          onClick={() => openAccount(account.id)}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                        >
-                          <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
-                            {account.title || t('tools.password.account.title')}
-                          </span>
-                          <span className="min-w-0 max-w-[45%] truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-                            {account.username || account.link}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  <>
+                    {'hintKey' in section && section.hintKey ? (
+                      <p className="border-b border-[var(--border-subtle)] px-3 pb-2 pt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                        {t(section.hintKey)}
+                      </p>
+                    ) : null}
+                    <ul className="max-h-56 divide-y divide-[var(--border-subtle)] overflow-y-auto">
+                      {items.map((account) => (
+                        <li key={`${section.key}-${account.id}`}>
+                          <button
+                            type="button"
+                            onClick={() => openAccount(account.id)}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                          >
+                            <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
+                              {account.title || t('tools.password.account.title')}
+                            </span>
+                            <span className="min-w-0 max-w-[45%] truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                              {account.username || account.link}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
                 )}
               </section>
             )

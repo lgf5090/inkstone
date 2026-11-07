@@ -7,6 +7,11 @@ import type { KeyIv } from './keyiv'
  * format existed. `<prefix><hex(nonce || ciphertext || tag)>`.
  */
 export const SEALED_PREFIX = 'v2.'
+/**
+ * v3 adds associated data: the account id and field name. A ciphertext moved to another row then
+ * fails authentication instead of decrypting into the wrong account.
+ */
+export const SEALED_PREFIX_V3 = 'v3.'
 
 const NONCE_BYTES = 12
 
@@ -19,29 +24,44 @@ function rawKey(keyiv: KeyIv): Uint8Array {
   return keyiv.key.length === 64 ? hexToBytes(keyiv.key) : utf8ToBytes(keyiv.key)
 }
 
+function aadBytes(aad: string | undefined): Uint8Array | undefined {
+  return aad === undefined ? undefined : utf8ToBytes(aad)
+}
+
 /**
  * AES-256-GCM with a fresh random nonce per value. GCM authenticates, so a wrong key or a tampered
  * row fails loudly instead of decrypting to garbage — the old CBC mode let about one wrong master
  * password in 271 through its padding check, which then unlocked a vault of nonsense.
+ *
+ * Passing `aad` writes the v3 envelope, which binds the value to the row and column it belongs to.
  */
-export function encryptValue(keyiv: KeyIv, plaintext: string): string {
+export function encryptValue(keyiv: KeyIv, plaintext: string, aad?: string): string {
   if (!plaintext) {
     return ''
   }
   const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES))
-  const sealed = gcm(rawKey(keyiv), nonce).encrypt(utf8ToBytes(plaintext))
+  const sealed = gcm(rawKey(keyiv), nonce, aadBytes(aad)).encrypt(utf8ToBytes(plaintext))
   const packed = new Uint8Array(nonce.length + sealed.length)
   packed.set(nonce, 0)
   packed.set(sealed, nonce.length)
-  return SEALED_PREFIX + bytesToHex(packed)
+  return (aad === undefined ? SEALED_PREFIX : SEALED_PREFIX_V3) + bytesToHex(packed)
 }
 
-export function decryptValue(keyiv: KeyIv, ciphertext: string): string {
+export function decryptValue(keyiv: KeyIv, ciphertext: string, aad?: string): string {
   if (!ciphertext) {
     return ''
   }
 
   try {
+    if (ciphertext.startsWith(SEALED_PREFIX_V3)) {
+      if (aad === undefined) {
+        throw new Error('v3 ciphertext needs its account id and field name')
+      }
+      const packed = hexToBytes(ciphertext.slice(SEALED_PREFIX_V3.length))
+      const nonce = packed.subarray(0, NONCE_BYTES)
+      const sealed = packed.subarray(NONCE_BYTES)
+      return new TextDecoder().decode(gcm(rawKey(keyiv), nonce, aadBytes(aad)).decrypt(sealed))
+    }
     if (ciphertext.startsWith(SEALED_PREFIX)) {
       const packed = hexToBytes(ciphertext.slice(SEALED_PREFIX.length))
       const nonce = packed.subarray(0, NONCE_BYTES)

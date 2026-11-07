@@ -3,25 +3,20 @@ import {
   Cloud,
   RefreshCw,
   Download,
+  Upload,
   RotateCcw,
   Trash2,
   AlertTriangle,
-  Save,
 } from 'lucide-react'
 import { t } from '../../../lib/i18n'
-import { Modal } from '../../../components/overlay'
+import { Modal, confirm } from '../../../components/overlay'
 import { Button } from '../../../components/primitives'
-import { Input, Segmented, Slider, Switch } from '../../../components/form'
+import { Slider } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
 import { passwordApi } from './api'
-import type {
-  PasswordBackupRecord,
-  PasswordBackupData,
-  WebdavConfig,
-} from '@shared/tools/password/types'
-
-export type BackupTab = 'local' | 'webdav'
+import type { PasswordBackupRecord, PasswordBackupData } from '@shared/tools/password/types'
+import { ReauthDialog } from './ReauthDialog'
 
 export interface BackupSettingsModalProps {
   open?: boolean
@@ -34,12 +29,11 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
   const storeClose = usePasswordVaultStore((s) => s.closeBackupSettings)
   const groups = usePasswordVaultStore((s) => s.groups)
   const accounts = usePasswordVaultStore((s) => s.accounts)
+  const vaultState = usePasswordVaultStore((s) => s.vaultState)
   const refreshData = usePasswordVaultStore((s) => s.refreshData)
 
   const isVisible = open !== undefined ? open : storeIsOpen
   const handleClose = onClose || storeClose
-
-  const [activeTab, setActiveTab] = useState<BackupTab>('local')
 
   // Backups state
   const [backups, setBackups] = useState<PasswordBackupRecord[]>([])
@@ -49,16 +43,13 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
   // Restore confirmation modal state
   const [restoreTarget, setRestoreTarget] = useState<PasswordBackupRecord | null>(null)
   const [isRestoring, setIsRestoring] = useState<boolean>(false)
+  const [authorizing, setAuthorizing] = useState<{
+    kind: 'restore' | 'delete' | 'restore-local'
+    id?: string
+    filename: string
+    payload?: unknown
+  } | null>(null)
 
-  // WebDAV settings state
-  const [webdavConfig, setWebdavConfig] = useState<WebdavConfig>({
-    url: '',
-    username: '',
-    password: '',
-    enabled: false,
-  })
-  const [isTestingWebdav, setIsTestingWebdav] = useState<boolean>(false)
-  const [isSavingSettings, setIsSavingSettings] = useState<boolean>(false)
   const [autoLockMinutes, setAutoLockMinutes] = useState<number>(5)
   const autoLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -77,9 +68,6 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
   const fetchSettings = async () => {
     try {
       const settings = await passwordApi.getSettings()
-      if (settings?.webdav) {
-        setWebdavConfig(settings.webdav)
-      }
       if (settings?.autoLockMinutes) {
         setAutoLockMinutes(settings.autoLockMinutes)
       }
@@ -148,6 +136,9 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
           version: '1.0.0',
           createTime: Date.now(),
           platform: 'web',
+          // Which key the rows belong to; a restore from another vault's file is refused rather
+          // than replacing this vault with values it cannot open.
+          kdfSalt: vaultState?.kdfSalt,
         },
         data: {
           groups,
@@ -181,33 +172,65 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
   }
 
   // Handle confirm restore
-  const handleExecuteRestore = async () => {
+  const handleExecuteRestore = () => {
     if (!restoreTarget) return
-    setIsRestoring(true)
-    try {
-      await passwordApi.restoreBackup(restoreTarget.id)
-      await refreshData()
-      toast({
-        title: t('tools.password.backup.restored'),
-        tone: 'success',
-      })
-      setRestoreTarget(null)
-      handleClose()
-    } catch (err: any) {
-      toast({
-        title: err?.message || t('tools.password.backup.restore_failed'),
-        tone: 'danger',
-      })
-    } finally {
-      setIsRestoring(false)
-    }
+    const target = restoreTarget
+    setRestoreTarget(null)
+    // The restore itself waits for the master password; the token is what the route checks.
+    setAuthorizing({ kind: 'restore', id: target.id, filename: target.filename })
   }
 
   // Handle delete backup
-  const handleDeleteBackup = async (id: string) => {
+  const handleDeleteBackup = (record: PasswordBackupRecord) => {
+    setAuthorizing({ kind: 'delete', id: record.id, filename: record.filename })
+  }
+
+  const handleAuthorized = async (confirmToken: string) => {
+    const action = authorizing
+    if (!action) return
+
+    if (action.kind === 'restore-local') {
+      setIsRestoring(true)
+      try {
+        await passwordApi.restoreLocalBackup(action.payload, confirmToken)
+        await refreshData()
+        toast({ title: t('tools.password.backup.restore_local_done'), tone: 'success' })
+        setAuthorizing(null)
+        handleClose()
+      } catch (err: any) {
+        toast({ title: err?.message || t('tools.password.backup.restore_failed'), tone: 'danger' })
+      } finally {
+        setIsRestoring(false)
+      }
+      return
+    }
+
+    if (action.kind === 'restore' && action.id) {
+      setIsRestoring(true)
+      try {
+        await passwordApi.restoreBackup(action.id, confirmToken)
+        await refreshData()
+        toast({
+          title: t('tools.password.backup.restored'),
+          tone: 'success',
+        })
+        setAuthorizing(null)
+        handleClose()
+      } catch (err: any) {
+        toast({
+          title: err?.message || t('tools.password.backup.restore_failed'),
+          tone: 'danger',
+        })
+      } finally {
+        setIsRestoring(false)
+      }
+      return
+    }
+
+    if (!action.id) return
     try {
-      await passwordApi.deleteBackup(id)
-      setBackups((prev) => prev.filter((b) => b.id !== id))
+      await passwordApi.deleteBackup(action.id, confirmToken)
+      setBackups((prev) => prev.filter((backup) => backup.id !== action.id))
       toast({
         title: t('tools.password.backup.deleted'),
         tone: 'success',
@@ -217,55 +240,40 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
         title: err?.message || t('tools.password.backup.delete_failed'),
         tone: 'danger',
       })
+    } finally {
+      setAuthorizing(null)
     }
   }
 
-  // Handle WebDAV test
-  const handleTestWebdav = async () => {
-    if (!webdavConfig.url) {
-      toast({ title: t('tools.password.backup.webdav_url_required'), tone: 'danger' })
-      return
-    }
-    setIsTestingWebdav(true)
+  const handleLocalRestoreFile = async (file: File) => {
     try {
-      const res = await passwordApi.testWebdav(webdavConfig)
-      if (res && res.ok) {
-        toast({
-          title: t('tools.password.backup.webdav_test_ok'),
-          tone: 'success',
-        })
-      } else {
-        toast({
-          title: res?.error || t('tools.password.backup.webdav_test_failed'),
-          tone: 'danger',
-        })
+      const parsed = JSON.parse(await file.text()) as {
+        _backup_info?: unknown
+        data?: { groups?: unknown; accounts?: unknown }
       }
-    } catch (err: any) {
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        !parsed.data ||
+        !Array.isArray(parsed.data.groups) ||
+        !Array.isArray(parsed.data.accounts)
+      ) {
+        throw new Error(t('tools.password.backup.restore_local_invalid'))
+      }
+      const ok = await confirm({
+        title: t('tools.password.backup.restore_local'),
+        description: t('tools.password.backup.restore_confirm'),
+        tone: 'danger',
+        confirmLabel: t('tools.password.backup.restore'),
+        cancelLabel: t('common.cancel'),
+      })
+      if (!ok) return
+      setAuthorizing({ kind: 'restore-local', filename: file.name, payload: parsed })
+    } catch (err) {
       toast({
-        title: err?.message || t('tools.password.backup.webdav_test_failed'),
+        title: err instanceof Error ? err.message : t('tools.password.backup.restore_local_invalid'),
         tone: 'danger',
       })
-    } finally {
-      setIsTestingWebdav(false)
-    }
-  }
-
-  // Handle WebDAV save
-  const handleSaveWebdav = async () => {
-    setIsSavingSettings(true)
-    try {
-      await passwordApi.saveSettings({ webdav: webdavConfig })
-      toast({
-        title: t('tools.password.backup.webdav_saved'),
-        tone: 'success',
-      })
-    } catch (err: any) {
-      toast({
-        title: err?.message || t('tools.password.backup.save_failed'),
-        tone: 'danger',
-      })
-    } finally {
-      setIsSavingSettings(false)
     }
   }
 
@@ -278,21 +286,7 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
         width={680}
       >
         <div className="flex flex-col gap-5 text-[var(--text-primary)]">
-          {/* Tab Navigation */}
-          <div className="w-full">
-            <Segmented<BackupTab>
-              value={activeTab}
-              onChange={setActiveTab}
-              options={[
-                { value: 'local', label: t('tools.password.backup.local_tab') },
-                { value: 'webdav', label: t('tools.password.backup.webdav_tab') },
-              ]}
-            />
-          </div>
-
-          {/* Tab 1: R2 & Local Backup */}
-          {activeTab === 'local' && (
-            <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-5">
               {/* Actions Header */}
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">
                 <div>
@@ -313,6 +307,21 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
                   >
                     {t('tools.password.backup.download')}
                   </Button>
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-1.5 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
+                    <Upload size={14} aria-hidden="true" />
+                    <span>{t('tools.password.backup.restore_local')}</span>
+                    <input
+                      type="file"
+                      accept=".json,application/json"
+                      className="sr-only"
+                      data-testid="backup-local-input"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        if (file) void handleLocalRestoreFile(file)
+                        event.currentTarget.value = ''
+                      }}
+                    />
+                  </label>
                   <Button
                     type="button"
                     variant="primary"
@@ -400,7 +409,7 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
                               variant="ghost"
                               size="sm"
                               icon={<Trash2 size={13} className="text-[var(--danger)]" />}
-                              onClick={() => handleDeleteBackup(rec.id)}
+                              onClick={() => handleDeleteBackup(rec)}
                               aria-label={t('tools.password.backup.delete_snapshot')}
                             />
                           </div>
@@ -411,116 +420,7 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
                 </div>
               </div>
             </div>
-          )}
-
-          {/* Tab 2: WebDAV Cloud Sync */}
-          {activeTab === 'webdav' && (
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3">
-                <div className="flex flex-col">
-                  <span className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
-                    {t('tools.password.backup.webdav_enable')}
-                  </span>
-                  <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-                    {t('tools.password.backup.webdav_desc')}
-                  </span>
-                </div>
-                <Switch
-                  checked={webdavConfig.enabled}
-                  onChange={(val) => setWebdavConfig((prev) => ({ ...prev, enabled: val }))}
-                />
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <label
-                    htmlFor="webdav-url"
-                    className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]"
-                  >
-                    {t('tools.password.backup.webdav_url')}
-                  </label>
-                  <Input
-                    id="webdav-url"
-                    type="url"
-                    placeholder="https://example.com/dav/passwords/"
-                    value={webdavConfig.url}
-                    onChange={(e) =>
-                      setWebdavConfig((prev) => ({ ...prev, url: e.target.value }))
-                    }
-                    className="h-8 text-[length:var(--text-13)]"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor="webdav-username"
-                      className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]"
-                    >
-                      {t('tools.password.backup.webdav_user')}
-                    </label>
-                    <Input
-                      id="webdav-username"
-                      value={webdavConfig.username}
-                      onChange={(e) =>
-                        setWebdavConfig((prev) => ({ ...prev, username: e.target.value }))
-                      }
-                      className="h-8 text-[length:var(--text-13)]"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor="webdav-password"
-                      className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]"
-                    >
-                      {t('tools.password.backup.webdav_pass')}
-                    </label>
-                    <Input
-                      id="webdav-password"
-                      type="password"
-                      autoComplete="new-password"
-                      spellCheck={false}
-                      value={webdavConfig.password || ''}
-                      placeholder={
-                        webdavConfig.hasPassword
-                          ? t('tools.password.backup.webdav_pass_keep')
-                          : undefined
-                      }
-                      onChange={(e) =>
-                        setWebdavConfig((prev) => ({ ...prev, password: e.target.value }))
-                      }
-                      className="h-8 text-[length:var(--text-13)]"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* WebDAV Actions */}
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--border-subtle)]">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleTestWebdav}
-                  loading={isTestingWebdav}
-                >
-                  {t('tools.password.backup.webdav_test')}
-                </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  icon={<Save size={14} />}
-                  onClick={handleSaveWebdav}
-                  loading={isSavingSettings}
-                >
-                  {t('tools.password.backup.save_settings')}
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
       </Modal>
 
       {/* Restore Confirmation Modal */}
@@ -571,6 +471,22 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
           </div>
         </div>
       </Modal>
+
+      <ReauthDialog
+        open={Boolean(authorizing)}
+        onClose={() => setAuthorizing(null)}
+        onAuthorized={(token) => void handleAuthorized(token)}
+        description={
+          authorizing
+            ? t(
+                authorizing.kind === 'delete'
+                  ? 'tools.password.backup.delete_confirm'
+                  : 'tools.password.backup.restore_confirm',
+                { filename: authorizing.filename },
+              )
+            : undefined
+        }
+      />
     </>
   )
 }

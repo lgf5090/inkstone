@@ -4,7 +4,6 @@
 
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
-import { createClient } from 'webdav'
 import {
   BatchDeleteAccountsSchema,
   BatchImportAccountsSchema,
@@ -12,11 +11,10 @@ import {
   CreateAccountSchema,
   CreateGroupSchema,
   InitVaultSchema,
+  ReauthSchema,
   ReorderAccountsSchema,
-  ReorderGroupsSchema,
   ResetMasterPasswordSchema,
   SaveSettingsSchema,
-  TestWebdavSchema,
   UnlockVaultSchema,
   UpdateAccountSchema,
   UpdateGroupSchema,
@@ -31,19 +29,18 @@ import {
   consumeAttemptBudget,
 } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
-import { checkTarget } from '../lib/outbound'
 import {
   deleteFromR2,
-  getExportCsvR2Key,
-  getExportTxtR2Key,
-  purgeOldExports,
   readBackupFromR2,
-  readExportFromR2,
   uploadBackupToR2,
-  uploadExportToR2,
 } from '../tools/password/r2'
 import { PasswordStore } from '../tools/password/store'
 import { verifyMasterHash } from '../tools/password/verify'
+import {
+  CONFIRM_TOKEN_TTL_MS,
+  issueConfirmToken,
+  verifyConfirmToken,
+} from '../tools/password/confirm'
 import { fetchFavicon, parseFaviconDomain } from '../tools/password/favicon'
 
 export const toolsPasswordRoutes = new Hono<AppBindings>()
@@ -79,6 +76,28 @@ async function parseBody<T>(c: Context<AppBindings>, schema: z.ZodType<T>): Prom
   return result.data
 }
 
+/**
+ * Destructive routes require a token minted by `/vault/re-auth` seconds earlier. A session alone is
+ * not enough: it lasts for months and would otherwise let a borrowed browser wipe or replace a vault
+ * without knowing the master password.
+ */
+async function requireDangerousConfirm(c: Context<AppBindings>): Promise<void> {
+  const vault = await getStore(c).getVault()
+  if (!vault) {
+    throw ApiError.badRequest('Vault is not initialized')
+  }
+  try {
+    await verifyConfirmToken(
+      vault.masterHash,
+      getUserId(c),
+      c.req.header('X-Inkstone-Confirm'),
+    )
+  } catch (error) {
+    audit('confirm_rejected', getUserId(c), { path: new URL(c.req.url).pathname })
+    throw error
+  }
+}
+
 // ---------------------------------------------------------------- Vault
 /**
  * Master-password guesses are spent from one budget per user, the same ladder login uses. Before
@@ -86,6 +105,30 @@ async function parseBody<T>(c: Context<AppBindings>, schema: z.ZodType<T>): Prom
  * CBC padding check happened to pass, with no rate limit and nothing to log.
  */
 const UNLOCK_WINDOW_MS = 10 * 60 * 1000
+const MAX_BACKUP_BYTES = 25 * 1024 * 1024
+const BACKUP_BUDGET = { maxAttempts: 30, windowMs: 10 * 60 * 1000, lockMs: 10 * 60 * 1000 }
+
+async function spendBackupBudget(c: Context<AppBindings>, action: string): Promise<void> {
+  const key = `password-backup:${getUserId(c)}:${action}`
+  await assertAttemptBudget(
+    () =>
+      consumeAttemptBudget(c.env.DB, [
+        { key, ...BACKUP_BUDGET },
+      ]),
+    'Too many backup operations',
+  )
+}
+
+async function spendFaviconBudget(c: Context<AppBindings>): Promise<void> {
+  const key = `password-favicon:${getUserId(c)}`
+  await assertAttemptBudget(
+    () =>
+      consumeAttemptBudget(c.env.DB, [
+        { key, maxAttempts: 120, windowMs: UNLOCK_WINDOW_MS, lockMs: UNLOCK_WINDOW_MS },
+      ]),
+    'Too many favicon requests',
+  )
+}
 
 async function spendUnlockBudget(c: Context<AppBindings>): Promise<string> {
   const key = `password-unlock:${getUserId(c)}`
@@ -101,6 +144,51 @@ async function spendUnlockBudget(c: Context<AppBindings>): Promise<string> {
 
 function wrongMasterPassword(): ApiError {
   return new ApiError(401, 'wrong_password', 'Master password is incorrect')
+}
+
+/**
+ * A backup is a foreign document even when this server wrote it. The envelope names the format and
+ * its major version; a file from an unknown format is refused before a single row is replaced.
+ */
+const BACKUP_FORMATS = new Set(['inkstone_password_backup', 'upassword_backup'])
+
+function assertBackupMetadata(backup: PasswordBackupData): void {
+  const info = backup._backup_info
+  if (!info || typeof info !== 'object' || typeof info.type !== 'string') {
+    throw ApiError.badRequest('Backup is missing its format information')
+  }
+  if (!BACKUP_FORMATS.has(info.type)) {
+    throw ApiError.badRequest(`Unsupported backup format: ${info.type}`)
+  }
+  if (typeof info.version !== 'string' || !/^1\./.test(info.version)) {
+    throw new ApiError(400, 'unsupported_backup_version', `Unsupported backup version: ${String(info.version)}`)
+  }
+}
+
+/**
+ * Refuses a snapshot written under a different master key.
+ *
+ * A snapshot is only ciphertext: restoring one taken before a password change replaces every row
+ * with values the current key cannot open. The salt is not a secret and older snapshots do not carry
+ * it, so the check only fires when the snapshot says which key it belongs to.
+ */
+function assertBackupMatchesVault(backup: PasswordBackupData, vaultKdfSalt: string): void {
+  const backupSalt = backup._backup_info?.kdfSalt
+  if (!backupSalt || !vaultKdfSalt || backupSalt === vaultKdfSalt) return
+  throw new ApiError(
+    409,
+    'backup_key_mismatch',
+    'This backup was sealed with a different master password and cannot be opened by the current one',
+  )
+}
+
+/**
+ * A structured line for the sensitive operations that had no trace at all: unlock, reset, wipe,
+ * restore and backup deletion. Only ids, counts and outcomes — never a password, a secret or a
+ * ciphertext body. Written as one JSON object so a log pipeline can collect it without parsing prose.
+ */
+function audit(action: string, userId: string, detail: Record<string, unknown> = {}): void {
+  console.log(JSON.stringify({ scope: 'password-audit', action, userId, at: Date.now(), ...detail }))
 }
 
 toolsPasswordRoutes.get('/vault', async (c) => {
@@ -126,12 +214,39 @@ toolsPasswordRoutes.post('/vault/unlock', async (c) => {
 
   const budgetKey = await spendUnlockBudget(c)
   if (!verifyMasterHash(body.password, vault.masterHash)) {
+    audit('unlock_failed', getUserId(c))
     throw wrongMasterPassword()
   }
   await clearLoginFailures(c.env.DB, [budgetKey])
+  audit('unlock_ok', getUserId(c))
   // An empty salt means the vault predates the salted derivation; the client re-seals it now that
   // it has the password in hand.
   return c.json({ ok: true, data: { ok: true, salt: vault.kdfSalt } })
+})
+
+toolsPasswordRoutes.post('/vault/re-auth', async (c) => {
+  const store = getStore(c)
+  const body = await parseBody(c, ReauthSchema)
+  const vault = await store.getVault()
+  if (!vault) {
+    throw ApiError.badRequest('Vault is not initialized')
+  }
+
+  const budgetKey = await spendUnlockBudget(c)
+  if (!verifyMasterHash(body.password, vault.masterHash)) {
+    audit('reauth_failed', getUserId(c))
+    throw wrongMasterPassword()
+  }
+  await clearLoginFailures(c.env.DB, [budgetKey])
+  audit('reauth_ok', getUserId(c))
+
+  return c.json({
+    ok: true,
+    data: {
+      token: await issueConfirmToken(vault.masterHash, getUserId(c)),
+      expiresInMs: CONFIRM_TOKEN_TTL_MS,
+    },
+  })
 })
 
 toolsPasswordRoutes.post('/vault/reset', async (c) => {
@@ -146,17 +261,21 @@ toolsPasswordRoutes.post('/vault/reset', async (c) => {
   // re-encrypt the whole vault under a key the attacker chose.
   const budgetKey = await spendUnlockBudget(c)
   if (!verifyMasterHash(body.oldPassword, vault.masterHash)) {
+    audit('reset_failed', getUserId(c))
     throw wrongMasterPassword()
   }
   await clearLoginFailures(c.env.DB, [budgetKey])
   await store.resetMasterPassword(body.newMasterHash, body.newKdfSalt, body.accounts)
+  audit('reset_ok', getUserId(c), { accounts: body.accounts.length })
   return c.json({ ok: true })
 })
 
 toolsPasswordRoutes.post('/vault/wipe', async (c) => {
   const store = getStore(c)
   await parseBody(c, WipeVaultSchema)
+  await requireDangerousConfirm(c)
   const backupKeys = await store.wipeVault()
+  audit('wipe_ok', getUserId(c), { backupsRemoved: backupKeys.length })
   await Promise.all(
     backupKeys.map((key) =>
       deleteFromR2(c.env.FILES, key).catch((error: unknown) => {
@@ -181,13 +300,6 @@ toolsPasswordRoutes.post('/groups', async (c) => {
   const body = await parseBody(c, CreateGroupSchema)
   const group = await store.createGroup(body)
   return c.json({ ok: true, data: group })
-})
-
-toolsPasswordRoutes.put('/groups/reorder', async (c) => {
-  const store = getStore(c)
-  const body = await parseBody(c, ReorderGroupsSchema)
-  await store.reorderGroups(body.groups)
-  return c.json({ ok: true })
 })
 
 toolsPasswordRoutes.put('/groups/:id', async (c) => {
@@ -270,6 +382,7 @@ toolsPasswordRoutes.get('/favicon', async (c) => {
   if (!domain) {
     throw ApiError.badRequest('Invalid favicon domain')
   }
+  await spendFaviconBudget(c)
 
   const icon = await fetchFavicon(domain)
   if (!icon) {
@@ -300,28 +413,6 @@ toolsPasswordRoutes.put('/settings', async (c) => {
   return c.json({ ok: true, data: settings })
 })
 
-toolsPasswordRoutes.post('/settings/webdav-test', async (c) => {
-  const body = await parseBody(c, TestWebdavSchema)
-  // The server makes the request, so the address has to clear the shared outbound guard first:
-  // otherwise this endpoint is a way to reach a metadata service from inside the deployment.
-  const target = checkTarget(body.url)
-  if (!target.url) {
-    throw ApiError.badRequest(target.error)
-  }
-
-  try {
-    const client = createClient(target.url.toString(), {
-      username: body.username,
-      password: body.password,
-    })
-    await client.getDirectoryContents('/')
-    return c.json({ ok: true, message: 'WebDAV connection successful' })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    return c.json({ ok: false, message }, 400)
-  }
-})
-
 // ---------------------------------------------------------------- Backups
 toolsPasswordRoutes.get('/backups', async (c) => {
   const store = getStore(c)
@@ -332,9 +423,13 @@ toolsPasswordRoutes.get('/backups', async (c) => {
 toolsPasswordRoutes.post('/backups', async (c) => {
   const store = getStore(c)
   const userId = getUserId(c)
+  await spendBackupBudget(c, 'create')
   // An absent body means "back up everything"; a body that cannot be read is refused instead of
   // defaulted, because defaulting one turned a broken request into a full backup nobody asked for.
   const text = await c.req.text()
+  if (text.length > MAX_BACKUP_BYTES) {
+    throw new ApiError(413, 'payload_too_large', 'Backup body is too large')
+  }
   let body: {
     type?: 'auto' | 'manual'
     filename?: string
@@ -370,6 +465,11 @@ toolsPasswordRoutes.post('/backups', async (c) => {
     }
   }
 
+  // Stamp which key the snapshot belongs to, so a restore after a password change can say so
+  // instead of replacing the vault with rows nobody can decrypt.
+  const vault = await store.getVault()
+  if (vault?.kdfSalt) backupData._backup_info.kdfSalt = vault.kdfSalt
+
   const backupId = crypto.randomUUID()
   const filename = body.filename || `password_backup_${Date.now()}.${type}.json`
   const jsonContent = JSON.stringify(backupData)
@@ -382,6 +482,7 @@ toolsPasswordRoutes.post('/backups', async (c) => {
     size,
     type,
   })
+  audit('backup_created', userId, { id: backupId, type, bytes: size })
 
   // Snapshots used to accumulate one per click forever; the oldest beyond the retention limit go
   // now, rows and objects together.
@@ -397,8 +498,52 @@ toolsPasswordRoutes.post('/backups', async (c) => {
   return c.json({ ok: true, data: record })
 })
 
+toolsPasswordRoutes.post('/backups/restore-local', async (c) => {
+  const store = getStore(c)
+  await requireDangerousConfirm(c)
+  await spendBackupBudget(c, 'restore')
+
+  const text = await c.req.text()
+  if (text.length > MAX_BACKUP_BYTES) {
+    throw new ApiError(413, 'payload_too_large', 'Backup body is too large')
+  }
+  let parsed: PasswordBackupData
+  try {
+    parsed = JSON.parse(text) as PasswordBackupData
+  } catch {
+    throw ApiError.badRequest('Invalid backup JSON format')
+  }
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    !parsed.data ||
+    !Array.isArray(parsed.data.groups) ||
+    !Array.isArray(parsed.data.accounts)
+  ) {
+    throw ApiError.badRequest('Invalid backup data structure')
+  }
+  assertBackupMetadata(parsed)
+  const vault = await store.getVault()
+  assertBackupMatchesVault(parsed, vault?.kdfSalt ?? '')
+  await store.restoreData(parsed.data)
+  audit('restore_ok', getUserId(c), {
+    source: 'local-file',
+    groups: parsed.data.groups.length,
+    accounts: parsed.data.accounts.length,
+  })
+  return c.json({
+    ok: true,
+    data: {
+      groupsCount: parsed.data.groups.length,
+      accountsCount: parsed.data.accounts.length,
+    },
+  })
+})
+
 toolsPasswordRoutes.post('/backups/:id/restore', async (c) => {
   const store = getStore(c)
+  await requireDangerousConfirm(c)
+  await spendBackupBudget(c, 'restore')
   const id = c.req.param('id')
   const record = await store.getBackupRecord(id)
   if (!record) {
@@ -427,7 +572,17 @@ toolsPasswordRoutes.post('/backups/:id/restore', async (c) => {
     throw ApiError.badRequest('Invalid backup data structure')
   }
 
+  assertBackupMetadata(parsed)
+  const vault = await store.getVault()
+  assertBackupMatchesVault(parsed, vault?.kdfSalt ?? '')
+
   await store.restoreData(parsed.data)
+  audit('restore_ok', getUserId(c), {
+    source: 'snapshot',
+    id,
+    groups: parsed.data.groups.length,
+    accounts: parsed.data.accounts.length,
+  })
 
   return c.json({
     ok: true,
@@ -440,72 +595,12 @@ toolsPasswordRoutes.post('/backups/:id/restore', async (c) => {
 
 toolsPasswordRoutes.delete('/backups/:id', async (c) => {
   const store = getStore(c)
+  await requireDangerousConfirm(c)
   const id = c.req.param('id')
   const record = await store.deleteBackupRecord(id)
   if (record) {
     await deleteFromR2(c.env.FILES, record.r2Key).catch(() => {})
   }
+  audit('backup_deleted', getUserId(c), { id })
   return c.json({ ok: true })
-})
-
-// ---------------------------------------------------------------- Export
-const ExportSchema = z.object({
-  type: z.enum(['txt', 'csv']),
-  content: z.string(),
-  filename: z.string().optional(),
-})
-
-toolsPasswordRoutes.post('/export', async (c) => {
-  const userId = getUserId(c)
-  const body = await parseBody(c, ExportSchema)
-  const fileId = crypto.randomUUID()
-  // A decrypted dump has no reason to outlive its download; the sweep runs before the new write so
-  // the prefix never grows without bound.
-  await purgeOldExports(c.env.FILES, userId, body.type).catch((error: unknown) => {
-    console.warn('password: export sweep failed', error)
-  })
-  const { size } = await uploadExportToR2(
-    c.env.FILES,
-    userId,
-    fileId,
-    body.type,
-    body.content,
-  )
-
-  // The R2 key stays server-side: it describes the tenant's storage layout and the client cannot use
-  // it. The download URL names the authenticated route below, which is what a caller can fetch.
-  return c.json({
-    ok: true,
-    data: {
-      fileId,
-      downloadUrl: `/api/tools/password/export/${body.type}/${fileId}`,
-      size,
-      type: body.type,
-      filename: body.filename || `passwords_export_${Date.now()}.${body.type}`,
-    },
-  })
-})
-
-toolsPasswordRoutes.get('/export/:type/:fileId', async (c) => {
-  const userId = getUserId(c)
-  const type = c.req.param('type')
-  const fileId = c.req.param('fileId')
-  if (type !== 'txt' && type !== 'csv') {
-    throw ApiError.badRequest('Invalid export type')
-  }
-  const key = type === 'txt' ? getExportTxtR2Key(userId, fileId) : getExportCsvR2Key(userId, fileId)
-  const content = await readExportFromR2(c.env.FILES, key)
-  if (!content) {
-    throw ApiError.notFound('Export file not found')
-  }
-  return new Response(content, {
-    headers: {
-      'content-type': type === 'txt' ? 'text/plain; charset=utf-8' : 'text/csv; charset=utf-8',
-      // A plaintext password dump must not be retained by a browser or a shared cache, and it is
-      // offered as a download rather than rendered in the tab.
-      'cache-control': 'no-store',
-      'x-content-type-options': 'nosniff',
-      'content-disposition': `attachment; filename="passwords_export.${type}"`,
-    },
-  })
 })

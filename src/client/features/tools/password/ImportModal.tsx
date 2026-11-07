@@ -159,17 +159,20 @@ export function ImportModal({ open, onClose, group }: ImportModalProps) {
     setIsSubmitting(true)
     setErrorMsg('')
     try {
-      const payload = parsedData.map((acc, index) => ({
-        groupId: targetGroupId,
-        title: acc.title ? encryptValue(keyIV, acc.title) : '',
-        username: acc.username ? encryptValue(keyIV, acc.username) : '',
-        password: acc.password ? encryptValue(keyIV, acc.password) : '',
-        link: acc.link ? encryptValue(keyIV, acc.link) : '',
-        remark: acc.remark ? encryptValue(keyIV, acc.remark) : '',
-        favicon: '',
-        isFavorite: false,
-        sort: index,
-      }))
+      const payload = parsedData.map((acc, index) => {
+        const id = crypto.randomUUID()
+        return {
+          id,
+          groupId: targetGroupId,
+          title: acc.title ? encryptValue(keyIV, acc.title, `title:${id}`) : '',
+          username: acc.username ? encryptValue(keyIV, acc.username, `username:${id}`) : '',
+          password: acc.password ? encryptValue(keyIV, acc.password, `password:${id}`) : '',
+          link: acc.link ? encryptValue(keyIV, acc.link, `link:${id}`) : '',
+          remark: acc.remark ? encryptValue(keyIV, acc.remark, `remark:${id}`) : '',
+          isFavorite: false,
+          sort: index,
+        }
+      })
 
       await passwordApi.batchImportAccounts(targetGroupId, payload)
       await refreshData()

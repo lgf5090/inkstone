@@ -6,7 +6,7 @@ const OLD = getKeyIv('abcdef')
 const NEXT = getKeyIv('ghijkl')
 
 function source(
-  overrides: Partial<Record<'id' | 'title' | 'username' | 'password' | 'link' | 'remark', string>> = {},
+  overrides: Partial<Record<'id' | 'title' | 'username' | 'password' | 'link' | 'remark' | 'totpSecret', string>> = {},
 ) {
   return {
     id: 'acc-1',
@@ -15,6 +15,7 @@ function source(
     password: encryptValue(OLD, 'hunter2'),
     link: encryptValue(OLD, 'https://github.com'),
     remark: encryptValue(OLD, 'work'),
+    totpSecret: encryptValue(OLD, 'JBSWY3DPEHPK3PXP'),
     ...overrides,
   }
 }
@@ -24,11 +25,21 @@ describe('reencryptAccounts', () => {
     const { rows, failedIndex } = reencryptAccounts([source()], OLD, NEXT)
 
     expect(failedIndex).toBe(-1)
-    expect(decryptValue(NEXT, rows[0]!.title)).toBe('GitHub')
-    expect(decryptValue(NEXT, rows[0]!.username)).toBe('octocat')
-    expect(decryptValue(NEXT, rows[0]!.password)).toBe('hunter2')
-    expect(decryptValue(NEXT, rows[0]!.link)).toBe('https://github.com')
-    expect(decryptValue(NEXT, rows[0]!.remark)).toBe('work')
+    expect(decryptValue(NEXT, rows[0]!.title, 'title:acc-1')).toBe('GitHub')
+    expect(decryptValue(NEXT, rows[0]!.username, 'username:acc-1')).toBe('octocat')
+    expect(decryptValue(NEXT, rows[0]!.password, 'password:acc-1')).toBe('hunter2')
+    expect(decryptValue(NEXT, rows[0]!.link, 'link:acc-1')).toBe('https://github.com')
+    expect(decryptValue(NEXT, rows[0]!.remark, 'remark:acc-1')).toBe('work')
+    // The second factor is encrypted like every other field. Leaving it out of the list is what made
+    // a master-password change silently clear it.
+    expect(decryptValue(NEXT, rows[0]!.totpSecret, 'totpSecret:acc-1')).toBe('JBSWY3DPEHPK3PXP')
+  })
+
+  it('reports a TOTP secret the old key cannot open instead of dropping it silently', () => {
+    const { rows, failedIndex } = reencryptAccounts([source({ totpSecret: 'deadbeef' })], OLD, NEXT)
+
+    expect(failedIndex).toBe(0)
+    expect(rows[0]!.totpSecret).toBe('')
   })
 
   it('keeps empty fields empty instead of sealing an empty string', () => {

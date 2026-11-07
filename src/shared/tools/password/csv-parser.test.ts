@@ -24,7 +24,7 @@ describe('toCSV', () => {
 
   it('neutralises a leading character a spreadsheet would run as a formula', () => {
     // Titles and remarks can come from an imported file, so the export must not hand Excel a
-    // command. The apostrophe is the conventional marker and is what the reader sees in the cell.
+    // command. Credentials are exempt (see the round-trip test below).
     const csv = toCSV([
       account({ title: '=cmd|calc', remark: '+SUM(1,1)' }),
       account({ title: '-2+3', username: '@handle' }),
@@ -33,7 +33,32 @@ describe('toCSV', () => {
     expect(csv).toContain("'=cmd|calc")
     expect(csv).toContain("'+SUM(1,1)")
     expect(csv).toContain("'-2+3")
-    expect(csv).toContain("'@handle")
+    // A username is a credential: it must survive the trip unchanged.
+    expect(csv).toContain('@handle')
+    expect(csv).not.toContain("'@handle")
+  })
+
+  it('keeps credentials byte-for-byte across export and import', () => {
+    for (const secret of ['@corp2024', '+123456', '-x', '=cmd']) {
+      const csv = toCSV([
+        account({
+          title: secret,
+          username: secret,
+          password: secret,
+          link: secret,
+          remark: secret,
+        }),
+      ])
+      const rows = parseCSV(csv)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        title: secret,
+        username: secret,
+        password: secret,
+        link: secret,
+        remark: secret,
+      })
+    }
   })
 
   it('leaves a formula character in the middle of a value alone', () => {

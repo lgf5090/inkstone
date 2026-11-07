@@ -6,6 +6,7 @@ import { Button } from '../../../components/primitives'
 import { Modal, confirm } from '../../../components/overlay'
 import { usePasswordVaultStore } from './store'
 import { passwordApi } from './api'
+import { ReauthDialog } from './ReauthDialog'
 
 export interface RecoverProps {
   open?: boolean
@@ -32,6 +33,7 @@ export function Recover({ open, onClose }: RecoverProps) {
   const handleClose = onClose || storeClose
 
   const [wiping, setWiping] = useState(false)
+  const [reauthOpen, setReauthOpen] = useState(false)
 
   const handleOpenReset = () => {
     handleClose()
@@ -48,9 +50,15 @@ export function Recover({ open, onClose }: RecoverProps) {
     })
     if (!ok) return
 
+    // The confirmation dialog says what will happen; the master password proves who is asking.
+    setReauthOpen(true)
+  }
+
+  const performWipe = async (confirmToken: string) => {
+    setReauthOpen(false)
     setWiping(true)
     try {
-      await passwordApi.wipeVault()
+      await passwordApi.wipeVault(confirmToken)
       clearVaultState()
       handleClose()
       openSetting()
@@ -69,8 +77,9 @@ export function Recover({ open, onClose }: RecoverProps) {
   }
 
   return (
-    <Modal
-      open={isModalOpen}
+    <>
+      <Modal
+        open={isModalOpen}
       onClose={handleClose}
       title={t('tools.password.recover.title')}
       width={480}
@@ -112,7 +121,15 @@ export function Recover({ open, onClose }: RecoverProps) {
             {t('common.cancel')}
           </Button>
         </div>
-      </div>
-    </Modal>
+        </div>
+      </Modal>
+
+      <ReauthDialog
+        open={reauthOpen}
+        onClose={() => setReauthOpen(false)}
+        onAuthorized={(token) => void performWipe(token)}
+        description={t('tools.password.recover.wipe_confirm')}
+      />
+    </>
   )
 }

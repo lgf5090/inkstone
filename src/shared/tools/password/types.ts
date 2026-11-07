@@ -17,6 +17,8 @@ export interface KeyIV {
 
 export interface PasswordVaultState {
   hasVault: boolean
+  /** The KDF salt, so a local backup can record which key its ciphertext belongs to. Not a secret. */
+  kdfSalt?: string
   createdAt?: number
   updatedAt?: number
 }
@@ -49,7 +51,6 @@ export interface PasswordAccount {
   remark: string
   /** Sealed TOTP secret (base32) or '' when the account has none. */
   totpSecret?: string
-  favicon: string
   isFavorite: boolean
   sort: number
   createdAt: number
@@ -65,25 +66,20 @@ export interface DecryptedAccount {
   link: string
   remark: string
   totpSecret?: string
-  favicon: string
+  /**
+   * Client-only: the stored TOTP ciphertext exists but cannot be opened with the current key, so the
+   * secret has to be entered again. Never sent to the server.
+   */
+  totpUnreadable?: boolean
+  /** Client-only: at least one sealed field could not be opened with the current key. */
+  decryptUnreadable?: boolean
   isFavorite: boolean
   sort: number
   createdAt: number
   updatedAt: number
 }
 
-export interface WebdavConfig {
-  url: string
-  username: string
-  /** Write-only: the server never returns the stored secret, only whether one exists. */
-  password?: string
-  hasPassword?: boolean
-  enabled: boolean
-}
-
 export interface PasswordSettings {
-  webdav: WebdavConfig
-  autoBackupEnabled: boolean
   autoLockMinutes: number
   updatedAt: number
 }
@@ -104,16 +100,14 @@ export interface PasswordBackupData {
     version: string
     createTime: number
     platform: string
+    /**
+     * The salt the vault used when this snapshot was written. A restore refuses a snapshot whose
+     * salt no longer matches, instead of replacing the vault with rows it cannot decrypt.
+     */
+    kdfSalt?: string
   }
   data: {
     groups: PasswordGroup[]
     accounts: PasswordAccount[]
   }
-}
-
-export interface PasswordStrengthResult {
-  score: number
-  color: 'danger' | 'warning' | 'info' | 'success'
-  labelKey: string
-  suggestions: string[]
 }

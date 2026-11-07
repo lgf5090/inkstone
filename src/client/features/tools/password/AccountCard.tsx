@@ -81,7 +81,6 @@ export function AccountCard({
         <FaviconAvatar
           url={account.link}
           title={account.title}
-          favicon={account.favicon}
           size={34}
         />
 

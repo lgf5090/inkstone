@@ -206,7 +206,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         password: encryptValue(keyiv, 'secret'),
         link: '',
         remark: '',
-        favicon: '',
         isFavorite: false,
         sort: 1,
         createdAt: Date.now(),
@@ -246,7 +245,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         password: encryptValue(keyiv, 'secret'),
         link: '',
         remark: '',
-        favicon: '',
         isFavorite: false,
         sort: 1,
         createdAt: Date.now(),
@@ -347,7 +345,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         password: 'cipher-pass',
         link: '',
         remark: '',
-        favicon: '',
         isFavorite: false,
         sort: 0,
         createdAt: Date.now(),
@@ -382,11 +379,63 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         }),
       )
       // The welcome card must not carry the master password: that made every vault an offline oracle.
-      const welcomePayload = createAccountSpy.mock.calls[0]![0] as { password: string }
+      const welcomePayload = createAccountSpy.mock.calls[0]![0] as { id: string; password: string }
       const initSalt = initSpy.mock.calls[0]![1] as string
-      expect(decryptValue(deriveVaultKey('Init0123', initSalt), welcomePayload.password)).not.toBe('Init0123')
+      expect(
+        decryptValue(
+          deriveVaultKey('Init0123', initSalt),
+          welcomePayload.password,
+          `password:${welcomePayload.id}`,
+        ),
+      ).not.toBe('Init0123')
       expect(usePasswordVaultStore.getState().isSettingOpen).toBe(false)
       expect(usePasswordVaultStore.getState().isUnlocked).toBe(true)
+    })
+
+    it('finishes a half-created vault instead of dead-ending on "already initialized"', async () => {
+      const salt = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
+      vi.spyOn(passwordApi, 'initVault').mockRejectedValue(
+        new PasswordApiError('Vault is already initialized', 400, 'bad_request'),
+      )
+      vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true, salt })
+      vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([])
+      vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([])
+      const groupSpy = vi.spyOn(passwordApi, 'createGroup').mockResolvedValue({
+        id: 'group-recovered',
+        name: t('tools.password.setting.default_group'),
+        parentId: '',
+        sort: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      vi.spyOn(passwordApi, 'createAccount').mockResolvedValue({
+        id: 'acc-recovered',
+        groupId: 'group-recovered',
+        title: '',
+        username: '',
+        password: '',
+        link: '',
+        remark: '',
+        isFavorite: false,
+        sort: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+
+      usePasswordVaultStore.setState({ isSettingOpen: true, isUnlocked: false })
+      renderWithHosts(createElement(Setting))
+
+      act(() => {
+        setInputValue(document.querySelector<HTMLInputElement>('[data-testid="password-setting-input"]')!, 'Init0123')
+        setInputValue(document.querySelector<HTMLInputElement>('[data-testid="password-setting-confirm"]')!, 'Init0123')
+      })
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>('[data-testid="password-setting-submit"]')!.click()
+      })
+
+      expect(groupSpy).toHaveBeenCalled()
+      expect(usePasswordVaultStore.getState().isUnlocked).toBe(true)
+      expect(usePasswordVaultStore.getState().keyIV?.key).toBe(deriveVaultKey('Init0123', salt).key)
     })
 
     it('keeps the door reachable for a lock taken right after setup', async () => {
@@ -449,7 +498,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         password: encryptValue(keyiv, 'oldPass'),
         link: encryptValue(keyiv, 'https://example.com'),
         remark: encryptValue(keyiv, 'note'),
-        favicon: '',
+        totpSecret: encryptValue(keyiv, 'JBSWY3DPEHPK3PXP'),
         isFavorite: false,
         sort: 1,
         createdAt: 1000,
@@ -491,6 +540,8 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       const newKeyIv = deriveVaultKey(newPass, payload.newKdfSalt)
       const reencryptedAccount = payload.accounts[0]
       expect(reencryptedAccount.id).toBe(existingAccount.id)
+      // The secret must survive the key change and still decode under the new key.
+      expect(decryptValue(newKeyIv, reencryptedAccount.totpSecret, `totpSecret:${reencryptedAccount.id}`)).toBe('JBSWY3DPEHPK3PXP')
       expect(usePasswordVaultStore.getState().keyIV?.key).toBe(newKeyIv.key)
       expect(usePasswordVaultStore.getState().isResetOpen).toBe(false)
     })
@@ -505,7 +556,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         password: encryptValue(keyiv, 'pass'),
         link: encryptValue(keyiv, 'https://example.com'),
         remark: '',
-        favicon: '',
         isFavorite: false,
         sort: 1,
         createdAt: 1000,
@@ -588,6 +638,9 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         accounts: [],
       })
       const wipeSpy = vi.spyOn(passwordApi, 'wipeVault').mockResolvedValue({ ok: true })
+      const reauthSpy = vi
+        .spyOn(passwordApi, 'reauth')
+        .mockResolvedValue({ token: 'confirm-token', expiresInMs: 120000 })
 
       renderWithHosts(createElement(Recover))
 
@@ -608,7 +661,18 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         destructive!.click()
       })
 
-      expect(wipeSpy).toHaveBeenCalledTimes(1)
+      // The confirm dialog only says what will happen; the master password mints the token.
+      const reauthInput = document.querySelector<HTMLInputElement>('[data-testid="reauth-password"]')
+      expect(reauthInput).not.toBeNull()
+      act(() => {
+        setInputValue(reauthInput!, masterPassword)
+      })
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>('[data-testid="reauth-submit"]')!.click()
+      })
+
+      expect(reauthSpy).toHaveBeenCalledWith(masterPassword)
+      expect(wipeSpy).toHaveBeenCalledWith('confirm-token')
       const state = usePasswordVaultStore.getState()
       expect(state.vaultState).toEqual({ hasVault: false })
       expect(state.isSettingOpen).toBe(true)
@@ -741,7 +805,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         password: 'pass',
         link: '',
         remark: '',
-        favicon: '',
         isFavorite: false,
         sort: 1,
         createdAt: 1000,
@@ -755,7 +818,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         password: 'pass',
         link: '',
         remark: '',
-        favicon: '',
         isFavorite: false,
         sort: 1,
         createdAt: 1000,

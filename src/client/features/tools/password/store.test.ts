@@ -30,7 +30,6 @@ function account(overrides: Partial<PasswordAccount> = {}): PasswordAccount {
     password: encryptValue(key, 'hunter2'),
     link: encryptValue(key, 'https://github.com'),
     remark: '',
-    favicon: '',
     isFavorite: false,
     sort: 0,
     createdAt: 1,
@@ -77,7 +76,6 @@ describe('vault store locking and races', () => {
           password: 'hunter2',
           link: '',
           remark: '',
-          favicon: '',
           isFavorite: false,
           sort: 0,
           createdAt: 1,
@@ -87,6 +85,11 @@ describe('vault store locking and races', () => {
     })
     const before = usePasswordVaultStore.getState().keyEpoch
 
+    usePasswordVaultStore.setState({
+      groups: [{ id: 'grp-1', userId: 'u', name: 'Work', parentId: '', icon: '', sort: 0, createdAt: 1, updatedAt: 1 }],
+      accounts: [row],
+      selectedGroupId: 'grp-1',
+    })
     usePasswordVaultStore.getState().lock()
 
     const after = usePasswordVaultStore.getState()
@@ -94,6 +97,12 @@ describe('vault store locking and races', () => {
     expect(after.keyIV).toBeNull()
     expect(after.decryptedAccounts).toEqual({})
     expect(after.keyEpoch).toBeGreaterThan(before)
+    // Group names and account titles are metadata, not plaintext secrets, but the locked pane has no
+    // business keeping them either — a locked vault should look empty until it is unlocked again.
+    expect(after.groups).toEqual([])
+    expect(after.groupTree).toEqual([])
+    expect(after.accounts).toEqual([])
+    expect(after.selectedGroupId).toBeNull()
   })
 
   it('does not write plaintext back when the vault is locked mid-refresh', async () => {
@@ -126,7 +135,6 @@ describe('vault store locking and races', () => {
           password: 'hunter2',
           link: '',
           remark: '',
-          favicon: '',
           isFavorite: false,
           sort: 0,
           createdAt: 1,
@@ -147,6 +155,18 @@ describe('vault store locking and races', () => {
     const sent = vi.mocked(passwordApi.updateAccount).mock.calls.map((call) => call[1].isFavorite)
     expect(sent).toEqual([true, false])
     expect(usePasswordVaultStore.getState().decryptedAccounts['acc-1']?.isFavorite).toBe(false)
+  })
+
+  it('surfaces a TOTP secret that does not open instead of showing ciphertext as the secret', async () => {
+    vi.mocked(passwordApi.getAccounts).mockResolvedValue([
+      account({ id: 'acc-broken', totpSecret: 'deadbeef' }),
+    ])
+
+    await usePasswordVaultStore.getState().refreshData()
+
+    const row = usePasswordVaultStore.getState().decryptedAccounts['acc-broken']
+    expect(row?.totpSecret).toBe('')
+    expect(row?.totpUnreadable).toBe(true)
   })
 
   it('forgetSession leaves nothing behind for the next reader', () => {

@@ -14,6 +14,10 @@ export const UnlockVaultSchema = z.object({
   password: z.string().min(1).max(200),
 })
 
+export const ReauthSchema = z.object({
+  password: z.string().min(1).max(200),
+})
+
 export const WipeVaultSchema = z.object({
   confirm: z.literal('delete-all'),
 })
@@ -52,18 +56,6 @@ export const UpdateGroupSchema = z.object({
   sort: z.number().int().optional(),
 })
 
-export const ReorderGroupsSchema = z.object({
-  groups: z
-    .array(
-      z.object({
-        id: z.string().min(1).max(128),
-        parentId: z.string().max(128).default(''),
-        sort: z.number().int(),
-      }),
-    )
-    .max(500),
-})
-
 export const CreateAccountSchema = z.object({
   id: z.string().min(1).max(128).optional(),
   groupId: z.string().min(1).max(128),
@@ -73,7 +65,6 @@ export const CreateAccountSchema = z.object({
   link: z.string().max(CIPHER_MAX).default(''),
   remark: z.string().max(CIPHER_MAX).default(''),
   totpSecret: z.string().max(CIPHER_MAX).default(''),
-  favicon: z.string().max(2048).default(''),
   isFavorite: z.boolean().default(false),
   sort: z.number().int().default(0),
 })
@@ -86,9 +77,10 @@ export const UpdateAccountSchema = z.object({
   link: z.string().max(CIPHER_MAX).optional(),
   remark: z.string().max(CIPHER_MAX).optional(),
   totpSecret: z.string().max(CIPHER_MAX).optional(),
-  favicon: z.string().max(2048).optional(),
   isFavorite: z.boolean().optional(),
   sort: z.number().int().optional(),
+  /** Optimistic concurrency: the row's `updatedAt` the caller last saw. */
+  expectedUpdatedAt: z.number().int().optional(),
 })
 
 export const BatchDeleteAccountsSchema = z.object({
@@ -122,8 +114,7 @@ export const BatchImportAccountsSchema = z.object({
         password: z.string().max(CIPHER_MAX).default(''),
         link: z.string().max(CIPHER_MAX).default(''),
         remark: z.string().max(CIPHER_MAX).default(''),
-  totpSecret: z.string().max(CIPHER_MAX).default(''),
-        favicon: z.string().max(2048).default(''),
+        totpSecret: z.string().max(CIPHER_MAX).default(''),
       }),
     )
     .max(MAX_IMPORT),
@@ -132,16 +123,5 @@ export const BatchImportAccountsSchema = z.object({
 // Every field is optional on purpose: the store reads "absent" as "keep what is stored", and a
 // schema-level default would turn a partial body into an explicit empty value that wipes it.
 export const SaveSettingsSchema = z.object({
-  webdavUrl: z.string().max(2048).optional(),
-  webdavUsername: z.string().max(256).optional(),
-  webdavPassword: z.string().max(512).optional(),
-  webdavEnabled: z.boolean().optional(),
-  autoBackupEnabled: z.boolean().optional(),
   autoLockMinutes: z.number().int().min(1).max(120).optional(),
-})
-
-export const TestWebdavSchema = z.object({
-  url: z.string().max(2048).url(),
-  username: z.string().min(1).max(256),
-  password: z.string().min(1).max(512),
 })

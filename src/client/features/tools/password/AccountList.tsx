@@ -275,7 +275,14 @@ export function AccountList({
                 account={acc}
                 isSelected={acc.id === selectedAccountId}
                 onSelect={(account) => setSelectedAccountId(account.id)}
-                onToggleFavorite={(id) => void toggleFavorite(id)}
+                onToggleFavorite={(id) => {
+                  void toggleFavorite(id).catch((err: unknown) => {
+                    useUi.getState().toast({
+                      title: err instanceof Error ? err.message : t('common.save_failed'),
+                      tone: 'danger',
+                    })
+                  })
+                }}
                 onDragOver={handleDragOver}
                 onDrop={handleReorderDrop}
               />

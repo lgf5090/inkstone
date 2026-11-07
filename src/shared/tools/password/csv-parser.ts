@@ -169,23 +169,29 @@ export function parseCSV(text: string): ParsedCsvAccount[] {
   }
 
   return dataRows.map((row) => ({
-    title: (titleIdx >= 0 && titleIdx < row.length ? row[titleIdx] : '').trim(),
+    title: restoreNeutralized((titleIdx >= 0 && titleIdx < row.length ? row[titleIdx] : '').trim()),
     username: (usernameIdx >= 0 && usernameIdx < row.length ? row[usernameIdx] : '').trim(),
     password: passwordIdx >= 0 && passwordIdx < row.length ? row[passwordIdx] : '',
-    link: (linkIdx >= 0 && linkIdx < row.length ? row[linkIdx] : '').trim(),
-    remark: remarkIdx >= 0 && remarkIdx < row.length ? row[remarkIdx] : '',
+    link: restoreNeutralized((linkIdx >= 0 && linkIdx < row.length ? row[linkIdx] : '').trim()),
+    remark: restoreNeutralized(remarkIdx >= 0 && remarkIdx < row.length ? row[remarkIdx] : ''),
   }))
 }
 
 /**
- * A spreadsheet treats a cell that begins with one of these as a formula. Titles and remarks come
- * from the vault (and, through import, from files), so the export neutralises the leading character
- * with an apostrophe instead of letting Excel run it.
+ * A spreadsheet treats a cell that begins with one of these as a formula. Titles, links and remarks
+ * are display text, so the export neutralises the leading character with an apostrophe. Credentials
+ * (`username`, `password`) are deliberately exported untouched: an apostrophe would change the
+ * secret, and a CSV round-trip must reproduce it byte for byte.
  */
 const FORMULA_LEAD = /^[=+\-@\t\r]/
 
 function neutralizeFormula(val: string): string {
   return FORMULA_LEAD.test(val) ? `'${val}` : val
+}
+
+/** The inverse of `neutralizeFormula`, applied only to the columns it protects. */
+function restoreNeutralized(val: string): string {
+  return /^'[=+\-@\t\r]/.test(val) ? val.slice(1) : val
 }
 
 /**
@@ -204,8 +210,8 @@ export function toCSV(
   const rows = accounts.map((acc) =>
     [
       escapeCSVField(neutralizeFormula(acc.title)),
-      escapeCSVField(neutralizeFormula(acc.username)),
-      escapeCSVField(neutralizeFormula(acc.password)),
+      escapeCSVField(acc.username),
+      escapeCSVField(acc.password),
       escapeCSVField(neutralizeFormula(acc.link)),
       escapeCSVField(neutralizeFormula(acc.remark)),
     ].join(',')

@@ -2,18 +2,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SaveSettingsSchema } from '@shared/tools/password/schemas'
 import { passwordApi } from './api'
 
-type Captured = { url: string; body: Record<string, unknown> | undefined }
+type Captured = { url: string; body: Record<string, unknown> | undefined; headers: Record<string, string> }
 
-// The UI tests mock `passwordApi` wholesale, so a wire-shape mistake (nested settings, `format`
-// instead of `type`) ships green. These tests assert the bytes that actually leave the browser.
+// The UI tests mock `passwordApi` wholesale, so a wire-shape mistake ships green. These tests assert
+// the bytes that actually leave the browser.
 function captureRequests(): Captured[] {
   const captured: Captured[] = []
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string, init?: { body?: string }) => {
+    vi.fn(async (url: string, init?: { body?: string; headers?: Record<string, string> }) => {
       captured.push({
         url: String(url),
         body: init?.body ? (JSON.parse(init.body) as Record<string, unknown>) : undefined,
+        headers: init?.headers ?? {},
       })
       return { ok: true, status: 200, json: async () => ({ ok: true, data: {} }) }
     }),
@@ -26,91 +27,65 @@ afterEach(() => {
 })
 
 describe('passwordApi wire contracts', () => {
-  it('saves settings with the flat keys the route validates', async () => {
+  it('sends only the settings fields it was given', async () => {
     const captured = captureRequests()
 
-    await passwordApi.saveSettings({
-      webdav: {
-        url: 'https://dav.example.com/x',
-        username: 'me',
-        password: 's3cret',
-        enabled: true,
-      },
-      autoBackupEnabled: false,
-      autoLockMinutes: 15,
-    })
+    await passwordApi.saveSettings({ autoLockMinutes: 15 })
 
     expect(captured).toHaveLength(1)
-    expect(captured[0]!.body).toEqual({
-      webdavUrl: 'https://dav.example.com/x',
-      webdavUsername: 'me',
-      webdavEnabled: true,
-      webdavPassword: 's3cret',
-      autoBackupEnabled: false,
-      autoLockMinutes: 15,
-    })
-    expect(captured[0]!.body).not.toHaveProperty('webdav')
+    expect(captured[0]!.body).toEqual({ autoLockMinutes: 15 })
+    expect(SaveSettingsSchema.parse(captured[0]!.body)).toEqual({ autoLockMinutes: 15 })
   })
 
-  it('sends a settings body the server schema keeps intact instead of defaulting to empty', async () => {
+  it('omits absent settings instead of writing an empty value', async () => {
     const captured = captureRequests()
 
-    await passwordApi.saveSettings({
-      webdav: {
-        url: 'https://dav.example.com/x',
-        username: 'me',
-        password: 's3cret',
-        enabled: true,
-      },
-      autoLockMinutes: 15,
-    })
+    await passwordApi.saveSettings({ autoLockMinutes: 30 })
 
-    // Before the mapping fix this parse produced url:'' — a 200 that silently erased the settings.
-    const parsed = SaveSettingsSchema.parse(captured[0]!.body)
-    expect(parsed.webdavUrl).toBe('https://dav.example.com/x')
-    expect(parsed.webdavUsername).toBe('me')
-    expect(parsed.webdavPassword).toBe('s3cret')
-    expect(parsed.webdavEnabled).toBe(true)
-    expect(parsed.autoLockMinutes).toBe(15)
+    expect(captured[0]!.body).toEqual({ autoLockMinutes: 30 })
   })
 
-  it('omits a blank webdav password so the stored credential survives', async () => {
+  it('asks for a fresh confirmation token with the master password', async () => {
     const captured = captureRequests()
 
-    await passwordApi.saveSettings({
-      webdav: { url: '', username: '', password: '', enabled: false },
-    })
+    await passwordApi.reauth('master-pass')
 
-    expect(captured[0]!.body).not.toHaveProperty('webdavPassword')
-    expect(captured[0]!.body).toMatchObject({ webdavUrl: '', webdavEnabled: false })
+    expect(captured[0]!.url).toContain('/api/tools/password/vault/re-auth')
+    expect(captured[0]!.body).toEqual({ password: 'master-pass' })
   })
 
-  it('posts an export with the `type` field the route requires', async () => {    const captured = captureRequests()
+  it('carries the confirmation token on every destructive call', async () => {
+    const captured = captureRequests()
 
-    await passwordApi.exportPlaintext('csv', 'title,password\na,b\n')
+    await passwordApi.wipeVault('token-1')
+    await passwordApi.restoreBackup('backup-1', 'token-2')
+    await passwordApi.deleteBackup('backup-2', 'token-3')
 
-    expect(captured[0]!.url).toContain('/api/tools/password/export')
-    expect(captured[0]!.body).toEqual({ type: 'csv', content: 'title,password\na,b\n' })
+    expect(captured.map((call) => call.headers['X-Inkstone-Confirm'])).toEqual([
+      'token-1',
+      'token-2',
+      'token-3',
+    ])
+    expect(captured[1]!.url).toContain('/backups/backup-1/restore')
+    expect(captured[2]!.url).toContain('/backups/backup-2')
   })
 
   it('unwraps the API error object into a message and a code', async () => {
-    // Reading `data.error` straight off the body used to put "[object Object]" in the toast and
-    // made every failure indistinguishable from every other one.
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({
         ok: false,
         status: 401,
         json: async () => ({
-          error: { code: 'wrong_password', message: 'Master password is incorrect' },
+          error: { code: 'reauth_required', message: 'Enter the master password again' },
         }),
       })),
     )
 
-    await expect(passwordApi.unlock('nope00')).rejects.toMatchObject({
+    await expect(passwordApi.wipeVault('stale')).rejects.toMatchObject({
       name: 'PasswordApiError',
-      message: 'Master password is incorrect',
-      code: 'wrong_password',
+      message: 'Enter the master password again',
+      code: 'reauth_required',
       status: 401,
     })
   })

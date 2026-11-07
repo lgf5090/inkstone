@@ -6,7 +6,6 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS tools_password_vault (
     user_id TEXT NOT NULL,
     master_hash TEXT NOT NULL,
-    recovery_hint TEXT NOT NULL DEFAULT '',
     kdf_salt TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -37,7 +36,6 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
     link TEXT NOT NULL DEFAULT '',
     remark TEXT NOT NULL DEFAULT '',
     totp_secret TEXT NOT NULL DEFAULT '',
-    favicon TEXT NOT NULL DEFAULT '',
     is_favorite INTEGER NOT NULL DEFAULT 0,
     sort INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
@@ -55,11 +53,6 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
 
   `CREATE TABLE IF NOT EXISTS tools_password_settings (
     user_id TEXT NOT NULL,
-    webdav_url TEXT NOT NULL DEFAULT '',
-    webdav_username TEXT NOT NULL DEFAULT '',
-    webdav_password TEXT NOT NULL DEFAULT '',
-    webdav_enabled INTEGER NOT NULL DEFAULT 0,
-    auto_backup_enabled INTEGER NOT NULL DEFAULT 1,
     auto_lock_minutes INTEGER NOT NULL DEFAULT 5,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id)
@@ -99,7 +92,6 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
   tools_password_vault: [
     'user_id',
     'master_hash',
-    'recovery_hint',
     'kdf_salt',
     'created_at',
     'updated_at',
@@ -124,7 +116,6 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
     'link',
     'remark',
     'totp_secret',
-    'favicon',
     'is_favorite',
     'sort',
     'created_at',
@@ -132,11 +123,6 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
   ],
   tools_password_settings: [
     'user_id',
-    'webdav_url',
-    'webdav_username',
-    'webdav_password',
-    'webdav_enabled',
-    'auto_backup_enabled',
     'auto_lock_minutes',
     'updated_at',
   ],

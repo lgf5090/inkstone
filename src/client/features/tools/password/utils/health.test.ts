@@ -14,7 +14,6 @@ function account(overrides: Partial<DecryptedAccount> = {}): DecryptedAccount {
     password: 'CorrectHorse-BatteryStaple-2026-XyZ#@!',
     link: 'https://github.com',
     remark: '',
-    favicon: '',
     isFavorite: false,
     sort: 0,
     createdAt: NOW,
@@ -74,5 +73,24 @@ describe('analyzeVault', () => {
     )
     expect(health.total).toBe(2)
     expect(health.withTotp).toBe(1)
+  })
+
+  it('lists a TOTP secret that the current key could not open', () => {
+    const health = analyzeVault(
+      [
+        account({ id: 'broken', totpSecret: '', totpUnreadable: true }),
+        account({ id: 'healthy', totpSecret: 'JBSWY3DPEHPK3PXP' }),
+      ],
+      NOW,
+    )
+    expect(health.totpUnreadable.map((row) => row.id)).toEqual(['broken'])
+  })
+
+  it('lists rows with other unreadable fields separately', () => {
+    const health = analyzeVault(
+      [account({ id: 'broken', decryptUnreadable: true }), account({ id: 'healthy' })],
+      NOW,
+    )
+    expect(health.decryptUnreadable.map((row) => row.id)).toEqual(['broken'])
   })
 })

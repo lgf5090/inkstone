@@ -43,13 +43,16 @@ export function ExportModal({ open, onClose, group }: ExportModalProps) {
   const decryptedAccounts = usePasswordVaultStore((s) => s.decryptedAccounts)
 
   const isVisible = open !== undefined ? open : storeIsOpen
-  const handleClose = onClose || storeClose
+  const handleClose = () => {
+    // Closing without exporting must not leave the master password in a mounted component.
+    setPasswordInput('')
+    ;(onClose ?? storeClose)()
+  }
   const activeGroup = group !== undefined ? group : storeTargetGroup
 
   const [passwordInput, setPasswordInput] = useState<string>('')
   const [includeSubgroups, setIncludeSubgroups] = useState<boolean>(true)
   const [format, setFormat] = useState<ExportFormat>('csv')
-  const [saveToR2, setSaveToR2] = useState<boolean>(false)
   const [selectedGroupId, setSelectedGroupId] = useState<string>(activeGroup?.id || 'all')
 
   const [isExporting, setIsExporting] = useState<boolean>(false)
@@ -103,16 +106,24 @@ export function ExportModal({ open, onClose, group }: ExportModalProps) {
         setIsExporting(false)
         return
       }
-      const resolvedAccounts = rawAccounts.map((a) => {
+      const resolvedAccounts = rawAccounts.flatMap((a) => {
         const dec = decryptedAccounts[a.id]
-        return {
-          title: dec?.title ?? a.title ?? '',
-          username: dec?.username ?? a.username ?? '',
-          password: dec?.password ?? a.password ?? '',
-          link: dec?.link ?? a.link ?? '',
-          remark: dec?.remark ?? a.remark ?? '',
-        }
+        // A row that never decrypted must not be exported as ciphertext, which would look like a
+        // credential and silently replace the real value on a round trip.
+        if (!dec) return []
+        return [{
+          title: dec.title,
+          username: dec.username,
+          password: dec.password,
+          link: dec.link,
+          remark: dec.remark,
+        }]
       })
+      if (resolvedAccounts.length === 0) {
+        setErrorMsg(t('tools.password.export.no_accounts'))
+        setIsExporting(false)
+        return
+      }
 
       // 2. Format content
       let content = ''
@@ -127,7 +138,8 @@ export function ExportModal({ open, onClose, group }: ExportModalProps) {
           .join('\n\n--------------------------------------------------\n\n')
       }
 
-      // 3. Trigger browser download
+      // 3. Trigger browser download. The plaintext never leaves this tab: the server only stores
+      // ciphertext, and there is no export object for anyone to retrieve afterwards.
       const mime = format === 'csv' ? 'text/csv;charset=utf-8;' : 'text/plain;charset=utf-8;'
       const blob = new Blob([content], { type: mime })
       const url = URL.createObjectURL(blob)
@@ -140,15 +152,6 @@ export function ExportModal({ open, onClose, group }: ExportModalProps) {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-
-      // 4. Save to R2 if enabled
-      if (saveToR2) {
-        try {
-          await passwordApi.exportPlaintext(format, content)
-        } catch {
-          // Cloud save is non-blocking to browser download
-        }
-      }
 
       toast({
         title: t('tools.password.export.success'),
@@ -242,12 +245,6 @@ export function ExportModal({ open, onClose, group }: ExportModalProps) {
             ]}
           />
         </div>
-
-        {/* Save to R2 option */}
-        <label className="flex items-center gap-2 text-[length:var(--text-12)] text-[var(--text-secondary)] cursor-pointer">
-          <Checkbox checked={saveToR2} onChange={setSaveToR2} />
-          <span>{t('tools.password.export.r2_copy_label')}</span>
-        </label>
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--border-subtle)]">
