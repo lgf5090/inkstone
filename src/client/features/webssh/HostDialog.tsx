@@ -46,12 +46,14 @@ function draftFrom(host: WebsshHost | null): HostDraft {
   }
 }
 
-export function HostDialog({ open, host, groups, credentials, keys, onClose, onSaved, onOpenCredentials, onOpenKeys }: {
+export function HostDialog({ open, host, groups, credentials, keys, defaultGroupId, onClose, onSaved, onOpenCredentials, onOpenKeys }: {
   open: boolean
   host: WebsshHost | null
   groups: WebsshHostGroup[]
   credentials: WebsshCredential[]
   keys: WebsshKey[]
+  /** A new host started from a folder row opens with that folder already chosen. */
+  defaultGroupId?: string
   onClose: () => void
   onSaved: (host: WebsshHost) => void
   onOpenCredentials: () => void
@@ -63,10 +65,10 @@ export function HostDialog({ open, host, groups, credentials, keys, onClose, onS
 
   useEffect(() => {
     if (!open) return
-    setDraft(draftFrom(host))
+    setDraft(host ? draftFrom(host) : { ...draftFrom(null), groupId: defaultGroupId ?? '' })
     setError(null)
     setSaving(false)
-  }, [open, host])
+  }, [open, host, defaultGroupId])
 
   const patch = (next: Partial<HostDraft>) => setDraft((current) => ({ ...current, ...next }))
   const missingAuth = draft.authMethod === 'password' ? !draft.credentialId : !draft.keyId

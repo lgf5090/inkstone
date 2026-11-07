@@ -3,11 +3,16 @@ import type {
   WebsshCredential,
   WebsshHealthReport,
   WebsshHost,
+  WebsshHostBatchInput,
+  WebsshHostBatchResult,
+  WebsshHostExportFormat,
   WebsshHostGroup,
   WebsshHostKey,
   WebsshHostKeyCheck,
   WebsshHostListResponse,
   WebsshHostPreflight,
+  WebsshHostSessionSummary,
+  WebsshHostsOverview,
   WebsshImportCommitResult,
   WebsshImportPreview,
   WebsshKey,
@@ -59,10 +64,12 @@ export const websshApi = {
     await request(`/api/webssh/groups/${id}`, { method: 'DELETE' })
   },
 
-  listHosts: async (params: { q?: string; groupId?: string; favorite?: boolean; sort?: string; page?: number; pageSize?: number }) => {
+  listHosts: async (params: { q?: string; groupId?: string; quick?: string; tag?: string; favorite?: boolean; sort?: string; page?: number; pageSize?: number }) => {
     const search = new URLSearchParams()
     if (params.q) search.set('q', params.q)
     if (params.groupId) search.set('groupId', params.groupId)
+    if (params.quick) search.set('quick', params.quick)
+    if (params.tag) search.set('tag', params.tag)
     if (params.favorite) search.set('favorite', '1')
     if (params.sort) search.set('sort', params.sort)
     if (params.page) search.set('page', String(params.page))
@@ -70,10 +77,23 @@ export const websshApi = {
     const query = search.toString()
     return await request<WebsshHostListResponse>(`/api/webssh/hosts${query ? `?${query}` : ''}`)
   },
+  hostsOverview: async () => await request<WebsshHostsOverview>('/api/webssh/hosts/overview'),
   getHost: async (id: string) => (await request<{ host: WebsshHost }>(`/api/webssh/hosts/${id}`)).host,
   createHost: async (body: WebsshHostPayload) => (await request<{ host: WebsshHost }>('/api/webssh/hosts', { method: 'POST', body })).host,
   updateHost: async (id: string, body: WebsshHostPayload) =>
     (await request<{ host: WebsshHost }>(`/api/webssh/hosts/${id}`, { method: 'PATCH', body })).host,
+  patchHost: async (id: string, body: Partial<WebsshHostPayload>) =>
+    (await request<{ host: WebsshHost }>(`/api/webssh/hosts/${id}`, { method: 'PATCH', body })).host,
+  duplicateHost: async (id: string) =>
+    (await request<{ host: WebsshHost }>(`/api/webssh/hosts/${id}/duplicate`, { method: 'POST' })).host,
+  moveHost: async (id: string, body: { groupId: string; beforeId?: string }) =>
+    (await request<{ host: WebsshHost }>(`/api/webssh/hosts/${id}/move`, { method: 'POST', body })).host,
+  batchHosts: async (body: WebsshHostBatchInput) =>
+    await request<WebsshHostBatchResult>('/api/webssh/hosts/batch', { method: 'POST', body }),
+  hostSessions: async (id: string) =>
+    (await request<{ sessions: WebsshHostSessionSummary[] }>(`/api/webssh/hosts/${id}/sessions`)).sessions,
+  exportHosts: async (format: WebsshHostExportFormat) =>
+    await (await rawRequest(`/api/webssh/hosts/export?format=${format}`)).text(),
   deleteHost: async (id: string) => {
     await request(`/api/webssh/hosts/${id}`, { method: 'DELETE' })
   },

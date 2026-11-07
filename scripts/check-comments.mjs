@@ -20035,6 +20035,18 @@ const allowed = new Map([
     "// Staging cleanup is best effort: the completed save already failed, and a leftover transfer",
     "// is collected by the 24-hour sweep.",
   ]],
+  ["src/client/features/webssh/HostDialog.tsx", [
+    "/** A new host started from a folder row opens with that folder already chosen. */",
+  ]],
+  ["src/client/features/webssh/HostList.tsx", [
+    "/**\n * The host list between the rail and the details pane.\n *\n * Rows carry what a connection decision needs: the folder, tags, a star, and when it last connected.\n * The menu is the app's own `Menu`, so the same row is reachable by right click, Shift+F10 and the\n * trailing button; drag reordering has a menu equivalent because a keyboard cannot drag.\n */",
+  ]],
+  ["src/client/features/webssh/HostSidebar.tsx", [
+    "/**\n * The host rail: saved views, the folder tree and the tag tree.\n *\n * The shape follows the ScriptsHub rail so a reader who knows one organizer knows the other: views at\n * the top with their counts, then folders with inline counts, then tags. A host dragged onto a folder\n * row is moved there; the same move is reachable from the folder and row menus for keyboard users.\n */",
+  ]],
+  ["src/client/features/webssh/HostTagDialog.tsx", [
+    "/**\n * Adds tags to the hosts selected in the list. Existing tags are offered as checkboxes and a new\n * name can be typed in; removal stays in the host editor, so one batch action never silently drops a\n * label another reader set on a host.\n */",
+  ]],
   ["src/client/features/webssh/ImportDialog.tsx", [
     "// Host import dialog (plan W7-02). Parsing is server-side so the same rules guard the API and the",
     "// preview; the file is read locally and only its text is posted, never the binary upload.",
@@ -20069,6 +20081,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/webssh/WebsshApp.tsx", [
     "// The header badge is a convenience; the audit panel surfaces a failed health read.",
+    "// A blocked storage area only costs the preference, not the action that set it.",
   ]],
   ["src/client/features/webssh/api.ts", [
     "// A binary or empty error body still maps to the status line below.",

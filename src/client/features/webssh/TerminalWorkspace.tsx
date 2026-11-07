@@ -23,12 +23,13 @@ interface WorkspaceTab extends TerminalTabView {
   sessionId: string | null
 }
 
-export function TerminalWorkspace({ host }: { host: WebsshHost }) {
+export function TerminalWorkspace({ host, newTabToken = 0 }: { host: WebsshHost; newTabToken?: number }) {
   const isMobile = useBreakpoint() === 'mobile'
   const [tabs, setTabs] = useState<WorkspaceTab[]>(() => [{ id: 'session-1', title: host.name, sessionId: null }])
   const [activeId, setActiveId] = useState<string | null>('session-1')
   const [statuses, setStatuses] = useState<Record<string, TerminalSessionPhase>>({})
-  const [sequence, setSequence] = useState(1)
+  const sequenceRef = useRef(1)
+  const lastNewTabToken = useRef(newTabToken)
   const [settings, setSettings] = useState<TerminalSettings>(loadTerminalSettings)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
@@ -48,12 +49,26 @@ export function TerminalWorkspace({ host }: { host: WebsshHost }) {
     setTabs([{ id: 'session-1', title: host.name, sessionId: null }])
     setActiveId('session-1')
     setStatuses({})
-    setSequence(1)
+    sequenceRef.current = 1
     setFilesOpen(false)
     setReplayOpen(false)
     setSnippetsOpen(false)
     setInsertRequest(null)
   }, [host.id, host.name])
+
+  useEffect(() => {
+    if (newTabToken === 0 || newTabToken === lastNewTabToken.current) return
+    lastNewTabToken.current = newTabToken
+    const nextSequence = sequenceRef.current + 1
+    sequenceRef.current = nextSequence
+    const next: WorkspaceTab = {
+      id: `session-${nextSequence}`,
+      title: `${host.name} (${nextSequence})`,
+      sessionId: null,
+    }
+    setTabs((current) => [...current, next])
+    setActiveId(next.id)
+  }, [newTabToken, host.name])
 
   const insertSnippet = (text: string) => {
     insertTokenRef.current += 1
@@ -69,13 +84,13 @@ export function TerminalWorkspace({ host }: { host: WebsshHost }) {
   }, [])
 
   const createSession = () => {
-    const nextSequence = sequence + 1
+    const nextSequence = sequenceRef.current + 1
+    sequenceRef.current = nextSequence
     const next: WorkspaceTab = {
       id: `session-${nextSequence}`,
       title: nextSequence === 1 ? host.name : `${host.name} (${nextSequence})`,
       sessionId: null,
     }
-    setSequence(nextSequence)
     setTabs((current) => [...current, next])
     setActiveId(next.id)
   }

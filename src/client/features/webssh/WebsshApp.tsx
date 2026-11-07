@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
-  FolderTree,
+  Download,
   History,
   KeyRound,
+  Menu as MenuIcon,
+  MoreHorizontal,
+  PanelLeft,
   Pencil,
   ScrollText,
   ShieldCheck,
@@ -14,22 +17,26 @@ import {
 import type {
   WebsshCredential,
   WebsshHost,
+  WebsshHostExportFormat,
   WebsshHostGroup,
   WebsshHostKey,
   WebsshHostPreflight,
+  WebsshHostQuickView,
+  WebsshHostSort,
+  WebsshHostsOverview,
   WebsshKey,
 } from '@shared/webssh/types'
 import { Button, IconButton } from '../../components/primitives'
 import { Empty } from '../../components/feedback'
-import { confirm } from '../../components/overlay'
+import { Menu, MenuSubmenuList, confirm, hasOpenLayer, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useBreakpoint } from '../../lib/hooks'
 import { t } from '../../lib/i18n'
 import { ApiError } from '../../lib/api'
 import { websshApi } from './api'
-import { HostList } from './HostList'
+import { HostSidebar } from './HostSidebar'
+import { HostList, type HostDensity } from './HostList'
 import { HostDialog } from './HostDialog'
-import { GroupDialog } from './GroupDialog'
 import { CredentialDialog } from './CredentialDialog'
 import { KeyManagerDialog } from './KeyManagerDialog'
 import { FingerprintDialog } from './FingerprintDialog'
@@ -41,8 +48,6 @@ import { RecordingsPanel } from './RecordingsPanel'
 import '@xterm/xterm/css/xterm.css'
 import './webssh.css'
 
-type SortKey = 'manual' | 'name' | 'recent'
-
 function issueLabel(issue: string): string {
   if (issue === 'credential_missing') return t('webssh.error.credential_missing')
   if (issue === 'key_missing') return t('webssh.error.key_missing')
@@ -52,28 +57,64 @@ function issueLabel(issue: string): string {
   return issue
 }
 
+const SIDEBAR_KEY = 'webssh:sidebar-open'
+const DENSITY_KEY = 'webssh:row-density'
+
+function readPreference<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
+  try {
+    const value = window.localStorage.getItem(key)
+    return value && allowed.includes(value as T) ? value as T : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writePreference(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    // A blocked storage area only costs the preference, not the action that set it.
+  }
+}
+
+function downloadText(text: string, fileName: string, type: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type }))
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
 export function WebsshApp() {
   const isMobile = useBreakpoint() === 'mobile'
-  const [groups, setGroups] = useState<WebsshHostGroup[]>([])
   const [keys, setKeys] = useState<WebsshKey[]>([])
   const [credentials, setCredentials] = useState<WebsshCredential[]>([])
+  const [overview, setOverview] = useState<WebsshHostsOverview | null>(null)
   const [hosts, setHosts] = useState<WebsshHost[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [queryInput, setQueryInput] = useState('')
   const [query, setQuery] = useState('')
-  const [groupId, setGroupId] = useState('')
-  const [favoriteOnly, setFavoriteOnly] = useState(false)
-  const [sort, setSort] = useState<SortKey>('manual')
+  const [quick, setQuick] = useState<WebsshHostQuickView>('all')
+  const [folderId, setFolderId] = useState('')
+  const [tag, setTag] = useState('')
+  const [sort, setSort] = useState<WebsshHostSort>('manual')
+  const [density, setDensity] = useState<HostDensity>(() => readPreference(DENSITY_KEY, 'comfortable', ['comfortable', 'compact'] as const))
+  const [sidebarOpen, setSidebarOpen] = useState(() => readPreference(SIDEBAR_KEY, 'true', ['true', 'false'] as const) === 'true')
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize] = useState(20)
   const [refreshToken, setRefreshToken] = useState(0)
+  const [chosen, setChosen] = useState<Set<string>>(new Set())
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [pinnedHost, setPinnedHost] = useState<WebsshHost | null>(null)
   const [workspaceHost, setWorkspaceHost] = useState<WebsshHost | null>(null)
-  const [hostDialog, setHostDialog] = useState<{ open: boolean; host: WebsshHost | null }>({ open: false, host: null })
-  const [groupsOpen, setGroupsOpen] = useState(false)
+  const [newTabToken, setNewTabToken] = useState(0)
+  const [hostDialog, setHostDialog] = useState<{ open: boolean; host: WebsshHost | null; groupId?: string }>({ open: false, host: null })
   const [credentialsOpen, setCredentialsOpen] = useState(false)
   const [keysOpen, setKeysOpen] = useState(false)
   const [snippetsOpen, setSnippetsOpen] = useState(false)
@@ -84,9 +125,45 @@ export function WebsshApp() {
   const [fingerprintOpen, setFingerprintOpen] = useState(false)
   const [fingerprints, setFingerprints] = useState<WebsshHostKey[]>([])
   const [preflight, setPreflight] = useState<WebsshHostPreflight | null>(null)
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const headerMenuAnchor = useRef<HTMLButtonElement>(null)
+  const exportMenuAnchor = useRef<HTMLButtonElement>(null)
 
   const refresh = () => setRefreshToken((value) => value + 1)
   const selected = hosts.find((host) => host.id === selectedId) ?? pinnedHost
+  const groups: WebsshHostGroup[] = overview?.folders ?? []
+
+  useEffect(() => {
+    writePreference(SIDEBAR_KEY, sidebarOpen ? 'true' : 'false')
+  }, [sidebarOpen])
+
+  useEffect(() => {
+    writePreference(DENSITY_KEY, density)
+  }, [density])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k') return
+      if (hasOpenLayer()) return
+      event.preventDefault()
+      searchRef.current?.focus()
+      searchRef.current?.select()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    setChosen(new Set())
+  }, [query, quick, folderId, tag, sort])
+
+  useEffect(() => {
+    if (folderId && overview && !overview.folders.some((folder) => folder.id === folderId)) {
+      setFolderId('')
+    }
+  }, [folderId, overview])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -98,10 +175,10 @@ export function WebsshApp() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([websshApi.listGroups(), websshApi.listKeys(), websshApi.listCredentials()])
-      .then(([nextGroups, nextKeys, nextCredentials]) => {
+    Promise.all([websshApi.hostsOverview(), websshApi.listKeys(), websshApi.listCredentials()])
+      .then(([nextOverview, nextKeys, nextCredentials]) => {
         if (cancelled) return
-        setGroups(nextGroups)
+        setOverview(nextOverview)
         setKeys(nextKeys)
         setCredentials(nextCredentials)
       })
@@ -130,7 +207,7 @@ export function WebsshApp() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    websshApi.listHosts({ q: query, groupId, favorite: favoriteOnly, sort, page, pageSize })
+    websshApi.listHosts({ q: query, groupId: folderId, quick, tag, sort, page, pageSize })
       .then((response) => {
         if (cancelled) return
         setHosts(response.items)
@@ -146,14 +223,74 @@ export function WebsshApp() {
     return () => {
       cancelled = true
     }
-  }, [query, groupId, favoriteOnly, sort, page, pageSize, refreshToken])
+  }, [query, quick, folderId, tag, sort, page, pageSize, refreshToken])
 
   const selectHost = (id: string) => {
-    setSelectedId(id)
+    setSelectedId(id || null)
     setPinnedHost(null)
     setPreflight(null)
     setFingerprints([])
     setWorkspaceHost(null)
+  }
+
+  const selectQuick = (next: WebsshHostQuickView) => {
+    setQuick(next)
+    setFolderId('')
+    setTag('')
+    setPage(1)
+  }
+
+  const selectFolder = (next: string) => {
+    setFolderId(next)
+    setQuick('all')
+    setTag('')
+    setPage(1)
+    setDrawerOpen(false)
+  }
+
+  const selectTag = (next: string) => {
+    setTag(next)
+    setQuick('all')
+    setFolderId('')
+    setPage(1)
+    setDrawerOpen(false)
+  }
+
+  const clearFilters = () => {
+    setQuick('all')
+    setFolderId('')
+    setTag('')
+    setQuery('')
+    setQueryInput('')
+    setPage(1)
+  }
+
+  const connectHost = (host: WebsshHost) => {
+    setSelectedId(host.id)
+    setPinnedHost(host)
+    setWorkspaceHost(host)
+  }
+
+  const openHostTab = (host: WebsshHost) => {
+    if (workspaceHost?.id === host.id) setNewTabToken((value) => value + 1)
+    else {
+      setSelectedId(host.id)
+      setPinnedHost(host)
+      setWorkspaceHost(host)
+    }
+  }
+
+  const runExport = async (format: WebsshHostExportFormat) => {
+    try {
+      const text = await websshApi.exportHosts(format)
+      downloadText(text, `webssh-hosts.${format === 'csv' ? 'csv' : 'conf'}`, format === 'csv' ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8')
+      useUi.getState().toast({ title: t('webssh.toast.exported'), tone: 'success' })
+    } catch (caught) {
+      useUi.getState().toast({
+        title: caught instanceof ApiError ? caught.message : t('webssh.error.generic'),
+        tone: 'danger',
+      })
+    }
   }
 
   const openFingerprints = async () => {
@@ -224,7 +361,7 @@ export function WebsshApp() {
           {workspaceHost.username}@{workspaceHost.host}:{workspaceHost.port}
         </span>
       </div>
-      <TerminalWorkspace host={workspaceHost} />
+      <TerminalWorkspace host={workspaceHost} newTabToken={newTabToken} />
     </section>
   ) : null
 
@@ -253,86 +390,167 @@ export function WebsshApp() {
   )
 
   const rightPane = workspace ?? detail
+  const viewLabel = tag
+    ? `#${tag}`
+    : folderId
+      ? groups.find((group) => group.id === folderId)?.name ?? t('webssh.sidebar.folders')
+      : quick === 'favorites'
+        ? t('webssh.sidebar.favorites')
+        : quick === 'recent'
+          ? t('webssh.sidebar.recent')
+          : t('webssh.sidebar.all')
+  const exportItems: MenuItem[] = [
+    { id: 'ssh-config', label: t('webssh.export.ssh_config'), icon: <Download size={13} aria-hidden="true" />, onSelect: () => void runExport('ssh-config') },
+    { id: 'csv', label: t('webssh.export.csv'), icon: <Download size={13} aria-hidden="true" />, onSelect: () => void runExport('csv') },
+  ]
+  const mobileActions: MenuItem[] = [
+    { id: 'credentials', label: t('webssh.actions.credentials'), onSelect: () => setCredentialsOpen(true) },
+    { id: 'keys', label: t('webssh.actions.keys'), icon: <KeyRound size={13} aria-hidden="true" />, onSelect: () => setKeysOpen(true) },
+    { id: 'snippets', label: t('webssh.snippet.open'), icon: <ScrollText size={13} aria-hidden="true" />, onSelect: () => setSnippetsOpen(true) },
+    { id: 'import', label: t('webssh.actions.import'), icon: <Upload size={13} aria-hidden="true" />, onSelect: () => setImportOpen(true) },
+    { id: 'recordings', label: t('webssh.recordings.open'), icon: <History size={13} aria-hidden="true" />, onSelect: () => setRecordingsOpen(true) },
+    { id: 'audit', label: t('webssh.audit.open'), icon: <ShieldCheck size={13} aria-hidden="true" />, onSelect: () => setAuditOpen(true) },
+    {
+      id: 'export',
+      label: t('webssh.actions.export'),
+      icon: <Download size={13} aria-hidden="true" />,
+      separatorBefore: true,
+      submenu: ({ closeMenu }) => (
+        <MenuSubmenuList
+          label={t('webssh.actions.export')}
+          items={[
+            { id: 'export-conf', label: t('webssh.export.ssh_config'), onSelect: () => { closeMenu(); void runExport('ssh-config') } },
+            { id: 'export-csv', label: t('webssh.export.csv'), onSelect: () => { closeMenu(); void runExport('csv') } },
+          ]}
+        />
+      ),
+    },
+  ]
 
   return (
     <div
       data-testid="webssh-app-root"
       className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-base)]"
     >
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
-        <SquareTerminal size={16} aria-hidden="true" className="shrink-0 text-[var(--text-secondary)]" />
-        <h1 className="truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
-          {t('webssh.app.title')}
-        </h1>
-        <span className="hidden min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)] md:block">
-          {t('webssh.app.subtitle')}
-        </span>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <Button size="sm" variant="ghost" onClick={() => setGroupsOpen(true)} icon={<FolderTree size={13} aria-hidden="true" />}>
-            {t('webssh.actions.groups')}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setCredentialsOpen(true)}>
-            {t('webssh.actions.credentials')}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setKeysOpen(true)} icon={<KeyRound size={13} aria-hidden="true" />}>
-            {t('webssh.actions.keys')}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setSnippetsOpen(true)} icon={<ScrollText size={13} aria-hidden="true" />}>
-            {t('webssh.snippet.open')}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)} icon={<Upload size={13} aria-hidden="true" />}>
-            {t('webssh.actions.import')}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setRecordingsOpen(true)} icon={<History size={13} aria-hidden="true" />}>
-            {t('webssh.recordings.open')}
-          </Button>
+      <header className="flex h-11 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 md:px-3">
+        {isMobile ? (
+          <IconButton label={t('webssh.sidebar.title')} onClick={() => setDrawerOpen(true)}>
+            <MenuIcon size={17} aria-hidden="true" />
+          </IconButton>
+        ) : (
+          <IconButton
+            label={t('webssh.sidebar.toggle')}
+            active={sidebarOpen}
+            aria-expanded={sidebarOpen}
+            aria-controls="webssh-sidebar"
+            onClick={() => setSidebarOpen((open) => !open)}
+          >
+            <PanelLeft size={15} aria-hidden="true" />
+          </IconButton>
+        )}
+        <SquareTerminal size={16} aria-hidden="true" className="hidden shrink-0 text-[var(--text-secondary)] sm:block" />
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <h1 className="shrink-0 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">
+            {t('webssh.app.title')}
+          </h1>
+          <span className="min-w-0 truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{viewLabel}</span>
+        </div>
+        <div className="ml-auto hidden shrink-0 items-center gap-1 md:flex">
+          <Button size="sm" variant="ghost" onClick={() => setCredentialsOpen(true)}>{t('webssh.actions.credentials')}</Button>
+          <Button size="sm" variant="ghost" onClick={() => setKeysOpen(true)} icon={<KeyRound size={13} aria-hidden="true" />}>{t('webssh.actions.keys')}</Button>
+          <Button size="sm" variant="ghost" onClick={() => setSnippetsOpen(true)} icon={<ScrollText size={13} aria-hidden="true" />}>{t('webssh.snippet.open')}</Button>
+          <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)} icon={<Upload size={13} aria-hidden="true" />}>{t('webssh.actions.import')}</Button>
+          <Button size="sm" variant="ghost" onClick={() => setRecordingsOpen(true)} icon={<History size={13} aria-hidden="true" />}>{t('webssh.recordings.open')}</Button>
           <Button size="sm" variant="ghost" onClick={() => setAuditOpen(true)} icon={<ShieldCheck size={13} aria-hidden="true" />}>
             {t('webssh.audit.open')}
             {alertCount > 0 && (
-              <span className="ms-0.5 rounded-full bg-[var(--danger)] px-1.5 text-[length:var(--text-10)] text-[var(--text-inverse)]">
-                {alertCount}
-              </span>
+              <span className="ms-0.5 rounded-full bg-[var(--danger)] px-1.5 text-[length:var(--text-10)] text-[var(--text-inverse)]">{alertCount}</span>
             )}
           </Button>
+          <Button ref={exportMenuAnchor} size="sm" variant="ghost" onClick={() => setExportMenuOpen(true)} icon={<Download size={13} aria-hidden="true" />}>
+            {t('webssh.actions.export')}
+          </Button>
         </div>
+        {isMobile && (
+          <IconButton ref={headerMenuAnchor} label={t('webssh.list.more_actions')} onClick={() => setHeaderMenuOpen(true)}>
+            <MoreHorizontal size={17} aria-hidden="true" />
+          </IconButton>
+        )}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <HostSidebar
+          mobile={isMobile}
+          open={isMobile ? drawerOpen : sidebarOpen}
+          overview={overview}
+          selection={{ quick, folderId, tag }}
+          onOpenChange={(next) => {
+            if (isMobile) setDrawerOpen(next)
+            else setSidebarOpen(next)
+          }}
+          onSelectQuick={selectQuick}
+          onSelectFolder={selectFolder}
+          onSelectTag={selectTag}
+          onNewHost={(nextFolderId) => setHostDialog({ open: true, host: null, groupId: nextFolderId })}
+          onMoveHost={(hostId, groupId) => {
+            websshApi.moveHost(hostId, { groupId })
+              .then(() => {
+                useUi.getState().toast({ title: t('webssh.toast.host_moved'), tone: 'success' })
+                refresh()
+              })
+              .catch((caught: unknown) => {
+                useUi.getState().toast({
+                  title: caught instanceof ApiError ? caught.message : t('webssh.error.generic'),
+                  tone: 'danger',
+                })
+              })
+          }}
+          onChanged={refresh}
+        />
         {(!isMobile || (!selected && !workspaceHost)) && (
           <HostList
             hosts={hosts}
             groups={groups}
+            overview={overview}
             loading={loading}
             error={error}
             query={queryInput}
-            groupId={groupId}
-            favoriteOnly={favoriteOnly}
+            quick={quick}
+            folderId={folderId}
+            tag={tag}
             sort={sort}
+            density={density}
             selectedId={selectedId}
+            chosen={chosen}
             page={page}
             pageSize={pageSize}
             total={total}
+            searchRef={searchRef}
             onQueryChange={setQueryInput}
-            onGroupChange={(value) => {
-              setGroupId(value)
-              setPage(1)
-            }}
-            onFavoriteToggle={() => {
-              setFavoriteOnly((value) => !value)
-              setPage(1)
-            }}
             onSortChange={(value) => {
               setSort(value)
               setPage(1)
             }}
+            onDensityChange={setDensity}
             onSelect={selectHost}
+            onChosenChange={setChosen}
             onPageChange={setPage}
-            onNew={() => setHostDialog({ open: true, host: null })}
+            onNew={() => setHostDialog({ open: true, host: null, groupId: folderId })}
             onRetry={refresh}
+            onConnect={connectHost}
+            onNewTab={openHostTab}
+            onEdit={(host) => setHostDialog({ open: true, host })}
+            onFilterTag={selectTag}
+            onFilterFolder={selectFolder}
+            onClearFilters={clearFilters}
+            onChanged={refresh}
           />
         )}
         {(!isMobile || selected || workspaceHost) && rightPane}
       </div>
+
+      <Menu anchor={exportMenuAnchor} open={exportMenuOpen} onClose={() => setExportMenuOpen(false)} items={exportItems} align="end" width={190} />
+      <Menu anchor={headerMenuAnchor} open={headerMenuOpen} onClose={() => setHeaderMenuOpen(false)} items={mobileActions} align="end" width={210} />
 
       <HostDialog
         open={hostDialog.open}
@@ -340,6 +558,7 @@ export function WebsshApp() {
         groups={groups}
         credentials={credentials}
         keys={keys}
+        defaultGroupId={hostDialog.groupId}
         onClose={() => setHostDialog({ open: false, host: null })}
         onSaved={(host) => {
           useUi.getState().toast({
@@ -353,13 +572,6 @@ export function WebsshApp() {
         }}
         onOpenCredentials={() => setCredentialsOpen(true)}
         onOpenKeys={() => setKeysOpen(true)}
-      />
-
-      <GroupDialog
-        open={groupsOpen}
-        groups={groups}
-        onClose={() => setGroupsOpen(false)}
-        onChanged={refresh}
       />
 
       <CredentialDialog
