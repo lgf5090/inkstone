@@ -10,6 +10,7 @@ import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm } from '../../components/overlay'
 import { createProjectCard, createProjectView, deleteProjectCard, fetchProjectBoardBundle } from './api'
 import { BoardViews } from './BoardViews'
+import { CardDialog } from './CardDialog'
 
 type Status = 'loading' | 'ready' | 'error' | 'notfound'
 
@@ -19,6 +20,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
+  const [openCardId, setOpenCardId] = useState<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -70,6 +72,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   }
 
   const canEdit = projectRoleAtLeast(bundle.role, 'editor')
+  const openCard = bundle.cards.find((card) => card.id === openCardId) ?? null
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]" data-project-board-page={boardId}>
       <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
@@ -111,7 +114,18 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         canEdit={canEdit}
         onDeleteCard={(id) => void removeCard(id)}
         onCreateView={(type) => void addView(type)}
+        onOpenCard={setOpenCardId}
       />
+      {openCard && (
+        <CardDialog
+          card={openCard}
+          properties={bundle.properties}
+          members={bundle.members}
+          canEdit={canEdit}
+          onClose={() => setOpenCardId(null)}
+          onUpdated={(updated) => setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current))}
+        />
+      )}
     </div>
   )
 }

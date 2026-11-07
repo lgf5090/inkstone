@@ -44,9 +44,10 @@ interface BoardViewsProps {
   canEdit: boolean
   onDeleteCard: (id: string) => void
   onCreateView: (type: ProjectViewType) => void
+  onOpenCard: (id: string) => void
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(null)
   const active = bundle.views.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
   const fields = active?.fields ?? emptyProjectViewFields()
@@ -83,7 +84,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView }: Boar
       {sorted.length === 0
         ? <Empty art="folder" title={t('project.board.empty_cards')} />
         : viewType === 'board'
-          ? <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} />
+          ? <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} />
           : (
               <div className="min-h-0 flex-1 overflow-auto">
                 <table className="w-full border-collapse text-[length:var(--text-13)]">
@@ -97,7 +98,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView }: Boar
                   <tbody>
                     {sorted.map((card) => (
                       <tr key={card.id} className="border-b border-[var(--border-subtle)]" data-project-card={card.id}>
-                        <td className="px-3 py-2 text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</td>
+                        <td className="px-3 py-2 text-[var(--text-primary)]">
+                          <button type="button" className="min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
+                            {card.title || t('project.board.untitled_card')}
+                          </button>
+                        </td>
                         {columns.map((property) => <td key={property.id} className="px-3 py-2 text-[var(--text-secondary)]">{cellText(card, property)}</td>)}
                         {canEdit && (
                           <td className="px-2 py-1">
@@ -116,12 +121,13 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView }: Boar
   )
 }
 
-function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard }: {
+function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onOpenCard }: {
   cards: ProjectCard[]
   groupById?: string
   properties: ProjectProperty[]
   canEdit: boolean
   onDeleteCard: (id: string) => void
+  onOpenCard: (id: string) => void
 }): ReactElement {
   const groupProperty = properties.find((property) => property.id === groupById)
   const groups = groupProjectCards(cards, groupById, properties)
@@ -143,7 +149,9 @@ function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard }: {
               {bucket.length === 0 && <li className="px-1 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.empty_column')}</li>}
               {bucket.map((card) => (
                 <li key={card.id} className="flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--bg-base)] px-2 py-2 shadow-[var(--shadow-1)]" data-project-card={card.id}>
-                  <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>
+                  <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
+                    {card.title || t('project.board.untitled_card')}
+                  </button>
                   {canEdit && (
                     <IconButton label={t('project.board.delete_card')} size="sm" onClick={() => onDeleteCard(card.id)}>
                       <Trash2 size={14} />

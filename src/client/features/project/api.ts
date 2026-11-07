@@ -5,6 +5,7 @@ import type {
   ProjectBoardBundle,
   ProjectBoardSummary,
   ProjectCard,
+  ProjectComment,
   ProjectView,
   ProjectViewType,
 } from '@shared/project/model'
@@ -55,4 +56,14 @@ export async function patchProjectCard(id: string, patch: Record<string, unknown
 export async function createProjectView(boardId: string, viewType: ProjectViewType): Promise<ProjectView> {
   const body = await request<{ view: ProjectView }>(`/api/project/boards/${encodeURIComponent(boardId)}/views`, { method: 'POST', body: { viewType } })
   return body.view
+}
+
+export async function fetchCardComments(cardId: string, signal?: AbortSignal): Promise<ProjectComment[]> {
+  const body = await request<{ comments: ProjectComment[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/comments`, { signal })
+  return body.comments
+}
+
+export async function createCardComment(cardId: string, body: string): Promise<ProjectComment> {
+  const result = await request<{ comment: ProjectComment }>(`/api/project/cards/${encodeURIComponent(cardId)}/comments`, { method: 'POST', body: { body } })
+  return result.comment
 }

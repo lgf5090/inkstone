@@ -37,4 +37,8 @@ export const EN_US_PROJECT = {
     "project.view.calendar": "Calendar",
     "project.view.no_value": "No value",
     "project.view.empty_column": "No cards",
+    "project.card.properties": "Properties",
+    "project.card.comments": "Comments",
+    "project.card.comment_placeholder": "Write a comment…",
+    "project.card.post_comment": "Comment",
 } as const

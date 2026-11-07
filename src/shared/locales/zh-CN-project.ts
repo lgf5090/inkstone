@@ -37,4 +37,8 @@ export const ZH_CN_PROJECT = {
     "project.view.calendar": "日历",
     "project.view.no_value": "无值",
     "project.view.empty_column": "暂无卡片",
+    "project.card.properties": "属性",
+    "project.card.comments": "评论",
+    "project.card.comment_placeholder": "写评论…",
+    "project.card.post_comment": "评论",
 } as const
