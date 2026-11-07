@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
-import { ArrowLeft, Plus, Settings2, SquareKanban } from 'lucide-react'
+import { ArrowLeft, Plus, Settings2, Share2, SquareKanban } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { projectRoleAtLeast } from '@shared/project/model'
 import { t } from '../../lib/i18n'
@@ -12,6 +12,7 @@ import { createProjectCard, createProjectView, deleteProjectCard, fetchProjectBo
 import { BoardViews } from './BoardViews'
 import { BoardPropertiesDialog } from './BoardPropertiesDialog'
 import { CardDialog } from './CardDialog'
+import { ShareDialog } from './ShareDialog'
 
 type Status = 'loading' | 'ready' | 'error' | 'notfound'
 
@@ -23,6 +24,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [busy, setBusy] = useState(false)
   const [openCardId, setOpenCardId] = useState<string | null>(null)
   const [showProps, setShowProps] = useState(false)
+  const [showShare, setShowShare] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -105,6 +107,11 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
             <Settings2 size={16} />
           </IconButton>
         )}
+        {bundle.role === 'admin' && (
+          <IconButton label={t('project.share.title')} size="sm" onClick={() => setShowShare(true)}>
+            <Share2 size={16} />
+          </IconButton>
+        )}
       </header>
       {canEdit && (
         <form
@@ -142,6 +149,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           onSave={saveProps}
         />
       )}
+      {showShare && <ShareDialog boardId={boardId} onClose={() => setShowShare(false)} />}
       {openCard && (
         <CardDialog
           card={openCard}

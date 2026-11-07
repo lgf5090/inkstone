@@ -20,6 +20,7 @@ import {
   ProjectContentPatchSchema,
   ProjectMemberAddSchema,
   ProjectMemberPatchSchema,
+  ProjectSharePutSchema,
   ProjectSubscriptionCreateSchema,
   ProjectViewCreateSchema,
   ProjectViewPatchSchema,
@@ -83,6 +84,8 @@ import {
   setProjectMemberRole,
 } from './members'
 import { ProjectStore } from './store'
+import { searchProject } from './search'
+import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
 import { projectStatistics } from './statistics'
 import { createBoardFromTemplate, listProjectTemplates, saveBoardAsTemplate } from './templates'
 import { listProjectSubscriptions, subscribeProject, unsubscribeProject } from './subscriptions'
@@ -109,6 +112,12 @@ projectRoutes.get('/boards', async (c) => {
 
 projectRoutes.get('/statistics', async (c) => {
   return c.json(await projectStatistics(c.env.DB, projectUserId(c)))
+})
+
+projectRoutes.get('/search', async (c) => {
+  const query = (c.req.query('q') ?? '').trim().slice(0, 200)
+  if (!query) return c.json({ boards: [], cards: [] })
+  return c.json(await searchProject(c.env.DB, projectUserId(c), query))
 })
 
 projectRoutes.get('/templates', async (c) => {
@@ -191,6 +200,23 @@ projectRoutes.post('/boards/:id/duplicate', async (c) => {
 projectRoutes.post('/boards/:id/save-as-template', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'admin')
   await saveBoardAsTemplate(c.env.DB, board.id, Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.get('/boards/:id/share', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  return c.json({ share: await getProjectShare(c.env.DB, board.id, userId) })
+})
+
+projectRoutes.put('/boards/:id/share', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  const input = await projectBody(c, ProjectSharePutSchema, JSON_BODY_LIMITS.small)
+  return c.json({ share: await putProjectShare(c.env.DB, board, userId, input, Date.now()) })
+})
+
+projectRoutes.delete('/boards/:id/share', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  await deleteProjectShare(c.env.DB, board.id, userId)
   return c.json({ ok: true })
 })
 
@@ -395,6 +421,23 @@ projectRoutes.get('/subscriptions', async (c) => {
 projectRoutes.delete('/subscriptions/:blockId', async (c) => {
   await unsubscribeProject(c.env.DB, projectUserId(c), c.req.param('blockId'), Date.now())
   return c.json({ ok: true })
+})
+
+/** Public read-only share reader: no session, the slug (plus optional password) is the capability. */
+export const projectPublicRoutes = new Hono<AppBindings>()
+
+projectPublicRoutes.post('/:slug', async (c) => {
+  let password: string | undefined
+  const raw = await c.req.text()
+  if (raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as { password?: unknown }
+      if (typeof parsed.password === 'string') password = parsed.password
+    } catch {
+      throw ApiError.badRequest('The request body is not valid JSON')
+    }
+  }
+  return c.json(await readPublicProjectShare(c.env.DB, c.req.param('slug'), password, Date.now()))
 })
 
 projectRoutes.post('/categories', async (c) => {

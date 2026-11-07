@@ -10,6 +10,7 @@ import type {
   ProjectCategoryBoard,
   ProjectComment,
   ProjectContent,
+  ProjectShare,
   ProjectView,
   ProjectViewPatch,
   ProjectViewType,
@@ -145,4 +146,27 @@ export async function addBoardToCategory(categoryId: string, boardId: string): P
 export async function setCategoryBoardHidden(categoryId: string, boardId: string, hidden: boolean): Promise<ProjectCategoryBoard> {
   const body = await request<{ categoryBoard: ProjectCategoryBoard }>(`/api/project/categories/${encodeURIComponent(categoryId)}/boards/${encodeURIComponent(boardId)}/hidden`, { method: 'PUT', body: { hidden } })
   return body.categoryBoard
+}
+
+export interface ProjectSearchResult {
+  boards: { id: string, title: string, icon: string }[]
+  cards: { id: string, boardId: string, title: string }[]
+}
+
+export async function searchProject(query: string, signal?: AbortSignal): Promise<ProjectSearchResult> {
+  return request<ProjectSearchResult>(`/api/project/search?q=${encodeURIComponent(query)}`, { signal })
+}
+
+export async function getProjectShare(boardId: string): Promise<ProjectShare | null> {
+  const body = await request<{ share: ProjectShare | null }>(`/api/project/boards/${encodeURIComponent(boardId)}/share`)
+  return body.share
+}
+
+export async function putProjectShare(boardId: string, input: { password?: string | null, expiresAt?: number | null }): Promise<ProjectShare> {
+  const body = await request<{ share: ProjectShare }>(`/api/project/boards/${encodeURIComponent(boardId)}/share`, { method: 'PUT', body: input })
+  return body.share
+}
+
+export async function deleteProjectShare(boardId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/share`, { method: 'DELETE' })
 }

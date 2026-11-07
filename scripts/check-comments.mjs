@@ -41026,6 +41026,9 @@ const allowed = new Map([
   ["src/worker/project/permissions.ts", [
     "/**\n * Which boards the sidebar lists, and what the caller may do with each.\n *\n * A board reaches its audience two ways — the account owns it, or a membership row names it — so the\n * list is the union of the two, and a board the caller can no longer read is dropped rather than\n * shown greyed out. The role is resolved here so no caller has to remember the open-board rule.\n */",
   ]],
+  ["src/worker/project/routes.ts", [
+    "/** Public read-only share reader: no session, the slug (plus optional password) is the capability. */",
+  ]],
   ["src/worker/project/schema.ts", [
     "/**\n * The project app's tables, in arrays so a fresh database and a migrated one arrive at the same shape\n * by the same text: `SCHEMA_STATEMENTS` spreads these, and migrations 287-291 apply the very same\n * arrays to a database that predates the app.\n *\n * Boards are shared objects, so a board-scoped row keys on its own id and reaches its audience through\n * `project_board_members`; only the account's own furniture (categories, settings) keys on the account.\n * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.\n */",
     "// One role column rather than the reference's four scheme booleans: its own editor assigns them",
@@ -41039,6 +41042,12 @@ const allowed = new Map([
     "// FROM notes, so sharing it would mean editing the notes search write path.",
     "// project_fts is deliberately absent: the boot's column repair replays CREATE TABLE declarations, and",
     "// an fts5 virtual table has none to replay — its columns are changed by rebuilding it, not by ADD COLUMN.",
+  ]],
+  ["src/worker/project/search.ts", [
+    "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. This first version matches\n * with LIKE over board and card titles; the reserved project_fts table and pinyin initials are the\n * indexed follow-up (the queue/drain machinery mirrors notes once write-path indexing is wired).\n */",
+  ]],
+  ["src/worker/project/shares.ts", [
+    "/**\n * Public read-only sharing, modelled on the assistant's share links: a slug is the capability, an\n * optional password hash gates it, and an expiry lapses it. The hash never leaves the server; the\n * management answer carries only `hasPassword`. Reading increments the view counter and returns the\n * board bundle at viewer role, so a shared board exposes exactly what a viewer sees.\n */",
   ]],
   ["src/worker/project/statistics.ts", [
     "/**\n * Personal statistics: how many boards this account can see and how many cards live on them. The\n * reference reported site-wide counts; a self-hosted instance only needs the caller's own. Visibility\n * is the same rule the board list uses, so the two never disagree about what counts.\n */",

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { Copy, MoreHorizontal, Pencil, Plus, Save, SquareKanban, Trash2 } from 'lucide-react'
+import { Copy, MoreHorizontal, Pencil, Plus, Save, Search, SquareKanban, Trash2 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { ProjectBoardSummary, ProjectRole } from '@shared/project/model'
 import { t } from '../../lib/i18n'
@@ -12,6 +12,7 @@ import { createBoardFromTemplate, saveBoardAsTemplate } from './api'
 import { useProjectStore } from './store'
 import { BoardPage } from './BoardPage'
 import { ProjectSidebar } from './ProjectSidebar'
+import { SearchDialog } from './SearchDialog'
 import { TemplatePicker } from './TemplatePicker'
 
 const ROLE_LABEL_KEYS: Record<ProjectRole, MessageKey> = {
@@ -41,6 +42,7 @@ function BoardList(): ReactElement {
   const addBoard = useProjectStore((state) => state.addBoard)
   const toast = useUi((state) => state.toast)
   const [showPicker, setShowPicker] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
 
   useEffect(() => {
     ensureBoards()
@@ -81,7 +83,8 @@ function BoardList(): ReactElement {
             {t('project.boards.count', { count: boards.length })}
           </span>
         )}
-        <Button className="ml-auto" variant="primary" size="sm" icon={<Plus size={15} />} onClick={() => setShowPicker(true)}>
+        <IconButton className="ml-auto" label={t('project.search.title')} size="sm" onClick={() => setShowSearch(true)}><Search size={16} /></IconButton>
+        <Button variant="primary" size="sm" icon={<Plus size={15} />} onClick={() => setShowPicker(true)}>
           {t('project.boards.new')}
         </Button>
       </header>
@@ -105,6 +108,7 @@ function BoardList(): ReactElement {
               )}
       </div>
       {showPicker && <TemplatePicker onClose={() => setShowPicker(false)} onPick={(id) => void pickTemplate(id)} />}
+      {showSearch && <SearchDialog onClose={() => setShowSearch(false)} />}
     </div>
   )
 }
