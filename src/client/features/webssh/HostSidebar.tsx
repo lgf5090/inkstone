@@ -425,6 +425,7 @@ function FolderNode({
   return (
     <div>
       <div
+        data-webssh-folder-id={node.folder.id}
         className={cn(
           'group relative flex h-10 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[28px]',
           activeId === node.folder.id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',

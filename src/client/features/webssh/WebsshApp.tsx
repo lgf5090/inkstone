@@ -351,7 +351,10 @@ export function WebsshApp() {
   const workspace = workspaceHost ? (
     <section className="flex min-h-0 flex-1 flex-col" aria-label={workspaceHost.name}>
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
-        <IconButton label={t('webssh.actions.back')} size="sm" onClick={() => setWorkspaceHost(null)}>
+        <IconButton label={t('webssh.actions.back')} size="sm" onClick={() => {
+          setWorkspaceHost(null)
+          refresh()
+        }}>
           <ArrowLeft size={15} aria-hidden="true" />
         </IconButton>
         <span className="min-w-0 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">

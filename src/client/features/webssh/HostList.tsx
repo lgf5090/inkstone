@@ -142,6 +142,7 @@ export function HostList(props: HostListProps) {
       return
     }
     await applyAction(() => websshApi.batchHosts({ action: 'move', ids, groupId }), t('webssh.toast.hosts_moved', { count: ids.length }))
+    props.onChosenChange(new Set())
   }
 
   const tagHosts = async (ids: string[], tags: string[]) => {
@@ -153,6 +154,7 @@ export function HostList(props: HostListProps) {
       return
     }
     await applyAction(() => websshApi.batchHosts({ action: 'tag', ids, tags }), t('webssh.toast.tags_added'))
+    props.onChosenChange(new Set())
   }
 
   const removeHosts = async (targets: WebsshHost[]) => {
@@ -183,6 +185,7 @@ export function HostList(props: HostListProps) {
       () => websshApi.batchHosts({ action: allStarred ? 'unfavorite' : 'favorite', ids: selectedHosts.map((host) => host.id) }),
       allStarred ? t('webssh.toast.unfavorited') : t('webssh.toast.favorited'),
     )
+    props.onChosenChange(new Set())
   }
 
   const reorder = async (host: WebsshHost, direction: 'up' | 'down') => {
@@ -351,7 +354,7 @@ export function HostList(props: HostListProps) {
         </div>
 
         {selectedHosts.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 rounded-[var(--r-md)] bg-[var(--bg-raised)] p-1.5">
+          <div data-webssh-batch-bar className="flex flex-wrap items-center gap-1.5 rounded-[var(--r-md)] bg-[var(--bg-raised)] p-1.5">
             <span className="px-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
               {t('webssh.list.selected', { count: selectedHosts.length })}
             </span>
@@ -423,6 +426,7 @@ export function HostList(props: HostListProps) {
                     tabIndex={0}
                     data-webssh-host-row
                     data-host-id={host.id}
+                    data-host-name={host.name}
                     draggable
                     ref={(node) => {
                       if (node) rowRefs.current.set(host.id, node)
@@ -497,26 +501,56 @@ export function HostList(props: HostListProps) {
                         className="mt-0.5"
                       />
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        {host.color && <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: host.color }} />}
-                        <span className="min-w-0 truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{host.name}</span>
-                        {props.density === 'comfortable' && (
-                          <span className="shrink-0 text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
-                            {host.lastConnectedAt ? relativeTime(host.lastConnectedAt) : t('webssh.list.never')}
+                    <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2">
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          {host.color && <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: host.color }} />}
+                          <span className="min-w-0 truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{host.name}</span>
+                          <span onClick={(event) => event.stopPropagation()}>
+                            <Tooltip label={host.favorite ? t('webssh.menu.unfavorite') : t('webssh.menu.favorite')} side="bottom">
+                              <IconButton
+                                label={host.favorite ? t('webssh.menu.unfavorite') : t('webssh.menu.favorite')}
+                                size="xs"
+                                aria-pressed={host.favorite}
+                                onClick={() => void toggleFavorite(host)}
+                              >
+                                <Star size={12} aria-hidden="true" className={host.favorite ? 'fill-[var(--warning)] text-[var(--warning)]' : 'text-[var(--text-quaternary)]'} />
+                              </IconButton>
+                            </Tooltip>
                           </span>
+                        </div>
+                        <div className="mt-0.5 truncate font-mono text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+                          {host.username}@{host.host}:{host.port}
+                        </div>
+                        {props.density === 'comfortable' && (folderName || host.tags.length > 0) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {folderName && (
+                              <button
+                                type="button"
+                                onClick={(event) => { event.stopPropagation(); props.onFilterFolder(host.groupId) }}
+                                className="inline-flex items-center gap-1 rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
+                              >
+                                <FolderClosed size={9} aria-hidden="true" />
+                                {folderName}
+                              </button>
+                            )}
+                            {host.tags.slice(0, 3).map((tag) => (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={(event) => { event.stopPropagation(); props.onFilterTag(tag) }}
+                                className="rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
+                              >
+                                {tag}
+                              </button>
+                            ))}
+                            {host.tags.length > 3 && <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">+{host.tags.length - 3}</span>}
+                          </div>
                         )}
-                        <span onClick={(event) => event.stopPropagation()}>
-                          <Tooltip label={host.favorite ? t('webssh.menu.unfavorite') : t('webssh.menu.favorite')} side="bottom">
-                            <IconButton
-                              label={host.favorite ? t('webssh.menu.unfavorite') : t('webssh.menu.favorite')}
-                              size="xs"
-                              aria-pressed={host.favorite}
-                              onClick={() => void toggleFavorite(host)}
-                            >
-                              <Star size={12} aria-hidden="true" className={host.favorite ? 'fill-[var(--warning)] text-[var(--warning)]' : 'text-[var(--text-quaternary)]'} />
-                            </IconButton>
-                          </Tooltip>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-0.5">
+                        <span className="whitespace-nowrap text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
+                          {host.lastConnectedAt ? relativeTime(host.lastConnectedAt) : t('webssh.list.never')}
                         </span>
                         <IconButton
                           label={t('webssh.list.more_actions')}
@@ -527,35 +561,6 @@ export function HostList(props: HostListProps) {
                           <MoreHorizontal size={12} aria-hidden="true" />
                         </IconButton>
                       </div>
-                      <div className={cn('truncate font-mono text-[length:var(--text-11-5)] text-[var(--text-tertiary)]', props.density === 'compact' ? 'mt-0.5' : 'mt-0.5')}>
-                        {host.username}@{host.host}:{host.port}
-                        {props.density === 'compact' && <span className="ms-2 text-[var(--text-quaternary)]">{host.lastConnectedAt ? relativeTime(host.lastConnectedAt) : t('webssh.list.never')}</span>}
-                      </div>
-                      {props.density === 'comfortable' && (folderName || host.tags.length > 0) && (
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
-                          {folderName && (
-                            <button
-                              type="button"
-                              onClick={(event) => { event.stopPropagation(); props.onFilterFolder(host.groupId) }}
-                              className="inline-flex items-center gap-1 rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
-                            >
-                              <FolderClosed size={9} aria-hidden="true" />
-                              {folderName}
-                            </button>
-                          )}
-                          {host.tags.slice(0, 3).map((tag) => (
-                            <button
-                              key={tag}
-                              type="button"
-                              onClick={(event) => { event.stopPropagation(); props.onFilterTag(tag) }}
-                              className="rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
-                            >
-                              {tag}
-                            </button>
-                          ))}
-                          {host.tags.length > 3 && <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">+{host.tags.length - 3}</span>}
-                        </div>
-                      )}
                     </div>
                   </div>
                 )
