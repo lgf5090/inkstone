@@ -12,6 +12,8 @@ import { RecordingSettingsDialog } from './RecordingSettingsDialog'
 import { SnippetsPanel } from './SnippetsPanel'
 import { TerminalSettingsDialog } from './TerminalSettingsDialog'
 import { TerminalShortcutsDialog } from './TerminalShortcutsDialog'
+import { MonitorPanel } from './MonitorPanel'
+import { DashboardGrid } from './DashboardGrid'
 import { loadTerminalSettings, saveTerminalSettings, type TerminalSettings } from './prefs'
 import { WebSocketTerminalTransport } from './transport/websocket-transport'
 import type { TerminalTransportFactory } from './transport/types'
@@ -36,6 +38,8 @@ export function TerminalWorkspace({ host }: { host: WebsshHost }) {
   const [replayOpen, setReplayOpen] = useState(false)
   const [recordingOpen, setRecordingOpen] = useState(false)
   const [snippetsOpen, setSnippetsOpen] = useState(false)
+  const [monitorOpen, setMonitorOpen] = useState(false)
+  const [view, setView] = useState<'terminal' | 'dashboard'>('terminal')
   const [insertRequest, setInsertRequest] = useState<{ text: string; token: number } | null>(null)
   const insertTokenRef = useRef(0)
   const isDark = useThemeDark()
@@ -53,6 +57,8 @@ export function TerminalWorkspace({ host }: { host: WebsshHost }) {
     setReplayOpen(false)
     setSnippetsOpen(false)
     setInsertRequest(null)
+    setMonitorOpen(false)
+    setView('terminal')
   }, [host.id, host.name])
 
   const insertSnippet = (text: string) => {
@@ -121,10 +127,16 @@ export function TerminalWorkspace({ host }: { host: WebsshHost }) {
         onOpenReplay={() => setReplayOpen(true)}
         replayDisabled={!activeSessionId}
         onOpenRecordingSettings={() => setRecordingOpen(true)}
+        onOpenMonitor={() => setMonitorOpen((value) => !value)}
+        monitorOpen={monitorOpen}
+        monitorDisabled={!activeSessionId}
+        onOpenDashboard={() => setView((value) => (value === 'terminal' ? 'dashboard' : 'terminal'))}
+        dashboardActive={view === 'dashboard'}
         panelId={PANEL_ID}
       />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <div className="relative min-h-0 flex-1">
+        {view === 'dashboard' && <DashboardGrid sessionId={activeSessionId} />}
+        <div className={view === 'dashboard' ? 'hidden' : 'relative min-h-0 flex-1'}>
           {tabs.length === 0 ? (
             <Empty
               art="select"
@@ -156,6 +168,11 @@ export function TerminalWorkspace({ host }: { host: WebsshHost }) {
         {filesOpen && activeSessionId && (
           <div className={isMobile ? 'absolute inset-0 z-20 bg-[var(--bg-surface)]' : 'flex min-h-0'}>
             <SftpPanel sessionId={activeSessionId} homePath={homePath} onClose={() => setFilesOpen(false)} />
+          </div>
+        )}
+        {view === 'terminal' && monitorOpen && activeSessionId && (
+          <div className={isMobile ? 'absolute inset-0 z-20 bg-[var(--bg-surface)]' : 'flex min-h-0'}>
+            <MonitorPanel sessionId={activeSessionId} onClose={() => setMonitorOpen(false)} />
           </div>
         )}
       </div>

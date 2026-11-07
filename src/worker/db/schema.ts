@@ -96,6 +96,7 @@ import {
   CLOUDDRIVE_SCHEMA_STATEMENTS,
 } from '../clouddrive/schema'
 import {
+  WEBSSH_DASHBOARD_SCHEMA_STATEMENTS,
   WEBSSH_REQUIRED_COLUMNS,
   WEBSSH_REQUIRED_INDEXES,
   WEBSSH_REQUIRED_TABLES,
@@ -3876,6 +3877,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 298,
     statements: WEBSSH_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 301,
+    statements: WEBSSH_DASHBOARD_SCHEMA_STATEMENTS,
   },
 ]
 

@@ -1,6 +1,9 @@
 import type {
   WebsshAuditListResponse,
   WebsshCredential,
+  WebsshDashboard,
+  WebsshDashboardExport,
+  WebsshDashboardListResponse,
   WebsshHealthReport,
   WebsshHost,
   WebsshHostGroup,
@@ -11,6 +14,8 @@ import type {
   WebsshImportCommitResult,
   WebsshImportPreview,
   WebsshKey,
+  WebsshMonitorKillResult,
+  WebsshMonitorSnapshot,
   WebsshPublicShareFrames,
   WebsshPublicShareView,
   WebsshRecordingFrames,
@@ -117,6 +122,32 @@ export const websshApi = {
     await request<WebsshSessionTicket>(`/api/webssh/sessions/${sessionId}/ticket`, { method: 'POST' }),
   sessionStatus: async (sessionId: string) =>
     await request<{ id: string; status: WebsshSessionStatus; recordingId: string }>(`/api/webssh/sessions/${sessionId}`),
+
+  monitor: async (sessionId: string) =>
+    await request<WebsshMonitorSnapshot>(`/api/webssh/sessions/${sessionId}/monitor`),
+  killProcess: async (sessionId: string, pid: number) =>
+    await request<WebsshMonitorKillResult>(`/api/webssh/sessions/${sessionId}/monitor/kill`, {
+      method: 'POST',
+      body: { pid },
+    }),
+
+  listDashboards: async () => (await request<WebsshDashboardListResponse>('/api/webssh/dashboards')).dashboards,
+  createDashboard: async (body: { name: string; widgets?: WebsshDashboard['widgets'] }) =>
+    (await request<{ dashboard: WebsshDashboard }>('/api/webssh/dashboards', { method: 'POST', body })).dashboard,
+  updateDashboard: async (id: string, body: { name?: string; locked?: boolean }) =>
+    (await request<{ dashboard: WebsshDashboard }>(`/api/webssh/dashboards/${id}`, { method: 'PATCH', body })).dashboard,
+  deleteDashboard: async (id: string) => {
+    await request(`/api/webssh/dashboards/${id}`, { method: 'DELETE' })
+  },
+  saveDashboardLayout: async (id: string, widgets: WebsshDashboard['widgets']) =>
+    (await request<{ dashboard: WebsshDashboard }>(`/api/webssh/dashboards/${id}/layout`, {
+      method: 'PUT',
+      body: { widgets },
+    })).dashboard,
+  exportDashboard: async (id: string) =>
+    (await request<{ layout: WebsshDashboardExport }>(`/api/webssh/dashboards/${id}/export`)).layout,
+  importDashboard: async (layout: WebsshDashboardExport) =>
+    (await request<{ dashboard: WebsshDashboard }>('/api/webssh/dashboards/import', { method: 'POST', body: { layout } })).dashboard,
 
   listDir: async (sessionId: string, path: string) =>
     await request<WebsshSftpListing>(`/api/webssh/sessions/${sessionId}/sftp/list?path=${encodeURIComponent(path)}`),
