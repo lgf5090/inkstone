@@ -11,6 +11,7 @@ import { useUi } from '../../store/ui'
 import { createBoardFromTemplate, saveBoardAsTemplate } from './api'
 import { useProjectStore } from './store'
 import { BoardPage } from './BoardPage'
+import { ProjectSidebar } from './ProjectSidebar'
 import { TemplatePicker } from './TemplatePicker'
 
 const ROLE_LABEL_KEYS: Record<ProjectRole, MessageKey> = {
@@ -67,7 +68,9 @@ function BoardList(): ReactElement {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]" data-project-app="">
+    <div className="flex h-full min-h-0 bg-[var(--bg-base)]" data-project-app="">
+      <ProjectSidebar boards={boards} />
+      <div className="flex min-w-0 flex-1 flex-col">
       <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
         <span aria-hidden="true" className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]">
           <SquareKanban size={16} />
@@ -100,6 +103,7 @@ function BoardList(): ReactElement {
                   {boards.map((board) => <BoardRow key={board.id} board={board} />)}
                 </ul>
               )}
+      </div>
       {showPicker && <TemplatePicker onClose={() => setShowPicker(false)} onPick={(id) => void pickTemplate(id)} />}
     </div>
   )

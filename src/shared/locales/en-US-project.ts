@@ -73,4 +73,11 @@ export const EN_US_PROJECT = {
     "project.templates.blank": "Blank board",
     "project.templates.blank_description": "Start from scratch.",
     "project.templates.save_as": "Save as template",
+    "project.sidebar.search": "Find a board…",
+    "project.sidebar.new_category": "New category",
+    "project.sidebar.unfiled": "Unfiled",
+    "project.sidebar.hide": "Hide",
+    "project.sidebar.unhide": "Unhide",
+    "project.sidebar.move_to": "Move to category",
+    "project.sidebar.category_name": "Category name",
 } as const

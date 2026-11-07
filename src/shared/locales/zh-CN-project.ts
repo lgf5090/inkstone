@@ -73,4 +73,11 @@ export const ZH_CN_PROJECT = {
     "project.templates.blank": "空白板",
     "project.templates.blank_description": "从零开始。",
     "project.templates.save_as": "另存为模板",
+    "project.sidebar.search": "查找板…",
+    "project.sidebar.new_category": "新建分类",
+    "project.sidebar.unfiled": "未归类",
+    "project.sidebar.hide": "隐藏",
+    "project.sidebar.unhide": "取消隐藏",
+    "project.sidebar.move_to": "移动到分类",
+    "project.sidebar.category_name": "分类名",
 } as const

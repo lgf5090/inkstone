@@ -6,6 +6,8 @@ import type {
   ProjectBoardPatch,
   ProjectBoardSummary,
   ProjectCard,
+  ProjectCategory,
+  ProjectCategoryBoard,
   ProjectComment,
   ProjectContent,
   ProjectView,
@@ -115,4 +117,32 @@ export async function createBoardFromTemplate(templateId: string): Promise<Proje
 
 export async function saveBoardAsTemplate(id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(id)}/save-as-template`, { method: 'POST', body: {} })
+}
+
+export async function fetchProjectCategories(signal?: AbortSignal): Promise<{ categories: ProjectCategory[], categoryBoards: ProjectCategoryBoard[] }> {
+  return request<{ categories: ProjectCategory[], categoryBoards: ProjectCategoryBoard[] }>('/api/project/categories', { signal })
+}
+
+export async function createProjectCategory(name: string): Promise<ProjectCategory> {
+  const body = await request<{ category: ProjectCategory }>('/api/project/categories', { method: 'POST', body: { name } })
+  return body.category
+}
+
+export async function patchProjectCategory(id: string, patch: { name?: string, collapsed?: boolean }): Promise<ProjectCategory> {
+  const body = await request<{ category: ProjectCategory }>(`/api/project/categories/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
+  return body.category
+}
+
+export async function deleteProjectCategory(id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/categories/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function addBoardToCategory(categoryId: string, boardId: string): Promise<ProjectCategoryBoard> {
+  const body = await request<{ categoryBoard: ProjectCategoryBoard }>(`/api/project/categories/${encodeURIComponent(categoryId)}/boards/${encodeURIComponent(boardId)}`, { method: 'POST', body: {} })
+  return body.categoryBoard
+}
+
+export async function setCategoryBoardHidden(categoryId: string, boardId: string, hidden: boolean): Promise<ProjectCategoryBoard> {
+  const body = await request<{ categoryBoard: ProjectCategoryBoard }>(`/api/project/categories/${encodeURIComponent(categoryId)}/boards/${encodeURIComponent(boardId)}/hidden`, { method: 'PUT', body: { hidden } })
+  return body.categoryBoard
 }
