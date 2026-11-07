@@ -20119,6 +20119,15 @@ const allowed = new Map([
     "// Read-only audit browser and local health view (plan W7-03). The panel never offers an edit or",
     "// delete control: the trail is append-only by construction, so the UI can only filter and page it.",
   ]],
+  ["src/client/features/webssh/CastPlayer.tsx", [
+    "/** A moment an AI search pointed at; the player opens paused there instead of at the start. */",
+    "// The AI search's timestamp is applied once the slices are in memory: drawing before then would",
+    "// start from an empty event list and show a blank terminal at the right second.",
+  ]],
+  ["src/client/features/webssh/FileAiDialog.tsx", [
+    "/**\n * Read-only AI over one remote text file.\n *\n * The file is fetched through the same bounded SFTP read the editor uses, then only a 48k window\n * leaves the browser: the beginning for a summary or a question, the end for log anomalies where\n * the failure is usually at the bottom. This call never proposes or applies an edit.\n */",
+    "/** A log is read further than an editor file, then reduced to the 48k window before it leaves. */",
+  ]],
   ["src/client/features/webssh/FileEditorDialog.tsx", [
     "// SFTP text editor (W5-03). It reads a whole file through the same bounded download route the",
     "// browser uses, refuses anything that is not UTF-8 text within the editing ceiling, and writes back",
@@ -20127,6 +20136,7 @@ const allowed = new Map([
     "// string when nothing carried one.",
     "// Staging cleanup is best effort: the completed save already failed, and a leftover transfer",
     "// is collected by the 24-hour sweep.",
+    "// The editor's write ceiling and the shared read ceiling are the same number on purpose.",
   ]],
   ["src/client/features/webssh/HostDialog.tsx", [
     "/** A new host started from a folder row opens with that folder already chosen. */",
@@ -20164,6 +20174,12 @@ const allowed = new Map([
   ["src/client/features/webssh/NewSessionDialog.tsx", [
     "/**\n * W3 owns the host and credential library. Until it lands this dialog only names a demo session,\n * and the description says exactly that — no host, port or password field is shown, so nothing here\n * can be mistaken for a real connection form.\n */",
   ]],
+  ["src/client/features/webssh/RecordingAiDialog.tsx", [
+    "/**\n * Natural-language search over one recorded session.\n *\n * The worker reads the cast from R2, turns its output events into timestamped text and asks the\n * model for the moments that match. The answer is a list of timestamps, and choosing one opens the\n * replay at that moment rather than making the reader scrub a timeline.\n */",
+  ]],
+  ["src/client/features/webssh/RecordingPlayerDialog.tsx", [
+    "/** Where an AI search result asked the replay to start; null opens at the beginning. */",
+  ]],
   ["src/client/features/webssh/RecordingsPanel.tsx", [
     "// Recording library (W6-02). Rows are grouped by host, newest first, and each row opens the same",
     "// replay/share dialog the terminal uses, so the share capability has one implementation.",
@@ -20182,14 +20198,44 @@ const allowed = new Map([
     "// A fresh search each edit: the addon keeps its own cursor, and after an option change (case or",
     "// regex) an incremental search from the old cursor can keep answering \"no match\" for a term that",
     "// is there. Clearing first makes the first match the answer again.",
+    "/** Keys arrive as raw escape sequences; the line tracker only wants the printable tail. */",
+    "/** Hand the AI panel a way to read this tab's tail without copying it on every keystroke. */",
+    "// The last command's output is what a diagnosis needs; keep a bounded tail so a noisy build",
+    "// cannot grow the buffer without limit.",
+    "/**\n   * Typed input, with the line tracker, the cwd tracker and the danger gate on the way through.\n   *\n   * A full-screen program owns the alternate buffer and its keys are not shell commands, so the gate\n   * steps aside there. Everywhere else, a line that matches a destructive rule stops before the\n   * Enter reaches the host and asks in a dialog; cancelling leaves the command at the prompt to edit.\n   */",
+    "// The visible line also carries a command recalled from history, which the tracker never saw.",
+    "// The line has left the prompt: the notice about what it would do is no longer a decision.",
   ]],
   ["src/client/features/webssh/TerminalTabs.tsx", [
     "/**\n * The session strip. A terminal tab carries a close control beside it, so the tab itself stays one\n * button and the row keeps a single tab stop, while arrow keys move the selection the way `Tabs`\n * does. The status dot repeats the connection phase without relying on colour alone: the dot's\n * tooltip and the status bar both say the phase in words.\n */",
+  ]],
+  ["src/client/features/webssh/TerminalWorkspace.tsx", [
+    "/** What the global assistant is told about the terminal on screen: labels and state, never a secret. */",
+    "// The last handoff is a database read, not a model call: reconnecting to a host shows what the",
+    "// previous session left unfinished without spending the reader's quota to say so.",
+    "// The card is a convenience; a failed read must not keep the terminal from opening, and the",
+    "// assistant panel surfaces the same failure when the reader asks there.",
+  ]],
+  ["src/client/features/webssh/WebsshAiPanel.tsx", [
+    "/**\n * The AI column beside one terminal session.\n *\n * Three jobs, each one press: turn a sentence into a command, explain why the last command failed,\n * and keep a handoff note for the next connection. The panel never runs a command by itself; a\n * proposed command is pasted at the prompt so the reader still decides to press Enter.\n *\n * The context is the terminal's own tail, read from the xterm buffer on demand. Nothing is captured\n * in the background and no transcript is stored on the server.\n */",
+    "/** What the pane can read from its terminal, read at the moment a button is pressed. */",
+    "/** The handoff card opens the session half; the toolbar opens the command half. */",
+    "// The handoff card can ask for the session half after the panel is already open.",
+    "// The panel still opens: pressing a button reports the real failure with a readable code.",
+    "// A missing handoff is not an error; a failed read is also kept quiet here because the tab",
+    "// has a visible retry control and the reader may simply not have written one yet.",
   ]],
   ["src/client/features/webssh/WebsshApp.tsx", [
     "// The header badge is a convenience; the audit panel surfaces a failed health read.",
     "// A blocked storage area only costs the preference, not the action that set it.",
     "// A blocked history/storage API only costs the shareable URL, not the list state.",
+    "/**\n   * What \"this page\" means to the global assistant.\n   *\n   * It names the host and the live session so \"what did I just run\" has an anchor, and it never\n   * carries a credential label, a password, a private key or a credential id: those live in tables\n   * this page never reads into a prompt.\n   */",
+  ]],
+  ["src/client/features/webssh/ai-client.ts", [
+    "/**\n * The WebSSH AI calls, kept apart from `api.ts` so the terminal, SFTP and audit panels can import\n * only the surface they use.\n *\n * Every call is an explicit press. The shapes come from `@shared/webssh/ai`, which is also what the\n * worker validates, so a renamed field fails the type check on both sides rather than at runtime.\n */",
+  ]],
+  ["src/client/features/webssh/ai-error.ts", [
+    "/**\n * The one translation of a WebSSH AI failure.\n *\n * The worker answers with stable codes so every surface can say the same thing: \"configure a model\"\n * and \"the daily ceiling is spent\" are decisions the reader can act on, while an upstream failure is\n * only worth a retry. The panel, the file dialog and the audit summary all read this function rather\n * than each inventing its own sentence.\n */",
   ]],
   ["src/client/features/webssh/api.ts", [
     "// A binary or empty error body still maps to the status line below.",
@@ -20205,6 +20251,13 @@ const allowed = new Map([
     "/** The CSS variables the workspace and the terminal surface read. */",
     "/**\n * Merge the reader's overlay onto a built-in palette. With no overlay and an opaque surface the base\n * palette is returned unchanged, which keeps the default terminal byte-for-byte what it was.\n */",
     "/** The palette file carries the overlay alone, so it cannot carry a site name or a background image. */",
+  ]],
+  ["src/client/features/webssh/command-risk.ts", [
+    "/**\n * The local half of command risk: patterns that are dangerous whatever the model would say.\n *\n * This runs on every keystroke without a network call, so the reader learns about `rm -rf /` or a\n * `dd` aimed at a disk before pressing Enter. The AI assessment is the second opinion, not the\n * first: a feature that needed a model call to notice `mkfs` would be useless on a bad connection.\n *\n * The rules are deliberately narrow. A false positive that stops a harmless command is worse than\n * a missed warning the AI panel can still give.\n */",
+    "/**\n * Ordered most-specific first. A single line can match several rules; the caller shows every reason\n * and the dialog uses the highest level.\n */",
+    "/**\n * The risk of one command line. `safe` is only \"no rule matched\", never \"the model approved it\".\n */",
+    "// A shared global/sticky flag would move the match position between calls; these are none.",
+    "/** The line the reader appears to be typing, stripped of a prompt prefix when one is visible. */",
   ]],
   ["src/client/features/webssh/file-icons.tsx", [
     "// Extension-to-icon mapping for the SFTP list (W5-03). Icons are lucide components chosen by suffix",
@@ -20230,6 +20283,10 @@ const allowed = new Map([
   ["src/client/features/webssh/session-retry.ts", [
     "/** The client's reconnect ladder. The server (W2) never drives retries; the UI does. */",
     "/** `attempt` is the number of the retry being decided, starting at 1. */",
+  ]],
+  ["src/client/features/webssh/sftp-text.ts", [
+    "/**\n * One bounded read of a remote text file over SFTP.\n *\n * The editor and the AI file dialog both need exactly this: a UTF-8 file within a size ceiling,\n * fetched in the same block sizes the download route serves, and refused as binary when it decodes\n * as anything else. Keeping one implementation means the two surfaces cannot disagree about what\n * \"readable\" means.\n */",
+    "/** The most a browser-side text surface will hold; larger files stay a download. */",
   ]],
   ["src/client/features/webssh/shortcuts.ts", [
     "/**\n * Every terminal-local key, in one table.\n *\n * The xterm handler and the help dialog read the same definitions, so a shortcut cannot work while the\n * dialog describes an older one. `shortcutConflicts` is the second reader: it answers which combinations\n * two actions claim at once, which is what keeps a future addition from silently shadowing a copy or a\n * search. Terminal keys stay on the platform modifier plus Shift because plain Ctrl+C has to remain\n * SIGINT, and Alt is never claimed here — it is a terminal modifier the shell receives.\n */",
@@ -20270,6 +20327,9 @@ const allowed = new Map([
     "/** Absent in a replay surface, where the browser's own find should keep the keystroke. */",
     "// Search highlighting paints through xterm's decoration API, which is still an experimental",
     "// surface: without this flag `registerDecoration` throws and the search bar takes the app down.",
+    "/** The last `maxLines` of scrollback as plain text, for the AI panel's context. */",
+    "/** The line under the cursor, prompt included; the caller strips the prompt. */",
+    "/** True while a full-screen program (vim, less, top) owns the alternate buffer. */",
   ]],
   ["src/client/features/webssh/webssh.css", [
     "/* WebSSH's terminal glue. Colours come from xterm's theme object (built from the Inkstone palettes in\n   `terminal-themes.ts`); this file only makes the xterm surface take the box the app gives it. */",
@@ -34322,6 +34382,21 @@ const allowed = new Map([
     "// nothing left to do here.",
     "// The leaf's `Text` already carries its own description, and `Result` is the same words as markup.",
   ]],
+  ["src/shared/webssh/ai.ts", [
+    "/**\n * The WebSSH AI surface.\n *\n * Every helper here is a request or an answer for one explicit press in the terminal app. Nothing is\n * generated in the background, and no shape carries a password, a private key, a credential id or a\n * ciphertext: the worker only ever reads the host label and the terminal text the reader sends.\n *\n * The caps live beside the shapes because both halves need the same numbers: the browser trims a\n * transcript before it leaves, and the worker trims it again before it reaches a model.\n */",
+    "/** Which session or host an answer is about, when the caller knows. */",
+    "/** The natural-language request behind one proposed shell command. */",
+    "/** The tail of the terminal, so cwd, distro and shell can be read from output the reader sees. */",
+    "/** A command that already ran, with whatever exit status the caller knows. */",
+    "/** Set when the worker stored the handoff for the next connection to this host. */",
+    "/** The last handoff stored for one host, as the workspace card reads it. */",
+    "/** A 1-based line in the content the caller sent, or null when the finding is file-wide. */",
+    "/** Where in the recording the match happened, in milliseconds from the first event. */",
+    "/** The output line the model matched, already stripped of control sequences. */",
+    "/** The window in days, 1-30; the worker clamps it. */",
+    "/** Whether this account has a model the WebSSH AI buttons can spend. */",
+    "/**\n * The bounds every surface shares. A transcript is the tail of a terminal, not a file: 16k characters\n * is several screens of output, which is what a diagnosis actually needs.\n */",
+  ]],
   ["src/shared/webssh/providers.ts", [
     "/**\n * The provider vocabulary shared by the worker and the list UI.\n *\n * A provider is a stable id, a brand colour and a two-letter monogram; the monogram is the fallback\n * icon when a host has no chosen Lucide/emoji/image icon, so a row never renders a blank tile. Built-in\n * ids are reserved, and a custom provider keeps its own user-scoped id (`custom:<26-char id>`).\n */",
     "/** Built-in ids stay lowercase ASCII; a custom provider must carry the user-scoped prefix. */",
@@ -34376,6 +34451,8 @@ const allowed = new Map([
     "/** One throttled sample of a live session; every field is `null`/empty when the host lacks that source. */",
     "/** A widget's rectangle on the 12-column dashboard grid. */",
     "/** The portable layout file. It holds no host, credential, session or account identifier. */",
+    "// A model was spent on this account's behalf. Metadata names the feature, the model and the",
+    "// token spend; it never carries the prompt, the transcript or any credential.",
   ]],
   ["src/shared/youtube/model.ts", [
     "/**\n * The YouTube app's shared vocabulary: the upstream shapes the API hands over, the library rows a\n * reader saves, the address that names a view, and the pure formatting/tree rules both sides use.\n *\n * Nothing here touches the network or the DOM. The worker's transforms and the reader's rendering\n * have to agree on every field, so the types live once and are imported by both builds.\n */",
@@ -37183,6 +37260,7 @@ const allowed = new Map([
     "// A whitelist from the caller is the narrowest rule there is, so it is read before the exceptions",
     "// below: a template that declared `read_note` only must not still reach the question tool.",
     "/**\n   * The turn's clock. Production sets it once when the context is built so every tool in a turn\n   * agrees on \"now\"; tests set it so a case about a fixed day does not change meaning with the hour\n   * the suite happens to run at. Absent means the wall clock.\n   */",
+    "/**\n * Read-only views of the reader's SSH inventory.\n *\n * These exist so the assistant can answer \"which host was that\" and \"what did my last session do\"\n * without a model ever seeing a credential: the queries select host labels, session state and audit\n * metadata, and the credential and key tables are not mentioned here at all.\n */",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -39935,6 +40013,9 @@ const allowed = new Map([
     "// Open Graph preview payloads for social crawlers. 314 is the first free short-link number:",
     "// 300–313 belong to other branches (301 monitoring, 304 files/forwarding, 307+ terminal,",
     "// 310–312 host list UI, 313 WebSSH-AI).",
+    "// The WebSSH AI handoff note. 313 is the first free number above the other WebSSH lanes",
+    "// (301 monitoring, 304 files/forwarding); every statement is `IF NOT EXISTS`, so a fresh",
+    "// database and one already past this number agree.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -44522,6 +44603,48 @@ const allowed = new Map([
   ["src/worker/wasm.d.ts", [
     "/**\n * A WebAssembly module imported as a file.\n *\n * Workers cannot compile WebAssembly from bytes at runtime — `WebAssembly.instantiate` on a buffer is\n * refused by the embedder — so a module has to arrive as an import the bundler compiles at deploy time.\n * The plugin that builds this worker recognises the `.wasm` extension and emits the file as a compiled\n * module next to the bundle; this declaration is the type of what the import hands back.\n */",
   ]],
+  ["src/worker/webssh/ai/prompts.ts", [
+    "/**\n * The prompts behind the WebSSH AI buttons.\n *\n * Each answer is one JSON object so the worker, not the model, decides what the reader sees. The\n * common preamble is repeated on purpose: terminal output, file content and command text are all\n * untrusted, and a prompt that only says so once is a prompt a later template can forget.\n */",
+    "/** The sanitized facts about the screen, never about the credential that opened it. */",
+  ]],
+  ["src/worker/webssh/ai/service.ts", [
+    "/**\n * The worker side of every WebSSH AI feature.\n *\n * All calls go through `runOneShot`, which is the app's existing assistant gateway: the reader's\n * configured provider and model, the provider key ring, the daily request ceiling and the usage meter\n * are the same ones the chat assistant spends. There is no second AI path in this module.\n *\n * What is deliberately absent: credentials, private keys, ciphertexts, host addresses and usernames\n * are never read here. The scope is a host label and a session's status, and the transcript is the\n * reader's own terminal tail after `text.ts` has stripped its control sequences and redacted secrets.\n */",
+    "/**\n * One structured call, metered and audited.\n *\n * The audit row names the feature, the model and the spend, never the prompt: the transcript is the\n * reader's terminal, and a security log is not the place it should be copied to.\n */",
+    "// The reader gets a stable code; the operator gets the provider's own sentence, which may name",
+    "// the host or the HTTP status but never the prompt or the key.",
+    "/** The object a model answered, or a refusal the reader can act on. */",
+    "/** The host label and session status that may travel; nothing from `webssh_credentials` or `webssh_keys`. */",
+    "// A thinking model spends part of its allowance before the JSON begins; 1100 tokens was enough",
+    "// to be cut off mid-object on a two-thousand-token diagnosis.",
+    "// The handoff persists only when a host is known; `savedAt` is the caller's proof it landed.",
+    "/** Keep the shape of a long recording: take evenly spaced lines so the whole timeline is represented. */",
+    "// No model is spent on an empty window. The interface owns the sentence, because it is copy the",
+    "// reader reads rather than a fact the worker should translate.",
+  ]],
+  ["src/worker/webssh/ai/text.ts", [
+    "/**\n * Text hygiene for every WebSSH AI call.\n *\n * Terminal output is untrusted input twice over: the remote host chose it and the reader pasted it.\n * This module removes the control sequences a model cannot read, redacts the shapes of secrets a\n * terminal often prints by accident, and cuts a long transcript in the middle so both the beginning\n * (the command that caused the problem) and the end (the error) survive.\n */",
+    "/** CSI, OSC and the two-character escapes xterm understands. */",
+    "// OSC first: the single-character branch below also covers `]`, so an unterminated ordering would",
+    "// leave the title text behind as ordinary output.",
+    "/** The shapes a secret takes when a command or its output echo one. */",
+    "/** Terminal output as plain lines: no escapes, no carriage returns, no NUL bytes. */",
+    "/** A transcript with the common secret shapes replaced before anything leaves the worker. */",
+    "/** Clean, redacted text ready for a prompt. */",
+    "/**\n * Cut a long text in the middle rather than at the end.\n *\n * A terminal's first lines say what the reader ran and its last lines say how it failed; truncating\n * only the tail throws away the one line a diagnosis is usually about.\n */",
+    "/** One bounded, trimmed string, or '' when the value is not one. */",
+    "/**\n * The last `maxChars` of a string.\n *\n * A terminal's useful context is its tail: the error is at the bottom and the command that caused it\n * is a few lines above. Cutting from the front would keep the login banner and drop both.\n */",
+    "/** A bounded string with no empty answer, or null. */",
+    "/** A bounded count, or null when the value is not a finite non-negative integer. */",
+    "/**\n * The first complete JSON object in a model answer.\n *\n * Providers sometimes wrap JSON in prose or a fenced block even when asked not to. Extracting the\n * outermost brace pair is the one repair that cannot change the meaning of a well-formed answer, so\n * anything else is treated as unparseable rather than guessed at.\n */",
+    "/** Up to `maxItems` non-empty strings from a JSON value. */",
+    "/** A model's risk label, defaulting to `caution`: an unknown label is not permission. */",
+    "/** A model's confidence label. */",
+    "/** A finding/severity label. */",
+    "/** A bounded integer field a model returned. */",
+  ]],
+  ["src/worker/webssh/assistant-tools.ts", [
+    "/**\n * The read-only WebSSH data the global assistant may see.\n *\n * These queries never touch `webssh_credentials` or `webssh_keys`: the assistant can answer \"which\n * hosts do I have\" and \"what happened in my last session\" without the model ever receiving a\n * password, a private key or a ciphertext. Host addresses and usernames are included because they\n * are what the reader named, and they are not secrets.\n */",
+  ]],
   ["src/worker/webssh/audit.ts", [
     "// Append-only WebSSH audit trail (plan §5.5). Metadata never carries a password, private key or",
     "// terminal output; it names ids, counts and result codes only.",
@@ -44714,6 +44837,10 @@ const allowed = new Map([
     "// Abandoned staged uploads from interrupted SFTP transfers. The sweep checks D1 for a live session",
     "// before deleting anything, because that is the only row that could still complete the transfer.",
   ]],
+  ["src/worker/webssh/routes-ai.ts", [
+    "/**\n * The WebSSH AI REST surface, mounted at `/api/webssh/ai`.\n *\n * Every route is an explicit action the reader pressed in the terminal. There is no background\n * generation and no automatic spend: a turn that would cost the reader's AI quota only happens\n * when a button in `WebsshAiPanel`, the file dialog, the recording library or the audit panel asks.\n *\n * The routes validate and bound, then hand the work to `ai/service.ts`; the prompts and the model\n * call live there so the HTTP layer never assembles a prompt of its own.\n */",
+    "/** The host and session ids any request may name; both are ownership-checked in the service. */",
+  ]],
   ["src/worker/webssh/routes-audit.ts", [
     "// Read-only audit retrieval and the local health signals (plan W7-03). Nothing here writes: the",
     "// audit table is append-only from the session paths, and the health report is derived on request so",
@@ -44787,6 +44914,13 @@ const allowed = new Map([
     "// Owner-facing snippet and import routes (plan W7-02). Every statement is scoped to the session's",
     "// `userId`, and the audit table is not involved: snippets are content, not security events.",
     "/** Marks a snippet as used when it is inserted into a terminal. */",
+  ]],
+  ["src/worker/webssh/routes.ts", [
+    "// The AI surface is its own sub-app so every route under `/ai` shares one validation and metering",
+    "// boundary; the session, SFTP, recording and audit routers stay unaware of it.",
+  ]],
+  ["src/worker/webssh/schema.ts", [
+    "/**\n * The one AI row that outlives a session: the handoff note for the next connection to a host.\n *\n * The primary key is (account, host, kind) rather than the session, because a handoff is read by\n * the host the reader reconnects to and the latest one replaces the last. A session summary that\n * nobody asked to keep is not stored at all.\n */",
   ]],
   ["src/worker/webssh/session-ticket.ts", [
     "// One-time WebSocket tickets for the WebSSH session runtime.",
@@ -50895,6 +51029,17 @@ const allowed = new Map([
     "// node:sqlite's `get()` takes SQLInputValue, not unknown: the helper keeps the same accepted set so",
     "// a caller that passes an unsupported value fails here instead of at run time.",
     "// The page was read a moment ago; a restore lands before the batch does.",
+  ]],
+  ["tests/webssh-ai-routes.test.ts", [
+    "// The AI surface's HTTP contract: ownership, bounds and the two answers that need no model call.",
+    "// A real SQLite database is used so the queries are the production ones.",
+  ]],
+  ["tests/webssh-ai-text.test.ts", [
+    "// Sanitising and parsing are the boundary between a terminal and a model, so each rule is asserted",
+    "// on its own rather than through a mocked call.",
+  ]],
+  ["tests/webssh-command-risk.test.ts", [
+    "// The local danger gate: pure pattern matching, no terminal and no model.",
   ]],
   ["tests/webssh-connection.test.ts", [
     "// W2 outbound gate: private/loopback/link-local/Cloudflare ranges, port 25, DNS answers and the",
