@@ -2,7 +2,7 @@
 // replay/share dialog the terminal uses, so the share capability has one implementation.
 
 import { useEffect, useMemo, useState } from 'react'
-import { Play, Share2, Trash2 } from 'lucide-react'
+import { Play, Share2, Sparkles, Trash2 } from 'lucide-react'
 import type { WebsshRecordingListItem } from '@shared/webssh/types'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Empty } from '../../components/feedback'
@@ -12,6 +12,7 @@ import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { websshApi } from './api'
 import { RecordingPlayerDialog } from './RecordingPlayerDialog'
+import { RecordingAiDialog } from './RecordingAiDialog'
 
 function errorText(caught: unknown): string {
   return caught instanceof ApiError ? caught.message : t('webssh.error.generic')
@@ -46,6 +47,8 @@ export function RecordingsPanel({ open, onClose }: { open: boolean; onClose: () 
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
   const [replaySession, setReplaySession] = useState<string | null>(null)
+  const [replaySeekMs, setReplaySeekMs] = useState<number | null>(null)
+  const [aiTarget, setAiTarget] = useState<WebsshRecordingListItem | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -162,7 +165,10 @@ export function RecordingsPanel({ open, onClose }: { open: boolean; onClose: () 
                               label={t('webssh.recordings.replay')}
                               size="xs"
                               disabled={item.status !== 'ready'}
-                              onClick={() => setReplaySession(item.sessionId)}
+                              onClick={() => {
+                                setReplaySeekMs(null)
+                                setReplaySession(item.sessionId)
+                              }}
                             >
                               <Play size={13} aria-hidden="true" />
                             </IconButton>
@@ -172,9 +178,22 @@ export function RecordingsPanel({ open, onClose }: { open: boolean; onClose: () 
                               label={t('webssh.share.title')}
                               size="xs"
                               disabled={item.status !== 'ready'}
-                              onClick={() => setReplaySession(item.sessionId)}
+                              onClick={() => {
+                                setReplaySeekMs(null)
+                                setReplaySession(item.sessionId)
+                              }}
                             >
                               <Share2 size={13} aria-hidden="true" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip label={t('webssh.ai.recording.open')}>
+                            <IconButton
+                              label={t('webssh.ai.recording.open')}
+                              size="xs"
+                              disabled={item.status !== 'ready'}
+                              onClick={() => setAiTarget(item)}
+                            >
+                              <Sparkles size={13} aria-hidden="true" />
                             </IconButton>
                           </Tooltip>
                           <Tooltip label={t('webssh.recordings.delete')}>
@@ -209,7 +228,24 @@ export function RecordingsPanel({ open, onClose }: { open: boolean; onClose: () 
       <RecordingPlayerDialog
         open={replaySession !== null}
         sessionId={replaySession}
-        onClose={() => setReplaySession(null)}
+        initialSeekMs={replaySeekMs}
+        onClose={() => {
+          setReplaySession(null)
+          setReplaySeekMs(null)
+        }}
+      />
+
+      <RecordingAiDialog
+        open={aiTarget !== null}
+        sessionId={aiTarget?.sessionId ?? null}
+        hostName={aiTarget?.hostName || t('webssh.recordings.group_unknown')}
+        onClose={() => setAiTarget(null)}
+        onSeek={(atMs) => {
+          if (!aiTarget) return
+          setAiTarget(null)
+          setReplaySeekMs(atMs)
+          setReplaySession(aiTarget.sessionId)
+        }}
       />
     </>
   )

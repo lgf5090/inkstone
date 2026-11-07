@@ -10,8 +10,8 @@ import { ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { websshApi } from './api'
-
-const EDIT_LIMIT = 2 * 1024 * 1024
+// The editor's write ceiling and the shared read ceiling are the same number on purpose.
+import { readSftpText, SFTP_TEXT_READ_LIMIT as EDIT_LIMIT } from './sftp-text'
 
 function errorText(caught: unknown): string {
   // Local guards (size, encoding) throw plain Errors with a user-facing message; only show a generic
@@ -49,28 +49,7 @@ export function FileEditorDialog({ open, entry, sessionId, onClose, onSaved }: {
     setText('')
     setOriginal('')
     void (async () => {
-      if (entry.size > EDIT_LIMIT) throw new Error(t('webssh.editor.too_large', { name: entry.name }))
-      const chunks: Blob[] = []
-      let offset = 0
-      let total = entry.size
-      for (let index = 0; index < 64; index += 1) {
-        const response = await websshApi.download(sessionId, entry.path, offset)
-        const headerSize = Number(response.headers.get('x-webssh-file-size') ?? '0')
-        if (Number.isSafeInteger(headerSize) && headerSize > 0) total = headerSize
-        const blob = await response.blob()
-        chunks.push(blob)
-        offset += blob.size
-        if (blob.size === 0 || offset >= total) break
-      }
-      if (total > EDIT_LIMIT) throw new Error(t('webssh.editor.too_large', { name: entry.name }))
-      const bytes = new Uint8Array(await new Blob(chunks).arrayBuffer())
-      if (bytes.includes(0)) throw new Error(t('webssh.editor.binary', { name: entry.name }))
-      let decoded: string
-      try {
-        decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-      } catch {
-        throw new Error(t('webssh.editor.binary', { name: entry.name }))
-      }
+      const decoded = await readSftpText(sessionId, entry, EDIT_LIMIT)
       if (cancelled) return
       setText(decoded)
       setOriginal(decoded)

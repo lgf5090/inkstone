@@ -98,6 +98,7 @@ import {
 import {
   WEBSSH_REQUIRED_COLUMNS,
   WEBSSH_REQUIRED_INDEXES,
+  WEBSSH_AI_SUMMARY_SCHEMA_STATEMENTS,
   WEBSSH_REQUIRED_TABLES,
   WEBSSH_SCHEMA_STATEMENTS,
 } from '../webssh/schema'
@@ -3876,6 +3877,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 298,
     statements: WEBSSH_SCHEMA_STATEMENTS,
+  },
+  {
+    // The WebSSH AI handoff note. This branch's ledger stops at 298, and 299-312 belong to the
+    // `test` branch and the host-list work that is renumbering the existing WebSSH migrations;
+    // 313 is the first number this feature may claim. Every statement is `IF NOT EXISTS`, so a
+    // fresh database and one already past this number agree.
+    version: 313,
+    statements: WEBSSH_AI_SUMMARY_SCHEMA_STATEMENTS,
   },
 ]
 

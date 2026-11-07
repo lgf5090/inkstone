@@ -2601,6 +2601,8 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'purge_subscription', labelKey: 'assistant.tool.purge_subscription', approvalKey: 'assistant.approval.purge_subscription', permission: 'destructive' },
   { name: 'empty_subscription_trash', labelKey: 'assistant.tool.empty_subscription_trash', approvalKey: 'assistant.approval.empty_subscription_trash', permission: 'destructive' },
   { name: 'email_list_accounts', labelKey: 'assistant.tool.email_list_accounts', permission: 'read' },
+  { name: 'webssh_list_hosts', labelKey: 'assistant.tool.webssh_list_hosts', permission: 'read' },
+  { name: 'webssh_list_sessions', labelKey: 'assistant.tool.webssh_list_sessions', permission: 'read' },
   { name: 'email_list', labelKey: 'assistant.tool.email_list', permission: 'read' },
   { name: 'email_read', labelKey: 'assistant.tool.email_read', permission: 'read' },
   { name: 'email_thread', labelKey: 'assistant.tool.email_thread', permission: 'read' },

@@ -7,6 +7,7 @@ import {
   FolderPlus,
   Pencil,
   RefreshCw,
+  Sparkles,
   Trash2,
   Upload,
   X,
@@ -23,6 +24,7 @@ import { t } from '../../lib/i18n'
 import { websshApi } from './api'
 import { FileGlyph, isEditableTextEntry } from './file-icons'
 import { FileEditorDialog } from './FileEditorDialog'
+import { FileAiDialog } from './FileAiDialog'
 
 function joinPath(parent: string, name: string): string {
   if (parent === '/') return `/${name}`
@@ -67,6 +69,7 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
   const [renameTarget, setRenameTarget] = useState<WebsshSftpEntry | null>(null)
   const [renameName, setRenameName] = useState('')
   const [editorTarget, setEditorTarget] = useState<WebsshSftpEntry | null>(null)
+  const [askTarget, setAskTarget] = useState<WebsshSftpEntry | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -359,6 +362,13 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
                         </IconButton>
                       </Tooltip>
                     )}
+                    {isEditableTextEntry(entry) && (
+                      <Tooltip label={t('webssh.ai.file.open')}>
+                        <IconButton label={t('webssh.ai.file.open')} size="xs" onClick={() => setAskTarget(entry)}>
+                          <Sparkles size={13} aria-hidden="true" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     <Tooltip label={t('webssh.actions.rename')}>
                       <IconButton
                         label={t('webssh.actions.rename')}
@@ -409,6 +419,13 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
         sessionId={sessionId}
         onClose={() => setEditorTarget(null)}
         onSaved={refresh}
+      />
+
+      <FileAiDialog
+        open={askTarget !== null}
+        entry={askTarget}
+        sessionId={sessionId}
+        onClose={() => setAskTarget(null)}
       />
 
       <Modal

@@ -20,6 +20,8 @@ export interface CastPlayerProps {
   loadSlice: (offset: number, limit: number) => Promise<CastSlice>
   durationMs: number
   autoPlay?: boolean
+  /** A moment an AI search pointed at; the player opens paused there instead of at the start. */
+  initialSeekMs?: number | null
 }
 
 const SLICE_BYTES = 512 * 1024
@@ -32,7 +34,7 @@ function seconds(value: number): string {
   return `${minutes}:${String(rest).padStart(2, '0')}`
 }
 
-export function CastPlayer({ loadSlice, durationMs, autoPlay = true }: CastPlayerProps) {
+export function CastPlayer({ loadSlice, durationMs, autoPlay = true, initialSeekMs = null }: CastPlayerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const eventsRef = useRef<WebsshCastEvent[]>([])
   const indexRef = useRef(0)
@@ -144,6 +146,15 @@ export function CastPlayer({ loadSlice, durationMs, autoPlay = true }: CastPlaye
     frameRef.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frameRef.current)
   }, [loading, error, playing, durationMs])
+
+  // The AI search's timestamp is applied once the slices are in memory: drawing before then would
+  // start from an empty event list and show a blank terminal at the right second.
+  useEffect(() => {
+    if (loading || error || initialSeekMs === null) return
+    setPlaying(false)
+    playingRef.current = false
+    draw(Math.min(durationMs / 1000, Math.max(0, initialSeekMs / 1000)))
+  }, [loading, error, initialSeekMs, durationMs])
 
   const seek = (value: number) => {
     setPlaying(false)

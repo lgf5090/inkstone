@@ -7331,6 +7331,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.tool.delete_subscription_payment": "提议删除一笔扣款",
     "assistant.tool.edit_subscription_payment": "更正一笔扣款",
     "assistant.tool.empty_subscription_trash": "清空订阅回收站",
+    "assistant.tool.webssh_list_hosts": "列出 SSH 主机",
+    "assistant.tool.webssh_list_sessions": "列出 SSH 会话",
     "assistant.tool.email_list_accounts": "列出邮箱",
     "assistant.tool.email_list": "列出邮件",
     "assistant.tool.email_read": "阅读邮件",

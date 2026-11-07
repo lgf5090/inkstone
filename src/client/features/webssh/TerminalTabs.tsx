@@ -5,7 +5,7 @@
  * tooltip and the status bar both say the phase in words.
  */
 import { useRef } from 'react'
-import { Plus, Settings2, Keyboard, X, FolderOpen, History, ScrollText, Video } from 'lucide-react'
+import { Plus, Settings2, Keyboard, X, FolderOpen, History, ScrollText, Sparkles, Video } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
@@ -45,6 +45,9 @@ export function TerminalTabs({
   onOpenFiles,
   filesOpen = false,
   filesDisabled = false,
+  onOpenAi,
+  aiOpen = false,
+  aiDisabled = false,
   onOpenSnippets,
   snippetsDisabled = false,
   onOpenReplay,
@@ -63,6 +66,9 @@ export function TerminalTabs({
   onOpenFiles?: () => void
   filesOpen?: boolean
   filesDisabled?: boolean
+  onOpenAi?: () => void
+  aiOpen?: boolean
+  aiDisabled?: boolean
   onOpenSnippets?: () => void
   snippetsDisabled?: boolean
   onOpenReplay?: () => void
@@ -159,6 +165,13 @@ export function TerminalTabs({
           <Tooltip label={t('webssh.sftp.open')}>
             <IconButton label={t('webssh.sftp.open')} size="sm" active={filesOpen} disabled={filesDisabled} onClick={onOpenFiles}>
               <FolderOpen size={15} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onOpenAi && (
+          <Tooltip label={t('webssh.ai.open')}>
+            <IconButton label={t('webssh.ai.open')} size="sm" active={aiOpen} disabled={aiDisabled} onClick={onOpenAi}>
+              <Sparkles size={15} aria-hidden="true" />
             </IconButton>
           </Tooltip>
         )}

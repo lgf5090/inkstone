@@ -14,9 +14,11 @@ function errorText(caught: unknown): string {
   return caught instanceof ApiError ? caught.message : t('webssh.error.generic')
 }
 
-export function RecordingPlayerDialog({ open, sessionId, onClose }: {
+export function RecordingPlayerDialog({ open, sessionId, initialSeekMs = null, onClose }: {
   open: boolean
   sessionId: string | null
+  /** Where an AI search result asked the replay to start; null opens at the beginning. */
+  initialSeekMs?: number | null
   onClose: () => void
 }) {
   const [recording, setRecording] = useState<WebsshRecordingView | null>(null)
@@ -127,6 +129,8 @@ export function RecordingPlayerDialog({ open, sessionId, onClose }: {
           <CastPlayer
             loadSlice={loadSlice}
             durationMs={recording.durationMs}
+            initialSeekMs={initialSeekMs}
+            autoPlay={initialSeekMs === null}
           />
 
           <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3">

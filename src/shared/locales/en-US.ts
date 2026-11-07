@@ -7340,6 +7340,8 @@ const CORE_MESSAGES_TAIL = {
     "assistant.tool.delete_subscription_payment": "Propose erasing a payment",
     "assistant.tool.edit_subscription_payment": "Correct a payment",
     "assistant.tool.empty_subscription_trash": "Empty the subscription trash",
+    "assistant.tool.webssh_list_hosts": "List SSH hosts",
+    "assistant.tool.webssh_list_sessions": "List SSH sessions",
     "assistant.tool.email_list_accounts": "List mailboxes",
     "assistant.tool.email_list": "List emails",
     "assistant.tool.email_read": "Read an email",
