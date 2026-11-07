@@ -5,6 +5,7 @@
  */
 import type { WebsshServerFrame } from '@shared/webssh/types'
 import { ApiError } from '../../../lib/api'
+import { formatEgressFailure } from '../egress-error'
 import { websshApi } from '../api'
 import type { TerminalTransport, TerminalTransportHandlers } from './types'
 
@@ -98,7 +99,8 @@ export class WebSocketTerminalTransport implements TerminalTransport {
       }
       if (frame.type === 'error') {
         this.reported = true
-        this.handlers.onPhase({ phase: 'error', reason: frame.code, message: frame.message })
+        const message = frame.egress ? formatEgressFailure(frame.egress, frame.message) : frame.message
+        this.handlers.onPhase({ phase: 'error', reason: frame.code, message })
       }
     }
 

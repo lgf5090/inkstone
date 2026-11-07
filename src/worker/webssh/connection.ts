@@ -6,6 +6,7 @@
 
 import { isBlockedTarget, isIpLiteralHost } from '@shared/ai-proxy-guard'
 import { isValidHost } from './ssh/types'
+import { WEBSSH_CONNECT_TIMEOUT_MS } from './constants'
 
 const DOH_URL_DEFAULT = 'https://cloudflare-dns.com/dns-query'
 /** Snapshot of Cloudflare's published edge ranges; a deployment cannot open TCP to its own edge. */
@@ -271,17 +272,62 @@ export interface ConnectSocketOptions {
 
 export type ConnectImpl = (options: ConnectSocketOptions) => Socket
 
+export interface OpenSshSocketOptions {
+  /** Defaults to `WEBSSH_CONNECT_TIMEOUT_MS`. */
+  timeoutMs?: number
+}
+
 /**
  * Open the raw TCP socket against the validated address.
  *
  * `connect` is imported lazily so unit tests can inject their own transport without loading the
- * Workers-only module.
+ * Workers-only module. Workers resolves the TCP outcome on `socket.opened`, so that promise is
+ * awaited here: an unreachable destination otherwise surfaces only as a read-loop error, where the
+ * phase and the elapsed time are no longer available.
  */
-export async function openSshSocket(target: SshTarget, connectImpl?: ConnectImpl): Promise<Socket> {
+export async function openSshSocket(
+  target: SshTarget,
+  connectImpl?: ConnectImpl,
+  options: OpenSshSocketOptions = {},
+): Promise<Socket> {
   const connect = connectImpl ?? (await import('cloudflare:sockets')).connect
+  let socket: Socket
   try {
-    return connect({ hostname: target.address, port: target.port })
+    socket = connect({ hostname: target.address, port: target.port })
   } catch (error) {
     throw new WebsshConnectionError('connect_failed', `Could not open a TCP connection to ${target.address}:${target.port}`, { cause: error })
   }
+
+  const opened = (socket as unknown as { opened?: Promise<unknown> }).opened
+  if (opened && typeof opened.then === 'function') {
+    const timeoutMs = options.timeoutMs ?? WEBSSH_CONNECT_TIMEOUT_MS
+    let timer: ReturnType<typeof setTimeout> | null = null
+    try {
+      await Promise.race([
+        opened,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new WebsshConnectionError(
+              'connect_failed',
+              `TCP connection to ${target.address}:${target.port} timed out after ${timeoutMs} ms`,
+            ))
+          }, timeoutMs)
+        }),
+      ])
+    } catch (error) {
+      try {
+        await socket.close()
+      } catch {
+        // The platform may already have torn the socket down with the failed open.
+      }
+      throw new WebsshConnectionError(
+        'connect_failed',
+        `Could not open a TCP connection to ${target.address}:${target.port}`,
+        { cause: error },
+      )
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+  return socket
 }

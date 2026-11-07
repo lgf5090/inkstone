@@ -34,6 +34,30 @@ export interface WebsshSessionTicket {
 
 export type WebsshCloseReason = 'eof' | 'idle' | 'error'
 
+/** The outbound stage a structured connection failure belongs to. */
+export type WebsshEgressPhase = 'dns' | 'connect' | 'handshake' | 'auth' | 'proxy' | 'jump'
+
+/** The outbound path shape; relay modes stay reserved until a relay node is available. */
+export type WebsshEgressMode = 'direct' | 'jump' | 'socks5' | 'http-connect'
+
+/**
+ * A connection failure described in the terms an operator can act on: which stage failed, which
+ * address was attempted, how long it took, and the deepest message in the error's cause chain.
+ * `region` is reserved for the region-pinned egress work and stays empty until that lands.
+ */
+export interface WebsshEgressFailure {
+  name: string
+  message: string
+  phase: WebsshEgressPhase
+  address: string
+  port: number
+  elapsedMs: number
+  mode: WebsshEgressMode
+  region: string
+  /** A proxy or jump hop, when the failed stage belongs to one. */
+  via?: string
+}
+
 /** Rates are bytes per second; `null` means this is the first sample after connecting. */
 export interface WebsshMonitorNetworkRate {
   rx: number | null
@@ -293,6 +317,7 @@ export const WEBSSH_AUDIT_EVENT_TYPES = [
   'ticket_rejected',
   'connect',
   'connect_blocked',
+  'connect_error',
   'host_key_new',
   'host_key_changed',
   'host_key_trusted',
@@ -385,7 +410,7 @@ export type WebsshServerFrame =
   | { type: 'ready'; cols: number; rows: number }
   | { type: 'output'; data: string }
   | { type: 'exit'; reason: WebsshCloseReason; message?: string; exitCode?: number | null; signal?: string | null }
-  | { type: 'error'; code: string; message?: string }
+  | { type: 'error'; code: string; message?: string; egress?: WebsshEgressFailure }
   | { type: 'pong' }
 
 export type WebsshAuthMethod = 'password' | 'publickey'

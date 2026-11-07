@@ -5,10 +5,20 @@
 // then resolves/opens the SSH connection. Frames are the frozen W4 text protocol; terminal bytes are
 // never interpreted here.
 
-import type { WebsshForwardGrant, WebsshMonitorKillResult, WebsshMonitorSnapshot, WebsshServerFrame, WebsshSessionStatus } from '@shared/webssh/types'
+import type {
+  WebsshEgressFailure,
+  WebsshEgressMode,
+  WebsshEgressPhase,
+  WebsshForwardGrant,
+  WebsshMonitorKillResult,
+  WebsshMonitorSnapshot,
+  WebsshServerFrame,
+  WebsshSessionStatus,
+} from '@shared/webssh/types'
 import type { Env } from '../../env'
 import { decryptWebsshSecret } from '../../lib/crypto'
 import { isValidId, newId } from '../../lib/id'
+import { describeError, toEgressFailure } from '../egress-error'
 import { SSHSession, type SSHExecChannel, type SSHSubsystemChannel } from '../ssh/session'
 import { SSHSessionError } from '../ssh/errors'
 import type {
@@ -111,7 +121,27 @@ function failureCode(error: unknown): string {
 }
 
 function failureMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return describeError(error).message
+}
+
+/**
+ * Codes that describe the outbound attempt rather than the terminal after it is ready. Only these
+ * produce a structured `connect_error` row, so a database or monitor failure cannot masquerade as a
+ * network diagnosis.
+ */
+const EGRESS_FAILURE_CODES = new Set([
+  'connection_timeout',
+  'socket_error',
+  'version_rejected',
+  'kex_failed',
+  'host_key_changed',
+  'host_key_rejected',
+  'host_signature_invalid',
+  'auth_failed',
+])
+
+function isEgressFailure(code: string): boolean {
+  return code === 'connect_failed' || code === 'dns_failed' || EGRESS_FAILURE_CODES.has(code)
 }
 
 export class WebsshSession implements DurableObject {
@@ -153,6 +183,15 @@ export class WebsshSession implements DurableObject {
   private monitorSnapshot: WebsshMonitorSnapshot | null = null
   private monitorCachedAt = 0
   private monitorPending: Promise<WebsshMonitorSnapshot> | null = null
+
+  private egressStartedAt = 0
+  private egressPhase: WebsshEgressPhase = 'connect'
+  private egressAddress = ''
+  private egressPort = 0
+  private egressMode: WebsshEgressMode = 'direct'
+  private egressRegion = ''
+  private egressVia = ''
+  private egressFailureRecorded = false
 
   constructor(state: DurableObjectState, env: Env) {
     this.ctx = state
@@ -236,6 +275,11 @@ export class WebsshSession implements DurableObject {
     try {
       const runtime = await this.loadRuntimeConfig()
       const allowPrivate = readDevAllowPrivateHosts(this.env.WEBSSH_DEV_ALLOW_PRIVATE_HOSTS)
+      this.egressStartedAt = Date.now()
+      this.egressPhase = 'dns'
+      this.egressMode = 'direct'
+      this.egressAddress = runtime.config.host
+      this.egressPort = runtime.config.port
       let target: SshTarget
       try {
         target = await resolveSshTarget(runtime.config.host, runtime.config.port, {
@@ -243,12 +287,24 @@ export class WebsshSession implements DurableObject {
           dohUrl: this.env.WEBSSH_DOH_URL,
         })
       } catch (error) {
+        const code = failureCode(error)
+        this.egressPhase = code === 'dns_failed' ? 'dns' : 'connect'
+        const failure = this.describeEgressFailure(error)
         await this.audit('connect_blocked', {
           hostId: this.hostId,
-          metadata: { code: failureCode(error), message: failureMessage(error) },
+          metadata: {
+            code,
+            name: failure.name,
+            message: failure.message,
+            ...this.egressAuditFields(failure),
+          },
         })
+        if (code === 'dns_failed') this.recordConnectError(error, failure)
         throw error
       }
+      this.egressPhase = 'connect'
+      this.egressAddress = target.address
+      this.egressPort = target.port
       await this.audit('connect', {
         hostId: this.hostId,
         metadata: {
@@ -256,6 +312,8 @@ export class WebsshSession implements DurableObject {
           address: target.address,
           family: target.family,
           devOverride: target.devOverride,
+          mode: this.egressMode,
+          region: this.egressRegion,
         },
       })
       const socket = await openSshSocket(target)
@@ -372,7 +430,15 @@ export class WebsshSession implements DurableObject {
 
   private createSink(): SSHSessionSink {
     return {
-      status: () => this.touch(),
+      status: (event) => {
+        if (event === 'version_exchange' || event === 'version_ready'
+          || event === 'host_key_verified' || event === 'host_key_confirmation') {
+          this.egressPhase = 'handshake'
+        } else if (event === 'authenticating' || event === 'auth_success') {
+          this.egressPhase = 'auth'
+        }
+        this.touch()
+      },
       output: (data) => this.onOutput(data),
       hostKey: (info) => this.onHostKey(info),
       ready: (info) => { void this.onReady(info).catch((error) => this.fail(error)) },
@@ -1051,12 +1117,19 @@ export class WebsshSession implements DurableObject {
 
     if (error) {
       const code = failureCode(error)
-      this.sendFrame({ type: 'error', code, message: failureMessage(error) })
+      const message = failureMessage(error)
+      const failure = !this.readySent && isEgressFailure(code) ? this.describeEgressFailure(error) : undefined
+      this.sendFrame({ type: 'error', code, message, ...(failure ? { egress: failure } : {}) })
+      if (failure) this.recordConnectError(error, failure)
       await this.audit(code === 'auth_failed' ? 'auth_fail' : 'session_error', {
         hostId: this.hostId,
-        metadata: { code, message: failureMessage(error) },
+        metadata: {
+          code,
+          message,
+          ...(failure ? this.egressAuditFields(failure) : {}),
+        },
       })
-      this.finalize('error', 'error', code, failureMessage(error), 1011)
+      this.finalize('error', 'error', code, message, 1011)
       return
     }
 
@@ -1077,12 +1150,57 @@ export class WebsshSession implements DurableObject {
     if (this.finalized) return
     const code = failureCode(error)
     const message = failureMessage(error)
-    this.sendFrame({ type: 'error', code, message })
+    const failure = this.egressStartedAt > 0 && isEgressFailure(code) ? this.describeEgressFailure(error) : undefined
+    this.sendFrame({ type: 'error', code, message, ...(failure ? { egress: failure } : {}) })
+    if (failure) this.recordConnectError(error, failure)
     void this.audit(code === 'auth_failed' ? 'auth_fail' : 'session_error', {
       hostId: this.hostId,
-      metadata: { code, message },
+      metadata: {
+        code,
+        message,
+        ...(failure ? this.egressAuditFields(failure) : {}),
+      },
     })
     this.finalize('error', 'error', code, message, 1011)
+  }
+
+  private describeEgressFailure(error: unknown): WebsshEgressFailure {
+    return toEgressFailure(error, {
+      phase: this.egressPhase,
+      address: this.egressAddress,
+      port: this.egressPort,
+      startedAt: this.egressStartedAt || Date.now(),
+      mode: this.egressMode,
+      region: this.egressRegion,
+      ...(this.egressVia ? { via: this.egressVia } : {}),
+    })
+  }
+
+  /** Audit metadata only holds primitives, so the structured failure is flattened here. */
+  private egressAuditFields(failure: WebsshEgressFailure): Record<string, string | number | boolean | null> {
+    return {
+      phase: failure.phase,
+      address: failure.address,
+      port: failure.port,
+      elapsedMs: failure.elapsedMs,
+      mode: failure.mode,
+      region: failure.region,
+      ...(failure.via ? { via: failure.via } : {}),
+    }
+  }
+
+  private recordConnectError(error: unknown, failure?: WebsshEgressFailure): void {
+    if (!this.egressStartedAt || this.egressFailureRecorded) return
+    this.egressFailureRecorded = true
+    const detail = failure ?? this.describeEgressFailure(error)
+    void this.audit('connect_error', {
+      hostId: this.hostId,
+      metadata: {
+        name: detail.name,
+        message: detail.message,
+        ...this.egressAuditFields(detail),
+      },
+    })
   }
 
   private finalize(

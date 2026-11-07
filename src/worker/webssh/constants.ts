@@ -19,6 +19,9 @@ export const WEBSSH_FORWARD_RULE_NAME_MAX = 80
 export const WEBSSH_MAX_FRAME_BYTES = 64 * 1024
 export const WEBSSH_MAX_QUEUED_INPUT_BYTES = 1024 * 1024
 
+/** The TCP open phase is bounded below the SSH handshake budget so a silent socket fails early. */
+export const WEBSSH_CONNECT_TIMEOUT_MS = 15_000
+
 /** An idle terminal is closed after twenty minutes (plan D-01/R-02). */
 export const WEBSSH_IDLE_TIMEOUT_MS = 20 * 60 * 1000
 

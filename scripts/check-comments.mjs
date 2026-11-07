@@ -20259,6 +20259,9 @@ const allowed = new Map([
     "// A shared global/sticky flag would move the match position between calls; these are none.",
     "/** The line the reader appears to be typing, stripped of a prompt prefix when one is visible. */",
   ]],
+  ["src/client/features/webssh/egress-error.ts", [
+    "/**\n * A single sentence that names the stage, so a reader can tell a TCP failure from a handshake or an\n * authentication failure without reading the raw platform message first.\n */",
+  ]],
   ["src/client/features/webssh/file-icons.tsx", [
     "// Extension-to-icon mapping for the SFTP list (W5-03). Icons are lucide components chosen by suffix",
     "// rather than MIME: an SFTP listing carries a name and permissions, and the name is what the user",
@@ -34453,6 +34456,10 @@ const allowed = new Map([
     "/** The portable layout file. It holds no host, credential, session or account identifier. */",
     "// A model was spent on this account's behalf. Metadata names the feature, the model and the",
     "// token spend; it never carries the prompt, the transcript or any credential.",
+    "/** The outbound stage a structured connection failure belongs to. */",
+    "/** The outbound path shape; relay modes stay reserved until a relay node is available. */",
+    "/**\n * A connection failure described in the terms an operator can act on: which stage failed, which\n * address was attempted, how long it took, and the deepest message in the error's cause chain.\n * `region` is reserved for the region-pinned egress work and stays empty until that lands.\n */",
+    "/** A proxy or jump hop, when the failed stage belongs to one. */",
   ]],
   ["src/shared/youtube/model.ts", [
     "/**\n * The YouTube app's shared vocabulary: the upstream shapes the API hands over, the library rows a\n * reader saves, the address that names a view, and the pure formatting/tree rules both sides use.\n *\n * Nothing here touches the network or the DOM. The worker's transforms and the reader's rendering\n * have to agree on every field, so the types live once and are imported by both builds.\n */",
@@ -44684,7 +44691,9 @@ const allowed = new Map([
     "/** RFC 8484 JSON queries over the configured resolver; the default is Cloudflare's DoH endpoint. */",
     "/**\n * Resolve and validate the SSH target.\n *\n * Literal addresses skip DNS entirely. For hostnames both answer families are queried; blocked\n * answers are discarded, and the first acceptable A record (then AAAA) becomes the connection target.\n * When the development switch is on and no public answer exists, a private answer is accepted so a\n * local Docker sshd can be used, and the target is marked `devOverride` for the audit trail.\n */",
     "// SMTP is refused regardless of the development switch: it is the one port the platform bans outright.",
-    "/**\n * Open the raw TCP socket against the validated address.\n *\n * `connect` is imported lazily so unit tests can inject their own transport without loading the\n * Workers-only module.\n */",
+    "/** Defaults to `WEBSSH_CONNECT_TIMEOUT_MS`. */",
+    "/**\n * Open the raw TCP socket against the validated address.\n *\n * `connect` is imported lazily so unit tests can inject their own transport without loading the\n * Workers-only module. Workers resolves the TCP outcome on `socket.opened`, so that promise is\n * awaited here: an unreachable destination otherwise surfaces only as a read-loop error, where the\n * phase and the elapsed time are no longer available.\n */",
+    "// The platform may already have torn the socket down with the failed open.",
   ]],
   ["src/worker/webssh/constants.ts", [
     "/** An idle terminal is closed after twenty minutes (plan D-01/R-02). */",
@@ -44696,6 +44705,7 @@ const allowed = new Map([
     "/**\n * R2 multipart parts must be at least 5 MiB except the last one. The recorder only switches from a\n * single `put` to multipart once the buffered cast crosses this bound.\n */",
     "/** Replay slices are byte-addressed and bounded so one request never reads a whole recording. */",
     "/** How many expired recordings one retention fire processes. */",
+    "/** The TCP open phase is bounded below the SSH handshake budget so a silent socket fails early. */",
   ]],
   ["src/worker/webssh/dashboards.ts", [
     "/** Turns one widget from a request or an imported file into a rectangle the grid can draw. */",
@@ -44735,6 +44745,13 @@ const allowed = new Map([
     "/**\n   * The monitor REST surface reaches this object through the Worker binding. Each request re-reads\n   * the session row so a closed or foreign session answers 404/409 before any exec channel opens.\n   */",
     "/** At most one exec channel per three seconds per session; concurrent callers share the sample. */",
     "/**\n   * Runs one command on a fresh exec channel and collects its stdout/stderr up to a byte cap. The\n   * channel is closed when the cap or timeout is reached, so a slow `docker stats` cannot pin it.\n   */",
+    "/**\n * Codes that describe the outbound attempt rather than the terminal after it is ready. Only these\n * produce a structured `connect_error` row, so a database or monitor failure cannot masquerade as a\n * network diagnosis.\n */",
+    "/** Audit metadata only holds primitives, so the structured failure is flattened here. */",
+  ]],
+  ["src/worker/webssh/egress-error.ts", [
+    "/** Placeholder messages that carry no diagnostic value once a deeper cause exists. */",
+    "/**\n * The deepest useful `name`/`message` in an error's `cause` chain.\n *\n * Workers can reject a socket with a platform object that is not an `Error`, and the protocol core\n * wraps that object as a cause. Reading only the outer message turns every one of those into a\n * generic sentence, which is what made the original `proxy request failed` report impossible to\n * diagnose. `String(error)` remains the final fallback.\n */",
+    "/** Shape one failure for the audit row and the browser frame without leaking a stack or a secret. */",
   ]],
   ["src/worker/webssh/hosts.ts", [
     "/**\n   * Creates a host from an import without a credential or key. The row is deliberately usable only\n   * after the owner attaches a secret, so a bulk import never invents an authentication method.\n   */",
@@ -51048,6 +51065,14 @@ const allowed = new Map([
   ["tests/webssh-connection.test.ts", [
     "// W2 outbound gate: private/loopback/link-local/Cloudflare ranges, port 25, DNS answers and the",
     "// development-only switch that lets a local Docker sshd be used.",
+  ]],
+  ["tests/webssh-egress-copy.test.ts", [
+    "// The browser copy has to name the stage; a raw platform sentence does not tell a reader whether",
+    "// the TCP connect, the SSH handshake, or the credentials failed.",
+  ]],
+  ["tests/webssh-egress-error.test.ts", [
+    "// Structured outbound failures: the platform can reject with a non-Error object, so the description",
+    "// has to walk the cause chain instead of trusting the outer wrapper's message.",
   ]],
   ["tests/webssh-key-format.test.ts", [
     "// The salt is the committed fixture's own bcrypt salt, so the vector stays deterministic.",
