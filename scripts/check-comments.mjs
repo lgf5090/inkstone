@@ -40928,6 +40928,14 @@ const allowed = new Map([
     "/**\n * The dependent-table cleanup for one page of trashed note ids, in the order the cascade\n * needs: link retargeting before the notes go, share sessions before their shares.\n * Statements bind `?1` = account, `?2` = JSON id page, `?3` = timestamp.\n *\n * Every child-table write re-checks that the note is *still* trashed. The page is read before the\n * batch runs, so another device can restore one of its notes in between; without the guard that\n * batch would strip the tags, versions, shares and links of a note whose row itself survives (the\n * final delete already carries the same `deleted_at IS NOT NULL` predicate).\n *\n * A free function rather than a method because the bulk purge builds it per page and the batch test\n * builds it directly: neither wants a store that exists only to hold a connection.\n */",
     "/**\n   * Whether this edit's text belongs in the AI index. A lock writes ciphertext, which must not be\n   * embedded; ordinary edits leave this unset and keep the queue statement.\n   */",
   ]],
+  ["src/worker/project/auth.ts", [
+    "/** Every project write parses through this, so a rejected field reads the same on every route. */",
+    "/**\n * The trust boundary every board-scoped route crosses. A board the caller cannot see at all answers\n * 404 rather than 403, so a private board's existence never leaks; one they can see but lack the role\n * for answers 403. The effective role folds the owner rule and the open-board minimum in one place.\n */",
+  ]],
+  ["src/worker/project/members.ts", [
+    "/**\n * The reference guards the last admin only in the client; here the server refuses the write that would\n * leave a board with no admin member, because a client check is not a trust boundary.\n */",
+    "/** Joining an open board writes the board's minimum role; re-joining never downgrades an existing grant. */",
+  ]],
   ["src/worker/project/permissions.ts", [
     "/**\n * Which boards the sidebar lists, and what the caller may do with each.\n *\n * A board reaches its audience two ways — the account owns it, or a membership row names it — so the\n * list is the union of the two, and a board the caller can no longer read is dropped rather than\n * shown greyed out. The role is resolved here so no caller has to remember the open-board rule.\n */",
   ]],
