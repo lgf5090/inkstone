@@ -5,19 +5,22 @@
  * The menu is the app's own `Menu`, so the same row is reachable by right click, Shift+F10 and the
  * trailing button; drag reordering has a menu equivalent because a keyboard cannot drag.
  */
-import { useMemo, useRef, useState, type RefObject } from 'react'
+import { Fragment, useMemo, useRef, useState, type RefObject } from 'react'
 import {
-  ArrowDown, ArrowUp, Copy, CopyPlus, FolderClosed, FolderInput, History, MoreHorizontal,
-  Pencil, Plus, Rows3, Rows4, Search, SquareTerminal, Star, Tag as TagIcon, Trash2, X,
+  ArrowDown, ArrowUp, Copy, CopyPlus, FolderClosed, FolderInput, History, ListFilter, MoreHorizontal,
+  Pencil, Pin, Plus, Rows3, Rows4, Search, SquareTerminal, Star, Tag as TagIcon, Trash2, X,
 } from 'lucide-react'
 import type {
   WebsshHost,
+  WebsshHostFilters,
   WebsshHostGroup,
   WebsshHostQuickView,
   WebsshHostSessionSummary,
   WebsshHostSort,
   WebsshHostsOverview,
+  WebsshProvider,
 } from '@shared/webssh/types'
+import { WEBSSH_BUILTIN_PROVIDERS } from '@shared/webssh/providers'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
@@ -33,6 +36,7 @@ import { useUi } from '../../store/ui'
 import { ApiError } from '../../lib/api'
 import { websshApi } from './api'
 import { HostTagDialog } from './HostTagDialog'
+import { HostIcon, providerText } from './HostIcon'
 import { WEBSSH_HOST_DRAG } from './HostSidebar'
 
 export type HostDensity = 'comfortable' | 'compact'
@@ -49,6 +53,9 @@ export interface HostListProps {
   hosts: WebsshHost[]
   groups: WebsshHostGroup[]
   overview: WebsshHostsOverview | null
+  providers: WebsshProvider[]
+  filters: WebsshHostFilters
+  filterCount: number
   loading: boolean
   error: string | null
   query: string
@@ -77,6 +84,8 @@ export interface HostListProps {
   onFilterTag: (tag: string) => void
   onFilterFolder: (folderId: string) => void
   onClearFilters: () => void
+  onOpenFilters: () => void
+  onTogglePinned: (host: WebsshHost) => void
   onChanged: () => void
 }
 
@@ -86,6 +95,8 @@ export function HostList(props: HostListProps) {
   const [menuHost, setMenuHost] = useState<WebsshHost | null>(null)
   const [moveIds, setMoveIds] = useState<string[] | null>(null)
   const [tagIds, setTagIds] = useState<string[] | null>(null)
+  const [providerIds, setProviderIds] = useState<string[] | null>(null)
+  const [batchProvider, setBatchProvider] = useState('other')
   const [history, setHistory] = useState<{ host: WebsshHost; sessions: WebsshHostSessionSummary[]; loading: boolean } | null>(null)
   const [busy, setBusy] = useState(false)
   const rowRefs = useRef(new Map<string, HTMLDivElement>())
@@ -93,7 +104,7 @@ export function HostList(props: HostListProps) {
   const pageCount = Math.max(1, Math.ceil(props.total / props.pageSize))
   const selectedHosts = props.hosts.filter((host) => props.chosen.has(host.id))
   const allChosen = props.hosts.length > 0 && selectedHosts.length === props.hosts.length
-  const filtering = Boolean(props.query || props.folderId || props.tag || props.quick !== 'all')
+  const filtering = Boolean(props.filterCount || props.query || props.folderId || props.tag || props.quick !== 'all')
 
   const pickerFolders = useMemo(() => props.groups.map((group) => ({
     id: group.id,
@@ -134,6 +145,11 @@ export function HostList(props: HostListProps) {
   const copyAddress = async (host: WebsshHost) => {
     const ok = await copyText(`${host.username}@${host.host}:${host.port}`)
     toast({ title: ok ? t('webssh.toast.address_copied') : t('webssh.common.copy_failed'), tone: ok ? 'success' : 'danger' })
+  }
+
+  const copyInfo = async (host: WebsshHost) => {
+    const ok = await copyText(`${host.name}\n${host.username}@${host.host}:${host.port}\n${providerText(host.provider, props.providers)}${host.tags.length ? `\n${host.tags.join(', ')}` : ''}`)
+    toast({ title: ok ? t('webssh.toast.host_info_copied') : t('webssh.common.copy_failed'), tone: ok ? 'success' : 'danger' })
   }
 
   const moveHosts = async (ids: string[], groupId: string) => {
@@ -184,6 +200,14 @@ export function HostList(props: HostListProps) {
     await applyAction(
       () => websshApi.batchHosts({ action: allStarred ? 'unfavorite' : 'favorite', ids: selectedHosts.map((host) => host.id) }),
       allStarred ? t('webssh.toast.unfavorited') : t('webssh.toast.favorited'),
+    )
+    props.onChosenChange(new Set())
+  }
+
+  const applyProvider = async (ids: string[], provider: string) => {
+    await applyAction(
+      () => websshApi.batchHosts({ action: 'provider', ids, provider }),
+      t('webssh.toast.provider_changed'),
     )
     props.onChosenChange(new Set())
   }
@@ -248,6 +272,7 @@ export function HostList(props: HostListProps) {
     { id: 'edit', label: t('webssh.actions.edit'), icon: <Pencil size={13} aria-hidden="true" />, combo: 'F2', onSelect: () => props.onEdit(menuHost) },
     { id: 'duplicate', label: t('webssh.menu.duplicate'), icon: <CopyPlus size={13} aria-hidden="true" />, onSelect: () => void duplicate(menuHost) },
     { id: 'copy', label: t('webssh.menu.copy_address'), icon: <Copy size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => void copyAddress(menuHost) },
+    { id: 'copy-info', label: t('webssh.menu.copy_info'), icon: <Copy size={13} aria-hidden="true" />, onSelect: () => void copyInfo(menuHost) },
     { id: 'move', label: t('webssh.menu.move'), icon: <FolderInput size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => setMoveIds([menuHost.id]) },
     { id: 'tag', label: t('webssh.menu.tag'), icon: <TagIcon size={13} aria-hidden="true" />, onSelect: () => setTagIds([menuHost.id]) },
     {
@@ -256,6 +281,13 @@ export function HostList(props: HostListProps) {
       icon: <Star size={13} aria-hidden="true" />,
       checked: menuHost.favorite,
       onSelect: () => void toggleFavorite(menuHost),
+    },
+    {
+      id: 'pinned',
+      label: menuHost.pinned ? t('webssh.menu.unpin') : t('webssh.menu.pin'),
+      icon: <Pin size={13} aria-hidden="true" />,
+      checked: menuHost.pinned,
+      onSelect: () => props.onTogglePinned(menuHost),
     },
     {
       id: 'order',
@@ -320,6 +352,16 @@ export function HostList(props: HostListProps) {
             {filtering ? t('webssh.list.filtered_count', { count: props.total }) : t('webssh.list.count', { count: props.total })}
           </p>
           <div className="flex shrink-0 items-center gap-0.5">
+            <Tooltip label={t('webssh.filter.open')} side="bottom">
+              <IconButton label={t('webssh.filter.open')} size="sm" onClick={props.onOpenFilters}>
+                <span className="relative flex">
+                  <ListFilter size={13} aria-hidden="true" />
+                  {props.filterCount > 0 && (
+                    <span className="absolute -end-1.5 -top-1.5 rounded-full bg-[var(--accent)] px-1 text-[length:var(--text-9)] text-[var(--text-inverse)]">{props.filterCount}</span>
+                  )}
+                </span>
+              </IconButton>
+            </Tooltip>
             {filtering && (
               <Tooltip label={t('webssh.list.clear_filters')} side="bottom">
                 <IconButton label={t('webssh.list.clear_filters')} size="sm" onClick={props.onClearFilters}>
@@ -347,6 +389,7 @@ export function HostList(props: HostListProps) {
                 { value: 'name', label: t('webssh.list.sort_name') },
                 { value: 'recent', label: t('webssh.list.sort_recent') },
                 { value: 'created', label: t('webssh.list.sort_created') },
+                { value: 'provider', label: t('webssh.list.sort_provider') },
               ]}
               className="w-[116px]"
             />
@@ -363,6 +406,12 @@ export function HostList(props: HostListProps) {
             </Button>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setMoveIds(selectedHosts.map((host) => host.id))}>
               {t('webssh.list.batch_move')}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
+              setBatchProvider(selectedHosts[0]?.provider ?? 'other')
+              setProviderIds(selectedHosts.map((host) => host.id))
+            }}>
+              {t('webssh.list.batch_provider')}
             </Button>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => void batchFavorite()}>
               {t('webssh.list.batch_favorite')}
@@ -415,13 +464,22 @@ export function HostList(props: HostListProps) {
               <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('webssh.list.page_of', { page: props.page, count: pageCount })}</span>
             </div>
             <div role="list" aria-label={t('webssh.list.title')}>
-              {props.hosts.map((host) => {
+              {props.hosts.map((host, index) => {
                 const on = props.chosen.has(host.id)
                 const selected = host.id === props.selectedId
                 const folderName = host.groupId ? groupNames.get(host.groupId) : undefined
+                const showProviderHeader = props.sort === 'provider' && (index === 0 || props.hosts[index - 1]?.provider !== host.provider)
                 return (
+                  <Fragment key={host.id}>
+                    {showProviderHeader && (
+                      <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1">
+                        <HostIcon host={{ name: '', provider: host.provider, iconKind: '', iconValue: '', iconUrl: '' }} providers={props.providers} size={14} />
+                        <span className="text-[length:var(--text-10-5)] font-semibold uppercase tracking-wide text-[var(--text-quaternary)]">
+                          {providerText(host.provider, props.providers)}
+                        </span>
+                      </div>
+                    )}
                   <div
-                    key={host.id}
                     role="listitem"
                     tabIndex={0}
                     data-webssh-host-row
@@ -501,11 +559,13 @@ export function HostList(props: HostListProps) {
                         className="mt-0.5"
                       />
                     </span>
+                    <HostIcon host={host} providers={props.providers} size={18} />
                     <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2">
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-1.5">
                           {host.color && <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: host.color }} />}
                           <span className="min-w-0 truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{host.name}</span>
+                          {host.pinned && <Pin size={11} aria-hidden="true" className="shrink-0 text-[var(--accent)]" />}
                           <span onClick={(event) => event.stopPropagation()}>
                             <Tooltip label={host.favorite ? t('webssh.menu.unfavorite') : t('webssh.menu.favorite')} side="bottom">
                               <IconButton
@@ -563,6 +623,7 @@ export function HostList(props: HostListProps) {
                       </div>
                     </div>
                   </div>
+                  </Fragment>
                 )
               })}
             </div>
@@ -609,6 +670,41 @@ export function HostList(props: HostListProps) {
           void tagHosts(ids, tags)
         }}
       />
+      <Modal
+        open={providerIds !== null}
+        onClose={() => setProviderIds(null)}
+        title={t('webssh.list.batch_provider')}
+        description={t('webssh.list.batch_provider_hint', { count: providerIds?.length ?? 0 })}
+        width={420}
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setProviderIds(null)}>{t('webssh.actions.cancel')}</Button>
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={() => {
+                const ids = providerIds ?? []
+                setProviderIds(null)
+                void applyProvider(ids, batchProvider)
+              }}
+            >
+              {t('webssh.actions.apply')}
+            </Button>
+          </>
+        )}
+      >
+        <SelectMenu
+          label={t('webssh.host.provider')}
+          value={batchProvider}
+          onChange={setBatchProvider}
+          options={[
+            ...WEBSSH_BUILTIN_PROVIDERS.map((provider) => ({ value: provider.id, label: providerText(provider.id, props.providers) })),
+            ...props.providers.filter((provider) => provider.id.startsWith('custom:')).map((provider) => ({ value: provider.id, label: provider.label })),
+          ]}
+          searchable
+          width={280}
+        />
+      </Modal>
       <HostHistoryDialog state={history} onClose={() => setHistory(null)} />
     </section>
   )

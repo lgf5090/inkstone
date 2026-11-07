@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
-import type { WebsshAuthMethod, WebsshCredential, WebsshHost, WebsshHostGroup, WebsshKey } from '@shared/webssh/types'
+import type { WebsshAuthMethod, WebsshCredential, WebsshHost, WebsshHostGroup, WebsshHostIconKind, WebsshKey, WebsshProvider } from '@shared/webssh/types'
+import { WEBSSH_BUILTIN_PROVIDERS } from '@shared/webssh/providers'
 import { Button } from '../../components/primitives'
 import { ColorWheelTrigger } from '../../components/color-field'
 import { Field, Input, Segmented, Select, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
+import { SelectMenu } from '../../components/select-menu'
 import { ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { websshApi, type WebsshHostPayload } from './api'
+import { HostIcon, providerText } from './HostIcon'
+import { HostIconPicker } from './HostIconPicker'
 
 interface HostDraft {
   name: string
@@ -23,6 +27,11 @@ interface HostDraft {
   tags: string
   notes: string
   favorite: boolean
+  pinned: boolean
+  provider: string
+  iconKind: WebsshHostIconKind
+  iconValue: string
+  iconUrl: string
 }
 
 const COLOR_EXAMPLE_PLACEHOLDER = '#000000'
@@ -43,25 +52,36 @@ function draftFrom(host: WebsshHost | null): HostDraft {
     tags: host?.tags.join(', ') ?? '',
     notes: host?.notes ?? '',
     favorite: host?.favorite ?? false,
+    pinned: host?.pinned ?? false,
+    provider: host?.provider ?? 'other',
+    iconKind: host?.iconKind ?? '',
+    iconValue: host?.iconValue ?? '',
+    iconUrl: host?.iconUrl ?? '',
   }
 }
 
-export function HostDialog({ open, host, groups, credentials, keys, defaultGroupId, onClose, onSaved, onOpenCredentials, onOpenKeys }: {
+export function HostDialog({ open, host, groups, credentials, keys, providers, defaultGroupId, onClose, onSaved, onOpenCredentials, onOpenKeys, onProvidersChanged }: {
   open: boolean
   host: WebsshHost | null
   groups: WebsshHostGroup[]
   credentials: WebsshCredential[]
   keys: WebsshKey[]
+  providers: WebsshProvider[]
   /** A new host started from a folder row opens with that folder already chosen. */
   defaultGroupId?: string
   onClose: () => void
   onSaved: (host: WebsshHost) => void
   onOpenCredentials: () => void
   onOpenKeys: () => void
+  onProvidersChanged: () => void
 }) {
   const [draft, setDraft] = useState<HostDraft>(() => draftFrom(host))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [iconOpen, setIconOpen] = useState(false)
+  const [providerOpen, setProviderOpen] = useState(false)
+  const [providerName, setProviderName] = useState('')
+  const [providerColor, setProviderColor] = useState('')
 
   useEffect(() => {
     if (!open) return
@@ -93,6 +113,10 @@ export function HostDialog({ open, host, groups, credentials, keys, defaultGroup
       tags: draft.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
       notes: draft.notes,
       favorite: draft.favorite,
+      pinned: draft.pinned,
+      provider: draft.provider,
+      iconKind: draft.iconKind,
+      iconValue: draft.iconValue,
     }
     try {
       const saved = host ? await websshApi.updateHost(host.id, payload) : await websshApi.createHost(payload)
@@ -105,6 +129,7 @@ export function HostDialog({ open, host, groups, credentials, keys, defaultGroup
   }
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -123,6 +148,34 @@ export function HostDialog({ open, host, groups, credentials, keys, defaultGroup
         <Field label={t('webssh.host.name')} required>
               <Input value={draft.name} onChange={(event) => patch({ name: event.target.value })} maxLength={80} autoFocus />
             </Field>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+              <Field label={t('webssh.host.provider')}>
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <SelectMenu
+                      label={t('webssh.host.provider')}
+                      value={draft.provider}
+                      onChange={(provider) => patch({ provider })}
+                      options={[
+                        ...WEBSSH_BUILTIN_PROVIDERS.map((provider) => ({ value: provider.id, label: providerText(provider.id, providers) })),
+                        ...providers.filter((provider) => provider.id.startsWith('custom:')).map((provider) => ({ value: provider.id, label: provider.label })),
+                      ]}
+                      searchable
+                      width={230}
+                    />
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => { setProviderName(''); setProviderColor(''); setProviderOpen(true) }}>
+                    {t('webssh.provider.add')}
+                  </Button>
+                </div>
+              </Field>
+              <Field label={t('webssh.host.icon')}>
+                <div className="flex items-center gap-1.5">
+                  <HostIcon host={{ name: draft.name || 'H', provider: draft.provider, iconKind: draft.iconKind, iconValue: draft.iconValue, iconUrl: draft.iconUrl }} providers={providers} size={28} />
+                  <Button size="sm" variant="secondary" onClick={() => setIconOpen(true)}>{t('webssh.icon.choose')}</Button>
+                </div>
+              </Field>
+            </div>
             <div className="grid grid-cols-[1fr_92px] gap-3">
               <Field label={t('webssh.host.address')} required>
                 <Input value={draft.host} onChange={(event) => patch({ host: event.target.value })} placeholder="example.com" spellCheck={false} />
@@ -202,8 +255,61 @@ export function HostDialog({ open, host, groups, credentials, keys, defaultGroup
               <span className="text-[length:var(--text-12-5)] text-[var(--text-secondary)]">{t('webssh.host.favorite')}</span>
               <Switch checked={draft.favorite} onChange={(next) => patch({ favorite: next })} label={t('webssh.host.favorite')} />
             </label>
+            <label className="flex items-center justify-between gap-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-2">
+              <span className="text-[length:var(--text-12-5)] text-[var(--text-secondary)]">{t('webssh.host.pinned')}</span>
+              <Switch checked={draft.pinned} onChange={(next) => patch({ pinned: next })} label={t('webssh.host.pinned')} />
+            </label>
         {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
       </div>
     </Modal>
+    <>
+      <HostIconPicker
+        open={iconOpen}
+        host={host}
+        providers={providers}
+        onClose={() => setIconOpen(false)}
+        onPick={(kind, value) => patch({ iconKind: kind, iconValue: value })}
+        onUploaded={(updated) => patch({ iconKind: updated.iconKind, iconValue: updated.iconValue, iconUrl: updated.iconUrl })}
+      />
+      <Modal
+        open={providerOpen}
+        onClose={() => setProviderOpen(false)}
+        title={t('webssh.provider.new_title')}
+        width={400}
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setProviderOpen(false)}>{t('webssh.actions.cancel')}</Button>
+            <Button
+              variant="primary"
+              disabled={!providerName.trim()}
+              onClick={() => {
+                websshApi.createProvider({ label: providerName.trim(), color: providerColor })
+                  .then((provider) => {
+                    onProvidersChanged()
+                    patch({ provider: provider.id })
+                    setProviderOpen(false)
+                  })
+                  .catch((caught: unknown) => setError(caught instanceof ApiError ? caught.message : t('webssh.error.generic')))
+              }}
+            >
+              {t('webssh.actions.save')}
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-3">
+          <Field label={t('webssh.provider.name')} required>
+            <Input autoFocus value={providerName} onChange={(event) => setProviderName(event.target.value)} maxLength={40} />
+          </Field>
+          <Field label={t('webssh.provider.color')}>
+            <div className="flex items-center gap-2">
+              <ColorWheelTrigger value={providerColor || null} label={t('webssh.provider.color')} onChange={setProviderColor} onCommit={setProviderColor} />
+              <Input value={providerColor} onChange={(event) => setProviderColor(event.target.value)} placeholder={COLOR_EXAMPLE_PLACEHOLDER} className="min-w-0 flex-1" />
+            </div>
+          </Field>
+        </div>
+      </Modal>
+    </>
+    </>
   )
 }

@@ -18,6 +18,7 @@ import type {
   WebsshCredential,
   WebsshHost,
   WebsshHostExportFormat,
+  WebsshHostFilters,
   WebsshHostGroup,
   WebsshHostKey,
   WebsshHostPreflight,
@@ -25,6 +26,7 @@ import type {
   WebsshHostSort,
   WebsshHostsOverview,
   WebsshKey,
+  WebsshProvider,
 } from '@shared/webssh/types'
 import { Button, IconButton } from '../../components/primitives'
 import { Empty } from '../../components/feedback'
@@ -36,6 +38,8 @@ import { ApiError } from '../../lib/api'
 import { websshApi } from './api'
 import { HostSidebar } from './HostSidebar'
 import { HostList, type HostDensity } from './HostList'
+import { HostFiltersDialog } from './HostFiltersDialog'
+import { HostIcon, providerText } from './HostIcon'
 import { HostDialog } from './HostDialog'
 import { CredentialDialog } from './CredentialDialog'
 import { KeyManagerDialog } from './KeyManagerDialog'
@@ -59,6 +63,48 @@ function issueLabel(issue: string): string {
 
 const SIDEBAR_KEY = 'webssh:sidebar-open'
 const DENSITY_KEY = 'webssh:row-density'
+const FILTER_STORE_KEY = 'webssh:host-filters'
+
+export const EMPTY_HOST_FILTERS: WebsshHostFilters = {
+  provider: '',
+  pinned: false,
+  status: '',
+  connected: { from: '', to: '' },
+  created: { from: '', to: '' },
+}
+
+function initialParams(): URLSearchParams {
+  try {
+    if (window.location.search) return new URLSearchParams(window.location.search)
+    const stored = window.localStorage.getItem(FILTER_STORE_KEY)
+    return stored ? new URLSearchParams(stored) : new URLSearchParams()
+  } catch {
+    return new URLSearchParams()
+  }
+}
+
+function filtersFromParams(params: URLSearchParams): WebsshHostFilters {
+  const status = params.get('status')
+  return {
+    provider: params.get('provider') ?? '',
+    pinned: params.get('pinned') === '1',
+    status: status === 'connected' || status === 'never' ? status : '',
+    connected: { from: params.get('connectedFrom') ?? '', to: params.get('connectedTo') ?? '' },
+    created: { from: params.get('createdFrom') ?? '', to: params.get('createdTo') ?? '' },
+  }
+}
+
+function filterCount(filters: WebsshHostFilters): number {
+  let count = 0
+  if (filters.provider) count += 1
+  if (filters.pinned) count += 1
+  if (filters.status) count += 1
+  if (filters.connected.from) count += 1
+  if (filters.connected.to) count += 1
+  if (filters.created.from) count += 1
+  if (filters.created.to) count += 1
+  return count
+}
 
 function readPreference<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
   try {
@@ -93,16 +139,25 @@ export function WebsshApp() {
   const [keys, setKeys] = useState<WebsshKey[]>([])
   const [credentials, setCredentials] = useState<WebsshCredential[]>([])
   const [overview, setOverview] = useState<WebsshHostsOverview | null>(null)
+  const [providers, setProviders] = useState<WebsshProvider[]>([])
   const [hosts, setHosts] = useState<WebsshHost[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [queryInput, setQueryInput] = useState('')
-  const [query, setQuery] = useState('')
-  const [quick, setQuick] = useState<WebsshHostQuickView>('all')
-  const [folderId, setFolderId] = useState('')
-  const [tag, setTag] = useState('')
-  const [sort, setSort] = useState<WebsshHostSort>('manual')
+  const [queryInput, setQueryInput] = useState(() => initialParams().get('q') ?? '')
+  const [query, setQuery] = useState(() => initialParams().get('q') ?? '')
+  const [quick, setQuick] = useState<WebsshHostQuickView>(() => {
+    const value = initialParams().get('quick')
+    return value === 'favorites' || value === 'pinned' || value === 'recent' ? value : 'all'
+  })
+  const [folderId, setFolderId] = useState(() => initialParams().get('folder') ?? '')
+  const [tag, setTag] = useState(() => initialParams().get('tag') ?? '')
+  const [sort, setSort] = useState<WebsshHostSort>(() => {
+    const value = initialParams().get('sort')
+    return value === 'name' || value === 'recent' || value === 'created' || value === 'provider' ? value : 'manual'
+  })
+  const [filters, setFilters] = useState<WebsshHostFilters>(() => filtersFromParams(initialParams()))
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [density, setDensity] = useState<HostDensity>(() => readPreference(DENSITY_KEY, 'comfortable', ['comfortable', 'compact'] as const))
   const [sidebarOpen, setSidebarOpen] = useState(() => readPreference(SIDEBAR_KEY, 'true', ['true', 'false'] as const) === 'true')
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -144,6 +199,29 @@ export function WebsshApp() {
   }, [density])
 
   useEffect(() => {
+    const params = new URLSearchParams()
+    if (query) params.set('q', query)
+    if (quick !== 'all') params.set('quick', quick)
+    if (folderId) params.set('folder', folderId)
+    if (tag) params.set('tag', tag)
+    if (sort !== 'manual') params.set('sort', sort)
+    if (filters.provider) params.set('provider', filters.provider)
+    if (filters.pinned) params.set('pinned', '1')
+    if (filters.status) params.set('status', filters.status)
+    if (filters.connected.from) params.set('connectedFrom', filters.connected.from)
+    if (filters.connected.to) params.set('connectedTo', filters.connected.to)
+    if (filters.created.from) params.set('createdFrom', filters.created.from)
+    if (filters.created.to) params.set('createdTo', filters.created.to)
+    const serialized = params.toString()
+    try {
+      window.localStorage.setItem(FILTER_STORE_KEY, serialized)
+      window.history.replaceState(null, '', `${window.location.pathname}${serialized ? `?${serialized}` : ''}`)
+    } catch {
+      // A blocked history/storage API only costs the shareable URL, not the list state.
+    }
+  }, [query, quick, folderId, tag, sort, filters])
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k') return
       if (hasOpenLayer()) return
@@ -157,7 +235,7 @@ export function WebsshApp() {
 
   useEffect(() => {
     setChosen(new Set())
-  }, [query, quick, folderId, tag, sort])
+  }, [query, quick, folderId, tag, sort, filters])
 
   useEffect(() => {
     if (folderId && overview && !overview.folders.some((folder) => folder.id === folderId)) {
@@ -175,10 +253,11 @@ export function WebsshApp() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([websshApi.hostsOverview(), websshApi.listKeys(), websshApi.listCredentials()])
-      .then(([nextOverview, nextKeys, nextCredentials]) => {
+    Promise.all([websshApi.hostsOverview(), websshApi.listProviders(), websshApi.listKeys(), websshApi.listCredentials()])
+      .then(([nextOverview, nextProviders, nextKeys, nextCredentials]) => {
         if (cancelled) return
         setOverview(nextOverview)
+        setProviders(nextProviders)
         setKeys(nextKeys)
         setCredentials(nextCredentials)
       })
@@ -207,7 +286,7 @@ export function WebsshApp() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    websshApi.listHosts({ q: query, groupId: folderId, quick, tag, sort, page, pageSize })
+    websshApi.listHosts({ q: query, groupId: folderId, quick, tag, sort, filters, page, pageSize })
       .then((response) => {
         if (cancelled) return
         setHosts(response.items)
@@ -223,7 +302,7 @@ export function WebsshApp() {
     return () => {
       cancelled = true
     }
-  }, [query, quick, folderId, tag, sort, page, pageSize, refreshToken])
+  }, [query, quick, folderId, tag, sort, filters, page, pageSize, refreshToken])
 
   const selectHost = (id: string) => {
     setSelectedId(id || null)
@@ -262,7 +341,19 @@ export function WebsshApp() {
     setTag('')
     setQuery('')
     setQueryInput('')
+    setFilters(EMPTY_HOST_FILTERS)
     setPage(1)
+  }
+
+  const togglePinned = (host: WebsshHost) => {
+    websshApi.patchHost(host.id, { pinned: !host.pinned })
+      .then(() => {
+        useUi.getState().toast({ title: host.pinned ? t('webssh.toast.unpinned') : t('webssh.toast.pinned'), tone: 'success' })
+        refresh()
+      })
+      .catch((caught: unknown) => {
+        useUi.getState().toast({ title: caught instanceof ApiError ? caught.message : t('webssh.error.generic'), tone: 'danger' })
+      })
   }
 
   const connectHost = (host: WebsshHost) => {
@@ -282,7 +373,7 @@ export function WebsshApp() {
 
   const runExport = async (format: WebsshHostExportFormat) => {
     try {
-      const text = await websshApi.exportHosts(format)
+      const text = await websshApi.exportHosts(format, { q: query, groupId: folderId, quick, tag, sort, filters })
       downloadText(text, `webssh-hosts.${format === 'csv' ? 'csv' : 'conf'}`, format === 'csv' ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8')
       useUi.getState().toast({ title: t('webssh.toast.exported'), tone: 'success' })
     } catch (caught) {
@@ -372,6 +463,7 @@ export function WebsshApp() {
     <HostDetail
       host={selected}
       groupName={groups.find((group) => group.id === selected.groupId)?.name ?? null}
+      providers={providers}
       credentialLabel={credentials.find((credential) => credential.id === selected.credentialId)?.label ?? null}
       keyLabel={keys.find((key) => key.id === selected.keyId)?.label ?? null}
       preflight={preflight}
@@ -486,7 +578,8 @@ export function WebsshApp() {
           mobile={isMobile}
           open={isMobile ? drawerOpen : sidebarOpen}
           overview={overview}
-          selection={{ quick, folderId, tag }}
+          providers={providers}
+          selection={{ quick, folderId, tag, provider: filters.provider }}
           onOpenChange={(next) => {
             if (isMobile) setDrawerOpen(next)
             else setSidebarOpen(next)
@@ -494,6 +587,11 @@ export function WebsshApp() {
           onSelectQuick={selectQuick}
           onSelectFolder={selectFolder}
           onSelectTag={selectTag}
+          onSelectProvider={(provider) => {
+            setFilters((current) => ({ ...current, provider }))
+            setPage(1)
+            setDrawerOpen(false)
+          }}
           onNewHost={(nextFolderId) => setHostDialog({ open: true, host: null, groupId: nextFolderId })}
           onMoveHost={(hostId, groupId) => {
             websshApi.moveHost(hostId, { groupId })
@@ -515,6 +613,9 @@ export function WebsshApp() {
             hosts={hosts}
             groups={groups}
             overview={overview}
+            providers={providers}
+            filters={filters}
+            filterCount={filterCount(filters)}
             loading={loading}
             error={error}
             query={queryInput}
@@ -546,6 +647,8 @@ export function WebsshApp() {
             onFilterTag={selectTag}
             onFilterFolder={selectFolder}
             onClearFilters={clearFilters}
+            onOpenFilters={() => setFiltersOpen(true)}
+            onTogglePinned={togglePinned}
             onChanged={refresh}
           />
         )}
@@ -555,12 +658,24 @@ export function WebsshApp() {
       <Menu anchor={exportMenuAnchor} open={exportMenuOpen} onClose={() => setExportMenuOpen(false)} items={exportItems} align="end" width={190} />
       <Menu anchor={headerMenuAnchor} open={headerMenuOpen} onClose={() => setHeaderMenuOpen(false)} items={mobileActions} align="end" width={210} />
 
+      <HostFiltersDialog
+        open={filtersOpen}
+        filters={filters}
+        providers={providers}
+        onClose={() => setFiltersOpen(false)}
+        onApply={(next) => {
+          setFilters(next)
+          setPage(1)
+        }}
+      />
+
       <HostDialog
         open={hostDialog.open}
         host={hostDialog.host}
         groups={groups}
         credentials={credentials}
         keys={keys}
+        providers={providers}
         defaultGroupId={hostDialog.groupId}
         onClose={() => setHostDialog({ open: false, host: null })}
         onSaved={(host) => {
@@ -575,6 +690,7 @@ export function WebsshApp() {
         }}
         onOpenCredentials={() => setCredentialsOpen(true)}
         onOpenKeys={() => setKeysOpen(true)}
+        onProvidersChanged={refresh}
       />
 
       <CredentialDialog
@@ -620,9 +736,10 @@ export function WebsshApp() {
   )
 }
 
-function HostDetail({ host, groupName, credentialLabel, keyLabel, preflight, onBack, onConnect, onEdit, onDelete, onCheck, onFingerprints }: {
+function HostDetail({ host, groupName, providers, credentialLabel, keyLabel, preflight, onBack, onConnect, onEdit, onDelete, onCheck, onFingerprints }: {
   host: WebsshHost
   groupName: string | null
+  providers: WebsshProvider[]
   credentialLabel: string | null
   keyLabel: string | null
   preflight: WebsshHostPreflight | null
@@ -643,7 +760,11 @@ function HostDetail({ host, groupName, credentialLabel, keyLabel, preflight, onB
             </IconButton>
           )}
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-[length:var(--text-18)] font-semibold text-[var(--text-primary)]">{host.name}</h2>
+            <div className="flex min-w-0 items-center gap-2">
+              <HostIcon host={host} providers={providers} size={22} />
+              <h2 className="truncate text-[length:var(--text-18)] font-semibold text-[var(--text-primary)]">{host.name}</h2>
+              {host.pinned && <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('webssh.host.pinned')}</span>}
+            </div>
             <p className="mt-0.5 truncate font-mono text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">
               {host.username}@{host.host}:{host.port}
             </p>
@@ -657,6 +778,7 @@ function HostDetail({ host, groupName, credentialLabel, keyLabel, preflight, onB
         </div>
 
         <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <DetailRow label={t('webssh.host.provider')} value={providerText(host.provider, providers)} />
           <DetailRow label={t('webssh.host.group')} value={groupName ?? t('webssh.group.none')} />
           <DetailRow
             label={t('webssh.host.auth_method')}

@@ -6,7 +6,9 @@ import type {
   WebsshHostBatchInput,
   WebsshHostBatchResult,
   WebsshHostExportFormat,
+  WebsshHostFilters,
   WebsshHostGroup,
+  WebsshHostIconKind,
   WebsshHostKey,
   WebsshHostKeyCheck,
   WebsshHostListResponse,
@@ -16,6 +18,7 @@ import type {
   WebsshImportCommitResult,
   WebsshImportPreview,
   WebsshKey,
+  WebsshProvider,
   WebsshPublicShareFrames,
   WebsshPublicShareView,
   WebsshRecordingFrames,
@@ -52,6 +55,10 @@ export interface WebsshHostPayload {
   tags: string[]
   notes: string
   favorite: boolean
+  pinned: boolean
+  provider: string
+  iconKind: WebsshHostIconKind
+  iconValue: string
 }
 
 export const websshApi = {
@@ -64,7 +71,26 @@ export const websshApi = {
     await request(`/api/webssh/groups/${id}`, { method: 'DELETE' })
   },
 
-  listHosts: async (params: { q?: string; groupId?: string; quick?: string; tag?: string; favorite?: boolean; sort?: string; page?: number; pageSize?: number }) => {
+  listProviders: async () => (await request<{ providers: WebsshProvider[] }>('/api/webssh/providers')).providers,
+  createProvider: async (body: { label: string; color?: string }) =>
+    (await request<{ provider: WebsshProvider }>('/api/webssh/providers', { method: 'POST', body })).provider,
+  updateProvider: async (id: string, body: { label?: string; color?: string }) =>
+    (await request<{ provider: WebsshProvider }>(`/api/webssh/providers/${id}`, { method: 'PATCH', body })).provider,
+  deleteProvider: async (id: string) => {
+    await request(`/api/webssh/providers/${id}`, { method: 'DELETE' })
+  },
+
+  listHosts: async (params: {
+    q?: string
+    groupId?: string
+    quick?: string
+    tag?: string
+    favorite?: boolean
+    sort?: string
+    filters?: WebsshHostFilters
+    page?: number
+    pageSize?: number
+  }) => {
     const search = new URLSearchParams()
     if (params.q) search.set('q', params.q)
     if (params.groupId) search.set('groupId', params.groupId)
@@ -72,6 +98,13 @@ export const websshApi = {
     if (params.tag) search.set('tag', params.tag)
     if (params.favorite) search.set('favorite', '1')
     if (params.sort) search.set('sort', params.sort)
+    if (params.filters?.provider) search.set('provider', params.filters.provider)
+    if (params.filters?.pinned) search.set('pinned', '1')
+    if (params.filters?.status) search.set('status', params.filters.status)
+    if (params.filters?.connected.from) search.set('connectedFrom', params.filters.connected.from)
+    if (params.filters?.connected.to) search.set('connectedTo', params.filters.connected.to)
+    if (params.filters?.created.from) search.set('createdFrom', params.filters.created.from)
+    if (params.filters?.created.to) search.set('createdTo', params.filters.created.to)
     if (params.page) search.set('page', String(params.page))
     if (params.pageSize) search.set('pageSize', String(params.pageSize))
     const query = search.toString()
@@ -92,8 +125,30 @@ export const websshApi = {
     await request<WebsshHostBatchResult>('/api/webssh/hosts/batch', { method: 'POST', body }),
   hostSessions: async (id: string) =>
     (await request<{ sessions: WebsshHostSessionSummary[] }>(`/api/webssh/hosts/${id}/sessions`)).sessions,
-  exportHosts: async (format: WebsshHostExportFormat) =>
-    await (await rawRequest(`/api/webssh/hosts/export?format=${format}`)).text(),
+  uploadIcon: async (id: string, blob: Blob) => {
+    const form = new FormData()
+    form.append('icon', blob, 'icon.webp')
+    const response = await rawRequest(`/api/webssh/hosts/${id}/icon`, { method: 'POST', body: form })
+    return (await response.json() as { host: WebsshHost }).host
+  },
+  deleteIcon: async (id: string) =>
+    (await request<{ host: WebsshHost }>(`/api/webssh/hosts/${id}/icon`, { method: 'DELETE' })).host,
+  exportHosts: async (format: WebsshHostExportFormat, params: { q?: string; groupId?: string; quick?: string; tag?: string; sort?: string; filters?: WebsshHostFilters } = {}) => {
+    const search = new URLSearchParams({ format })
+    if (params.q) search.set('q', params.q)
+    if (params.groupId) search.set('groupId', params.groupId)
+    if (params.quick) search.set('quick', params.quick)
+    if (params.tag) search.set('tag', params.tag)
+    if (params.sort) search.set('sort', params.sort)
+    if (params.filters?.provider) search.set('provider', params.filters.provider)
+    if (params.filters?.pinned) search.set('pinned', '1')
+    if (params.filters?.status) search.set('status', params.filters.status)
+    if (params.filters?.connected.from) search.set('connectedFrom', params.filters.connected.from)
+    if (params.filters?.connected.to) search.set('connectedTo', params.filters.connected.to)
+    if (params.filters?.created.from) search.set('createdFrom', params.filters.created.from)
+    if (params.filters?.created.to) search.set('createdTo', params.filters.created.to)
+    return await (await rawRequest(`/api/webssh/hosts/export?${search.toString()}`)).text()
+  },
   deleteHost: async (id: string) => {
     await request(`/api/webssh/hosts/${id}`, { method: 'DELETE' })
   },

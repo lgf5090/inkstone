@@ -8,13 +8,15 @@
 import { useMemo, useState } from 'react'
 import {
   ChevronRight, FolderClosed, FolderInput, FolderPlus, History,
-  LayoutList, MoreHorizontal, Palette, Pencil, Plus, Star, Tag, Trash2, X,
+  LayoutList, MoreHorizontal, Palette, Pencil, Pin, Plus, Star, Tag, Trash2, X,
 } from 'lucide-react'
 import type {
   WebsshHostFolder,
   WebsshHostQuickView,
   WebsshHostsOverview,
+  WebsshProvider,
 } from '@shared/webssh/types'
+import { WEBSSH_BUILTIN_PROVIDERS } from '@shared/webssh/providers'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
@@ -22,6 +24,7 @@ import { Input, commitOnEnter } from '../../components/form'
 import { Drawer, Menu, MenuSubmenuList, Modal, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
 import { ColorWellField } from '../../components/color-field'
 import { FolderColorMenu } from '../folders/FolderAppearanceMenus'
+import { HostIcon, providerText } from './HostIcon'
 import { websshApi } from './api'
 import { ApiError } from '../../lib/api'
 import { useUi } from '../../store/ui'
@@ -32,6 +35,7 @@ export interface HostSidebarSelection {
   quick: WebsshHostQuickView
   folderId: string
   tag: string
+  provider: string
 }
 
 interface FolderDialogState {
@@ -46,11 +50,13 @@ export function HostSidebar({
   open,
   mobile = false,
   overview,
+  providers,
   selection,
   onOpenChange,
   onSelectQuick,
   onSelectFolder,
   onSelectTag,
+  onSelectProvider,
   onNewHost,
   onMoveHost,
   onChanged,
@@ -58,11 +64,13 @@ export function HostSidebar({
   open: boolean
   mobile?: boolean
   overview: WebsshHostsOverview | null
+  providers: readonly WebsshProvider[]
   selection: HostSidebarSelection
   onOpenChange: (open: boolean) => void
   onSelectQuick: (quick: WebsshHostQuickView) => void
   onSelectFolder: (folderId: string) => void
   onSelectTag: (tag: string) => void
+  onSelectProvider: (provider: string) => void
   onNewHost: (folderId: string) => void
   onMoveHost: (hostId: string, groupId: string) => void
   onChanged: () => void
@@ -74,6 +82,8 @@ export function HostSidebar({
   const toast = useUi((state) => state.toast)
   const folders = overview?.folders ?? []
   const tags = overview?.tags ?? []
+  const providerCounts = new Map((overview?.providers ?? []).map((entry) => [entry.id, entry]))
+  const providerIds = [...WEBSSH_BUILTIN_PROVIDERS.map((provider) => provider.id), ...providers.filter((provider) => provider.id.startsWith('custom:')).map((provider) => provider.id)]
   const tree = useMemo(() => buildFolderTree(folders), [folders])
 
   const toggle = (id: string) => {
@@ -137,21 +147,28 @@ export function HostSidebar({
     <div className="flex h-full min-h-0 w-full flex-col">
       <nav aria-label={t('webssh.sidebar.views')} className="space-y-px px-2 pt-2">
         <ViewRow
-          active={selection.quick === 'all' && !selection.folderId && !selection.tag}
+          active={selection.quick === 'all' && !selection.folderId && !selection.tag && !selection.provider}
           icon={<LayoutList size={14} aria-hidden="true" />}
           label={t('webssh.sidebar.all')}
           count={overview?.total}
           onClick={() => onSelectQuick('all')}
         />
         <ViewRow
-          active={selection.quick === 'favorites' && !selection.folderId && !selection.tag}
+          active={selection.quick === 'favorites' && !selection.folderId && !selection.tag && !selection.provider}
           icon={<Star size={14} aria-hidden="true" />}
           label={t('webssh.sidebar.favorites')}
           count={overview?.favorites}
           onClick={() => onSelectQuick('favorites')}
         />
         <ViewRow
-          active={selection.quick === 'recent' && !selection.folderId && !selection.tag}
+          active={selection.quick === 'pinned' && !selection.folderId && !selection.tag && !selection.provider}
+          icon={<Pin size={14} aria-hidden="true" />}
+          label={t('webssh.sidebar.pinned')}
+          count={overview?.pinned}
+          onClick={() => onSelectQuick('pinned')}
+        />
+        <ViewRow
+          active={selection.quick === 'recent' && !selection.folderId && !selection.tag && !selection.provider}
           icon={<History size={14} aria-hidden="true" />}
           label={t('webssh.sidebar.recent')}
           count={overview?.connected}
@@ -258,6 +275,49 @@ export function HostSidebar({
                 <span className="tabular shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{tag.count}</span>
               </button>
             ))}
+          </div>
+        </section>
+
+        <section aria-labelledby="webssh-providers-heading">
+          <p id="webssh-providers-heading" className="px-1.5 text-[length:var(--text-10-5)] font-semibold tracking-wide text-[var(--text-quaternary)] uppercase">
+            {t('webssh.sidebar.providers')}
+          </p>
+          <div role="group" aria-label={t('webssh.sidebar.providers')} className="mt-1 space-y-px">
+            {selection.provider && (
+              <button
+                type="button"
+                onClick={() => onSelectProvider('')}
+                className="flex h-9 w-full items-center gap-1.5 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-11-5)] text-[var(--accent-on-soft)] hover:bg-[var(--bg-hover)] md:h-[26px]"
+              >
+                <X size={11} aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">{t('webssh.sidebar.clear_provider')}</span>
+              </button>
+            )}
+            {providerIds.map((id) => {
+              const count = providerCounts.get(id)
+              const label = providerText(id, providers)
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  aria-current={selection.provider === id ? 'page' : undefined}
+                  onClick={() => onSelectProvider(selection.provider === id ? '' : id)}
+                  className={cn(
+                    'flex h-9 w-full items-center gap-1.5 rounded-[var(--r-md)] px-2 text-left md:h-[26px]',
+                    selection.provider === id
+                      ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
+                    !count?.hostCount && 'opacity-60',
+                  )}
+                >
+                  <HostIcon host={{ name: '', provider: id, iconKind: '', iconValue: '', iconUrl: '' }} providers={providers} size={13} />
+                  <span className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)]">{label}</span>
+                  {count && count.hostCount > 0 && (
+                    <span className="tabular shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{count.hostCount}</span>
+                  )}
+                </button>
+              )
+            })}
           </div>
         </section>
       </div>
