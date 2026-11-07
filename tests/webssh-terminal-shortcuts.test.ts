@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { terminalShortcutAction } from '../src/client/features/webssh/shortcuts'
+import { TERMINAL_SHORTCUTS, shortcutConflicts, terminalShortcutAction } from '../src/client/features/webssh/shortcuts'
 
 function keydown(init: Partial<KeyboardEvent>): KeyboardEvent {
   return {
@@ -29,5 +29,24 @@ describe('terminal shortcuts', () => {
     expect(terminalShortcutAction(keydown({ key: 'c', ctrlKey: true, shiftKey: true, altKey: true }))).toBeNull()
     expect(terminalShortcutAction({ ...keydown({ key: 'c', ctrlKey: true, shiftKey: true }), type: 'keyup' } as KeyboardEvent)).toBeNull()
     expect(terminalShortcutAction(keydown({ key: 'x', ctrlKey: true, shiftKey: true }))).toBeNull()
+  })
+
+  it('opens search and full screen without claiming Ctrl+Enter', () => {
+    expect(terminalShortcutAction(keydown({ key: 'f', ctrlKey: true }))).toBe('search')
+    expect(terminalShortcutAction(keydown({ key: 'f', metaKey: true }))).toBe('search')
+    expect(terminalShortcutAction(keydown({ key: 'f', ctrlKey: true, shiftKey: true }))).toBe('fullscreen')
+    expect(terminalShortcutAction(keydown({ key: 'Enter', ctrlKey: true }))).toBeNull()
+  })
+
+  it('has no two actions claiming the same combination', () => {
+    expect(shortcutConflicts()).toEqual([])
+  })
+
+  it('finds a conflict even when the modifiers are written in another order', () => {
+    expect(shortcutConflicts([
+      { id: 'copy', combo: 'mod+shift+f' },
+      { id: 'fullscreen', combo: 'shift+mod+f' },
+    ])).toEqual(['mod+shift+f: copy, fullscreen'])
+    expect(TERMINAL_SHORTCUTS.every((shortcut) => shortcut.combo || shortcut.keys)).toBe(true)
   })
 })

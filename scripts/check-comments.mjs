@@ -20112,6 +20112,9 @@ const allowed = new Map([
     "/** The address a sidebar entry links with, so history and the back button agree with the screen. */",
     "/** The calculator view a query names, so a pasted `/tools/calculator?view=textcalc` opens that view. */",
   ]],
+  ["src/client/features/webssh/AppearanceSettingsDialog.tsx", [
+    "/**\n * Appearance is one dialog because every field writes the same localStorage record: a site label,\n * the paper behind the terminal, how far the surface is inset, and a colour overlay for the palette the\n * reader already chose. The colour file carries only that overlay, so importing it cannot replace a\n * background image or a site name.\n */",
+  ]],
   ["src/client/features/webssh/AuditPanel.tsx", [
     "// Read-only audit browser and local health view (plan W7-03). The panel never offers an edit or",
     "// delete control: the trail is append-only by construction, so the UI can only filter and page it.",
@@ -20156,6 +20159,7 @@ const allowed = new Map([
     "/** Bytes sent when the key is pressed without a modifier. */",
     "/** Accessible name, kept as a key so it is translated with the rest of the interface. */",
     "/** Ctrl is a one-shot modifier: the letter it prefixes becomes the control byte, then it clears. */",
+    "/** Alt is one-shot too: a terminal reads it as the ESC prefix, and Ctrl+Alt has its own arrow form. */",
   ]],
   ["src/client/features/webssh/NewSessionDialog.tsx", [
     "/**\n * W3 owns the host and credential library. Until it lands this dialog only names a demo session,\n * and the description says exactly that — no host, port or password field is shown, so nothing here\n * can be mistaken for a real connection form.\n */",
@@ -20174,6 +20178,10 @@ const allowed = new Map([
     "/**\n * One tab's terminal, its connection banner and its controls.\n *\n * The transport is created by the factory the workspace passes in, and the status surface never\n * claims more than the transport reports: only the server's `ready` frame lets the pane call a\n * session connected.\n */",
     "/** A snippet the workspace asked to type into this tab; `token` makes repeats distinguishable. */",
     "/**\n   * Pasting keeps a snippet from running on arrival: a trailing newline is dropped and xterm's\n   * bracketed-paste path leaves the command at the prompt for the user to submit.\n   */",
+    "/** What the workspace can ask a tab to do: insert text, run text, and whether the tab can run it. */",
+    "// A fresh search each edit: the addon keeps its own cursor, and after an option change (case or",
+    "// regex) an incremental search from the old cursor can keep answering \"no match\" for a term that",
+    "// is there. Clearing first makes the first match the answer again.",
   ]],
   ["src/client/features/webssh/TerminalTabs.tsx", [
     "/**\n * The session strip. A terminal tab carries a close control beside it, so the tab itself stays one\n * button and the row keeps a single tab stop, while arrow keys move the selection the way `Tabs`\n * does. The status dot repeats the connection phase without relying on colour alone: the dot's\n * tooltip and the status bar both say the phase in words.\n */",
@@ -20185,6 +20193,18 @@ const allowed = new Map([
   ]],
   ["src/client/features/webssh/api.ts", [
     "// A binary or empty error body still maps to the status line below.",
+  ]],
+  ["src/client/features/webssh/appearance.ts", [
+    "/**\n * The WebSSH surface a reader styles for themselves: the site label, the paper behind the terminal,\n * how far the terminal pane is inset, and a small terminal palette overlay. Everything lives in\n * localStorage because none of it belongs to an account or to a host, and nothing here is secret.\n *\n * Terminal colours are an overlay, not a replacement: the built-in dark/light/follow palettes stay the\n * base, and a reader's choices are merged on top of whichever one is active. Import and export carry\n * only that overlay, so a palette file can never smuggle a background image or a site name into\n * another browser.\n */",
+    "/** An empty value means the translated app title; a site name never replaces the control labels. */",
+    "/** A data URL, validated to an image type and a two-megabyte ceiling before it is stored. */",
+    "/** The terminal's own background alpha, so the paper behind it stays visible without dimming text. */",
+    "/** Padding inside the terminal surface, in pixels. */",
+    "/** A stored or imported colour is accepted only in the one shape the colour wheel writes. */",
+    "/** The approximate decoded size of a base64 data URL, so the cap counts pixels rather than characters. */",
+    "/** The CSS variables the workspace and the terminal surface read. */",
+    "/**\n * Merge the reader's overlay onto a built-in palette. With no overlay and an opaque surface the base\n * palette is returned unchanged, which keeps the default terminal byte-for-byte what it was.\n */",
+    "/** The palette file carries the overlay alone, so it cannot carry a site name or a background image. */",
   ]],
   ["src/client/features/webssh/file-icons.tsx", [
     "// Extension-to-icon mapping for the SFTP list (W5-03). Icons are lucide components chosen by suffix",
@@ -20200,12 +20220,22 @@ const allowed = new Map([
     "/**\n * Terminal preferences live in localStorage beside the reader, like the editor's own font size: they\n * are a property of this browser, not of an account, and nothing here is secret.\n */",
     "/** Tolerates a missing, truncated or hand-edited value; every rejected field falls back on its own. */",
   ]],
+  ["src/client/features/webssh/quick-commands.ts", [
+    "/**\n * The preset command shelf beside the terminal. Presets ship with the app, but the list the reader\n * sees is the one in localStorage from the first open onwards: deleting a preset is a real deletion,\n * not something the next load quietly puts back. Entries carry either a translated title key (the\n * shipped presets) or a title the reader typed, and every one of them can be edited, re-categorised\n * and starred like a hand-written command.\n */",
+    "/** Present on shipped presets only; the panel translates it instead of showing stored copy. */",
+    "/** Present on commands the reader typed, and on a preset the reader renamed. */",
+    "/** The line the caret is on, which is what \"send the current line\" hands to the shell. */",
+    "/**\n * A bare Enter in the command editor has to stay a newline, and the composition guard is asked before\n * the shortcut so an IME candidate is never submitted as \"run every line\".\n */",
+  ]],
   ["src/client/features/webssh/session-retry.ts", [
     "/** The client's reconnect ladder. The server (W2) never drives retries; the UI does. */",
     "/** `attempt` is the number of the retry being decided, starting at 1. */",
   ]],
   ["src/client/features/webssh/shortcuts.ts", [
-    "/**\n * Which terminal-local action a keydown means. Kept apart from the xterm hook so the mapping can be\n * tested without a canvas, and so the shortcut dialog and the handler cannot drift apart.\n *\n * Ctrl+C stays SIGINT: copying is Ctrl+Shift+C, exactly as it is in a desktop terminal. The\n * platform modifier (Cmd on macOS, Ctrl elsewhere) is accepted for both.\n */",
+    "/**\n * Every terminal-local key, in one table.\n *\n * The xterm handler and the help dialog read the same definitions, so a shortcut cannot work while the\n * dialog describes an older one. `shortcutConflicts` is the second reader: it answers which combinations\n * two actions claim at once, which is what keeps a future addition from silently shadowing a copy or a\n * search. Terminal keys stay on the platform modifier plus Shift because plain Ctrl+C has to remain\n * SIGINT, and Alt is never claimed here — it is a terminal modifier the shell receives.\n */",
+    "/** A combination `Kbd` understands, e.g. `mod+shift+c`; absent for keys read inside a field. */",
+    "/** A key chord drawn as separate caps, for the keys a focused search field owns. */",
+    "/** Combos are compared as modifier sets plus a key, so `shift+mod+f` cannot hide behind `mod+shift+f`. */",
   ]],
   ["src/client/features/webssh/terminal-themes.ts", [
     "/**\n * Two terminal palettes, both built from the Inkstone surface values. \"Follow\" picks the palette that\n * matches the app's light/dark theme; the explicit presets let a reader keep a dark terminal inside a\n * light shell. ANSI colours are fixed per palette so syntax and command output stay legible either way.\n */",
@@ -20237,6 +20267,9 @@ const allowed = new Map([
     "// A hidden tab has no box to fit; the observer calls again when it is shown.",
     "// The renderer can be mid-teardown when a hidden panel is disposed; the next resize refits.",
     "// Theme and type are options, not a new terminal: changing them keeps scrollback and selection.",
+    "/** Absent in a replay surface, where the browser's own find should keep the keystroke. */",
+    "// Search highlighting paints through xterm's decoration API, which is still an experimental",
+    "// surface: without this flag `registerDecoration` throws and the search bar takes the app down.",
   ]],
   ["src/client/features/webssh/webssh.css", [
     "/* WebSSH's terminal glue. Colours come from xterm's theme object (built from the Inkstone palettes in\n   `terminal-themes.ts`); this file only makes the xterm surface take the box the app gives it. */",

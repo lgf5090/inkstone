@@ -9,8 +9,20 @@ import {
   parseTerminalSettings,
   saveTerminalSettings,
 } from '../src/client/features/webssh/prefs'
-import { applyControlModifier } from '../src/client/features/webssh/MobileKeyBar'
+import { applyControlModifier, applyModifiers } from '../src/client/features/webssh/MobileKeyBar'
 import { resolveTerminalTheme, TERMINAL_THEME_PALETTES } from '../src/client/features/webssh/terminal-themes'
+import {
+  DEFAULT_APPEARANCE,
+  mergeTerminalTheme,
+  parseAppearance,
+  parseTerminalColorsFile,
+  exportTerminalColors,
+} from '../src/client/features/webssh/appearance'
+import {
+  DEFAULT_QUICK_COMMANDS,
+  currentLineAt,
+  parseQuickCommands,
+} from '../src/client/features/webssh/quick-commands'
 
 describe('the reconnect ladder', () => {
   it('waits 1s, 2s and 4s, then gives up', () => {
@@ -67,5 +79,56 @@ describe('the mobile Ctrl modifier', () => {
     expect(applyControlModifier('z')).toBe('\x1a')
     expect(applyControlModifier('|')).toBe('|')
     expect(applyControlModifier('\x1b[A')).toBe('\x1b[A')
+  })
+
+  it('sends Alt as the ESC prefix and gives Ctrl+Alt its arrow form', () => {
+    expect(applyModifiers('a', false, true)).toBe('\x1ba')
+    expect(applyModifiers('r', true, false)).toBe('\x12')
+    expect(applyModifiers('\x1b[A', true, true)).toBe('\x1b[1;7A')
+    expect(applyModifiers('\x1b[B', false, true)).toBe('\x1b\x1b[B')
+    expect(applyModifiers('x', false, false)).toBe('x')
+  })
+})
+
+describe('appearance', () => {
+  it('falls back on a broken record and clamps the two sliders', () => {
+    expect(parseAppearance(null)).toEqual(DEFAULT_APPEARANCE)
+    expect(parseAppearance('not json')).toEqual(DEFAULT_APPEARANCE)
+    const parsed = parseAppearance(JSON.stringify({ siteName: '  Lab  ', background: 'data:text/html;base64,AAAA', surfaceOpacity: 0.1, spacing: 99, terminalColors: { background: '#ABCDEF', cursor: 'red' } }))
+    expect(parsed.siteName).toBe('Lab')
+    expect(parsed.background).toBeNull()
+    expect(parsed.surfaceOpacity).toBe(0.35)
+    expect(parsed.spacing).toBe(16)
+    expect(parsed.terminalColors).toEqual({ background: '#abcdef' })
+  })
+
+  it('merges a colour overlay and leaves the base palette untouched without one', () => {
+    expect(mergeTerminalTheme(TERMINAL_THEME_PALETTES.dark, {}, 1)).toBe(TERMINAL_THEME_PALETTES.dark)
+    const translucent = mergeTerminalTheme(TERMINAL_THEME_PALETTES.dark, {}, 0.8)
+    expect(translucent.background).toBe('rgba(30, 27, 25, 0.8)')
+    const custom = mergeTerminalTheme(TERMINAL_THEME_PALETTES.dark, { foreground: '#ffffff', cursor: '#ff0000' }, 1)
+    expect(custom.foreground).toBe('#ffffff')
+    expect(custom.cursor).toBe('#ff0000')
+  })
+
+  it('round-trips a colour file and rejects an empty one', () => {
+    expect(parseTerminalColorsFile(exportTerminalColors({ background: '#112233' }))).toEqual({ background: '#112233' })
+    expect(parseTerminalColorsFile(exportTerminalColors({}))).toBeNull()
+    expect(parseTerminalColorsFile('not json')).toBeNull()
+  })
+})
+
+describe('quick commands', () => {
+  it('seeds the shipped presets only when nothing is stored', () => {
+    expect(parseQuickCommands(null)).toEqual([...DEFAULT_QUICK_COMMANDS])
+    expect(parseQuickCommands('[]')).toEqual([])
+    expect(parseQuickCommands(JSON.stringify([{ id: 'x', title: 'Run', command: 'echo ok', category: 'custom', favorite: true }]))).toHaveLength(1)
+    expect(parseQuickCommands(JSON.stringify([{ id: 'x', command: '', category: 'custom' }]))).toEqual([])
+  })
+
+  it('returns the line under the caret', () => {
+    expect(currentLineAt('one\ntwo\nthree', 5)).toBe('two')
+    expect(currentLineAt('one\ntwo', 0)).toBe('one')
+    expect(currentLineAt('one\ntwo', 7)).toBe('two')
   })
 })

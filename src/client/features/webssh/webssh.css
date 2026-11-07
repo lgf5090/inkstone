@@ -5,6 +5,17 @@
   overflow: hidden;
 }
 
+.webssh-shell {
+  background-image: var(--webssh-bg, none);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.webssh-terminal-host {
+  padding: var(--webssh-space, 0px);
+}
+
 .webssh-terminal .xterm {
   height: 100%;
   width: 100%;

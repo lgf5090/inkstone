@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Download,
+  FolderTree,
   History,
   KeyRound,
   Menu as MenuIcon,
   MoreHorizontal,
   PanelLeft,
   Pencil,
+  Palette,
   ScrollText,
   ShieldCheck,
   SquareTerminal,
@@ -41,11 +43,14 @@ import { HostList, type HostDensity } from './HostList'
 import { HostFiltersDialog } from './HostFiltersDialog'
 import { HostIcon, providerText } from './HostIcon'
 import { HostDialog } from './HostDialog'
+import { GroupDialog } from './GroupDialog'
 import { CredentialDialog } from './CredentialDialog'
 import { KeyManagerDialog } from './KeyManagerDialog'
 import { FingerprintDialog } from './FingerprintDialog'
 import { TerminalWorkspace } from './TerminalWorkspace'
 import { SnippetsPanel } from './SnippetsPanel'
+import { AppearanceSettingsDialog } from './AppearanceSettingsDialog'
+import { loadAppearance, saveAppearance, siteTitle, type WebsshAppearance } from './appearance'
 import { ImportDialog } from './ImportDialog'
 import { AuditPanel } from './AuditPanel'
 import { RecordingsPanel } from './RecordingsPanel'
@@ -182,9 +187,12 @@ export function WebsshApp() {
   const [preflight, setPreflight] = useState<WebsshHostPreflight | null>(null)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const [groupsOpen, setGroupsOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const headerMenuAnchor = useRef<HTMLButtonElement>(null)
   const exportMenuAnchor = useRef<HTMLButtonElement>(null)
+  const [appearance, setAppearance] = useState<WebsshAppearance>(loadAppearance)
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
 
   const refresh = () => setRefreshToken((value) => value + 1)
   const selected = hosts.find((host) => host.id === selectedId) ?? pinnedHost
@@ -242,6 +250,10 @@ export function WebsshApp() {
       setFolderId('')
     }
   }, [folderId, overview])
+
+  useEffect(() => {
+    saveAppearance(appearance)
+  }, [appearance])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -455,7 +467,7 @@ export function WebsshApp() {
           {workspaceHost.username}@{workspaceHost.host}:{workspaceHost.port}
         </span>
       </div>
-      <TerminalWorkspace host={workspaceHost} newTabToken={newTabToken} />
+      <TerminalWorkspace host={workspaceHost} newTabToken={newTabToken} appearance={appearance} />
     </section>
   ) : null
 
@@ -546,14 +558,20 @@ export function WebsshApp() {
         <SquareTerminal size={16} aria-hidden="true" className="hidden shrink-0 text-[var(--text-secondary)] sm:block" />
         <div className="flex min-w-0 flex-1 items-baseline gap-2">
           <h1 className="shrink-0 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">
-            {t('webssh.app.title')}
+            {siteTitle(appearance, t('webssh.app.title'))}
           </h1>
           <span className="min-w-0 truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{viewLabel}</span>
         </div>
         <div className="ml-auto hidden shrink-0 items-center gap-1 md:flex">
+          <Button size="sm" variant="ghost" onClick={() => setGroupsOpen(true)} icon={<FolderTree size={13} aria-hidden="true" />}>
+            {t('webssh.actions.groups')}
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => setCredentialsOpen(true)}>{t('webssh.actions.credentials')}</Button>
           <Button size="sm" variant="ghost" onClick={() => setKeysOpen(true)} icon={<KeyRound size={13} aria-hidden="true" />}>{t('webssh.actions.keys')}</Button>
           <Button size="sm" variant="ghost" onClick={() => setSnippetsOpen(true)} icon={<ScrollText size={13} aria-hidden="true" />}>{t('webssh.snippet.open')}</Button>
+          <IconButton label={t('webssh.appearance.open')} size="sm" onClick={() => setAppearanceOpen(true)}>
+            <Palette size={14} aria-hidden="true" />
+          </IconButton>
           <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)} icon={<Upload size={13} aria-hidden="true" />}>{t('webssh.actions.import')}</Button>
           <Button size="sm" variant="ghost" onClick={() => setRecordingsOpen(true)} icon={<History size={13} aria-hidden="true" />}>{t('webssh.recordings.open')}</Button>
           <Button size="sm" variant="ghost" onClick={() => setAuditOpen(true)} icon={<ShieldCheck size={13} aria-hidden="true" />}>
@@ -693,6 +711,13 @@ export function WebsshApp() {
         onProvidersChanged={refresh}
       />
 
+      <GroupDialog
+        open={groupsOpen}
+        groups={groups}
+        onClose={() => setGroupsOpen(false)}
+        onChanged={refresh}
+      />
+
       <CredentialDialog
         open={credentialsOpen}
         credentials={credentials}
@@ -708,6 +733,13 @@ export function WebsshApp() {
       />
 
       <SnippetsPanel open={snippetsOpen} onClose={() => setSnippetsOpen(false)} />
+
+      <AppearanceSettingsDialog
+        open={appearanceOpen}
+        onClose={() => setAppearanceOpen(false)}
+        settings={appearance}
+        onChange={setAppearance}
+      />
 
       <ImportDialog
         open={importOpen}

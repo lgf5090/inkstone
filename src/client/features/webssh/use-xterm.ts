@@ -7,6 +7,7 @@
  * definition.
  */
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon, type ISearchOptions, type ISearchResultChangeEvent } from '@xterm/addon-search'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import { useEffect, useRef, type RefObject } from 'react'
 import { useEvent } from '../../lib/hooks'
@@ -22,6 +23,10 @@ export interface XtermOptions {
   onCopyRequest: () => void
   onPasteRequest: () => void
   onClearRequest: () => void
+  /** Absent in a replay surface, where the browser's own find should keep the keystroke. */
+  onSearchRequest?: () => void
+  onFullscreenRequest?: () => void
+  onSearchResults?: (event: ISearchResultChangeEvent) => void
   onReady?: () => void
 }
 
@@ -35,6 +40,9 @@ export interface XtermController {
   clearSelection: () => void
   paste: (text: string) => void
   input: (data: string) => void
+  findNext: (term: string, options: ISearchOptions) => boolean
+  findPrevious: (term: string, options: ISearchOptions) => boolean
+  clearSearch: () => void
   dimensions: () => { cols: number; rows: number }
 }
 
@@ -47,6 +55,7 @@ function monoFontFamily(): string {
 export function useXterm(containerRef: RefObject<HTMLDivElement | null>, options: XtermOptions): XtermController {
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const searchAddonRef = useRef<SearchAddon | null>(null)
 
   const onInput = useEvent(options.onInput)
   const onResize = useEvent(options.onResize)
@@ -54,6 +63,9 @@ export function useXterm(containerRef: RefObject<HTMLDivElement | null>, options
   const onCopyRequest = useEvent(options.onCopyRequest)
   const onPasteRequest = useEvent(options.onPasteRequest)
   const onClearRequest = useEvent(options.onClearRequest)
+  const onSearchRequest = useEvent(options.onSearchRequest ?? (() => {}))
+  const onFullscreenRequest = useEvent(options.onFullscreenRequest ?? (() => {}))
+  const onSearchResults = useEvent(options.onSearchResults ?? (() => {}))
   const onReady = useEvent(options.onReady ?? (() => {}))
 
   const initialOptions = useRef(options)
@@ -63,7 +75,9 @@ export function useXterm(containerRef: RefObject<HTMLDivElement | null>, options
     if (!container) return
 
     const terminal = new Terminal({
-      allowProposedApi: false,
+      // Search highlighting paints through xterm's decoration API, which is still an experimental
+      // surface: without this flag `registerDecoration` throws and the search bar takes the app down.
+      allowProposedApi: true,
       cursorBlink: initialOptions.current.cursorBlink,
       convertEol: false,
       fontFamily: monoFontFamily(),
@@ -76,9 +90,12 @@ export function useXterm(containerRef: RefObject<HTMLDivElement | null>, options
     })
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
+    const searchAddon = new SearchAddon({ highlightLimit: 500 })
+    terminal.loadAddon(searchAddon)
     terminal.open(container)
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
+    searchAddonRef.current = searchAddon
 
     const fit = () => {
       // A hidden tab has no box to fit; the observer calls again when it is shown.
@@ -94,13 +111,18 @@ export function useXterm(containerRef: RefObject<HTMLDivElement | null>, options
     const dataSubscription = terminal.onData((data) => onInput(data))
     const resizeSubscription = terminal.onResize(({ cols, rows }) => onResize(cols, rows))
     const selectionSubscription = terminal.onSelectionChange(() => onSelectionChange(terminal.hasSelection()))
+    const resultsSubscription = searchAddon.onDidChangeResults((event) => onSearchResults(event))
 
     terminal.attachCustomKeyEventHandler((event) => {
       const action = terminalShortcutAction(event)
       if (!action) return true
+      if (action === 'search' && !initialOptions.current.onSearchRequest) return true
+      if (action === 'fullscreen' && !initialOptions.current.onFullscreenRequest) return true
       event.preventDefault()
       if (action === 'copy') onCopyRequest()
       else if (action === 'paste') onPasteRequest()
+      else if (action === 'search') onSearchRequest()
+      else if (action === 'fullscreen') onFullscreenRequest()
       else onClearRequest()
       return false
     })
@@ -116,14 +138,16 @@ export function useXterm(containerRef: RefObject<HTMLDivElement | null>, options
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
+      resultsSubscription.dispose()
       selectionSubscription.dispose()
       resizeSubscription.dispose()
       dataSubscription.dispose()
       terminal.dispose()
       terminalRef.current = null
       fitAddonRef.current = null
+      searchAddonRef.current = null
     }
-  }, [containerRef, onClearRequest, onCopyRequest, onInput, onPasteRequest, onReady, onResize, onSelectionChange])
+  }, [containerRef, onClearRequest, onCopyRequest, onFullscreenRequest, onInput, onPasteRequest, onReady, onResize, onSearchRequest, onSearchResults, onSelectionChange])
 
   // Theme and type are options, not a new terminal: changing them keeps scrollback and selection.
   useEffect(() => {
@@ -153,6 +177,21 @@ export function useXterm(containerRef: RefObject<HTMLDivElement | null>, options
     clearSelection: () => terminalRef.current?.clearSelection(),
     paste: (text) => terminalRef.current?.paste(text),
     input: (data) => terminalRef.current?.input(data),
+    findNext: (term, searchOptions) => {
+      if (!term) {
+        searchAddonRef.current?.clearDecorations()
+        return false
+      }
+      return searchAddonRef.current?.findNext(term, searchOptions) ?? false
+    },
+    findPrevious: (term, searchOptions) => {
+      if (!term) {
+        searchAddonRef.current?.clearDecorations()
+        return false
+      }
+      return searchAddonRef.current?.findPrevious(term, searchOptions) ?? false
+    },
+    clearSearch: () => searchAddonRef.current?.clearDecorations(),
     dimensions: () => ({
       cols: terminalRef.current?.cols ?? 80,
       rows: terminalRef.current?.rows ?? 24,
