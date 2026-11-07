@@ -1,4 +1,5 @@
 /** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */
+import { CLIENT_HEADER } from '@shared/constants'
 import { request } from '../../lib/api'
 import type {
   ProjectBoard,
@@ -169,4 +170,19 @@ export async function putProjectShare(boardId: string, input: { password?: strin
 
 export async function deleteProjectShare(boardId: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/share`, { method: 'DELETE' })
+}
+
+export async function importProjectArchive(bytes: Uint8Array): Promise<ProjectBoardSummary> {
+  const response = await fetch('/api/project/boards/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/zip', [CLIENT_HEADER]: '1' },
+    body: bytes as BodyInit,
+    credentials: 'same-origin',
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: { message?: string } } | null
+    throw new Error(body?.error?.message ?? `Import failed (${response.status})`)
+  }
+  const body = await response.json() as { board: ProjectBoardSummary }
+  return body.board
 }

@@ -93,4 +93,9 @@ export const EN_US_PROJECT = {
     "project.share.copy": "Copy link",
     "project.share.password": "Password (optional)",
     "project.share.views": "{count} views",
+    "project.import.title": "Import a board",
+    "project.import.format": "Source format",
+    "project.import.choose": "Choose file",
+    "project.import.submit": "Import",
+    "project.import.no_file": "Choose a file first",
 } as const

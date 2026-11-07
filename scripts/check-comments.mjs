@@ -32345,6 +32345,9 @@ const allowed = new Map([
     "/**\n * CSV export of a board's cards (§6.5). Columns are the visible properties in board order (not view\n * column order); a calendar view appends its date property if it is not already shown. Two deliberate\n * deviations from the reference are registered in the plan: a UTF-8 BOM so Excel reads Chinese, and\n * header cells escaped like data cells (the reference left them raw, so a comma in a property name\n * broke the file). The reference's `#`→token dance existed only for its data-URI transport; raw CSV\n * keeps `#` literal, which removes that whole class of bug rather than patching it.\n */",
     "// A scalar masquerading as a multi-value falls through to ordinary text.",
   ]],
+  ["src/shared/project/importers.ts", [
+    "/**\n * The six external importers (G-1…G-6) as pure converters: each parses its system's export into the\n * same archive lines the server importer reads, so there is exactly one trust boundary. Lists /\n * sections / columns become a single select property; rows become cards carrying that property, and\n * free text becomes a text content block. G-7's packing is the shared archive envelope itself.\n */",
+  ]],
   ["src/shared/project/limits.ts", [
     "/**\n * The project app's budgets, in one place so the server that enforces them and the client that\n * explains them cannot disagree about a number.\n *\n * The first three come from the reference's block model, where they were MySQL TEXT ceilings; D1 has\n * no such ceiling, but an archive exported there has to import here without truncation. The rest are\n * this port's own limits: the reference gated capacity behind a paid cloud plan, and a self-hosted\n * board needs a stated ceiling instead of an unbounded table.\n */",
     "/** The reference's MySQL TEXT ceiling divided by four: the most bytes one rune can cost. */",

@@ -93,4 +93,9 @@ export const ZH_CN_PROJECT = {
     "project.share.copy": "复制链接",
     "project.share.password": "密码（可选）",
     "project.share.views": "{count} 次查看",
+    "project.import.title": "导入板",
+    "project.import.format": "来源格式",
+    "project.import.choose": "选择文件",
+    "project.import.submit": "导入",
+    "project.import.no_file": "请先选择文件",
 } as const

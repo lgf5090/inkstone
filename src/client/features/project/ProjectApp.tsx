@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { Copy, MoreHorizontal, Pencil, Plus, Save, Search, SquareKanban, Trash2 } from 'lucide-react'
+import { Copy, MoreHorizontal, Pencil, Plus, Save, Search, SquareKanban, Trash2, Upload } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { ProjectBoardSummary, ProjectRole } from '@shared/project/model'
 import { t } from '../../lib/i18n'
@@ -11,6 +11,7 @@ import { useUi } from '../../store/ui'
 import { createBoardFromTemplate, saveBoardAsTemplate } from './api'
 import { useProjectStore } from './store'
 import { BoardPage } from './BoardPage'
+import { ImportDialog } from './ImportDialog'
 import { ProjectSidebar } from './ProjectSidebar'
 import { SearchDialog } from './SearchDialog'
 import { TemplatePicker } from './TemplatePicker'
@@ -43,6 +44,7 @@ function BoardList(): ReactElement {
   const toast = useUi((state) => state.toast)
   const [showPicker, setShowPicker] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  const [showImport, setShowImport] = useState(false)
 
   useEffect(() => {
     ensureBoards()
@@ -84,6 +86,7 @@ function BoardList(): ReactElement {
           </span>
         )}
         <IconButton className="ml-auto" label={t('project.search.title')} size="sm" onClick={() => setShowSearch(true)}><Search size={16} /></IconButton>
+        <IconButton label={t('project.import.title')} size="sm" onClick={() => setShowImport(true)}><Upload size={16} /></IconButton>
         <Button variant="primary" size="sm" icon={<Plus size={15} />} onClick={() => setShowPicker(true)}>
           {t('project.boards.new')}
         </Button>
@@ -109,6 +112,7 @@ function BoardList(): ReactElement {
       </div>
       {showPicker && <TemplatePicker onClose={() => setShowPicker(false)} onPick={(id) => void pickTemplate(id)} />}
       {showSearch && <SearchDialog onClose={() => setShowSearch(false)} />}
+      {showImport && <ImportDialog onClose={() => setShowImport(false)} />}
     </div>
   )
 }
