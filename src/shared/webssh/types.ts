@@ -115,6 +115,83 @@ export interface WebsshImportCommitResult {
   skipped: Array<{ name: string; reason: string }>
 }
 
+/** The append-only event vocabulary, shared so the filter and the writer cannot drift. */
+export const WEBSSH_AUDIT_EVENT_TYPES = [
+  'session_create',
+  'ticket_issue',
+  'ticket_consumed',
+  'ticket_rejected',
+  'connect',
+  'connect_blocked',
+  'host_key_new',
+  'host_key_changed',
+  'host_key_trusted',
+  'session_ready',
+  'auth_fail',
+  'disconnect',
+  'session_error',
+  'file_list',
+  'file_upload',
+  'file_download',
+  'file_delete',
+  'file_rename',
+  'dir_create',
+  'recording_start',
+  'recording_finalize',
+  'recording_fail',
+  'recording_delete',
+  'recording_access',
+  'share_create',
+  'share_revoke',
+  'share_access',
+  'retention_fail',
+] as const
+
+export type WebsshAuditEventType = typeof WEBSSH_AUDIT_EVENT_TYPES[number]
+
+/** One append-only audit row, with metadata already parsed for the read-only viewer. */
+export interface WebsshAuditEventView {
+  id: string
+  eventType: string
+  sessionId: string
+  hostId: string
+  metadata: Record<string, string | number | boolean | null>
+  ipHash: string
+  createdAt: number
+}
+
+export interface WebsshAuditListResponse {
+  items: WebsshAuditEventView[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export type WebsshHealthAlertCode =
+  | 'session_failures'
+  | 'host_key_changed'
+  | 'retention_failed'
+  | 'ticket_anomaly'
+
+export interface WebsshHealthAlert {
+  code: WebsshHealthAlertCode
+  severity: 'warning' | 'danger'
+  count: number
+  lastAt: number | null
+}
+
+/** Local-only statistics; nothing in this shape triggers an external notification. */
+export interface WebsshHealthReport {
+  generatedAt: number
+  sessions: { total: number; failed: number; failureRate: number }
+  signals: {
+    hostKeyChanged: number
+    retentionFailed: number
+    ticketRejected: number
+  }
+  alerts: WebsshHealthAlert[]
+}
+
 /** Client -> server frames; every frame is JSON text on the same-origin socket. */
 export type WebsshClientFrame =
   | { type: 'input'; data: string }

@@ -35,6 +35,7 @@ import { FingerprintDialog } from './FingerprintDialog'
 import { TerminalWorkspace } from './TerminalWorkspace'
 import { SnippetsPanel } from './SnippetsPanel'
 import { ImportDialog } from './ImportDialog'
+import { AuditPanel } from './AuditPanel'
 import '@xterm/xterm/css/xterm.css'
 import './webssh.css'
 
@@ -75,6 +76,8 @@ export function WebsshApp() {
   const [keysOpen, setKeysOpen] = useState(false)
   const [snippetsOpen, setSnippetsOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [auditOpen, setAuditOpen] = useState(false)
+  const [alertCount, setAlertCount] = useState(0)
   const [fingerprintOpen, setFingerprintOpen] = useState(false)
   const [fingerprints, setFingerprints] = useState<WebsshHostKey[]>([])
   const [preflight, setPreflight] = useState<WebsshHostPreflight | null>(null)
@@ -101,6 +104,20 @@ export function WebsshApp() {
       })
       .catch((caught: unknown) => {
         if (!cancelled) setError(caught instanceof ApiError ? caught.message : t('webssh.error.generic'))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [refreshToken])
+
+  useEffect(() => {
+    let cancelled = false
+    websshApi.auditHealth()
+      .then((report) => {
+        if (!cancelled) setAlertCount(report.alerts.length)
+      })
+      .catch(() => {
+        // The header badge is a convenience; the audit panel surfaces a failed health read.
       })
     return () => {
       cancelled = true
@@ -263,6 +280,14 @@ export function WebsshApp() {
           <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)} icon={<Upload size={13} aria-hidden="true" />}>
             {t('webssh.actions.import')}
           </Button>
+          <Button size="sm" variant="ghost" onClick={() => setAuditOpen(true)} icon={<ShieldCheck size={13} aria-hidden="true" />}>
+            {t('webssh.audit.open')}
+            {alertCount > 0 && (
+              <span className="ms-0.5 rounded-full bg-[var(--danger)] px-1.5 text-[length:var(--text-10)] text-[var(--text-inverse)]">
+                {alertCount}
+              </span>
+            )}
+          </Button>
         </div>
       </header>
 
@@ -355,6 +380,8 @@ export function WebsshApp() {
           refresh()
         }}
       />
+
+      <AuditPanel open={auditOpen} onClose={() => setAuditOpen(false)} />
 
       <FingerprintDialog
         open={fingerprintOpen}

@@ -150,6 +150,8 @@ describe('recording retention', () => {
     const afterFailure = sqlite.prepare('SELECT status, deleted_at FROM webssh_recordings WHERE id = ?').get(id)
     expect(afterFailure).toMatchObject({ status: 'ready', deleted_at: now })
     expect(bucket.objects.has(key)).toBe(true)
+    expect(sqlite.prepare("SELECT event_type, metadata FROM webssh_audit_events WHERE event_type = 'retention_fail'").get())
+      .toMatchObject({ event_type: 'retention_fail' })
 
     env.FILES = bucket
     expect(await purgeExpiredRecordings(env, now)).toBe(1)

@@ -20022,6 +20022,10 @@ const allowed = new Map([
     "/** The address a sidebar entry links with, so history and the back button agree with the screen. */",
     "/** The calculator view a query names, so a pasted `/tools/calculator?view=textcalc` opens that view. */",
   ]],
+  ["src/client/features/webssh/AuditPanel.tsx", [
+    "// Read-only audit browser and local health view (plan W7-03). The panel never offers an edit or",
+    "// delete control: the trail is append-only by construction, so the UI can only filter and page it.",
+  ]],
   ["src/client/features/webssh/ImportDialog.tsx", [
     "// Host import dialog (plan W7-02). Parsing is server-side so the same rules guard the API and the",
     "// preview; the file is read locally and only its text is posted, never the binary upload.",
@@ -20049,6 +20053,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/webssh/TerminalTabs.tsx", [
     "/**\n * The session strip. A terminal tab carries a close control beside it, so the tab itself stays one\n * button and the row keeps a single tab stop, while arrow keys move the selection the way `Tabs`\n * does. The status dot repeats the connection phase without relying on colour alone: the dot's\n * tooltip and the status bar both say the phase in words.\n */",
+  ]],
+  ["src/client/features/webssh/WebsshApp.tsx", [
+    "// The header badge is a convenience; the audit panel surfaces a failed health read.",
   ]],
   ["src/client/features/webssh/api.ts", [
     "// A binary or empty error body still maps to the status line below.",
@@ -34127,6 +34134,9 @@ const allowed = new Map([
     "/** A saved command snippet; `command` is the text inserted into the terminal. */",
     "/** One host definition parsed from an import preview; `issues` blocks it from being created. */",
     "/** The result of a confirmed import: hosts written and rows left out with a reason code. */",
+    "/** The append-only event vocabulary, shared so the filter and the writer cannot drift. */",
+    "/** One append-only audit row, with metadata already parsed for the read-only viewer. */",
+    "/** Local-only statistics; nothing in this shape triggers an external notification. */",
   ]],
   ["src/shared/youtube/model.ts", [
     "/**\n * The YouTube app's shared vocabulary: the upstream shapes the API hands over, the library rows a\n * reader saves, the address that names a view, and the pure formatting/tree rules both sides use.\n *\n * Nothing here touches the network or the DOM. The worker's transforms and the reader's rendering\n * have to agree on every field, so the types live once and are imported by both builds.\n */",
@@ -44177,6 +44187,7 @@ const allowed = new Map([
     "/** One bounded retention fire. Marked-but-not-yet-removed rows are retried here too. */",
     "// The link is part of the recording's life: once the object is gone, a share that still resolved",
     "// would hand a visitor a broken player. Dropped before the audit so the two cannot disagree.",
+    "// The object outlives its retention window; the local health view counts this until a sweep wins.",
   ]],
   ["src/worker/webssh/recording/slice.ts", [
     "// Byte-addressed cast slices, shared by the owner's replay API and the public share API. A slice",
@@ -44200,6 +44211,11 @@ const allowed = new Map([
     "// expired address is never left pointing at an object the sweep above just removed.",
     "// Abandoned staged uploads from interrupted SFTP transfers. The sweep checks D1 for a live session",
     "// before deleting anything, because that is the only row that could still complete the transfer.",
+  ]],
+  ["src/worker/webssh/routes-audit.ts", [
+    "// Read-only audit retrieval and the local health signals (plan W7-03). Nothing here writes: the",
+    "// audit table is append-only from the session paths, and the health report is derived on request so",
+    "// no cron or external notification channel is implied.",
   ]],
   ["src/worker/webssh/routes-recordings.ts", [
     "// Replay API for recorded sessions. Everything is session-scoped and owner-only: another account",

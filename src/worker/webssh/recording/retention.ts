@@ -41,6 +41,15 @@ export async function purgeExpiredRecording(env: Env, row: ExpiredRecordingRow, 
     await env.FILES.delete(row.r2_key)
   } catch (error) {
     report(error)
+    // The object outlives its retention window; the local health view counts this until a sweep wins.
+    await recordAudit(env.DB, {
+      userId: row.user_id,
+      sessionId: row.session_id,
+      hostId: row.host_id,
+      eventType: 'retention_fail',
+      metadata: { scope: 'recording', recordingId: row.id, reason: 'r2_delete' },
+      now,
+    }).catch(() => undefined)
     return false
   }
   await env.DB

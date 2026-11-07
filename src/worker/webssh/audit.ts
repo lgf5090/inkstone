@@ -1,36 +1,11 @@
 // Append-only WebSSH audit trail (plan §5.5). Metadata never carries a password, private key or
 // terminal output; it names ids, counts and result codes only.
 
+import type { WebsshAuditEventType } from '@shared/webssh/types'
 import { newId } from '../lib/id'
 
-export type WebsshAuditEventType =
-  | 'session_create'
-  | 'ticket_issue'
-  | 'ticket_consumed'
-  | 'ticket_rejected'
-  | 'connect'
-  | 'connect_blocked'
-  | 'host_key_new'
-  | 'host_key_changed'
-  | 'host_key_trusted'
-  | 'session_ready'
-  | 'auth_fail'
-  | 'disconnect'
-  | 'session_error'
-  | 'file_list'
-  | 'file_upload'
-  | 'file_download'
-  | 'file_delete'
-  | 'file_rename'
-  | 'dir_create'
-  | 'recording_start'
-  | 'recording_finalize'
-  | 'recording_fail'
-  | 'recording_delete'
-  | 'recording_access'
-  | 'share_create'
-  | 'share_revoke'
-  | 'share_access'
+export { WEBSSH_AUDIT_EVENT_TYPES } from '@shared/webssh/types'
+export type { WebsshAuditEventType } from '@shared/webssh/types'
 
 export interface WebsshAuditInput {
   userId: string

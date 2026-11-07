@@ -1,5 +1,7 @@
 import type {
+  WebsshAuditListResponse,
   WebsshCredential,
+  WebsshHealthReport,
   WebsshHost,
   WebsshHostGroup,
   WebsshHostKey,
@@ -208,6 +210,18 @@ export const websshApi = {
     await request<WebsshImportPreview>('/api/webssh/imports/preview', { method: 'POST', body: { content, format } }),
   commitImport: async (hosts: Array<{ name: string; host: string; port: number; username: string; tags: string[] }>) =>
     await request<WebsshImportCommitResult>('/api/webssh/imports', { method: 'POST', body: { hosts } }),
+
+  listAudit: async (params: { page?: number; pageSize?: number; eventType?: string; from?: number; to?: number } = {}) => {
+    const search = new URLSearchParams()
+    if (params.page) search.set('page', String(params.page))
+    if (params.pageSize) search.set('pageSize', String(params.pageSize))
+    if (params.eventType) search.set('eventType', params.eventType)
+    if (params.from) search.set('from', String(params.from))
+    if (params.to) search.set('to', String(params.to))
+    const query = search.toString()
+    return await request<WebsshAuditListResponse>(`/api/webssh/audit${query ? `?${query}` : ''}`)
+  },
+  auditHealth: async () => await request<WebsshHealthReport>('/api/webssh/audit/health'),
 }
 
 async function rawRequest(path: string, init: RequestInit = {}): Promise<Response> {

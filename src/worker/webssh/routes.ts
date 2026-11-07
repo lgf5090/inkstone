@@ -10,6 +10,7 @@ import { websshSettingsRoutes } from './routes-settings'
 import { websshRecordingRoutes } from './routes-recordings'
 import { websshShareRoutes } from './routes-share'
 import { websshSnippetRoutes } from './routes-snippets'
+import { websshAuditRoutes } from './routes-audit'
 
 export const websshRoutes = new Hono<AppBindings>()
 
@@ -25,3 +26,4 @@ websshRoutes.route('/', websshSettingsRoutes)
 websshRoutes.route('/', websshRecordingRoutes)
 websshRoutes.route('/', websshShareRoutes)
 websshRoutes.route('/', websshSnippetRoutes)
+websshRoutes.route('/', websshAuditRoutes)

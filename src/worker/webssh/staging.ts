@@ -9,6 +9,7 @@
 // prefix is not an error.
 
 import type { Env } from '../env'
+import { recordAudit } from './audit'
 
 export const WEBSSH_STAGING_UPLOAD_PREFIX = 'webssh/documents/uploads'
 
@@ -118,6 +119,12 @@ export async function purgeStagingUploads(
       removed += 1
     } catch (error) {
       report(error)
+      await recordAudit(env.DB, {
+        userId: transfer.userId,
+        eventType: 'retention_fail',
+        metadata: { scope: 'staging', transferId: transfer.transferId, reason: 'r2_delete' },
+        now,
+      }).catch(() => undefined)
     }
   }
   return removed
