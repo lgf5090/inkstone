@@ -19,6 +19,7 @@ let db: D1Database
 let env: Env
 let userId: string
 let app: Hono<AppBindings>
+const doGets: Array<{ id: string; hint?: string }> = []
 
 function makeApp(ownerId: string): Hono<AppBindings> {
   const instance = new Hono<AppBindings>()
@@ -41,13 +42,13 @@ function makeApp(ownerId: string): Hono<AppBindings> {
   return instance
 }
 
-function insertHost(hostId: string, ownerId: string, host = '127.0.0.1', port = 2222): void {
+function insertHost(hostId: string, ownerId: string, host = '127.0.0.1', port = 2222, egress = '{}'): void {
   sqlite.prepare(
     `INSERT INTO webssh_hosts
        (user_id, id, name, name_folded, host, port, username, auth_method, credential_id, key_id,
-        encoding, term_type, initial_command, created_at, updated_at, deleted_at)
-     VALUES (?, ?, 'Local', 'local', ?, ?, 'testuser', 'password', '', '', 'utf-8', 'xterm-256color', '', 1, 1, NULL)`,
-  ).run(ownerId, hostId, host, port)
+        encoding, term_type, initial_command, egress, created_at, updated_at, deleted_at)
+     VALUES (?, ?, 'Local', 'local', ?, ?, 'testuser', 'password', '', '', 'utf-8', 'xterm-256color', '', ?, 1, 1, NULL)`,
+  ).run(ownerId, hostId, host, port, egress)
 }
 
 function insertSession(ownerId: string, status: string, lastActivityAt: number): string {
@@ -62,8 +63,7 @@ function insertSession(ownerId: string, status: string, lastActivityAt: number):
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
-  sqlite.exec(`
-    CREATE TABLE webssh_hosts (
+  sqlite.exec(`    CREATE TABLE webssh_hosts (
       user_id TEXT NOT NULL,
       id TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -77,6 +77,7 @@ beforeEach(() => {
       encoding TEXT NOT NULL,
       term_type TEXT NOT NULL,
       initial_command TEXT NOT NULL,
+      egress TEXT NOT NULL DEFAULT '{}',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       deleted_at INTEGER,
@@ -97,7 +98,13 @@ beforeEach(() => {
       bytes_out INTEGER NOT NULL DEFAULT 0,
       close_reason TEXT NOT NULL DEFAULT '',
       error_code TEXT NOT NULL DEFAULT '',
-      recording_id TEXT NOT NULL DEFAULT ''
+      recording_id TEXT NOT NULL DEFAULT '',
+      region TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE webssh_settings (
+      user_id TEXT PRIMARY KEY,
+      settings TEXT NOT NULL DEFAULT '{}',
+      updated_at INTEGER NOT NULL
     );
     CREATE TABLE webssh_session_tickets (
       id TEXT PRIMARY KEY,
@@ -119,9 +126,13 @@ beforeEach(() => {
     );
   `)
   db = makeD1(sqlite)
+  doGets.length = 0
   env = {
     DB: db,
-    WEBSSH_SESSION: testDurableObjectNamespace(() => new Response(null, { status: 101 })),
+    WEBSSH_SESSION: testDurableObjectNamespace(
+      () => new Response(null, { status: 200 }),
+      { onGet: (id, options) => doGets.push({ id: id.toString(), hint: options?.locationHint }) },
+    ),
   } as Env
   userId = newId()
   app = makeApp(userId)
@@ -134,11 +145,11 @@ afterEach(async () => {
   sqlite.close()
 })
 
-async function createSession(hostId: string): Promise<string> {
+async function createSession(hostId: string, extra: Record<string, unknown> = {}): Promise<string> {
   const response = await app.request('https://notes.example.com/api/webssh/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ hostId, cols: 120, rows: 40 }),
+    body: JSON.stringify({ hostId, cols: 120, rows: 40, ...extra }),
   }, env)
   expect(response.status).toBe(201)
   const body = await response.json() as { sessionId: string; status: string }
@@ -153,6 +164,67 @@ describe('session creation', () => {
     const sessionId = await createSession(hostId)
     const row = sqlite.prepare('SELECT status, host_id FROM webssh_sessions WHERE id = ?').get(sessionId) as { status: string; host_id: string }
     expect(row).toEqual({ status: 'pending', host_id: hostId })
+  })
+
+  it('stores the resolved region and returns it to the client', async () => {
+    const hostId = newId()
+    insertHost(hostId, userId, '127.0.0.1', 2222, JSON.stringify({ region: 'weur' }))
+    const response = await app.request('https://notes.example.com/api/webssh/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ hostId }),
+    }, env)
+    expect(response.status).toBe(201)
+    const body = await response.json() as { sessionId: string; region: string }
+    expect(body.region).toBe('weur')
+    const row = sqlite.prepare('SELECT region FROM webssh_sessions WHERE id = ?').get(body.sessionId)
+    expect(row).toEqual({ region: 'weur' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const audit = sqlite.prepare(
+      `SELECT metadata FROM webssh_audit_events WHERE session_id = ? AND event_type = 'session_create'`,
+    ).get(body.sessionId) as { metadata: string }
+    expect(JSON.parse(audit.metadata)).toMatchObject({ region: 'weur', mode: 'direct', regionSource: 'host' })
+  })
+
+  it('passes the stored region as the first-get location hint', async () => {
+    const hostId = newId()
+    insertHost(hostId, userId, '127.0.0.1', 2222, JSON.stringify({ region: 'apac' }))
+    const sessionId = await createSession(hostId)
+    const ticketResponse = await app.request(`https://notes.example.com/api/webssh/sessions/${sessionId}/ticket`, {
+      method: 'POST',
+      headers: { origin: ORIGIN },
+    }, env)
+    const ticket = await ticketResponse.json() as { ticket: string }
+    const upgrade = await app.request(
+      `https://notes.example.com/api/webssh/sessions/${sessionId}/ws?ticket=${encodeURIComponent(ticket.ticket)}`,
+      { headers: { origin: ORIGIN, upgrade: 'websocket' } },
+      env,
+    )
+    expect(upgrade.status).toBe(200)
+    expect(doGets.at(-1)).toMatchObject({ hint: 'apac' })
+  })
+
+  it('rejects a relay mode with egress_mode_unavailable', async () => {
+    const hostId = newId()
+    insertHost(hostId, userId, '127.0.0.1', 2222, JSON.stringify({ mode: 'socks5' }))
+    const response = await app.request('https://notes.example.com/api/webssh/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ hostId }),
+    }, env)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: { code: 'egress_mode_unavailable' } })
+  })
+
+  it('records the region switch in the audit trail', async () => {
+    const hostId = newId()
+    insertHost(hostId, userId, '127.0.0.1', 2222, JSON.stringify({ region: 'enam' }))
+    const sessionId = await createSession(hostId, { retryFromRegion: 'apac' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const audit = sqlite.prepare(
+      `SELECT metadata FROM webssh_audit_events WHERE session_id = ? AND event_type = 'egress_fallback'`,
+    ).get(sessionId) as { metadata: string }
+    expect(JSON.parse(audit.metadata)).toMatchObject({ reason: 'region', from: 'apac', to: 'enam' })
   })
 
   it('answers 404 for another account\'s host and never inserts a row', async () => {

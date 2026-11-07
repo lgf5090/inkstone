@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react'
-import type { WebsshAuthMethod, WebsshCredential, WebsshHost, WebsshHostGroup, WebsshHostIconKind, WebsshKey, WebsshProvider } from '@shared/webssh/types'
+import type {
+  WebsshAuthMethod,
+  WebsshCredential,
+  WebsshEgressConfig,
+  WebsshHost,
+  WebsshHostGroup,
+  WebsshHostIconKind,
+  WebsshKey,
+  WebsshProvider,
+  WebsshRegionHint,
+} from '@shared/webssh/types'
 import { WEBSSH_BUILTIN_PROVIDERS } from '@shared/webssh/providers'
 import { Button } from '../../components/primitives'
 import { ColorWheelTrigger } from '../../components/color-field'
@@ -11,6 +21,7 @@ import { t } from '../../lib/i18n'
 import { websshApi, type WebsshHostPayload } from './api'
 import { HostIcon, providerText } from './HostIcon'
 import { HostIconPicker } from './HostIconPicker'
+import { regionLabel, regionOptions } from './egress-regions'
 
 interface HostDraft {
   name: string
@@ -32,9 +43,20 @@ interface HostDraft {
   iconKind: WebsshHostIconKind
   iconValue: string
   iconUrl: string
+  egressRegion: '' | 'auto' | WebsshRegionHint
 }
 
 const COLOR_EXAMPLE_PLACEHOLDER = '#000000'
+
+function defaultEgress(host: WebsshHost | null): WebsshEgressConfig {
+  return host?.egress ?? {
+    mode: '',
+    region: '',
+    jumpHostId: '',
+    proxy: { host: '', port: 0, auth: 'none', username: '', credentialId: '' },
+    fallback: { enabled: null, mode: '' },
+  }
+}
 
 function draftFrom(host: WebsshHost | null): HostDraft {
   return {
@@ -57,6 +79,7 @@ function draftFrom(host: WebsshHost | null): HostDraft {
     iconKind: host?.iconKind ?? '',
     iconValue: host?.iconValue ?? '',
     iconUrl: host?.iconUrl ?? '',
+    egressRegion: host?.egress.region ?? '',
   }
 }
 
@@ -93,6 +116,11 @@ export function HostDialog({ open, host, groups, credentials, keys, providers, d
   const patch = (next: Partial<HostDraft>) => setDraft((current) => ({ ...current, ...next }))
   const missingAuth = draft.authMethod === 'password' ? !draft.credentialId : !draft.keyId
   const disabled = saving || !draft.name.trim() || !draft.host.trim() || !draft.username.trim() || missingAuth
+  const egress = defaultEgress(host)
+  const regionMode = draft.egressRegion === '' ? 'inherit' : draft.egressRegion === 'auto' ? 'auto' : 'manual'
+  const manualRegion = draft.egressRegion !== '' && draft.egressRegion !== 'auto' ? draft.egressRegion : null
+  const rememberedRegion = host?.egress.regionResolved?.region ?? null
+  const regionChoices = regionOptions()
 
   const submit = async () => {
     setSaving(true)
@@ -117,6 +145,13 @@ export function HostDialog({ open, host, groups, credentials, keys, providers, d
       provider: draft.provider,
       iconKind: draft.iconKind,
       iconValue: draft.iconValue,
+      egress: {
+        mode: egress.mode,
+        region: draft.egressRegion,
+        jumpHostId: egress.jumpHostId,
+        proxy: egress.proxy,
+        fallback: egress.fallback,
+      },
     }
     try {
       const saved = host ? await websshApi.updateHost(host.id, payload) : await websshApi.createHost(payload)
@@ -226,6 +261,52 @@ export function HostDialog({ open, host, groups, credentials, keys, providers, d
                 </div>
               </Field>
             )}
+            <div className="space-y-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{t('webssh.egress.region.title')}</p>
+                  <p className="mt-0.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('webssh.egress.region.hint')}</p>
+                </div>
+                {rememberedRegion && (
+                  <span className="shrink-0 rounded-full bg-[var(--bg-sunken)] px-2 py-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+                    {t('webssh.egress.region.remembered', { region: regionLabel(rememberedRegion) })}
+                  </span>
+                )}
+              </div>
+              <Segmented
+                value={regionMode}
+                onChange={(value) => patch({
+                  egressRegion: value === 'inherit'
+                    ? ''
+                    : value === 'auto'
+                      ? 'auto'
+                      : (manualRegion ?? rememberedRegion ?? 'apac'),
+                })}
+                options={[
+                  { value: 'inherit', label: t('webssh.egress.region.inherit') },
+                  { value: 'auto', label: t('webssh.egress.region.auto') },
+                  { value: 'manual', label: t('webssh.egress.region.manual') },
+                ]}
+              />
+              {regionMode === 'manual' && (
+                <Field label={t('webssh.egress.region.select')}>
+                  <SelectMenu
+                    label={t('webssh.egress.region.select')}
+                    value={manualRegion ?? ''}
+                    onChange={(value) => patch({ egressRegion: value as WebsshRegionHint })}
+                    options={regionChoices}
+                    searchable
+                    width={260}
+                  />
+                </Field>
+              )}
+              {regionMode === 'inherit' && (
+                <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('webssh.egress.region.inherit_hint')}</p>
+              )}
+              {regionMode === 'auto' && (
+                <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('webssh.egress.region.auto_hint')}</p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label={t('webssh.host.term_type')}>
                 <Input value={draft.termType} onChange={(event) => patch({ termType: event.target.value })} spellCheck={false} />

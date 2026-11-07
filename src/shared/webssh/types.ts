@@ -10,6 +10,8 @@ export interface WebsshSessionView {
   id: string
   hostId: string
   status: WebsshSessionStatus
+  /** The Durable Object location hint this session asked for; empty means no hint. */
+  region: string
   startedAt: number
   connectedAt: number | null
   endedAt: number | null
@@ -23,6 +25,8 @@ export interface WebsshSessionView {
 export interface WebsshSessionCreated {
   sessionId: string
   status: WebsshSessionStatus
+  /** The concrete location hint the Worker will pass to the first `get()`; empty means none. */
+  region: string
 }
 
 export interface WebsshSessionTicket {
@@ -39,6 +43,79 @@ export type WebsshEgressPhase = 'dns' | 'connect' | 'handshake' | 'auth' | 'prox
 
 /** The outbound path shape; relay modes stay reserved until a relay node is available. */
 export type WebsshEgressMode = 'direct' | 'jump' | 'socks5' | 'http-connect'
+
+/** Location hints Cloudflare currently spawns in. */
+export const WEBSSH_REGION_HINTS = [
+  'wnam',
+  'enam',
+  'weur',
+  'eeur',
+  'apac',
+  'apac-ne',
+  'apac-se',
+  'oc',
+] as const
+
+/** Hints that currently spawn in a nearby supported location rather than in the named region. */
+export const WEBSSH_REGION_HINTS_NEARBY = ['sam', 'afr', 'me'] as const
+
+export type WebsshRegionHint =
+  | typeof WEBSSH_REGION_HINTS[number]
+  | typeof WEBSSH_REGION_HINTS_NEARBY[number]
+
+export interface WebsshEgressProxyConfig {
+  host: string
+  port: number
+  auth: 'none' | 'password'
+  username: string
+  /** Vault credential id; the password itself never reaches the host row. */
+  credentialId: string
+}
+
+export interface WebsshEgressFallbackConfig {
+  /** `null` inherits the account default; `false` disables it for this host. */
+  enabled: boolean | null
+  /** Empty means auto: jump when configured, otherwise the proxy mode. */
+  mode: '' | WebsshEgressMode
+}
+
+export interface WebsshEgressConfig {
+  /** Empty inherits the account default mode. */
+  mode: '' | WebsshEgressMode
+  /** Empty inherits the account default region; `auto` asks the resolver to pick. */
+  region: '' | 'auto' | WebsshRegionHint
+  jumpHostId: string
+  proxy: WebsshEgressProxyConfig
+  fallback: WebsshEgressFallbackConfig
+}
+
+/** Server-managed successful placement memory; read-only to the browser. */
+export interface WebsshEgressResolvedRegion {
+  region: WebsshRegionHint
+  at: number
+  failures: number
+}
+
+export interface WebsshHostEgress extends WebsshEgressConfig {
+  regionResolved: WebsshEgressResolvedRegion | null
+}
+
+export interface WebsshEgressSettingsView {
+  defaultMode: WebsshEgressMode
+  defaultRegion: 'auto' | WebsshRegionHint
+  regionCandidates: WebsshRegionHint[]
+  fallbackEnabled: boolean
+  proxyAllowlist: string[]
+  /** Relay modes are shipped as configuration only until a relay node exists. */
+  relayModesAvailable: false
+}
+
+export interface WebsshSessionEgressInfo {
+  mode: WebsshEgressMode
+  region: string
+  fallbackUsed: boolean
+  elapsedMs: number
+}
 
 /**
  * A connection failure described in the terms an operator can act on: which stage failed, which
@@ -318,6 +395,8 @@ export const WEBSSH_AUDIT_EVENT_TYPES = [
   'connect',
   'connect_blocked',
   'connect_error',
+  'egress_fallback',
+  'egress_test',
   'host_key_new',
   'host_key_changed',
   'host_key_trusted',
@@ -407,7 +486,7 @@ export type WebsshClientFrame =
  * `message`, while an interactive shell's real status is worth carrying for the status bar.
  */
 export type WebsshServerFrame =
-  | { type: 'ready'; cols: number; rows: number }
+  | { type: 'ready'; cols: number; rows: number; egress?: WebsshSessionEgressInfo }
   | { type: 'output'; data: string }
   | { type: 'exit'; reason: WebsshCloseReason; message?: string; exitCode?: number | null; signal?: string | null }
   | { type: 'error'; code: string; message?: string; egress?: WebsshEgressFailure }
@@ -453,6 +532,7 @@ export interface WebsshHost {
   iconValue: string
   /** Same-origin URL of an uploaded icon; empty when the chosen icon is not an image. */
   iconUrl: string
+  egress: WebsshHostEgress
   lastConnectedAt: number | null
   createdAt: number
   updatedAt: number

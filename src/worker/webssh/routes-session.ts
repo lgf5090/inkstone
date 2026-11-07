@@ -27,6 +27,8 @@ import {
   WEBSSH_TICKET_TOKEN_MAX_LENGTH,
 } from './session-ticket'
 import { normalizeTerminalSize } from './ssh/types'
+import { isWebsshRegionHint, parseHostEgress, resolveEgressPlan } from './egress'
+import { readWebsshSettings } from './settings'
 
 export const websshSessionRoutes = new Hono<AppBindings>()
 
@@ -41,6 +43,7 @@ interface HostRow {
   encoding: string
   term_type: string
   initial_command: string
+  egress: string
 }
 
 interface AuditEvent {
@@ -60,7 +63,7 @@ function audit(c: Context<AppBindings>, event: AuditEvent): void {
 
 async function loadHost(c: Context<AppBindings>, userId: string, hostId: string): Promise<HostRow> {
   const row = await c.env.DB.prepare(
-    `SELECT id, host, port, username, auth_method, credential_id, key_id, encoding, term_type, initial_command
+    `SELECT id, host, port, username, auth_method, credential_id, key_id, encoding, term_type, initial_command, egress
        FROM webssh_hosts
       WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
   )
@@ -85,15 +88,46 @@ async function loadSession(
   return row
 }
 
+function readRegion(value: unknown, field: string): string {
+  if (value === undefined || value === null || value === '') return ''
+  if (value === 'auto') return 'auto'
+  if (typeof value !== 'string' || !isWebsshRegionHint(value)) {
+    throw ApiError.badRequest(`${field} must be auto or a supported region hint`)
+  }
+  return value
+}
+
 websshSessionRoutes.post('/sessions', async (c) => {
   const userId = c.get('userId')
-  const body = await readJson<{ hostId?: unknown; cols?: unknown; rows?: unknown }>(c, 4096)
+  const body = await readJson<{
+    hostId?: unknown
+    cols?: unknown
+    rows?: unknown
+    region?: unknown
+    retryFromRegion?: unknown
+  }>(c, 4096)
   if (typeof body.hostId !== 'string' || !isValidId(body.hostId)) throw ApiError.badRequest('Invalid host id')
   const size = normalizeTerminalSize(body.cols ?? 120, body.rows ?? 40)
   if (!size) throw ApiError.badRequest('Invalid terminal size')
   if (!c.env.WEBSSH_SESSION) throw new ApiError(503, 'storage_unavailable', 'The WebSSH session runtime is not bound')
 
-  await loadHost(c, userId, body.hostId)
+  const host = await loadHost(c, userId, body.hostId)
+  const settings = await readWebsshSettings(c.env.DB, userId)
+  const requestedRegion = readRegion(body.region, 'region')
+  const retryFromRegion = readRegion(body.retryFromRegion, 'retryFromRegion')
+  const plan = resolveEgressPlan(parseHostEgress(host.egress), settings.egress, {
+    regionOverride: requestedRegion && requestedRegion !== 'auto' ? requestedRegion : undefined,
+    retryFrom: retryFromRegion || undefined,
+  })
+  if (!plan.available) {
+    throw new ApiError(
+      400,
+      'egress_mode_unavailable',
+      'Relay egress modes need a relay node and are not available yet',
+    )
+  }
+  const region = plan.regionHint
+
   const db = c.env.DB
   const now = Date.now()
   // Close rows whose owner never completed the upgrade (or whose DO vanished) before counting,
@@ -124,18 +158,32 @@ websshSessionRoutes.post('/sessions', async (c) => {
   const userAgentHash = await hashAuditValue(c.req.header('User-Agent') ?? '')
   await db.prepare(
     `INSERT INTO webssh_sessions
-       (id, user_id, host_id, status, client_ip_hash, user_agent_hash, started_at, last_activity_at)
-     VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?6)`,
+       (id, user_id, host_id, status, client_ip_hash, user_agent_hash, started_at, last_activity_at, region)
+     VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?6, ?7)`,
   )
-    .bind(sessionId, userId, body.hostId, ipHash, userAgentHash, now)
+    .bind(sessionId, userId, body.hostId, ipHash, userAgentHash, now, region)
     .run()
   audit(c, {
     eventType: 'session_create',
     sessionId,
     hostId: body.hostId,
-    metadata: { cols: size.cols, rows: size.rows },
+    metadata: {
+      cols: size.cols,
+      rows: size.rows,
+      region,
+      regionSource: plan.regionSource,
+      mode: plan.mode,
+    },
   })
-  return c.json<WebsshSessionCreated>({ sessionId, status: 'pending' }, 201)
+  if (retryFromRegion && retryFromRegion !== region) {
+    audit(c, {
+      eventType: 'egress_fallback',
+      sessionId,
+      hostId: body.hostId,
+      metadata: { reason: 'region', from: retryFromRegion, to: region },
+    })
+  }
+  return c.json<WebsshSessionCreated>({ sessionId, status: 'pending', region }, 201)
 })
 
 websshSessionRoutes.post('/sessions/:id/ticket', async (c) => {
@@ -166,12 +214,13 @@ websshSessionRoutes.get('/sessions/:id', async (c) => {
     c,
     userId,
     sessionId,
-    'status, started_at, connected_at, ended_at, last_activity_at, close_reason, error_code, host_id, recording_id',
+    'status, region, started_at, connected_at, ended_at, last_activity_at, close_reason, error_code, host_id, recording_id',
   )
   return c.json<WebsshSessionView>({
     id: sessionId,
     hostId: String(row.host_id ?? ''),
     status: row.status as WebsshSessionView['status'],
+    region: String(row.region ?? ''),
     startedAt: Number(row.started_at),
     connectedAt: row.connected_at === null ? null : Number(row.connected_at),
     endedAt: row.ended_at === null ? null : Number(row.ended_at),
@@ -217,10 +266,10 @@ websshSessionRoutes.get('/sessions/:id/ws', async (c) => {
   }
 
   const row = await c.env.DB.prepare(
-    `SELECT status FROM webssh_sessions WHERE id = ?1 AND user_id = ?2`,
+    `SELECT status, region FROM webssh_sessions WHERE id = ?1 AND user_id = ?2`,
   )
     .bind(sessionId, userId)
-    .first<{ status: string }>()
+    .first<{ status: string; region: string }>()
   if (!row) return upgradeError(c, 404, 'not_found', 'That session does not exist')
   if (row.status !== 'pending') return upgradeError(c, 409, 'conflict', 'This session has already been attached')
 
@@ -235,8 +284,12 @@ websshSessionRoutes.get('/sessions/:id/ws', async (c) => {
   audit(c, { eventType: 'ticket_consumed', sessionId })
 
   // The session id is both the Durable Object name's second half and the D1 row key, so one
-  // browser session always lands on one DO instance.
-  const stub = c.env.WEBSSH_SESSION.get(c.env.WEBSSH_SESSION.idFromName(`${userId}:${sessionId}`))
+  // browser session always lands on one DO instance. Only the first `get()` respects the hint,
+  // which is why the region chosen when the row was created is persisted and replayed here.
+  const objectId = c.env.WEBSSH_SESSION.idFromName(`${userId}:${sessionId}`)
+  const stub = isWebsshRegionHint(row.region)
+    ? c.env.WEBSSH_SESSION.get(objectId, { locationHint: row.region })
+    : c.env.WEBSSH_SESSION.get(objectId)
   const forwardedUrl = new URL(c.req.url)
   forwardedUrl.searchParams.set('u', userId)
   forwardedUrl.searchParams.set('s', sessionId)

@@ -287,6 +287,14 @@ export const WEBSSH_HOST_FILTER_INDEX_STATEMENTS: readonly string[] = [
      ON webssh_hosts(user_id, pinned, sort_order)`,
 ]
 
+export const WEBSSH_HOST_EGRESS_STATEMENTS: readonly string[] = [
+  `ALTER TABLE webssh_hosts ADD COLUMN egress TEXT NOT NULL DEFAULT '{}'`,
+]
+
+export const WEBSSH_SESSION_REGION_STATEMENTS: readonly string[] = [
+  `ALTER TABLE webssh_sessions ADD COLUMN region TEXT NOT NULL DEFAULT ''`,
+]
+
 export const WEBSSH_FORWARD_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS webssh_forward_rules (
     user_id TEXT NOT NULL,
@@ -393,7 +401,7 @@ export const WEBSSH_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>
   webssh_hosts: [
     'user_id', 'id', 'name', 'name_folded', 'host', 'port', 'username', 'group_id', 'auth_method',
     'credential_id', 'key_id', 'encoding', 'term_type', 'initial_command', 'color', 'tags', 'notes',
-    'favorite', 'pinned', 'sort_order', 'provider', 'icon_kind', 'icon_value', 'icon_key',
+    'favorite', 'pinned', 'sort_order', 'provider', 'icon_kind', 'icon_value', 'icon_key', 'egress',
     'last_connected_at', 'created_at', 'updated_at', 'deleted_at',
   ],
   webssh_providers: ['user_id', 'id', 'label', 'color', 'created_at', 'updated_at'],
@@ -409,7 +417,7 @@ export const WEBSSH_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>
   ],
   webssh_sessions: [
     'id', 'user_id', 'host_id', 'status', 'client_ip_hash', 'user_agent_hash', 'started_at', 'connected_at',
-    'ended_at', 'last_activity_at', 'bytes_in', 'bytes_out', 'close_reason', 'error_code', 'recording_id',
+    'ended_at', 'last_activity_at', 'bytes_in', 'bytes_out', 'close_reason', 'error_code', 'recording_id', 'region',
   ],
   webssh_session_tickets: [
     'id', 'user_id', 'session_id', 'expires_at', 'created_at', 'consumed_at',

@@ -226,14 +226,15 @@ export class WebsshSession implements DurableObject {
     await this.ctx.blockConcurrencyWhile(async () => {
       if (this.ws) return
       const row = await this.env.DB.prepare(
-        `SELECT status, host_id FROM webssh_sessions WHERE id = ?1 AND user_id = ?2`,
+        `SELECT status, host_id, region FROM webssh_sessions WHERE id = ?1 AND user_id = ?2`,
       )
         .bind(sessionId, userId)
-        .first<{ status: string; host_id: string }>()
+        .first<{ status: string; host_id: string; region: string }>()
       if (!row) {
         status = 404
         return
       }
+      this.egressRegion = row.region || ''
       const now = Date.now()
       const claimed = await this.env.DB.prepare(
         `UPDATE webssh_sessions
@@ -525,7 +526,17 @@ export class WebsshSession implements DurableObject {
     })
 
     if (this.ws) {
-      this.sendFrame({ type: 'ready', cols: this.cols, rows: this.rows })
+      this.sendFrame({
+        type: 'ready',
+        cols: this.cols,
+        rows: this.rows,
+        egress: {
+          mode: this.egressMode,
+          region: this.egressRegion,
+          fallbackUsed: false,
+          elapsedMs: this.egressStartedAt ? Math.max(0, now - this.egressStartedAt) : 0,
+        },
+      })
       this.readySent = true
       for (const chunk of this.preReadyOutput) this.writeOutput(chunk)
       this.preReadyOutput = []

@@ -38,6 +38,7 @@ import {
   type WebsshHostListOptions,
 } from './hosts'
 import { normalizeProviderColor, normalizeProviderLabel, WebsshProvidersStore } from './providers'
+import { normalizeHostEgressInput } from './egress'
 import { WebsshHostKeysStore, normalizeFingerprint, normalizeHostKeyAlgorithm } from './host-keys'
 import { groupStore, normalizeGroupColor, normalizeGroupIcon, normalizeGroupName, type WebsshGroupsStore } from './groups'
 import { keyStore } from './keys'
@@ -430,6 +431,7 @@ function parseHostBody(body: Record<string, unknown>, existing?: WebsshHost): We
     iconKind,
     iconValue,
     iconKey: '',
+    egress: normalizeHostEgressInput(body.egress, existing?.egress),
     sortOrder: readSortOrder(body.sortOrder, existing?.sortOrder),
   }
 }

@@ -5,10 +5,12 @@ import { initializeDatabase, SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src
 import {
   WEBSSH_AI_SUMMARY_SCHEMA_STATEMENTS,
   WEBSSH_FORWARD_SCHEMA_STATEMENTS,
+  WEBSSH_HOST_EGRESS_STATEMENTS,
   WEBSSH_REQUIRED_COLUMNS,
   WEBSSH_REQUIRED_INDEXES,
   WEBSSH_REQUIRED_TABLES,
   WEBSSH_SCHEMA_STATEMENTS,
+  WEBSSH_SESSION_REGION_STATEMENTS,
 } from '../src/worker/webssh/schema'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -100,12 +102,19 @@ describe('the WebSSH tables', () => {
     expect(ids.map((row) => row.id)).toEqual(['host-a'])
   })
 
+  it('extends hosts and sessions with egress placements in migrations 318 and 319', () => {
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 318)?.statements)
+      .toEqual(WEBSSH_HOST_EGRESS_STATEMENTS)
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 319)?.statements)
+      .toEqual(WEBSSH_SESSION_REGION_STATEMENTS)
+  })
+
   it('keeps the numbered ledger unique and every lane migration represented once', () => {
     const versions = SCHEMA_MIGRATIONS.map((migration) => migration.version)
     expect(new Set(versions).size).toBe(versions.length)
-    expect(Math.max(...versions)).toBe(317)
+    expect(Math.max(...versions)).toBe(319)
     expect(versions.filter((version) => version === 298)).toHaveLength(1)
-    for (const version of [301, 304, 313, 314, 315, 316, 317]) {
+    for (const version of [301, 304, 313, 314, 315, 316, 317, 318, 319]) {
       expect(versions.filter((entry) => entry === version)).toHaveLength(1)
     }
   })

@@ -4,6 +4,8 @@ import type {
   WebsshDashboard,
   WebsshDashboardExport,
   WebsshDashboardListResponse,
+  WebsshEgressConfig,
+  WebsshEgressSettingsView,
   WebsshForwardGrant,
   WebsshForwardRule,
   WebsshForwardRuleListResponse,
@@ -34,6 +36,7 @@ import type {
   WebsshRecordingListResponse,
   WebsshRecordingSettingsView,
   WebsshRecordingView,
+  WebsshRegionHint,
   WebsshSessionCreated,
   WebsshSessionStatus,
   WebsshSessionTicket,
@@ -69,6 +72,7 @@ export interface WebsshHostPayload {
   provider: string
   iconKind: WebsshHostIconKind
   iconValue: string
+  egress: WebsshEgressConfig
 }
 
 export const websshApi = {
@@ -196,8 +200,22 @@ export const websshApi = {
   },
   publicKeyUrl: (id: string) => `/api/webssh/keys/${id}/public`,
 
-  createSession: async (hostId: string, cols: number, rows: number) =>
-    await request<WebsshSessionCreated>('/api/webssh/sessions', { method: 'POST', body: { hostId, cols, rows } }),
+  createSession: async (
+    hostId: string,
+    cols: number,
+    rows: number,
+    options: { region?: string; retryFromRegion?: string } = {},
+  ) =>
+    await request<WebsshSessionCreated>('/api/webssh/sessions', {
+      method: 'POST',
+      body: {
+        hostId,
+        cols,
+        rows,
+        ...(options.region ? { region: options.region } : {}),
+        ...(options.retryFromRegion ? { retryFromRegion: options.retryFromRegion } : {}),
+      },
+    }),
   issueTicket: async (sessionId: string) =>
     await request<WebsshSessionTicket>(`/api/webssh/sessions/${sessionId}/ticket`, { method: 'POST' }),
   sessionStatus: async (sessionId: string) =>
@@ -315,6 +333,17 @@ export const websshApi = {
       method: 'PUT',
       body: { autoTrustFirst },
     }),
+  egressSettings: async () => await request<WebsshEgressSettingsView>('/api/webssh/settings/egress'),
+  updateEgressSettings: async (body: {
+    defaultMode?: string
+    defaultRegion?: string
+    regionCandidates?: WebsshRegionHint[]
+    fallbackEnabled?: boolean
+    proxyAllowlist?: string[]
+  }) => await request<WebsshEgressSettingsView>('/api/webssh/settings/egress', {
+    method: 'PUT',
+    body,
+  }),
 
   openShare: async (slug: string, password?: string) =>
     await publicRequest<WebsshPublicShareView>(`/api/public/webssh/shares/${encodeURIComponent(slug)}`, {

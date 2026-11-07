@@ -542,6 +542,9 @@ class TestDurableObjectId implements DurableObjectId {
  */
 export function testDurableObjectNamespace(
   handle: (request: Request) => Response | Promise<Response>,
+  options: {
+    onGet?: (id: DurableObjectId, getOptions?: DurableObjectNamespaceGetDurableObjectOptions) => void
+  } = {},
 ): DurableObjectNamespace {
   const stubFor = (id: DurableObjectId): DurableObjectStub => ({
     id,
@@ -558,8 +561,14 @@ export function testDurableObjectNamespace(
     newUniqueId: () => TestDurableObjectId.fromString(`unique-${Math.random().toString(36).slice(2)}`),
     idFromName: (name: string) => TestDurableObjectId.fromName(name),
     idFromString: (id: string) => TestDurableObjectId.fromString(id),
-    get: (id: DurableObjectId) => stubFor(id),
-    getByName: (name: string) => stubFor(TestDurableObjectId.fromName(name)),
+    get: (id: DurableObjectId, getOptions?: DurableObjectNamespaceGetDurableObjectOptions) => {
+      options.onGet?.(id, getOptions)
+      return stubFor(id)
+    },
+    getByName: (name: string, getOptions?: DurableObjectNamespaceGetDurableObjectOptions) => {
+      options.onGet?.(TestDurableObjectId.fromName(name), getOptions)
+      return stubFor(TestDurableObjectId.fromName(name))
+    },
     // One in-process handler per namespace: there is no second region to route a call to.
     jurisdiction: () => namespace,
   }

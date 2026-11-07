@@ -1,8 +1,10 @@
 import type {
   WebsshAuthMethod,
+  WebsshEgressConfig,
   WebsshHost,
   WebsshHostBatchInput,
   WebsshHostBatchResult,
+  WebsshHostEgress,
   WebsshHostFilters,
   WebsshHostIconKind,
   WebsshHostListResponse,
@@ -14,6 +16,7 @@ import type {
 import { normalizeProviderId } from '@shared/webssh/providers'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
+import { parseHostEgress } from './egress'
 import { escapeLikePattern, WebsshStore, WEBSSH_PAGE_SIZE_DEFAULT, WEBSSH_PAGE_SIZE_MAX } from './store'
 
 export interface WebsshHostRow {
@@ -39,6 +42,7 @@ export interface WebsshHostRow {
   icon_kind: string
   icon_value: string
   icon_key: string
+  egress: string
   last_connected_at: number | null
   created_at: number
   updated_at: number
@@ -92,6 +96,7 @@ export interface WebsshHostInput {
   iconKind: WebsshHostIconKind
   iconValue: string
   iconKey: string
+  egress: WebsshEgressConfig
   sortOrder?: number
 }
 
@@ -128,6 +133,7 @@ export function toHost(row: WebsshHostRow): WebsshHost {
     iconKind: (row.icon_kind === 'lucide' || row.icon_kind === 'emoji' || row.icon_kind === 'image' ? row.icon_kind : '') as WebsshHostIconKind,
     iconValue: row.icon_value,
     iconUrl: row.icon_key ? `/api/webssh/icons/${row.id}` : '',
+    egress: parseHostEgress(row.egress),
     lastConnectedAt: row.last_connected_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -436,7 +442,7 @@ export class WebsshHostsStore extends WebsshStore {
     return await this.db.prepare(
       `SELECT id, name, host, port, username, group_id, auth_method, credential_id, key_id,
               encoding, term_type, initial_command, color, tags, notes, favorite, pinned, sort_order,
-              provider, icon_kind, icon_value, icon_key, last_connected_at, created_at, updated_at
+              provider, icon_kind, icon_value, icon_key, egress, last_connected_at, created_at, updated_at
          FROM webssh_hosts
         WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
     )
@@ -474,15 +480,43 @@ export class WebsshHostsStore extends WebsshStore {
     return Boolean(row)
   }
 
-  async assertReferences(input: { groupId: string; authMethod: WebsshAuthMethod; credentialId: string; keyId: string }): Promise<void> {
+  async hostExists(hostId: string): Promise<boolean> {
+    if (!hostId || !isValidId(hostId)) return false
+    const row = await this.db.prepare(
+      'SELECT 1 AS found FROM webssh_hosts WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL',
+    )
+      .bind(this.userId, hostId)
+      .first<{ found: number }>()
+    return Boolean(row)
+  }
+
+  async assertReferences(
+    input: {
+      groupId: string
+      authMethod: WebsshAuthMethod
+      credentialId: string
+      keyId: string
+      egress?: WebsshEgressConfig
+    },
+    selfId = '',
+  ): Promise<void> {
     if (!(await this.groupExists(input.groupId))) throw ApiError.badRequest('The selected group does not exist')
     if (input.authMethod === 'password') {
       if (!input.credentialId) throw ApiError.badRequest('Choose a password credential for this host')
       if (!(await this.credentialExists(input.credentialId))) throw ApiError.badRequest('The selected credential does not exist')
-      return
+    } else {
+      if (!input.keyId) throw ApiError.badRequest('Choose a key for this host')
+      if (!(await this.keyExists(input.keyId))) throw ApiError.badRequest('The selected key does not exist')
     }
-    if (!input.keyId) throw ApiError.badRequest('Choose a key for this host')
-    if (!(await this.keyExists(input.keyId))) throw ApiError.badRequest('The selected key does not exist')
+    const egress = input.egress
+    if (!egress) return
+    if (egress.jumpHostId) {
+      if (egress.jumpHostId === selfId) throw ApiError.badRequest('A host cannot use itself as its jump host')
+      if (!(await this.hostExists(egress.jumpHostId))) throw ApiError.badRequest('The selected jump host does not exist')
+    }
+    if (egress.proxy.credentialId && !(await this.credentialExists(egress.proxy.credentialId))) {
+      throw ApiError.badRequest('The selected proxy credential does not exist')
+    }
   }
 
   async nextSortOrder(groupId: string): Promise<number> {
@@ -548,9 +582,9 @@ export class WebsshHostsStore extends WebsshStore {
       `INSERT INTO webssh_hosts (
          user_id, id, name, name_folded, host, port, username, group_id, auth_method, credential_id,
          key_id, encoding, term_type, initial_command, color, tags, notes, favorite, pinned, sort_order,
-         provider, icon_kind, icon_value, icon_key, created_at, updated_at
+         provider, icon_kind, icon_value, icon_key, egress, created_at, updated_at
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
-                 ?21, ?22, ?23, ?24, ?25, ?25)`,
+                 ?21, ?22, ?23, ?24, ?25, ?26, ?26)`,
     )
       .bind(
         this.userId,
@@ -577,6 +611,7 @@ export class WebsshHostsStore extends WebsshStore {
         input.iconKind,
         input.iconValue,
         input.iconKey,
+        JSON.stringify({ ...input.egress, regionResolved: null }),
         createdAt,
       )
       .run()
@@ -586,18 +621,23 @@ export class WebsshHostsStore extends WebsshStore {
   async update(id: string, input: WebsshHostInput): Promise<WebsshHost> {
     const existing = await this.get(id)
     if (!existing) throw ApiError.notFound('Host not found')
-    await this.assertReferences(input)
+    await this.assertReferences(input, id)
     const updatedAt = Math.max(this.now, existing.updatedAt + 1)
     const sortOrder = input.sortOrder ?? (input.groupId !== existing.groupId ? await this.nextSortOrder(input.groupId) : existing.sortOrder)
     const current = await this.row(id)
     const iconKey = input.iconKind === 'image' ? (current?.icon_key ?? '') : ''
+    const currentEgress = parseHostEgress(current?.egress)
+    const nextEgress: WebsshHostEgress = {
+      ...input.egress,
+      regionResolved: input.egress.region === currentEgress.region ? currentEgress.regionResolved : null,
+    }
     await this.db.prepare(
       `UPDATE webssh_hosts
           SET name = ?3, name_folded = ?4, host = ?5, port = ?6, username = ?7, group_id = ?8,
               auth_method = ?9, credential_id = ?10, key_id = ?11, encoding = ?12, term_type = ?13,
               initial_command = ?14, color = ?15, tags = ?16, notes = ?17, favorite = ?18,
               pinned = ?19, sort_order = ?20, provider = ?21, icon_kind = ?22, icon_value = ?23,
-              icon_key = ?24, updated_at = ?25
+              icon_key = ?24, egress = ?25, updated_at = ?26
         WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
     )
       .bind(
@@ -625,6 +665,7 @@ export class WebsshHostsStore extends WebsshStore {
         input.iconKind,
         input.iconValue,
         iconKey,
+        JSON.stringify(nextEgress),
         updatedAt,
       )
       .run()
@@ -765,6 +806,13 @@ export class WebsshHostsStore extends WebsshStore {
       iconKind: source.iconKind,
       iconValue: source.iconValue,
       iconKey: source.iconUrl ? `webssh/icons/${this.userId}/${id}` : '',
+      egress: {
+        mode: source.egress.mode,
+        region: source.egress.region,
+        jumpHostId: source.egress.jumpHostId,
+        proxy: source.egress.proxy,
+        fallback: source.egress.fallback,
+      },
       sortOrder: undefined,
     })
   }

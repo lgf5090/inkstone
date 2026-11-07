@@ -103,6 +103,7 @@ import {
 import {
   WEBSSH_DASHBOARD_SCHEMA_STATEMENTS,
   WEBSSH_FORWARD_SCHEMA_STATEMENTS,
+  WEBSSH_HOST_EGRESS_STATEMENTS,
   WEBSSH_HOST_FILTER_INDEX_STATEMENTS,
   WEBSSH_HOST_METADATA_STATEMENTS,
   WEBSSH_PROVIDERS_SCHEMA_STATEMENTS,
@@ -110,6 +111,7 @@ import {
   WEBSSH_REQUIRED_INDEXES,
   WEBSSH_AI_SUMMARY_SCHEMA_STATEMENTS,
   WEBSSH_REQUIRED_TABLES,
+  WEBSSH_SESSION_REGION_STATEMENTS,
   WEBSSH_SCHEMA_STATEMENTS,
 } from '../webssh/schema'
 import {
@@ -4055,6 +4057,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 317,
     statements: WEBSSH_HOST_FILTER_INDEX_STATEMENTS,
+  },
+  {
+    version: 318,
+    skipIfColumnExists: { table: 'webssh_hosts', column: 'egress' },
+    statements: WEBSSH_HOST_EGRESS_STATEMENTS,
+  },
+  {
+    version: 319,
+    skipIfColumnExists: { table: 'webssh_sessions', column: 'region' },
+    statements: WEBSSH_SESSION_REGION_STATEMENTS,
   },
 ]
 

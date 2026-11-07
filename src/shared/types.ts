@@ -1495,6 +1495,7 @@ export type ApiErrorCode =
   | 'xget_demo_readonly'
   | 'storage_unavailable'
   | 'session_not_ready'
+  | 'egress_mode_unavailable'
   | 'sftp_error'
   | 'invalid_path'
   | 'file_too_large'

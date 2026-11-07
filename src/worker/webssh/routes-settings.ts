@@ -2,14 +2,16 @@
 // default-on recording of a reader's terminal.
 
 import { Hono } from 'hono'
-import type { WebsshRecordingSettingsView } from '@shared/webssh/types'
+import type { WebsshEgressSettingsView, WebsshRecordingSettingsView } from '@shared/webssh/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { readJson } from '../lib/request'
 import {
   readWebsshSettings,
   setWebsshAutoTrustFirst,
+  setWebsshEgressSettings,
   setWebsshRecordingEnabled,
+  websshEgressView,
   websshRecordingSettingsView,
 } from './settings'
 
@@ -37,4 +39,15 @@ websshSettingsRoutes.put('/settings/host-keys', async (c) => {
   const now = Date.now()
   await setWebsshAutoTrustFirst(c.env.DB, c.get('userId'), body.autoTrustFirst, now)
   return c.json<WebsshRecordingSettingsView>(view(await readWebsshSettings(c.env.DB, c.get('userId'))))
+})
+
+websshSettingsRoutes.get('/settings/egress', async (c) => {
+  return c.json<WebsshEgressSettingsView>(websshEgressView(await readWebsshSettings(c.env.DB, c.get('userId'))))
+})
+
+websshSettingsRoutes.put('/settings/egress', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, 8192)
+  const now = Date.now()
+  const settings = await setWebsshEgressSettings(c.env.DB, c.get('userId'), body, now)
+  return c.json<WebsshEgressSettingsView>(websshEgressView(settings))
 })

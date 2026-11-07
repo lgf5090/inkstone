@@ -34460,6 +34460,17 @@ const allowed = new Map([
     "/** The outbound path shape; relay modes stay reserved until a relay node is available. */",
     "/**\n * A connection failure described in the terms an operator can act on: which stage failed, which\n * address was attempted, how long it took, and the deepest message in the error's cause chain.\n * `region` is reserved for the region-pinned egress work and stays empty until that lands.\n */",
     "/** A proxy or jump hop, when the failed stage belongs to one. */",
+    "/** The Durable Object location hint this session asked for; empty means no hint. */",
+    "/** The concrete location hint the Worker will pass to the first `get()`; empty means none. */",
+    "/** Location hints Cloudflare currently spawns in. */",
+    "/** Hints that currently spawn in a nearby supported location rather than in the named region. */",
+    "/** Vault credential id; the password itself never reaches the host row. */",
+    "/** `null` inherits the account default; `false` disables it for this host. */",
+    "/** Empty means auto: jump when configured, otherwise the proxy mode. */",
+    "/** Empty inherits the account default mode. */",
+    "/** Empty inherits the account default region; `auto` asks the resolver to pick. */",
+    "/** Server-managed successful placement memory; read-only to the browser. */",
+    "/** Relay modes are shipped as configuration only until a relay node exists. */",
   ]],
   ["src/shared/youtube/model.ts", [
     "/**\n * The YouTube app's shared vocabulary: the upstream shapes the API hands over, the library rows a\n * reader saves, the address that names a view, and the pure formatting/tree rules both sides use.\n *\n * Nothing here touches the network or the DOM. The worker's transforms and the reader's rendering\n * have to agree on every field, so the types live once and are imported by both builds.\n */",
@@ -44753,6 +44764,15 @@ const allowed = new Map([
     "/**\n * The deepest useful `name`/`message` in an error's `cause` chain.\n *\n * Workers can reject a socket with a platform object that is not an `Error`, and the protocol core\n * wraps that object as a cause. Reading only the outer message turns every one of those into a\n * generic sentence, which is what made the original `proxy request failed` report impossible to\n * diagnose. `String(error)` remains the final fallback.\n */",
     "/** Shape one failure for the audit row and the browser frame without leaking a stack or a secret. */",
   ]],
+  ["src/worker/webssh/egress.ts", [
+    "/** Relay modes are reserved until a relay node exists. */",
+    "/** Tolerant read: a hand-edited or older row keeps whatever fields still make sense. */",
+    "/** Validates the browser's host-level egress draft and fills omitted fields from the saved row. */",
+    "/** Settings writes stay on the direct path until a relay node exists. */",
+    "/** A client-selected hint, or a hint selected by a previous region failover. */",
+    "/** Set when this session is the single region retry, which must not fail over again. */",
+    "/** The next hint to try after a retryable failure, or null when one retry is not allowed. */",
+  ]],
   ["src/worker/webssh/hosts.ts", [
     "/**\n   * Creates a host from an import without a credential or key. The row is deliberately usable only\n   * after the owner attaches a secret, so a bulk import never invents an authentication method.\n   */",
     "/** An import is a convenience, not a merge: an identical name/address/user row is left alone. */",
@@ -44893,7 +44913,8 @@ const allowed = new Map([
     "/**\n * Precondition failures on the upgrade route answer as ordinary HTTP before any socket exists.\n * Throwing here would be correct for JSON routes but leaves a WebSocket client with a closed\n * transport instead of the reason, which is the one place a caller cannot read a body from.\n */",
     "/** The upgrade route. The ticket is consumed here, then the request is handed to the session DO. */",
     "// The session id is both the Durable Object name's second half and the D1 row key, so one",
-    "// browser session always lands on one DO instance.",
+    "// browser session always lands on one DO instance. Only the first `get()` respects the hint,",
+    "// which is why the region chosen when the row was created is persisted and replayed here.",
   ]],
   ["src/worker/webssh/routes-settings.ts", [
     "// The explicit switch that turns recording on. Absent or unreadable settings mean off, never a",
@@ -44958,6 +44979,8 @@ const allowed = new Map([
     "/** Tolerant of hand-edited or older JSON: recording stays off, auto-trust stays on unless disabled. */",
     "// Only an explicit `false` turns the switch off; a missing field from an older row means on.",
     "/** Merges one field so saving recording settings cannot silently reset the host-key switch. */",
+    "// Egress defaults are the third group: the account chooses a region policy, while each host can",
+    "// override it and remember the region that last connected.",
   ]],
   ["src/worker/webssh/sftp/client.ts", [
     "// Derived from EdgeSSH 2026-11 snapshot (Apache-2.0) src/ssh/sftp.ts, with Inkstone adaptations.",
@@ -51073,6 +51096,10 @@ const allowed = new Map([
   ["tests/webssh-egress-error.test.ts", [
     "// Structured outbound failures: the platform can reject with a non-Error object, so the description",
     "// has to walk the cause chain instead of trusting the outer wrapper's message.",
+  ]],
+  ["tests/webssh-egress-plan.test.ts", [
+    "// Region planning is the part of the egress work that can be proven without a second data centre:",
+    "// inheritance, remembered placements, manual overrides and the one-retry candidate order.",
   ]],
   ["tests/webssh-key-format.test.ts", [
     "// The salt is the committed fixture's own bcrypt salt, so the vector stays deterministic.",

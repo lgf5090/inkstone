@@ -2,9 +2,18 @@
 // deployment that never writes `webssh_settings` produces no recordings and no R2 objects.
 // First-connection host-key trust is the opposite: it defaults on, because the reference client
 // accepts a first-seen key without a prompt; a changed or revoked key is still blocked regardless.
+// Egress defaults are the third group: the account chooses a region policy, while each host can
+// override it and remember the region that last connected.
 
 import type { WebsshRecordingSettingsView } from '@shared/webssh/types'
 import { WEBSSH_RECORDING_RETENTION_DAYS } from './constants'
+import {
+  defaultEgressSettings,
+  normalizeEgressSettingsInput,
+  parseEgressSettings,
+  websshEgressSettingsView,
+  type WebsshEgressSettings,
+} from './egress'
 
 export interface WebsshSettings {
   recording: {
@@ -13,10 +22,11 @@ export interface WebsshSettings {
   hostKeys: {
     autoTrustFirst: boolean
   }
+  egress: WebsshEgressSettings
 }
 
 function defaults(): WebsshSettings {
-  return { recording: { enabled: false }, hostKeys: { autoTrustFirst: true } }
+  return { recording: { enabled: false }, hostKeys: { autoTrustFirst: true }, egress: defaultEgressSettings() }
 }
 
 /** Tolerant of hand-edited or older JSON: recording stays off, auto-trust stays on unless disabled. */
@@ -26,11 +36,13 @@ export function parseWebsshSettings(raw: string | null | undefined): WebsshSetti
     const value = JSON.parse(raw) as {
       recording?: { enabled?: unknown }
       hostKeys?: { autoTrustFirst?: unknown }
+      egress?: unknown
     }
     return {
       recording: { enabled: value?.recording?.enabled === true },
       // Only an explicit `false` turns the switch off; a missing field from an older row means on.
       hostKeys: { autoTrustFirst: value?.hostKeys?.autoTrustFirst !== false },
+      egress: parseEgressSettings(value?.egress),
     }
   } catch {
     return defaults()
@@ -90,6 +102,19 @@ export async function setWebsshAutoTrustFirst(
   await writeWebsshSettings(db, userId, { ...current, hostKeys: { autoTrustFirst } }, now)
 }
 
+export async function setWebsshEgressSettings(
+  db: D1Database,
+  userId: string,
+  input: unknown,
+  now: number,
+): Promise<WebsshSettings> {
+  const current = await readWebsshSettings(db, userId)
+  const egress = normalizeEgressSettingsInput(input, current.egress)
+  const next: WebsshSettings = { ...current, egress }
+  await writeWebsshSettings(db, userId, next, now)
+  return next
+}
+
 export function websshRecordingSettingsView(
   enabled: boolean,
   autoTrustFirst: boolean,
@@ -98,4 +123,8 @@ export function websshRecordingSettingsView(
     recording: { enabled, retentionDays: WEBSSH_RECORDING_RETENTION_DAYS },
     hostKeys: { autoTrustFirst },
   }
+}
+
+export function websshEgressView(settings: WebsshSettings) {
+  return websshEgressSettingsView(settings.egress)
 }
