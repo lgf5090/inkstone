@@ -20,6 +20,7 @@ import { projectArchiveLinesToImport, projectBundleToArchiveLines } from '@share
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { ApiError } from '../lib/errors'
 import { readProjectBoardBundle } from './bundle'
+import { ProjectStore } from './store'
 
 export async function exportProjectBoardArchive(
   db: D1Database,
@@ -32,6 +33,19 @@ export async function exportProjectBoardArchive(
     'version.json': strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() })),
     [`${board.id}/board.jsonl`]: strToU8(serializeProjectArchiveLines(lines)),
   })
+}
+
+/** Whole-account export: one v2 ZIP carrying every readable board's JSONL side by side. */
+export async function exportProjectAccountArchive(db: D1Database, userId: string): Promise<Uint8Array> {
+  const boards = await new ProjectStore(db, userId).boards()
+  const files: Record<string, Uint8Array> = {
+    'version.json': strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() })),
+  }
+  for (const board of boards) {
+    const bundle = await readProjectBoardBundle(db, board, board.role)
+    files[`${board.id}/board.jsonl`] = strToU8(serializeProjectArchiveLines(projectBundleToArchiveLines(bundle)))
+  }
+  return zipSync(files)
 }
 
 function linesFromArchiveBytes(bytes: Uint8Array): ProjectArchiveLine[] {

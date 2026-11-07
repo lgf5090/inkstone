@@ -40981,6 +40981,7 @@ const allowed = new Map([
     "/**\n * The archive transport: a v2 ZIP out, a v2 ZIP or a v1 JSON in. The JSONL mapping itself lives in\n * the shared module so the browser converters and this server agree byte for byte; this file only\n * zips, unzips, and writes the imported rows. Import preserves the archive's ids (so a round trip is\n * field-equal) but the new board belongs to whoever imports it, and members are matched to local\n * accounts rather than trusted blindly.\n */",
     "// Not a ZIP: the reference's v1 export is a single JSON object with a blocks array.",
     "// D1 caps a batch at 1000 statements; a large board can exceed that, so the import runs in chunks.",
+    "/** Whole-account export: one v2 ZIP carrying every readable board's JSONL side by side. */",
   ]],
   ["src/worker/project/auth.ts", [
     "/** Every project write parses through this, so a rejected field reads the same on every route. */",
@@ -41022,6 +41023,9 @@ const allowed = new Map([
   ["src/worker/project/duplicate.ts", [
     "/**\n * Copying a board or a card. A copy gets fresh ids for the board and every child row (those are global\n * primary keys) but keeps property and option ids (those are board-scoped), so the only references\n * that need rewriting are the ones pointing at cards, contents and comments: a card's contentOrder,\n * a view's cardOrder and its default template. Members and share links are deliberately not copied.\n */",
     "/**\n * A card copy carries its values and content blocks but not its comments: a comment is conversation,\n * not content, so the copy starts a fresh thread. The contentOrder keeps only the copied blocks.\n */",
+  ]],
+  ["src/worker/project/insights.ts", [
+    "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.\n */",
   ]],
   ["src/worker/project/members.ts", [
     "/**\n * The reference guards the last admin only in the client; here the server refuses the write that would\n * leave a board with no admin member, because a client check is not a trust boundary.\n */",

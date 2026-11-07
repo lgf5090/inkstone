@@ -31,7 +31,7 @@ import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWi
 import { requireAuth } from '../middleware/auth'
 import { originOf } from '../lib/notify'
 import { broadcastProjectChange } from './realtime'
-import { exportProjectBoardArchive, importProjectBoardArchive } from './archive'
+import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireCard, requireComment, requireContent, requireView } from './auth'
 import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
 import { readProjectBoardBundle } from './bundle'
@@ -87,6 +87,7 @@ import {
 } from './members'
 import { ProjectStore } from './store'
 import { searchProject } from './search'
+import { topProjectBoards } from './insights'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
 import { projectStatistics } from './statistics'
 import { createBoardFromTemplate, listProjectTemplates, saveBoardAsTemplate } from './templates'
@@ -147,6 +148,19 @@ projectRoutes.get('/search', async (c) => {
   const query = (c.req.query('q') ?? '').trim().slice(0, 200)
   if (!query) return c.json({ boards: [], cards: [] })
   return c.json(await searchProject(c.env.DB, projectUserId(c), query))
+})
+
+projectRoutes.get('/export', async (c) => {
+  const bytes = await exportProjectAccountArchive(c.env.DB, projectUserId(c))
+  return new Response(bytes, {
+    headers: { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="inkstone-project.zip"' },
+  })
+})
+
+projectRoutes.get('/insights/top-boards', async (c) => {
+  const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 10) || 10, 1), 50)
+  const offset = Math.max(Number(c.req.query('offset') ?? 0) || 0, 0)
+  return c.json(await topProjectBoards(c.env.DB, projectUserId(c), limit, offset))
 })
 
 projectRoutes.get('/templates', async (c) => {
