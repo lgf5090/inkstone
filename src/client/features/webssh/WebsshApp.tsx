@@ -5,6 +5,7 @@ import {
   History,
   KeyRound,
   Pencil,
+  Palette,
   ScrollText,
   ShieldCheck,
   SquareTerminal,
@@ -35,6 +36,8 @@ import { KeyManagerDialog } from './KeyManagerDialog'
 import { FingerprintDialog } from './FingerprintDialog'
 import { TerminalWorkspace } from './TerminalWorkspace'
 import { SnippetsPanel } from './SnippetsPanel'
+import { AppearanceSettingsDialog } from './AppearanceSettingsDialog'
+import { loadAppearance, saveAppearance, siteTitle, type WebsshAppearance } from './appearance'
 import { ImportDialog } from './ImportDialog'
 import { AuditPanel } from './AuditPanel'
 import { RecordingsPanel } from './RecordingsPanel'
@@ -84,9 +87,15 @@ export function WebsshApp() {
   const [fingerprintOpen, setFingerprintOpen] = useState(false)
   const [fingerprints, setFingerprints] = useState<WebsshHostKey[]>([])
   const [preflight, setPreflight] = useState<WebsshHostPreflight | null>(null)
+  const [appearance, setAppearance] = useState<WebsshAppearance>(loadAppearance)
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
 
   const refresh = () => setRefreshToken((value) => value + 1)
   const selected = hosts.find((host) => host.id === selectedId) ?? pinnedHost
+
+  useEffect(() => {
+    saveAppearance(appearance)
+  }, [appearance])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -224,7 +233,7 @@ export function WebsshApp() {
           {workspaceHost.username}@{workspaceHost.host}:{workspaceHost.port}
         </span>
       </div>
-      <TerminalWorkspace host={workspaceHost} />
+      <TerminalWorkspace host={workspaceHost} appearance={appearance} />
     </section>
   ) : null
 
@@ -262,7 +271,7 @@ export function WebsshApp() {
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
         <SquareTerminal size={16} aria-hidden="true" className="shrink-0 text-[var(--text-secondary)]" />
         <h1 className="truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
-          {t('webssh.app.title')}
+          {siteTitle(appearance, t('webssh.app.title'))}
         </h1>
         <span className="hidden min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)] md:block">
           {t('webssh.app.subtitle')}
@@ -280,6 +289,9 @@ export function WebsshApp() {
           <Button size="sm" variant="ghost" onClick={() => setSnippetsOpen(true)} icon={<ScrollText size={13} aria-hidden="true" />}>
             {t('webssh.snippet.open')}
           </Button>
+          <IconButton label={t('webssh.appearance.open')} size="sm" onClick={() => setAppearanceOpen(true)}>
+            <Palette size={14} aria-hidden="true" />
+          </IconButton>
           <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)} icon={<Upload size={13} aria-hidden="true" />}>
             {t('webssh.actions.import')}
           </Button>
@@ -377,6 +389,13 @@ export function WebsshApp() {
       />
 
       <SnippetsPanel open={snippetsOpen} onClose={() => setSnippetsOpen(false)} />
+
+      <AppearanceSettingsDialog
+        open={appearanceOpen}
+        onClose={() => setAppearanceOpen(false)}
+        settings={appearance}
+        onChange={setAppearance}
+      />
 
       <ImportDialog
         open={importOpen}

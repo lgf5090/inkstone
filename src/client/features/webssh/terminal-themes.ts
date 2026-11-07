@@ -5,6 +5,7 @@
  */
 import type { ITheme } from '@xterm/xterm'
 import type { TerminalThemeId } from './prefs'
+import { mergeTerminalTheme, type TerminalColorOverrides } from './appearance'
 
 const DARK: ITheme = {
   background: '#1e1b19',
@@ -56,10 +57,14 @@ const LIGHT: ITheme = {
   brightWhite: '#f7f5f1',
 }
 
-export function resolveTerminalTheme(id: TerminalThemeId, appIsDark: boolean): ITheme {
-  if (id === 'dark') return DARK
-  if (id === 'light') return LIGHT
-  return appIsDark ? DARK : LIGHT
+export function resolveTerminalTheme(
+  id: TerminalThemeId,
+  appIsDark: boolean,
+  overrides: TerminalColorOverrides = {},
+  surfaceOpacity = 1,
+): ITheme {
+  const base = id === 'dark' ? DARK : id === 'light' ? LIGHT : appIsDark ? DARK : LIGHT
+  return mergeTerminalTheme(base, overrides, surfaceOpacity)
 }
 
 export const TERMINAL_THEME_PALETTES = { dark: DARK, light: LIGHT } as const

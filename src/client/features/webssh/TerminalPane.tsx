@@ -6,14 +6,18 @@
  * session connected.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import type { ISearchOptions, ISearchResultChangeEvent } from '@xterm/addon-search'
 import {
   ClipboardCopy,
   ClipboardPaste,
   Copy,
   Eraser,
   Keyboard,
+  Maximize2,
+  Minimize2,
   Power,
   RefreshCw,
+  Search,
   WifiOff,
 } from 'lucide-react'
 import { t } from '../../lib/i18n'
@@ -22,9 +26,11 @@ import { copyText } from '../../lib/clipboard'
 import { useMediaQuery } from '../../lib/hooks'
 import { useUi } from '../../store/ui'
 import { Button, IconButton, Spinner } from '../../components/primitives'
-import { Tooltip } from '../../components/overlay'
+import { Tooltip, useEscape, useLockScroll } from '../../components/overlay'
 import { MobileKeyBar } from './MobileKeyBar'
+import type { WebsshAppearance } from './appearance'
 import { resolveTerminalTheme } from './terminal-themes'
+import { TerminalSearchBar } from './TerminalSearchBar'
 import type { TerminalSettings } from './prefs'
 import type { TerminalTransportFactory } from './transport/types'
 import { MAX_RECONNECT_ATTEMPTS } from './session-retry'
@@ -34,6 +40,31 @@ import { useXterm, type XtermController } from './use-xterm'
 export interface TerminalPaneSession {
   id: string
   title: string
+}
+
+/** What the workspace can ask a tab to do: insert text, run text, and whether the tab can run it. */
+export interface TerminalPaneController {
+  insert: (text: string) => boolean
+  send: (text: string) => boolean
+  isOpen: () => boolean
+}
+
+const SEARCH_DECORATIONS_DARK = {
+  matchBackground: '#3a2f28',
+  matchBorder: '#6b5749',
+  matchOverviewRuler: '#e0664a',
+  activeMatchBackground: '#e0664a',
+  activeMatchBorder: '#f08a78',
+  activeMatchColorOverviewRuler: '#e0664a',
+}
+
+const SEARCH_DECORATIONS_LIGHT = {
+  matchBackground: '#f3e2d9',
+  matchBorder: '#d8b9a8',
+  matchOverviewRuler: '#bb4430',
+  activeMatchBackground: '#bb4430',
+  activeMatchBorder: '#a33327',
+  activeMatchColorOverviewRuler: '#bb4430',
 }
 
 const PHASE_TONE: Record<TerminalSessionPhase, string> = {
@@ -56,21 +87,25 @@ export function TerminalPane({
   session,
   active,
   settings,
+  appearance,
   isDark,
   createTransport,
   panelId,
   onPhaseChange,
   onSessionId,
+  onController,
   insertRequest,
 }: {
   session: TerminalPaneSession
   active: boolean
   settings: TerminalSettings
+  appearance: WebsshAppearance
   isDark: boolean
   createTransport: TerminalTransportFactory
   panelId: string
   onPhaseChange?: (id: string, phase: TerminalSessionPhase) => void
   onSessionId?: (sessionId: string) => void
+  onController?: (id: string, controller: TerminalPaneController | null) => void
   /** A snippet the workspace asked to type into this tab; `token` makes repeats distinguishable. */
   insertRequest?: { text: string; token: number } | null
 }) {
@@ -82,13 +117,25 @@ export function TerminalPane({
   const [hasSelection, setHasSelection] = useState(false)
   const [dimensions, setDimensions] = useState({ cols: 80, rows: 24 })
   const [keysOverride, setKeysOverride] = useState<boolean | null>(null)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false)
+  const [searchRegex, setSearchRegex] = useState(false)
+  const [searchResults, setSearchResults] = useState({ resultIndex: -1, resultCount: 0 })
 
   const coarsePointer = useMediaQuery('(pointer: coarse)')
   const narrow = useMediaQuery('(max-width: 767px)')
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const showKeys = keysOverride ?? (coarsePointer || narrow)
 
-  const theme = useMemo(() => resolveTerminalTheme(settings.theme, isDark), [settings.theme, isDark])
+  useEscape(fullscreen, () => setFullscreen(false))
+  useLockScroll(fullscreen)
+
+  const theme = useMemo(
+    () => resolveTerminalTheme(settings.theme, isDark, appearance.terminalColors, appearance.surfaceOpacity),
+    [settings.theme, isDark, appearance.terminalColors, appearance.surfaceOpacity],
+  )
 
   const connection = useTerminalSession({
     createTransport,
@@ -155,6 +202,55 @@ export function TerminalPane({
     apiRef.current?.focus()
   }
 
+  const searchOptions = (): ISearchOptions => ({
+    caseSensitive: searchCaseSensitive,
+    regex: searchRegex,
+    incremental: true,
+    decorations: isDark ? SEARCH_DECORATIONS_DARK : SEARCH_DECORATIONS_LIGHT,
+  })
+
+  const find = (direction: 'next' | 'previous') => {
+    if (!searchTerm) {
+      apiRef.current?.clearSearch()
+      setSearchResults({ resultIndex: -1, resultCount: 0 })
+      return
+    }
+    if (direction === 'next') apiRef.current?.findNext(searchTerm, searchOptions())
+    else apiRef.current?.findPrevious(searchTerm, searchOptions())
+  }
+
+  const closeSearch = () => {
+    setSearchOpen(false)
+    setSearchResults({ resultIndex: -1, resultCount: 0 })
+    apiRef.current?.clearSearch()
+    apiRef.current?.focus()
+  }
+
+  const sendText = (text: string): boolean => {
+    if (connection.phase !== 'open') return false
+    const normalized = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '')
+    if (!normalized.trim()) return false
+    connection.send(normalized.split('\n').join('\r') + '\r')
+    apiRef.current?.focus()
+    return true
+  }
+
+  const insertText = (text: string): boolean => {
+    if (!text) return false
+    apiRef.current?.paste(text.replace(/\r?\n$/, ''))
+    apiRef.current?.focus()
+    return true
+  }
+
+  const paneController = useMemo<TerminalPaneController>(
+    () => ({
+      insert: insertText,
+      send: sendText,
+      isOpen: () => connection.phase === 'open',
+    }),
+    [connection.phase, connection.send],
+  )
+
   const xterm = useXterm(containerRef, {
     theme,
     fontSize: settings.fontSize,
@@ -168,6 +264,9 @@ export function TerminalPane({
     onCopyRequest: copySelection,
     onPasteRequest: pasteFromClipboard,
     onClearRequest: clearTerminal,
+    onSearchRequest: () => setSearchOpen(true),
+    onFullscreenRequest: () => setFullscreen((value) => !value),
+    onSearchResults: (event: ISearchResultChangeEvent) => setSearchResults(event),
   })
   writeRef.current = xterm.write
   apiRef.current = xterm
@@ -178,12 +277,36 @@ export function TerminalPane({
   }, [notifyPhase, session.id, connection.phase])
 
   useEffect(() => {
-    if (!active) return
+    if (!onController) return
+    onController(session.id, paneController)
+    return () => onController(session.id, null)
+  }, [onController, paneController, session.id])
+
+  useEffect(() => {
+    if (!searchOpen || !searchTerm) return
+    // A fresh search each edit: the addon keeps its own cursor, and after an option change (case or
+    // regex) an incremental search from the old cursor can keep answering "no match" for a term that
+    // is there. Clearing first makes the first match the answer again.
+    apiRef.current?.clearSearch()
+    apiRef.current?.findNext(searchTerm, {
+      caseSensitive: searchCaseSensitive,
+      regex: searchRegex,
+      incremental: true,
+      decorations: isDark ? SEARCH_DECORATIONS_DARK : SEARCH_DECORATIONS_LIGHT,
+    })
+  }, [searchOpen, searchTerm, searchCaseSensitive, searchRegex, isDark])
+
+  useEffect(() => {
+    if (!fullscreen) return
     const frame = requestAnimationFrame(() => {
       apiRef.current?.fit()
       apiRef.current?.focus()
     })
     return () => cancelAnimationFrame(frame)
+  }, [fullscreen])
+
+  useEffect(() => {
+    if (!active) setFullscreen(false)
   }, [active])
 
   /**
@@ -245,16 +368,36 @@ export function TerminalPane({
 
   return (
     <div
-      role="tabpanel"
+      role={fullscreen ? 'dialog' : 'tabpanel'}
       id={`${panelId}-panel-${session.id}`}
-      aria-labelledby={`${panelId}-tab-${session.id}`}
+      aria-modal={fullscreen || undefined}
+      aria-label={fullscreen ? t('webssh.fullscreen.label', { name: session.title }) : undefined}
+      aria-labelledby={fullscreen ? undefined : `${panelId}-tab-${session.id}`}
       aria-hidden={!active}
       className={cn(
-        'absolute inset-0 flex min-h-0 flex-col bg-[var(--bg-editor)]',
-        active ? 'visible z-10' : 'pointer-events-none invisible',
+        'flex min-h-0 flex-col',
+        fullscreen
+          ? 'fixed inset-0 z-[var(--z-top)] bg-[var(--bg-base)]'
+          : cn('absolute inset-0', appearance.background ? 'bg-transparent' : 'bg-[var(--bg-editor)]'),
+        active || fullscreen ? 'visible' : 'pointer-events-none invisible',
+        !fullscreen && active && 'z-10',
       )}
     >
       {banner()}
+      <TerminalSearchBar
+        open={searchOpen}
+        term={searchTerm}
+        caseSensitive={searchCaseSensitive}
+        regex={searchRegex}
+        resultIndex={searchResults.resultIndex}
+        resultCount={searchResults.resultCount}
+        onTermChange={setSearchTerm}
+        onCaseSensitiveChange={setSearchCaseSensitive}
+        onRegexChange={setSearchRegex}
+        onNext={() => find('next')}
+        onPrevious={() => find('previous')}
+        onClose={closeSearch}
+      />
       <div className="webssh-terminal-host relative min-h-0 flex-1 overflow-hidden" onClick={() => apiRef.current?.focus()}>
         <div
           ref={containerRef}
@@ -285,6 +428,11 @@ export function TerminalPane({
           {t('webssh.status.size_value', { cols: dimensions.cols, rows: dimensions.rows })}
         </span>
         <div className="ms-auto flex items-center gap-0.5">
+          <Tooltip label={t('webssh.action.search')} combo="mod+f">
+            <IconButton label={t('webssh.action.search')} size="sm" active={searchOpen} onClick={() => setSearchOpen(true)}>
+              <Search size={14} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
           <Tooltip label={t('webssh.action.copy')} combo="mod+shift+c">
             <IconButton label={t('webssh.action.copy')} size="sm" onClick={copySelection} disabled={!hasSelection}>
               <Copy size={14} aria-hidden="true" />
@@ -313,6 +461,19 @@ export function TerminalPane({
               onClick={() => setKeysOverride(!showKeys)}
             >
               <Keyboard size={14} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip
+            label={fullscreen ? t('webssh.action.exit_fullscreen') : t('webssh.action.fullscreen')}
+            combo="mod+shift+f"
+          >
+            <IconButton
+              label={fullscreen ? t('webssh.action.exit_fullscreen') : t('webssh.action.fullscreen')}
+              size="sm"
+              active={fullscreen}
+              onClick={() => setFullscreen((value) => !value)}
+            >
+              {fullscreen ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />}
             </IconButton>
           </Tooltip>
           {connection.phase === 'open' && (

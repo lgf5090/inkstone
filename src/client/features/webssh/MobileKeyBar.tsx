@@ -52,6 +52,31 @@ export function applyControlModifier(sequence: string): string {
   return sequence
 }
 
+const CTRL_ALT_ARROWS: Record<string, string> = {
+  '\x1b[A': '\x1b[1;7A',
+  '\x1b[B': '\x1b[1;7B',
+  '\x1b[C': '\x1b[1;7C',
+  '\x1b[D': '\x1b[1;7D',
+  '\x1b[H': '\x1b[1;7H',
+  '\x1b[F': '\x1b[1;7F',
+}
+
+/** Alt is one-shot too: a terminal reads it as the ESC prefix, and Ctrl+Alt has its own arrow form. */
+export function applyAltModifier(sequence: string): string {
+  return `\x1b${sequence}`
+}
+
+export function applyModifiers(sequence: string, ctrl: boolean, alt: boolean): string {
+  if (ctrl && alt) {
+    const arrow = CTRL_ALT_ARROWS[sequence]
+    if (arrow) return arrow
+    return `\x1b${applyControlModifier(sequence)}`
+  }
+  if (ctrl) return applyControlModifier(sequence)
+  if (alt) return applyAltModifier(sequence)
+  return sequence
+}
+
 export function MobileKeyBar({
   onKey,
   disabled,
@@ -62,9 +87,11 @@ export function MobileKeyBar({
   className?: string
 }) {
   const [ctrl, setCtrl] = useState(false)
+  const [alt, setAlt] = useState(false)
   const press = (key: MobileKey) => {
-    onKey(ctrl ? applyControlModifier(key.sequence) : key.sequence)
+    onKey(applyModifiers(key.sequence, ctrl, alt))
     setCtrl(false)
+    setAlt(false)
   }
   return (
     <div
@@ -84,6 +111,16 @@ export function MobileKeyBar({
         className="min-w-11 md:min-w-0 [@media(pointer:coarse)]:min-h-[var(--tap-target)]"
       >
         {t('webssh.mobile.ctrl')}
+      </Button>
+      <Button
+        size="sm"
+        variant={alt ? 'primary' : 'subtle'}
+        aria-pressed={alt}
+        onClick={() => setAlt((value) => !value)}
+        disabled={disabled}
+        className="min-w-11 md:min-w-0 [@media(pointer:coarse)]:min-h-[var(--tap-target)]"
+      >
+        {t('webssh.mobile.alt')}
       </Button>
       {KEYS.map((key) => (
         <Button

@@ -5,7 +5,7 @@
  * tooltip and the status bar both say the phase in words.
  */
 import { useRef } from 'react'
-import { Plus, Settings2, Keyboard, X, FolderOpen, History, ScrollText, Video } from 'lucide-react'
+import { Plus, Settings2, Keyboard, X, FolderOpen, History, ScrollText, Video, Command } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
@@ -47,6 +47,8 @@ export function TerminalTabs({
   filesDisabled = false,
   onOpenSnippets,
   snippetsDisabled = false,
+  onOpenQuickCommands,
+  quickOpen = false,
   onOpenReplay,
   replayDisabled = false,
   onOpenRecordingSettings,
@@ -65,6 +67,8 @@ export function TerminalTabs({
   filesDisabled?: boolean
   onOpenSnippets?: () => void
   snippetsDisabled?: boolean
+  onOpenQuickCommands?: () => void
+  quickOpen?: boolean
   onOpenReplay?: () => void
   replayDisabled?: boolean
   onOpenRecordingSettings?: () => void
@@ -159,6 +163,13 @@ export function TerminalTabs({
           <Tooltip label={t('webssh.sftp.open')}>
             <IconButton label={t('webssh.sftp.open')} size="sm" active={filesOpen} disabled={filesDisabled} onClick={onOpenFiles}>
               <FolderOpen size={15} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onOpenQuickCommands && (
+          <Tooltip label={t('webssh.quick.open')}>
+            <IconButton label={t('webssh.quick.open')} size="sm" active={quickOpen} onClick={onOpenQuickCommands}>
+              <Command size={15} aria-hidden="true" />
             </IconButton>
           </Tooltip>
         )}
