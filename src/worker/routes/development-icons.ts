@@ -284,21 +284,65 @@ developmentIconsRoutes.get('/exports', async (c) => c.json({ ok: true, data: awa
 
 developmentIconsRoutes.post('/exports', async (c) => {
   const body = IconExportCreateSchema.parse(await readJson<unknown>(c, 64 * 1024))
-  const items = await Promise.all(body.assetIds.map((id) => getAsset(c.env.DB, userId(c), id)))
-  const content = JSON.stringify({ format: body.format, assets: items.map((item) => ({ id: item.id, name: item.name, format: item.format, rawUrl: item.rawUrl, license: item.license })) }, null, 2)
-  const bytes = new TextEncoder().encode(content)
+  const rows = await c.env.DB.prepare(
+    `SELECT id, name, format, r2_key FROM development_icons_assets
+      WHERE user_id = ?1 AND id IN (${body.assetIds.map((_, index) => `?${index + 2}`).join(', ')})`,
+  ).bind(userId(c), ...body.assetIds).all<{ id: string; name: string; format: string; r2_key: string }>()
+  const assets = rows.results ?? []
+  if (!assets.length) throw ApiError.notFound('No icons were found for the export')
   const exportId = newId()
-  const key = `development/icons/${body.format}/u${await userShard(userId(c))}/${exportId}.json`
-  await putIconObject(c.env, key, bytes, 'application/json')
+  const shard = await userShard(userId(c))
+  let bytes: Uint8Array
+  let extension = body.format
+  let contentType = 'application/octet-stream'
+  if (body.format === 'zip') {
+    const { zipSync } = await import('fflate')
+    const files: Record<string, Uint8Array> = {}
+    for (const asset of assets) {
+      const object = await getIconObject(c.env, asset.r2_key)
+      if (!object) continue
+      files[`${asset.name.replace(/[^\w.-]+/g, '-')}.${asset.format}`] = new Uint8Array(await object.arrayBuffer())
+    }
+    files['manifest.json'] = new TextEncoder().encode(JSON.stringify({ generatedAt: new Date().toISOString(), assets: assets.map((asset) => ({ id: asset.id, name: asset.name, format: asset.format })) }, null, 2))
+    bytes = zipSync(files)
+    extension = 'zip'
+    contentType = 'application/zip'
+  } else {
+    const asset = assets[0]!
+    if (body.format === 'png' && asset.format === 'svg') throw new ApiError(422, 'bad_request', 'PNG rasterization is not available on the server')
+    if (body.format !== asset.format) throw new ApiError(422, 'bad_request', 'The requested export format does not match the icon')
+    const object = await getIconObject(c.env, asset.r2_key)
+    if (!object) throw ApiError.notFound('The icon object was not found')
+    bytes = new Uint8Array(await object.arrayBuffer())
+    extension = asset.format
+    contentType = asset.format === 'svg' ? 'image/svg+xml' : asset.format === 'png' ? 'image/png' : 'application/octet-stream'
+  }
+  const key = `development/icons/${body.format}/u${shard}/${exportId}.${extension}`
+  await putIconObject(c.env, key, bytes, contentType)
   const data = await createExportRow(c.env.DB, userId(c), {
     format: body.format,
-    filename: `icons-${exportId}.${body.format === 'zip' ? 'zip' : 'json'}`,
+    filename: `icons-${exportId}.${extension}`,
     r2Key: key,
     bytes: bytes.byteLength,
-    assetCount: items.length,
+    assetCount: assets.length,
     expiresAt: Date.now() + 24 * 60 * 60 * 1000,
   })
   return c.json({ ok: true, data }, 201)
+})
+
+developmentIconsRoutes.get('/exports/:id/download', async (c) => {
+  const row = await c.env.DB.prepare(
+    `SELECT filename, r2_key, format, expires_at FROM development_icons_exports WHERE user_id = ?1 AND id = ?2`,
+  ).bind(userId(c), c.req.param('id')).first<{ filename: string; r2_key: string; format: string; expires_at: number }>()
+  if (!row) throw ApiError.notFound('The export was not found')
+  if (row.expires_at < Date.now()) throw ApiError.notFound('The export has expired')
+  const object = await getIconObject(c.env, row.r2_key)
+  if (!object) throw ApiError.notFound('The export object was not found')
+  const headers = new Headers()
+  headers.set('Content-Type', object.httpMetadata?.contentType ?? 'application/octet-stream')
+  headers.set('Content-Disposition', `attachment; filename="${row.filename.replace(/"/g, '')}"`)
+  headers.set('Cache-Control', 'private, no-store')
+  return new Response(object.body, { headers })
 })
 
 developmentIconsRoutes.get('/imports', async (c) => c.json({ ok: true, data: await listImports(c.env.DB, userId(c)) }))
