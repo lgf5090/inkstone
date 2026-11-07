@@ -42,6 +42,9 @@ const MemosPublicApp = lazy(() =>
 const PublicPlaylistPage = lazy(() =>
   import('./features/music/pages/PublicPlaylistPage').then((module) => ({ default: module.PublicPlaylistPage })),
 )
+const WebsshReplayPage = lazy(() =>
+  import('./features/webssh/WebsshReplayPage').then((module) => ({ default: module.WebsshReplayPage })),
+)
 const ImgbedPublicApp = lazy(() =>
   import('./features/imgbed/public/PublicApp').then((module) => ({ default: module.PublicApp })),
 )
@@ -172,11 +175,15 @@ export function App() {
     const match = /^\/r\/([A-Za-z0-9_-]{20})\/?$/.exec(location.pathname)
     return match?.[1] ?? null
   })
+  const [websshReplaySlug] = useState(() => {
+    const match = /^\/w\/([A-Za-z0-9_-]{20})\/?$/.exec(location.pathname)
+    return match?.[1] ?? null
+  })
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || collectionSlug || musicShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug) return
+    if (shareSlug || conversationShareSlug || collectionSlug || musicShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug) return
     void load()
-  }, [load, shareSlug, conversationShareSlug, collectionSlug, musicShareSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, driveRequestSlug])
+  }, [load, shareSlug, conversationShareSlug, collectionSlug, musicShareSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, driveRequestSlug, websshReplaySlug])
 
   useEffect(() => watchSystemTheme(), [])
 
@@ -197,16 +204,16 @@ export function App() {
   useEffect(() => installTemplaterCreationTrigger(), [])
 
   useEffect(() => {
-    if ((shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug) || status !== 'loading') return
+    if ((shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug) || status !== 'loading') return
     requestOfflineWarmup()
-  }, [shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, status])
+  }, [shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, websshReplaySlug, status])
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || status !== 'loading') dismissBootScreen()
-  }, [status, shareSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, driveRequestSlug])
+    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug || status !== 'loading') dismissBootScreen()
+  }, [status, shareSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, driveRequestSlug, websshReplaySlug])
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug) return
+    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug) return
     const timer = window.setTimeout(() => {
       dismissBootScreen()
       // Set whether or not the session has resolved by now: the flag only ever paints while the status is
@@ -214,7 +221,7 @@ export function App() {
       setBootStalled(true)
     }, BOOT_WATCHDOG_MS)
     return () => window.clearTimeout(timer)
-  }, [shareSlug, isPresenter, memoAlwaysPublic])
+  }, [shareSlug, isPresenter, memoAlwaysPublic, websshReplaySlug])
 
   if (isPresenter) {
     return (
@@ -277,6 +284,19 @@ export function App() {
         </ErrorBoundary>
         <Toaster />
         <UpdateCard />
+      </>
+    )
+  }
+
+  if (websshReplaySlug) {
+    return (
+      <>
+        <ErrorBoundary>
+          <Suspense fallback={<PageFallback />}>
+            <WebsshReplayPage slug={websshReplaySlug} />
+          </Suspense>
+        </ErrorBoundary>
+        <Toaster />
       </>
     )
   }

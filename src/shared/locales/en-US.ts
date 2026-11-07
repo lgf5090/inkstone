@@ -22,6 +22,7 @@ import { EN_US_NAV } from './en-US-nav';
 import { EN_US_CLOUDDRIVE } from './en-US-clouddrive';
 import { EN_US_CLOUDDRIVE_ADMIN } from './en-US-clouddrive-admin';
 import { EN_US_CLOUDDRIVE_MEDIA } from './en-US-clouddrive-media';
+import { EN_US_WEBSSH } from './en-US-webssh';
 import { EN_US_TOOLS } from './en-US-tools';
 import { EN_US_SCRIPTSHUB } from './en-US-scriptshub';
 import { EN_US_CALCULATOR } from './en-US-calculator';
@@ -10927,4 +10928,4 @@ const CORE_MESSAGES_ALL: typeof CORE_MESSAGES & typeof CORE_MESSAGES_TAIL = { ..
 const GITHUB_MESSAGES = { ...EN_US_DEVELOPMENT_GITHUB } as const;
 export const EN_US_MESSAGES: typeof CORE_MESSAGES_ALL & typeof GITHUB_MESSAGES & typeof EN_US_INKNOTE & typeof EN_US_YOUTUBE & typeof EN_US_BLOG_ADMIN = { ...CORE_MESSAGES, ...CORE_MESSAGES_TAIL, ...GITHUB_MESSAGES, ...EN_US_INKNOTE, ...EN_US_YOUTUBE, ...EN_US_BLOG_ADMIN };
 export type BaseMessageKey = keyof typeof CORE_MESSAGES_ALL | keyof typeof EN_US_INKNOTE | keyof typeof GITHUB_MESSAGES | keyof typeof EN_US_BLOG_ADMIN;
-export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED | keyof typeof EN_US_YOUTUBE | keyof typeof EN_US_NAV | keyof typeof EN_US_CLOUDDRIVE | keyof typeof EN_US_CLOUDDRIVE_ADMIN | keyof typeof EN_US_CLOUDDRIVE_MEDIA;
+export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED | keyof typeof EN_US_YOUTUBE | keyof typeof EN_US_NAV | keyof typeof EN_US_CLOUDDRIVE | keyof typeof EN_US_CLOUDDRIVE_ADMIN | keyof typeof EN_US_CLOUDDRIVE_MEDIA | keyof typeof EN_US_WEBSSH;

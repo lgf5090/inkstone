@@ -49,6 +49,7 @@ const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
   calendar: lazy(() => import('../calendar/CalendarApp').then((module) => ({ default: module.CalendarApp }))),
   chat: ChatApp,
   tools: lazy(() => import('../tools/ToolsApp').then((m) => ({ default: m.ToolsApp }))),
+  webssh: lazy(() => import('../webssh/WebsshApp').then((m) => ({ default: m.WebsshApp }))),
   scriptshub: lazy(() => import('../scriptshub/ScriptsHubApp').then((m) => ({ default: m.ScriptsHubApp }))),
   development: lazy(() => import('../development/DevelopmentApp').then((m) => ({ default: m.DevelopmentApp }))),
 }

@@ -8,10 +8,10 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
 export async function createShareAssetSession(
   db: D1Database,
   slug: string,
-  passwordHash: string,
+  passwordHash: string | null,
   expiresAt: number,
 ): Promise<string> {
-  if (!isValidSlug(slug) || !isPasswordHash(passwordHash) || !Number.isSafeInteger(expiresAt)) {
+  if (!isValidSlug(slug) || (passwordHash !== null && !isPasswordHash(passwordHash)) || !Number.isSafeInteger(expiresAt)) {
     throw new Error('invalid_share_asset_session')
   }
   const token = createOpaqueToken()
@@ -23,7 +23,7 @@ export async function createShareAssetSession(
          (id, slug, password_hash, expires_at, created_at)
        VALUES (?1, ?2, ?3, ?4, ?5)`,
     )
-    .bind(await tokenId(token), slug, passwordHash, expiresAt, now)
+    .bind(await tokenId(token), slug, passwordHash ?? '', expiresAt, now)
     .run()
   return token
 }
@@ -32,15 +32,15 @@ export async function verifyShareAssetSession(
   db: D1Database,
   token: string | undefined | null,
   slug: string,
-  passwordHash: string,
+  passwordHash: string | null,
 ): Promise<boolean> {
-  if (!isOpaqueToken(token) || !isValidSlug(slug) || !isPasswordHash(passwordHash)) return false
+  if (!isOpaqueToken(token) || !isValidSlug(slug) || (passwordHash !== null && !isPasswordHash(passwordHash))) return false
   const row = await db
     .prepare(
       `SELECT 1 AS present FROM share_asset_sessions
         WHERE id = ?1 AND slug = ?2 AND password_hash = ?3 AND expires_at > ?4`,
     )
-    .bind(await tokenId(token), slug, passwordHash, Date.now())
+    .bind(await tokenId(token), slug, passwordHash ?? '', Date.now())
     .first<{ present: number }>()
   return row?.present === 1
 }

@@ -101,6 +101,15 @@ import {
   CLOUDDRIVE_SCHEMA_STATEMENTS,
 } from '../clouddrive/schema'
 import {
+  WEBSSH_HOST_FILTER_INDEX_STATEMENTS,
+  WEBSSH_HOST_METADATA_STATEMENTS,
+  WEBSSH_PROVIDERS_SCHEMA_STATEMENTS,
+  WEBSSH_REQUIRED_COLUMNS,
+  WEBSSH_REQUIRED_INDEXES,
+  WEBSSH_REQUIRED_TABLES,
+  WEBSSH_SCHEMA_STATEMENTS,
+} from '../webssh/schema'
+import {
   TOOLS_PASSWORD_REQUIRED_COLUMNS,
   TOOLS_PASSWORD_REQUIRED_INDEXES,
   TOOLS_PASSWORD_REQUIRED_TABLES,
@@ -3997,6 +4006,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    version: 298,
+    statements: WEBSSH_SCHEMA_STATEMENTS,
+  },
+  {
     // Per-account switches for routing relay traffic through an AI Gateway. 299 is the first number
     // free above the short-link batch (289–297), and WebSSH spent 298 on its own branch.
     // A fresh database also gets the table from `SCHEMA_STATEMENTS`, where `IF NOT EXISTS` applies.
@@ -4012,6 +4025,18 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: [
       `ALTER TABLE tools_shortlinks_links ADD COLUMN og_preview TEXT`,
     ],
+  },
+  {
+    version: 315,
+    statements: WEBSSH_HOST_METADATA_STATEMENTS,
+  },
+  {
+    version: 316,
+    statements: WEBSSH_PROVIDERS_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 317,
+    statements: WEBSSH_HOST_FILTER_INDEX_STATEMENTS,
   },
 ]
 
@@ -4100,6 +4125,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...CLOUDFLARE_REQUIRED_COLUMNS,
   ...YOUTUBE_REQUIRED_COLUMNS,
   ...CLOUDDRIVE_REQUIRED_COLUMNS,
+  ...WEBSSH_REQUIRED_COLUMNS,
   ...SCRIPTSHUB_REQUIRED_COLUMNS,} as const
 
 export const REQUIRED_TABLES = [
@@ -4180,6 +4206,7 @@ export const REQUIRED_TABLES = [
   ...CLOUDFLARE_REQUIRED_TABLES,
   ...YOUTUBE_REQUIRED_TABLES,
   ...CLOUDDRIVE_REQUIRED_TABLES,
+  ...WEBSSH_REQUIRED_TABLES,
   ...SCRIPTSHUB_REQUIRED_TABLES,] as const
 
 export const REQUIRED_INDEXES = [
@@ -4274,6 +4301,7 @@ export const REQUIRED_INDEXES = [
   ...CLOUDFLARE_REQUIRED_INDEXES,
   ...YOUTUBE_REQUIRED_INDEXES,
   ...CLOUDDRIVE_REQUIRED_INDEXES,
+  ...WEBSSH_REQUIRED_INDEXES,
   ...SCRIPTSHUB_REQUIRED_INDEXES,] as const
 
 

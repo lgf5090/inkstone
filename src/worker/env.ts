@@ -53,6 +53,18 @@ export interface Env {
 
   CREDENTIAL_VAULT?: DurableObjectNamespace
 
+  WEBSSH_SESSION?: DurableObjectNamespace
+
+  /**
+   * Development-only escape hatch for the WebSSH outbound gate. Setting it to `1` lets a local
+   * `wrangler dev` connect to a Docker sshd on a private or loopback address; production must leave
+   * it unset, and port 25 and Cloudflare's own ranges stay blocked either way.
+   */
+  WEBSSH_DEV_ALLOW_PRIVATE_HOSTS?: string
+
+  /** Optional DNS-over-HTTPS endpoint for the WebSSH target resolver; must be https. */
+  WEBSSH_DOH_URL?: string
+
   /** Optional default password for navigation categories that choose "use default". Set as a secret. */
   NAV_DEFAULT_CATEGORY_PASSWORD?: string
 
