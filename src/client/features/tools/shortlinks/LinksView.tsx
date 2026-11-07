@@ -339,17 +339,12 @@ export function LinksView() {
                         {link.tags && link.tags.length > 0 ? (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {link.tags.map((tag) => (
-                              <button
+                              <span
                                 key={tag}
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  setFilter({ tag, page: 1 })
-                                }}
-                                className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.2 text-[length:var(--text-10)] text-[var(--text-secondary)] hover:text-[var(--accent)]"
+                                className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.2 text-[length:var(--text-10)] text-[var(--text-secondary)]"
                               >
                                 #{tag}
-                              </button>
+                              </span>
                             ))}
                           </div>
                         ) : null}
