@@ -19665,6 +19665,9 @@ const allowed = new Map([
     "// also kicks off refreshData",
     "// Group names and account titles are metadata, not plaintext secrets, but the locked pane has no",
     "// business keeping them either — a locked vault should look empty until it is unlocked again.",
+    "// Before the fix only `sort` changed: the array kept its old order, so a drag looked like a no-op",
+    "// until a full reload.",
+    "// Alphabetical order would put \"Alpha\" first and make the stored `sort` column decorative.",
   ]],
   ["src/client/features/tools/password/store.ts", [
     "// Modals",

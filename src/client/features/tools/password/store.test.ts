@@ -10,6 +10,7 @@ vi.mock('./api', () => ({
     updateAccount: vi.fn(),
     createAccount: vi.fn(),
     deleteAccount: vi.fn(),
+    reorderAccounts: vi.fn(),
     unlock: vi.fn(),
     resetMasterPassword: vi.fn(),
   },
@@ -180,5 +181,42 @@ describe('vault store locking and races', () => {
     expect(state.decryptedAccounts).toEqual({})
     expect(state.isUnlocked).toBe(false)
     expect(state.isSettingOpen).toBe(false)
+  })
+
+  it('moves the list immediately after a drag instead of waiting for the next refresh', async () => {
+    vi.mocked(passwordApi.reorderAccounts).mockResolvedValue(undefined as never)
+    usePasswordVaultStore.setState({
+      accounts: [
+        account({ id: 'first', sort: 0 }),
+        account({ id: 'second', sort: 1 }),
+        account({ id: 'third', sort: 2 }),
+      ],
+    })
+
+    await usePasswordVaultStore.getState().reorderAccounts([
+      { id: 'first', sort: 5 },
+      { id: 'third', sort: 0 },
+    ])
+
+    // Before the fix only `sort` changed: the array kept its old order, so a drag looked like a no-op
+    // until a full reload.
+    expect(usePasswordVaultStore.getState().accounts.map((row) => row.id)).toEqual([
+      'third',
+      'second',
+      'first',
+    ])
+  })
+
+  it('orders the group tree by sort, not by name', async () => {
+    vi.mocked(passwordApi.getGroups).mockResolvedValue([
+      { id: 'g2', name: 'Alpha', parentId: '', sort: 2, createdAt: 1, updatedAt: 1 },
+      { id: 'g1', name: 'Zulu', parentId: '', sort: 1, createdAt: 1, updatedAt: 1 },
+    ])
+    usePasswordVaultStore.setState({ keyIV: key, isUnlocked: true })
+
+    await usePasswordVaultStore.getState().refreshData()
+
+    // Alphabetical order would put "Alpha" first and make the stored `sort` column decorative.
+    expect(usePasswordVaultStore.getState().groupTree.map((group) => group.id)).toEqual(['g1', 'g2'])
   })
 })
