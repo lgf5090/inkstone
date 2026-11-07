@@ -97,9 +97,25 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
   const download = async (entry: WebsshSftpEntry) => {
     setProgress({ label: t('webssh.sftp.downloading', { name: entry.name }), value: 0 })
     try {
-      const response = await websshApi.download(sessionId, entry.path)
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
+      const chunks: Blob[] = []
+      let offset = 0
+      let total = entry.size
+      for (let i = 0; i < 64; i += 1) {
+        const response = await websshApi.download(sessionId, entry.path, offset)
+        const headerSize = Number(response.headers.get('x-webssh-file-size') ?? '0')
+        if (Number.isSafeInteger(headerSize) && headerSize > 0) total = headerSize
+        const blob = await response.blob()
+        chunks.push(blob)
+        offset += blob.size
+        if (total > 0) {
+          setProgress({
+            label: t('webssh.sftp.downloading', { name: entry.name }),
+            value: Math.min(1, offset / total),
+          })
+        }
+        if (blob.size === 0 || offset >= total) break
+      }
+      const url = URL.createObjectURL(new Blob(chunks))
       const anchor = document.createElement('a')
       anchor.href = url
       anchor.download = entry.name
