@@ -41004,6 +41004,9 @@ const allowed = new Map([
     "/**\n * The project app's reads and writes, in one place so no route file carries SQL.\n *\n * Board-scoped rows key on the board rather than the account, so every query here either names the\n * account explicitly (the boards it owns) or reaches it through the membership table.\n */",
     "/**\n   * Owned boards and boards shared with this account, in one statement: a per-membership lookup\n   * would turn a sidebar of fifty boards into fifty round trips.\n   */",
   ]],
+  ["src/worker/project/subscriptions.ts", [
+    "/**\n * Following a board or a card. A subscription is the caller's own row keyed by (block, subscriber),\n * so re-following revives a soft-deleted row rather than duplicating it, and unfollowing only ever\n * touches the caller's own subscription. Notification delivery reads these rows separately (D-16).\n */",
+  ]],
   ["src/worker/project/views.ts", [
     "/**\n * Views: the saved ways of looking at one board's cards. A view's fields arrive partial and are\n * merged over the empty defaults on create and over the stored fields on patch, so a client that\n * only changes the sort never has to resend the column widths. Order is a real column the client\n * drags, and a new view without an explicit position lands after the last one.\n */",
     "/** A copy keeps the fields and type but gets a fresh id and the next position; the title is suffixed. */",

@@ -11,6 +11,7 @@ import {
   ProjectContentPatchSchema,
   ProjectMemberAddSchema,
   ProjectMemberPatchSchema,
+  ProjectSubscriptionCreateSchema,
   ProjectViewCreateSchema,
   ProjectViewPatchSchema,
 } from '@shared/project/validation'
@@ -60,6 +61,7 @@ import {
   setProjectMemberRole,
 } from './members'
 import { ProjectStore } from './store'
+import { listProjectSubscriptions, subscribeProject, unsubscribeProject } from './subscriptions'
 import {
   createProjectView,
   duplicateProjectView,
@@ -295,5 +297,22 @@ projectRoutes.delete('/comments/:id', async (c) => {
   const { comment, userId } = await requireComment(c, c.req.param('id'), 'commenter')
   if (comment.authorId !== userId) throw ApiError.forbidden()
   await softDeleteProjectComment(c.env.DB, comment, userId, Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.post('/subscriptions', async (c) => {
+  const userId = projectUserId(c)
+  const input = await projectBody(c, ProjectSubscriptionCreateSchema, JSON_BODY_LIMITS.small)
+  if (input.blockType === 'board') await requireBoard(c, input.blockId, 'viewer')
+  else await requireCard(c, input.blockId, 'viewer')
+  return c.json({ subscription: await subscribeProject(c.env.DB, userId, input.blockType, input.blockId, Date.now()) }, 201)
+})
+
+projectRoutes.get('/subscriptions', async (c) => {
+  return c.json({ subscriptions: await listProjectSubscriptions(c.env.DB, projectUserId(c)) })
+})
+
+projectRoutes.delete('/subscriptions/:blockId', async (c) => {
+  await unsubscribeProject(c.env.DB, projectUserId(c), c.req.param('blockId'), Date.now())
   return c.json({ ok: true })
 })
