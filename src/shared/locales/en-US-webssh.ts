@@ -220,6 +220,7 @@ export const EN_US_WEBSSH = {
   "webssh.sftp.upload": "Upload",
   "webssh.sftp.download": "Download",
   "webssh.sftp.count": "{count} entries",
+  "webssh.sftp.path": "Path",
   "webssh.sftp.error_title": "Could not read this folder",
   "webssh.sftp.empty_title": "This folder is empty",
   "webssh.sftp.empty_description": "Upload a file or create a folder to get started.",

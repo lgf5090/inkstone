@@ -118,7 +118,10 @@ export function passwordResponsesForChallenge(
   if (challenge.prompts.length === 1 && isSupportedPasswordPrompt(challenge, identity)) {
     return [password]
   }
-  throw new Error(`SSH keyboard-interactive challenge is not a supported password prompt (${challenge.prompts.length} prompts)`)
+  const texts = challenge.prompts.map((prompt) => JSON.stringify(prompt.text.slice(0, 64))).join(',')
+  throw new Error(
+    `SSH keyboard-interactive challenge is not a supported password prompt (${challenge.prompts.length} prompts; name=${JSON.stringify(challenge.name.slice(0, 32))}; instruction=${JSON.stringify(challenge.instruction.slice(0, 32))}; prompts=${texts})`,
+  )
 }
 
 export function buildKeyboardInteractiveResponse(responses: string[]): Uint8Array {
@@ -138,7 +141,11 @@ export function isSupportedPasswordPrompt(
   const prompt = challenge.prompts[0].text
   if (/[\u0000-\u001f\u007f-\u009f]/u.test(prompt)) return false
   const normalized = prompt.trim()
+  if (/^(?:please\s+)?(?:enter\s+)?(?:your\s+)?password\s*[:\uff1a]?$/iu.test(normalized)) return true
   if (/^(?:password|\u5bc6\u7801|\u53e3\u4ee4)\s*[:\uff1a]$/iu.test(normalized)) return true
+  if (/^(?:\u8bf7\u8f93\u5165|\u8bf7\u5f55\u5165)?\s*(?:\u5bc6\u7801|\u53e3\u4ee4)\s*[:\uff1a]?$/iu.test(normalized)) return true
   const match = /^password for (.+)@(.+):$/iu.exec(normalized)
-  return match !== null && match[1] === identity.username && match[2].toLowerCase() === identity.host.toLowerCase()
+  if (match !== null && match[1] === identity.username) return true
+  const userOnly = /^password for (.+):$/iu.exec(normalized)
+  return userOnly !== null && userOnly[1] === identity.username
 }

@@ -52,6 +52,7 @@ function errorText(caught: unknown): string {
 export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: string; homePath?: string; onClose: () => void }) {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [path, setPath] = useState(homePath)
+  const [pathDraft, setPathDraft] = useState(homePath)
   const [entries, setEntries] = useState<WebsshSftpEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -71,6 +72,7 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
       .then((listing) => {
         if (cancelled) return
         setPath(listing.path)
+        setPathDraft(listing.path)
         setEntries([...listing.entries].sort((left, right) => {
           if (left.kind === 'directory' && right.kind !== 'directory') return -1
           if (right.kind === 'directory' && left.kind !== 'directory') return 1
@@ -268,9 +270,19 @@ export function SftpPanel({ sessionId, homePath = '/', onClose }: { sessionId: s
       </div>
 
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
-        <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-11-5)] text-[var(--text-tertiary)]" aria-live="polite">
-          {path}
-        </span>
+        <Input
+          value={pathDraft}
+          aria-label={t('webssh.sftp.path')}
+          spellCheck={false}
+          className="h-7 min-w-0 flex-1 font-mono text-[length:var(--text-11-5)]"
+          onChange={(event) => setPathDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              setPath(pathDraft.trim() || '/')
+            }
+          }}
+        />
         <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
           {t('webssh.sftp.count', { count: entries.length })}
         </span>

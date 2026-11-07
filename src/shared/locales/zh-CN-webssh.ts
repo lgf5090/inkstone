@@ -220,6 +220,7 @@ export const ZH_CN_WEBSSH = {
   "webssh.sftp.upload": "上传",
   "webssh.sftp.download": "下载",
   "webssh.sftp.count": "{count} 项",
+  "webssh.sftp.path": "路径",
   "webssh.sftp.error_title": "无法读取该目录",
   "webssh.sftp.empty_title": "目录为空",
   "webssh.sftp.empty_description": "上传文件或新建目录开始使用。",
