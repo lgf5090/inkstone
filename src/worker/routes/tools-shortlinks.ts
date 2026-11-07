@@ -15,6 +15,7 @@ import {
   CreateLinkSchema,
   CustomSlugSchema,
   ListLinksQuerySchema,
+  RealtimeQuerySchema,
   RestoreBackupSchema,
   SlugStatusSchema,
   UpdateBundleSchema,
@@ -141,6 +142,12 @@ toolsShortlinksRoutes.get('/dashboard', async (c) => {
   const { range, timezone } = parseQuery(c, AnalyticsRangeQuerySchema)
   const stats = await store.getDashboardStats(range, timezone)
   return c.json({ ok: true, data: stats })
+})
+
+toolsShortlinksRoutes.get('/realtime', async (c) => {
+  const store = getStore(c)
+  const { after, limit } = parseQuery(c, RealtimeQuerySchema)
+  return c.json({ ok: true, data: await store.listRealtimeClicks(after, limit) })
 })
 
 // ---------------------------------------------------------------- Links

@@ -10,6 +10,7 @@ import type {
   CreatedShortlinkApiKey,
   DashboardStats,
   HeatmapData,
+  RealtimeFeed,
   ShortLink,
   ShortLinkBundle,
   ShortLinkSlug,
@@ -65,6 +66,15 @@ export const shortlinksApi = {
     request<{ data: DashboardStats }>(`/api/tools/shortlinks/dashboard?${analyticsQuery()}`).then(
       (r) => r.data,
     ),
+
+  getRealtime: (after?: number) => {
+    const q = new URLSearchParams()
+    if (after !== undefined) q.set('after', String(after))
+    q.set('limit', '30')
+    return request<{ data: RealtimeFeed }>(`/api/tools/shortlinks/realtime?${q.toString()}`).then(
+      (r) => r.data,
+    )
+  },
 
   getLinks: (params?: GetLinksParams) => {
     const q = new URLSearchParams()

@@ -180,6 +180,23 @@ export interface HeatmapData {
   max: number
 }
 
+export interface RealtimeClick {
+  id: number
+  slug: string
+  link_id: number
+  label: string | null
+  clicked_at: number
+  country: string | null
+  device_type: string | null
+  browser: string | null
+  is_bot: boolean
+}
+
+export interface RealtimeFeed {
+  items: RealtimeClick[]
+  latest_id: number
+}
+
 export interface DashboardStats {
   range?: TimelineRange
   total_links: number

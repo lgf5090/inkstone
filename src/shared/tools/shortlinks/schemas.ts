@@ -167,6 +167,11 @@ export const RestoreBackupSchema = z.object({
 export const TimelineRangeSchema = z.enum(TIMELINE_RANGES)
 export const LinkStatusSchema = z.enum(['all', 'active', 'disabled'])
 
+export const RealtimeQuerySchema = z.object({
+  after: z.coerce.number().int().nonnegative().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+})
+
 export const ListLinksQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).max(1_000_000).default(0),

@@ -12,6 +12,8 @@ import type {
   ClickData,
   ClickStats,
   DashboardStats,
+  RealtimeClick,
+  RealtimeFeed,
   RoutingRules,
   ShortLink,
   ShortLinkBundle,
@@ -1385,6 +1387,74 @@ export class ShortlinksStore {
       days: daily?.days ?? 0,
       clicks: daily?.clicks ?? 0,
       breakdown_rows: breakdown?.cnt ?? 0,
+    }
+  }
+
+  /**
+   * The newest clicks of this account after the cursor the reader already saw, oldest first so the
+   * feed can append without re-sorting. A first read (no cursor) asks for the latest page instead.
+   */
+  async listRealtimeClicks(afterId?: number, limit = 30): Promise<RealtimeFeed> {
+    const size = Math.min(100, Math.max(1, Math.floor(limit)))
+    const rows = afterId === undefined
+      ? await this.db
+        .prepare(
+          `SELECT c.id, c.slug, c.link_id, l.label, c.clicked_at, c.country, c.device_type, c.browser, c.is_bot
+           FROM tools_shortlinks_clicks c
+           LEFT JOIN tools_shortlinks_links l ON l.id = c.link_id
+           WHERE c.user_id = ?
+           ORDER BY c.id DESC
+           LIMIT ?`,
+        )
+        .bind(this.userId, size)
+        .all<{
+          id: number
+          slug: string
+          link_id: number
+          label: string | null
+          clicked_at: number
+          country: string | null
+          device_type: string | null
+          browser: string | null
+          is_bot: number
+        }>()
+      : await this.db
+        .prepare(
+          `SELECT c.id, c.slug, c.link_id, l.label, c.clicked_at, c.country, c.device_type, c.browser, c.is_bot
+           FROM tools_shortlinks_clicks c
+           LEFT JOIN tools_shortlinks_links l ON l.id = c.link_id
+           WHERE c.user_id = ? AND c.id > ?
+           ORDER BY c.id ASC
+           LIMIT ?`,
+        )
+        .bind(this.userId, afterId, size)
+        .all<{
+          id: number
+          slug: string
+          link_id: number
+          label: string | null
+          clicked_at: number
+          country: string | null
+          device_type: string | null
+          browser: string | null
+          is_bot: number
+        }>()
+
+    const items: RealtimeClick[] = (rows.results ?? []).map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      link_id: row.link_id,
+      label: row.label,
+      clicked_at: row.clicked_at,
+      country: row.country,
+      device_type: row.device_type,
+      browser: row.browser,
+      is_bot: Boolean(row.is_bot),
+    }))
+    if (afterId === undefined) items.reverse()
+    return {
+      items,
+      latest_id: items.length > 0 ? items[items.length - 1].id : afterId ?? 0,
     }
   }
 

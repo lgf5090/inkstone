@@ -19962,6 +19962,9 @@ const allowed = new Map([
     "/* Links Table Card */",
     "/* Pagination Footer */",
   ]],
+  ["src/client/features/tools/shortlinks/RealtimePanel.tsx", [
+    "/**\n * Polling feed of the newest clicks. A hidden tab stops asking, a failed round backs off, and the\n * visible tabs each read one page per tick so several open dashboards do not multiply the load.\n */",
+  ]],
   ["src/client/features/tools/shortlinks/SettingsView.tsx", [
     "// Local state for settings form",
     "// New API key form",
@@ -43915,6 +43918,7 @@ const allowed = new Map([
     "// switch can decide later whether analytics include them.",
     "/** Loads the tag names of a set of links in the same slices as the slug loader. */",
     "/** Replaces every tag of one link, keeping the user's tag names canonical in one table. */",
+    "/**\n   * The newest clicks of this account after the cursor the reader already saw, oldest first so the\n   * feed can append without re-sorting. A first read (no cursor) asks for the latest page instead.\n   */",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",

@@ -12,6 +12,7 @@ import {
   Users,
 } from 'lucide-react'
 import type { ChartConfiguration } from 'chart.js'
+import { RealtimePanel } from './RealtimePanel'
 import { ChartCanvas, withAlpha, type ChartColors } from '../../../components/chart-canvas'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
@@ -456,6 +457,8 @@ export function DashboardView() {
           </div>
         )}
       </div>
+
+      <RealtimePanel />
     </div>
   )
 }
