@@ -9,6 +9,7 @@ import type { AppBindings } from '../env'
 import { JSON_BODY_LIMITS } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { projectBody, projectUserId, requireBoard } from './auth'
+import { readProjectBoardBundle } from './bundle'
 import {
   createProjectBoard,
   getProjectBoardRow,
@@ -49,6 +50,11 @@ projectRoutes.post('/boards', async (c) => {
 projectRoutes.get('/boards/:id', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
   return c.json({ board, properties: await readBoardProperties(c.env.DB, board.id), role })
+})
+
+projectRoutes.get('/boards/:id/bundle', async (c) => {
+  const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json(await readProjectBoardBundle(c.env.DB, board, role))
 })
 
 projectRoutes.patch('/boards/:id', async (c) => {

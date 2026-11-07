@@ -40943,6 +40943,10 @@ const allowed = new Map([
     "/**\n * A new board belongs to its creator, who gets an admin membership row so the member picker and the\n * last-admin count both see them. Properties are written in the order given, position = index.\n */",
     "/**\n * A board patch. The two property lists run through the shared ordering rule (§6.2); the board's own\n * fields are a sparse update. Everything lands in one D1 batch so a half-applied patch cannot survive.\n */",
   ]],
+  ["src/worker/project/bundle.ts", [
+    "/**\n * The whole-board read. The reference made the client page through blocks and stitch them together;\n * every screen that opens a board needs all of it, so this gathers board, properties, views, cards,\n * values, contents, comments and members in one round trip. The cursor is the newest update stamp\n * across them all, which is what a realtime `changed` notification carries so a client knows whether\n * its copy is stale.\n */",
+    "// Values are keyed to a card, so a deleted card's values drop out with it rather than lingering.",
+  ]],
   ["src/worker/project/members.ts", [
     "/**\n * The reference guards the last admin only in the client; here the server refuses the write that would\n * leave a board with no admin member, because a client check is not a trust boundary.\n */",
     "/** Joining an open board writes the board's minimum role; re-joining never downgrades an existing grant. */",
