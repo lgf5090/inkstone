@@ -34158,6 +34158,14 @@ const allowed = new Map([
     "/** Local-only statistics; nothing in this shape triggers an external notification. */",
     "/** A recording in the owner's library, joined with the host label for grouping. */",
     "/** First-seen host keys are trusted without a prompt when true (the default). */",
+    "/** Ordering the list offers; `manual` is the drag-reordered position inside a folder. */",
+    "/** The rail views: every host, the starred ones, and those that have connected at least once. */",
+    "/** A folder row with its direct host count, so the rail can print a number beside every name. */",
+    "/** Everything the rail needs without asking for a page of hosts. */",
+    "/** Hosts with at least one recorded connection. */",
+    "/** Required for `move`. */",
+    "/** Required for `tag`; added to each host's existing tags. */",
+    "/** One prior connection of a host, for the detail pane's history section. */",
   ]],
   ["src/shared/youtube/model.ts", [
     "/**\n * The YouTube app's shared vocabulary: the upstream shapes the API hands over, the library rows a\n * reader saves, the address that names a view, and the pure formatting/tree rules both sides use.\n *\n * Nothing here touches the network or the DOM. The worker's transforms and the reader's rendering\n * have to agree on every field, so the types live once and are imported by both builds.\n */",
@@ -44150,6 +44158,13 @@ const allowed = new Map([
   ["src/worker/webssh/hosts.ts", [
     "/**\n   * Creates a host from an import without a credential or key. The row is deliberately usable only\n   * after the owner attaches a secret, so a bulk import never invents an authentication method.\n   */",
     "/** An import is a convenience, not a merge: an identical name/address/user row is left alone. */",
+    "/** D1 caps bound parameters per statement, so a bulk read or delete stays under that ceiling. */",
+    "/** Counts and tag names for the rail; no host rows travel, so the rail stays cheap. */",
+    "/** Direct host counts per folder; the rail adds the folder tree itself. */",
+    "/**\n   * Applies one action to many hosts. Every statement carries the owner id, so a forged id in the\n   * payload is skipped rather than touched; `skipped` tells the caller how many were left out.\n   */",
+    "/** Copies everything a connection needs, leaving the new row unstarred and unlinked history. */",
+    "/**\n   * Moves one host inside a folder, optionally just before another row. The midpoint between the\n   * neighbours keeps the move to one statement instead of renumbering every sibling.\n   */",
+    "/** Every live host in one ordered pass; export is the one caller that needs no page. */",
   ]],
   ["src/worker/webssh/import.ts", [
     "// Host import (plan W7-02): `~/.ssh/config` and CSV are parsed to a preview first, then the confirmed",
@@ -44238,6 +44253,9 @@ const allowed = new Map([
     "// Read-only audit retrieval and the local health signals (plan W7-03). Nothing here writes: the",
     "// audit table is append-only from the session paths, and the health report is derived on request so",
     "// no cron or external notification channel is implied.",
+  ]],
+  ["src/worker/webssh/routes-hosts.ts", [
+    "/** A valid OpenSSH block per host; the alias is derived from the display name and de-duplicated. */",
   ]],
   ["src/worker/webssh/routes-recordings.ts", [
     "// Replay API for recorded sessions. Everything is session-scoped and owner-only: another account",

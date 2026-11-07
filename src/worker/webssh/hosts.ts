@@ -1,4 +1,13 @@
-import type { WebsshAuthMethod, WebsshHost, WebsshHostListResponse } from '@shared/webssh/types'
+import type {
+  WebsshAuthMethod,
+  WebsshHost,
+  WebsshHostBatchInput,
+  WebsshHostBatchResult,
+  WebsshHostListResponse,
+  WebsshHostQuickView,
+  WebsshHostSessionSummary,
+  WebsshHostTagCount,
+} from '@shared/webssh/types'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { escapeLikePattern, WebsshStore, WEBSSH_PAGE_SIZE_DEFAULT, WEBSSH_PAGE_SIZE_MAX } from './store'
@@ -37,13 +46,16 @@ export const WEBSSH_HOST_TERM_MAX = 32
 const HOST_COLOR = /^#[0-9a-fA-F]{6}$/
 const HOSTNAME_PATTERN = /^[A-Za-z0-9._:[\]-]+$/
 const TERM_TYPE_PATTERN = /^[A-Za-z0-9._+-]+$/
+/** D1 caps bound parameters per statement, so a bulk read or delete stays under that ceiling. */
+const BATCH_CHUNK = 90
 
-export type WebsshHostSort = 'manual' | 'name' | 'recent'
+export type WebsshHostSort = 'manual' | 'name' | 'recent' | 'created'
 
 export interface WebsshHostListOptions {
   query: string
   groupId: string
-  favoriteOnly: boolean
+  quick: WebsshHostQuickView
+  tag: string
   sort: WebsshHostSort
   page: number
   pageSize: number
@@ -199,7 +211,7 @@ export function normalizeHostNotes(value: unknown): string {
 }
 
 export function parseHostSort(value: string | undefined): WebsshHostSort {
-  if (value === 'name' || value === 'recent') return value
+  if (value === 'name' || value === 'recent' || value === 'created') return value
   return 'manual'
 }
 
@@ -222,11 +234,17 @@ export class WebsshHostsStore extends WebsshStore {
     const where = `user_id = ?1 AND deleted_at IS NULL
         AND (?2 = '' OR group_id = ?2)
         AND (?3 = 0 OR favorite = 1)
-        AND (?4 = 0 OR name_folded LIKE ?5 ESCAPE '\\' OR host LIKE ?5 ESCAPE '\\' OR username LIKE ?5 ESCAPE '\\')`
+        AND (?4 = 0 OR last_connected_at IS NOT NULL)
+        AND (?5 = 0 OR name_folded LIKE ?6 ESCAPE '\\' OR host LIKE ?6 ESCAPE '\\' OR username LIKE ?6 ESCAPE '\\')
+        AND (?7 = '' OR EXISTS (
+          SELECT 1 FROM json_each(webssh_hosts.tags) AS host_tag WHERE host_tag.value = ?7
+        ))`
     const query = options.query.trim()
     const pattern = query ? `%${escapeLikePattern(query.toLowerCase())}%` : ''
+    const favorite = options.quick === 'favorites' ? 1 : 0
+    const recent = options.quick === 'recent' ? 1 : 0
     const totalRow = await this.db.prepare(`SELECT COUNT(*) AS total FROM webssh_hosts WHERE ${where}`)
-      .bind(this.userId, options.groupId, options.favoriteOnly ? 1 : 0, query ? 1 : 0, pattern)
+      .bind(this.userId, options.groupId, favorite, recent, query ? 1 : 0, pattern, options.tag)
       .first<{ total: number }>()
     const total = Number(totalRow?.total ?? 0)
     const page = Math.min(options.page, Math.max(1, Math.ceil(total / options.pageSize) || 1))
@@ -235,7 +253,9 @@ export class WebsshHostsStore extends WebsshStore {
       ? 'name_folded, created_at DESC'
       : options.sort === 'recent'
         ? 'COALESCE(last_connected_at, 0) DESC, name_folded'
-        : 'sort_order, created_at DESC'
+        : options.sort === 'created'
+          ? 'created_at DESC, name_folded'
+          : 'sort_order, created_at DESC'
     const rows = await this.db.prepare(
       `SELECT id, name, host, port, username, group_id, auth_method, credential_id, key_id,
               encoding, term_type, initial_command, color, tags, notes, favorite, sort_order,
@@ -243,11 +263,50 @@ export class WebsshHostsStore extends WebsshStore {
          FROM webssh_hosts
         WHERE ${where}
         ORDER BY ${order}
-        LIMIT ?6 OFFSET ?7`,
+        LIMIT ?8 OFFSET ?9`,
     )
-      .bind(this.userId, options.groupId, options.favoriteOnly ? 1 : 0, query ? 1 : 0, pattern, options.pageSize, offset)
+      .bind(this.userId, options.groupId, favorite, recent, query ? 1 : 0, pattern, options.tag, options.pageSize, offset)
       .all<WebsshHostRow>()
     return { items: rows.results.map(toHost), total, page, pageSize: options.pageSize }
+  }
+
+  /** Counts and tag names for the rail; no host rows travel, so the rail stays cheap. */
+  async overview(): Promise<{ total: number; favorites: number; connected: number; tags: WebsshHostTagCount[] }> {
+    const counts = await this.db.prepare(
+      `SELECT COUNT(*) AS total,
+              COALESCE(SUM(CASE WHEN favorite = 1 THEN 1 ELSE 0 END), 0) AS favorites,
+              COALESCE(SUM(CASE WHEN last_connected_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS connected
+         FROM webssh_hosts WHERE user_id = ?1 AND deleted_at IS NULL`,
+    )
+      .bind(this.userId)
+      .first<{ total: number; favorites: number; connected: number }>()
+    const tagRows = await this.db.prepare(
+      `SELECT host_tag.value AS name, COUNT(*) AS count
+         FROM webssh_hosts, json_each(webssh_hosts.tags) AS host_tag
+        WHERE user_id = ?1 AND deleted_at IS NULL
+        GROUP BY host_tag.value
+        ORDER BY count DESC, name`,
+    )
+      .bind(this.userId)
+      .all<{ name: string; count: number }>()
+    return {
+      total: Number(counts?.total ?? 0),
+      favorites: Number(counts?.favorites ?? 0),
+      connected: Number(counts?.connected ?? 0),
+      tags: tagRows.results.map((row) => ({ name: row.name, count: Number(row.count) })),
+    }
+  }
+
+  /** Direct host counts per folder; the rail adds the folder tree itself. */
+  async groupCounts(): Promise<Map<string, number>> {
+    const rows = await this.db.prepare(
+      `SELECT group_id, COUNT(*) AS count FROM webssh_hosts
+        WHERE user_id = ?1 AND deleted_at IS NULL AND group_id <> ''
+        GROUP BY group_id`,
+    )
+      .bind(this.userId)
+      .all<{ group_id: string; count: number }>()
+    return new Map(rows.results.map((row) => [row.group_id, Number(row.count)]))
   }
 
   async get(id: string): Promise<WebsshHost | null> {
@@ -462,5 +521,190 @@ export class WebsshHostsStore extends WebsshStore {
     )
       .bind(this.userId, id, at)
       .run()
+  }
+
+  /**
+   * Applies one action to many hosts. Every statement carries the owner id, so a forged id in the
+   * payload is skipped rather than touched; `skipped` tells the caller how many were left out.
+   */
+  async batch(input: WebsshHostBatchInput): Promise<WebsshHostBatchResult> {
+    const ids = [...new Set(input.ids)].filter((id) => isValidId(id)).slice(0, 100)
+    if (ids.length === 0) return { affected: 0, skipped: input.ids.length }
+    const found: Array<{ id: string; tags: string }> = []
+    for (let start = 0; start < ids.length; start += BATCH_CHUNK) {
+      const chunk = ids.slice(start, start + BATCH_CHUNK)
+      const rows = await this.db.prepare(
+        `SELECT id, tags FROM webssh_hosts
+          WHERE user_id = ?1 AND deleted_at IS NULL AND id IN (${chunk.map((_, index) => `?${index + 2}`).join(', ')})`,
+      )
+        .bind(this.userId, ...chunk)
+        .all<{ id: string; tags: string }>()
+      found.push(...rows.results)
+    }
+    if (found.length === 0) return { affected: 0, skipped: input.ids.length }
+    const now = this.now
+
+    if (input.action === 'move') {
+      const groupId = input.groupId ?? ''
+      if (!(await this.groupExists(groupId))) throw ApiError.badRequest('The selected group does not exist')
+      const base = await this.nextSortOrder(groupId)
+      await this.db.batch(found.map((row, index) => this.db.prepare(
+        `UPDATE webssh_hosts SET group_id = ?3, sort_order = ?4, updated_at = ?5
+          WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
+      ).bind(this.userId, row.id, groupId, base + index, now)))
+      return { affected: found.length, skipped: input.ids.length - found.length }
+    }
+
+    if (input.action === 'tag') {
+      const tags = input.tags ?? []
+      if (tags.length === 0) throw ApiError.badRequest('Choose at least one tag')
+      await this.db.batch(found.map((row) => {
+        const merged = [...parseHostTags(row.tags)]
+        for (const tag of tags) if (!merged.includes(tag)) merged.push(tag)
+        return this.db.prepare(
+          'UPDATE webssh_hosts SET tags = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL',
+        ).bind(this.userId, row.id, JSON.stringify(merged.slice(0, WEBSSH_HOST_TAGS_MAX)), now)
+      }))
+      return { affected: found.length, skipped: input.ids.length - found.length }
+    }
+
+    if (input.action === 'favorite' || input.action === 'unfavorite') {
+      const favorite = input.action === 'favorite' ? 1 : 0
+      await this.db.batch(found.map((row) => this.db.prepare(
+        'UPDATE webssh_hosts SET favorite = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL',
+      ).bind(this.userId, row.id, favorite, now)))
+      return { affected: found.length, skipped: input.ids.length - found.length }
+    }
+
+    const statements = found.map((row) => this.db.prepare(
+      'UPDATE webssh_hosts SET deleted_at = ?3, updated_at = ?3 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL',
+    ).bind(this.userId, row.id, now))
+    for (let start = 0; start < found.length; start += BATCH_CHUNK) {
+      const chunk = found.slice(start, start + BATCH_CHUNK)
+      statements.push(this.db.prepare(
+        `DELETE FROM webssh_host_keys
+          WHERE user_id = ?1 AND host_id IN (${chunk.map((_, index) => `?${index + 2}`).join(', ')})`,
+      ).bind(this.userId, ...chunk.map((row) => row.id)))
+    }
+    await this.db.batch(statements)
+    return { affected: found.length, skipped: input.ids.length - found.length }
+  }
+
+  /** Copies everything a connection needs, leaving the new row unstarred and unlinked history. */
+  async duplicate(id: string): Promise<WebsshHost> {
+    const source = await this.get(id)
+    if (!source) throw ApiError.notFound('Host not found')
+    const name = await this.copyName(source.name, source.groupId)
+    return await this.create({
+      name,
+      host: source.host,
+      port: source.port,
+      username: source.username,
+      groupId: source.groupId,
+      authMethod: source.authMethod,
+      credentialId: source.credentialId,
+      keyId: source.keyId,
+      encoding: source.encoding,
+      termType: source.termType,
+      initialCommand: source.initialCommand,
+      color: source.color,
+      tags: source.tags,
+      notes: source.notes,
+      favorite: false,
+      sortOrder: undefined,
+    })
+  }
+
+  private async copyName(base: string, groupId: string): Promise<string> {
+    for (let attempt = 1; attempt <= 20; attempt += 1) {
+      const suffix = attempt === 1 ? ' (copy)' : ` (copy ${attempt})`
+      const candidate = `${base.slice(0, WEBSSH_HOST_NAME_MAX - suffix.length)}${suffix}`
+      const taken = await this.db.prepare(
+        `SELECT 1 AS found FROM webssh_hosts
+          WHERE user_id = ?1 AND group_id = ?2 AND name_folded = ?3 AND deleted_at IS NULL LIMIT 1`,
+      )
+        .bind(this.userId, groupId, candidate.toLowerCase())
+        .first<{ found: number }>()
+      if (!taken) return candidate
+    }
+    return `${base.slice(0, WEBSSH_HOST_NAME_MAX - 8)} (copy)`
+  }
+
+  /**
+   * Moves one host inside a folder, optionally just before another row. The midpoint between the
+   * neighbours keeps the move to one statement instead of renumbering every sibling.
+   */
+  async move(id: string, groupId: string, beforeId: string): Promise<WebsshHost> {
+    const existing = await this.get(id)
+    if (!existing) throw ApiError.notFound('Host not found')
+    if (!(await this.groupExists(groupId))) throw ApiError.badRequest('The selected group does not exist')
+    let position: number
+    const target = beforeId && isValidId(beforeId) ? await this.row(beforeId) : null
+    if (target && target.group_id === groupId) {
+      const previous = await this.db.prepare(
+        `SELECT sort_order FROM webssh_hosts
+          WHERE user_id = ?1 AND deleted_at IS NULL AND group_id = ?2 AND id <> ?3
+            AND sort_order < ?4
+          ORDER BY sort_order DESC LIMIT 1`,
+      )
+        .bind(this.userId, groupId, id, target.sort_order)
+        .first<{ sort_order: number }>()
+      position = previous ? (Number(previous.sort_order) + Number(target.sort_order)) / 2 : Number(target.sort_order) - 1000
+    } else {
+      position = await this.nextSortOrder(groupId)
+    }
+    await this.db.prepare(
+      `UPDATE webssh_hosts SET group_id = ?3, sort_order = ?4, updated_at = ?5
+        WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
+    )
+      .bind(this.userId, id, groupId, position, Math.max(this.now, existing.updatedAt + 1))
+      .run()
+    return (await this.get(id))!
+  }
+
+  /** Every live host in one ordered pass; export is the one caller that needs no page. */
+  async allForExport(): Promise<WebsshHost[]> {
+    const rows = await this.db.prepare(
+      `SELECT id, name, host, port, username, group_id, auth_method, credential_id, key_id,
+              encoding, term_type, initial_command, color, tags, notes, favorite, sort_order,
+              last_connected_at, created_at, updated_at
+         FROM webssh_hosts
+        WHERE user_id = ?1 AND deleted_at IS NULL
+        ORDER BY group_id, sort_order, name_folded`,
+    )
+      .bind(this.userId)
+      .all<WebsshHostRow>()
+    return rows.results.map(toHost)
+  }
+
+  async sessionHistory(hostId: string, limit: number): Promise<WebsshHostSessionSummary[]> {
+    const rows = await this.db.prepare(
+      `SELECT id, status, started_at, connected_at, ended_at, close_reason, error_code, recording_id
+         FROM webssh_sessions
+        WHERE user_id = ?1 AND host_id = ?2
+        ORDER BY started_at DESC
+        LIMIT ?3`,
+    )
+      .bind(this.userId, hostId, limit)
+      .all<{
+        id: string
+        status: WebsshHostSessionSummary['status']
+        started_at: number
+        connected_at: number | null
+        ended_at: number | null
+        close_reason: string
+        error_code: string
+        recording_id: string
+      }>()
+    return rows.results.map((row) => ({
+      id: row.id,
+      status: row.status,
+      startedAt: Number(row.started_at),
+      connectedAt: row.connected_at === null ? null : Number(row.connected_at),
+      endedAt: row.ended_at === null ? null : Number(row.ended_at),
+      closeReason: row.close_reason,
+      errorCode: row.error_code,
+      recordingId: row.recording_id,
+    }))
   }
 }

@@ -254,6 +254,62 @@ export interface WebsshHostListResponse {
   pageSize: number
 }
 
+/** Ordering the list offers; `manual` is the drag-reordered position inside a folder. */
+export type WebsshHostSort = 'manual' | 'name' | 'recent' | 'created'
+
+/** The rail views: every host, the starred ones, and those that have connected at least once. */
+export type WebsshHostQuickView = 'all' | 'favorites' | 'recent'
+
+/** A folder row with its direct host count, so the rail can print a number beside every name. */
+export interface WebsshHostFolder extends WebsshHostGroup {
+  hostCount: number
+}
+
+export interface WebsshHostTagCount {
+  name: string
+  count: number
+}
+
+/** Everything the rail needs without asking for a page of hosts. */
+export interface WebsshHostsOverview {
+  total: number
+  favorites: number
+  /** Hosts with at least one recorded connection. */
+  connected: number
+  folders: WebsshHostFolder[]
+  tags: WebsshHostTagCount[]
+}
+
+export type WebsshHostBatchAction = 'move' | 'tag' | 'favorite' | 'unfavorite' | 'delete'
+
+export interface WebsshHostBatchInput {
+  action: WebsshHostBatchAction
+  ids: string[]
+  /** Required for `move`. */
+  groupId?: string
+  /** Required for `tag`; added to each host's existing tags. */
+  tags?: string[]
+}
+
+export interface WebsshHostBatchResult {
+  affected: number
+  skipped: number
+}
+
+/** One prior connection of a host, for the detail pane's history section. */
+export interface WebsshHostSessionSummary {
+  id: string
+  status: WebsshSessionStatus
+  startedAt: number
+  connectedAt: number | null
+  endedAt: number | null
+  closeReason: string
+  errorCode: string
+  recordingId: string
+}
+
+export type WebsshHostExportFormat = 'ssh-config' | 'csv'
+
 export interface WebsshCredential {
   id: string
   label: string

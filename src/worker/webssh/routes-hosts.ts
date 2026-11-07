@@ -1,5 +1,14 @@
 import { Hono, type Context } from 'hono'
-import type { WebsshAuthMethod, WebsshHost, WebsshHostPreflight } from '@shared/webssh/types'
+import type {
+  WebsshAuthMethod,
+  WebsshHost,
+  WebsshHostBatchAction,
+  WebsshHostExportFormat,
+  WebsshHostFolder,
+  WebsshHostPreflight,
+  WebsshHostQuickView,
+  WebsshHostsOverview,
+} from '@shared/webssh/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
@@ -81,11 +90,70 @@ websshHostRoutes.get('/hosts', async (c) => {
   return c.json(await hostsStore(c).list({
     query: c.req.query('q') ?? '',
     groupId,
-    favoriteOnly: c.req.query('favorite') === '1',
+    quick: readQuickView(c.req.query('quick'), c.req.query('favorite') === '1'),
+    tag: (c.req.query('tag') ?? '').trim().slice(0, 64),
     sort: parseHostSort(c.req.query('sort')),
     page: clampPage(c.req.query('page'), 1),
     pageSize: clampPageSize(c.req.query('pageSize')),
   }))
+})
+
+websshHostRoutes.get('/hosts/overview', async (c) => {
+  const [groups, counts, overview] = await Promise.all([
+    groupsStore(c).list(),
+    hostsStore(c).groupCounts(),
+    hostsStore(c).overview(),
+  ])
+  const folders: WebsshHostFolder[] = groups.map((group) => ({ ...group, hostCount: counts.get(group.id) ?? 0 }))
+  return c.json<WebsshHostsOverview>({ ...overview, folders })
+})
+
+websshHostRoutes.get('/hosts/export', async (c) => {
+  const format: WebsshHostExportFormat = c.req.query('format') === 'csv' ? 'csv' : 'ssh-config'
+  const hosts = await hostsStore(c).allForExport()
+  const body = format === 'csv' ? hostsAsCsv(hosts) : hostsAsSshConfig(hosts)
+  return new Response(body, {
+    headers: {
+      'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'text/plain; charset=utf-8',
+      'Content-Disposition': `attachment; filename="webssh-hosts.${format === 'csv' ? 'csv' : 'conf'}"`,
+      'Cache-Control': 'no-store',
+    },
+  })
+})
+
+websshHostRoutes.post('/hosts/batch', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const action = readBatchAction(body.action)
+  const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === 'string' && isValidId(id)) : []
+  if (ids.length === 0) throw ApiError.badRequest('Choose at least one host')
+  if (ids.length > 100) throw ApiError.badRequest('At most 100 hosts can be changed at once')
+  const input: { action: WebsshHostBatchAction; ids: string[]; groupId?: string; tags?: string[] } = { action, ids }
+  if (action === 'move') input.groupId = readOptionalId(body.groupId, 'groupId')
+  if (action === 'tag') {
+    const tags = normalizeHostTags(body.tags)
+    if (tags.length === 0) throw ApiError.badRequest('Choose at least one tag')
+    input.tags = tags
+  }
+  return c.json(await hostsStore(c).batch(input))
+})
+
+websshHostRoutes.post('/hosts/:id/duplicate', async (c) => {
+  const host = await hostsStore(c).duplicate(c.req.param('id'))
+  return c.json({ host }, 201)
+})
+
+websshHostRoutes.post('/hosts/:id/move', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const groupId = readOptionalId(body.groupId, 'groupId')
+  const beforeId = readOptionalId(body.beforeId, 'beforeId')
+  return c.json({ host: await hostsStore(c).move(c.req.param('id'), groupId, beforeId) })
+})
+
+websshHostRoutes.get('/hosts/:id/sessions', async (c) => {
+  const hostId = await requireHost(c)
+  const parsed = Number(c.req.query('limit') ?? 10)
+  const limit = Number.isFinite(parsed) ? Math.min(50, Math.max(1, Math.trunc(parsed))) : 10
+  return c.json({ sessions: await hostsStore(c).sessionHistory(hostId, limit) })
 })
 
 websshHostRoutes.post('/hosts', async (c) => {
@@ -280,4 +348,41 @@ function readSortOrder(value: unknown, fallback: number | undefined): number | u
   if (value === undefined || value === null) return fallback
   if (typeof value !== 'number' || !Number.isFinite(value)) throw ApiError.badRequest('sortOrder must be a number')
   return value
+}
+
+function readQuickView(value: string | undefined, favorite: boolean): WebsshHostQuickView {
+  if (value === 'favorites' || value === 'recent') return value
+  return favorite ? 'favorites' : 'all'
+}
+
+function readBatchAction(value: unknown): WebsshHostBatchAction {
+  if (value === 'move' || value === 'tag' || value === 'favorite' || value === 'unfavorite' || value === 'delete') return value
+  throw ApiError.badRequest('Unknown batch action')
+}
+
+/** A valid OpenSSH block per host; the alias is derived from the display name and de-duplicated. */
+function hostsAsSshConfig(hosts: readonly WebsshHost[]): string {
+  const used = new Set<string>()
+  const aliasFor = (name: string, index: number): string => {
+    const base = name.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 60) || `host-${index + 1}`
+    let alias = base
+    let suffix = 2
+    while (used.has(alias.toLowerCase())) {
+      alias = `${base}-${suffix}`
+      suffix += 1
+    }
+    used.add(alias.toLowerCase())
+    return alias
+  }
+  return hosts.map((host, index) => {
+    const alias = aliasFor(host.name, index)
+    const tags = host.tags.length ? `# tags: ${host.tags.join(', ')}\n` : ''
+    return `${tags}Host ${alias}\n  HostName ${host.host}\n  Port ${host.port}\n  User ${host.username}\n`
+  }).join('\n')
+}
+
+function hostsAsCsv(hosts: readonly WebsshHost[]): string {
+  const cell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`
+  const lines = hosts.map((host) => [host.name, host.host, host.port, host.username, host.tags.join(',')].map(cell).join(','))
+  return ['name,host,port,username,tags', ...lines].join('\r\n') + '\r\n'
 }

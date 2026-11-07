@@ -12,6 +12,8 @@ import type {
   WebsshHostKeyCheck,
   WebsshHostListResponse,
   WebsshHostPreflight,
+  WebsshHostSessionSummary,
+  WebsshHostsOverview,
   WebsshKey,
 } from '../src/shared/webssh/types'
 import { createApp } from '../src/worker/app'
@@ -169,11 +171,17 @@ describe('webssh authorization', () => {
       ['GET', '/api/webssh/groups'],
       ['POST', '/api/webssh/groups'],
       ['GET', '/api/webssh/hosts'],
+      ['GET', '/api/webssh/hosts/overview'],
+      ['GET', '/api/webssh/hosts/export'],
+      ['POST', '/api/webssh/hosts/batch'],
       ['POST', '/api/webssh/hosts'],
       ['GET', `/api/webssh/hosts/${id}`],
       ['PATCH', `/api/webssh/hosts/${id}`],
       ['DELETE', `/api/webssh/hosts/${id}`],
       ['POST', `/api/webssh/hosts/${id}/preflight`],
+      ['POST', `/api/webssh/hosts/${id}/duplicate`],
+      ['POST', `/api/webssh/hosts/${id}/move`],
+      ['GET', `/api/webssh/hosts/${id}/sessions`],
       ['GET', `/api/webssh/hosts/${id}/fingerprints`],
       ['POST', `/api/webssh/hosts/${id}/fingerprints/trust`],
       ['GET', '/api/webssh/credentials'],
@@ -300,6 +308,147 @@ describe('host CRUD, search and pagination', () => {
   })
 })
 
+describe('host organization and list tools', () => {
+  it('counts folders and tags, filters by tag and view, and sorts by creation time', async () => {
+    const group = (await json<{ group: WebsshHostGroup }>(await call('POST', '/api/webssh/groups', { body: { name: 'Prod' } }))).group
+    const alpha = await createHost({ name: 'alpha', tags: ['prod', 'web'], favorite: true, groupId: group.id })
+    const beta = await createHost({ name: 'beta', tags: ['prod'], groupId: group.id })
+    await createHost({ name: 'gamma', tags: ['lab'] })
+    sqlite.prepare('UPDATE webssh_hosts SET last_connected_at = 1000, created_at = 1000 WHERE id = ?').run(alpha.id)
+    sqlite.prepare('UPDATE webssh_hosts SET created_at = 2000 WHERE id = ?').run(beta.id)
+    sqlite.prepare('UPDATE webssh_hosts SET created_at = 3000 WHERE name_folded = ?').run('gamma')
+
+    const overview = await json<WebsshHostsOverview>(await call('GET', '/api/webssh/hosts/overview'))
+    expect(overview.total).toBe(3)
+    expect(overview.favorites).toBe(1)
+    expect(overview.connected).toBe(1)
+    expect(overview.folders.find((folder) => folder.id === group.id)?.hostCount).toBe(2)
+    expect(overview.folders.find((folder) => folder.id === group.id)?.name).toBe('Prod')
+    expect(overview.tags).toEqual([
+      { name: 'prod', count: 2 },
+      { name: 'lab', count: 1 },
+      { name: 'web', count: 1 },
+    ])
+
+    const tagged = await json<WebsshHostListResponse>(await call('GET', '/api/webssh/hosts?tag=prod'))
+    expect(tagged.total).toBe(2)
+    expect(tagged.items.map((host) => host.name).sort()).toEqual(['alpha', 'beta'])
+    const favorite = await json<WebsshHostListResponse>(await call('GET', '/api/webssh/hosts?quick=favorites'))
+    expect(favorite.total).toBe(1)
+    expect(favorite.items[0]?.name).toBe('alpha')
+    const recent = await json<WebsshHostListResponse>(await call('GET', '/api/webssh/hosts?quick=recent'))
+    expect(recent.total).toBe(1)
+    const created = await json<WebsshHostListResponse>(await call('GET', '/api/webssh/hosts?sort=created'))
+    expect(created.items.map((host) => host.name)).toEqual(['gamma', 'beta', 'alpha'])
+    const named = await json<WebsshHostListResponse>(await call('GET', '/api/webssh/hosts?sort=name'))
+    expect(named.items.map((host) => host.name)).toEqual(['alpha', 'beta', 'gamma'])
+  })
+
+  it('moves, tags, stars and deletes many hosts with one call', async () => {
+    const group = (await json<{ group: WebsshHostGroup }>(await call('POST', '/api/webssh/groups', { body: { name: 'Batch' } }))).group
+    const first = await createHost({ name: 'batch-a' })
+    const second = await createHost({ name: 'batch-b' })
+    sqlite.prepare(
+      `INSERT INTO webssh_host_keys (user_id, host_id, algorithm, fingerprint, first_seen_at, last_seen_at, trusted_at)
+       VALUES (?, ?, 'ssh-ed25519', 'SHA256:batch', 1, 1, 1)`,
+    ).run(OWNER_ID, first.id)
+
+    const moved = await call('POST', '/api/webssh/hosts/batch', {
+      body: { action: 'move', ids: [first.id, second.id], groupId: group.id },
+    })
+    expect(moved.status).toBe(200)
+    expect(await json<{ affected: number; skipped: number }>(moved)).toEqual({ affected: 2, skipped: 0 })
+    for (const id of [first.id, second.id]) {
+      expect((await json<{ host: WebsshHost }>(await call('GET', `/api/webssh/hosts/${id}`))).host.groupId).toBe(group.id)
+    }
+
+    const tagged = await call('POST', '/api/webssh/hosts/batch', {
+      body: { action: 'tag', ids: [first.id, second.id], tags: ['edge'] },
+    })
+    expect(tagged.status).toBe(200)
+    const firstAfterTag = await json<{ host: WebsshHost }>(await call('GET', `/api/webssh/hosts/${first.id}`))
+    expect(firstAfterTag.host.tags).toEqual(['prod', 'web', 'edge'])
+
+    const starred = await call('POST', '/api/webssh/hosts/batch', {
+      body: { action: 'favorite', ids: [first.id, second.id] },
+    })
+    expect(starred.status).toBe(200)
+    expect((await json<{ host: WebsshHost }>(await call('GET', `/api/webssh/hosts/${second.id}`))).host.favorite).toBe(true)
+
+    const removed = await call('POST', '/api/webssh/hosts/batch', {
+      body: { action: 'delete', ids: [first.id, second.id] },
+    })
+    expect(removed.status).toBe(200)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM webssh_host_keys WHERE host_id = ?').get(first.id)).toEqual({ count: 0 })
+    expect((await json<WebsshHostListResponse>(await call('GET', '/api/webssh/hosts'))).total).toBe(0)
+
+    const invalidAction = await call('POST', '/api/webssh/hosts/batch', { body: { action: 'archive', ids: [first.id] } })
+    expect(invalidAction.status).toBe(400)
+    const empty = await call('POST', '/api/webssh/hosts/batch', { body: { action: 'delete', ids: [] } })
+    expect(empty.status).toBe(400)
+    const crossAccount = await call('POST', '/api/webssh/hosts/batch', {
+      session: OTHER_TOKEN,
+      body: { action: 'delete', ids: [first.id, second.id] },
+    })
+    expect(await json<{ affected: number; skipped: number }>(crossAccount)).toEqual({ affected: 0, skipped: 2 })
+  })
+
+  it('duplicates a host without carrying its star or history', async () => {
+    const original = await createHost({ favorite: true })
+    const first = await json<{ host: WebsshHost }>(await call('POST', `/api/webssh/hosts/${original.id}/duplicate`))
+    expect(first.host.name).toBe('web-01 (copy)')
+    expect(first.host.favorite).toBe(false)
+    expect(first.host.tags).toEqual(['prod', 'web'])
+    expect(first.host.credentialId).toBe(original.credentialId)
+    const second = await json<{ host: WebsshHost }>(await call('POST', `/api/webssh/hosts/${original.id}/duplicate`))
+    expect(second.host.name).toBe('web-01 (copy 2)')
+  })
+
+  it('places a dragged host just before its target row', async () => {
+    const group = (await json<{ group: WebsshHostGroup }>(await call('POST', '/api/webssh/groups', { body: { name: 'Ordered' } }))).group
+    const first = await createHost({ name: 'one', groupId: group.id, sortOrder: 1000 })
+    const second = await createHost({ name: 'two', groupId: group.id, sortOrder: 2000 })
+    const last = await createHost({ name: 'three', groupId: group.id, sortOrder: 3000 })
+    const moved = await call('POST', `/api/webssh/hosts/${last.id}/move`, { body: { groupId: group.id, beforeId: first.id } })
+    expect(moved.status).toBe(200)
+    expect((await json<{ host: WebsshHost }>(moved)).host.sortOrder).toBeLessThan(first.sortOrder)
+    const listed = await json<WebsshHostListResponse>(await call('GET', `/api/webssh/hosts?groupId=${group.id}&sort=manual`))
+    expect(listed.items.map((host) => host.name)).toEqual(['three', 'one', 'two'])
+    const missingTarget = await call('POST', `/api/webssh/hosts/${last.id}/move`, { body: { groupId: 'missing' } })
+    expect(missingTarget.status).toBe(400)
+  })
+
+  it('exports connection facts as ssh-config and csv without any secret', async () => {
+    await createHost({ name: 'Alpine Box', host: '10.0.0.5', tags: ['prod', 'ops,edge'] })
+    const config = await call('GET', '/api/webssh/hosts/export')
+    expect(config.headers.get('content-type')).toContain('text/plain')
+    const configText = await config.text()
+    expect(configText).toContain('Host Alpine-Box')
+    expect(configText).toContain('HostName 10.0.0.5')
+    expect(configText).toContain('User deploy')
+    expect(configText).toContain('# tags: prod, ops,edge')
+    expect(configText).not.toContain('correct-horse')
+    const csv = await call('GET', '/api/webssh/hosts/export?format=csv')
+    expect(csv.headers.get('content-type')).toContain('text/csv')
+    const csvText = await csv.text()
+    expect(csvText.split('\r\n')[0]).toBe('name,host,port,username,tags')
+    expect(csvText).toContain('"Alpine Box","10.0.0.5","22","deploy","prod,ops,edge"')
+    expect(csvText).not.toContain('correct-horse')
+  })
+
+  it('lists the recent sessions of one host', async () => {
+    const host = await createHost()
+    const sessionId = newId()
+    sqlite.prepare(
+      `INSERT INTO webssh_sessions (id, user_id, host_id, status, started_at, connected_at, ended_at, close_reason)
+       VALUES (?, ?, ?, 'closed', 500, 600, 700, 'eof')`,
+    ).run(sessionId, OWNER_ID, host.id)
+    const history = await json<{ sessions: WebsshHostSessionSummary[] }>(await call('GET', `/api/webssh/hosts/${host.id}/sessions`))
+    expect(history.sessions).toHaveLength(1)
+    expect(history.sessions[0]).toMatchObject({ id: sessionId, status: 'closed', closeReason: 'eof' })
+  })
+})
+
 describe('cross-account isolation', () => {
   it('answers 404 for another account host on every by-id route', async () => {
     const host = await createHost()
@@ -312,6 +461,9 @@ describe('cross-account isolation', () => {
       ['POST', `/api/webssh/hosts/${host.id}/fingerprint/check`, { algorithm: 'ssh-ed25519', fingerprint: `SHA256:${'A'.repeat(43)}` }],
       ['POST', `/api/webssh/hosts/${host.id}/fingerprints/trust`, { algorithm: 'ssh-ed25519', fingerprint: `SHA256:${'A'.repeat(43)}` }],
       ['POST', `/api/webssh/hosts/${host.id}/fingerprints/revoke`, { fingerprint: `SHA256:${'A'.repeat(43)}` }],
+      ['POST', `/api/webssh/hosts/${host.id}/duplicate`],
+      ['POST', `/api/webssh/hosts/${host.id}/move`, { groupId: '' }],
+      ['GET', `/api/webssh/hosts/${host.id}/sessions`],
     ]
     for (const [method, path, body] of checks) {
       const response = await call(method, path, { session: OTHER_TOKEN, body })
