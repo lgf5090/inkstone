@@ -249,6 +249,8 @@ export class ShortlinksStore {
     allow_duplicate?: boolean
     custom_slug?: string | null
     created_via?: string
+    unsafe?: boolean
+    redirect_with_query?: boolean
   }): Promise<ShortLink> {
     const url = normalizeUrl(params.url)
     const normalizedUrl = params.allow_duplicate ? null : url.toLowerCase()
@@ -301,6 +303,7 @@ export class ShortlinksStore {
     }
 
     const now = Math.floor(Date.now() / 1000)
+    const edgeFlags = (params.unsafe ? 1 : 0) | (params.redirect_with_query ? 2 : 0)
     // The link row and its first slug commit together: a generated slug lost to a concurrent create
     // must not leave a link that no short code can ever resolve.
     let linkId = 0
@@ -309,8 +312,8 @@ export class ShortlinksStore {
         await this.db.batch([
           this.db
             .prepare(
-              `INSERT INTO tools_shortlinks_links (user_id, url, normalized_url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO tools_shortlinks_links (user_id, url, normalized_url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by, edge_flags)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
               this.userId,
@@ -323,6 +326,7 @@ export class ShortlinksStore {
               params.expires_at ?? null,
               params.created_via || 'app',
               'user',
+              edgeFlags,
             ),
           this.db
             .prepare(
@@ -392,6 +396,7 @@ export class ShortlinksStore {
         created_by: string
         total_clicks: number
         lifecycle_state: 'active' | 'disabled' | 'archived'
+        edge_flags: number
       }>()
 
     if (!linkRow) return null
@@ -437,6 +442,8 @@ export class ShortlinksStore {
       slugs,
       total_clicks: linkRow.total_clicks || 0,
       lifecycle_state: linkRow.lifecycle_state,
+      unsafe: Boolean(linkRow.edge_flags & 1),
+      redirect_with_query: Boolean(linkRow.edge_flags & 2),
     }
   }
 
@@ -555,6 +562,7 @@ export class ShortlinksStore {
       created_by: string
       total_clicks: number
       lifecycle_state: 'active' | 'disabled' | 'archived'
+      edge_flags: number
     }>()
 
     const linkIds = (rows.results ?? []).map((r) => r.id)
@@ -578,6 +586,8 @@ export class ShortlinksStore {
       slugs: slugMap.get(r.id) || [],
       total_clicks: r.total_clicks || 0,
       lifecycle_state: r.lifecycle_state,
+      unsafe: Boolean(r.edge_flags & 1),
+      redirect_with_query: Boolean(r.edge_flags & 2),
     }))
 
     return { items, links: items, total }
@@ -590,6 +600,8 @@ export class ShortlinksStore {
       label?: string | null
       password?: string | null
       expires_at?: number | null
+      unsafe?: boolean
+      redirect_with_query?: boolean
     },
   ): Promise<ShortLink> {
     const existing = await this.getLinkById(id)
@@ -627,6 +639,15 @@ export class ShortlinksStore {
       } else {
         updates.push('password_hash = NULL, is_password_protected = 0')
       }
+    }
+    if (data.unsafe !== undefined || data.redirect_with_query !== undefined) {
+      let flags = (existing.unsafe ? 1 : 0) | (existing.redirect_with_query ? 2 : 0)
+      if (data.unsafe !== undefined) flags = data.unsafe ? flags | 1 : flags & ~1
+      if (data.redirect_with_query !== undefined) {
+        flags = data.redirect_with_query ? flags | 2 : flags & ~2
+      }
+      updates.push('edge_flags = ?')
+      binds.push(flags)
     }
 
     if (updates.length > 0) {
@@ -833,10 +854,11 @@ export class ShortlinksStore {
     expires_at: number | null
     password_hash: string | null
     is_password_protected: boolean
+    edge_flags: number
   } | null> {
     const row = await this.db
       .prepare(
-        `SELECT s.slug, s.link_id, s.user_id, s.disabled_at, l.url, l.expires_at, l.password_hash, l.is_password_protected
+        `SELECT s.slug, s.link_id, s.user_id, s.disabled_at, l.url, l.expires_at, l.password_hash, l.is_password_protected, l.edge_flags
          FROM tools_shortlinks_slugs s
          JOIN tools_shortlinks_links l ON s.link_id = l.id
          WHERE s.slug = ? AND l.lifecycle_state = 'active'`,
@@ -851,6 +873,7 @@ export class ShortlinksStore {
         expires_at: number | null
         password_hash: string | null
         is_password_protected: number
+        edge_flags: number
       }>()
 
     if (!row) return null
@@ -864,6 +887,7 @@ export class ShortlinksStore {
       expires_at: row.expires_at,
       password_hash: row.password_hash,
       is_password_protected: Boolean(row.password_hash),
+      edge_flags: row.edge_flags,
     }
   }
 
@@ -1618,6 +1642,7 @@ export class ShortlinksStore {
         created_by: string
         total_clicks: number
         lifecycle_state: 'active' | 'disabled' | 'archived'
+        edge_flags: number
       }>()
 
     const linkIds = (rows.results ?? []).map((r) => r.id)
@@ -1638,6 +1663,8 @@ export class ShortlinksStore {
       slugs: slugMap.get(r.id) || [],
       total_clicks: r.total_clicks || 0,
       lifecycle_state: r.lifecycle_state,
+      unsafe: Boolean(r.edge_flags & 1),
+      redirect_with_query: Boolean(r.edge_flags & 2),
     }))
   }
 

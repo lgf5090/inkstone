@@ -297,11 +297,12 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     const red3 = await call('GET', '/l/disable-me', { user: null })
     expect(red3.status).toBe(302)
 
-    await call('PUT', `/api/tools/shortlinks/links/${link.id}`, {
+    const pastEdit = await call('PUT', `/api/tools/shortlinks/links/${link.id}`, {
       body: { expires_at: now - 100 },
     })
+    expect(pastEdit.status).toBe(400)
     const red4 = await call('GET', '/l/disable-me', { user: null })
-    expect(red4.status).toBe(404)
+    expect(red4.status).toBe(302)
   })
 
   it('counts a repeat reload once and a different visitor separately', async () => {
@@ -793,5 +794,60 @@ describe('Shortlinks Bundles and Analytics', () => {
       `/api/tools/shortlinks/export/download?key=${encodeURIComponent('tools/shortlinks/qr/user-alice/x.png')}`,
     )
     expect(wrongPrefix.status).toBe(403)
+  })
+})
+
+describe('Shortlinks edge behaviour', () => {
+  it('shows a warning page before an unsafe link redirects', async () => {
+    const created = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        body: { url: 'https://unsafe.example.com', custom_slug: 'edge-unsafe', unsafe: true },
+      }),
+    )).data
+    expect(created.unsafe).toBe(true)
+
+    const warning = await call('GET', '/l/edge-unsafe')
+    expect(warning.status).toBe(200)
+    expect(await warning.text()).toContain('unsafe')
+
+    const confirmed = await call('POST', '/l/edge-unsafe', { form: { confirm: '1' } })
+    expect(confirmed.status).toBe(302)
+    expect(confirmed.headers.get('location')).toBe('https://unsafe.example.com')
+  })
+
+  it('passes the inbound query through when the flag is set and shortens the cache', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      body: {
+        url: 'https://query.example.com/landing',
+        custom_slug: 'edge-query',
+        redirect_with_query: true,
+      },
+    })
+    const res = await call('GET', '/l/edge-query?a=1&utm_source=newsletter')
+    expect(res.status).toBe(302)
+    const location = new URL(res.headers.get('location')!)
+    expect(location.searchParams.get('a')).toBe('1')
+    expect(location.searchParams.get('utm_source')).toBe('newsletter')
+    expect(res.headers.get('cache-control')).toContain('max-age=30')
+  })
+
+  it('rejects an expiry in the past and lets an edit clear label and password', async () => {
+    const created = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        body: { url: 'https://edit.example.com', custom_slug: 'edge-edit', label: 'Keep?', password: 'pw-1234' },
+      }),
+    )).data
+    const past = await call('POST', '/api/tools/shortlinks/links', {
+      body: { url: 'https://past.example.com', custom_slug: 'edge-past', expires_at: 1 },
+    })
+    expect(past.status).toBe(400)
+
+    const edited = await call('PATCH', `/api/tools/shortlinks/links/${created.id}`, {
+      body: { label: null, password: null },
+    })
+    expect(edited.status).toBe(200)
+    const after = (await json<any>(edited)).data
+    expect(after.label).toBeNull()
+    expect(after.password_protected).toBe(false)
   })
 })

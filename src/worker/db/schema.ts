@@ -3942,6 +3942,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON tools_shortlinks_bundles(user_id, name)`,
     ],
   },
+  {
+    version: 295,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'edge_flags' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN edge_flags INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -43,6 +43,8 @@ export interface ShortLink {
   slugs: ShortLinkSlug[]
   total_clicks: number
   lifecycle_state?: 'active' | 'disabled' | 'archived'
+  unsafe?: boolean
+  redirect_with_query?: boolean
 }
 
 export interface ShortLinkBundle {

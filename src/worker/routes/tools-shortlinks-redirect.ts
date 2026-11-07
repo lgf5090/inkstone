@@ -231,7 +231,47 @@ function renderNotFoundPage(
   })
 }
 
-async function handleRedirect(c: Context<AppBindings>, providedPassword?: string) {
+function renderUnsafePage(slug: string, locale: 'en-US' | 'zh-CN', copy: ShortlinksPublicCopy): Response {
+  const safeSlug = encodeURIComponent(slug)
+  const html = `<!DOCTYPE html>
+<html lang="${locale}">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(copy.unsafeTitle)} - Inkstone Shortlinks</title>
+  <style>
+    body { margin: 0; background: #0f172a; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .box { text-align: center; max-width: 460px; padding: 2rem; }
+    h1 { font-size: 3rem; margin: 0 0 1rem 0; color: #f59e0b; }
+    h2 { font-size: 1.4rem; margin: 0 0 0.75rem 0; }
+    p { color: #94a3b8; font-size: 0.95rem; line-height: 1.6; }
+    form { margin-top: 1.5rem; }
+    button { background: #3b82f6; color: white; border: 0; border-radius: 8px; padding: 0.7rem 1.2rem; font-size: 0.95rem; cursor: pointer; }
+    button:hover { background: #2563eb; }
+    a { display: block; margin-top: 1rem; color: #64748b; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>!</h1>
+    <h2>${escapeHtml(copy.unsafeTitle)}</h2>
+    <p>${escapeHtml(copy.unsafeMessage)}</p>
+    <form method="post" action="/l/${safeSlug}">
+      <input type="hidden" name="confirm" value="1" />
+      <button type="submit">${escapeHtml(copy.unsafeConfirm)}</button>
+    </form>
+    <a href="/">${escapeHtml(copy.unsafeCancel)}</a>
+  </div>
+</body>
+</html>`
+
+  return new Response(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+  })
+}
+
+async function handleRedirect(c: Context<AppBindings>, providedPassword?: string, confirmedByForm = false) {
   const { locale, copy } = shortlinksPublicCopy(c.req.header('accept-language'))
   const slug = c.req.param('slug')
   if (!slug) {
@@ -252,11 +292,17 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
     disabled_at: dbRecord.disabled_at,
     expires_at: dbRecord.expires_at,
     password_hash: dbRecord.password_hash,
+    edge_flags: dbRecord.edge_flags,
   }
 
   // 2. Status checks
   if (entry.disabled_at != null) {
     return renderNotFoundPage(locale, copy.disabledTitle, copy.disabledMessage)
+  }
+
+  const unsafeConfirmed = confirmedByForm || c.req.header('x-link-confirm') === '1'
+  if ((entry.edge_flags & 1) && !unsafeConfirmed) {
+    return renderUnsafePage(slug, locale, copy)
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -382,9 +428,17 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
   }
 
   // A protected hop depends on a cookie, so a cached 302 would replay it for whoever shares the cache.
+  let destination = entry.url
+  if (entry.edge_flags & 2) {
+    const target = new URL(destination)
+    for (const [key, value] of new URL(c.req.url).searchParams) {
+      if (key !== 'confirm') target.searchParams.set(key, value)
+    }
+    destination = target.toString()
+  }
   const headers: Record<string, string> = {
-    Location: entry.url,
-    'Cache-Control': entry.password_hash ? 'no-store' : 'private, max-age=90',
+    Location: destination,
+    'Cache-Control': entry.password_hash || unsafeConfirmed ? 'no-store' : 'private, max-age=30',
   }
 
   if (issuedCookie) {
@@ -405,11 +459,13 @@ toolsShortlinksRedirectRoutes.get('/l/:slug', async (c) => {
 
 toolsShortlinksRedirectRoutes.post('/l/:slug', async (c) => {
   let password = ''
+  let confirm = false
   try {
     const body = await c.req.parseBody()
     password = String(body['password'] || '')
+    confirm = String(body['confirm'] || '') === '1'
   } catch {
     // Non-fatal
   }
-  return handleRedirect(c, password)
+  return handleRedirect(c, password, confirm)
 })

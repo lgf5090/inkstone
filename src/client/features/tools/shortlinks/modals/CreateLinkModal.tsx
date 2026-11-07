@@ -22,6 +22,8 @@ export function CreateLinkModal() {
   const [password, setPassword] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
   const [bundleId, setBundleId] = useState<number | ''>('')
+  const [unsafe, setUnsafe] = useState(false)
+  const [redirectWithQuery, setRedirectWithQuery] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   const handleClose = () => {
@@ -31,6 +33,8 @@ export function CreateLinkModal() {
     setPassword('')
     setExpiresAt('')
     setBundleId('')
+    setUnsafe(false)
+    setRedirectWithQuery(false)
     setOpen(false)
   }
 
@@ -49,6 +53,8 @@ export function CreateLinkModal() {
         custom_slug: customSlug.trim() || undefined,
         password: password.trim() || undefined,
         expires_at: expTs,
+        unsafe,
+        redirect_with_query: redirectWithQuery,
       })
       if (!link) return
 
@@ -183,6 +189,36 @@ export function CreateLinkModal() {
             </Select>
           </div>
         )}
+
+        <label className="flex items-start gap-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+          <input
+            type="checkbox"
+            checked={unsafe}
+            onChange={(e) => setUnsafe(e.target.checked)}
+            className="mt-0.5 accent-[var(--accent)]"
+          />
+          <span>
+            <span className="block font-medium text-[var(--text-primary)]">
+              {t('tools.shortlinks.modal.unsafe_label')}
+            </span>
+            {t('tools.shortlinks.modal.unsafe_desc')}
+          </span>
+        </label>
+
+        <label className="flex items-start gap-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+          <input
+            type="checkbox"
+            checked={redirectWithQuery}
+            onChange={(e) => setRedirectWithQuery(e.target.checked)}
+            className="mt-0.5 accent-[var(--accent)]"
+          />
+          <span>
+            <span className="block font-medium text-[var(--text-primary)]">
+              {t('tools.shortlinks.modal.redirect_query_label')}
+            </span>
+            {t('tools.shortlinks.modal.redirect_query_desc')}
+          </span>
+        </label>
       </form>
     </Modal>
   )

@@ -51,21 +51,31 @@ const HttpUrlSchema = z
     if (problem) context.addIssue({ code: z.ZodIssueCode.custom, message: problem })
   })
 
+const ExpiresAtSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .refine((value) => value > Math.floor(Date.now() / 1000), 'Expiry must be a future time')
+
 export const CreateLinkSchema = z.object({
   url: HttpUrlSchema,
   label: z.string().max(256, 'Label exceeds 256 characters').optional().nullable(),
   password: z.string().min(1).max(64).optional().nullable(),
   slug_length: z.number().int().min(MIN_SLUG_LENGTH).max(MAX_SLUG_LENGTH).optional(),
-  expires_at: z.number().int().nonnegative().optional().nullable(),
+  expires_at: ExpiresAtSchema.optional().nullable(),
   allow_duplicate: z.boolean().optional(),
   custom_slug: CustomSlugSchema.optional().nullable(),
+  unsafe: z.boolean().optional(),
+  redirect_with_query: z.boolean().optional(),
 })
 
 export const UpdateLinkSchema = z.object({
   url: HttpUrlSchema.optional(),
   label: z.string().max(256).nullable().optional(),
   password: z.string().max(64).nullable().optional(),
-  expires_at: z.number().int().nonnegative().nullable().optional(),
+  expires_at: ExpiresAtSchema.nullable().optional(),
+  unsafe: z.boolean().optional(),
+  redirect_with_query: z.boolean().optional(),
 })
 
 export const AddSlugSchema = z.object({

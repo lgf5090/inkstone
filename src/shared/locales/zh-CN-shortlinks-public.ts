@@ -20,4 +20,8 @@ export const ZH_CN_SHORTLINKS_PUBLIC: ShortlinksPublicCopy = {
   expiredMessage: '该短链接已达到预设有效期限并已过期失效。',
   invalidTargetTitle: '链接不可用',
   invalidTargetMessage: '该短链接没有指向可打开的网页地址。',
+  unsafeTitle: '该链接可能存在风险',
+  unsafeMessage: '创建者已标记此目标地址可能存在意外或不安全内容。请只在信任分享者时继续访问。',
+  unsafeConfirm: '继续访问目标地址',
+  unsafeCancel: '返回 Inkstone',
 }

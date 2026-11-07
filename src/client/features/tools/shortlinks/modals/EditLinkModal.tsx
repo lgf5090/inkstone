@@ -19,6 +19,8 @@ export function EditLinkModal() {
   const [label, setLabel] = useState('')
   const [password, setPassword] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
+  const [unsafe, setUnsafe] = useState(false)
+  const [redirectWithQuery, setRedirectWithQuery] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -26,6 +28,8 @@ export function EditLinkModal() {
       setUrl(link.url)
       setLabel(link.label || '')
       setPassword('')
+      setUnsafe(Boolean(link.unsafe))
+      setRedirectWithQuery(Boolean(link.redirect_with_query))
       if (link.expires_at) {
         const d = new Date(link.expires_at * 1000)
         const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`)
@@ -48,9 +52,11 @@ export function EditLinkModal() {
       const expTs = !Number.isNaN(parsed) && parsed > 0 ? Math.floor(parsed / 1000) : null
       await shortlinksApi.updateLink(link.id, {
         url: trimmedUrl,
-        label: label.trim() || undefined,
-        password: password.trim() ? password.trim() : undefined,
+        label: label.trim() ? label.trim() : null,
+        password: password.trim() ? password.trim() : null,
         expires_at: expTs,
+        unsafe,
+        redirect_with_query: redirectWithQuery,
       })
 
       useUiStore.getState().toast(t('tools.shortlinks.links.status_updated'), 'success')
@@ -136,6 +142,36 @@ export function EditLinkModal() {
               placeholder={t('tools.shortlinks.modal.expires_placeholder')}
             />
           </div>
+
+          <label className="flex items-start gap-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+            <input
+              type="checkbox"
+              checked={unsafe}
+              onChange={(e) => setUnsafe(e.target.checked)}
+              className="mt-0.5 accent-[var(--accent)]"
+            />
+            <span>
+              <span className="block font-medium text-[var(--text-primary)]">
+                {t('tools.shortlinks.modal.unsafe_label')}
+              </span>
+              {t('tools.shortlinks.modal.unsafe_desc')}
+            </span>
+          </label>
+
+          <label className="flex items-start gap-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+            <input
+              type="checkbox"
+              checked={redirectWithQuery}
+              onChange={(e) => setRedirectWithQuery(e.target.checked)}
+              className="mt-0.5 accent-[var(--accent)]"
+            />
+            <span>
+              <span className="block font-medium text-[var(--text-primary)]">
+                {t('tools.shortlinks.modal.redirect_query_label')}
+              </span>
+              {t('tools.shortlinks.modal.redirect_query_desc')}
+            </span>
+          </label>
         </div>
       </form>
     </Modal>
