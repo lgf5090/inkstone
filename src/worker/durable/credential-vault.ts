@@ -26,7 +26,7 @@ const MAX_CIPHERTEXT_LENGTH = 1_400_000
  * `youtube:` carries the instance's YouTube Data API key. The instance id is a fixed sentinel because one
  * deployment has exactly one key, and the worker secret is the fallback when no key is stored here.
  */
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester|imgbed|youtube|nav|clouddrive):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester|imgbed|youtube|nav|clouddrive|webssh):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
@@ -45,6 +45,7 @@ const APITESTER_STATE_FIELDS = new Set(['blob'])
 const APITESTER_HISTORY_FIELDS = new Set(['blob'])
 const APITESTER_WS_FIELDS = new Set(['payload'])
 const NAV_SECRET_FIELDS = new Set(['password'])
+const WEBSSH_SECRET_FIELDS = new Set(['password', 'privateKey', 'passphrase'])
 /**
  * A channel bundle is not a fixed key list: which fields exist is what the channel definition says, and
  * the nine of them share no vocabulary at all (`botToken`/`chatId`, `serverUrl`/`appToken`, `sendKey`…).
@@ -71,6 +72,7 @@ const MAX_FIELD_LENGTH: Record<string, number> = {
   'apitester-history': 64_000,
   'apitester-ws': 16_000,
   clouddrive: 8 * 1024,
+  webssh: 16 * 1024,
 }
 const DEFAULT_MAX_FIELD_LENGTH = 4096
 
@@ -275,6 +277,8 @@ function isCredentialRecord(scope: string, value: unknown): value is CredentialR
                         ? APITESTER_HISTORY_FIELDS
                         : scope.startsWith('nav:')
                           ? NAV_SECRET_FIELDS
+                        : scope.startsWith('webssh:')
+                          ? WEBSSH_SECRET_FIELDS
                         : scope.startsWith('apitester:')
                           ? APITESTER_STATE_FIELDS
                           : BACKUP_SECRET_FIELDS

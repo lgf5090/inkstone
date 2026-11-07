@@ -70,6 +70,10 @@ run_worker_first = [
   "/d/*",
   "/tools",
   "/tools/*",
+  "/webssh",
+  "/webssh/*",
+  "/w",
+  "/w/*",
   "/scripts",
   "/scripts/*",
   "/sc/*",
@@ -107,6 +111,10 @@ name = "CREDENTIAL_VAULT"
 class_name = "CredentialVault"
 
 [[durable_objects.bindings]]
+name = "WEBSSH_SESSION"
+class_name = "WebsshSession"
+
+[[durable_objects.bindings]]
 name = "EMAIL_MAILBOX"
 class_name = "EmailMailbox"
 
@@ -127,6 +135,10 @@ type = "durable-object"
 storage = "sqlite"
 
 [exports.CredentialVault]
+type = "durable-object"
+storage = "sqlite"
+
+[exports.WebsshSession]
 type = "durable-object"
 storage = "sqlite"
 

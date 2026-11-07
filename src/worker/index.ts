@@ -37,9 +37,11 @@ import { runDueCloudflareTasks } from './cloudflare/tasks'
 import { runDueCloudDriveJobs } from './clouddrive/routes-jobs'
 import { resumeCloudDriveIndexTasks } from './clouddrive/routes-admin'
 import { resumeCloudDriveRemoteTasks } from './clouddrive/remote'
+import { runWebsshRetention } from './webssh/retention'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
+export { WebsshSession } from './webssh/do/session'
 export { EmailMailbox } from './email/mailbox-do'
 export { MusicQueue } from './music/queue'
 export { MusicShareLimiter } from './music/share-limiter'
@@ -168,6 +170,10 @@ export default {
             runNavMaintenance(env).catch((error) => {
               console.warn('[inkstone] Navigation maintenance sweep failed:', (error as Error).message)
               return null
+            }),
+            runWebsshRetention(env, event.scheduledTime).catch((error) => {
+              console.warn('[inkstone] WebSSH retention sweep failed:', (error as Error).message)
+              return 0
             }),
             runImgbedMaintenanceSafely(env),
             runMusicMaintenance(env).catch((error) => {
