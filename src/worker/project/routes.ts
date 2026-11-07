@@ -2,6 +2,8 @@ import { Hono, type Context } from 'hono'
 import {
   ProjectBoardCreateSchema,
   ProjectBoardPatchSchema,
+  ProjectBatchDeleteSchema,
+  ProjectBatchSchema,
   ProjectCardCreateSchema,
   ProjectCardPatchSchema,
   ProjectCategoryBoardHiddenSchema,
@@ -26,6 +28,7 @@ import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWi
 import { requireAuth } from '../middleware/auth'
 import { exportProjectBoardArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireCard, requireComment, requireContent, requireView } from './auth'
+import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
 import { readProjectBoardBundle } from './bundle'
 import {
   addBoardToCategory,
@@ -126,6 +129,20 @@ projectRoutes.post('/boards/:id/views', async (c) => {
   const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectViewCreateSchema)
   return c.json({ view: await createProjectView(c.env.DB, board.id, userId, input, Date.now()) }, 201)
+})
+
+projectRoutes.patch('/boards/:id/batch', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectBatchSchema)
+  await batchPatchProjectBoard(c.env.DB, board, input, userId, Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.post('/boards/:id/batch-delete', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectBatchDeleteSchema)
+  await batchDeleteProjectBoard(c.env.DB, board, input, userId, Date.now())
+  return c.json({ ok: true })
 })
 
 projectRoutes.patch('/boards/:id', async (c) => {

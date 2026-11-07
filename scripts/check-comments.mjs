@@ -40959,6 +40959,12 @@ const allowed = new Map([
     "/**\n * A card-scoped route resolves the board from the card row, then crosses the same board boundary. A\n * card on a board the caller cannot see answers 404, never 403, so the card's existence stays private\n * too. The board itself must be alive even when undeleting a card: a card cannot outlive its board.\n */",
     "/** A view-scoped route resolves its board the same way a card does, crossing the same boundary. */",
   ]],
+  ["src/worker/project/batch.ts", [
+    "/**\n * Atomic multi-entity writes (§6.3). A drag that moves three cards across a column, or a multi-select\n * delete, must land as one transaction so a half-applied gesture cannot survive. Every target is read\n * and checked for board membership before any statement runs, then all statements commit in a single\n * D1 batch; the statement count is bounded because D1 caps a batch.\n */",
+    "// D1's per-batch statement ceiling; a batch that would exceed it is rejected rather than split, since",
+    "// splitting would surrender the atomicity this endpoint exists to provide.",
+    "// Contents of one card share a reading order, so scrub them together rather than re-reading per block.",
+  ]],
   ["src/worker/project/boards.ts", [
     "/**\n * A new board belongs to its creator, who gets an admin membership row so the member picker and the\n * last-admin count both see them. Properties are written in the order given, position = index.\n */",
     "/**\n * A board patch. The two property lists run through the shared ordering rule (§6.2); the board's own\n * fields are a sparse update. Everything lands in one D1 batch so a half-applied patch cannot survive.\n */",

@@ -93,13 +93,13 @@ export async function createProjectCard(
  * fields are a sparse update, and the whole thing lands in one batch so a half-applied edit cannot
  * survive. The caller passes the card it already read so the board id need not be looked up again.
  */
-export async function patchProjectCard(
+export function cardPatchStatements(
   db: D1Database,
   card: ProjectCard,
   patch: ProjectCardPatchInput,
   userId: string,
   now: number,
-): Promise<ProjectCard> {
+): D1PreparedStatement[] {
   const sets: string[] = ['modified_by = ?', 'update_at = ?']
   const values: (string | number)[] = [userId, now]
   if (patch.title !== undefined) { sets.push('title = ?'); values.push(patch.title) }
@@ -117,7 +117,17 @@ export async function patchProjectCard(
       statements.push(...valueStatements(db, card.id, { [propertyId]: value }, now))
     }
   }
-  await db.batch(statements)
+  return statements
+}
+
+export async function patchProjectCard(
+  db: D1Database,
+  card: ProjectCard,
+  patch: ProjectCardPatchInput,
+  userId: string,
+  now: number,
+): Promise<ProjectCard> {
+  await db.batch(cardPatchStatements(db, card, patch, userId, now))
   return (await getProjectCard(db, card.id))!
 }
 

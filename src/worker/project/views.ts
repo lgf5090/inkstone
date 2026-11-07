@@ -54,13 +54,13 @@ export async function createProjectView(
   }
 }
 
-export async function patchProjectView(
+export function viewPatchStatements(
   db: D1Database,
   view: ProjectView,
   patch: ProjectViewPatchInput,
   userId: string,
   now: number,
-): Promise<ProjectView> {
+): D1PreparedStatement[] {
   const sets: string[] = ['modified_by = ?', 'update_at = ?']
   const values: (string | number)[] = [userId, now]
   if (patch.title !== undefined) { sets.push('title = ?'); values.push(patch.title) }
@@ -71,7 +71,17 @@ export async function patchProjectView(
     values.push(JSON.stringify({ ...view.fields, ...patch.fields }))
   }
   values.push(view.id)
-  await db.prepare(`UPDATE project_views SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run()
+  return [db.prepare(`UPDATE project_views SET ${sets.join(', ')} WHERE id = ?`).bind(...values)]
+}
+
+export async function patchProjectView(
+  db: D1Database,
+  view: ProjectView,
+  patch: ProjectViewPatchInput,
+  userId: string,
+  now: number,
+): Promise<ProjectView> {
+  await db.batch(viewPatchStatements(db, view, patch, userId, now))
   return (await getProjectView(db, view.id))!
 }
 

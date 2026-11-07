@@ -25,12 +25,12 @@ export async function getProjectContent(db: D1Database, contentId: string): Prom
   return row ? rowToContent(row) : null
 }
 
-async function readCardOrder(db: D1Database, cardId: string): Promise<ProjectContentOrder> {
+export async function readCardOrder(db: D1Database, cardId: string): Promise<ProjectContentOrder> {
   const row = await getProjectCardRow(db, cardId)
   return row ? (JSON.parse(row.content_order) as ProjectContentOrder) : []
 }
 
-function cardOrderStatement(
+export function cardOrderStatement(
   db: D1Database,
   cardId: string,
   order: ProjectContentOrder,
@@ -75,6 +75,22 @@ export async function createProjectContent(
   }
 }
 
+export function contentPatchStatements(
+  db: D1Database,
+  content: ProjectContent,
+  patch: ProjectContentPatchInput,
+  userId: string,
+  now: number,
+): D1PreparedStatement[] {
+  const sets: string[] = ['modified_by = ?', 'update_at = ?']
+  const values: (string | number)[] = [userId, now]
+  if (patch.title !== undefined) { sets.push('title = ?'); values.push(patch.title) }
+  if (patch.position !== undefined) { sets.push('position = ?'); values.push(patch.position) }
+  if (patch.fields !== undefined) { sets.push('fields = ?'); values.push(JSON.stringify(patch.fields)) }
+  values.push(content.id)
+  return [db.prepare(`UPDATE project_card_contents SET ${sets.join(', ')} WHERE id = ?`).bind(...values)]
+}
+
 export async function patchProjectContent(
   db: D1Database,
   content: ProjectContent,
@@ -82,13 +98,7 @@ export async function patchProjectContent(
   userId: string,
   now: number,
 ): Promise<ProjectContent> {
-  const sets: string[] = ['modified_by = ?', 'update_at = ?']
-  const values: (string | number)[] = [userId, now]
-  if (patch.title !== undefined) { sets.push('title = ?'); values.push(patch.title) }
-  if (patch.position !== undefined) { sets.push('position = ?'); values.push(patch.position) }
-  if (patch.fields !== undefined) { sets.push('fields = ?'); values.push(JSON.stringify(patch.fields)) }
-  values.push(content.id)
-  await db.prepare(`UPDATE project_card_contents SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run()
+  await db.batch(contentPatchStatements(db, content, patch, userId, now))
   return (await getProjectContent(db, content.id))!
 }
 
