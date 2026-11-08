@@ -21939,6 +21939,8 @@ const allowed = new Map([
     "// there is nothing here for such a caller to want.",
     "/**\n * Locale boot for a surface that renders one language and no switcher.\n *\n * The app's own `initI18n` also preloads the other shipped locale for an instant switch; a public\n * reading surface has no switch, so that background chunk is traffic nobody asked for.\n */",
     "/**\n * A count-bearing message in its `_one` / `_other` form.\n *\n * The catalogue has no plural engine, so every site that needed this grew a `count === 1 ? … : …`\n * expression by hand — and the navigation app shipped ten messages that read \"1 visits\".\n */",
+    "// This translator ends by calling anything it cannot place a storage error, which is right for the",
+    "// backup surfaces and wrong here: a DNS failure must not be reported as a storage failure.",
   ]],
   ["src/client/lib/image-compress.ts", [
     "/**\n * Shrink a picture before it is attached.\n *\n * The provider bills an image by its pixels, and a screenshot or camera photo is usually far larger than\n * the model needs. The quality value controls both dimensions and JPEG quality, as the reference project's\n * one slider did: 60 means 60% of the original size and 60% quality, not two separate knobs. A transparent\n * image stays PNG; an animated image is left alone because one frame would lose the rest.\n */",
@@ -47402,6 +47404,7 @@ const allowed = new Map([
   ]],
   ["tests/certhub-overview-tokens.test.tsx", [
     "/**\n * The token list and the activity feed: the two places the deployed walkthrough saw raw values.\n *\n * A revoked token kept its \"Revoke\" button and showed no scopes; the activity feed printed\n * `token.revoked` twice and never said what happened in Chinese.\n */",
+    "// An unknown code keeps the server's own words instead of being relabelled.",
   ]],
   ["tests/certhub-root-cause.test.ts", [
     "/**\n * The two production 500s, reproduced at the layer that caused them.\n *\n * Account registration failed for a login that is not an email: the old code built `mailto:lgf5090`,\n * which the CA rejects with \"unable to parse email address\". Domain validation threw a plain `Error`\n * that no route mapped, so the same bad input answered 500 instead of a 400 with a reason.\n */",

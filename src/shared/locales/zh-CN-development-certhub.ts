@@ -336,4 +336,9 @@ export const ZH_CN_DEVELOPMENT_CERTHUB = {
   "development.certhub.common.not_available": "不可用",
   "development.certhub.common.confirm": "确认",
   "development.certhub.error.generic": "请求失败",
+  "development.certhub.error.dns_error": "DNS 服务返回错误，请检查供应商凭据或网络后重试。",
+  "development.certhub.error.acme_error": "证书厂商拒绝了请求，请查看失败原因。",
+  "development.certhub.error.ca_rate_limited": "证书厂商要求降低请求频率，请稍后重试。",
+  "development.certhub.error.ca_unavailable": "证书厂商暂时不可用，请稍后重试。",
+  "development.certhub.error.vault_unavailable": "私钥保管服务不可用，暂时无法读取密钥材料。",
 } as const
