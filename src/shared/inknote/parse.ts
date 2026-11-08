@@ -6,6 +6,7 @@ import {
 } from './constants'
 import { normalizeInknoteColor } from './color'
 import { INKNOTE_PAGE_FORMAT, INKNOTE_PAGE_VERSION, type InknoteImage,
+  InknoteLayer,
   InknotePageBackground,
   InknotePageContent,
   InknotePoint,
@@ -94,6 +95,7 @@ export function serializePageContent(content: InknotePageContent): string {
     texts: content.texts,
     images: content.images,
     bg: content.bg,
+    ...(content.layers?.length ? { layers: content.layers } : {}),
   })
 }
 
@@ -119,7 +121,34 @@ function parsePoint(value: unknown): InknotePoint | null {
   return { x, y, p: finite(own(row, 'p'), 1, 0.15, 1) }
 }
 
-function parseStroke(value: unknown): InknoteStroke | null {
+function parseLayers(value: unknown): InknoteLayer[] {
+  const rows = array(value)
+  const layers: InknoteLayer[] = []
+  const seen = new Set<string>()
+  for (const entry of rows) {
+    const row = record(entry)
+    if (!row) continue
+    const id = own(row, 'id')
+    if (typeof id !== 'string' || !ITEM_ID_RE.test(id) || seen.has(id)) continue
+    seen.add(id)
+    const name = own(row, 'name')
+    layers.push({
+      id,
+      name: typeof name === 'string' ? name.slice(0, 120) : '',
+      visible: own(row, 'visible') !== false,
+    })
+    if (layers.length >= INKNOTE_LIMITS.layersPerPage) break
+  }
+  return layers
+}
+
+function parseLayerField(row: JsonRecord, layerIds: Set<string> | null): { layer?: string } {
+  if (!layerIds) return {}
+  const value = own(row, 'layer')
+  return typeof value === 'string' && layerIds.has(value) ? { layer: value } : {}
+}
+
+function parseStroke(value: unknown, layerIds: Set<string> | null = null): InknoteStroke | null {
   const row = record(value)
   if (!row) return null
   const id = own(row, 'id')
@@ -151,10 +180,11 @@ function parseStroke(value: unknown): InknoteStroke | null {
     color,
     width: finite(own(row, 'width'), 4, 0.1, 100),
     points,
+    ...parseLayerField(row, layerIds),
   }
 }
 
-function parseText(value: unknown): InknoteTextBox | null {
+function parseText(value: unknown, layerIds: Set<string> | null = null): InknoteTextBox | null {
   const row = record(value)
   if (!row) return null
   const id = own(row, 'id')
@@ -185,10 +215,11 @@ function parseText(value: unknown): InknoteTextBox | null {
     hl,
     lh: finite(own(row, 'lh'), 1.3, 0.8, 3),
     list,
+    ...parseLayerField(row, layerIds),
   }
 }
 
-function parseImage(value: unknown): InknoteImage | null {
+function parseImage(value: unknown, layerIds: Set<string> | null = null): InknoteImage | null {
   const row = record(value)
   if (!row) return null
   const id = own(row, 'id')
@@ -205,6 +236,7 @@ function parseImage(value: unknown): InknoteImage | null {
     assetId: ref.assetId,
     url: ref.url,
     rot: rot === 90 || rot === 180 || rot === 270 ? rot : 0,
+    ...parseLayerField(row, layerIds),
   }
 }
 
@@ -244,6 +276,8 @@ export function parseInknotePageContent(raw: unknown): PageParseResult {
   if (!Array.isArray(rawStrokes) || !Array.isArray(rawTexts) || !Array.isArray(rawImages)) {
     return { ok: false, reason: 'invalid_shape' }
   }
+  const layers = parseLayers(own(row, 'layers'))
+  const layerIds = layers.length ? new Set(layers.map((layer) => layer.id)) : null
   if (rawStrokes.length > INKNOTE_LIMITS.strokesPerPage
     || rawTexts.length > INKNOTE_LIMITS.textsPerPage
     || rawImages.length > INKNOTE_LIMITS.imagesPerPage) {
@@ -255,19 +289,19 @@ export function parseInknotePageContent(raw: unknown): PageParseResult {
   let dropped = 0
   let points = 0
   for (const entry of rawStrokes) {
-    const stroke = parseStroke(entry)
+    const stroke = parseStroke(entry, layerIds)
     if (!stroke) { dropped++; continue }
     points += stroke.points.length
     if (points > INKNOTE_LIMITS.pointsPerPage) return { ok: false, reason: 'too_large' }
     strokes.push(stroke)
   }
   for (const entry of rawTexts) {
-    const text = parseText(entry)
+    const text = parseText(entry, layerIds)
     if (text) texts.push(text)
     else dropped++
   }
   for (const entry of rawImages) {
-    const image = parseImage(entry)
+    const image = parseImage(entry, layerIds)
     if (image) images.push(image)
     else dropped++
   }
@@ -282,6 +316,7 @@ export function parseInknotePageContent(raw: unknown): PageParseResult {
       texts,
       images,
       bg: bg ?? null,
+      ...(layers.length ? { layers } : {}),
     },
     dropped,
     bytes,
@@ -307,10 +342,13 @@ export function sanitizePageForSave(raw: unknown): { ok: true; result: ParsedSav
 
 export function extractPageText(content: InknotePageContent): string {
   const parts: string[] = []
+  let length = 0
   for (const item of content.texts) {
     const text = item.text.replace(/\s+/g, ' ').trim()
-    if (text) parts.push(text)
-    if (parts.join('\n').length >= 200_000) break
+    if (!text) continue
+    parts.push(text)
+    length += text.length + 1
+    if (length >= 200_000) break
   }
   return parts.join('\n').slice(0, 200_000)
 }
@@ -360,6 +398,8 @@ export function normalizeLegacyPage(raw: unknown): LegacyPage | null {
   const row = record(raw)
   if (!row) return null
   const pending: LegacyPendingAsset[] = []
+  const layers = parseLayers(own(row, 'layers'))
+  const layerIds = layers.length ? new Set(layers.map((layer) => layer.id)) : null
   const strokes: InknoteStroke[] = []
   const texts: InknoteTextBox[] = []
   const images: InknoteImage[] = []
@@ -385,10 +425,11 @@ export function normalizeLegacyPage(raw: unknown): LegacyPage | null {
       color,
       width: finite(own(item, 'width'), 4, 0.1, 100),
       points,
+      ...parseLayerField(item, layerIds),
     })
   }
   for (const [index, entry] of array(own(row, 'texts')).entries()) {
-    const parsed = parseText({ ...(record(entry) ?? {}), id: legacyId(own(record(entry) ?? {}, 'id')) ?? `legacy-t-${index}` })
+    const parsed = parseText({ ...(record(entry) ?? {}), id: legacyId(own(record(entry) ?? {}, 'id')) ?? `legacy-t-${index}` }, layerIds)
     if (parsed) texts.push(parsed)
   }
   for (const [index, entry] of array(own(row, 'images')).entries()) {
@@ -408,6 +449,7 @@ export function normalizeLegacyPage(raw: unknown): LegacyPage | null {
       assetId: ref.assetId,
       url: ref.url,
       rot: rot === 90 || rot === 180 || rot === 270 ? rot : 0,
+      ...parseLayerField(item, layerIds),
     })
   }
   const bgRow = record(own(row, 'bg'))
@@ -426,7 +468,7 @@ export function normalizeLegacyPage(raw: unknown): LegacyPage | null {
     }
   }
   return {
-    content: { format: INKNOTE_PAGE_FORMAT, version: INKNOTE_PAGE_VERSION, strokes, texts, images, bg },
+    content: { format: INKNOTE_PAGE_FORMAT, version: INKNOTE_PAGE_VERSION, strokes, texts, images, bg, ...(layers.length ? { layers } : {}) },
     pendingAssets: pending,
   }
 }

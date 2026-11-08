@@ -105,18 +105,25 @@ interface InknoteState {
 }
 
 const saveTimers = new Map<string, number>()
-const inFlight = new Set<string>()
+/** Page ids whose content changed since the last successful save. */
+const dirtyPages = new Set<string>()
+const inFlight = new Map<string, Promise<boolean>>()
 const SAVE_DELAY = 1_200
 const AUTO_SNAPSHOT_DELAY = 45_000
+const SETTINGS_SAVE_DELAY = 350
 const syncChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('inknote-tabs')
-let autoSnapshotAt = 0
+let autoSnapshotAt = Date.now()
 const coverAttemptAt = new Map<string, number>()
+const coverUploaded = new Set<string>()
 let autoSnapshotInFlight = false
+let settingsTimer: number | undefined
+let pendingSettings: InknoteSettings | null = null
 
 async function uploadFirstPageCover(noteId: string, note: InknoteNoteMeta, page: InknotePage): Promise<void> {
   const last = coverAttemptAt.get(noteId) ?? 0
-  if (note.coverAssetId || Date.now() - last < 10_000) return
+  if (note.coverAssetId || coverUploaded.has(noteId) || Date.now() - last < 10_000) return
   coverAttemptAt.set(noteId, Date.now())
+  coverUploaded.add(noteId)
   try {
     const [{ renderPageToCanvas }, { fontStackFor }] = await Promise.all([
       import('./engine/renderer'),
@@ -131,9 +138,17 @@ async function uploadFirstPageCover(noteId: string, note: InknoteNoteMeta, page:
     if (!canvas) return
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), 'image/jpeg', 0.72))
     if (!blob) return
-    await inknoteApi.uploadAsset(new File([blob], 'cover.jpg', { type: 'image/jpeg' }), 'cover', noteId)
-    await useInknoteStore.getState().refreshLibrary()
+    const asset = await inknoteApi.uploadAsset(new File([blob], 'cover.jpg', { type: 'image/jpeg' }), 'cover', noteId)
+    // The upload response already carries the URL, so the list can show the cover without a full
+    // library round-trip after every note's first save.
+    useInknoteStore.setState((state) => ({
+      note: state.note?.id === noteId ? { ...state.note, coverAssetId: asset.id, coverUrl: asset.url } : state.note,
+      library: state.library
+        ? { ...state.library, notes: state.library.notes.map((entry) => entry.id === noteId ? { ...entry, coverAssetId: asset.id, coverUrl: asset.url } : entry) }
+        : state.library,
+    }))
   } catch (error) {
+    coverUploaded.delete(noteId)
     console.warn('[inkstone] Could not build the note cover; the next save retries:', error)
   }
 }
@@ -164,36 +179,70 @@ function updateLibraryNote(
 export const useInknoteStore = create<InknoteState>((set, get) => {
   async function persist(pageId: string): Promise<boolean> {
     if (get().replaying) return true
-    const { note, pages } = get()
+    const { note } = get()
     if (!note) return false
+    const running = inFlight.get(pageId)
+    if (running) {
+      // A save started before this edit. Remember that the row is dirty and let the finished request
+      // start a second one; returning the in-flight result alone used to lose the newer content.
+      dirtyPages.add(pageId)
+      return running
+    }
+    if (!dirtyPages.has(pageId)) return true
+    dirtyPages.delete(pageId)
+    const promise = persistNow(note.id, pageId)
+    inFlight.set(pageId, promise)
+    let saved = false
+    try {
+      saved = await promise
+    } finally {
+      inFlight.delete(pageId)
+    }
+    // An edit that landed while this request was in flight starts one more save, and the caller waits
+    // for it rather than learning about it after the tab has already gone. A failed save keeps its
+    // dirty mark for the next scheduled retry instead of spinning here.
+    if (saved && dirtyPages.has(pageId)) return persist(pageId)
+    return saved
+  }
+
+  async function persistNow(noteId: string, pageId: string): Promise<boolean> {
+    const { pages } = get()
     const page = pages.find((entry) => entry.id === pageId)
     if (!page) return false
-    if (inFlight.has(pageId)) return true
-    inFlight.add(pageId)
     set({ saveState: 'saving', saveError: null })
     try {
       const content = serializePageContent(page.content)
-      const saved = await inknoteApi.savePage(note.id, pageId, content, page.rev)
-      try { localStorage.removeItem(`inknote-draft:${note.id}:${pageId}`) } catch { /* storage may be unavailable */ }
+      const saved = await inknoteApi.savePage(noteId, pageId, content, page.rev)
+      try { localStorage.removeItem(`inknote-draft:${noteId}:${pageId}`) } catch { /* storage may be unavailable */ }
       // Only the rows that moved are rebuilt. A save that changed nothing used to hand every page and
       // the note a fresh object, and the canvas read that as a new document: its effects ran setPage and
       // fitView mid-stroke, which is how a stroke was cut or a zoom snapped back while autosave ran.
       set((state) => {
         const current = state.pages.find((entry) => entry.id === pageId)
         const pageMoved = current !== undefined && (current.rev !== saved.rev || current.updatedAt !== saved.updatedAt)
-        const noteMoved = state.note !== null && state.note.updatedAt !== saved.updatedAt
-        if (!pageMoved && !noteMoved) return { saveState: 'saved' }
+        const noteMoved = state.note !== null && state.note.id === noteId && state.note.updatedAt !== saved.updatedAt
+        const drafts = Object.prototype.hasOwnProperty.call(state.drafts, pageId)
+          ? Object.fromEntries(Object.entries(state.drafts).filter(([id]) => id !== pageId))
+          : state.drafts
+        if (!pageMoved && !noteMoved && drafts === state.drafts) return { saveState: 'saved' }
         return {
           pages: pageMoved
             ? state.pages.map((entry) => entry.id === pageId ? { ...entry, rev: saved.rev, updatedAt: saved.updatedAt } : entry)
             : state.pages,
           note: noteMoved && state.note ? { ...state.note, updatedAt: saved.updatedAt } : state.note,
+          library: state.library
+            ? { ...state.library, notes: state.library.notes.map((entry) => entry.id === noteId ? { ...entry, updatedAt: saved.updatedAt } : entry) }
+            : state.library,
+          drafts,
           saveState: 'saved',
+          saveError: null,
         }
       })
-      syncChannel?.postMessage({ type: 'page-saved', noteId: note.id, pageId, rev: saved.rev })
-      if (page.position === 0) void uploadFirstPageCover(note.id, get().note ?? note, page)
-      get().refreshLibrary().catch(() => {})
+      syncChannel?.postMessage({ type: 'page-saved', noteId, pageId, rev: saved.rev })
+      if (page.position === 0) {
+        const current = get()
+        if (current.note?.id === noteId) void uploadFirstPageCover(noteId, current.note, page)
+      }
       maybeAutoSnapshot(get().library?.settings.autoBackup ?? true)
       return true
     } catch (error) {
@@ -206,19 +255,32 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
             saveState: 'conflict',
             saveError: 'This page was changed elsewhere',
           }))
+          // The page in this tab is still unsaved. Keep it as a draft so closing the tab cannot lose it.
+          dirtyPages.add(pageId)
+          writeDraft(noteId, pageId, page, false)
           return false
         }
       }
       const offline = error instanceof ApiError ? error.status === 0 : true
-      try { localStorage.setItem(`inknote-draft:${note.id}:${pageId}`, JSON.stringify({ content: serializePageContent(page.content), baseRev: page.rev, savedAt: Date.now(), offline })) } catch { /* storage may be unavailable */ }
+      writeDraft(noteId, pageId, page, offline)
+      dirtyPages.add(pageId)
       set({ saveState: offline ? 'offline' : 'error', saveError: message(error) })
       return false
-    } finally {
-      inFlight.delete(pageId)
     }
   }
 
+  function writeDraft(noteId: string, pageId: string, page: { content: InknotePageContent; rev: number }, offline: boolean): void {
+    const savedAt = Date.now()
+    try {
+      localStorage.setItem(`inknote-draft:${noteId}:${pageId}`, JSON.stringify({ content: serializePageContent(page.content), baseRev: page.rev, savedAt, offline }))
+    } catch { /* storage may be unavailable */ }
+    set((state) => ({
+      drafts: { ...state.drafts, [pageId]: { content: page.content, savedAt, offline } },
+    }))
+  }
+
   function scheduleSave(pageId: string) {
+    dirtyPages.add(pageId)
     const existing = saveTimers.get(pageId)
     if (existing) window.clearTimeout(existing)
     set({ saveState: 'pending' })
@@ -226,6 +288,43 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       saveTimers.delete(pageId)
       void persist(pageId)
     }, SAVE_DELAY))
+  }
+
+  async function flushSettings(): Promise<void> {
+    if (settingsTimer !== undefined) {
+      window.clearTimeout(settingsTimer)
+      settingsTimer = undefined
+    }
+    const config = pendingSettings
+    pendingSettings = null
+    if (!config) return
+    try {
+      const saved = await inknoteApi.saveSettings(config, get().settingsUpdatedAt || undefined)
+      set({ settingsUpdatedAt: saved.updatedAt })
+    } catch (error) {
+      // A 409 means this tab's token was from before another device's write. Keeping the stale token
+      // made every later save fail the same way, silently, until the page was reloaded — so the
+      // server's timestamp is read back here and the next save carries it.
+      if (error instanceof ApiError && error.status === 409) {
+        try {
+          const latest = await inknoteApi.settings()
+          set({ settingsUpdatedAt: latest.updatedAt })
+        } catch {
+          // The conflict itself is still reported below; a read that also failed changes nothing
+          // about what the reader has to do.
+        }
+      }
+      set({ error: message(error) })
+    }
+  }
+
+  function scheduleSettings(config: InknoteSettings): void {
+    pendingSettings = config
+    if (settingsTimer !== undefined) window.clearTimeout(settingsTimer)
+    settingsTimer = window.setTimeout(() => {
+      settingsTimer = undefined
+      void flushSettings()
+    }, SETTINGS_SAVE_DELAY)
   }
 
   function currentSnapshot(): NoteSnapshot | null {
@@ -323,11 +422,10 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       if (get().loading) return
       set({ loading: true, error: null, unauthorized: false })
       try {
-        const [library, settings, templates, trash] = await Promise.all([
+        const [library, settings, templates] = await Promise.all([
           inknoteApi.library(),
           inknoteApi.settings(),
           inknoteApi.templates(),
-          inknoteApi.trash(),
         ])
         set({
           library: {
@@ -342,8 +440,6 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
           loading: false,
           initialized: true,
           error: null,
-          // Trash is listed by the UI on demand; keeping the note count in the library is enough.
-          ...(trash.notes.length ? {} : {}),
         })
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -383,6 +479,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
 
     async openNote(id, pageIndex = 0) {
       await get().saveAll()
+      dirtyPages.clear()
       set({ opening: true, error: null })
       try {
         const response = await inknoteApi.note(id, 'all')
@@ -417,8 +514,11 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     },
 
     closeNote() {
-      void get().saveAll()
-      set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {}, drafts: {}, undoStack: [], redoStack: [] })
+      void (async () => {
+        await get().saveAll()
+        dirtyPages.clear()
+        set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {}, drafts: {}, undoStack: [], redoStack: [] })
+      })()
     },
 
     closeTab(id) {
@@ -427,8 +527,11 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       if (get().note?.id !== id) return
       const next = tabs[0]
       if (next) { void get().openNote(next); return }
-      void get().saveAll()
-      set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {}, drafts: {}, undoStack: [], redoStack: [] })
+      void (async () => {
+        await get().saveAll()
+        dirtyPages.clear()
+        set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {}, drafts: {}, undoStack: [], redoStack: [] })
+      })()
     },
 
     setActivePage(id) {
@@ -439,14 +542,17 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     },
 
     touchPage() {
+      const pageId = get().activePageId
+      if (pageId) dirtyPages.add(pageId)
       set((state) => ({
         contentVersion: state.contentVersion + 1,
         saveState: state.conflicts[state.activePageId ?? ''] ? 'conflict' : 'pending',
       }))
-      if (get().activePageId) scheduleSave(get().activePageId!)
+      if (pageId) scheduleSave(pageId)
     },
 
     replacePageContent(pageId, content) {
+      dirtyPages.add(pageId)
       set((state) => ({
         pages: state.pages.map((page) => page.id === pageId ? { ...page, content } : page),
         contentVersion: state.contentVersion + 1,
@@ -466,7 +572,8 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     async saveAll() {
       for (const timer of saveTimers.values()) window.clearTimeout(timer)
       saveTimers.clear()
-      const ids = get().pages.map((page) => page.id)
+      await flushSettings()
+      const ids = [...dirtyPages]
       for (const id of ids) await persist(id)
     },
 
@@ -475,7 +582,14 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       const target = notebookId ?? library?.notebooks[0]?.id
       if (!target) { set({ error: 'Create a notebook first' }); return null }
       try {
-        const response = await inknoteApi.createNote({ notebookId: target, title })
+        const settings = library?.settings
+        const size = settings?.defaultPageSize === 'wide' ? { pageWidth: 1056, pageHeight: 816 } : {}
+        const response = await inknoteApi.createNote({
+          notebookId: target,
+          title,
+          ...(settings?.defaultPaper ? { paper: settings.defaultPaper } : {}),
+          ...size,
+        })
         set((state) => ({
           library: state.library ? { ...state.library, notes: [response.note, ...state.library.notes] } : state.library,
           note: response.note,
@@ -645,9 +759,15 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       const note = get().note
       if (!note) return
       const before = currentSnapshot()
+      const removedIndex = get().pages.findIndex((page) => page.id === pageId)
+      const activeId = get().activePageId
       await inknoteApi.deletePage(note.id, pageId)
+      dirtyPages.delete(pageId)
       const pages = get().pages.filter((page) => page.id !== pageId).map((page, position) => ({ ...page, position }))
-      const nextIndex = Math.max(0, Math.min(get().activePageIndex, pages.length - 1))
+      const remainingActive = pages.findIndex((page) => page.id === activeId)
+      const nextIndex = activeId === pageId
+        ? Math.max(0, Math.min(removedIndex, pages.length - 1))
+        : Math.max(0, remainingActive)
       set((state) => ({
         pages,
         note: state.note ? { ...state.note, pageCount: pages.length } : null,
@@ -710,24 +830,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       set((state) => ({
         library: state.library ? { ...state.library, settings: next } : state.library,
       }))
-      try {
-        const saved = await inknoteApi.saveSettings(next, get().settingsUpdatedAt || undefined)
-        set({ settingsUpdatedAt: saved.updatedAt })
-      } catch (error) {
-        // A 409 means this tab's token was from before another device's write. Keeping the stale token
-        // made every later save fail the same way, silently, until the page was reloaded — so the
-        // server's timestamp is read back here and the next save carries it.
-        if (error instanceof ApiError && error.status === 409) {
-          try {
-            const latest = await inknoteApi.settings()
-            set({ settingsUpdatedAt: latest.updatedAt })
-          } catch {
-            // The conflict itself is still reported below; a read that also failed changes nothing
-            // about what the reader has to do.
-          }
-        }
-        set({ error: message(error) })
-      }
+      scheduleSettings(next)
     },
 
     async resetSettings() {

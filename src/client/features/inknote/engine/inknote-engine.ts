@@ -37,6 +37,7 @@ import {
 import { paperLineStep } from '../../../lib/inknote/paper'
 import { detectShape, snapToGrid } from '../../../lib/inknote/shape-recognition'
 import { pressureFilter } from '../../../lib/inknote/stroke-math'
+import { isLayerVisible, layersOf } from '@shared/inknote/layers'
 import { InknoteHistory } from './history'
 import {
   drawShape,
@@ -130,6 +131,13 @@ export interface InknoteEngineHostExtras {
   }
   /** Report an unavailable canvas instead of leaving the host with a blank surface. */
   onError?: (code: 'canvas-unavailable' | 'raster-unavailable') => void
+  /**
+   * The host owns the undo stack (the store's unified history). The engine still reports every
+   * committed pair through `onCommit`, but no longer keeps a second copy of the same snapshots.
+   */
+  ownsHistory?: boolean
+  /** The layer new ink is written to; absent means the page's first layer. */
+  getActiveLayerId?: () => string | null
 }
 
 export interface InknoteTextLayerItem {
@@ -277,6 +285,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
   private resizeObserver: ResizeObserver | null = null
   private raster: HTMLCanvasElement | null = null
   private rasterCtx: CanvasRenderingContext2D | null = null
+  private rasterReady = false
 
   private page: InknotePageContent | null = null
   private paper: InknotePaper = DEFAULT_PAPER
@@ -296,6 +305,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
   private viewportFrame: number | null = null
 
   private readonly pointers = new Map<number, PointerRecord>()
+  private readonly penPointers = new Set<number>()
   private gesture: GestureState | null = null
   private pan: { pointerId: number; x: number; y: number } | null = null
   private touchScroll: { pointerId: number; x: number; y: number } | null = null
@@ -310,7 +320,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
   private autoPageTimer: number | null = null
   private beforeSnapshot: string | null = null
 
-  private curShape: { kind: InknoteShapeTool; start: Point; end: Point } | null = null
+  private curShape: { kind: InknoteShapeTool; start: Point; end: Point; layer?: string } | null = null
   private lassoPath: Point[] | null = null
   private eraseIds = new Set<string>()
   private erasePath: Point[] | null = null
@@ -513,9 +523,9 @@ export class InknoteEngineImpl implements InknoteEngineApi {
   frameContent(): boolean {
     if (!this.page) return false
     const ids: string[] = []
-    for (const stroke of this.page.strokes) ids.push(stroke.id)
-    for (const text of this.page.texts) ids.push(`t:${text.id}`)
-    for (const image of this.page.images) ids.push(`i:${image.id}`)
+    for (const stroke of this.page.strokes) if (this.itemVisible(stroke)) ids.push(stroke.id)
+    for (const text of this.page.texts) if (this.itemVisible(text)) ids.push(`t:${text.id}`)
+    for (const image of this.page.images) if (this.itemVisible(image)) ids.push(`i:${image.id}`)
     const box = selectionBounds(this.page, ids, this.metrics)
     if (!box) return false
     const width = Math.max(1, box.w)
@@ -571,6 +581,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     page.texts = content.texts
     page.images = content.images
     page.bg = content.bg
+    page.layers = content.layers
     this.history.clear()
     this.cancelInteraction()
     this.clearSelection()
@@ -596,7 +607,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
   commitExternal(before: string, after: string, label: string): boolean {
     const page = this.page
     if (!page || before === after) return false
-    this.history.push({ before, after, label, page })
+    if (!this.host?.ownsHistory) this.history.push({ before, after, label, page })
     this.host?.onCommit(before, after, label)
     this.host?.onContentChange('text')
     this.invalidate()
@@ -666,6 +677,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     if (!page) return null
     for (let index = page.texts.length - 1; index >= 0; index--) {
       const text = page.texts[index]!
+      if (!this.itemVisible(text)) continue
       const box = this.normalizedBox(text)
       if (pointInBox(world, box)) return text
     }
@@ -677,7 +689,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     if (!page) return []
     const width = this.metrics.width
     const height = this.metrics.height
-    return page.texts.map((text) => {
+    return page.texts.filter((text) => this.itemVisible(text)).map((text) => {
       const world = { x: text.x * width, y: text.y * height, w: text.w * width, h: text.h * height }
       const topLeft = this.worldToScreen(world.x, world.y)
       const bottomRight = this.worldToScreen(world.x + world.w, world.y + world.h)
@@ -766,9 +778,9 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     const page = this.page
     if (!page) return
     this.selected.clear()
-    for (const stroke of page.strokes) this.selected.add(stroke.id)
-    for (const text of page.texts) this.selected.add(`t:${text.id}`)
-    for (const image of page.images) this.selected.add(`i:${image.id}`)
+    for (const stroke of page.strokes) if (this.itemVisible(stroke)) this.selected.add(stroke.id)
+    for (const text of page.texts) if (this.itemVisible(text)) this.selected.add(`t:${text.id}`)
+    for (const image of page.images) if (this.itemVisible(image)) this.selected.add(`i:${image.id}`)
     this.refreshSelectionBox()
     this.notifySelection()
     this.requestRender()
@@ -907,6 +919,10 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     if (!canvas || this.destroyed) return
     event.preventDefault()
     if (this.playbackLock) return
+    if (event.pointerType === 'pen') this.penPointers.add(event.pointerId)
+    // A stylus is already writing: a touch that lands on the glass is a palm, not a second gesture.
+    // Ignoring it keeps the stroke intact instead of turning it into a pinch and cancelling it.
+    if (event.pointerType === 'touch' && this.penPointers.size > 0) return
     if (this.pointers.size >= 3) return
     this.clearAutoPage()
     if (typeof canvas.setPointerCapture === 'function') canvas.setPointerCapture(event.pointerId)
@@ -949,6 +965,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
           color: tool.color,
           width: this.toContentWidth(tool.width),
           points: [{ ...content, p: this.lastPressure }],
+          layer: this.currentLayerId(),
         }
         this.activeLastDisplay = snapped
         this.lastSampleAt = Date.now()
@@ -985,7 +1002,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
         break
       }
       case 'shape': {
-        this.curShape = { kind: tool.shape, start: world, end: world }
+        this.curShape = { kind: tool.shape, start: world, end: world, layer: this.currentLayerId() }
         break
       }
       default:
@@ -1078,6 +1095,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
   }
 
   private handlePointerUp(event: PointerEvent, cancelled = false): void {
+    if (event.pointerType === 'pen') this.penPointers.delete(event.pointerId)
     const pointer = this.pointers.get(event.pointerId)
     if (!pointer) return
     event.preventDefault()
@@ -1265,10 +1283,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
 
   private scrollHost(dy: number, dx: number): void {
     const onScroll = this.host?.onScroll
-    if (onScroll) {
-      onScroll(dy, dx)
-      return
-    }
+    if (onScroll && onScroll(dy, dx) !== false) return
     this.viewport.offsetY += dy
     this.viewport.offsetX += dx
     this.requestRender()
@@ -1285,6 +1300,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
       this.refreshSelectionBox()
     }
     this.pointers.clear()
+    this.penPointers.clear()
     this.gesture = null
     this.pan = null
     this.touchScroll = null
@@ -1321,13 +1337,13 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     this.beginEdit()
     if (recognized) {
       page.strokes.push(recognized)
-      this.commitEdit('shape', 'shape')
+      this.commitEdit('shape', 'shape', recognized)
       this.reportShape(recognized.shape)
       this.maybeAutoPage(recognized)
       return
     }
     page.strokes.push(stroke)
-    this.commitEdit('stroke', 'stroke')
+    this.commitEdit('stroke', 'stroke', stroke)
     this.maybeAutoPage(stroke)
   }
 
@@ -1388,7 +1404,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     if (!page) return
     this.beginEdit()
     page.strokes.push(recognized)
-    this.commitEdit('shape', 'shape')
+    this.commitEdit('shape', 'shape', recognized)
     this.reportShape(recognized.shape)
     this.maybeAutoPage(recognized)
     this.requestRender()
@@ -1427,7 +1443,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     if (!page) return
     const tool = this.getTool()
     this.beginEdit()
-    page.strokes.push({
+    const drawn: InknoteStroke = {
       id: newId(),
       tool: 'pen',
       style: 'normal',
@@ -1438,8 +1454,10 @@ export class InknoteEngineImpl implements InknoteEngineApi {
         { ...this.toContentPoint(shape.start), p: 1 },
         { ...this.toContentPoint(shape.end), p: 1 },
       ],
-    })
-    this.commitEdit('shape', 'shape')
+      layer: shape.layer ?? this.currentLayerId(),
+    }
+    page.strokes.push(drawn)
+    this.commitEdit('shape', 'shape', drawn)
   }
 
   private recordErasePath(world: Point): void {
@@ -1463,6 +1481,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
 
     for (const stroke of page.strokes) {
       if (this.eraseIds.has(stroke.id)) continue
+      if (!this.itemVisible(stroke)) continue
       if (stroke.shape) {
         const box = this.shapeBox(stroke)
         if (!box) continue
@@ -1520,13 +1539,14 @@ export class InknoteEngineImpl implements InknoteEngineApi {
       const contentPath = path.map((point) => this.toContentPoint(point))
       const radius = Math.max(1, tool.eraserSize || DEFAULT_ERASER_SIZE)
         * (this.metrics.contentWidth / Math.max(1, this.metrics.width))
-      const next = pixelErase({ strokes: page.strokes }, contentPath, radius, newId)
+      const next = pixelErase({ strokes: page.strokes.filter((stroke) => this.itemVisible(stroke)) }, contentPath, radius, newId)
       if (!next) {
         this.discardEdit()
         return
       }
       this.beginEdit()
-      page.strokes = next
+      // Hidden layers keep their ink; only the visible subset went through the eraser.
+      page.strokes = [...page.strokes.filter((stroke) => !this.itemVisible(stroke)), ...next]
       this.commitEdit('pixel-erase', 'pixel-erase')
       return
     }
@@ -1562,6 +1582,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     const contentPath = path.map((point) => this.toContentPoint(point))
     const ids: string[] = []
     for (const stroke of page.strokes) {
+      if (!this.itemVisible(stroke)) continue
       if (stroke.shape) {
         const box = this.shapeBox(stroke)
         if (box && polygonIntersectsBox(path, box)) ids.push(stroke.id)
@@ -1575,10 +1596,10 @@ export class InknoteEngineImpl implements InknoteEngineApi {
       }
     }
     for (const text of page.texts) {
-      if (polygonIntersectsBox(path, this.normalizedBox(text))) ids.push(`t:${text.id}`)
+      if (this.itemVisible(text) && polygonIntersectsBox(path, this.normalizedBox(text))) ids.push(`t:${text.id}`)
     }
     for (const image of page.images) {
-      if (polygonIntersectsBox(path, this.normalizedBox(image))) ids.push(`i:${image.id}`)
+      if (this.itemVisible(image) && polygonIntersectsBox(path, this.normalizedBox(image))) ids.push(`i:${image.id}`)
     }
     this.selected = new Set(ids)
     this.refreshSelectionBox()
@@ -1674,7 +1695,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     this.beforeSnapshot = null
   }
 
-  private commitEdit(label: string, reason: 'stroke' | 'erase' | 'pixel-erase' | 'shape' | 'move' | 'scale' | 'text'): boolean {
+  private commitEdit(label: string, reason: 'stroke' | 'erase' | 'pixel-erase' | 'shape' | 'move' | 'scale' | 'text', appended?: InknoteStroke): boolean {
     const page = this.page
     const before = this.beforeSnapshot
     this.beforeSnapshot = null
@@ -1687,10 +1708,12 @@ export class InknoteEngineImpl implements InknoteEngineApi {
       this.requestRender()
       return false
     }
-    this.history.push({ before, after, label, page })
+    if (!this.host?.ownsHistory) this.history.push({ before, after, label, page })
     this.host?.onCommit(before, after, label)
     this.host?.onContentChange(reason)
-    this.invalidate()
+    if (appended) this.drawStrokeOnRaster(appended)
+    else this.invalidate()
+    this.requestRender()
     return true
   }
 
@@ -1757,6 +1780,7 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     this.pan = null
     this.touchScroll = null
     this.pointers.clear()
+    this.penPointers.clear()
     this.clearDwell()
     this.clearAutoPage()
     this.beforeSnapshot = null
@@ -1774,14 +1798,22 @@ export class InknoteEngineImpl implements InknoteEngineApi {
     raster.height = budget.height
     ctx.setTransform(budget.scale, 0, 0, budget.scale, 0, 0)
     renderPage(ctx, page, this.paper, this.metrics, { font: this.font, onMediaReady: this.onMediaReady })
+    this.rasterReady = true
     this.dirtyRaster = false
+  }
+
+  /** A committed stroke is appended to the raster instead of re-rendering every earlier stroke. */
+  private drawStrokeOnRaster(stroke: InknoteStroke): void {
+    const ctx = this.rasterCtx
+    if (!ctx || !this.rasterReady || this.dirtyRaster || !this.itemVisible(stroke)) return
+    drawStroke(ctx, stroke, this.metrics, this.paper)
   }
 
   private drawLiveInk(ctx: CanvasRenderingContext2D): void {
     const page = this.page
     if (!page) return
-    if (this.activeStroke) drawStroke(ctx, this.activeStroke, this.metrics, this.paper)
-    if (this.curShape) {
+    if (this.activeStroke && this.itemVisible(this.activeStroke)) drawStroke(ctx, this.activeStroke, this.metrics, this.paper)
+    if (this.curShape && this.curShapeVisible()) {
       const tool = this.getTool()
       ctx.save()
       ctx.globalAlpha = SHAPE_PREVIEW_ALPHA
@@ -1922,6 +1954,31 @@ export class InknoteEngineImpl implements InknoteEngineApi {
 
   private clientToLocal(clientX: number, clientY: number): Point {
     return this.local({ clientX, clientY })
+  }
+
+  private layerList() {
+    return this.page ? layersOf(this.page) : []
+  }
+
+  private itemVisible(item: { layer?: string }): boolean {
+    return isLayerVisible(item, this.layerList())
+  }
+
+  private currentLayerId(): string | undefined {
+    const active = this.host?.getActiveLayerId?.()
+    const layers = this.layerList()
+    if (active) {
+      const chosen = layers.find((layer) => layer.id === active)
+      if (chosen?.visible) return active
+    }
+    const visible = layers.filter((layer) => layer.visible)
+    return visible[visible.length - 1]?.id
+  }
+
+  private curShapeVisible(): boolean {
+    const layer = this.curShape?.layer
+    if (!layer) return true
+    return this.layerList().some((entry) => entry.id === layer && entry.visible)
   }
 
   private fingerDraw(): boolean {

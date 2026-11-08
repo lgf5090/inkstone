@@ -39,6 +39,12 @@ export interface InknotePoint {
   p: number
 }
 
+export interface InknoteLayer {
+  id: string
+  name: string
+  visible: boolean
+}
+
 export interface InknoteStroke {
   id: string
   tool: 'pen' | 'ballpen' | 'highlighter'
@@ -47,6 +53,8 @@ export interface InknoteStroke {
   color: string
   width: number
   points: InknotePoint[]
+  /** Layer id; absent means the page's bottom layer. */
+  layer?: string
 }
 
 export interface InknoteTextBox {
@@ -65,6 +73,8 @@ export interface InknoteTextBox {
   hl: string | null
   lh: number
   list: InknoteTextList
+  /** Layer id; absent means the page's bottom layer. */
+  layer?: string
 }
 
 export interface InknoteImage {
@@ -76,6 +86,8 @@ export interface InknoteImage {
   assetId: string
   url: string
   rot: 0 | 90 | 180 | 270
+  /** Layer id; absent means the page's bottom layer. */
+  layer?: string
 }
 
 export interface InknotePageBackground {
@@ -94,6 +106,8 @@ export interface InknotePageContent {
   texts: InknoteTextBox[]
   images: InknoteImage[]
   bg: InknotePageBackground | null
+  /** Bottom first. Absent on pages written before layers existed; they read as one default layer. */
+  layers?: InknoteLayer[]
 }
 
 export interface InknotePaper {

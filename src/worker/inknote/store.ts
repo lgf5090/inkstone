@@ -275,14 +275,6 @@ export class InknoteStore {
   }
 
 
-  async getNote(id: string): Promise<{ note: InknoteNoteMeta; pages: InknotePage[] }> {
-    const note = await this.db.prepare(
-      `SELECT ${NOTE_COLUMNS} FROM inknote_notes WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
-    ).bind(this.userId, id).first<Row>()
-    if (!note) throw ApiError.notFound('Note not found')
-    return { note: toNoteMeta(note), pages: await this.pagesFor(id) }
-  }
-
   async pagesFor(noteId: string): Promise<InknotePageDto[]> {
     const { results } = await this.db.prepare(
       `SELECT id, position, content, rev, updated_at FROM inknote_pages WHERE user_id = ?1 AND note_id = ?2 ORDER BY position, id`,
@@ -626,54 +618,6 @@ export class InknoteStore {
   }
 
 
-  async search(query: string, notebookId?: string, limit = 50): Promise<{ results: import('@shared/inknote/types').InknoteSearchResult[]; total: number }> {
-    const q = query.trim()
-    if (!q) return { results: [], total: 0 }
-    const pattern = `%${q.replace(/[\\%_]/g, (character) => `\\${character}`)}%`
-    const cap = Math.min(INKNOTE_LIMITS.searchResultsMax, Math.max(1, Math.floor(limit)))
-    const notebookClause = notebookId ? ' AND n.notebook_id = ?5' : ''
-    const args: unknown[] = notebookId ? [this.userId, pattern, pattern, q.toLowerCase(), notebookId] : [this.userId, pattern, pattern, q.toLowerCase()]
-    const { results } = await this.db.prepare(
-      `SELECT n.id AS note_id, n.title, n.notebook_id, nb.name AS notebook_name, nb.subject_id, s.name AS subject_name,
-              p.position AS page_index, p.search_text
-         FROM inknote_notes n
-         JOIN inknote_notebooks nb ON nb.user_id = n.user_id AND nb.id = n.notebook_id
-         JOIN inknote_subjects s ON s.user_id = nb.user_id AND s.id = nb.subject_id
-         LEFT JOIN inknote_pages p ON p.user_id = n.user_id AND p.note_id = n.id
-        WHERE n.user_id = ?1 AND n.deleted_at IS NULL
-          AND (n.title_key LIKE ?2 ESCAPE '\\' OR p.search_text LIKE ?3 ESCAPE '\\')
-          ${notebookClause}
-        ORDER BY n.updated_at DESC, n.id, p.position
-        LIMIT 400`,
-    ).bind(...args).all<Row>()
-    const byNote = new Map<string, import('@shared/inknote/types').InknoteSearchResult>()
-    for (const row of results) {
-      const noteId = text(row, 'note_id')
-      if (byNote.has(noteId)) continue
-      const body = text(row, 'search_text')
-      const titleHit = text(row, 'title').toLowerCase().includes(q.toLowerCase())
-      const index = body.toLowerCase().indexOf(q.toLowerCase())
-      const snippet = index < 0 ? '' : body.slice(Math.max(0, index - 30), index + q.length + 50).replace(/\s+/g, ' ').trim().slice(0, 160)
-      byNote.set(noteId, {
-        noteId,
-        title: text(row, 'title'),
-        notebookId: text(row, 'notebook_id'),
-        notebookName: text(row, 'notebook_name'),
-        subjectName: text(row, 'subject_name'),
-        pageIndex: Math.max(0, number(row, 'page_index')),
-        snippet,
-        titleMatch: titleHit,
-      })
-      if (byNote.size >= cap) break
-    }
-    return { results: [...byNote.values()], total: byNote.size }
-  }
-
-  async listTemplates(): Promise<InknoteTemplate[]> {
-    const { results } = await this.db.prepare(`SELECT id, name, paper_style, paper_color, paper_spacing, bg_asset_id, texts, title, sub, title_size, sub_size, created_at FROM inknote_templates WHERE user_id = ?1 ORDER BY created_at, id`).bind(this.userId).all<Row>()
-    return results.map(toTemplate)
-  }
-
   async createTemplate(input: { id?: string; name: string; paper: unknown; bgAssetId?: string | null; texts?: unknown; title?: string; sub?: string }): Promise<InknoteTemplate> {
     const count = Number((await this.db.prepare(`SELECT COUNT(*) AS n FROM inknote_templates WHERE user_id = ?1`).bind(this.userId).first<{ n: number }>())?.n ?? 0)
     if (count >= INKNOTE_LIMITS.templatesPerUser) throw ApiError.badRequest('Too many templates')
@@ -734,6 +678,7 @@ function clonePageContent(content: InknotePageContent): InknotePageContent {
     texts: content.texts.map((text) => ({ ...text, id: newId() })),
     images: content.images.map((image) => ({ ...image, id: newId() })),
     bg: content.bg ? { ...content.bg } : null,
+    ...(content.layers?.length ? { layers: content.layers.map((layer) => ({ ...layer })) } : {}),
   }
 }
 

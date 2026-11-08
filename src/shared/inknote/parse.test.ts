@@ -57,6 +57,36 @@ describe('parseInknotePageContent', () => {
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.result.assetIds).toEqual([ASSET])
   })
+
+  it('round-trips layers, visibility and the layer each item draws on', () => {
+    const content = page({
+      layers: [
+        { id: 'layer-1', name: 'Base', visible: true },
+        { id: 'layer-2', name: 'Ink', visible: false },
+      ],
+      strokes: [{ ...page().strokes[0]!, layer: 'layer-2' }],
+    })
+    const raw = serializePageContent(content)
+    const parsed = parseInknotePageContent(raw)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.content.layers).toEqual(content.layers)
+    expect(parsed.content.strokes[0]!.layer).toBe('layer-2')
+    expect(serializePageContent(parsed.content)).toBe(raw)
+  })
+
+  it('drops an item layer that names no layer and keeps layers out of a legacy page', () => {
+    const parsed = parseInknotePageContent(JSON.stringify({
+      ...page({ layers: [{ id: 'layer-1', name: 'Base', visible: true }] }),
+      strokes: [{ ...page().strokes[0]!, layer: 'missing' }],
+    }))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.content.strokes[0]!.layer).toBeUndefined()
+    expect(parseInknotePageContent(serializePageContent(page())).ok).toBe(true)
+    const legacy = parseInknotePageContent(serializePageContent(page()))
+    if (legacy.ok) expect(legacy.content.layers).toBeUndefined()
+  })
 })
 
 describe('legacy note2 pages', () => {
@@ -82,6 +112,20 @@ describe('legacy note2 pages', () => {
     })
     expect(legacy).not.toBeNull()
     expect(legacy!.pendingAssets.map((entry) => entry.path)).toEqual(['images.0.src', 'bg.src'])
+  })
+
+  it('keeps layers when a note2 page carries them', () => {
+    const legacy = normalizeLegacyPage({
+      layers: [{ id: 'l1', name: 'Base', visible: true }, { id: 'l2', name: 'Ink', visible: false }],
+      strokes: [{ id: 's', tool: 'pen', color: '#1e293b', width: 4, points: [{ x: 1, y: 1, p: 1 }], layer: 'l2' }],
+      texts: [],
+      images: [],
+    })
+    expect(legacy?.content.layers).toEqual([
+      { id: 'l1', name: 'Base', visible: true },
+      { id: 'l2', name: 'Ink', visible: false },
+    ])
+    expect(legacy?.content.strokes[0]?.layer).toBe('l2')
   })
 
   it('recognises both note2 export envelopes', () => {

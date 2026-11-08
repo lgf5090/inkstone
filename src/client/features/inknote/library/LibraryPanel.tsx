@@ -1,6 +1,6 @@
 /** The project → notebook → note library. One panel, shared by the desktop column and mobile drawer. */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckSquare, ChevronRight, FilePlus2, FolderInput, FolderPlus, MoreHorizontal, NotebookPen, Pin, Search, Trash2, X } from 'lucide-react'
+import { Check, ChevronRight, FilePlus2, FolderInput, FolderPlus, ListChecks, MoreHorizontal, NotebookPen, Pin, Search, Trash2, X } from 'lucide-react'
 import type { InknoteNoteMeta, InknoteSearchResult } from '@shared/inknote/types'
 import { TAG_COLORS } from '@shared/inknote/constants'
 import { paperSurfaceFor } from '@shared/inknote/color'
@@ -8,8 +8,10 @@ import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Select } from '../../../components/form'
+import { Empty } from '../../../components/feedback'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { useFilterInput } from '../../../components/FilterInput'
-import { confirm, Menu, MenuSubmenuList, Modal, prompt, type MenuItem } from '../../../components/overlay'
+import { confirm, Menu, MenuSubmenuList, Modal, Tooltip, prompt, type MenuItem } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
 import { inknoteApi } from '../api'
 import { useInknoteStore } from '../store'
@@ -18,6 +20,8 @@ interface Props {
   selectedNotebookId: string | null
   onSelectNotebook: (id: string) => void
   onAfterOpen?: () => void
+  /** The mobile drawer already prints the panel title. */
+  embedded?: boolean
 }
 
 interface MenuState {
@@ -27,31 +31,105 @@ interface MenuState {
 }
 
 const coverCache = new Map<string, string>()
+const COVER_CACHE_LIMIT = 60
+const COVER_CONCURRENCY = 2
+const coverQueue: Array<() => Promise<void>> = []
+let coverRunning = 0
+
+function rememberCover(noteId: string, data: string): void {
+  coverCache.delete(noteId)
+  coverCache.set(noteId, data)
+  while (coverCache.size > COVER_CACHE_LIMIT) {
+    const oldest = coverCache.keys().next().value
+    if (oldest === undefined) break
+    coverCache.delete(oldest)
+  }
+}
+
+/** Load covers only as they scroll into view, two at a time: the list used to fetch every note's
+ * full page detail the moment the panel mounted. */
+function queueCover(task: () => Promise<void>): void {
+  coverQueue.push(task)
+  pumpCovers()
+}
+
+function pumpCovers(): void {
+  while (coverRunning < COVER_CONCURRENCY) {
+    const task = coverQueue.shift()
+    if (!task) return
+    coverRunning += 1
+    void task().finally(() => {
+      coverRunning -= 1
+      pumpCovers()
+    })
+  }
+}
+
+/** A colour swatch is data, not a name: the readable name is what a reader hears and sees on hover. */
+const TAG_COLOR_KEYS: Record<(typeof TAG_COLORS)[number], 'inknote.color.red' | 'inknote.color.orange' | 'inknote.color.yellow' | 'inknote.color.green' | 'inknote.color.blue' | 'inknote.color.purple'> = {
+  '#ef4444': 'inknote.color.red',
+  '#f97316': 'inknote.color.orange',
+  '#facc15': 'inknote.color.yellow',
+  '#22c55e': 'inknote.color.green',
+  '#3b82f6': 'inknote.color.blue',
+  '#a855f7': 'inknote.color.purple',
+}
+
+function tagColorLabel(color: string): string {
+  const key = TAG_COLOR_KEYS[color as (typeof TAG_COLORS)[number]]
+  return key ? t(key) : color
+}
 
 function NoteCover({ note }: { note: InknoteNoteMeta }) {
   const surface = paperSurfaceFor(note.paper.color)
+  const holder = useRef<HTMLSpanElement>(null)
+  const [visible, setVisible] = useState(false)
   const [src, setSrc] = useState<string | null>(note.coverUrl ?? coverCache.get(note.id) ?? null)
   useEffect(() => {
-    if (src) return
+    if (note.coverUrl) setSrc(note.coverUrl)
+  }, [note.coverUrl])
+  useEffect(() => {
+    if (src || visible) return
+    // An empty note has no cover yet and no ink to preview; fetching its detail only to render a blank
+    // page was one request per new note.
+    if (note.contentBytes <= 0 && !note.coverUrl) return
+    const node = holder.current
+    if (!node) return
+    if (typeof IntersectionObserver === 'undefined') { setVisible(true); return }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setVisible(true)
+    }, { rootMargin: '160px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [src, visible, note.contentBytes, note.coverUrl])
+  useEffect(() => {
+    if (src || !visible) return
     let cancelled = false
-    void inknoteApi.note(note.id, 'all').then((detail) => {
-      if (cancelled || !detail.pages[0]) return
-      return import('../engine/renderer').then(({ renderPageToCanvas }) => import('../../../lib/inknote/text-layout').then(({ fontStackFor }) => {
-        const canvas = renderPageToCanvas(detail.pages[0]!.content, note.paper, { width: note.pageWidth, height: note.pageHeight, contentWidth: note.contentWidth, contentHeight: note.contentHeight }, 90, fontStackFor('system'))
+    queueCover(async () => {
+      if (cancelled) return
+      try {
+        const detail = await inknoteApi.note(note.id, 'all')
+        if (cancelled || !detail.pages[0]) return
+        const { renderPageToCanvas } = await import('../engine/renderer')
+        const { fontStackFor } = await import('../../../lib/inknote/text-layout')
+        if (cancelled) return
+        const canvas = renderPageToCanvas(detail.pages[0].content, note.paper, { width: note.pageWidth, height: note.pageHeight, contentWidth: note.contentWidth, contentHeight: note.contentHeight }, 90, fontStackFor('system'))
         const data = canvas?.toDataURL('image/jpeg', 0.72) ?? null
-        if (data && !cancelled) { coverCache.set(note.id, data); setSrc(data) }
-      }))
-    }).catch(() => {})
+        if (data && !cancelled) { rememberCover(note.id, data); setSrc(data) }
+      } catch (error) {
+        console.warn('[inkstone] The note cover could not be rendered:', error)
+      }
+    })
     return () => { cancelled = true }
-  }, [note.id, note.paper, note.pageWidth, note.pageHeight, note.contentWidth, note.contentHeight, src])
+  }, [note.id, note.paper, note.pageWidth, note.pageHeight, note.contentWidth, note.contentHeight, src, visible])
   return (
-    <span className="relative flex h-12 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[3px] border border-[var(--border-subtle)] text-[length:var(--text-12)] font-semibold" style={{ background: surface.bg, color: surface.dark ? '#f8fafc' : '#475569' }}>
+    <span ref={holder} className="relative flex h-12 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[3px] border border-[var(--border-subtle)] text-[length:var(--text-12)] font-semibold" style={{ background: surface.bg, color: surface.dark ? '#f8fafc' : '#475569' }}>
       {src ? <img src={src} alt="" className="size-full object-cover" loading="lazy" /> : note.title.slice(0, 1)}
     </span>
   )
 }
 
-export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen }: Props) {
+export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen, embedded = false }: Props) {
   const library = useInknoteStore((state) => state.library)
   const openNote = useInknoteStore((state) => state.openNote)
   const createNote = useInknoteStore((state) => state.createNote)
@@ -184,7 +262,7 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
   return (
     <aside className="flex h-full min-h-0 w-full flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-surface)]">
       <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] px-2 py-2">
-        <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] font-semibold">{t('inknote.library')}</span>
+        {embedded ? <span className="min-w-0 flex-1" /> : <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] font-semibold">{t('inknote.library')}</span>}
         <IconButton label={t('inknote.recent')} size="sm" active={recent} onClick={() => setRecent((value) => !value)}><NotebookPen size={14}/></IconButton>
         <IconButton label={t('inknote.trash')} size="sm" onClick={() => setTrashOpen(true)}><Trash2 size={14}/></IconButton>
       </div>
@@ -195,18 +273,30 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
           {query && <IconButton label={t('notes.clear_filters')} size="xs" className="absolute right-1 top-1/2 -translate-y-1/2" onClick={clear}><X size={11}/></IconButton>}
         </div>
       </div>
-      <div className="flex items-center gap-1 px-2 pb-2">
+      <div className="flex items-center gap-1 px-2 pb-1">
         <Select aria-label={t('inknote.sort.label')} value={settings?.noteSort ?? 'updated'} onChange={(event) => void updateSettings({ noteSort: event.target.value as 'updated' | 'created' | 'title' })} className="h-7 flex-1 text-[length:var(--text-11)]">
           <option value="updated">{t('inknote.sort.updated')}</option>
           <option value="created">{t('inknote.sort.created')}</option>
           <option value="title">{t('inknote.sort.title')}</option>
         </Select>
-        <div className="flex items-center gap-1" role="group" aria-label={t('inknote.tag_color')}>
-          <button type="button" aria-label={t('inknote.filter_all')} aria-pressed={tagFilter === null} onClick={() => setTagFilter(null)} className={cn('size-4 rounded-full border border-[var(--border-default)] text-[length:var(--text-9)]', tagFilter === null && 'ring-2 ring-[var(--accent)]')}>×</button>
-          {TAG_COLORS.map((color) => (
-            <button key={color} type="button" aria-label={color} aria-pressed={tagFilter === color} onClick={() => setTagFilter(tagFilter === color ? null : color)} className={cn('size-4 rounded-full', tagFilter === color && 'ring-2 ring-[var(--accent)]')} style={{ background: color }}/>
-          ))}
-        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-1 px-2 pb-2" role="group" aria-label={t('inknote.filter.label')}>
+        <span className="inline-flex shrink-0 items-center gap-1 pe-0.5 text-[length:var(--text-10)] font-medium text-[var(--text-tertiary)]">
+          {t('inknote.filter.label')}
+        </span>
+        <Tooltip label={t('inknote.filter_all')} side="bottom">
+          <button type="button" aria-label={t('inknote.filter_all')} aria-pressed={tagFilter === null} onClick={() => setTagFilter(null)} className={cn('inline-flex h-5 items-center gap-0.5 rounded-full border px-1.5 text-[length:var(--text-9)]', tagFilter === null ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'border-[var(--border-default)] text-[var(--text-tertiary)]')}>
+            {tagFilter === null && <Check size={9}/>}
+            {t('inknote.filter.all')}
+          </button>
+        </Tooltip>
+        {TAG_COLORS.map((color) => (
+          <Tooltip key={color} label={tagColorLabel(color)} side="bottom">
+            <button type="button" aria-label={tagColorLabel(color)} aria-pressed={tagFilter === color} onClick={() => setTagFilter(tagFilter === color ? null : color)} className={cn('inline-flex size-5 items-center justify-center rounded-full border transition-[box-shadow,transform]', tagFilter === color ? 'scale-105 border-[var(--accent)] ring-2 ring-[var(--accent)]' : 'border-[var(--border-default)]')} style={{ background: color }}>
+              {tagFilter === color && <Check size={11} className="text-white mix-blend-difference"/>}
+            </button>
+          </Tooltip>
+        ))}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
         {results !== null ? (
@@ -223,7 +313,12 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
           </div>
         ) : (
           <>
-            {subjects.length === 0 && <p className="px-2 py-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('inknote.no_projects')}</p>}
+            {subjects.length === 0 && (
+              <div className="px-2 py-6 text-center">
+                <p className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('inknote.no_projects')}</p>
+                <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">{t('inknote.no_projects_hint')}</p>
+              </div>
+            )}
             {subjects.map((entry) => {
               const isOpen = !collapsed.has(entry.id)
               const children = notebooks.filter((item) => item.subjectId === entry.id)
@@ -254,11 +349,12 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
               <Button size="sm" variant="ghost" icon={<FolderPlus size={13}/>} onClick={() => void newSubject()}>{t('inknote.new_project')}</Button>
               <Button size="sm" variant="ghost" icon={<FilePlus2 size={13}/>} onClick={() => void newNotebook()}>{t('inknote.new_notebook')}</Button>
             </div>
-            <div className="mt-2 flex items-center justify-between px-1">
-              <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{recent ? t('inknote.recent') : notebook?.name}</span>
-              <div className="flex items-center gap-1">
-                <IconButton label={t('inknote.select')} size="sm" active={selectMode} onClick={() => { setSelectMode((value) => !value); setSelected(new Set()) }}><CheckSquare size={13}/></IconButton>
-                <Button size="sm" variant="primary" icon={<FilePlus2 size={13}/>} onClick={() => void createNote(notebook?.id).then(() => onAfterOpen?.())}>{t('inknote.new_note')}</Button>
+            <div className="mt-2 flex items-center gap-1 px-1">
+              <span className="min-w-0 truncate text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{recent ? t('inknote.recent') : t('inknote.library.notes')}</span>
+              <span className="shrink-0 rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-9)] tabular-nums text-[var(--text-tertiary)]">{t('inknote.library.count', { count: String(visibleNotes.length) })}</span>
+              <div className="ms-auto flex shrink-0 items-center gap-0.5">
+                <TooltipIconButton label={selectMode ? t('inknote.clear_selection') : t('inknote.select')} size="sm" active={selectMode} onClick={() => { setSelectMode((value) => !value); setSelected(new Set()) }}><ListChecks size={13}/></TooltipIconButton>
+                <TooltipIconButton label={t('inknote.new_note')} size="sm" variant="primary" disabled={!notebook} onClick={() => void createNote(notebook?.id).then(() => onAfterOpen?.())}><FilePlus2 size={13}/></TooltipIconButton>
               </div>
             </div>
             {selectMode && (
@@ -275,7 +371,15 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
               </div>
             )}
             <div className="mt-1 space-y-0.5">
-              {visibleNotes.length === 0 && <p className="px-2 py-4 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('inknote.no_notes')}</p>}
+              {visibleNotes.length === 0 && (
+                <Empty
+                  art="notes"
+                  compact
+                  title={recent ? t('inknote.no_notes') : t('inknote.no_notes_in_notebook')}
+                  description={t('inknote.no_notes_hint')}
+                  action={<Button size="sm" variant="primary" icon={<FilePlus2 size={13}/>} disabled={!notebook} onClick={() => void createNote(notebook?.id).then(() => onAfterOpen?.())}>{t('inknote.new_note')}</Button>}
+                />
+              )}
               {visibleNotes.slice(0, limit).map((note) => (
                 <button key={note.id} type="button" data-inknote-note-id={note.id} aria-pressed={selectMode ? selected.has(note.id) : undefined} onClick={() => {
                   if (selectMode) { setSelected((current) => { const next = new Set(current); if (next.has(note.id)) next.delete(note.id); else next.add(note.id); return next }); return }

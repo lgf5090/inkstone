@@ -35,6 +35,7 @@ import {
   traceSmoothPath,
 } from '../../../lib/inknote/stroke-math'
 import { layoutTextBox } from '../../../lib/inknote/text-layout'
+import { layerIdOf, layersOf } from '@shared/inknote/layers'
 
 export const RENDER_SCALE = 2.5
 export const MAX_RASTER_PIXELS = 16_000_000
@@ -385,8 +386,8 @@ export function clearImageCache(): void {
   imageCache.clear()
 }
 
-/** Draw a background and the page images under the ink, requesting anything not decoded yet. */
-export function drawPageMedia(
+/** Draw the page background; it sits under every layer. */
+export function drawPageBackground(
   ctx: CanvasRenderingContext2D,
   page: InknotePageContent,
   width: number,
@@ -394,7 +395,20 @@ export function drawPageMedia(
   onReady?: () => void,
 ): void {
   if (page.bg) drawBackground(ctx, page.bg, width, height, onReady)
+}
+
+/** Draw the images of one layer, in page order. */
+export function drawPageImages(
+  ctx: CanvasRenderingContext2D,
+  page: InknotePageContent,
+  width: number,
+  height: number,
+  layerId: string,
+  onReady?: () => void,
+): void {
+  const layers = layersOf(page)
   for (const item of page.images) {
+    if (layerIdOf(item, layers) !== layerId) continue
     const entry = requestImage(item.url, onReady)
     if (entry?.status === 'loaded') drawImageItem(ctx, item, entry.image, width, height)
     else if (entry?.status === 'error') drawMissingImage(ctx, item, width, height)
@@ -722,9 +736,18 @@ export function renderPage(
   const width = metrics.width || INKNOTE_PAGE_WIDTH
   const height = metrics.height || INKNOTE_PAGE_HEIGHT
   drawPaper(ctx, paper, width, height)
-  drawPageMedia(ctx, page, width, height, options.onMediaReady)
-  for (const stroke of page.strokes) drawStroke(ctx, stroke, metrics, paper)
-  for (const text of page.texts) drawText(ctx, text, metrics, options.font)
+  drawPageBackground(ctx, page, width, height, options.onMediaReady)
+  const layers = layersOf(page)
+  for (const layer of layers) {
+    if (!layer.visible) continue
+    drawPageImages(ctx, page, width, height, layer.id, options.onMediaReady)
+    for (const stroke of page.strokes) {
+      if (layerIdOf(stroke, layers) === layer.id) drawStroke(ctx, stroke, metrics, paper)
+    }
+    for (const text of page.texts) {
+      if (layerIdOf(text, layers) === layer.id) drawText(ctx, text, metrics, options.font)
+    }
+  }
 }
 
 /**

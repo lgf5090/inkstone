@@ -147,6 +147,28 @@ function overPageLimitContent(): string {
 }
 
 describe('inknote pages', () => {
+  it('applies the paper and page size requested when the note is created', async () => {
+    const lib = await library()
+    const response = await send('POST', '/notes', {
+      notebookId: lib.notebooks[0]!.id,
+      title: 'Wide grid',
+      paper: { style: 'grid', color: 'cream', spacing: 'wide' },
+      pageWidth: 1056,
+      pageHeight: 816,
+    })
+    expect(response.status).toBe(201)
+    const body = await read<InknoteNoteResponse>(response)
+    expect(body.note.paper).toEqual({ style: 'grid', color: 'cream', spacing: 'wide' })
+    expect(body.note.pageWidth).toBe(1056)
+    expect(body.note.pageHeight).toBe(816)
+  })
+
+  it('rejects a page size outside the supported range', async () => {
+    const lib = await library()
+    const response = await send('POST', '/notes', { notebookId: lib.notebooks[0]!.id, pageWidth: 120 })
+    expect(response.status).toBe(400)
+  })
+
   it('saves a page, bumps its rev, rejects a stale rev and returns the server copy', async () => {
     const created = await createNote()
     const noteId = created.note.id

@@ -679,6 +679,48 @@ describe('pointer input, tools and gestures', () => {
     expect(fallback.engine.getViewport().offsetY).toBeCloseTo(offset + 50)
     expect(engine.getScale()).toBe(fallback.engine.getScale())
   })
+
+  it('writes new ink to the active layer and leaves hidden layers alone', () => {
+    const page = blankPage({
+      layers: [
+        { id: 'base', name: 'Base', visible: true },
+        { id: 'top', name: 'Top', visible: true },
+      ],
+    })
+    const { engine, canvas } = setup({ page, extras: { getActiveLayerId: () => 'top' } })
+    drawStroke(canvas, engine, [{ x: 100, y: 100 }, { x: 200, y: 150 }], 1, 'pen')
+    expect(page.strokes).toHaveLength(1)
+    expect(page.strokes[0]!.layer).toBe('top')
+    // Hiding the layer removes its ink from selection without deleting it.
+    page.layers![1] = { ...page.layers![1]!, visible: false }
+    engine.invalidate()
+    engine.selectAll()
+    expect(engine.getSelectionIds()).toHaveLength(0)
+  })
+
+  it('does not keep a second undo stack when the host owns history', () => {
+    const page = blankPage()
+    const { engine, canvas, onCommit } = setup({ page, extras: { ownsHistory: true } })
+    drawStroke(canvas, engine, [{ x: 100, y: 100 }, { x: 300, y: 200 }], 1, 'pen')
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(engine.canUndo()).toBe(false)
+  })
+
+  it('ignores a palm touch while the stylus is writing', () => {
+    const page = blankPage()
+    const { engine, canvas, onGesture } = setup({ page })
+    const start = engine.worldToScreen(100, 100)
+    canvas.dispatchEvent(pointerEvent('pointerdown', { x: start.x, y: start.y, id: 1, pointerType: 'pen', pressure: 0.7 }))
+    const palm = engine.worldToScreen(220, 160)
+    canvas.dispatchEvent(pointerEvent('pointerdown', { x: palm.x, y: palm.y, id: 2, pointerType: 'touch' }))
+    canvas.dispatchEvent(pointerEvent('pointermove', { x: palm.x + 40, y: palm.y + 20, id: 2, pointerType: 'touch' }))
+    const end = engine.worldToScreen(190, 140)
+    canvas.dispatchEvent(pointerEvent('pointermove', { x: end.x, y: end.y, id: 1, pointerType: 'pen', pressure: 0.7 }))
+    canvas.dispatchEvent(pointerEvent('pointerup', { x: end.x, y: end.y, id: 1, pointerType: 'pen', pressure: 0.7 }))
+    canvas.dispatchEvent(pointerEvent('pointerup', { x: palm.x + 40, y: palm.y + 20, id: 2, pointerType: 'touch' }))
+    expect(page.strokes).toHaveLength(1)
+    expect(onGesture).not.toHaveBeenCalled()
+  })
 })
 
 describe('history and selection', () => {
@@ -828,6 +870,18 @@ describe('history and selection', () => {
 })
 
 describe('performance budgets', () => {
+  it('adds a committed stroke to the raster without repainting earlier strokes', () => {
+    const strokes = Array.from({ length: 300 }, (_, index) => testStroke(`s${index}`, [[10 + index, 10], [30 + index, 40]]))
+    const { engine, canvas } = setup({ page: blankPage({ strokes }) })
+    flushFrames()
+    const raster = createdCanvases[0]!
+    const rasterContext = contextFor(raster)
+    rasterContext.reset()
+    drawStroke(canvas, engine, [{ x: 100, y: 100 }, { x: 300, y: 200 }])
+    flushFrames()
+    expect(rasterContext.count('stroke')).toBeLessThanOrEqual(3)
+  })
+
   it('serializes and parses thirty thousand points inside the budget', () => {
     const strokes = Array.from({ length: 300 }, (_, stroke) => ({
       id: `s${stroke}`,

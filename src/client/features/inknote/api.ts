@@ -42,7 +42,7 @@ export const inknoteApi = {
     request<InknoteNotebook>(`${BASE}/notebooks/${id}`, { method: 'PATCH', body: patch }),
   deleteNotebook: (id: string) => request<{ trashed: number; removed: number }>(`${BASE}/notebooks/${id}`, { method: 'DELETE' }),
 
-  createNote: (input: { id?: string; notebookId: string; title?: string; paper?: unknown }) =>
+  createNote: (input: { id?: string; notebookId: string; title?: string; paper?: unknown; pageWidth?: number; pageHeight?: number }) =>
     request<InknoteNoteResponse>(`${BASE}/notes`, { method: 'POST', body: input }),
   updateNote: (id: string, patch: { title?: string; notebookId?: string; paper?: unknown; pageWidth?: number; pageHeight?: number; colorTag?: string | null; pinned?: boolean; baseRev: number }) =>
     request<InknoteNoteMeta>(`${BASE}/notes/${id}`, { method: 'PATCH', body: patch }),
