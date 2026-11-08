@@ -3,8 +3,10 @@ import type {
   IconAssetSummary,
   IconBootstrap,
   IconCollection,
+  IconCollectionStats,
   IconExport,
   IconImport,
+  IconImportItem,
   IconJob,
   IconJobItem,
   IconLimits,
@@ -175,4 +177,24 @@ export function fetchImports(): Promise<IconImport[]> {
 
 export function createImport(prefix: string, limit = 200): Promise<IconImport> {
   return request<Envelope<IconImport>>(`${BASE}/imports`, { method: 'POST', body: { kind: 'iconify', prefix, limit } }).then((response) => response.data)
+}
+
+export function startBulkImport(prefix: string, mode: 'full' | 'missing' = 'full'): Promise<IconImport> {
+  return request<Envelope<IconImport>>(`${BASE}/imports/bulk`, { method: 'POST', body: { prefix, mode } }).then((response) => response.data)
+}
+
+export function stepBulkImport(id: string): Promise<{ import: IconImport; failures: IconImportItem[] }> {
+  return request<Envelope<{ import: IconImport; failures: IconImportItem[] }>>(`${BASE}/imports/${id}/step`, { method: 'POST' }).then((response) => response.data)
+}
+
+export function cancelBulkImport(id: string): Promise<void> {
+  return request(`${BASE}/imports/${id}/cancel`, { method: 'POST' }).then(() => undefined)
+}
+
+export function fetchImportFailures(id: string): Promise<IconImportItem[]> {
+  return readData(`/imports/${id}/items?status=failed&limit=100`)
+}
+
+export function fetchCollectionStats(id: string): Promise<IconCollectionStats> {
+  return readData(`/collections/${id}/stats`)
 }

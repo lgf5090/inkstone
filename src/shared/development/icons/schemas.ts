@@ -210,6 +210,15 @@ export const IconImportCreateSchema = z.object({
   }
 })
 
+export const IconBulkImportSchema = z.object({
+  prefix: z.enum(ICON_ICONIFY_PREFIXES),
+  mode: z.enum(['full', 'missing']).default('full'),
+})
+
+export const IconBulkStepSchema = z.object({
+  batch: z.number().int().min(1).max(50).default(50),
+})
+
 export const IconSvgQuerySchema = z.object({
   size: z.coerce.number().int().min(8).max(512).default(24),
   stroke: z.coerce.number().min(0.5).max(4).default(2),

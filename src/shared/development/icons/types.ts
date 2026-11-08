@@ -253,6 +253,22 @@ export interface IconImportItem {
   error: string
 }
 
+export interface IconCollectionStats {
+  collectionId: string
+  prefix: string
+  /** Iconify's own count for the whole set. */
+  total: number
+  /** Rows actually present in D1 for this account and collection. */
+  imported: number
+  missing: number
+  /** Names skipped because their body matched another name in the set (aliases). */
+  duplicates: number
+  lastImportedAt: number | null
+  status: IconImportStatus | 'idle'
+  failedItems: number
+  importId: string | null
+}
+
 export interface IconExport {
   id: string
   format: IconExportFormat

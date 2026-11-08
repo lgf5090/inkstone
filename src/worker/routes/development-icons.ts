@@ -10,6 +10,7 @@ import { readImageSize, hasReasonableImageDimensions, hasExpectedImageSignature 
 import { createMinuteBudget } from '../lib/rate-limit'
 import {
   IconBatchSchema,
+  IconBulkImportSchema,
   IconCollectionInputSchema,
   IconCollectionPatchSchema,
   IconExportCreateSchema,
@@ -79,6 +80,13 @@ import { webpThumbnail } from '../development/icons/raster'
 import { buildExportArtifacts, finalizeBrowserJob } from '../development/icons/convert'
 import { enqueueIconJob, iconQueueAvailable } from '../development/icons/queue'
 import { detectColorMode, importIconifyCollection } from '../development/icons/import'
+import {
+  cancelBulkImport,
+  collectionStats,
+  createBulkImport,
+  failedItems,
+  stepBulkImport,
+} from '../development/icons/bulk-import'
 import { seedBuiltins, seedRunning } from '../development/icons/seed'
 
 export const developmentIconsRoutes = new Hono<AppBindings>()
@@ -288,6 +296,14 @@ developmentIconsRoutes.get('/collections', async (c) => c.json({ ok: true, data:
 developmentIconsRoutes.post('/collections', async (c) => {
   const body = IconCollectionInputSchema.parse(await readJson<unknown>(c, 32 * 1024))
   return c.json({ ok: true, data: await createCollection(c.env.DB, userId(c), body) }, 201)
+})
+
+developmentIconsRoutes.get('/collections/:id/stats', async (c) => {
+  try {
+    return c.json({ ok: true, data: await collectionStats(c.env, userId(c), c.req.param('id')) })
+  } catch {
+    throw new ApiError(404, 'icons_not_found', 'The collection was not found')
+  }
 })
 
 developmentIconsRoutes.patch('/collections/:id', async (c) => {
@@ -588,6 +604,30 @@ developmentIconsRoutes.post('/imports', async (c) => {
   }
 })
 
+developmentIconsRoutes.post('/imports/bulk', async (c) => {
+  const body = IconBulkImportSchema.parse(await readJson<unknown>(c, 4 * 1024))
+  try {
+    return c.json({ ok: true, data: await createBulkImport(c.env, userId(c), body.prefix, body.mode) }, 201)
+  } catch (error) {
+    throw new ApiError(422, 'icons_import_incomplete', error instanceof Error ? error.message : 'The import could not start')
+  }
+})
+
+developmentIconsRoutes.post('/imports/:id/step', async (c) => {
+  return c.json({ ok: true, data: await stepBulkImport(c.env, userId(c), c.req.param('id')) })
+})
+
+developmentIconsRoutes.post('/imports/:id/cancel', async (c) => {
+  await cancelBulkImport(c.env, userId(c), c.req.param('id'))
+  return c.json({ ok: true, data: null })
+})
+
+developmentIconsRoutes.get('/imports/:id/items', async (c) => {
+  const status = c.req.query('status')
+  if (status !== 'failed') throw ApiError.badRequest('Only failed import items can be listed')
+  return c.json({ ok: true, data: await failedItems(c.env, userId(c), c.req.param('id'), Number(c.req.query('limit') ?? 50)) })
+})
+
 developmentIconsRoutes.get('/imports/:id', async (c) => {
   const rows = await listImports(c.env.DB, userId(c))
   const found = rows.find((row) => row.id === c.req.param('id'))
@@ -628,8 +668,6 @@ developmentIconsRoutes.post('/maintenance/thumbnails', async (c) => {
         const thumb = await webpThumbnail(c.env, bytes, row.mime, 96)
         if (!thumb) throw new Error('thumbnail unavailable')
         await putIconObject(c.env, key, thumb, 'image/webp')
-        const thumb2x = await webpThumbnail(c.env, bytes, row.mime, 192)
-        if (thumb2x) await putIconObject(c.env, iconThumbKey(shard, row.sha256, 192), thumb2x, 'image/webp')
         await c.env.DB.prepare(`UPDATE development_icons_assets SET thumb_key=?3 WHERE user_id=?1 AND id=?2`).bind(userId(c), row.id, key).run()
         return true
       } catch {

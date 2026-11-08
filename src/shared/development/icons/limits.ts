@@ -102,5 +102,5 @@ export const ICON_ICONIFY_SOURCE = 'https://cdn.jsdelivr.net/npm/@iconify-json'
 export const ICON_ICONIFY_API = 'https://api.iconify.design'
 /** Material Symbols ships one 8.5 MB `icons.json`; the ceiling has to clear the largest built-in set. */
 export const ICON_ICONIFY_MAX_BYTES = 16 * 1024 * 1024
-export const ICON_ICONIFY_TIMEOUT_MS = 10_000
+export const ICON_ICONIFY_TIMEOUT_MS = 60_000
 export const ICON_ICONIFY_BATCH_ITEMS = 50
