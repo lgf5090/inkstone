@@ -79,6 +79,18 @@ function toastError(error: unknown): void {
   })
 }
 
+/**
+ * An order action answers with a code the reader can act on. A missing provider is not a generic
+ * failure — it names the one step left — so it gets its own sentence instead of the route's English.
+ */
+function toastActionError(error: unknown): void {
+  if (error instanceof ApiError && error.code === 'dns_provider_missing') {
+    useUi.getState().toast({ title: t('development.certhub.error.dns_provider_missing'), tone: 'danger' })
+    return
+  }
+  toastError(error)
+}
+
 async function api<T>(path: string, options: Parameters<typeof request>[1] = {}): Promise<T> {
   const response = await request<{ ok: true; data: T }>(`${BASE}${path}`, options)
   return response.data
@@ -412,10 +424,32 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
     if (!order) return
     setBusy(true)
     try {
-      await api(`/orders/${id}/actions`, { method: 'POST', body: { action, ...extra } })
+      const result = await api<{ order: CerthubOrderView; retryAfterMs?: number }>(`/orders/${id}/actions`, { method: 'POST', body: { action, ...extra } })
+      load()
+      // A 200 that only re-queues a retry is still an answer the reader should see: without this the
+      // button looks inert while the order silently waits for DNS propagation.
+      if (result.retryAfterMs && result.retryAfterMs > 0) {
+        useUi.getState().toast({ title: t('development.certhub.detail.pending_refresh'), tone: 'warning' })
+      }
+    } catch (reason) {
+      toastActionError(reason)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const bindProvider = async (domainId: string, providerId: string) => {
+    setBusy(true)
+    try {
+      await api(`/orders/${id}/domains/${domainId}/provider`, { method: 'POST', body: { dnsProviderId: providerId } })
+      setProviderDraft((current) => {
+        const next = { ...current }
+        delete next[domainId]
+        return next
+      })
+      useUi.getState().toast({ title: t('development.certhub.detail.provider_bound'), tone: 'success' })
       load()
     } catch (reason) {
-      toastError(reason)
+      toastActionError(reason)
     } finally {
       setBusy(false)
     }

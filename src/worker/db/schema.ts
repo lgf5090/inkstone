@@ -4152,6 +4152,17 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE tools_password_settings ADD COLUMN verifier_measured_at INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    // The missing-provider audit line is read by "was this reported in the last hour?" on every
+    // queue wake; without (order, kind, created_at) the read walks the order's whole event history.
+    // 360 starts a fresh lane above the reservations for the api-client (330), database-studio (340)
+    // and xget (350) branches.
+    version: 360,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_certhub_events_user_order_kind
+         ON development_certhub_events(user_id, order_id, kind, created_at DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
