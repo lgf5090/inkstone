@@ -199,7 +199,7 @@ async function prepareChallenges(
           patch.dns_record_value = delegated.cnameTarget
           patch.dns_record_id = delegated.recordId
         } else {
-          const recordId = await createTxtRecord(
+          const recordId = await ensureTxtRecord(
             await providerToken(env, provider),
             provider.zone_id,
             fqdn,
