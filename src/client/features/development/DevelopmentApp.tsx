@@ -20,6 +20,9 @@ const ApiTesterApp = lazy(() =>
 const GithubApp = lazy(() =>
   import('./github/GithubApp').then((module) => ({ default: module.GithubApp })),
 )
+const CerthubApp = lazy(() =>
+  import('./certhub/CerthubApp').then((module) => ({ default: module.CerthubApp })),
+)
 
 export function DevelopmentApp() {
   const breakpoint = useBreakpoint()
@@ -56,7 +59,9 @@ export function DevelopmentApp() {
                   ? t('development.apitester.module_name')
                   : moduleId === 'github'
                     ? t('development.github.module_name')
-                    : t('development.database.module_name')}
+                    : moduleId === 'certhub'
+                      ? t('development.certhub.module_name')
+                      : t('development.database.module_name')}
             </span>
           </div>
         </header>
@@ -100,6 +105,10 @@ export function DevelopmentApp() {
           ) : moduleId === 'github' ? (
             <Suspense fallback={<LoadingBlock />}>
               <GithubApp />
+            </Suspense>
+          ) : moduleId === 'certhub' ? (
+            <Suspense fallback={<LoadingBlock />}>
+              <CerthubApp />
             </Suspense>
           ) : (
             <DatabaseApp />

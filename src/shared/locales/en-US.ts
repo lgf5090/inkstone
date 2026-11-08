@@ -33,6 +33,7 @@ import { EN_US_CALENDAR } from './en-US-calendar';
 import { EN_US_DEVELOPMENT_DATABASE } from './en-US-development-database';
 import { EN_US_DEVELOPMENT_APITESTER } from './en-US-development-apitester';
 import { EN_US_DEVELOPMENT_GITHUB } from './en-US-development-github';
+import { EN_US_DEVELOPMENT_CERTHUB } from './en-US-development-certhub';
 import { EN_US_DEVELOPMENT_XGET_SHELL } from './en-US-development-xget-shell';
 import { EN_US_DEVELOPMENT_XGET_CORE } from './en-US-development-xget-core';
 import { EN_US_DEVELOPMENT_XGET_PLATFORMS } from './en-US-development-xget-platforms';
@@ -10928,6 +10929,7 @@ const CORE_MESSAGES_TAIL = {
 
 const CORE_MESSAGES_ALL: typeof CORE_MESSAGES & typeof CORE_MESSAGES_TAIL = { ...CORE_MESSAGES, ...CORE_MESSAGES_TAIL };
 const GITHUB_MESSAGES = { ...EN_US_DEVELOPMENT_GITHUB } as const;
-export const EN_US_MESSAGES: typeof CORE_MESSAGES_ALL & typeof GITHUB_MESSAGES & typeof EN_US_INKNOTE & typeof EN_US_YOUTUBE & typeof EN_US_BLOG_ADMIN = { ...CORE_MESSAGES, ...CORE_MESSAGES_TAIL, ...GITHUB_MESSAGES, ...EN_US_INKNOTE, ...EN_US_YOUTUBE, ...EN_US_BLOG_ADMIN };
-export type BaseMessageKey = keyof typeof CORE_MESSAGES_ALL | keyof typeof EN_US_INKNOTE | keyof typeof GITHUB_MESSAGES | keyof typeof EN_US_BLOG_ADMIN;
+const CERTHUB_MESSAGES = { ...EN_US_DEVELOPMENT_CERTHUB } as const;
+export const EN_US_MESSAGES: typeof CORE_MESSAGES_ALL & typeof GITHUB_MESSAGES & typeof CERTHUB_MESSAGES & typeof EN_US_INKNOTE & typeof EN_US_YOUTUBE & typeof EN_US_BLOG_ADMIN = { ...CORE_MESSAGES, ...CORE_MESSAGES_TAIL, ...GITHUB_MESSAGES, ...CERTHUB_MESSAGES, ...EN_US_INKNOTE, ...EN_US_YOUTUBE, ...EN_US_BLOG_ADMIN };
+export type BaseMessageKey = keyof typeof CORE_MESSAGES_ALL | keyof typeof EN_US_INKNOTE | keyof typeof GITHUB_MESSAGES | keyof typeof CERTHUB_MESSAGES | keyof typeof EN_US_BLOG_ADMIN;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED | keyof typeof EN_US_YOUTUBE | keyof typeof EN_US_NAV | keyof typeof EN_US_CLOUDDRIVE | keyof typeof EN_US_CLOUDDRIVE_ADMIN | keyof typeof EN_US_CLOUDDRIVE_MEDIA | keyof typeof EN_US_WEBSSH;
