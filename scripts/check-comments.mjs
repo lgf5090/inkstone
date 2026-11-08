@@ -32062,6 +32062,9 @@ const allowed = new Map([
   ["src/shared/development/database/assistant-context.ts", [
     "/** Absent for a local SQLite file, which only exists in the browser. */",
   ]],
+  ["src/shared/development/icons/formats.ts", [
+    "/**\n * The upload MIME whitelist.\n *\n * Anything else — including a ZIP — has no storage path in this module: v1 accepts one icon per\n * request, so there is no archive to unpack and no place for a ZIP bomb to enter.\n */",
+  ]],
   ["src/shared/development/icons/limits.ts", [
     "/** Conversion outputs are their own ledger so quotas and cleanup can account for them. */",
     "/** Records whether a job is meant to run in a queue consumer or in the browser. */",
