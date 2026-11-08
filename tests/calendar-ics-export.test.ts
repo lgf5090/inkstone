@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { CalendarDto } from '../src/shared/calendar/model'
+import type { CalendarDto, CalendarEventDto } from '../src/shared/calendar/model'
 import { MAX_EVENT_DESCRIPTION, MAX_ICS_EXPORT_BYTES } from '../src/shared/calendar/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -64,7 +64,7 @@ async function createCalendar(name: string): Promise<CalendarDto> {
 async function createEvent(
   calendarId: string,
   overrides: Record<string, unknown> = {},
-): Promise<void> {
+): Promise<CalendarEventDto> {
   const response = await call('POST', '/events', {
     title: 'Review',
     start: { value: '2026-10-26T09:00:00', type: 'datetime' },
@@ -72,7 +72,7 @@ async function createEvent(
     calendarId,
     ...overrides,
   })
-  await json(response)
+  return (await json<{ event: CalendarEventDto }>(response)).event
 }
 
 /** Rows written straight to the table: the API caps one description well below a whole file. */
@@ -150,6 +150,28 @@ describe('GET /api/calendar/ics/export', () => {
     const text = await (await call('GET', `/ics/export?calendarId=${work.id}`)).text()
     expect(text).toContain('SUMMARY:Roadmap')
     expect(text).not.toContain('Dentist')
+  })
+
+  it('exports one event when the request names it, and only that event', async () => {
+    const work = await createCalendar('Work')
+    const chosen = await createEvent(work.id, { title: 'Roadmap' })
+    await createEvent(work.id, { title: 'All hands' })
+
+    const response = await call('GET', `/ics/export?calendarId=${work.id}&eventId=${chosen.id}`)
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).toContain('SUMMARY:Roadmap')
+    expect(text).not.toContain('All hands')
+    expect(response.headers.get('content-disposition')).toContain("filename*=UTF-8''Roadmap.ics")
+  })
+
+  it('refuses an event that does not belong to the named calendar', async () => {
+    const work = await createCalendar('Work')
+    const personal = await createCalendar('Personal')
+    const personalEvent = await createEvent(personal.id, { title: 'Dentist' })
+
+    const response = await call('GET', `/ics/export?calendarId=${work.id}&eventId=${personalEvent.id}`)
+    expect(response.status).toBe(404)
   })
 
   it('refuses an unknown calendar', async () => {

@@ -386,8 +386,14 @@ export function importCsv(input: {
 }
 
 /** The export is a calendar document, not JSON; `request` hands back the body as text. */
-export function exportIcs(calendarId: string): Promise<string> {
-  return request<string>(`/api/calendar/ics/export?calendarId=${entity(calendarId)}`)
+export function exportIcs(calendarId: string, eventId?: string): Promise<string> {
+  const query = new URLSearchParams({ calendarId })
+  if (eventId) query.set('eventId', eventId)
+  return request<string>(`/api/calendar/ics/export?${query.toString()}`)
+}
+
+export function exportCsv(calendarId: string): Promise<string> {
+  return request<string>(`/api/calendar/csv/export?calendarId=${entity(calendarId)}`)
 }
 
 /** The calendar's public link, or null while it has never been shared. */

@@ -21,9 +21,10 @@ import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, Select, commitOnEnter } from '../../components/form'
-import { X, Trash2, Copy, CopyPlus, FolderInput, BookmarkPlus, Video } from 'lucide-react'
+import { X, Trash2, Copy, CopyPlus, FolderInput, BookmarkPlus, Video, Download } from 'lucide-react'
 import * as api from './api'
 import { CALENDAR_COLOR_PRESETS } from './model'
+import { downloadCalendarText } from './calendar-download'
 import { CalendarFilePicker } from './CalendarFilePicker'
 import { CalendarEventTransferDialog } from './CalendarEventTransferDialog'
 import { CalendarTemplatesDialog } from './CalendarTemplatesDialog'
@@ -408,6 +409,18 @@ export function CalendarEventExtras({
       .finally(() => setSavingDuplicate(false))
   }
 
+  const exportEvent = (): void => {
+    if (!event || !event.calendarId || sharedEvent) return
+    void api.exportIcs(event.calendarId, event.id)
+      .then((content) => {
+        downloadCalendarText(event.title || t('calendar.event.untitled'), content, 'ics')
+        useUi.getState().toast({ title: t('calendar.event.exported'), tone: 'success' })
+      })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error && cause.message ? cause.message : t('calendar.event.export_failed'))
+      })
+  }
+
   const zone = event ? eventTimeZone(event.start, accountTimeZone) : null
   const startMillis = event ? Number(temporalValueToEpochMs(event.start, accountTimeZone)) : 0
 
@@ -427,6 +440,14 @@ export function CalendarEventExtras({
           onClick={duplicate}
         >
           <CopyPlus size={13} aria-hidden="true" />
+        </IconButton>
+        <IconButton
+          label={t('calendar.event.export_ics')}
+          size="sm"
+          disabled={!event || sharedEvent}
+          onClick={exportEvent}
+        >
+          <Download size={13} aria-hidden="true" />
         </IconButton>
         <IconButton label={t('calendar.event.move_to')} size="sm" disabled={readOnly || sharedEvent || !event} onClick={() => setTransfer('move')}>
           <FolderInput size={13} aria-hidden="true" />
