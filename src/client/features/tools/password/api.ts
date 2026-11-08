@@ -145,6 +145,19 @@ export const passwordApi = {
   getAccounts: (groupId?: string) =>
     request<PasswordAccount[]>(groupId ? `/accounts?groupId=${encodeURIComponent(groupId)}` : '/accounts'),
 
+  /**
+   * One page, keyset-ordered by `(sort, id)`. `nextCursor` is null on the last page; the cursor is
+   * opaque to the caller and only meaningful to the route that produced it.
+   */
+  getAccountsPage: (options: { limit: number; cursor?: string; groupId?: string }) => {
+    const params = new URLSearchParams({ limit: String(options.limit) })
+    if (options.cursor) params.set('cursor', options.cursor)
+    if (options.groupId) params.set('groupId', options.groupId)
+    return request<{ items: PasswordAccount[]; nextCursor: string | null }>(
+      `/accounts?${params.toString()}`,
+    )
+  },
+
   createAccount: (data: Partial<PasswordAccount> & { groupId: string }) =>
     request<PasswordAccount>('/accounts', {
       method: 'POST',

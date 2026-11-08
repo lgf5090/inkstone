@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ShieldCheck, ShieldAlert } from 'lucide-react'
 import type { DecryptedAccount } from '@shared/tools/password/types'
 import { t } from '../../../lib/i18n'
@@ -38,6 +38,12 @@ export function PasswordHealthView() {
   const setSelectedAccountId = usePasswordVaultStore((s) => s.setSelectedAccountId)
   const setActiveView = usePasswordVaultStore((s) => s.setActiveView)
   const toast = useUi((s) => s.toast)
+  const ensureAllAccounts = usePasswordVaultStore((s) => s.ensureAllAccounts)
+
+  // Health is a statement about the whole vault, so the first page is not enough.
+  useEffect(() => {
+    void ensureAllAccounts()
+  }, [ensureAllAccounts])
 
   const rows = useMemo(
     () =>

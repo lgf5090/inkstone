@@ -32,6 +32,8 @@ export interface PasswordGroup {
   sort: number
   createdAt: number
   updatedAt: number
+  /** Total rows in the group, counted by the server so a paged list can still label the tree. */
+  accountCount?: number
   childs?: PasswordGroup[]
 }
 

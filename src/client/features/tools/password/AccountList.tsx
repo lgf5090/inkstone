@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent, type DragEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type DragEvent } from 'react'
 import { CheckSquare, Plus, Search, Settings, Sparkles, X } from 'lucide-react'
 import type { DecryptedAccount } from '@shared/tools/password/types'
 import { cn } from '../../../lib/cn'
@@ -20,6 +20,60 @@ export interface AccountListProps {
   className?: string
 }
 
+/** Fixed row height, which is what lets the list virtualize without measuring every card. */
+const ROW_HEIGHT = 56
+const OVERSCAN = 8
+
+interface VirtualRowProps {
+  account: DecryptedAccount
+  /** Absolute row index: it stays the same while scrolling, so a mounted row keeps its props. */
+  index: number
+  isSelected: boolean
+  onSelect: (account: DecryptedAccount) => void
+  onToggleFavorite: (id: string) => void
+  onDragStart: (e: DragEvent, account: DecryptedAccount) => void
+  onDragOver: (e: DragEvent) => void
+  onDrop: (e: DragEvent, account: DecryptedAccount) => void
+}
+
+/**
+ * Memoised so scrolling only mounts the rows entering the window: re-rendering every card that is
+ * already on screen was most of the frame cost a virtual list is meant to remove.
+ */
+const VirtualRow = memo(function VirtualRow({
+  account,
+  index,
+  isSelected,
+  onSelect,
+  onToggleFavorite,
+  onDragStart,
+  onDragOver,
+  onDrop,
+}: VirtualRowProps) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: index * ROW_HEIGHT,
+        left: 0,
+        right: 0,
+        height: ROW_HEIGHT,
+      }}
+      className="py-0.5"
+    >
+      <AccountCard
+        account={account}
+        isSelected={isSelected}
+        onSelect={onSelect}
+        onToggleFavorite={onToggleFavorite}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+      />
+    </div>
+  )
+})
+
 export function AccountList({
   filterFavoritesOnly = false,
   groupId,
@@ -37,10 +91,16 @@ export function AccountList({
   const openBatchOperations = usePasswordVaultStore((s) => s.openBatchOperations)
   const openBackupSettings = usePasswordVaultStore((s) => s.openBackupSettings)
   const reorderAccounts = usePasswordVaultStore((s) => s.reorderAccounts)
+  const loadMoreAccounts = usePasswordVaultStore((s) => s.loadMoreAccounts)
+  const ensureAllAccounts = usePasswordVaultStore((s) => s.ensureAllAccounts)
+  const nextAccountsCursor = usePasswordVaultStore((s) => s.nextAccountsCursor)
 
   const activePasswordView = useToolsStore((s) => s.activePasswordView)
 
   const [search, setSearch] = useState('')
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [scrollTop, setScrollTop] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(600)
 
   // Map raw accounts order to decrypted accounts
   const decryptedList = useMemo(() => {
@@ -79,6 +139,85 @@ export function AccountList({
         queryKeeps(query, a.remark),
     )
   }, [scopeFiltered, query, pinyinVersion])
+
+  // A search, the favourites view and a single group all answer from rows the first page may not
+  // hold, so they need the whole vault loaded before they can filter it.
+  const needsWholeVault =
+    Boolean(search.trim()) ||
+    filterFavoritesOnly ||
+    activePasswordView === 'favorites' ||
+    (activePasswordView === 'groups' && Boolean(groupId !== undefined ? groupId : selectedGroupId))
+  useEffect(() => {
+    if (needsWholeVault && nextAccountsCursor) void ensureAllAccounts()
+  }, [needsWholeVault, nextAccountsCursor, ensureAllAccounts])
+
+  // The scroll container only exists once there is something to show.
+  const hasRows = filteredAccounts.length > 0
+  useEffect(() => {
+    const element = scrollRef.current
+    if (!element) return
+    // Scroll fires several times per frame; updating state on each one rendered the list more often
+    // than the screen could show. One update per animation frame, rounded to the row grid: only a
+    // row boundary changes which cards exist, and an unchanged bucket does not re-render at all.
+    let frame = 0
+    const onScroll = () => {
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        const next = Math.floor(element.scrollTop / ROW_HEIGHT) * ROW_HEIGHT
+        setScrollTop((prev) => (prev === next ? prev : next))
+      })
+    }
+    element.addEventListener('scroll', onScroll, { passive: true })
+    setViewportHeight(element.clientHeight || 600)
+    const observer =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => setViewportHeight(element.clientHeight || 600))
+        : null
+    observer?.observe(element)
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      element.removeEventListener('scroll', onScroll)
+      observer?.disconnect()
+    }
+  }, [hasRows])
+
+  // Ask for the next page a few rows before the end of what is loaded.
+  useEffect(() => {
+    if (!nextAccountsCursor) return
+    const total = filteredAccounts.length * ROW_HEIGHT
+    if (scrollTop + viewportHeight > total - ROW_HEIGHT * 6) void loadMoreAccounts()
+  }, [scrollTop, viewportHeight, filteredAccounts.length, nextAccountsCursor, loadMoreAccounts])
+
+  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
+  const endIndex = Math.min(
+    filteredAccounts.length,
+    Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN,
+  )
+  const visibleAccounts = filteredAccounts.slice(startIndex, endIndex)
+
+  // Stable callbacks: the memoised rows bail out while scrolling only if their props keep identity.
+  const handleSelect = useCallback(
+    (account: DecryptedAccount) => setSelectedAccountId(account.id),
+    [setSelectedAccountId],
+  )
+  const handleToggleFavorite = useCallback(
+    (id: string) => {
+      void toggleFavorite(id).catch((err: unknown) => {
+        useUi.getState().toast({
+          title: err instanceof Error ? err.message : t('common.save_failed'),
+          tone: 'danger',
+        })
+      })
+    },
+    [toggleFavorite],
+  )
+  const cursorRef = useRef(nextAccountsCursor)
+  cursorRef.current = nextAccountsCursor
+  const handleDragStart = useCallback(() => {
+    // Reordering re-numbers every row, so it needs the whole vault loaded.
+    if (cursorRef.current) void ensureAllAccounts()
+  }, [ensureAllAccounts])
 
   const handleQuickNew = async () => {
     const targetGroupId = selectedGroupId || groups[0]?.id
@@ -131,25 +270,28 @@ export function AccountList({
 
   // Without a cancelling dragover on the drop target the browser never fires `drop`, so card-to-card
   // reordering was dead even though the card carried an onDrop handler.
-  const handleDragOver = (e: DragEvent) => {
+  const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-  }
+  }, [])
 
-  const handleReorderDrop = (e: DragEvent, targetAccount: DecryptedAccount) => {
-    const draggedId = e.dataTransfer.getData('text/plain')
-    if (!draggedId || draggedId === targetAccount.id) return
-    const sourceIndex = filteredAccounts.findIndex((a) => a.id === draggedId)
-    const targetIndex = filteredAccounts.findIndex((a) => a.id === targetAccount.id)
-    if (sourceIndex < 0 || targetIndex < 0) return
+  const handleReorderDrop = useCallback(
+    (e: DragEvent, targetAccount: DecryptedAccount) => {
+      const draggedId = e.dataTransfer.getData('text/plain')
+      if (!draggedId || draggedId === targetAccount.id) return
+      const sourceIndex = filteredAccounts.findIndex((a) => a.id === draggedId)
+      const targetIndex = filteredAccounts.findIndex((a) => a.id === targetAccount.id)
+      if (sourceIndex < 0 || targetIndex < 0) return
 
-    const reordered = [...filteredAccounts]
-    const [removed] = reordered.splice(sourceIndex, 1)
-    reordered.splice(targetIndex, 0, removed!)
+      const reordered = [...filteredAccounts]
+      const [removed] = reordered.splice(sourceIndex, 1)
+      reordered.splice(targetIndex, 0, removed!)
 
-    const updates = reordered.map((acc, index) => ({ id: acc.id, sort: index }))
-    void reorderAccounts(updates)
-  }
+      const updates = reordered.map((acc, index) => ({ id: acc.id, sort: index }))
+      void reorderAccounts(updates)
+    },
+    [filteredAccounts, reorderAccounts],
+  )
 
   return (
     <div
@@ -260,33 +402,32 @@ export function AccountList({
           </div>
         ) : (
           <div
+            ref={scrollRef}
             // Each row is a button, not an option: `role="listbox"` promised options, and an option
             // cannot hold the star control every card carries.
             role="list"
             aria-label={t('tools.password.nav.all')}
             tabIndex={0}
             onKeyDown={handleKeyDown}
-            className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1 focus:outline-none"
+            className="flex-1 min-h-0 overflow-y-auto p-2 focus:outline-none"
             data-testid="account-cards-container"
           >
-            {filteredAccounts.map((acc) => (
-              <AccountCard
-                key={acc.id}
-                account={acc}
-                isSelected={acc.id === selectedAccountId}
-                onSelect={(account) => setSelectedAccountId(account.id)}
-                onToggleFavorite={(id) => {
-                  void toggleFavorite(id).catch((err: unknown) => {
-                    useUi.getState().toast({
-                      title: err instanceof Error ? err.message : t('common.save_failed'),
-                      tone: 'danger',
-                    })
-                  })
-                }}
-                onDragOver={handleDragOver}
-                onDrop={handleReorderDrop}
-              />
-            ))}
+            {/* Only the rows inside the viewport (plus a small overscan) exist in the DOM. */}
+            <div style={{ height: filteredAccounts.length * ROW_HEIGHT, position: 'relative' }}>
+              {visibleAccounts.map((acc, index) => (
+                <VirtualRow
+                  key={acc.id}
+                  account={acc}
+                  index={startIndex + index}
+                  isSelected={acc.id === selectedAccountId}
+                  onSelect={handleSelect}
+                  onToggleFavorite={handleToggleFavorite}
+                  onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
+                  onDrop={handleReorderDrop}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>

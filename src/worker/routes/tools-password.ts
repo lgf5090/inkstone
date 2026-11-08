@@ -326,8 +326,14 @@ toolsPasswordRoutes.get('/audit', async (c) => {
 // ---------------------------------------------------------------- Groups
 toolsPasswordRoutes.get('/groups', async (c) => {
   const store = getStore(c)
-  const groups = await store.getGroups()
-  return c.json({ ok: true, data: groups })
+  const [groups, counts] = await Promise.all([
+    store.getGroups(),
+    store.getGroupAccountCounts(),
+  ])
+  return c.json({
+    ok: true,
+    data: groups.map((group) => ({ ...group, accountCount: counts[group.id] ?? 0 })),
+  })
 })
 
 toolsPasswordRoutes.post('/groups', async (c) => {
@@ -357,8 +363,19 @@ toolsPasswordRoutes.delete('/groups/:id', async (c) => {
 toolsPasswordRoutes.get('/accounts', async (c) => {
   const store = getStore(c)
   const groupId = c.req.query('groupId')
-  const accounts = await store.getAccounts(groupId)
-  return c.json({ ok: true, data: accounts })
+  const limitRaw = c.req.query('limit')
+  // No `limit` keeps the old shape: every row, which the reset and health paths still ask for.
+  if (limitRaw === undefined) {
+    const accounts = await store.getAccounts(groupId)
+    return c.json({ ok: true, data: accounts })
+  }
+
+  const limit = Number(limitRaw)
+  if (!Number.isFinite(limit) || limit < 1) {
+    throw ApiError.badRequest('A page limit must be a positive number')
+  }
+  const page = await store.getAccountsPage({ limit, cursor: c.req.query('cursor'), groupId })
+  return c.json({ ok: true, data: page })
 })
 
 toolsPasswordRoutes.post('/accounts/batch-delete', async (c) => {

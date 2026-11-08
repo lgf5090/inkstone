@@ -1470,6 +1470,88 @@ describe('Password Manager Security Log', () => {
   })
 })
 
+describe('Password Manager Account Paging', () => {
+  it('walks the vault with a keyset cursor without repeating or skipping a row', async () => {
+    const group = (await json<{ data: { id: string } }>(
+      await call('POST', '/api/tools/password/groups', { body: { name: 'Page' } }),
+    )).data
+    const rows = Array.from({ length: 250 }, (_, index) => ({
+      title: `Account ${String(index).padStart(3, '0')}`,
+      sort: index,
+    }))
+    expect(
+      (await call('POST', '/api/tools/password/accounts/import', {
+        body: { groupId: group.id, accounts: rows },
+      })).status,
+    ).toBe(200)
+
+    const seen: string[] = []
+    let cursor: string | undefined
+    let pages = 0
+    do {
+      const res = await call('GET', `/api/tools/password/accounts?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
+      expect(res.status).toBe(200)
+      const page = (await json<{ data: { items: Array<{ id: string; sort: number }>; nextCursor: string | null } }>(res)).data
+      expect(page.items.length).toBeLessThanOrEqual(100)
+      seen.push(...page.items.map((item) => item.id))
+      cursor = page.nextCursor ?? undefined
+      pages += 1
+    } while (cursor)
+
+    expect(pages).toBe(3)
+    expect(seen).toHaveLength(250)
+    expect(new Set(seen).size).toBe(250)
+  })
+
+  it('filters by group and refuses a cursor it did not issue', async () => {
+    const first = (await json<{ data: { id: string } }>(
+      await call('POST', '/api/tools/password/groups', { body: { name: 'One' } }),
+    )).data
+    const second = (await json<{ data: { id: string } }>(
+      await call('POST', '/api/tools/password/groups', { body: { name: 'Two' } }),
+    )).data
+    await call('POST', '/api/tools/password/accounts/import', {
+      body: { groupId: first.id, accounts: [{ title: 'A' }, { title: 'B' }] },
+    })
+
+    const filtered = (
+      await json<{ data: { items: Array<{ groupId: string }> } }>(
+        await call('GET', `/api/tools/password/accounts?limit=50&groupId=${first.id}`),
+      )
+    ).data.items
+    expect(filtered).toHaveLength(2)
+    expect(filtered.every((item) => item.groupId === first.id)).toBe(true)
+
+    const empty = (
+      await json<{ data: { items: unknown[] } }>(
+        await call('GET', `/api/tools/password/accounts?limit=50&groupId=${second.id}`),
+      )
+    ).data.items
+    expect(empty).toEqual([])
+
+    const bogus = await call('GET', '/api/tools/password/accounts?limit=10&cursor=not-a-cursor')
+    expect(bogus.status).toBe(400)
+  })
+
+  it('reports each group total so a paged list can still label the tree', async () => {
+    const group = (await json<{ data: { id: string } }>(
+      await call('POST', '/api/tools/password/groups', { body: { name: 'Counts' } }),
+    )).data
+    await call('POST', '/api/tools/password/accounts/import', {
+      body: { groupId: group.id, accounts: [{ title: 'A' }, { title: 'B' }, { title: 'C' }] },
+    })
+
+    const groups = (
+      await json<{ data: Array<{ id: string; accountCount?: number }> }>(
+        await call('GET', '/api/tools/password/groups'),
+      )
+    ).data
+    // The client only holds one page of rows, so counting them locally would say "0" or the page
+    // size; the total has to come from the server.
+    expect(groups.find((row) => row.id === group.id)?.accountCount).toBe(3)
+  })
+})
+
 describe('Password Manager Breach Lookup', () => {
   afterEach(() => {
     vi.unstubAllGlobals()

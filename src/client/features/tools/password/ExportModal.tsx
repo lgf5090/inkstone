@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Download, Lock, AlertCircle } from 'lucide-react'
 import { t } from '../../../lib/i18n'
 import { Modal } from '../../../components/overlay'
@@ -41,8 +41,13 @@ export function ExportModal({ open, onClose, group }: ExportModalProps) {
   const groups = usePasswordVaultStore((s) => s.groups)
   const accounts = usePasswordVaultStore((s) => s.accounts)
   const decryptedAccounts = usePasswordVaultStore((s) => s.decryptedAccounts)
+  const ensureAllAccounts = usePasswordVaultStore((s) => s.ensureAllAccounts)
 
   const isVisible = open !== undefined ? open : storeIsOpen
+  // Export writes every row of the chosen scope, which the paged list may not have fetched yet.
+  useEffect(() => {
+    if (isVisible) void ensureAllAccounts()
+  }, [isVisible, ensureAllAccounts])
   const handleClose = () => {
     // Closing without exporting must not leave the master password in a mounted component.
     setPasswordInput('')

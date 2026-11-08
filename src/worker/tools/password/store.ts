@@ -25,6 +25,27 @@ const MAX_GROUP_DEPTH = 7
 /** How many security events one vault keeps; older rows are dropped as new ones arrive. */
 const AUDIT_RETENTION = 1000
 
+/** Largest page the list route will serve; the client asks for fewer on first paint. */
+const MAX_ACCOUNT_PAGE = 500
+
+function encodeAccountCursor(sort: number, id: string): string {
+  return btoa(`${sort}:${id}`)
+}
+
+function decodeAccountCursor(raw: string): { sort: number; id: string } | null {
+  try {
+    const text = atob(raw)
+    const separator = text.indexOf(':')
+    if (separator <= 0) return null
+    const sort = Number(text.slice(0, separator))
+    const id = text.slice(separator + 1)
+    if (!Number.isInteger(sort) || !id) return null
+    return { sort, id }
+  } catch {
+    return null
+  }
+}
+
 /** How many snapshots a vault keeps before the oldest are dropped. */
 const BACKUP_RETENTION = 20
 
@@ -361,6 +382,26 @@ export class PasswordStore {
     return (results ?? []).map(toGroup)
   }
 
+  /**
+   * Rows per group. The client list is paged, so counting the loaded rows would label a group with
+   * the page size instead of the vault; one GROUP BY answers it for every group at once.
+   */
+  async getGroupAccountCounts(): Promise<Record<string, number>> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT group_id, COUNT(*) AS count
+         FROM tools_password_accounts
+         WHERE user_id = ?1
+         GROUP BY group_id`,
+      )
+      .bind(this.userId)
+      .all<{ group_id: string; count: number }>()
+
+    const counts: Record<string, number> = {}
+    for (const row of results ?? []) counts[row.group_id] = row.count
+    return counts
+  }
+
   async getGroup(id: string): Promise<PasswordGroup | null> {
     const row = await this.db
       .prepare(
@@ -520,6 +561,53 @@ export class PasswordStore {
       .all<AccountRow>()
 
     return (results ?? []).map(toAccount)
+  }
+
+  /**
+   * One page of the list, ordered by `(sort, id)` with a keyset cursor.
+   *
+   * The cursor carries the last row's `sort` and `id` rather than an offset: rows move while the
+   * reader scrolls (a save, a drag, another tab), and an offset would then repeat or skip rows.
+   */
+  async getAccountsPage(options: {
+    limit: number
+    cursor?: string
+    groupId?: string
+  }): Promise<{ items: PasswordAccount[]; nextCursor: string | null }> {
+    const limit = Math.min(Math.max(Math.floor(options.limit), 1), MAX_ACCOUNT_PAGE)
+    const conditions = ['user_id = ?1']
+    const bindings: Array<string | number> = [this.userId]
+
+    if (options.groupId) {
+      conditions.push(`group_id = ?${bindings.length + 1}`)
+      bindings.push(options.groupId)
+    }
+    if (options.cursor) {
+      const cursor = decodeAccountCursor(options.cursor)
+      if (!cursor) throw ApiError.badRequest('Invalid account cursor')
+      conditions.push(`(sort > ?${bindings.length + 1} OR (sort = ?${bindings.length + 1} AND id > ?${bindings.length + 2}))`)
+      bindings.push(cursor.sort, cursor.id)
+    }
+
+    // One extra row tells us whether another page exists without a second COUNT query.
+    const { results } = await this.db
+      .prepare(
+        `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, is_favorite, sort, created_at, updated_at
+         FROM tools_password_accounts
+         WHERE ${conditions.join(' AND ')}
+         ORDER BY sort ASC, id ASC
+         LIMIT ?${bindings.length + 1}`,
+      )
+      .bind(...bindings, limit + 1)
+      .all<AccountRow>()
+
+    const rows = results ?? []
+    const pageRows = rows.slice(0, limit)
+    const last = pageRows[pageRows.length - 1]
+    return {
+      items: pageRows.map(toAccount),
+      nextCursor: rows.length > limit && last ? encodeAccountCursor(last.sort, last.id) : null,
+    }
   }
 
   async getAccount(id: string): Promise<PasswordAccount | null> {

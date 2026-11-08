@@ -87,14 +87,19 @@ export function GroupTree() {
     })
   }, [groups])
 
-  // Account count per group map
+  // Account count per group map. The list is paged, so the server's count is the total; counting
+  // the loaded rows is only a fallback for callers that build groups without it.
   const accountCountMap = useMemo(() => {
-    const map: Record<string, number> = {}
+    const loaded: Record<string, number> = {}
     for (const acc of accounts) {
-      map[acc.groupId] = (map[acc.groupId] || 0) + 1
+      loaded[acc.groupId] = (loaded[acc.groupId] || 0) + 1
+    }
+    const map: Record<string, number> = {}
+    for (const group of groups) {
+      map[group.id] = group.accountCount ?? loaded[group.id] ?? 0
     }
     return map
-  }, [accounts])
+  }, [accounts, groups])
 
   const handleToggleExpand = (groupId: string) => {
     setExpandedIds((prev) => {

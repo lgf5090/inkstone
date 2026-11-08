@@ -107,6 +107,7 @@ beforeEach(() => {
   vi.spyOn(passwordApi, 'getVaultState').mockResolvedValue({ hasVault: true })
   vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([MOCK_GROUP])
   vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue(MOCK_RAW_ACCOUNTS)
+  vi.spyOn(passwordApi, 'getAccountsPage').mockResolvedValue({ items: MOCK_RAW_ACCOUNTS, nextCursor: null })
   vi.spyOn(passwordApi, 'createAccount').mockImplementation(async (payload) => ({
     id: 'acc-new',
     groupId: payload.groupId || 'g-default',

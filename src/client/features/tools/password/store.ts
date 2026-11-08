@@ -23,7 +23,61 @@ import { t } from '../../../lib/i18n'
 /** One tab locking must lock the others: a second tab left open kept the plaintext on screen. */
 const LOCK_CHANNEL_NAME = 'inkstone-password-lock'
 
+/** Rows fetched for the first paint; the rest arrives in the background. */
+const ACCOUNT_PAGE_SIZE = 100
+
+/**
+ * Rows decrypted between yields. Small enough that one chunk stays a short task: at ~2-3 ms per row
+ * a 250-row chunk blocked the main thread for most of a second, which the reader felt as a frozen
+ * list while a whole-vault search or the health view was loading.
+ */
+const DECRYPT_CHUNK = 30
+
+/**
+ * Rows decrypted between store updates. Publishing after every chunk re-rendered the whole list 300+
+ * times for a 10,000-row vault, which cost far more than the decryption itself; a few visible
+ * increments are enough for the reader to see progress.
+ */
+const DECRYPT_PUBLISH = 1000
+
+/**
+ * The tree labels each group with the server's total, which a paged list cannot recount from the
+ * rows it holds; a save, a delete or a move adjusts that total in place instead of refetching.
+ */
+function adjustGroupCount(
+  groups: PasswordGroup[],
+  groupId: string,
+  delta: number,
+): PasswordGroup[] {
+  return groups.map((group) =>
+    group.id === groupId && typeof group.accountCount === 'number'
+      ? { ...group, accountCount: Math.max(0, group.accountCount + delta) }
+      : group,
+  )
+}
+
+/**
+ * Yields a macrotask without a timer. `setTimeout(0)` is clamped to one second in a background tab,
+ * which stretched the whole-vault decrypt of a 10,000-row vault from a few seconds into minutes.
+ */
+function yieldToEventLoop(): Promise<void> {
+  if (typeof MessageChannel === 'undefined') {
+    return new Promise((resolve) => setTimeout(resolve, 0))
+  }
+  return new Promise((resolve) => {
+    const channel = new MessageChannel()
+    channel.port1.onmessage = () => {
+      channel.port1.close()
+      resolve()
+    }
+    channel.port2.postMessage(0)
+  })
+}
+
 let lockChannel: BroadcastChannel | null = null
+
+/** A whole-vault load is already running; a second caller waits for its result instead of refetching. */
+let ensureAllInFlight = false
 
 function lockedState(state: PasswordVaultStore): Partial<PasswordVaultStore> {
   return {
@@ -38,6 +92,7 @@ function lockedState(state: PasswordVaultStore): Partial<PasswordVaultStore> {
     accounts: [],
     selectedGroupId: null,
     decryptedAccounts: {},
+    nextAccountsCursor: null,
   }
 }
 
@@ -82,6 +137,9 @@ export interface PasswordVaultStore {
   activeView: PasswordViewMode
   isLoading: boolean
   lastActiveTime: number
+  /** Cursor for the next list page; null when every row the server has is loaded. */
+  nextAccountsCursor: string | null
+  isLoadingMoreAccounts: boolean
   /**
    * Bumped by every unlock, lock and wipe. Async work captures it before awaiting and refuses to
    * write back when it moved, so a stale response cannot repopulate a locked vault or overwrite a
@@ -109,6 +167,8 @@ export interface PasswordVaultStore {
   clearVaultState: () => void
   forgetSession: () => void
   refreshData: () => Promise<void>
+  loadMoreAccounts: () => Promise<void>
+  ensureAllAccounts: () => Promise<void>
   setSelectedAccountId: (id: string | null) => void
   setSelectedGroupId: (id: string | null) => void
   setActiveView: (view: PasswordViewMode) => void
@@ -234,6 +294,8 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   activeView: 'all',
   isLoading: false,
   lastActiveTime: Date.now(),
+  nextAccountsCursor: null,
+  isLoadingMoreAccounts: false,
   keyEpoch: 0,
 
   isSettingOpen: false,
@@ -334,6 +396,7 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
       decryptedAccounts: {},
       selectedAccountId: null,
       selectedGroupId: null,
+      nextAccountsCursor: null,
     }))
   },
 
@@ -352,6 +415,7 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
       decryptedAccounts: {},
       selectedAccountId: null,
       selectedGroupId: null,
+      nextAccountsCursor: null,
       isSettingOpen: false,
       isResetOpen: false,
       isRecoverOpen: false,
@@ -370,9 +434,12 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
 
     set({ isLoading: true })
     try {
-      const [groups, accounts] = await Promise.all([
+      // The first page is what the list needs to paint. Everything else (counts, search, health,
+      // batch selection) asks for the rest through `ensureAllAccounts`, which keeps a 10,000-row
+      // vault from paying for every row before the first card is on screen.
+      const [groups, page] = await Promise.all([
         passwordApi.getGroups(),
-        passwordApi.getAccounts(),
+        passwordApi.getAccountsPage({ limit: ACCOUNT_PAGE_SIZE }),
       ])
 
       // A lock, a re-key or a second unlock while this was in flight makes the answer stale: the
@@ -382,18 +449,22 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
 
       const groupTree = buildTree(groups)
       const decryptedMap: Record<string, DecryptedAccount> = {}
-
-      for (const acc of accounts) {
+      for (const acc of page.items) {
         decryptedMap[acc.id] = decryptAccount(acc, keyIV)
       }
 
       set({
         groups,
         groupTree,
-        accounts,
+        accounts: page.items,
         decryptedAccounts: decryptedMap,
+        nextAccountsCursor: page.nextCursor,
         selectedGroupId: get().selectedGroupId || (groups[0]?.id ?? null),
       })
+
+      // The rest arrives page by page as the list scrolls. Whole-vault features (search, health,
+      // batch selection, export, drag reorder, a group or favourites view) ask for it explicitly
+      // through `ensureAllAccounts`; unlocking a 10,000-row vault must not decrypt all of it first.
     } catch {
       // The vault stays on whatever it showed before; the next refresh retries.
     } finally {
@@ -403,12 +474,88 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
     }
   },
 
+  loadMoreAccounts: async () => {
+    const { keyIV, keyEpoch, nextAccountsCursor, isLoadingMoreAccounts } = get()
+    if (!keyIV || !nextAccountsCursor || isLoadingMoreAccounts) return
+
+    set({ isLoadingMoreAccounts: true })
+    try {
+      const page = await passwordApi.getAccountsPage({
+        limit: ACCOUNT_PAGE_SIZE,
+        cursor: nextAccountsCursor,
+      })
+      if (get().keyEpoch !== keyEpoch) return
+
+      const existing = get().decryptedAccounts
+      const additions: Record<string, DecryptedAccount> = {}
+      for (const acc of page.items) additions[acc.id] = decryptAccount(acc, keyIV)
+
+      // Merge by id: a row saved while the page was in flight may already be here.
+      const merged = [...get().accounts]
+      const known = new Set(merged.map((row) => row.id))
+      for (const row of page.items) if (!known.has(row.id)) merged.push(row)
+
+      set({
+        accounts: merged,
+        decryptedAccounts: { ...existing, ...additions },
+        nextAccountsCursor: page.nextCursor,
+      })
+    } catch {
+      // Leave the list as it is; scrolling again retries.
+    } finally {
+      if (get().keyEpoch === keyEpoch) set({ isLoadingMoreAccounts: false })
+    }
+  },
+
+  /**
+   * Loads every remaining row in one request. Search, health, batch selection and drag reorder need
+   * the whole vault; the list itself does not, which is why this is explicit rather than automatic.
+   */
+  ensureAllAccounts: async () => {
+    const { keyIV, keyEpoch, nextAccountsCursor } = get()
+    // Two lists (desktop and mobile) mount together and would otherwise both ask for the whole
+    // vault, doubling the fetch and the decryption.
+    if (!keyIV || !nextAccountsCursor || ensureAllInFlight) return
+    ensureAllInFlight = true
+
+    try {
+      const rows = await passwordApi.getAccounts()
+      if (get().keyEpoch !== keyEpoch) return
+
+      // The rows land at once so counts and search see the whole vault; decryption is chunked so a
+      // 10,000-row vault does not lock the main thread while the reader keeps scrolling.
+      set({ accounts: rows, nextAccountsCursor: null })
+      const decryptedMap: Record<string, DecryptedAccount> = { ...get().decryptedAccounts }
+      let published = 0
+      for (let offset = 0; offset < rows.length; offset += DECRYPT_CHUNK) {
+        for (const acc of rows.slice(offset, offset + DECRYPT_CHUNK)) {
+          decryptedMap[acc.id] = decryptAccount(acc, keyIV)
+        }
+        if (get().keyEpoch !== keyEpoch) return
+        const done = Math.min(offset + DECRYPT_CHUNK, rows.length)
+        if (done >= rows.length || done - published >= DECRYPT_PUBLISH) {
+          published = done
+          set({ decryptedAccounts: { ...decryptedMap } })
+        }
+        if (done < rows.length) {
+          await yieldToEventLoop()
+        }
+      }
+      // Anything left unpublished (a vault smaller than the batch) lands here.
+      if (published < rows.length) set({ decryptedAccounts: { ...decryptedMap } })
+    } catch {
+      // The first page stays usable and the next call retries.
+    } finally {
+      ensureAllInFlight = false
+    }
+  },
+
   setSelectedAccountId: (id) => set({ selectedAccountId: id }),
   setSelectedGroupId: (id) => set({ selectedGroupId: id }),
   setActiveView: (view) => set({ activeView: view }),
 
   createAccount: async (data) => {
-    const { keyIV, decryptedAccounts, accounts } = get()
+    const { keyIV, decryptedAccounts, accounts, groups } = get()
     if (!keyIV) throw new Error('Vault is locked')
 
     // The id is chosen before the first seal: it is the associated data, so the ciphertext can only
@@ -429,10 +576,13 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
 
     const created = await passwordApi.createAccount(encryptedPayload)
     const dec = decryptAccount(created, keyIV)
+    const nextGroups = adjustGroupCount(groups, created.groupId, 1)
 
     set({
       accounts: [...accounts, created],
       decryptedAccounts: { ...decryptedAccounts, [created.id]: dec },
+      groups: nextGroups,
+      groupTree: buildTree(nextGroups),
       selectedAccountId: created.id,
     })
 
@@ -468,25 +618,43 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
 
     // Re-read after the await: another write (a favourite toggle, a second tab's save) may have
     // landed in between, and the snapshot taken before the request would undo it.
-    set((state) => ({
-      accounts: state.accounts.map((a) => (a.id === id ? updated : a)),
-      decryptedAccounts: { ...state.decryptedAccounts, [id]: dec },
-    }))
+    const movedFrom =
+      known && data.groupId !== undefined && data.groupId !== known.groupId
+        ? known.groupId
+        : null
+    set((state) => {
+      const groups = movedFrom
+        ? adjustGroupCount(
+            adjustGroupCount(state.groups, movedFrom, -1),
+            updated.groupId,
+            1,
+          )
+        : state.groups
+      return {
+        accounts: state.accounts.map((a) => (a.id === id ? updated : a)),
+        decryptedAccounts: { ...state.decryptedAccounts, [id]: dec },
+        ...(movedFrom ? { groups, groupTree: buildTree(groups) } : {}),
+      }
+    })
 
     return updated
   },
 
   deleteAccount: async (id) => {
     await passwordApi.deleteAccount(id)
-    const { accounts, decryptedAccounts, selectedAccountId } = get()
+    const { accounts, decryptedAccounts, selectedAccountId, groups } = get()
 
+    const removed = accounts.find((account) => account.id === id)
     const nextAccounts = accounts.filter((a) => a.id !== id)
     const nextDecrypted = { ...decryptedAccounts }
     delete nextDecrypted[id]
+    const nextGroups = removed ? adjustGroupCount(groups, removed.groupId, -1) : groups
 
     set({
       accounts: nextAccounts,
       decryptedAccounts: nextDecrypted,
+      groups: nextGroups,
+      groupTree: buildTree(nextGroups),
       selectedAccountId: selectedAccountId === id ? null : selectedAccountId,
     })
   },

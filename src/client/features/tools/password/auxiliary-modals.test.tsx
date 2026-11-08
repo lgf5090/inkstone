@@ -27,6 +27,7 @@ vi.mock('./api', async (importOriginal) => {
       getVaultState: vi.fn(),
       getGroups: vi.fn(),
       getAccounts: vi.fn(),
+      getAccountsPage: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
       createAccount: vi.fn(),
       updateAccount: vi.fn(),
       deleteAccount: vi.fn(),

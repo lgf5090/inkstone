@@ -6,6 +6,7 @@ vi.mock('./api', () => ({
     getVaultState: vi.fn(),
     getGroups: vi.fn(),
     getAccounts: vi.fn(),
+    getAccountsPage: vi.fn(),
     getSettings: vi.fn(),
     updateAccount: vi.fn(),
     createAccount: vi.fn(),

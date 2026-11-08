@@ -185,6 +185,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true, salt: VAULT_SALT })
       vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([])
       vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([])
+      vi.spyOn(passwordApi, 'getAccountsPage').mockResolvedValue({ items: [], nextCursor: null })
 
       renderWithHosts(createElement(Door))
       act(() => {
@@ -254,6 +255,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true, salt: VAULT_SALT })
       vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([])
       vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([encAccount])
+      vi.spyOn(passwordApi, 'getAccountsPage').mockResolvedValue({ items: [encAccount], nextCursor: null })
 
       renderWithHosts(createElement(Door))
       const input = document.querySelector<HTMLInputElement>('[data-testid="password-door-input"]')!
@@ -352,6 +354,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       })
       vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([])
       vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([])
+      vi.spyOn(passwordApi, 'getAccountsPage').mockResolvedValue({ items: [], nextCursor: null })
 
       usePasswordVaultStore.setState({ isSettingOpen: true })
       renderWithHosts(createElement(Setting))
@@ -400,6 +403,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true, salt })
       vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([])
       vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([])
+      vi.spyOn(passwordApi, 'getAccountsPage').mockResolvedValue({ items: [], nextCursor: null })
       const groupSpy = vi.spyOn(passwordApi, 'createGroup').mockResolvedValue({
         id: 'group-recovered',
         name: t('tools.password.setting.default_group'),
@@ -445,6 +449,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       usePasswordVaultStore.setState({ vaultState: { hasVault: false }, isUnlocked: false, keyIV: null })
       vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([])
       vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([])
+      vi.spyOn(passwordApi, 'getAccountsPage').mockResolvedValue({ items: [], nextCursor: null })
 
       await act(async () => {
         usePasswordVaultStore.getState().unlock({ key: 'k', iv: 'i' })
@@ -514,6 +519,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       const resetApiSpy = vi.spyOn(passwordApi, 'resetMasterPassword').mockResolvedValue({ ok: true })
       vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true, salt: VAULT_SALT })
       vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([existingAccount])
+      vi.spyOn(passwordApi, 'getAccountsPage').mockResolvedValue({ items: [existingAccount], nextCursor: null })
 
       renderWithHosts(createElement(Reset))
 
