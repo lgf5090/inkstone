@@ -19484,6 +19484,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/password/PasswordHealthView.tsx", [
     "/**\n * What the vault looks like from the inside: weak, repeated, old and half-filled credentials.\n *\n * Everything is computed from the decrypted rows the module already keeps in memory, so this view\n * costs one pass over the list and sends nothing anywhere.\n */",
+    "/** One request per distinct password, and the server allows 60 per ten minutes. */",
+    "/**\n   * Checks distinct passwords one at a time. Everything stays local except the five-character prefix\n   * of each password's SHA-1; a failed lookup stops the run with a toast and leaves the rest of the\n   * page usable, because health information must never block the vault itself.\n   */",
+    "// Let React paint the progress before the next hash.",
   ]],
   ["src/client/features/tools/password/RandomPasswordView.tsx", [
     "/* Header */",
@@ -19568,6 +19571,7 @@ const allowed = new Map([
     "/** Mints the short-lived token destructive routes require (wipe, restore, delete snapshot). */",
     "// The route takes flat optional fields. Sending only the values the caller actually changed keeps",
     "// \"absent\" meaning \"keep what is stored\".",
+    "/** Only the five-character prefix leaves the browser; see `utils/breach.ts`. */",
   ]],
   ["src/client/features/tools/password/auxiliary-modals.test.tsx", [
     "// Clipboard mock",
@@ -19721,6 +19725,16 @@ const allowed = new Map([
   ["src/client/features/tools/password/useAutoLock.ts", [
     "// 5 minutes",
     "/**\n * Locks the vault after a period without interaction, and immediately when the tab is left or loses\n * focus.\n *\n * The previous version only armed a timer on `window.blur`, so a reader who stayed on the tab got no\n * lock at all, and a tab switch that kept focus never locked either. Activity now re-arms an idle\n * timer, and `visibilitychange` covers the cases `blur` misses.\n */",
+  ]],
+  ["src/client/features/tools/password/utils/breach.test.ts", [
+    "// SHA-1(\"password\") — the canonical HIBP example.",
+    "// The suffix never leaves the browser: the only argument is the prefix.",
+  ]],
+  ["src/client/features/tools/password/utils/breach.ts", [
+    "/**\n * Breach lookups, browser side.\n *\n * The password is hashed here and only the first five hex characters of its SHA-1 go to our server,\n * which forwards exactly that prefix to HIBP. The suffix list comes back and the comparison happens\n * locally, so neither the full hash nor the password is ever sent. The cache below lives in memory\n * for the session only: nothing about a password is written to disk or to the vault.\n */",
+    "/** Uppercase hex SHA-1, the shape the range API and our route both expect. */",
+    "/**\n * How many times this password appears in known breaches; 0 when it does not (or when HIBP's padded\n * answer omits it). Throws when the lookup itself fails, so the caller can degrade visibly.\n */",
+    "/** Test hook: a fresh session starts with an empty cache. */",
   ]],
   ["src/client/features/tools/password/utils/clipboard.ts", [
     "/** How long a copied secret is allowed to sit on the clipboard. */",
@@ -34161,6 +34175,7 @@ const allowed = new Map([
     "/** Client-only: at least one sealed field could not be opened with the current key. */",
     "/**\n     * The salt the vault used when this snapshot was written. A restore refuses a snapshot whose\n     * salt no longer matches, instead of replacing the vault with rows it cannot decrypt.\n     */",
     "/** One recorded security event. `detail` holds ids/counts only — never a secret. */",
+    "/** One suffix of a HIBP range response; the count is how often that hash appeared. */",
   ]],
   ["src/shared/tools/prompt-optimizer/builtin-templates.ts", [
     "/**\n * The built-in prompt templates, ported verbatim from the reference project.\n *\n * The reference stores them as TypeScript modules under\n * `packages/core/src/services/template/default-templates`. They are data, not code, so each template\n * family lives in its own JSON file under `./builtin/`; a reviewer diffs one family at a time instead\n * of scrolling a one-megabyte line, and the module below only concatenates them.\n *\n * Copyright (C) 2025 linshenkx (prompt-optimizer, AGPL-3.0-only); see NOTICE.\n */",
@@ -43123,6 +43138,10 @@ const allowed = new Map([
     "// instead of replacing the vault with rows nobody can decrypt.",
     "/**\n * Records one sensitive operation twice: a structured console line for the deployment log and a row\n * the reader can query from the UI. Only ids, counts and outcomes — never a password, a secret or a\n * ciphertext body. A failed insert must not fail the operation it describes, so it is best effort.\n */",
     "// ---------------------------------------------------------------- Audit",
+    "/**\n * Breach lookups are cheap for us but not for HIBP, and one account walking a 10,000-row vault would\n * send one request per distinct prefix. The key deliberately holds only the account id; the prefix is\n * never part of anything written down.\n */",
+    "// ---------------------------------------------------------------- Breach check",
+    "// The health view treats this as \"unknown, try later\" and never blocks saving.",
+    "// No log line and no audit row: recording the prefix would narrow down the passwords behind it.",
   ]],
   ["src/worker/routes/tools-prompt-optimizer.ts", [
     "/**\n * Prompt Optimizer API (`/api/tools/prompt-optimizer/*`).\n *\n * The route adapts HTTP, validates with the shared schemas, and hands the work to the store or the AI\n * service. It never talks to a provider directly and never trusts an id without binding `user_id`.\n */",
@@ -44419,6 +44438,15 @@ const allowed = new Map([
   ]],
   ["src/worker/tools/network-panel/store.ts", [
     "/**\n * D1 storage for the network panel, scoped by `user_id` on every statement.\n *\n * Settings are one row per reader, written on every change and read with the defaults applied; the\n * node list is bounded and the ledger is pruned on write, so neither can grow without a ceiling the\n * reader did not ask for.\n */",
+  ]],
+  ["src/worker/tools/password/breach.ts", [
+    "/**\n * HIBP range lookups for the health view.\n *\n * Privacy boundary: the browser hashes the password and sends only the first five hex characters of\n * its SHA-1. That prefix is forwarded to Have I Been Pwned's range API unchanged; neither the prefix\n * nor the answer is written to D1, to the console or to any log — an audit trail of \"which prefixes\n * this account asked about\" would narrow down its passwords. The suffix list comes back whole and\n * the comparison happens in the browser, so a full hash or a password never leaves it.\n */",
+    "/** The range API answers a few thousand suffix lines at most; anything larger is not an answer. */",
+    "/** One `SUFFIX:COUNT` per line; padding lines carry count 0 and are kept out of the answer. */",
+    "/**\n * Fetches the suffix range for a prefix. Returns null for any failure — offline, timeout, a non-200,\n * a body that is not the expected shape — so the caller can degrade instead of blocking health.\n */",
+    "// No credentials, no redirects: this is one fixed host and one fixed path.",
+    "// Padding makes every prefix look the same size to an observer of the response, and the",
+    "// zero-count lines are dropped by the parser.",
   ]],
   ["src/worker/tools/password/confirm.ts", [
     "/**\n * Short-lived proof that the reader re-entered the master password.\n *\n * The token is bound to the user id and to the stored verifier: changing the master password\n * invalidates every token that was issued before it, and a session cookie alone cannot mint one.\n * Two minutes is long enough to finish the confirmation dialog and short enough that a token left in\n * a tab is useless by the time somebody finds it.\n */",
@@ -50978,6 +51006,8 @@ const allowed = new Map([
     "// batches 2 and 3 are the 90 + 10 upsert chunks, batch 4 is the rollback.",
     "// The budget is spent before the record lookup, so a missing id still consumes an attempt.",
     "// A destructive call without a token must leave a \"refused\" line behind, not silence.",
+    "// The padded zero line is dropped; only real hits remain.",
+    "// The prefix is a fragment of a password hash: it must not appear in a log line or an audit row.",
   ]],
   ["tests/tools-password-conventions.test.ts", [
     "/**\n * The password vault's own invariants, written down after an audit found every one of them broken.\n *\n * These are deliberately module-scoped rather than folded into the shared gates: the shared\n * component-level gates only read `src/client/styles`, and widening them in one step would judge\n * every other feature by a rule it has never been held to. Everything below can only regress here.\n */",

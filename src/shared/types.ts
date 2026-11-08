@@ -1524,6 +1524,7 @@ export type ApiErrorCode =
   | 'reauth_required'
   | 'unsupported_backup_version'
   | 'backup_key_mismatch'
+  | 'hibp_unavailable'
   | 'restore_rollback_failed'
   | 'reset_rollback_failed'
   | 'too_many_attempts'

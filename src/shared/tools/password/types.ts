@@ -94,6 +94,12 @@ export interface PasswordBackupRecord {
   createdAt: number
 }
 
+/** One suffix of a HIBP range response; the count is how often that hash appeared. */
+export interface BreachRangeEntry {
+  suffix: string
+  count: number
+}
+
 /** One recorded security event. `detail` holds ids/counts only — never a secret. */
 export interface PasswordAuditEntry {
   id: string

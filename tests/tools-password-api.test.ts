@@ -1469,3 +1469,77 @@ describe('Password Manager Security Log', () => {
     expect(entries.map((entry) => entry.action)).toEqual(['wipe_ok'])
   })
 })
+
+describe('Password Manager Breach Lookup', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('forwards exactly the five-character prefix and returns suffix counts', async () => {
+    const requested: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        requested.push(String(url))
+        return new Response(
+          [
+            '0018A45C4D1DEF81644B54AB7F969B88D65:1',
+            '00D4F6E8FA6EECAD2A3AA415EEC418D38EC:0',
+            'not-a-line',
+          ].join('\n'),
+          { status: 200, headers: { 'content-type': 'text/plain' } },
+        )
+      }),
+    )
+
+    const res = await call('GET', '/api/tools/password/breach?prefix=5baa6')
+    expect(res.status).toBe(200)
+    const entries = (await json<{ data: Array<{ suffix: string; count: number }> }>(res)).data
+    // The padded zero line is dropped; only real hits remain.
+    expect(entries).toEqual([{ suffix: '0018A45C4D1DEF81644B54AB7F969B88D65', count: 1 }])
+    expect(requested).toEqual(['https://api.pwnedpasswords.com/range/5BAA6'])
+  })
+
+  it('refuses anything that is not five hex characters before calling upstream', async () => {
+    const fetchSpy = vi.fn(async () => new Response('', { status: 200 }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    for (const prefix of ['', '5BAA', '5BAA67', 'ZZZZZ', '5BAA6%20']) {
+      const res = await call('GET', `/api/tools/password/breach?prefix=${encodeURIComponent(prefix)}`)
+      expect(res.status, prefix).toBe(400)
+    }
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('answers 503 and writes no prefix anywhere when the upstream is down', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new Error('offline'))))
+    const logs: string[] = []
+    const spy = vi.spyOn(console, 'log').mockImplementation((message?: unknown) => {
+      logs.push(String(message))
+    })
+    try {
+      const res = await call('GET', '/api/tools/password/breach?prefix=5BAA6')
+      expect(res.status).toBe(503)
+      expect((await json<{ error: { code: string } }>(res)).error.code).toBe('hibp_unavailable')
+    } finally {
+      spy.mockRestore()
+    }
+    // The prefix is a fragment of a password hash: it must not appear in a log line or an audit row.
+    expect(logs.join('\n')).not.toContain('5BAA6')
+    const audit = (await json<{ data: Array<{ detail: unknown }> }>(
+      await call('GET', '/api/tools/password/audit'),
+    )).data
+    expect(JSON.stringify(audit)).not.toContain('5BAA6')
+  })
+
+  it('throttles lookups per account', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 200 })))
+
+    for (let attempt = 1; attempt <= 60; attempt += 1) {
+      const res = await call('GET', '/api/tools/password/breach?prefix=5BAA6')
+      expect(res.status, `attempt ${attempt}`).toBe(200)
+    }
+    const throttled = await call('GET', '/api/tools/password/breach?prefix=5BAA6')
+    expect(throttled.status).toBe(429)
+  })
+})

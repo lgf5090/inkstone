@@ -42,6 +42,7 @@ import {
   verifyConfirmToken,
 } from '../tools/password/confirm'
 import { fetchFavicon, parseFaviconDomain } from '../tools/password/favicon'
+import { fetchBreachRange } from '../tools/password/breach'
 
 export const toolsPasswordRoutes = new Hono<AppBindings>()
 
@@ -127,6 +128,22 @@ async function spendFaviconBudget(c: Context<AppBindings>): Promise<void> {
         { key, maxAttempts: 120, windowMs: UNLOCK_WINDOW_MS, lockMs: UNLOCK_WINDOW_MS },
       ]),
     'Too many favicon requests',
+  )
+}
+
+/**
+ * Breach lookups are cheap for us but not for HIBP, and one account walking a 10,000-row vault would
+ * send one request per distinct prefix. The key deliberately holds only the account id; the prefix is
+ * never part of anything written down.
+ */
+async function spendBreachBudget(c: Context<AppBindings>): Promise<void> {
+  const key = `password-hibp:${getUserId(c)}`
+  await assertAttemptBudget(
+    () =>
+      consumeAttemptBudget(c.env.DB, [
+        { key, maxAttempts: 60, windowMs: UNLOCK_WINDOW_MS, lockMs: UNLOCK_WINDOW_MS },
+      ]),
+    'Too many breach lookups',
   )
 }
 
@@ -392,6 +409,23 @@ toolsPasswordRoutes.delete('/accounts/:id', async (c) => {
   const id = c.req.param('id')
   await store.deleteAccount(id)
   return c.json({ ok: true })
+})
+
+// ---------------------------------------------------------------- Breach check
+toolsPasswordRoutes.get('/breach', async (c) => {
+  const prefix = (c.req.query('prefix') ?? '').trim().toUpperCase()
+  if (!/^[0-9A-F]{5}$/.test(prefix)) {
+    throw ApiError.badRequest('A breach lookup takes five hex characters')
+  }
+  await spendBreachBudget(c)
+
+  const entries = await fetchBreachRange(prefix)
+  if (!entries) {
+    // The health view treats this as "unknown, try later" and never blocks saving.
+    throw new ApiError(503, 'hibp_unavailable', 'The breach database could not be reached')
+  }
+  // No log line and no audit row: recording the prefix would narrow down the passwords behind it.
+  return c.json({ ok: true, data: entries })
 })
 
 // ---------------------------------------------------------------- Favicon

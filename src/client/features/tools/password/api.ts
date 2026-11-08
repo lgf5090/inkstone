@@ -5,6 +5,7 @@ import type {
   PasswordSettings,
   PasswordBackupRecord,
   PasswordAuditEntry,
+  BreachRangeEntry,
 } from '@shared/tools/password/types'
 
 const BASE_URL = '/api/tools/password'
@@ -225,4 +226,7 @@ export const passwordApi = {
     }),
 
   getAudit: (limit = 30) => request<PasswordAuditEntry[]>(`/audit?limit=${limit}`),
+
+  /** Only the five-character prefix leaves the browser; see `utils/breach.ts`. */
+  checkBreach: (prefix: string) => request<BreachRangeEntry[]>(`/breach?prefix=${prefix}`),
 }
