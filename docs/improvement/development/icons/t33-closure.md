@@ -99,10 +99,16 @@ development/icons/exports/{format}/u{shard}/{exportId}.{ext}  # private
 
 未在本机验证：
 - Cloudflare 边缘缓存命中率与 `cf-cache-status`（本地无边缘）。
-- 生产模式 1 万条滚动 FPS（`wrangler dev` 构建产物需远程 AI 授权，本沙箱无法完成）。
-- 500 项任务与 1000 ICO 的实际耗时（见结项报告最新数字；若未跑则注明）。
-- 10k 全量真实缩略图回填耗时（按批调用维护接口）。
-- 浏览器端大批量转换的真机耗时（Chrome/Canvas 差异）。
+- 真实显示器下的绝对 55 FPS（本机 Xvfb 空白页基线 50.6 FPS，生产构建相对基线 100%）。
+- 浏览器端 500 项转换的耗时随设备差异（本机有头 Chromium：71.5 s，P95 1007 ms，内存峰值 137 MB）。
+
+已实测：
+- 500 资产 × PNG 5 尺寸：47.4 s，0 失败。
+- 500 资产 × ICO 4 尺寸 × 2 批（共 1000 ICO）：31.0 s，0 失败。
+- 500 资产 sprite（1x/2x + JSON/CSS/SCSS）：5.5 s，0 失败；产物 48.9 KB / 127.6 KB / 67.5 KB / 25.5 KB / 25.3 KB。
+- 缩略图回填 9,802 条：45.2 s，0 失败；首屏 60 个从 13.8 KB（SVG）变为 40.9 KB（WebP）。
+- 1 万条滚动（生产构建）：50.63 FPS；同环境空白页基线 50.64 FPS。
+- 列表 21–23 ms、搜索 26–34 ms（9,802 条）。
 
 部署后必须验证：
 1. `GET /api/development/icons/bootstrap` 返回 `schemaVersions=[320,321,327,328]`。
