@@ -573,3 +573,10 @@
   border-radius: var(--r-xs);
   box-shadow: inset 0 -1px 0 color-mix(in oklab, var(--accent) 45%, transparent);
 }
+/* A phone keeps the toolbar on one row and scrolls it sideways. The fade says there is more
+   than the last visible icon; it is a hint, not a control, so it never takes a tap. */
+@media (max-width: 767px) {
+  .editor-toolbar {
+    mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  }
+}

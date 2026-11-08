@@ -195,7 +195,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         </div>);
     };
 
-    return (<div aria-label={t('workspace.formatting_tools')} className={cn('editor-toolbar flex shrink-0 items-center overflow-x-auto border-b border-[var(--border-subtle)] px-2 no-scrollbar', mobile ? 'h-11 gap-1' : 'h-9 gap-0.5')}>
+    return (<div role="toolbar" aria-orientation="horizontal" aria-label={t('workspace.formatting_tools')} className={cn('editor-toolbar flex shrink-0 items-center border-b border-[var(--border-subtle)] px-2 no-scrollbar', mobile ? 'h-11 gap-1 overflow-x-auto' : 'h-9 gap-0.5 overflow-x-auto')}>
       {menuButton('heading', <Heading size={14}/>)}
       <Divider />
       <FormatToolbar
