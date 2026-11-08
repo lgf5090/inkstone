@@ -27,7 +27,7 @@ export const ICON_BUILTIN_LIBRARIES: readonly IconBuiltinLibrary[] = [
     license: 'ISC',
     homepage: 'https://lucide.dev',
     style: 'line',
-    totalIcons: 1960,
+    totalIcons: 2109,
     seedLimit: 140,
   },
   {
@@ -37,7 +37,7 @@ export const ICON_BUILTIN_LIBRARIES: readonly IconBuiltinLibrary[] = [
     license: 'MIT',
     homepage: 'https://tabler.io/icons',
     style: 'line',
-    totalIcons: 6147,
+    totalIcons: 6305,
     seedLimit: 140,
   },
   {
@@ -47,7 +47,7 @@ export const ICON_BUILTIN_LIBRARIES: readonly IconBuiltinLibrary[] = [
     license: 'Apache-2.0',
     homepage: 'https://fonts.google.com/icons',
     style: 'fill',
-    totalIcons: 3000,
+    totalIcons: 16491,
     seedLimit: 120,
   },
   {
@@ -57,7 +57,7 @@ export const ICON_BUILTIN_LIBRARIES: readonly IconBuiltinLibrary[] = [
     license: 'MIT',
     homepage: 'https://phosphoricons.com',
     style: 'mixed',
-    totalIcons: 7500,
+    totalIcons: 9161,
     seedLimit: 120,
   },
   {
@@ -67,7 +67,7 @@ export const ICON_BUILTIN_LIBRARIES: readonly IconBuiltinLibrary[] = [
     license: 'MIT',
     homepage: 'https://heroicons.com',
     style: 'mixed',
-    totalIcons: 324,
+    totalIcons: 1288,
     seedLimit: 120,
   },
   {
@@ -77,7 +77,7 @@ export const ICON_BUILTIN_LIBRARIES: readonly IconBuiltinLibrary[] = [
     license: 'MIT',
     homepage: 'https://icons.getbootstrap.com',
     style: 'fill',
-    totalIcons: 2078,
+    totalIcons: 2084,
     seedLimit: 120,
   },
   {
@@ -87,7 +87,7 @@ export const ICON_BUILTIN_LIBRARIES: readonly IconBuiltinLibrary[] = [
     license: 'MIT',
     homepage: 'https://feathericons.com',
     style: 'line',
-    totalIcons: 287,
+    totalIcons: 255,
     seedLimit: 120,
   },
   {
@@ -107,7 +107,7 @@ export const ICON_BUILTIN_LIBRARIES: readonly IconBuiltinLibrary[] = [
     license: 'CC0-1.0',
     homepage: 'https://simpleicons.org',
     style: 'brand',
-    totalIcons: 3000,
+    totalIcons: 3740,
     seedLimit: 120,
   },
 ]
