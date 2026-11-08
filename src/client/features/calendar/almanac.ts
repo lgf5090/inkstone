@@ -63,10 +63,6 @@ export function constellationOf(month: number, day: number): MessageKey {
   return CONSTELLATIONS[0]!.key
 }
 
-function localDate(date: Date): Temporal.PlainDate {
-  return Temporal.PlainDate.from({ year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() })
-}
-
 /** One day's almanac, from a Date the grid already holds. */
 export function dayAlmanac(date: Date): CalendarDayAlmanac {
   const base = almanacOf(date)
@@ -136,14 +132,6 @@ export function gridAlmanac(
  */
 export function monthAlmanac(year: number, month: number, weekStart: number): ReadonlyMap<string, CalendarDayAlmanac> {
   return gridAlmanac(monthWindow(year, month, weekStart)[0]!, weekStart)
-}
-
-/** The almanac of one day of a month already resolved; null outside the window a grid draws. */
-export function almanacOfKey(
-  map: ReadonlyMap<string, CalendarDayAlmanac>,
-  date: Date,
-): CalendarDayAlmanac | null {
-  return map.get(localDate(date).toString()) ?? null
 }
 
 /**
