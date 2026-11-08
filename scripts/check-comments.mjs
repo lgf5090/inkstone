@@ -12503,6 +12503,10 @@ const allowed = new Map([
     "/* best-effort convergence poll: a failed refetch keeps the last good bundle */",
     "/* best-effort: dialog stays usable if the refetch fails */",
   ]],
+  ["src/client/features/project/BoardViews.tsx", [
+    "/* storage unavailable (private mode): fall back to the first view */",
+    "/* best-effort: remembering the last view is optional */",
+  ]],
   ["src/client/features/project/ExtraViews.tsx", [
     "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
     "/* bare stamp */",

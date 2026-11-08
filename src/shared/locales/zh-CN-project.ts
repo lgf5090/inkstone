@@ -116,6 +116,7 @@ export const ZH_CN_PROJECT = {
     "project.view.gantt": "甘特",
     "project.view.chart": "图表",
     "project.view.no_dates": "暂无带日期的卡片",
+    "project.view.hidden_count": "过滤隐藏了 {count} 张卡片",
     "project.view.blocked": "被阻塞",
     "project.view.swimlane": "泳道",
     "project.card.attachments": "附件",

@@ -85,3 +85,34 @@ describe('view tab labels', () => {
     expect(view.container.querySelector('[role="tablist"]')!.className).toContain('overflow-x-auto')
   })
 })
+
+describe('hidden card count (C-18)', () => {
+  it('reports how many cards the active filter hides', async () => {
+    const base = bundle()
+    base.views = [{ ...base.views[0]!, fields: { ...emptyProjectViewFields(), filter: { operation: 'and', filters: [{ propertyId: 'pt', condition: 'contains', values: ['hello'] }] } } }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn() }))
+    })
+    const status = view.container.querySelector('[role="status"]')
+    expect(status?.textContent).toBe(t('project.view.hidden_count', { count: 2 }))
+  })
+
+  it('shows no hint when nothing is filtered out', async () => {
+    await mount()
+    expect(view.container.querySelector('[role="status"]')).toBeNull()
+  })
+})
+
+describe('last opened view memory (E-13)', () => {
+  afterEach(() => { localStorage.clear() })
+
+  it('restores the remembered view and persists a new selection', async () => {
+    localStorage.setItem('inkstone.project.lastView.b1', 'v2')
+    await mount()
+    const tabs = [...view.container.querySelectorAll('[role="tab"]')]
+    expect(tabs.find((tab) => tab.textContent === 'Board')?.getAttribute('aria-selected')).toBe('true')
+    const tableTab = tabs.find((tab) => tab.textContent === 'Table')!
+    await act(async () => { tableTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
+    expect(localStorage.getItem('inkstone.project.lastView.b1')).toBe('v1')
+  })
+})

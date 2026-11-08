@@ -25,6 +25,23 @@ const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   chart: 'project.view.chart',
 }
 
+const LAST_VIEW_KEY = 'inkstone.project.lastView.'
+
+function readLastViewId(boardId: string): string | null {
+  try {
+    return localStorage.getItem(LAST_VIEW_KEY + boardId)
+  } catch { /* storage unavailable (private mode): fall back to the first view */
+    return null
+  }
+}
+
+function writeLastViewId(boardId: string, viewId: string): void {
+  try {
+    localStorage.setItem(LAST_VIEW_KEY + boardId, viewId)
+  } catch { /* best-effort: remembering the last view is optional */
+  }
+}
+
 interface BoardViewsProps {
   bundle: ProjectBoardBundle
   canEdit: boolean
@@ -35,7 +52,12 @@ interface BoardViewsProps {
 }
 
 export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView }: BoardViewsProps): ReactElement {
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
+  useEffect(() => { setActiveId(readLastViewId(bundle.board.id)) }, [bundle.board.id])
+  const selectView = (id: string): void => {
+    setActiveId(id)
+    writeLastViewId(bundle.board.id, id)
+  }
   const addAnchor = useRef<HTMLButtonElement>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [settings, setSettings] = useState<'sort' | 'filter' | 'properties' | null>(null)
@@ -50,6 +72,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const viewType = active?.viewType ?? 'table'
   const filtered = bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties))
   const sorted = sortProjectCards(filtered, fields.sortOptions, bundle.properties)
+  const hiddenCount = bundle.cards.length - filtered.length
   const density = fields.cardSize ?? 'comfortable'
   const rowPad = density === 'compact' ? 'py-0.5' : density === 'spacious' ? 'py-3' : 'py-2'
   const columns = fields.visiblePropertyIds.length
@@ -66,7 +89,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             role="tab"
             aria-selected={active?.id === view.id}
             className={`shrink-0 whitespace-nowrap rounded-[var(--r-sm)] px-2 py-1 text-[length:var(--text-12)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active?.id === view.id ? 'bg-[var(--bg-hover)] font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}
-            onClick={() => setActiveId(view.id)}
+            onClick={() => selectView(view.id)}
           >
             {view.title || t(VIEW_LABEL[view.viewType] ?? 'project.view.table')}
           </button>
@@ -136,6 +159,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           </span>
         )}
       </div>
+      {hiddenCount > 0 && (
+        <p className="shrink-0 px-3 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]" role="status">
+          {t('project.view.hidden_count', { count: hiddenCount })}
+        </p>
+      )}
       {viewType === 'calendar'
         ? <CalendarView cards={sorted} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} onOpenCard={onOpenCard} />
         : sorted.length === 0

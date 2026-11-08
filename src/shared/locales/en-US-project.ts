@@ -116,6 +116,7 @@ export const EN_US_PROJECT = {
     "project.view.gantt": "Gantt",
     "project.view.chart": "Chart",
     "project.view.no_dates": "No dated cards",
+    "project.view.hidden_count": "{count} cards hidden by filters",
     "project.view.blocked": "Blocked",
     "project.view.swimlane": "Swimlane",
     "project.card.attachments": "Attachments",
