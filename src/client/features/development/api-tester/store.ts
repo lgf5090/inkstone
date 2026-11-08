@@ -18,8 +18,10 @@ import { ApiError } from '../../../lib/api'
 import { errorMessage } from './api'
 import * as api from './api'
 import { StateSaver } from './persistence'
-import { closeWsSession } from './ws-session'
+import { closeAllWsSessions, closeWsSession } from './ws-session'
+import { cancelAllRequests, discardRequest } from './lib/inflight'
 import { canMove, duplicateSubtree, reordered, subtreeIds, tagDescendantIds } from './lib/tree'
+import { fileIdsOfNode, fileIdReferencedByOtherNodes } from './lib/files'
 
 const LAST_WORKSPACE_KEY = 'inkstone.development.api-tester.last-workspace'
 
@@ -97,12 +99,12 @@ export interface ApiTesterStore {
   dismissConflict: () => void
   retrySave: () => void
   flush: () => Promise<void>
-  dispose: () => void
 }
 
 let saver: StateSaver | null = null
 let initialization: Promise<void> | null = null
 let pagehideInstalled = false
+let workspaceLoadSequence = 0
 
 function flushBeforeLeaving(): void {
   saver?.flushOnHide()
@@ -134,11 +136,14 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
   }
 
   const loadWorkspace = async (id: string) => {
+    const sequence = ++workspaceLoadSequence
     set({ loading: true, loadError: null })
     const activeSaver = ensureSaver()
     try {
       if (id === get().activeWorkspaceId) await activeSaver.flush()
+      if (sequence !== workspaceLoadSequence) return
       const response = await api.getState(id)
+      if (sequence !== workspaceLoadSequence) return
       const state = normalizeState({ ...response.data, workspaceId: id }, id)
       activeSaver.setRev(response.rev)
       set({
@@ -159,6 +164,7 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
       const first = state.nodes.find((node) => node.type === 'request')
       if (first) set({ activeId: first.id, openTabs: [first.id] })
     } catch (error) {
+      if (sequence !== workspaceLoadSequence) return
       if (error instanceof ApiError && error.status === 404) {
         const state = defaultState(id)
         activeSaver.setRev(0)
@@ -232,6 +238,8 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
     switchWorkspace: async (id) => {
       if (id === get().activeWorkspaceId) return
       await saver?.flush()
+      cancelAllRequests()
+      closeAllWsSessions()
       set({ activeWorkspaceId: id })
       await loadWorkspace(id)
     },
@@ -280,8 +288,16 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
     },
 
     deleteNode: (id) => {
-      const removed = subtreeIds(get().state.nodes, id)
-      for (const removedId of removed) closeWsSession(removedId)
+      const before = get().state.nodes
+      const removed = subtreeIds(before, id)
+      const removedFileIds = new Set<string>()
+      for (const node of before) {
+        if (removed.has(node.id)) for (const fileId of fileIdsOfNode(node)) removedFileIds.add(fileId)
+      }
+      for (const removedId of removed) {
+        closeWsSession(removedId)
+        discardRequest(removedId)
+      }
       get().patchState((state) => ({ ...state, nodes: state.nodes.filter((node) => !removed.has(node.id)) }))
       const snapshot = get()
       set({
@@ -289,8 +305,15 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
         results: Object.fromEntries(Object.entries(snapshot.results).filter(([key]) => !removed.has(key))),
         loadingTabs: Object.fromEntries(Object.entries(snapshot.loadingTabs).filter(([key]) => !removed.has(key))),
         testResults: Object.fromEntries(Object.entries(snapshot.testResults).filter(([key]) => !removed.has(key))),
-        activeId: snapshot.activeId && removed.has(snapshot.activeId) ? null : snapshot.activeId,
+        activeId: snapshot.activeId && removed.has(snapshot.activeId) ? (snapshot.openTabs.find((tab) => !removed.has(tab)) ?? null) : snapshot.activeId,
       })
+      for (const fileId of removedFileIds) {
+        if (!fileIdReferencedByOtherNodes(snapshot.state.nodes, fileId)) {
+          void api.deleteFile(fileId).catch((error) => {
+            console.warn('[inkstone] API Tester node file could not be deleted', error)
+          })
+        }
+      }
     },
 
     duplicateNode: (id, suffix) => {
@@ -321,6 +344,7 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
 
     closeTab: (id) => {
       const snapshot = get()
+      discardRequest(id)
       const index = snapshot.openTabs.indexOf(id)
       const openTabs = snapshot.openTabs.filter((tab) => tab !== id)
       const activeId = snapshot.activeId === id ? (openTabs[index] ?? openTabs[index - 1] ?? openTabs[0] ?? null) : snapshot.activeId
@@ -479,11 +503,6 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
 
     flush: async () => {
       await saver?.flush()
-    },
-
-    dispose: () => {
-      saver?.dispose()
-      saver = null
     },
   }
 })

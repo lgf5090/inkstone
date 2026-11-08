@@ -8,9 +8,15 @@ import { Textarea } from '../../../../components/form'
 import { CopyButton } from '../../../../components/copy-button'
 import { useUi } from '../../../../store/ui'
 import { t } from '../../../../lib/i18n'
+import { formatBytes } from '../../../../lib/time'
 import { deleteFile, fetchFileText, fileUrl, listFiles, uploadText } from '../api'
-import { formatSize } from '../lib/relay-client'
 import { useApiTesterStore } from '../store'
+
+const TEXT_FILE_KINDS = new Set(['json', 'txt', 'csv', 'xml', 'html'])
+
+function isTextFile(file: ApiTesterFile): boolean {
+  return TEXT_FILE_KINDS.has(file.kind)
+}
 
 export function ImportExportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const state = useApiTesterStore((s) => s.state)
@@ -27,9 +33,9 @@ export function ImportExportDialog({ open, onClose }: { open: boolean; onClose: 
   const loadFiles = async () => {
     setFilesLoading(true)
     try {
-      setFiles(await listFiles('json'))
+      setFiles(await listFiles())
     } catch (failure) {
-      console.warn('[inkstone] API Tester server files could not be listed', failure)
+      setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
       setFilesLoading(false)
     }
@@ -49,19 +55,32 @@ export function ImportExportDialog({ open, onClose }: { open: boolean; onClose: 
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = `api-tester-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(anchor)
     anchor.click()
+    anchor.remove()
     URL.revokeObjectURL(url)
   }
 
-  const importText = (value: string) => {
+  const importText = async (value: string) => {
     try {
       const parsed = JSON.parse(value) as unknown
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Array.isArray((parsed as { nodes?: unknown }).nodes)) {
+        throw new Error(t('development.apitester.invalid_state'))
+      }
       const normalized = normalizeState(parsed, workspaceId)
       const hasScripts = normalized.nodes.some((node) => node.preScript?.trim() || node.tests?.trim())
       if (hasScripts && !scriptWarning) {
         setScriptWarning(true)
         return
       }
+      const ok = await confirm({
+        title: t('development.apitester.import_confirm_title'),
+        description: t('development.apitester.import_confirm_desc'),
+        tone: 'danger',
+        confirmLabel: t('development.apitester.import'),
+        cancelLabel: t('common.cancel'),
+      })
+      if (!ok) return
       patchState(() => normalized)
       onClose()
     } catch (failure) {
@@ -106,6 +125,9 @@ export function ImportExportDialog({ open, onClose }: { open: boolean; onClose: 
         </div>
         <div className="space-y-1">
           <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.apitester.import_data')}</span>
+          <p role="status" className="rounded-[var(--r-sm)] border border-[var(--warning)]/40 bg-[var(--warning-softer)] p-2 text-[length:var(--text-10-5)] text-[var(--warning)]">
+            {t('development.apitester.export_secrets_warning')}
+          </p>
           <Textarea
             value={text}
             onChange={(event) => { setText(event.target.value); setError(''); setScriptWarning(false) }}
@@ -116,7 +138,7 @@ export function ImportExportDialog({ open, onClose }: { open: boolean; onClose: 
           />
           {scriptWarning && <div className="rounded-[var(--r-sm)] border border-[var(--warning)]/40 bg-[var(--warning-softer)] p-2 text-[length:var(--text-10-5)] text-[var(--warning)]">{t('development.apitester.script_warning')}</div>}
           {error && <p className="text-[length:var(--text-10-5)] text-[var(--danger)]">{error}</p>}
-          <Button size="sm" disabled={!text.trim()} onClick={() => importText(text)}>{scriptWarning ? t('development.apitester.import_with_scripts') : t('development.apitester.import')}</Button>
+          <Button size="sm" disabled={!text.trim()} onClick={() => void importText(text)}>{scriptWarning ? t('development.apitester.import_with_scripts') : t('development.apitester.import')}</Button>
         </div>
         <div className="space-y-1 border-t border-[var(--border-subtle)] pt-2">
           <div className="flex items-center gap-2">
@@ -131,12 +153,15 @@ export function ImportExportDialog({ open, onClose }: { open: boolean; onClose: 
             <div className="max-h-48 overflow-y-auto">
               {files.map((file) => (
                 <div key={file.id} className="flex items-center gap-2 border-b border-[var(--border-subtle)] py-1 text-[length:var(--text-11)]">
+                  <span className="shrink-0 rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-1 font-mono text-[length:var(--text-9)] text-[var(--text-tertiary)]">{file.kind}</span>
                   <span className="min-w-0 flex-1 truncate font-mono">{file.name}</span>
-                  <span className="shrink-0 text-[var(--text-tertiary)]">{formatSize(file.size)}</span>
+                  <span className="shrink-0 text-[var(--text-tertiary)]">{formatBytes(file.size)}</span>
                   <span className="shrink-0 text-[var(--text-tertiary)]">{new Date(file.createdAt).toLocaleString()}</span>
-                  <Button size="sm" variant="ghost" onClick={() => void fetchFileText(file.id).then((value) => { setText(value); setScriptWarning(false); setError('') }).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)))}>
-                    {t('development.apitester.files.load')}
-                  </Button>
+                  {isTextFile(file) && (
+                    <Button size="sm" variant="ghost" onClick={() => void fetchFileText(file.id).then((value) => { setText(value); setScriptWarning(false); setError('') }).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)))}>
+                      {t('development.apitester.files.load')}
+                    </Button>
+                  )}
                   <a href={fileUrl(file.id)} download={file.name} className="rounded-[var(--r-sm)] p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]" aria-label={t('development.apitester.files.download')}>
                     <Download size={13} />
                   </a>

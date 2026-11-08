@@ -56,4 +56,42 @@ describe('API tester state normalization', () => {
     expect('history' in data).toBe(false)
     expect(defaultRequest().headers[0]?.key).toBe('Content-Type')
   })
+
+  it('repairs malformed nested requests and cyclic parent chains instead of crashing', () => {
+    const state = normalizeState(
+      {
+        nodes: [
+          { id: 'n1', type: 'request', name: 'Broken', parentId: 'n2', request: [] },
+          { id: 'n2', type: 'folder', name: 'Folder', parentId: 'n1' },
+          { id: 'n2', type: 'request', name: 'Duplicate id' },
+        ],
+        tags: [
+          { id: 'a', name: 'A', parentId: 'b' },
+          { id: 'b', name: 'B', parentId: 'a' },
+        ],
+      },
+      'ws',
+    )
+    expect(state.nodes).toHaveLength(2)
+    expect(state.nodes[0]?.request?.method).toBe('GET')
+    expect(state.nodes[0]?.request?.params).toEqual([])
+    expect(state.nodes[0]?.request?.auth.type).toBe('none')
+    expect(state.nodes.some((node) => node.parentId === node.id)).toBe(false)
+    expect(state.tags.some((tag) => tag.parentId === tag.id)).toBe(false)
+  })
+
+  it('defaults cookies and normalizes stored cookie attributes', () => {
+    const state = normalizeState(
+      {
+        cookies: [
+          { id: 'c1', name: 'sid', value: 'v', domain: '.Example.COM', path: '/api', secure: true, expiresAt: 9_000_000_000_000 },
+          { id: 'c2', name: '', value: 'ignored' },
+        ],
+      },
+      'ws',
+    )
+    expect(state.cookies).toEqual([
+      { id: 'c1', name: 'sid', value: 'v', domain: 'example.com', path: '/api', expiresAt: 9_000_000_000_000, secure: true, httpOnly: undefined },
+    ])
+  })
 })
