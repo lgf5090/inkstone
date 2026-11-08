@@ -177,6 +177,19 @@ describe('development github repository proxy', () => {
       if (url.endsWith('/tags?per_page=100')) {
         return jsonResponse(Array.from({ length: 100 }, (_, index) => ({ name: `t${index}` })))
       }
+      if (url.endsWith('/commits?per_page=10')) {
+        return jsonResponse([
+          {
+            sha: 'abc1234def5678',
+            html_url: 'https://github.com/owner/name/commit/abc1234def5678',
+            commit: {
+              message: 'Fix the build\n\nDetails',
+              author: { name: 'Octo', date: '2026-01-01T00:00:00Z' },
+            },
+            author: { login: 'octo', avatar_url: 'https://avatars.githubusercontent.com/u/1' },
+          },
+        ])
+      }
       if (url.endsWith('/languages')) return jsonResponse({ TypeScript: 750, CSS: 250 })
       if (url.endsWith('/releases?per_page=30')) {
         return jsonResponse(
@@ -204,12 +217,27 @@ describe('development github repository proxy', () => {
       return new Response('# Readme', { status: 200 })
     })
     const detail = await fetchRepoDetail('owner/name', undefined, 'tok')
-    expect(calls).toHaveLength(5)
+    expect(calls).toHaveLength(6)
     expect(detail.fullName).toBe('owner/name')
     expect(detail.branchesCount).toBe(100)
     expect(detail.branchesTruncated).toBe(true)
+    expect(detail.branchNames).toHaveLength(100)
     expect(detail.tagsCount).toBe(100)
     expect(detail.tagsTruncated).toBe(true)
+    expect(detail.tagNames).toHaveLength(100)
+    expect(detail.commits).toEqual([
+      {
+        sha: 'abc1234def5678',
+        message: 'Fix the build',
+        author: {
+          login: 'octo',
+          name: 'Octo',
+          avatarUrl: 'https://avatars.githubusercontent.com/u/1',
+        },
+        date: '2026-01-01T00:00:00Z',
+        url: 'https://github.com/owner/name/commit/abc1234def5678',
+      },
+    ])
     expect(detail.releasesTruncated).toBe(true)
     expect(detail.releases[0]?.isLatest).toBe(true)
     expect(detail.releases[0]?.assets[0]).not.toHaveProperty('apiUrl')
@@ -545,12 +573,13 @@ describe('development github repo detail cache', () => {
       if (url.endsWith('/languages')) return jsonResponse({ TypeScript: 1000 })
       if (url.includes('/releases?per_page=30')) return jsonResponse([])
       if (url.endsWith('/readme')) return new Response('# hi', { status: 200 })
+      if (url.includes('/commits?per_page=10')) return jsonResponse([])
       return jsonResponse({}, 404)
     })
     const first = await fetchRepoDetail('cache/demo', 'main')
-    expect(calls).toHaveLength(5)
+    expect(calls).toHaveLength(6)
     const second = await fetchRepoDetail('cache/demo', 'main')
-    expect(calls).toHaveLength(5)
+    expect(calls).toHaveLength(6)
     expect(second).toEqual(first)
     expect(second.readme).toBe('# hi')
   })

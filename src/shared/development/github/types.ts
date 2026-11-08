@@ -103,7 +103,21 @@ export interface GithubRelease {
   assets: GithubReleaseAsset[]
 }
 
-export type GithubWarningSource = 'branches' | 'tags' | 'languages' | 'releases' | 'readme'
+export interface GithubCommitAuthor {
+  login: string
+  name: string
+  avatarUrl: string
+}
+
+export interface GithubCommit {
+  sha: string
+  message: string
+  author: GithubCommitAuthor | null
+  date: string
+  url: string
+}
+
+export type GithubWarningSource = 'branches' | 'tags' | 'languages' | 'releases' | 'readme' | 'commits'
 export type GithubWarningCode = 'rate_limited' | 'not_found' | 'upstream'
 export type GithubRepoDetailPart = GithubWarningSource
 
@@ -123,6 +137,9 @@ export interface GithubRepoDetail {
   languages: { name: string; bytes: number; percentage: number }[]
   releases: GithubRelease[]
   releasesTruncated: boolean
+  branchNames: string[]
+  tagNames: string[]
+  commits: GithubCommit[]
   readme: string | null
   readmeHtmlUrl: string | null
   warnings: GithubWarning[]

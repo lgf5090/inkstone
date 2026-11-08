@@ -115,6 +115,7 @@ function renderList(options: { explore?: boolean; pinned?: boolean; collection?:
         onSyncStars={() => undefined}
         syncingStars={false}
         onExportLibrary={() => undefined}
+        onExportCsv={() => undefined}
         toggleSidebar={() => undefined}
         toggleDetail={() => undefined}
         detailDisabled

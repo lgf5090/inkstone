@@ -12,6 +12,7 @@ import { useGithubStore } from '../store'
 import { loadRepoPrefs, loadSearchHistory, saveRepoPrefs, saveSearchHistory } from '../prefs'
 import { sortSavedRepos, filterRepos } from '../lib/filters'
 import { syncStarredRepositories } from '../lib/star-sync'
+import { buildRepoCsv } from '../lib/csv'
 import { GithubPanes } from '../GithubPanes'
 import { ModuleTabs, type GithubTab } from './ModuleTabs'
 import { RepoSidebar } from './RepoSidebar'
@@ -381,6 +382,23 @@ export function ReposPane({
     toast({ title: t('development.github.repos.export_done'), tone: 'success' })
   }, [tags, repos, toast])
 
+  const exportRepoCsv = useCallback(() => {
+    if (repos.length === 0) {
+      toast({ title: t('development.github.repos.no_repos'), tone: 'warning' })
+      return
+    }
+    const url = URL.createObjectURL(new Blob([buildRepoCsv(repos, tags)], { type: 'text/csv;charset=utf-8' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `github-repos-${new Date().toISOString().slice(0, 10)}.csv`
+    anchor.rel = 'noopener'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    toast({ title: t('development.github.repos.export_csv_done'), tone: 'success' })
+  }, [tags, repos, toast])
+
   const sidebar = (
     <RepoSidebar tags={tags} collections={collections} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} onManageCollections={() => setCollectionManagerOpen(true)} onImportRepo={() => setImportOpen(true)} />
   )
@@ -440,6 +458,7 @@ export function ReposPane({
             onSyncStars={() => void syncStars()}
             syncingStars={syncingStars}
             onExportLibrary={exportLibrary}
+            onExportCsv={exportRepoCsv}
             toggleSidebar={toggleSidebar}
             toggleDetail={toggleDetail}
             detailDisabled={detailDisabled}

@@ -639,6 +639,7 @@ describe('development github proxies', () => {
       if (url.endsWith('/branches?per_page=100')) return jsonResponse([])
       if (url.endsWith('/tags?per_page=100')) return jsonResponse([])
       if (url.endsWith('/languages')) return jsonResponse({ Rust: 100 })
+      if (url.includes('/commits?per_page=10')) return jsonResponse([])
       if (url.endsWith('/releases?per_page=30')) {
         return jsonResponse({ message: 'rate' }, 403, { 'x-ratelimit-remaining': '0' })
       }

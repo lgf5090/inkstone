@@ -5,6 +5,7 @@ import {
   MAX_GITHUB_TEXT_BYTES,
 } from '@shared/development/github/limits'
 import type {
+  GithubCommit,
   GithubRelease,
   GithubReleaseAsset,
   GithubRepo,
@@ -247,6 +248,37 @@ function latestReleaseId(values: readonly unknown[]): string | null {
   return latest?.id ?? null
 }
 
+function normalizeCommit(value: unknown): GithubCommit {
+  const raw = isRecord(value) ? value : {}
+  const commit = isRecord(raw.commit) ? raw.commit : {}
+  const author = isRecord(commit.author) ? commit.author : {}
+  const user = isRecord(raw.author) ? raw.author : null
+  const login = user ? readString(user.login, 100) : ''
+  const name = readString(author.name, 200) || login
+  const message = readString(commit.message, 2000)
+  return {
+    sha: readString(raw.sha, 64),
+    message: message.split('\n')[0]!.slice(0, 300),
+    author: login || name
+      ? {
+          login,
+          name,
+          avatarUrl: user ? readHttpUrl(user.avatar_url, 2048) : '',
+        }
+      : null,
+    date: readString(author.date, 64),
+    url: readHttpUrl(raw.html_url, 2048),
+  }
+}
+
+function readEntityNames(value: unknown, limit: number): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => isRecord(entry) ? readString(entry.name, 200) : '')
+    .filter((name) => name.length > 0)
+    .slice(0, limit)
+}
+
 function normalizeLanguages(value: unknown): GithubRepoDetail['languages'] {
   const raw = isRecord(value) ? value : {}
   const entries = Object.entries(raw)
@@ -296,6 +328,7 @@ export const REPO_DETAIL_PARTS: readonly GithubRepoDetailPart[] = [
   'languages',
   'releases',
   'readme',
+  'commits',
 ]
 
 export async function fetchRepoDetail(
@@ -316,7 +349,7 @@ export async function fetchRepoDetail(
   const base = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.name)}`
   const request = { token, timeoutMs: GITHUB_DETAIL_TIMEOUT_MS }
   const skipped: SourceOutcome<unknown> = { data: null, error: null }
-  const [branches, tags, languages, releases, readme] = await Promise.all([
+  const [branches, tags, languages, releases, readme, commits] = await Promise.all([
     requested.has('branches')
       ? fetchSource(async () => (await githubJson<unknown[]>(`${base}/branches?per_page=100`, request)).data)
       : Promise.resolve(skipped),
@@ -341,6 +374,9 @@ export async function fetchRepoDetail(
           ).data,
       )
       : Promise.resolve(skipped),
+    requested.has('commits')
+      ? fetchSource(async () => (await githubJson<unknown[]>(`${base}/commits?per_page=10`, request)).data)
+      : Promise.resolve(skipped),
   ])
   const outcomes: Array<[GithubWarningSource, SourceOutcome<unknown>]> = []
   if (requested.has('branches')) outcomes.push(['branches', branches])
@@ -348,6 +384,7 @@ export async function fetchRepoDetail(
   if (requested.has('languages')) outcomes.push(['languages', languages])
   if (requested.has('releases')) outcomes.push(['releases', releases])
   if (requested.has('readme')) outcomes.push(['readme', readme])
+  if (requested.has('commits')) outcomes.push(['commits', commits])
   const tokenFailures = outcomes.filter(
     ([, outcome]) => outcome.error?.code === 'github_token_invalid',
   )
@@ -375,6 +412,9 @@ export async function fetchRepoDetail(
       return normalizeRelease(release, latestId !== null && String(readInteger(raw.id)) === latestId)
     }),
     releasesTruncated: releaseList.length >= 30,
+    branchNames: readEntityNames(branchList, 100),
+    tagNames: readEntityNames(tagList, 100),
+    commits: Array.isArray(commits.data) ? commits.data.map((commit) => normalizeCommit(commit)) : [],
     readme: typeof readme.data === 'string' ? readme.data : null,
     readmeHtmlUrl: `https://github.com/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.name)}#readme`,
     warnings,

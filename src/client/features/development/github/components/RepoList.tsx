@@ -80,6 +80,7 @@ export function RepoList({
   onSyncStars,
   syncingStars,
   onExportLibrary,
+  onExportCsv,
   toggleSidebar,
   toggleDetail,
   detailDisabled,
@@ -128,6 +129,7 @@ export function RepoList({
   onSyncStars: () => void
   syncingStars: boolean
   onExportLibrary: () => void
+  onExportCsv: () => void
   toggleSidebar: () => void
   toggleDetail: () => void
   detailDisabled: boolean
@@ -163,6 +165,7 @@ export function RepoList({
     { id: 'refresh', label: t('development.github.common.refresh'), icon: <RefreshCw size={13} className={cn(loading && 'animate-spin')} />, separatorBefore: true, onSelect: onRefresh },
     { id: 'sync-stars', label: syncingStars ? t('development.github.repos.syncing_stars') : t('development.github.repos.sync_stars'), icon: <Star size={13} />, disabled: syncingStars, onSelect: onSyncStars },
     { id: 'export-library', label: t('development.github.repos.export_library'), icon: <Download size={13} />, onSelect: onExportLibrary },
+    { id: 'export-csv', label: t('development.github.repos.export_csv'), icon: <Download size={13} />, onSelect: onExportCsv },
   ]
   const mirrorItems: MenuItem[] = [
     ...mirrors.filter((mirror) => mirror.enabled).map((mirror) => ({ id: `mirror-${mirror.id}`, label: mirror.name, icon: <Globe size={13} />, checked: currentMirrorId === mirror.id, onSelect: () => onCurrentMirrorChange(mirror.id) })),
