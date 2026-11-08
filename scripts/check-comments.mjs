@@ -7492,6 +7492,10 @@ const allowed = new Map([
     "// The key carries every value the effect reads; the object itself is rebuilt on every render.",
     "// eslint-disable-next-line react-hooks/exhaustive-deps",
   ]],
+  ["src/client/features/inknote/InknoteApp.tsx", [
+    "// The page's layer list is owned by the layer dialog; switching pages is what resets the choice.",
+    "// eslint-disable-next-line react-hooks/exhaustive-deps",
+  ]],
   ["src/client/features/inknote/api.ts", [
     "/** Typed calls to /api/inknote. The worker is the only source of truth for every shape here. */",
   ]],
@@ -7519,6 +7523,7 @@ const allowed = new Map([
   ["src/client/features/inknote/engine/engine-core.test.ts", [
     "// An autosave's row coming back, or a refresh that returns the same revision: same page object and",
     "// same paper values. setPage must not cancel the stroke in flight or reset the viewport.",
+    "// Hiding the layer removes its ink from selection without deleting it.",
   ]],
   ["src/client/features/inknote/engine/history.ts", [
     "/**\n * The engine's content undo stack.\n *\n * The host also receives every committed pair, but the canvas keeps its own bounded stack so an undo\n * after a stroke is instant and does not depend on React. Entries hold serialized page snapshots and\n * the page they belong to; a snapshot is never applied to a different page.\n */",
@@ -7565,6 +7570,12 @@ const allowed = new Map([
     "// and clears the selection by design, so re-running it on a render that changed nothing (a saved",
     "// row coming back, a refresh returning the same revision) cut the reader's stroke and reset the",
     "// zoom. The early return keeps the reader's interaction; a real change still goes through below.",
+    "/**\n   * The host owns the undo stack (the store's unified history). The engine still reports every\n   * committed pair through `onCommit`, but no longer keeps a second copy of the same snapshots.\n   */",
+    "/** The layer new ink is written to; absent means the page's first layer. */",
+    "// A stylus is already writing: a touch that lands on the glass is a palm, not a second gesture.",
+    "// Ignoring it keeps the stroke intact instead of turning it into a pinch and cancelling it.",
+    "// Hidden layers keep their ink; only the visible subset went through the eraser.",
+    "/** A committed stroke is appended to the raster instead of re-rendering every earlier stroke. */",
   ]],
   ["src/client/features/inknote/engine/renderer.ts", [
     "/**\n * Canvas painting for the Inknote engine, thumbnails and exports.\n *\n * Everything here is pure canvas: no React, no engine state, no network. Callers pass a page, its\n * paper and metrics; strokes are converted from content units to the paper's display units at draw\n * time. The same functions therefore serve the live engine, page thumbnails and PDF/PNG export.\n */",
@@ -7576,7 +7587,6 @@ const allowed = new Map([
     "/** Paint the paper surface and its ten ruling styles. Coordinates are display units. */",
     "/**\n * Return a loaded image, or start loading it and register a one-shot listener.\n *\n * Assets are same-origin `/api/inknote/assets/:id` URLs; the browser HTTP cache still applies, this\n * map only avoids a second decode and keeps the LRU bounded.\n */",
     "/** Test/export hook: drop decoded images and listeners without touching the DOM. */",
-    "/** Draw a background and the page images under the ink, requesting anything not decoded yet. */",
     "/**\n * Paint one committed stroke. Stroke points live in content units; the width stored beside them is\n * also in content units, so both are mapped back to the paper before canvas calls are made.\n */",
     "/** Draw a shape primitive given display-coordinate points. */",
     "/** Paint one text box. Stored coordinates are normalized; layout is shared with export. */",
@@ -7584,6 +7594,8 @@ const allowed = new Map([
     "/** Full page in the reference order: paper, media, ink, text. */",
     "/**\n * Render a page into a fresh canvas at a target CSS width. Used by page thumbnails, covers and\n * exports; the caller owns the returned canvas.\n */",
     "/**\n * Wait for a page's background and images before exporting or snapshotting. Missing or timed-out\n * assets are reported so the caller can warn; they never block the export indefinitely.\n */",
+    "/** Draw the page background; it sits under every layer. */",
+    "/** Draw the images of one layer, in page order. */",
   ]],
   ["src/client/features/inknote/io/AttachmentsDialog.tsx", [
     "/** The attachment shelf: upload, open, list and delete files that belong to one note. */",
@@ -7621,12 +7633,21 @@ const allowed = new Map([
   ]],
   ["src/client/features/inknote/library/LibraryPanel.tsx", [
     "/** The project → notebook → note library. One panel, shared by the desktop column and mobile drawer. */",
+    "/** The mobile drawer already prints the panel title. */",
+    "/** Load covers only as they scroll into view, two at a time: the list used to fetch every note's\n * full page detail the moment the panel mounted. */",
+    "/** A colour swatch is data, not a name: the readable name is what a reader hears and sees on hover. */",
+    "// An empty note has no cover yet and no ink to preview; fetching its detail only to render a blank",
+    "// page was one request per new note.",
   ]],
   ["src/client/features/inknote/library/NotePickerDialog.tsx", [
     "/** A searchable list of the account's notes, used to open a tab or pick a copy target. */",
   ]],
   ["src/client/features/inknote/panels/InkHelpDialogs.tsx", [
     "/** Welcome, shortcuts and the gesture cheat sheet. */",
+  ]],
+  ["src/client/features/inknote/panels/LayersDialog.tsx", [
+    "/** Per-page layers: order, visibility, naming and whether new ink lands on the layer. */",
+    "// Never leave new ink pointed at a layer the reader cannot see.",
   ]],
   ["src/client/features/inknote/panels/NoteToolsDialogs.tsx", [
     "/** Find/replace, outline and statistics over the pages the editor already holds. */",
@@ -7637,9 +7658,11 @@ const allowed = new Map([
   ["src/client/features/inknote/panels/TemplateCenter.tsx", [
     "/** The template shelf: the seven built-ins plus the account's saved pages. */",
   ]],
+  ["src/client/features/inknote/store.save.test.ts", [
+    "/** Saving must write only changed pages, and an edit made during a request must still reach the server. */",
+  ]],
   ["src/client/features/inknote/store.ts", [
     "/** The Inknote client store: the library, one open note, page saves and optimistic metadata. */",
-    "// Trash is listed by the UI on demand; keeping the note count in the library is enough.",
     "// A background refresh is allowed to miss; the next save or focus retries it.",
     "/* storage may be unavailable */",
     "/** Drafts left by a failed save, keyed by page id; the reader decides whether to restore. */",
@@ -7659,6 +7682,15 @@ const allowed = new Map([
     "// server's timestamp is read back here and the next save carries it.",
     "// The conflict itself is still reported below; a read that also failed changes nothing",
     "// about what the reader has to do.",
+    "/** Page ids whose content changed since the last successful save. */",
+    "// The upload response already carries the URL, so the list can show the cover without a full",
+    "// library round-trip after every note's first save.",
+    "// A save started before this edit. Remember that the row is dirty and let the finished request",
+    "// start a second one; returning the in-flight result alone used to lose the newer content.",
+    "// An edit that landed while this request was in flight starts one more save, and the caller waits",
+    "// for it rather than learning about it after the tab has already gone. A failed save keeps its",
+    "// dirty mark for the next scheduled retry instead of spinning here.",
+    "// The page in this tab is still unsaved. Keep it as a draft so closing the tab cannot lose it.",
   ]],
   ["src/client/features/inknote/tool-state.ts", [
     "/** Derives the engine's tool state from the account's remembered per-tool choices. */",
@@ -7668,6 +7700,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/inknote/tools/RecordingPanel.tsx", [
     "/** Audio recordings attached to one ink note. */",
+    "// The panel stays mounted while closed; only an opened panel needs the note's recording list.",
   ]],
   ["src/client/features/inknote/tools/Waveform.tsx", [
     "/** The recording waveform: a seekable bar strip that also answers the arrow keys. */",
@@ -32306,6 +32339,13 @@ const allowed = new Map([
     "/** Named content palettes, paper geometry and the capacity ceilings the API enforces. */",
     "/** The line/grid spacing of a paper, in display pixels, before the tight/wide multiplier. */",
   ]],
+  ["src/shared/inknote/layers.ts", [
+    "/** Layers on one page: the ordered list, the layer an item belongs to and a stable default. */",
+    "/** The page's layers, bottom first; a page written before layers existed reads as one default layer. */",
+    "/** Write the default layer onto a page that has none, and pin unassigned ink to the bottom layer. */",
+    "/** The layer id an item draws on; an item without one belongs to the bottom layer. */",
+    "/** Whether an item is on a layer the reader can currently see. */",
+  ]],
   ["src/shared/inknote/parse.ts", [
     "/** The page envelope, its strict validator, and the adapter for note2's v4 import files. */",
     "/** `images.0.src` or `bg.src`; the importer uploads it and writes the asset back. */",
@@ -32318,6 +32358,8 @@ const allowed = new Map([
   ]],
   ["src/shared/inknote/types.ts", [
     "/** The durable shapes every Inknote surface agrees on: pages, notes, assets, settings. */",
+    "/** Layer id; absent means the page's bottom layer. */",
+    "/** Bottom first. Absent on pages written before layers existed; they read as one default layer. */",
   ]],
   ["src/shared/linter.test.ts", [
     "/**\n * The settings blob's boundary.\n *\n * A reader can bring this object into the app from a backup restore as well as from the settings\n * page, and the panel's own refusals are not in the way then. So everything that a lint run will\n * later compile or iterate is checked here: the shape, the size, and the flags. A value the\n * normaliser cannot recognise is dropped rather than passed on, because the alternative is a stored\n * string reaching `new RegExp` or a rule's option.\n */",
@@ -40718,6 +40760,8 @@ const allowed = new Map([
     "/** `%`, `_` and the escape character itself are literal, as the reader typed them. */",
     "/** A 160-character window around the first hit, whitespace collapsed, never HTML. */",
     "// `title_key` is stored lower-cased; SQLite's LIKE folds ASCII case for page text as well.",
+    "// Only the first rows can reach the response; reading every matching page back made a common",
+    "// one-character query pay for the whole account's text.",
   ]],
   ["src/worker/inknote/seed.ts", [
     "/** A new account's first subject and notebook, created once and reused after that. */",

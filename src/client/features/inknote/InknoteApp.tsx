@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Library, MoreHorizontal, PanelRight, Plus, Settings, Sparkles, X } from 'lucide-react'
+import { Library, LayoutTemplate, MoreHorizontal, PanelRight, Plus, Settings, Sparkles, Upload, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
 import { cn } from '../../lib/cn'
@@ -25,6 +25,7 @@ import { LibraryPanel } from './library/LibraryPanel'
 import { NotePickerDialog } from './library/NotePickerDialog'
 import { SettingsDrawer } from './panels/SettingsDrawer'
 import { FindDialog, OutlineDialog, StatsDialog } from './panels/NoteToolsDialogs'
+import { LayersDialog } from './panels/LayersDialog'
 import { TemplateCenter } from './panels/TemplateCenter'
 import { ShortcutsDialog, WelcomeDialog } from './panels/InkHelpDialogs'
 import { useInknoteHotkeys } from './use-inknote-hotkeys'
@@ -93,10 +94,12 @@ export function InknoteApp() {
   const [snapshotsOpen, setSnapshotsOpen] = useState(false)
   const [presentationOpen, setPresentationOpen] = useState(false)
   const [recordingOpen, setRecordingOpen] = useState(false)
-const [findOpen, setFindOpen] = useState(false)
+  const [findOpen, setFindOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [layersOpen, setLayersOpen] = useState(false)
+  const [activeLayerId, setActiveLayerId] = useState<string | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
   const [pdfExportOpen, setPdfExportOpen] = useState(false)
@@ -131,6 +134,14 @@ const [findOpen, setFindOpen] = useState(false)
 
   useEffect(() => { void bootstrap() }, [bootstrap])
   useEffect(() => { if (note) setTitle(note.title) }, [note?.id, note?.title])
+  useEffect(() => {
+    const visible = activePage?.content.layers?.filter((layer) => layer.visible)
+    setActiveLayerId((previous) => previous && visible?.some((layer) => layer.id === previous)
+      ? previous
+      : visible?.length ? visible[visible.length - 1]!.id : null)
+    // The page's layer list is owned by the layer dialog; switching pages is what resets the choice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePage?.id, activePage?.content.layers])
   useEffect(() => {
     if (note) replaceAddress(`/inknote/note/${note.id}`)
   }, [initialized, note?.id])
@@ -191,6 +202,20 @@ const [findOpen, setFindOpen] = useState(false)
     void deleteBlankPages().then((count) => toast({ title: count > 0 ? t('inknote.page.blank_removed', { count: String(count) }) : t('inknote.page.no_blank') }))
   }
 
+  const removePage = (id: string) => {
+    void confirm({ title: t('inknote.page.delete'), description: t('inknote.confirm_delete_note'), confirmLabel: t('inknote.delete') })
+      .then((ok) => ok ? deletePage(id) : undefined)
+  }
+
+  const movePage = (id: string, direction: -1 | 1) => {
+    const index = pages.findIndex((page) => page.id === id)
+    if (index < 0 || !pages[index + direction]) return
+    const ids = pages.map((page) => page.id)
+    ids.splice(index, 1)
+    ids.splice(index + direction, 0, id)
+    void reorderPages(ids)
+  }
+
   useInknoteHotkeys({
     enabled: () => Boolean(useInknoteStore.getState().note),
     undo: () => { void undoHistory() },
@@ -247,7 +272,7 @@ const [findOpen, setFindOpen] = useState(false)
     if (!engine || !page || !settings || !note) return
     const before = serializePageContent(page.content)
     for (const box of answerTextBoxes(text, { pageHeight: note.pageHeight, textSize: settings.textSize })) {
-      page.content.texts.push({ ...inknoteTextDefaults(), id: randomLocalId(), ...box })
+      page.content.texts.push({ ...inknoteTextDefaults(), id: randomLocalId(), ...box, ...(activeLayerId ? { layer: activeLayerId } : {}) })
     }
     if (engine.commitExternal(before, serializePageContent(page.content), 'assistant')) {
       engine.renderNow()
@@ -317,6 +342,7 @@ const [findOpen, setFindOpen] = useState(false)
       { id: 'md-export', label: t('inknote.action.export_markdown' as never), onSelect: () => { setMoreMenu(null); exportTextFile(note, pages, 'md') } },
       { id: 'rtf-export', label: t('inknote.action.export_rtf' as never), onSelect: () => { setMoreMenu(null); exportTextFile(note, pages, 'rtf') } },
       { id: 'find', label: t('inknote.action.find' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); setFindOpen(true) } },
+      { id: 'layers', label: t('inknote.action.layers' as never), onSelect: () => { setMoreMenu(null); setLayersOpen(true) } },
       { id: 'outline', label: t('inknote.action.outline' as never), onSelect: () => { setMoreMenu(null); setOutlineOpen(true) } },
       { id: 'stats', label: t('inknote.action.stats' as never), onSelect: () => { setMoreMenu(null); setStatsOpen(true) } },
       { id: 'templates', label: t('inknote.action.templates' as never), onSelect: () => { setMoreMenu(null); setTemplatesOpen(true) } },
@@ -331,7 +357,11 @@ const [findOpen, setFindOpen] = useState(false)
       <Empty title={t('inknote.login_required')} description={t('inknote.login_body')} action={<Button size="sm" variant="primary" onClick={() => navigateToPath('/login')}>{t('inknote.login')}</Button>} />
     </div>
   )
-  if (error && !library) return <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"><p className="text-[length:var(--text-13)] text-[var(--danger)]">{error}</p><button type="button" className="text-[length:var(--text-12)] underline" onClick={() => void bootstrap()}>{t('inknote.reload')}</button></div>
+  if (error && !library) return (
+    <div className="flex h-full items-center justify-center bg-[var(--bg-base)] p-6">
+      <Empty title={error} action={<Button size="sm" variant="secondary" onClick={() => void bootstrap()}>{t('inknote.reload')}</Button>} />
+    </div>
+  )
 
   const showLibrary = !compact && !markup && libraryVisible
   const showPages = !compact && !markup && pagesVisible
@@ -374,6 +404,7 @@ const [findOpen, setFindOpen] = useState(false)
             canRedo={canRedo}
             onChange={changeTool}
             onPages={() => compact ? setPagesOpen(true) : setPagesVisible((value) => !value)}
+            onLayers={() => setLayersOpen(true)}
             onSettings={() => setSettingsOpen(true)}
             onRecord={() => setRecordingOpen(true)}
             onRead={readAloud}
@@ -427,6 +458,7 @@ const [findOpen, setFindOpen] = useState(false)
                 canRedo={canRedo}
                 onChange={changeTool}
                 onPages={() => setPagesOpen(true)}
+                onLayers={() => setLayersOpen(true)}
                 onSettings={() => setSettingsOpen(true)}
                 onRecord={() => setRecordingOpen(true)}
                 onRead={readAloud}
@@ -449,31 +481,26 @@ const [findOpen, setFindOpen] = useState(false)
                 nextPage={pages[activeIndex + 1] ?? null}
                 settings={settings}
                 tool={tool}
+                activeLayerId={activeLayerId}
                 onPrevPage={() => { const previous = pages[activeIndex - 1]; if (previous) setActivePage(previous.id) }}
                 onNextPage={() => { const next = pages[activeIndex + 1]; if (next) setActivePage(next.id) }}
                 onSelectPage={setActivePage}
                 onEngine={(engine) => { engineRef.current = engine }}
               />
-            : <div className="flex h-full items-center justify-center p-6">
-                <Empty title={t('inknote.no_notes')} description={t('inknote.welcome.body')} action={
-                  <div className="flex flex-wrap items-center justify-center gap-2">
-                    <Button size="sm" variant="primary" onClick={() => void createNote(library?.notebooks[0]?.id)}>{t('inknote.new_note')}</Button>
-                    <Button size="sm" variant="secondary" onClick={() => setTemplatesOpen(true)}>{t('inknote.action.templates')}</Button>
-                    <Button size="sm" variant="secondary" disabled={IS_DEMO_MODE} onClick={() => importInput.current?.click()}>{t('inknote.action.import')}</Button>
+            : <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
+                <Empty title={t('inknote.empty_title')} description={t('inknote.empty_body')} action={
+                  <div className="flex flex-col items-center gap-2">
+                    <Button size="sm" variant="primary" icon={<Plus size={13}/>} disabled={!library?.notebooks[0]} onClick={() => void createNote(library?.notebooks[0]?.id)}>{t('inknote.new_note')}</Button>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <Button size="sm" variant="secondary" icon={<LayoutTemplate size={13}/>} onClick={() => setTemplatesOpen(true)}>{t('inknote.empty_templates')}</Button>
+                      <Button size="sm" variant="secondary" icon={<Upload size={13}/>} disabled={IS_DEMO_MODE} onClick={() => importInput.current?.click()}>{t('inknote.empty_import')}</Button>
+                    </div>
                   </div>
                 } />
               </div>}
         </main>
         {showPages && note && settings && (
-          <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={setActivePage} onClear={clearActivePage} onDeleteBlank={removeBlankPages} onCopyTo={() => setPickerMode('copy')} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void confirm({ title: t('inknote.page.delete'), description: t('inknote.confirm_delete_note'), confirmLabel: t('inknote.delete') }).then((ok) => ok ? deletePage(id) : undefined)} onMove={(id, direction) => {
-            const index = pages.findIndex((page) => page.id === id)
-            const target = pages[index + direction]
-            if (!target) return
-            const ids = pages.map((page) => page.id)
-            ids.splice(index, 1)
-            ids.splice(index + direction, 0, id)
-            void reorderPages(ids)
-          }} />
+          <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={setActivePage} onClear={clearActivePage} onDeleteBlank={removeBlankPages} onCopyTo={() => setPickerMode('copy')} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={removePage} onMove={movePage} />
         )}
         {assistantDockOpen && <AssistantDock surface="inknote" inknote={assistantContext} onInsertAnswer={insertAssistantAnswer} onReadAnswer={readAssistantAnswer}/>}
       </div>
@@ -499,22 +526,16 @@ const [findOpen, setFindOpen] = useState(false)
       )}
 
       <Drawer open={libraryOpen} onClose={() => setLibraryOpen(false)} title={t('inknote.library')} side="left" width={300}>
-        <LibraryPanel selectedNotebookId={selectedNotebook} onSelectNotebook={setSelectedNotebook} onAfterOpen={() => setLibraryOpen(false)} />
+        <LibraryPanel selectedNotebookId={selectedNotebook} onSelectNotebook={setSelectedNotebook} onAfterOpen={() => setLibraryOpen(false)} embedded />
       </Drawer>
       <Drawer open={pagesOpen} onClose={() => setPagesOpen(false)} title={t('inknote.action.pages')} side="right" width={190}>
-        {note && settings && <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={(id) => { setActivePage(id); setPagesOpen(false) }} onClear={clearActivePage} onDeleteBlank={removeBlankPages} onCopyTo={() => setPickerMode('copy')} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void deletePage(id)} onMove={(id, direction) => {
-          const index = pages.findIndex((page) => page.id === id)
-          const ids = pages.map((page) => page.id)
-          ids.splice(index, 1)
-          ids.splice(index + direction, 0, id)
-          void reorderPages(ids)
-        }} />}
+        {note && settings && <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={(id) => { setActivePage(id); setPagesOpen(false) }} onClear={clearActivePage} onDeleteBlank={removeBlankPages} onCopyTo={() => setPickerMode('copy')} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={removePage} onMove={movePage} />}
       </Drawer>
       {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} note={note} settings={settings} onOpenSnapshots={() => { setSettingsOpen(false); setSnapshotsOpen(true) }} onOpenShortcuts={() => { setSettingsOpen(false); setShortcutsOpen(true) }} onOpenTemplates={() => { setSettingsOpen(false); setTemplatesOpen(true) }} pageCount={pages.length} onAddPage={() => void createPage(activePageId ?? undefined)} onDuplicatePage={() => { if (activePageId) void duplicatePage(activePageId) }} onClearPage={clearActivePage} onDeleteBlankPages={removeBlankPages} />}
       <SnapshotsDialog open={snapshotsOpen} onClose={() => setSnapshotsOpen(false)} />
       <RecordingPanel open={recordingOpen} noteId={note?.id ?? null} onClose={() => setRecordingOpen(false)} getEngine={() => engineRef.current} onPage={setActivePage} />
-      <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note && activePage) void insertImage(file, note, activePage).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
-      <input ref={imageInput} type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note && activePage) void insertImage(file, note, activePage).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
+      <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note && activePage) void insertImage(file, note, activePage, activeLayerId).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
+      <input ref={imageInput} type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note && activePage) void insertImage(file, note, activePage, activeLayerId).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
       <input ref={pdfInput} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) setPdfFile(file) }} />
       <input ref={attachInput} type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note) void inknoteApi.uploadAsset(file, 'attachment', note.id).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
       <input ref={importInput} type="file" accept=".note,.notebook,.json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) setImportFile(file) }} />
@@ -531,6 +552,7 @@ const [findOpen, setFindOpen] = useState(false)
         void openNote(picked.id)
       }}/>
       <TemplateCenter open={templatesOpen} onClose={() => setTemplatesOpen(false)} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
+      <LayersDialog open={layersOpen} onClose={() => setLayersOpen(false)} page={activePage} activeLayerId={activeLayerId} onActiveLayer={setActiveLayerId}/>
       <AttachmentsDialog open={attachmentsOpen} onClose={() => setAttachmentsOpen(false)} note={note}/>
       <ScanDialog open={scanOpen} onClose={() => setScanOpen(false)} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
       {note && settings && <ExportLibraryPdfDialog open={libraryPdfOpen} onClose={() => setLibraryPdfOpen(false)} notes={(library?.notes ?? []).filter((entry) => entry.notebookId === note.notebookId)} settings={settings}/>}

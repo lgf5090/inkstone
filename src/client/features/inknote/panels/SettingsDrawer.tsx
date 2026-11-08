@@ -10,6 +10,7 @@ import { Drawer, confirm } from '../../../components/overlay'
 import { Segmented, SettingRow, Slider, Switch } from '../../../components/form'
 import { useInknoteStore } from '../store'
 import { inknoteApi } from '../api'
+import { useUi } from '../../../store/ui'
 
 const SECTIONS = [
   ['tools', 'inknote.settings.tools'],
@@ -40,6 +41,16 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots,
   const updateSettings = useInknoteStore((state) => state.updateSettings)
   const resetSettings = useInknoteStore((state) => state.resetSettings)
   const updateNoteMeta = useInknoteStore((state) => state.updateNoteMeta)
+  const toast = useUi((state) => state.toast)
+  const prune = async () => {
+    try {
+      const result = await inknoteApi.pruneAssets()
+      setUsage((current) => current ? { ...current, assetsBytes: Math.max(0, current.assetsBytes - result.bytes), assets: Math.max(0, current.assets - result.removed) } : current)
+      toast({ title: t('inknote.settings.cleanup_done', { count: String(result.removed) }) })
+    } catch (error) {
+      toast({ title: String(error), tone: 'danger' })
+    }
+  }
   const paper = note?.paper ?? settings.defaultPaper
   const setPaper = (patch: Partial<InknoteNoteMeta['paper']>) => {
     if (!note) return
@@ -48,12 +59,12 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots,
   return (
     <Drawer open={open} onClose={onClose} title={t('inknote.settings.title')} width={430}>
       <div className="flex min-h-0 flex-1">
-        <nav className="w-32 shrink-0 border-r border-[var(--border-subtle)] p-2" aria-label={t('inknote.settings.title')}>
+        <nav className="w-32 shrink-0 border-r border-[var(--border-subtle)] p-2" aria-label={t('inknote.settings.title')} role="tablist" aria-orientation="vertical">
           {SECTIONS.map(([id, key]) => (
-            <button key={id} type="button" onClick={() => setSection(id)} className={cn('mb-0.5 block w-full rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12)]', section === id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'hover:bg-[var(--bg-hover)]')}>{t(key as MessageKey)}</button>
+            <button key={id} id={`inknote-settings-tab-${id}`} type="button" role="tab" aria-selected={section === id} aria-controls={`inknote-settings-panel-${id}`} onClick={() => setSection(id)} className={cn('mb-0.5 block w-full rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12)]', section === id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'hover:bg-[var(--bg-hover)]')}>{t(key as MessageKey)}</button>
           ))}
         </nav>
-        <div className="min-w-0 flex-1 overflow-y-auto px-3 pb-6">
+        <div className="min-w-0 flex-1 overflow-y-auto px-3 pb-6" role="tabpanel" id={`inknote-settings-panel-${section}`} aria-labelledby={`inknote-settings-tab-${section}`} tabIndex={0}>
           {section === 'tools' && (
             <div>
               <SettingRow title={t('inknote.settings.finger_draw')}><Switch checked={settings.fingerDraw} onChange={(value) => void updateSettings({ fingerDraw: value })} label={t('inknote.settings.finger_draw')} /></SettingRow>
@@ -84,7 +95,7 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots,
                   ))}
                 </div>
               </SettingRow>
-              <SettingRow title={t('inknote.text.color')}>
+              <SettingRow title={t('inknote.paper_color')}>
                 <div className="flex flex-wrap justify-end gap-1.5">
                   {PAPER_COLORS.map((color) => (
                     <button key={color.id} type="button" aria-label={t(color.nameKey as MessageKey)} aria-pressed={paper.color === color.id} onClick={() => setPaper({ color: color.id })} className={cn('size-6 rounded-full ring-1 ring-[var(--border-default)]', paper.color === color.id && 'ring-2 ring-[var(--accent)]')} style={{ background: color.bg }} />
@@ -123,7 +134,7 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots,
               <SettingRow title={t('inknote.settings.usage')}><span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{usage ? `${(usage.assetsBytes / 1024 / 1024).toFixed(1)} MB / ${(usage.quotaBytes / 1024 / 1024 / 1024).toFixed(1)} GB · ${usage.notes} / ${usage.pages}` : '—'}</span></SettingRow>
               <div className="space-y-1 pt-2">
                 <Button block variant="secondary" onClick={onOpenSnapshots}>{t('inknote.settings.snapshots')}</Button>
-                <Button block variant="ghost" onClick={() => void confirm({ title: t('inknote.settings.cleanup'), confirmLabel: t('inknote.settings.cleanup') }).then((ok) => ok ? inknotePrune() : undefined)}>{t('inknote.settings.cleanup')}</Button>
+                <Button block variant="ghost" onClick={() => void confirm({ title: t('inknote.settings.cleanup'), confirmLabel: t('inknote.settings.cleanup') }).then((ok) => ok ? prune() : undefined)}>{t('inknote.settings.cleanup')}</Button>
               </div>
             </div>
           )}
@@ -138,9 +149,4 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots,
       </div>
     </Drawer>
   )
-}
-
-async function inknotePrune(): Promise<void> {
-  const { inknoteApi } = await import('../api')
-  await inknoteApi.pruneAssets()
 }
