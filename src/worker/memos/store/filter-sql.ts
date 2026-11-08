@@ -221,6 +221,14 @@ function tagComparison(
   now: number,
 ): MemoFilterSql | null {
   if (operator !== 'in') return null
+  if (isTagField(rightNode)
+    && leftNode.kind === 'literal'
+    && typeof leftNode.value === 'string') {
+    return {
+      sql: 'EXISTS (SELECT 1 FROM memos_tags t WHERE t.memo_id = i.id AND t.tag = ?)',
+      params: [leftNode.value],
+    }
+  }
   if (leftNode.kind !== 'field' || leftNode.name !== 'tag' && leftNode.name !== 'tags') return null
   if (rightNode.kind !== 'list') return null
   const values = rightNode.items.map((item) => constant(item, now))

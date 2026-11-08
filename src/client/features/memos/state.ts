@@ -18,6 +18,7 @@ import { t } from '../../lib/i18n'
 import { randomLocalId } from '../../lib/random-id'
 import { memosApi } from './api'
 import { bump, isMemoDomain, type MemoDomain } from './events'
+import { taggedMemoFilter } from './url-state'
 export {
   MEMO_DISPLAY_STORAGE_KEY,
   MEMO_DRAFT_STORAGE_PREFIX,
@@ -99,11 +100,7 @@ function newMemoId(): string {
 }
 
 function combinedFilter(query: MemoQuery): string | undefined {
-  const filter = query.filter.trim()
-  const tag = query.tag?.trim()
-  if (!tag) return filter || undefined
-  const tagClause = `tag == ${JSON.stringify(tag)}`
-  return filter ? `(${filter}) && ${tagClause}` : tagClause
+  return taggedMemoFilter(query.filter, query.tag)
 }
 
 function toListQuery(query: MemoQuery, cursor: string | null): MemoListQuery {

@@ -194,7 +194,7 @@ export function memoMapFilter(search: string): string {
   const clauses = ['has_location']
   const expression = memoFilterExpression(state.q, state.filter)
   if (expression) clauses.push(expression)
-  if (state.tag) clauses.push(`tag == ${JSON.stringify(state.tag)}`)
+  if (state.tag) clauses.push(`${JSON.stringify(state.tag)} in tags`)
   return clauses.join(' && ')
 }
 

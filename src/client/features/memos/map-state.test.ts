@@ -160,7 +160,7 @@ describe('memo map filters', () => {
     expect(memoMapFilter('q=coffee')).toBe('has_location && content.contains("coffee")')
     expect(memoMapFilter('filter=pinned')).toBe('has_location && (pinned)')
     expect(memoMapFilter('q=coffee&filter=pinned&tag=work'))
-      .toBe('has_location && content.contains("coffee") && (pinned) && tag == "work"')
+      .toBe('has_location && content.contains("coffee") && (pinned) && "work" in tags')
     expect(memoMapFilter('q=%22quoted%22')).toBe('has_location && content.contains("\\"quoted\\"")')
   })
 })

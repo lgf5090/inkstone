@@ -233,7 +233,7 @@ describe('the memos container', () => {
     click(suggestion!)
     await flush()
     expect(window.location.search).toContain('tag=work')
-    expect(api.list.mock.calls.at(-1)?.[0]).toMatchObject({ filter: 'tag == "work"' })
+    expect(api.list.mock.calls.at(-1)?.[0]).toMatchObject({ filter: '"work" in tags' })
   })
 
   it('shows the empty state when the list has nothing', async () => {

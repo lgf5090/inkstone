@@ -180,7 +180,7 @@ describe('memo list state', () => {
     useMemos.getState().setQuery({ tag: 'design', filter: 'pinned == true' })
     await useMemos.getState().load()
     expect(api.list.mock.calls[0]![0]).toMatchObject({
-      filter: '(pinned == true) && tag == "design"',
+      filter: '(pinned == true) && "design" in tags',
     })
   })
 
