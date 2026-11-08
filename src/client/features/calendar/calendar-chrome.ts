@@ -65,6 +65,23 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
   let frame = 0
   let disposed = false
 
+  const paintEvent = (element: HTMLElement, hex: string): void => {
+    if (hex) {
+      try {
+        const palette = getCalendarColorsForHex(hex)
+        element.style.backgroundColor = palette.colors.eventColor
+        element.style.color = palette.colors.textColor
+        element.style.borderColor = palette.colors.lineColor
+      } catch {
+        // A provider may carry a colour this build cannot parse; the calendar colour stays.
+      }
+      return
+    }
+    element.style.removeProperty('background-color')
+    element.style.removeProperty('color')
+    element.style.removeProperty('border-color')
+  }
+
   const decorate = (): void => {
     if (disposed) return
     const labels = narrowWeekdayLabels(options.locale, options.weekStart as WeekStartDay)
@@ -79,32 +96,26 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
       if (add.getAttribute('aria-label') !== options.addLabel) add.setAttribute('aria-label', options.addLabel)
     }
 
+    // One map per pass: looking each event up in the app array made a dense month quadratic.
+    const byId = new Map(options.app.getEvents().map(event => [event.id, event]))
     options.root.querySelectorAll<HTMLElement>(EVENT_SELECTOR).forEach((element) => {
       if (element.tabIndex !== 0) element.tabIndex = 0
       if (element.getAttribute('role') !== 'button') element.setAttribute('role', 'button')
       const name = eventAccessibleName(element, options.untitledLabel, options.allDayLabel)
       if (name && element.getAttribute('aria-label') !== name) element.setAttribute('aria-label', name)
       const id = element.getAttribute('data-event-id')
-      const color = id
-        ? options.app.getEvents().find(candidate => candidate.id === id)?.meta?.color
-        : undefined
+      const color = id ? byId.get(id)?.meta?.color : undefined
       const hex = typeof color === 'string' ? color : ''
-      if (element.dataset.inkstoneColor !== hex) {
+      const applied = element.dataset.inkstoneColor
+      // The library paints the block's own colour inline. On the first pass there is nothing of ours
+      // to replace, so an event with no per-event colour must keep that inline paint untouched; only a
+      // colour this bridge applied earlier is removed when the reader clears it.
+      if (applied === undefined) {
         element.dataset.inkstoneColor = hex
-        if (hex) {
-          try {
-            const palette = getCalendarColorsForHex(hex)
-            element.style.backgroundColor = palette.colors.eventColor
-            element.style.color = palette.colors.textColor
-            element.style.borderColor = palette.colors.lineColor
-          } catch {
-            // A provider may carry a colour this build cannot parse; the calendar colour stays.
-          }
-        } else {
-          element.style.removeProperty('background-color')
-          element.style.removeProperty('color')
-          element.style.removeProperty('border-color')
-        }
+        if (hex) paintEvent(element, hex)
+      } else if (applied !== hex) {
+        element.dataset.inkstoneColor = hex
+        paintEvent(element, hex)
       }
     })
   }
