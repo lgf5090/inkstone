@@ -1335,12 +1335,23 @@
   background: color-mix(in oklab, var(--accent) 12%, transparent);
   box-shadow: inset 2px 0 var(--accent);
 }
+/* The gutter is a column of its own, not inline content: a wrapped line continues in the
+   text column instead of sliding back under the number it belongs to. `padding-left` is the
+   gutter width the number is absolutely positioned into, and the flex row keeps the number
+   at the top of the line while the text owns the rest of the width. */
 .ink-prose .code-block.has-line-numbers pre { padding-left: 0; }
+.ink-prose .code-block.has-line-numbers .line {
+  display: block;
+  position: relative;
+  padding-left: var(--code-gutter, 4.4em);
+}
 .ink-prose .code-block.has-line-numbers .line::before {
-  display: inline-block;
-  width: 3.4em;
-  margin-right: 1em;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--code-gutter, 4.4em) - 1em);
   padding-right: 0.75em;
+  border-right: 1px solid transparent;
   color: var(--text-quaternary);
   content: attr(data-line-number);
   font-variant-numeric: tabular-nums;

@@ -1242,6 +1242,22 @@ describe('excluded tag filters', () => {
 
 });
 
+describe('note list window', () => {
+    it('renders every note when the vault is larger than the old fixed-height window', async () => {
+        const many = Object.fromEntries(Array.from({ length: 100 }, (_, index) => {
+            const id = `bulk-${index}`;
+            return [id, { ...note, id, title: `Note ${index}`, folderId: null, excerpt: '', tags: [], updatedAt: 10 + index }];
+        }));
+        useNotes.setState({ ...originalNotes, folders: [], notes: many, tags: [], openNote: vi.fn(async () => undefined) });
+        useUi.setState({ ...originalUi, listCollapsed: false, view: 'all', folderId: null, tags: [], selectedIds: [], searchList: false, dateFilter: null });
+        await act(() => root.render(createElement(NoteList)));
+        // The old window rendered 80 rows inside fixed-height spacers; a row whose excerpt and
+        // tags made it taller than 72px drifted over its neighbour. Every row is now in the tree,
+        // and `content-visibility` is what keeps the off-screen ones cheap.
+        expect(container.querySelectorAll('[role="option"]')).toHaveLength(100);
+    });
+});
+
 describe('the day filter on a narrow list', () => {
     const DAY = '2026-10-05';
     const noon = (day: number) => new Date(2026, 9, day, 12).getTime();

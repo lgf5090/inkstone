@@ -80,8 +80,6 @@ const EMPTY_HIGHLIGHT: [
     number,
     number
 ][] = [];
-const VIRTUAL_WINDOW_SIZE = 80;
-const VIRTUAL_OVERSCAN = 15;
 /** The most local rows the filter keeps before the remote layer fills in; matches the old `fuzzyFilter` limit. */
 const SEARCH_FILTER_LIMIT = 200;
 export function NoteList() {
@@ -122,7 +120,6 @@ export function NoteList() {
     const [sortMenuOpen, setSortMenuOpen] = useState(false);
     const sortButtonRef = useRef<HTMLButtonElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
-    const [startIndex, setStartIndex] = useState(0);
     const nowMinute = useNow();
     const tagColors = useMemo(() => new Map((tags ?? []).map((item) => [item.name, item.color])), [tags]);
 
@@ -223,51 +220,25 @@ export function NoteList() {
     const filteredIds = useMemo(() => filtered.map((item) => item.note.id), [filtered]);
     const filteredIdsRef = useRef(filteredIds);
     filteredIdsRef.current = filteredIds;
-    const itemHeight = density === 'compact' ? 42 : 72;
-    const isVirtual = filtered.length > VIRTUAL_WINDOW_SIZE;
-    const safeStartIndex = isVirtual ? Math.max(0, Math.min(startIndex, filtered.length - VIRTUAL_WINDOW_SIZE)) : 0;
-    const endIndex = isVirtual ? Math.min(filtered.length, safeStartIndex + VIRTUAL_WINDOW_SIZE) : filtered.length;
-    const topSpacerHeight = safeStartIndex * itemHeight;
-    const bottomSpacerHeight = Math.max(0, (filtered.length - endIndex) * itemHeight);
-    const rendered = useMemo(() => isVirtual ? filtered.slice(safeStartIndex, endIndex) : filtered, [filtered, isVirtual, safeStartIndex, endIndex]);
-    const renderedIds = useMemo(() => new Set(rendered.map((item) => item.note.id)), [rendered]);
-    // Only rendered rows ask for their position, so the map covers the window instead of
-    // allocating one entry per note on every filter change.
+    const renderedIds = useMemo(() => new Set(filteredIds), [filteredIds]);
+    // Every row is in the tree; `content-visibility: auto` on each row is what keeps a large
+    // vault cheap to scroll. The window used to be cut by a fixed row height, but a note row
+    // is 40–101px depending on its excerpt, tags and group header, so the fixed-height
+    // spacers drifted far enough to overlap rows in a vault over 80 notes.
     const filteredPositions = useMemo(
-        () => new Map(rendered.map((item, index) => [item.note.id, safeStartIndex + index + 1])),
-        [rendered, safeStartIndex]);
-    const groups = useMemo(() => groupNotes(rendered, sort, view === 'trash', nowMinute, filtered.some((i) => i.note.isPinned)), [rendered, sort, view, locale, nowMinute, filtered]);
+        () => new Map(filtered.map((item, index) => [item.note.id, index + 1])),
+        [filtered]);
+    const groups = useMemo(() => groupNotes(filtered, sort, view === 'trash', nowMinute, filtered.some((i) => i.note.isPinned)), [filtered, sort, view, locale, nowMinute]);
     useEffect(() => {
-        setStartIndex(0);
         listRef.current?.scrollTo?.({ top: 0 });
     }, [view, folderId, tagFilters, deferredFilter, sort, order, density]);
-    useEffect(() => {
-        if (!activeNoteId)
-            return;
-        const activeIndex = filteredIds.indexOf(activeNoteId);
-        if (activeIndex < 0)
-            return;
-        if (isVirtual && (activeIndex < safeStartIndex || activeIndex >= endIndex)) {
-            const targetStart = Math.max(0, activeIndex - Math.floor(VIRTUAL_WINDOW_SIZE / 2));
-            setStartIndex(targetStart);
-            listRef.current?.scrollTo?.({ top: activeIndex * itemHeight });
-        }
-    }, [activeNoteId, filteredIds, isVirtual, safeStartIndex, endIndex, itemHeight]);
-    const onListScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
-        if (filtered.length <= VIRTUAL_WINDOW_SIZE)
-            return;
-        const top = event.currentTarget.scrollTop;
-        const approxIndex = Math.floor(top / itemHeight);
-        const targetStart = Math.max(0, approxIndex - VIRTUAL_OVERSCAN);
-        setStartIndex((prev) => (Math.abs(prev - targetStart) >= 5 ? targetStart : prev));
-    }, [filtered.length, itemHeight]);
     useEffect(() => {
         if (!activeNoteId)
             return;
         listRef.current
             ?.querySelector<HTMLElement>(`[data-note-id="${activeNoteId}"]`)
             ?.scrollIntoView({ block: 'nearest' });
-    }, [activeNoteId, safeStartIndex, endIndex, view, folderId, tagFilters]);
+    }, [activeNoteId, view, folderId, tagFilters]);
     const onKeyDown = (event: React.KeyboardEvent) => {
         if (event.target !== event.currentTarget || event.nativeEvent.isComposing)
             return;
@@ -442,8 +413,7 @@ export function NoteList() {
         {view === 'trash' && notes.length > 0 && (<button type="button" disabled={emptyingTrash} aria-busy={emptyingTrash} onClick={() => void emptyTrash()} className="mt-2 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] py-1.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--danger)] hover:text-[var(--danger)] disabled:pointer-events-none disabled:opacity-50">{t("notes.empty_trash")}{notes.length}{t("notes.notes_93aeb9")}</button>)}
       </header>
 
-      <div key={`${view}:${folderId ?? ''}:${tagFilters.join('+')}`} ref={listRef} onScroll={onListScroll} data-note-list role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeNoteId && renderedIds.has(activeNoteId) ? `note-option-${activeNoteId}` : undefined} tabIndex={0} onKeyDown={onKeyDown} className="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
-        {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} aria-hidden="true" />}
+      <div key={`${view}:${folderId ?? ''}:${tagFilters.join('+')}`} ref={listRef} data-note-list role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeNoteId && renderedIds.has(activeNoteId) ? `note-option-${activeNoteId}` : undefined} tabIndex={0} onKeyDown={onKeyDown} className="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
         {!hydrated && loading ? (<NoteListSkeleton />) : filtered.length === 0 ? (<ListEmpty view={view} filtering={Boolean(filter)} dayFiltering={Boolean(dateFilter)}/>) : (groups.map((group) => (<div key={group.key} role="group" aria-label={group.label ?? title}>
               {group.label && (<div className="px-2 pt-3 pb-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
                   {group.label}
@@ -452,7 +422,6 @@ export function NoteList() {
                 {group.items.map(({ note, ranges }) => (<NoteRow key={note.id} note={note} highlight={ranges} density={density} tagColors={tagColors} position={filteredPositions.get(note.id) ?? 1} total={filtered.length} onRangeSelect={selectRange}/>))}
               </div>
             </div>)))}
-        {bottomSpacerHeight > 0 && <div style={{ height: bottomSpacerHeight }} aria-hidden="true" />}
       </div>
 
       <BulkBar />
@@ -676,8 +645,14 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
         ...noteActions,
     ];
     const titleParts = locked ? [] : splitByRanges((unlockedTitle ?? note.title) || t("common.untitled_note"), highlight);
+    // The browser's placeholder height for an off-screen row. It mirrors the measured row
+    // (40 / 79 / 62 / 101px in comfortable density) so the scrollbar does not jump as rows
+    // enter the viewport, without making the row itself a fixed height.
+    const intrinsicHeight = density === 'compact'
+        ? 36
+        : 40 + (!locked && note.excerpt ? 39 : 0) + (!locked && note.tags.length ? 22 : 0);
     return (<>
-      <div id={`note-option-${note.id}`} role="option" aria-selected={active || selected} aria-posinset={position} aria-setsize={total} tabIndex={-1} data-note-id={note.id} draggable style={{ contentVisibility: 'auto', containIntrinsicSize: density === 'compact' ? 'auto 42px' : 'auto 72px' }} onDragStart={(e) => {
+      <div id={`note-option-${note.id}`} role="option" aria-selected={active || selected} aria-posinset={position} aria-setsize={total} tabIndex={-1} data-note-id={note.id} draggable style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${intrinsicHeight}px` }} onDragStart={(e) => {
             writeNoteDrag(e, selectedIds.length > 1 && selectedIds.includes(note.id) ? selectedIds : [note.id]);
         }} onClick={(event) => {
             if (event.altKey && breakpoint === 'desktop') {
