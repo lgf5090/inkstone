@@ -12,6 +12,7 @@ export const EN_US_DEVELOPMENT_CERTHUB = {
   "development.certhub.overview.subtitle": "Requests, validation and renewals for this account",
   "development.certhub.overview.expiring": "Expiring within 30 days",
   "development.certhub.overview.recent": "Recent activity",
+  "development.certhub.overview.recent_orders": "Recent requests",
   "development.certhub.overview.empty": "No certificates yet",
   "development.certhub.overview.empty_hint": "Once you request the first certificate, issuance progress, challenge records and renewal reminders all appear here.",
   "development.certhub.overview.quota_certs": "Certificate quota",

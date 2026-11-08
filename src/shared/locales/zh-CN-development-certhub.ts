@@ -12,6 +12,7 @@ export const ZH_CN_DEVELOPMENT_CERTHUB = {
   "development.certhub.overview.subtitle": "当前账号的申请、验证与续期",
   "development.certhub.overview.expiring": "30 天内到期",
   "development.certhub.overview.recent": "最近动态",
+  "development.certhub.overview.recent_orders": "最近申请",
   "development.certhub.overview.empty": "还没有证书",
   "development.certhub.overview.empty_hint": "申请第一张证书后，签发进度、验证记录和续期提醒都会出现在这里。",
   "development.certhub.overview.quota_certs": "证书配额",

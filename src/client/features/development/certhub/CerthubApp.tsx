@@ -230,7 +230,7 @@ function OverviewPage({ compact }: { compact: boolean }) {
             <QuotaLine label={t('development.certhub.overview.quota_daily')} used={quota?.dailyUsed ?? 0} limit={quota?.dailyLimit ?? 0} ratio={dailyUsage} />
           </div>
         </Panel>
-        <Panel title={t('development.certhub.overview.recent')}>
+        <Panel title={t('development.certhub.overview.recent_orders')}>
           {data?.recentOrders.length ? (
             <div className="space-y-2">
               {data.recentOrders.map((order) => (
