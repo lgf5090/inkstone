@@ -320,7 +320,7 @@ describe('the memo card', () => {
     expect(rendered.container.textContent).toContain(t('memos.composer.save'))
   })
 
-  it('colors matching tag chips and blurs content until it is revealed', () => {
+  it('colors matching inline tags and blurs content until it is revealed', () => {
     const item = memo({ content: 'the secret #secret', tags: ['secret'] })
     const rule: MemoTagRule = {
       pattern: 'secret',
@@ -329,20 +329,20 @@ describe('the memo card', () => {
       blurContent: true,
     }
     const rendered = render({ memo: item, tagRules: [rule] })
-    const chip = rendered.container.querySelector<HTMLButtonElement>(
-      `button[aria-label="${t('memos.card.filter_tag', { tag: 'secret' })}"]`,
-    )
-    expect(chip).not.toBeNull()
-    expect((chip!.querySelector('span') as HTMLElement | null)?.style.backgroundColor).toBe('rgb(255, 0, 0)')
+    const inlineTag = rendered.container.querySelector<HTMLElement>('[data-tag]')
+    expect(inlineTag).not.toBeNull()
+    const inlineDot = inlineTag!.querySelector<HTMLElement>('[data-memo-tag-dot]')
+    expect(inlineDot).not.toBeNull()
+    expect(inlineDot!.style.backgroundColor).toBe('rgb(255, 0, 0)')
+    expect(
+      rendered.container.querySelector(`button[aria-label="${t('memos.card.filter_tag', { tag: 'secret' })}"]`),
+    ).toBeNull()
     const body = rendered.container.querySelector('[data-memo-blurred="true"]')
     expect(body).not.toBeNull()
     const hidden = body!.querySelector('[data-memo-mask="hidden"]')
     expect(hidden).not.toBeNull()
     expect(hidden?.getAttribute('aria-hidden')).toBe('true')
     expect(hidden?.hasAttribute('inert')).toBe(true)
-    const inlineDot = rendered.container.querySelector('[data-memo-tag-dot]')
-    expect(inlineDot).not.toBeNull()
-    expect((inlineDot as HTMLElement).style.backgroundColor).toBe('rgb(255, 0, 0)')
 
     const reveal = [...rendered.container.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent?.includes(t('memos.blur.reveal')))
@@ -350,6 +350,18 @@ describe('the memo card', () => {
     click(reveal!)
     expect(rendered.container.querySelector('[data-memo-mask="hidden"]')).toBeNull()
     expect(rendered.container.querySelector('[data-memo-mask="revealed"]')?.hasAttribute('aria-hidden')).toBe(false)
+  })
+
+  it('draws a tag once when the body already shows it, and keeps tags the body does not carry', () => {
+    const rendered = render({
+      memo: memo({ content: 'text #inline', tags: ['inline', 'from-title'] }),
+    })
+    expect(rendered.container.querySelectorAll('[data-tag]')).toHaveLength(1)
+    const chip = rendered.container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t('memos.card.filter_tag', { tag: 'from-title' })}"]`,
+    )
+    expect(chip).not.toBeNull()
+    expect(rendered.container.querySelector(`button[aria-label="${t('memos.card.filter_tag', { tag: 'inline' })}"]`)).toBeNull()
   })
 
   it('starts editing on a double click only when the preference allows it', () => {

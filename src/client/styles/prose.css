@@ -3011,6 +3011,26 @@
   padding-block: 0;
 }
 
+/* A feed can hold hundreds of cards; letting the browser skip the layout and paint of the ones
+   outside the viewport keeps scrolling proportional to what is on screen. The intrinsic size is a
+   placeholder until a card has been measured once, so the scrollbar does not jump. */
+[data-memos-feed] article[data-memo-id] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--memo-card-contain-height);
+}
+
+/* A feed with one memo should not draw one card across 1100px of text: cap it and centre the track. */
+[data-memos-feed] article[data-memo-id]:only-child {
+  max-width: var(--memo-card-max-width);
+  justify-self: center;
+}
+[data-memos-feed] article[data-memo-id] .ink-memo-prose > :first-child {
+  margin-top: 0;
+}
+[data-memos-feed] article[data-memo-id] .ink-memo-prose > :last-child {
+  margin-bottom: 0;
+}
+
 /* A search word is a wash behind the text, not a badge: the accent tint stays readable in every
    theme and leaves the glyph colour to the prose around it. */
 .ink-memo-prose mark[data-memo-hit] {
