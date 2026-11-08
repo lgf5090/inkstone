@@ -40309,6 +40309,13 @@ const allowed = new Map([
     "// The row expires with the idle window regardless; a failed cleanup must not fail the socket.",
     "// Checked before the ticket is consumed so a refused upgrade can be retried with the same ticket.",
   ]],
+  ["src/worker/development/certhub/store.ts", [
+    "/** Grouped order counts, scoped to one reader or to the whole deployment for the admin overview. */",
+    "/** Orders that expire inside the window the overview counts. */",
+    "/** Failed orders touched inside the admin's rolling window. */",
+    "/** The admin order list, newest first. */",
+    "/** The account an order belongs to, for admin routes that then read it through that account. */",
+  ]],
   ["src/worker/development/certhub/worker.ts", [
     "// DELETE ... LIMIT is an SQLite extension this deployment cannot rely on, so the cap lives on a",
     "// SELECT subquery: the oldest finished jobs go first and the batch stays bounded per tick.",
@@ -40362,6 +40369,10 @@ const allowed = new Map([
     "// A percent or underscore a reader types is a character in the name, not a wildcard.",
     "// The total is measured over the filters, before the cursor narrows the page, so the toolbar can",
     "// say how many icons the current selection holds even while the grid streams in later pages.",
+    "/** The asset a repeated upload would duplicate, matched on its content hash. */",
+    "/** Records one uploaded asset after its bytes and thumbnails are already in R2. */",
+    "/** The export record behind a download link, before its expiration is judged. */",
+    "/** Assets still missing a thumbnail, newest first, for the owner's background backfill. */",
   ]],
   ["src/worker/development/xget/lib/app/handle-request.ts", [
     "// Derived from Xget (AGPL-3.0-only) src/app/handle-request.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",

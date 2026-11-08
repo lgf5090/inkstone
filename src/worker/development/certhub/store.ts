@@ -1189,6 +1189,62 @@ export async function pruneEvents(db: D1Database, before: number, limit: number)
   return Number(result.meta?.changes ?? 0)
 }
 
+export interface OrderStatusCount {
+  status: string
+  c: number
+}
+
+export interface AdminOrderRow {
+  id: string
+  user_id: string
+  status: CerthubOrderStatus
+  ca: CerthubCa
+  created_at: number
+  updated_at: number
+  cert_not_after: number | null
+}
+
+/** Grouped order counts, scoped to one reader or to the whole deployment for the admin overview. */
+export async function orderStatusCounts(db: D1Database, userId?: string): Promise<OrderStatusCount[]> {
+  const statement = userId
+    ? db.prepare(`SELECT status, COUNT(*) AS c FROM development_certhub_orders
+      WHERE user_id = ?1 AND deleted_at IS NULL GROUP BY status`).bind(userId)
+    : db.prepare(`SELECT status, COUNT(*) AS c FROM development_certhub_orders
+      WHERE deleted_at IS NULL GROUP BY status`)
+  return (await statement.all<OrderStatusCount>()).results
+}
+
+/** Orders that expire inside the window the overview counts. */
+export async function expiringOrderCount(db: D1Database, userId: string, before: number): Promise<number> {
+  const row = await db.prepare(`SELECT COUNT(*) AS c FROM development_certhub_orders
+    WHERE user_id = ?1 AND deleted_at IS NULL AND status IN ('issued','expired')
+      AND cert_not_after IS NOT NULL AND cert_not_after <= ?2`)
+    .bind(userId, before).first<{ c: number }>()
+  return Number(row?.c ?? 0)
+}
+
+/** Failed orders touched inside the admin's rolling window. */
+export async function failedOrderCountSince(db: D1Database, since: number): Promise<number> {
+  const row = await db.prepare(`SELECT COUNT(*) AS c FROM development_certhub_orders
+    WHERE status = 'failed' AND updated_at > ?1`).bind(since).first<{ c: number }>()
+  return Number(row?.c ?? 0)
+}
+
+/** The admin order list, newest first. */
+export async function listAdminOrders(db: D1Database, limit: number): Promise<AdminOrderRow[]> {
+  const rows = await db.prepare(`SELECT id, user_id, status, ca, created_at, updated_at, cert_not_after
+    FROM development_certhub_orders WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT ?1`)
+    .bind(limit).all<AdminOrderRow>()
+  return rows.results
+}
+
+/** The account an order belongs to, for admin routes that then read it through that account. */
+export async function orderOwnerId(db: D1Database, orderId: string): Promise<string | null> {
+  const row = await db.prepare(`SELECT user_id FROM development_certhub_orders WHERE id = ?1 AND deleted_at IS NULL`)
+    .bind(orderId).first<{ user_id: string }>()
+  return row?.user_id ?? null
+}
+
 export function usageDay(now = Date.now()): string {
   return new Date(now).toISOString().slice(0, 10)
 }

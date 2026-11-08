@@ -37,13 +37,17 @@ import {
   deleteTag,
   ensureLimits,
   ensureSettings,
+  findAssetBySha,
+  findExportDownload,
   getAsset,
   getAssetsByIds,
   getJob,
   getJobAssets,
   getJobItems,
+  insertAsset,
   jobOutputRows,
   listAssets,
+  listAssetsMissingThumb,
   listExports,
   listImports,
   listJobs,
@@ -53,6 +57,7 @@ import {
   resetJobForRetry,
   setAsset,
   setAssetTags,
+  setAssetThumbKey,
   setJobItemOutcome,
   setState,
   stats,
@@ -189,11 +194,9 @@ developmentIconsRoutes.post('/assets', async (c) => {
     ? new TextEncoder().encode(sanitizeSvgText(new TextDecoder().decode(raw), settings.maxSvgBytes))
     : raw
   const sha256 = await sha256Hex(content)
-  const existing = await c.env.DB.prepare(
-    `SELECT id FROM development_icons_assets WHERE user_id = ?1 AND format = ?2 AND sha256 = ?3`,
-  ).bind(userId(c), format, sha256).first<{ id: string }>()
+  const existing = await findAssetBySha(c.env.DB, userId(c), format, sha256)
   if (existing) {
-    return c.json({ ok: true, data: { asset: await getAsset(c.env.DB, userId(c), existing.id), deduped: true } satisfies IconUploadResult })
+    return c.json({ ok: true, data: { asset: await getAsset(c.env.DB, userId(c), existing), deduped: true } satisfies IconUploadResult })
   }
   const usage = await usageFor(c.env.DB, userId(c))
   if (usage.usedBytes + content.byteLength > settings.quotaBytes) {
@@ -221,15 +224,22 @@ developmentIconsRoutes.post('/assets', async (c) => {
   const now = Date.now()
   const name = String(form.get('name') ?? file.name.replace(/\.[^.]+$/, '')).slice(0, 200) || 'icon'
   const collectionId = String(form.get('collectionId') ?? '') || null
-  await c.env.DB.prepare(
-    `INSERT INTO development_icons_assets
-       (user_id, id, collection_id, name, name_key, format, mime, bytes, width, height, view_box, sha256, r2_key, thumb_key, keywords, color_mode, license, source_url, sanitized, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12, ?13, '', ?14, '', '', ?15, ?16, ?16)`,
-  ).bind(
-    userId(c), id, collectionId, name, name.toLowerCase(), format, mime, content.byteLength,
-    dimensions?.width ?? null, dimensions?.height ?? null, sha256, key, thumbKey,
-    format === 'svg' ? detectColorMode(new TextDecoder().decode(content)) : 'multi', format === 'svg' ? 1 : 0, now,
-  ).run()
+  await insertAsset(c.env.DB, userId(c), {
+    id,
+    collectionId,
+    name,
+    format,
+    mime,
+    bytes: content.byteLength,
+    width: dimensions?.width ?? null,
+    height: dimensions?.height ?? null,
+    sha256,
+    r2Key: key,
+    thumbKey,
+    colorMode: format === 'svg' ? detectColorMode(new TextDecoder().decode(content)) : 'multi',
+    sanitized: format === 'svg' ? 1 : 0,
+    createdAt: now,
+  })
   return c.json({ ok: true, data: { asset: await getAsset(c.env.DB, userId(c), id), deduped: false } satisfies IconUploadResult }, 201)
 })
 
@@ -575,9 +585,7 @@ function defaultOptionsFor(format: string): IconJobOptions {
 }
 
 developmentIconsRoutes.get('/exports/:id/download', async (c) => {
-  const row = await c.env.DB.prepare(
-    `SELECT filename, r2_key, format, expires_at FROM development_icons_exports WHERE user_id = ?1 AND id = ?2`,
-  ).bind(userId(c), c.req.param('id')).first<{ filename: string; r2_key: string; format: string; expires_at: number }>()
+  const row = await findExportDownload(c.env.DB, userId(c), c.req.param('id'))
   if (!row) throw new ApiError(404, 'icons_export_expired', 'The export was not found')
   if (row.expires_at < Date.now()) throw new ApiError(404, 'icons_export_expired', 'The export has expired')
   const object = await getIconObject(c.env, row.r2_key)
@@ -645,13 +653,9 @@ developmentIconsRoutes.post('/maintenance/thumbnails', async (c) => {
   const body = await readJson<{ limit?: number }>(c, 4 * 1024).catch(() => ({}) as { limit?: number })
   const limit = Math.min(200, Math.max(1, Number(body.limit ?? 50)))
   const shard = await userShard(userId(c))
-  const rows = await c.env.DB.prepare(
-    `SELECT id, format, mime, sha256, r2_key FROM development_icons_assets
-      WHERE user_id=?1 AND (thumb_key IS NULL OR thumb_key='') ORDER BY created_at DESC LIMIT ?2`,
-  ).bind(userId(c), limit).all<{ id: string; format: string; mime: string; sha256: string; r2_key: string }>()
+  const rowsToDo = await listAssetsMissingThumb(c.env.DB, userId(c), limit)
   let processed = 0
   let failed = 0
-  const rowsToDo = rows.results ?? []
   for (let index = 0; index < rowsToDo.length; index += 8) {
     const slice = rowsToDo.slice(index, index + 8)
     const results = await Promise.all(slice.map(async (row) => {
@@ -659,7 +663,7 @@ developmentIconsRoutes.post('/maintenance/thumbnails', async (c) => {
         const key = iconThumbKey(shard, row.sha256, 96)
         const existing = await getIconObject(c.env, key)
         if (existing) {
-          await c.env.DB.prepare(`UPDATE development_icons_assets SET thumb_key=?3 WHERE user_id=?1 AND id=?2`).bind(userId(c), row.id, key).run()
+          await setAssetThumbKey(c.env.DB, userId(c), row.id, key)
           return true
         }
         const object = await getIconObject(c.env, row.r2_key)
@@ -668,7 +672,7 @@ developmentIconsRoutes.post('/maintenance/thumbnails', async (c) => {
         const thumb = await webpThumbnail(c.env, bytes, row.mime, 96)
         if (!thumb) throw new Error('thumbnail unavailable')
         await putIconObject(c.env, key, thumb, 'image/webp')
-        await c.env.DB.prepare(`UPDATE development_icons_assets SET thumb_key=?3 WHERE user_id=?1 AND id=?2`).bind(userId(c), row.id, key).run()
+        await setAssetThumbKey(c.env.DB, userId(c), row.id, key)
         return true
       } catch {
         return false
