@@ -19384,6 +19384,9 @@ const allowed = new Map([
     "// The restore itself waits for the master password; the token is what the route checks.",
     "// Which key the rows belong to; a restore from another vault's file is refused rather",
     "// than replacing this vault with values it cannot open.",
+    "/** Action names the server writes; anything else is shown verbatim rather than hidden. */",
+    "// Keep whatever is on screen; the next open or refresh retries.",
+    "/* Security log: what the server recorded, so a wipe or a refused confirmation the\n                  reader did not perform is visible instead of only living in the deployment log. */",
   ]],
   ["src/client/features/tools/password/BatchOperationsModal.tsx", [
     "// Map of group ID to group name",
@@ -34157,6 +34160,7 @@ const allowed = new Map([
     "/** The KDF salt, so a local backup can record which key its ciphertext belongs to. Not a secret. */",
     "/** Client-only: at least one sealed field could not be opened with the current key. */",
     "/**\n     * The salt the vault used when this snapshot was written. A restore refuses a snapshot whose\n     * salt no longer matches, instead of replacing the vault with rows it cannot decrypt.\n     */",
+    "/** One recorded security event. `detail` holds ids/counts only — never a secret. */",
   ]],
   ["src/shared/tools/prompt-optimizer/builtin-templates.ts", [
     "/**\n * The built-in prompt templates, ported verbatim from the reference project.\n *\n * The reference stores them as TypeScript modules under\n * `packages/core/src/services/template/default-templates`. They are data, not code, so each template\n * family lives in its own JSON file under `./builtin/`; a reviewer diffs one family at a time instead\n * of scrolling a one-megabyte line, and the module below only concatenates them.\n *\n * Copyright (C) 2025 linshenkx (prompt-optimizer, AGPL-3.0-only); see NOTICE.\n */",
@@ -40053,6 +40057,14 @@ const allowed = new Map([
     "// The WebSSH AI handoff note. 313 is the first free number above the other WebSSH lanes",
     "// (301 monitoring, 304 files/forwarding); every statement is `IF NOT EXISTS`, so a fresh",
     "// database and one already past this number agree.",
+    "// The password vault's old `recovery_hint` column held the first three characters of the master",
+    "// password under a key shipped in the bundle; nothing has read it since 170, but the bytes stayed",
+    "// in D1. 325 is the first number free above the reserved WebSSH/icon lanes (318–321) and the",
+    "// certhub lane (322–324). A fresh database never has the column, so `skipIfColumnMissing` makes",
+    "// the version a no-op there and the ledger still records that the question was asked.",
+    "// The password module's security log: unlock, re-auth, reset, wipe, restore, backup and refused",
+    "// confirmations, queryable from the UI. Idempotent through `IF NOT EXISTS`, and 326 sits beside",
+    "// 325 above the same reserved lanes.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -43107,9 +43119,10 @@ const allowed = new Map([
     "/**\n * Destructive routes require a token minted by `/vault/re-auth` seconds earlier. A session alone is\n * not enough: it lasts for months and would otherwise let a borrowed browser wipe or replace a vault\n * without knowing the master password.\n */",
     "/**\n * A backup is a foreign document even when this server wrote it. The envelope names the format and\n * its major version; a file from an unknown format is refused before a single row is replaced.\n */",
     "/**\n * Refuses a snapshot written under a different master key.\n *\n * A snapshot is only ciphertext: restoring one taken before a password change replaces every row\n * with values the current key cannot open. The salt is not a secret and older snapshots do not carry\n * it, so the check only fires when the snapshot says which key it belongs to.\n */",
-    "/**\n * A structured line for the sensitive operations that had no trace at all: unlock, reset, wipe,\n * restore and backup deletion. Only ids, counts and outcomes — never a password, a secret or a\n * ciphertext body. Written as one JSON object so a log pipeline can collect it without parsing prose.\n */",
     "// Stamp which key the snapshot belongs to, so a restore after a password change can say so",
     "// instead of replacing the vault with rows nobody can decrypt.",
+    "/**\n * Records one sensitive operation twice: a structured console line for the deployment log and a row\n * the reader can query from the UI. Only ids, counts and outcomes — never a password, a secret or a\n * ciphertext body. A failed insert must not fail the operation it describes, so it is best effort.\n */",
+    "// ---------------------------------------------------------------- Audit",
   ]],
   ["src/worker/routes/tools-prompt-optimizer.ts", [
     "/**\n * Prompt Optimizer API (`/api/tools/prompt-optimizer/*`).\n *\n * The route adapts HTTP, validates with the shared schemas, and hands the work to the store or the AI\n * service. It never talks to a provider directly and never trusts an id without binding `user_id`.\n */",
@@ -44424,6 +44437,8 @@ const allowed = new Map([
     "/**\n * D1 schema statements and invariants for the Password Manager tool (`tools_password_*`).\n */",
     "// The whole-vault list sorts by `user_id, sort` with no group filter; neither index above leads",
     "// with that pair, so unlock used to scan and sort the table every time.",
+    "// Security events a reader can come back to: who unlocked, who wiped, what the server refused.",
+    "// Only ids, counts and outcomes are stored — never a password, a TOTP secret or a ciphertext body.",
   ]],
   ["src/worker/tools/password/store.ts", [
     "/**\n * Database store for the Password Manager submodule under Tools.\n *\n * All operations are strictly tenant-isolated using `user_id = ?1` as the primary dimension.\n */",
@@ -44449,6 +44464,10 @@ const allowed = new Map([
     "/** One-based depth of a group in the tenant's tree, or 0 when the id is unknown. */",
     "/** Number of levels the subtree rooted at `groupId` occupies. */",
     "/**\n   * Swaps the verifier and every sealed row together, without a transaction.\n   *\n   * The write order is what makes a failure recoverable: the verifier is written **last**, so a\n   * failure while the rows are being replaced still leaves a vault the old password opens, and the\n   * rows already written are rolled back to the snapshot taken before the first write. The request\n   * must carry every account the server currently has; a stale client list would silently leave an\n   * old-key row behind, which is a vault that cannot be opened completely.\n   */",
+    "/** How many security events one vault keeps; older rows are dropped as new ones arrive. */",
+    "// A wipe is meant to leave nothing; the route records the wipe itself afterwards.",
+    "// ---------------------------------------------------------------- Audit",
+    "/**\n   * Appends one security event and trims the oldest beyond the retention limit.\n   *\n   * The entry carries what the console line carries: an action name and ids/counts. A caller must\n   * never put a password, a TOTP secret or a ciphertext body in `detail`; the route helper is the\n   * only writer and keeps to that shape.\n   */",
   ]],
   ["src/worker/tools/password/verify.ts", [
     "/**\n * Checks a candidate master password against the stored verifier.\n *\n * The verifier is a bcrypt digest produced by the client when the vault was created (or last\n * reset), so the server can answer \"is this the master password\" without ever learning the key the\n * vault is encrypted with. A malformed or missing digest answers false instead of throwing, because\n * the only caller turns a negative answer into a 401 either way.\n */",
@@ -50958,6 +50977,7 @@ const allowed = new Map([
     "// rows back rather than leaving a half-restored vault. Batch 1 is the restore rate-limit write,",
     "// batches 2 and 3 are the 90 + 10 upsert chunks, batch 4 is the rollback.",
     "// The budget is spent before the record lookup, so a missing id still consumes an attempt.",
+    "// A destructive call without a token must leave a \"refused\" line behind, not silence.",
   ]],
   ["tests/tools-password-conventions.test.ts", [
     "/**\n * The password vault's own invariants, written down after an audit found every one of them broken.\n *\n * These are deliberately module-scoped rather than folded into the shared gates: the shared\n * component-level gates only read `src/client/styles`, and widening them in one step would judge\n * every other feature by a rule it has never been held to. Everything below can only regress here.\n */",

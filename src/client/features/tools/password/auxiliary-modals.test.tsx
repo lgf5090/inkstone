@@ -61,6 +61,10 @@ vi.mock('./api', async (importOriginal) => {
     }),
     restoreBackup: vi.fn().mockResolvedValue({ ok: true, count: 5 }),
     deleteBackup: vi.fn().mockResolvedValue({ ok: true }),
+    getAudit: vi.fn().mockResolvedValue([
+      { id: 'audit-1', action: 'unlock_ok', detail: {}, createdAt: 1700000000000 },
+      { id: 'audit-2', action: 'confirm_rejected', detail: {}, createdAt: 1700000001000 },
+    ]),
     },
   }
 })
@@ -717,6 +721,22 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       })
 
       expect(passwordApi.createBackup).toHaveBeenCalled()
+      view.unmount()
+    })
+
+    it('shows the server-side security log with localized action names', async () => {
+      const view = renderElement(createElement(BackupSettingsModal, { open: true }))
+
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(passwordApi.getAudit).toHaveBeenCalled()
+      const rows = document.querySelectorAll('[data-testid="password-audit-row"]')
+      expect(rows).toHaveLength(2)
+      const text = document.querySelector('[data-testid="password-audit-list"]')?.textContent ?? ''
+      expect(text).toContain(t('tools.password.audit.unlock_ok'))
+      expect(text).toContain(t('tools.password.audit.confirm_rejected'))
       view.unmount()
     })
 

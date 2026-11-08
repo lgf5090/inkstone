@@ -6,6 +6,7 @@
 
 import type {
   PasswordAccount,
+  PasswordAuditEntry,
   PasswordBackupRecord,
   PasswordGroup,
   PasswordSettings,
@@ -20,6 +21,9 @@ import { ApiError } from '../../lib/errors'
  */
 const STATEMENT_CHUNK = 90
 const MAX_GROUP_DEPTH = 7
+
+/** How many security events one vault keeps; older rows are dropped as new ones arrive. */
+const AUDIT_RETENTION = 1000
 
 /** How many snapshots a vault keeps before the oldest are dropped. */
 const BACKUP_RETENTION = 20
@@ -334,6 +338,8 @@ export class PasswordStore {
       this.db.prepare(`DELETE FROM tools_password_groups WHERE user_id = ?1`).bind(this.userId),
       this.db.prepare(`DELETE FROM tools_password_settings WHERE user_id = ?1`).bind(this.userId),
       this.db.prepare(`DELETE FROM tools_password_backups WHERE user_id = ?1`).bind(this.userId),
+      // A wipe is meant to leave nothing; the route records the wipe itself afterwards.
+      this.db.prepare(`DELETE FROM tools_password_audit WHERE user_id = ?1`).bind(this.userId),
       this.db.prepare(`DELETE FROM tools_password_vault WHERE user_id = ?1`).bind(this.userId),
     ])
 
@@ -856,6 +862,61 @@ export class PasswordStore {
       autoLockMinutes,
       updatedAt: now,
     }
+  }
+
+  // ---------------------------------------------------------------- Audit
+  /**
+   * Appends one security event and trims the oldest beyond the retention limit.
+   *
+   * The entry carries what the console line carries: an action name and ids/counts. A caller must
+   * never put a password, a TOTP secret or a ciphertext body in `detail`; the route helper is the
+   * only writer and keeps to that shape.
+   */
+  async recordAudit(action: string, detail: Record<string, unknown> = {}): Promise<void> {
+    const now = Date.now()
+    await this.db
+      .prepare(
+        `INSERT INTO tools_password_audit (user_id, id, action, detail, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(this.userId, crypto.randomUUID(), action, JSON.stringify(detail), now)
+      .run()
+
+    await this.db
+      .prepare(
+        `DELETE FROM tools_password_audit
+         WHERE user_id = ?1 AND id NOT IN (
+           SELECT id FROM tools_password_audit WHERE user_id = ?1 ORDER BY created_at DESC LIMIT ?2
+         )`,
+      )
+      .bind(this.userId, AUDIT_RETENTION)
+      .run()
+  }
+
+  async listAudit(limit = 30): Promise<PasswordAuditEntry[]> {
+    const capped = Math.min(Math.max(limit, 1), 100)
+    const { results } = await this.db
+      .prepare(
+        `SELECT id, action, detail, created_at
+         FROM tools_password_audit
+         WHERE user_id = ?1
+         ORDER BY created_at DESC
+         LIMIT ?2`,
+      )
+      .bind(this.userId, capped)
+      .all<{ id: string; action: string; detail: string; created_at: number }>()
+
+    return (results ?? []).map((row) => {
+      let detail: Record<string, unknown> = {}
+      if (row.detail) {
+        try {
+          detail = JSON.parse(row.detail) as Record<string, unknown>
+        } catch {
+          detail = {}
+        }
+      }
+      return { id: row.id, action: row.action, detail, createdAt: row.created_at }
+    })
   }
 
   // ---------------------------------------------------------------- Backups

@@ -4056,6 +4056,25 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 317,
     statements: WEBSSH_HOST_FILTER_INDEX_STATEMENTS,
   },
+  {
+    // The password vault's old `recovery_hint` column held the first three characters of the master
+    // password under a key shipped in the bundle; nothing has read it since 170, but the bytes stayed
+    // in D1. 325 is the first number free above the reserved WebSSH/icon lanes (318–321) and the
+    // certhub lane (322–324). A fresh database never has the column, so `skipIfColumnMissing` makes
+    // the version a no-op there and the ledger still records that the question was asked.
+    version: 325,
+    skipIfColumnMissing: { table: 'tools_password_vault', column: 'recovery_hint' },
+    statements: [
+      `ALTER TABLE tools_password_vault DROP COLUMN recovery_hint`,
+    ],
+  },
+  {
+    // The password module's security log: unlock, re-auth, reset, wipe, restore, backup and refused
+    // confirmations, queryable from the UI. Idempotent through `IF NOT EXISTS`, and 326 sits beside
+    // 325 above the same reserved lanes.
+    version: 326,
+    statements: TOOLS_PASSWORD_SCHEMA_STATEMENTS,
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

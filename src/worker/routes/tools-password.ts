@@ -93,7 +93,7 @@ async function requireDangerousConfirm(c: Context<AppBindings>): Promise<void> {
       c.req.header('X-Inkstone-Confirm'),
     )
   } catch (error) {
-    audit('confirm_rejected', getUserId(c), { path: new URL(c.req.url).pathname })
+    await audit(c, 'confirm_rejected', { path: new URL(c.req.url).pathname })
     throw error
   }
 }
@@ -183,12 +183,22 @@ function assertBackupMatchesVault(backup: PasswordBackupData, vaultKdfSalt: stri
 }
 
 /**
- * A structured line for the sensitive operations that had no trace at all: unlock, reset, wipe,
- * restore and backup deletion. Only ids, counts and outcomes — never a password, a secret or a
- * ciphertext body. Written as one JSON object so a log pipeline can collect it without parsing prose.
+ * Records one sensitive operation twice: a structured console line for the deployment log and a row
+ * the reader can query from the UI. Only ids, counts and outcomes — never a password, a secret or a
+ * ciphertext body. A failed insert must not fail the operation it describes, so it is best effort.
  */
-function audit(action: string, userId: string, detail: Record<string, unknown> = {}): void {
+async function audit(
+  c: Context<AppBindings>,
+  action: string,
+  detail: Record<string, unknown> = {},
+): Promise<void> {
+  const userId = getUserId(c)
   console.log(JSON.stringify({ scope: 'password-audit', action, userId, at: Date.now(), ...detail }))
+  try {
+    await getStore(c).recordAudit(action, detail)
+  } catch (error) {
+    console.warn('password: audit row not written', action, error)
+  }
 }
 
 toolsPasswordRoutes.get('/vault', async (c) => {
@@ -214,11 +224,11 @@ toolsPasswordRoutes.post('/vault/unlock', async (c) => {
 
   const budgetKey = await spendUnlockBudget(c)
   if (!verifyMasterHash(body.password, vault.masterHash)) {
-    audit('unlock_failed', getUserId(c))
+    await audit(c, 'unlock_failed')
     throw wrongMasterPassword()
   }
   await clearLoginFailures(c.env.DB, [budgetKey])
-  audit('unlock_ok', getUserId(c))
+  await audit(c, 'unlock_ok')
   // An empty salt means the vault predates the salted derivation; the client re-seals it now that
   // it has the password in hand.
   return c.json({ ok: true, data: { ok: true, salt: vault.kdfSalt } })
@@ -234,11 +244,11 @@ toolsPasswordRoutes.post('/vault/re-auth', async (c) => {
 
   const budgetKey = await spendUnlockBudget(c)
   if (!verifyMasterHash(body.password, vault.masterHash)) {
-    audit('reauth_failed', getUserId(c))
+    await audit(c, 'reauth_failed')
     throw wrongMasterPassword()
   }
   await clearLoginFailures(c.env.DB, [budgetKey])
-  audit('reauth_ok', getUserId(c))
+  await audit(c, 'reauth_ok')
 
   return c.json({
     ok: true,
@@ -261,12 +271,12 @@ toolsPasswordRoutes.post('/vault/reset', async (c) => {
   // re-encrypt the whole vault under a key the attacker chose.
   const budgetKey = await spendUnlockBudget(c)
   if (!verifyMasterHash(body.oldPassword, vault.masterHash)) {
-    audit('reset_failed', getUserId(c))
+    await audit(c, 'reset_failed')
     throw wrongMasterPassword()
   }
   await clearLoginFailures(c.env.DB, [budgetKey])
   await store.resetMasterPassword(body.newMasterHash, body.newKdfSalt, body.accounts)
-  audit('reset_ok', getUserId(c), { accounts: body.accounts.length })
+  await audit(c, 'reset_ok', { accounts: body.accounts.length })
   return c.json({ ok: true })
 })
 
@@ -275,7 +285,7 @@ toolsPasswordRoutes.post('/vault/wipe', async (c) => {
   await parseBody(c, WipeVaultSchema)
   await requireDangerousConfirm(c)
   const backupKeys = await store.wipeVault()
-  audit('wipe_ok', getUserId(c), { backupsRemoved: backupKeys.length })
+  await audit(c, 'wipe_ok', { backupsRemoved: backupKeys.length })
   await Promise.all(
     backupKeys.map((key) =>
       deleteFromR2(c.env.FILES, key).catch((error: unknown) => {
@@ -286,6 +296,14 @@ toolsPasswordRoutes.post('/vault/wipe', async (c) => {
     ),
   )
   return c.json({ ok: true })
+})
+
+// ---------------------------------------------------------------- Audit
+toolsPasswordRoutes.get('/audit', async (c) => {
+  const store = getStore(c)
+  const requested = Number(c.req.query('limit') ?? '30')
+  const entries = await store.listAudit(Number.isFinite(requested) ? requested : 30)
+  return c.json({ ok: true, data: entries })
 })
 
 // ---------------------------------------------------------------- Groups
@@ -482,7 +500,7 @@ toolsPasswordRoutes.post('/backups', async (c) => {
     size,
     type,
   })
-  audit('backup_created', userId, { id: backupId, type, bytes: size })
+  await audit(c, 'backup_created', { id: backupId, type, bytes: size })
 
   // Snapshots used to accumulate one per click forever; the oldest beyond the retention limit go
   // now, rows and objects together.
@@ -526,7 +544,7 @@ toolsPasswordRoutes.post('/backups/restore-local', async (c) => {
   const vault = await store.getVault()
   assertBackupMatchesVault(parsed, vault?.kdfSalt ?? '')
   await store.restoreData(parsed.data)
-  audit('restore_ok', getUserId(c), {
+  await audit(c, 'restore_ok', {
     source: 'local-file',
     groups: parsed.data.groups.length,
     accounts: parsed.data.accounts.length,
@@ -577,7 +595,7 @@ toolsPasswordRoutes.post('/backups/:id/restore', async (c) => {
   assertBackupMatchesVault(parsed, vault?.kdfSalt ?? '')
 
   await store.restoreData(parsed.data)
-  audit('restore_ok', getUserId(c), {
+  await audit(c, 'restore_ok', {
     source: 'snapshot',
     id,
     groups: parsed.data.groups.length,
@@ -601,6 +619,6 @@ toolsPasswordRoutes.delete('/backups/:id', async (c) => {
   if (record) {
     await deleteFromR2(c.env.FILES, record.r2Key).catch(() => {})
   }
-  audit('backup_deleted', getUserId(c), { id })
+  await audit(c, 'backup_deleted', { id })
   return c.json({ ok: true })
 })

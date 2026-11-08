@@ -8,19 +8,34 @@ import {
   Trash2,
   AlertTriangle,
 } from 'lucide-react'
-import { t } from '../../../lib/i18n'
+import { t, type MessageKey } from '../../../lib/i18n'
 import { Modal, confirm } from '../../../components/overlay'
 import { Button } from '../../../components/primitives'
 import { Slider } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
 import { passwordApi } from './api'
-import type { PasswordBackupRecord, PasswordBackupData } from '@shared/tools/password/types'
+import type { PasswordBackupRecord, PasswordBackupData, PasswordAuditEntry } from '@shared/tools/password/types'
 import { ReauthDialog } from './ReauthDialog'
 
 export interface BackupSettingsModalProps {
   open?: boolean
   onClose?: () => void
+}
+
+/** Action names the server writes; anything else is shown verbatim rather than hidden. */
+const AUDIT_LABEL_KEYS: Record<string, MessageKey> = {
+  unlock_ok: 'tools.password.audit.unlock_ok',
+  unlock_failed: 'tools.password.audit.unlock_failed',
+  reauth_ok: 'tools.password.audit.reauth_ok',
+  reauth_failed: 'tools.password.audit.reauth_failed',
+  reset_ok: 'tools.password.audit.reset_ok',
+  reset_failed: 'tools.password.audit.reset_failed',
+  wipe_ok: 'tools.password.audit.wipe_ok',
+  restore_ok: 'tools.password.audit.restore_ok',
+  backup_created: 'tools.password.audit.backup_created',
+  backup_deleted: 'tools.password.audit.backup_deleted',
+  confirm_rejected: 'tools.password.audit.confirm_rejected',
 }
 
 export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps) {
@@ -53,6 +68,9 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
   const [autoLockMinutes, setAutoLockMinutes] = useState<number>(5)
   const autoLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const [auditEntries, setAuditEntries] = useState<PasswordAuditEntry[]>([])
+  const [isLoadingAudit, setIsLoadingAudit] = useState(false)
+
   const fetchBackups = async () => {
     setIsLoadingBackups(true)
     try {
@@ -76,10 +94,22 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
     }
   }
 
+  const fetchAudit = async () => {
+    setIsLoadingAudit(true)
+    try {
+      setAuditEntries(await passwordApi.getAudit(20))
+    } catch {
+      // Keep whatever is on screen; the next open or refresh retries.
+    } finally {
+      setIsLoadingAudit(false)
+    }
+  }
+
   useEffect(() => {
     if (isVisible) {
       void fetchBackups()
       void fetchSettings()
+      void fetchAudit()
     }
   }, [isVisible])
 
@@ -413,6 +443,61 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
                               aria-label={t('tools.password.backup.delete_snapshot')}
                             />
                           </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Security log: what the server recorded, so a wipe or a refused confirmation the
+                  reader did not perform is visible instead of only living in the deployment log. */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">
+                      {t('tools.password.audit.title')}
+                    </span>
+                    <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+                      {t('tools.password.audit.hint')}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    icon={<RefreshCw size={12} />}
+                    onClick={fetchAudit}
+                    loading={isLoadingAudit}
+                  >
+                    {t('tools.password.common.refresh')}
+                  </Button>
+                </div>
+
+                <div
+                  data-testid="password-audit-list"
+                  className="max-h-48 overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+                >
+                  {auditEntries.length === 0 ? (
+                    <div className="flex h-20 items-center justify-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">
+                      {t('tools.password.audit.empty')}
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-[var(--border-subtle)]">
+                      {auditEntries.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="flex items-center justify-between gap-3 px-3 py-2"
+                          data-testid="password-audit-row"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
+                            {AUDIT_LABEL_KEYS[entry.action]
+                              ? t(AUDIT_LABEL_KEYS[entry.action]!)
+                              : entry.action}
+                          </span>
+                          <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                            {new Date(entry.createdAt).toLocaleString()}
+                          </span>
                         </div>
                       ))}
                     </div>

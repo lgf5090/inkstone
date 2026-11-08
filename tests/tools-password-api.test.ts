@@ -15,6 +15,7 @@ import { toolsPasswordRoutes } from '../src/worker/routes/tools-password'
 import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 import { issueConfirmToken } from '../src/worker/tools/password/confirm'
+import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
 
 const USER_A = 'user-alice'
 const USER_B = 'user-bob'
@@ -128,7 +129,7 @@ afterEach(() => {
 })
 
 describe('Password Manager D1 Schema & Tenant Isolation', () => {
-  it('creates all 5 required tables and 4 indexes', () => {
+  it('creates all 6 required tables and 6 indexes', () => {
     const tableRows = sqlite
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
       .all() as Array<{ name: string }>
@@ -152,6 +153,58 @@ describe('Password Manager D1 Schema & Tenant Isolation', () => {
         expect(cols.has(col), `Column ${col} in ${table} should exist`).toBe(true)
       }
     }
+  })
+
+  it('drops the legacy recovery_hint column and keeps the rows that matter', () => {
+    const legacy = new DatabaseSync(':memory:')
+    legacy.exec(`CREATE TABLE tools_password_vault (
+      user_id TEXT NOT NULL PRIMARY KEY,
+      master_hash TEXT NOT NULL,
+      recovery_hint TEXT NOT NULL DEFAULT '',
+      kdf_salt TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`)
+    legacy.exec(`INSERT INTO tools_password_vault VALUES ('u1', 'hash', 'abc', 'salt', 1, 2)`)
+
+    const drop = SCHEMA_MIGRATIONS.find((migration) => migration.version === 325)
+    expect(drop, 'migration 325 must take recovery_hint away').toBeTruthy()
+    expect(drop!.skipIfColumnMissing).toEqual({ table: 'tools_password_vault', column: 'recovery_hint' })
+    legacy.exec(drop!.statements[0]!)
+
+    const columns = (legacy.prepare('PRAGMA table_info(tools_password_vault)').all() as Array<{ name: string }>).map(
+      (column) => column.name,
+    )
+    expect(columns).not.toContain('recovery_hint')
+    expect(columns).toEqual(expect.arrayContaining(['master_hash', 'kdf_salt', 'created_at', 'updated_at']))
+
+    const row = legacy.prepare('SELECT master_hash, kdf_salt FROM tools_password_vault').get() as {
+      master_hash: string
+      kdf_salt: string
+    }
+    expect(row).toEqual({ master_hash: 'hash', kdf_salt: 'salt' })
+    legacy.close()
+  })
+
+  it('adds the audit table to a database that predates it', () => {
+    const legacy = new DatabaseSync(':memory:')
+    const add = SCHEMA_MIGRATIONS.find((migration) => migration.version === 326)
+    expect(add, 'migration 326 must add the audit table').toBeTruthy()
+    for (const statement of add!.statements) legacy.exec(statement)
+
+    const tables = new Set(
+      (legacy.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as Array<{ name: string }>).map(
+        (table) => table.name,
+      ),
+    )
+    expect(tables.has('tools_password_audit')).toBe(true)
+    const indexes = new Set(
+      (legacy.prepare(`SELECT name FROM sqlite_master WHERE type = 'index'`).all() as Array<{ name: string }>).map(
+        (index) => index.name,
+      ),
+    )
+    expect(indexes.has('idx_tools_password_audit_user')).toBe(true)
+    legacy.close()
   })
 
   it('strictly isolates vault, groups, accounts, settings and backups between users', async () => {
@@ -1372,5 +1425,47 @@ describe('Password Manager Backups & Export Routes', () => {
     const throttled = await call('POST', '/api/tools/password/backups/missing/restore', { headers })
     expect(throttled.status).toBe(429)
     expect((await json<{ error: { code: string } }>(throttled)).error.code).toBe('too_many_attempts')
+  })
+})
+
+describe('Password Manager Security Log', () => {
+  it('records unlock, re-auth and refused confirmations without any secret in the row', async () => {
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT } })
+
+    await call('POST', '/api/tools/password/vault/unlock', { body: { password: 'definitely-wrong' } })
+    await call('POST', '/api/tools/password/vault/unlock', { body: { password: OLD_PASSWORD } })
+    // A destructive call without a token must leave a "refused" line behind, not silence.
+    expect((await call('DELETE', '/api/tools/password/backups/missing')).status).toBe(401)
+    const headers = await dangerHeaders()
+
+    const res = await call('GET', '/api/tools/password/audit?limit=50')
+    expect(res.status).toBe(200)
+    const entries = (await json<{ data: Array<{ action: string; detail: unknown; createdAt: number }> }>(res)).data
+    const actions = entries.map((entry) => entry.action)
+    expect(actions).toContain('unlock_failed')
+    expect(actions).toContain('unlock_ok')
+    expect(actions).toContain('reauth_ok')
+    expect(actions).toContain('confirm_rejected')
+    expect(entries.every((entry) => typeof entry.createdAt === 'number')).toBe(true)
+
+    const serialized = JSON.stringify(entries)
+    expect(serialized).not.toContain(OLD_PASSWORD)
+    expect(serialized).not.toContain('definitely-wrong')
+  })
+
+  it('clears the history on a wipe but keeps the wipe itself as the one remaining line', async () => {
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT } })
+    const headers = await dangerHeaders()
+
+    const wiped = await call('POST', '/api/tools/password/vault/wipe', {
+      body: { confirm: 'delete-all' },
+      headers,
+    })
+    expect(wiped.status).toBe(200)
+
+    const entries = (
+      await json<{ data: Array<{ action: string }> }>(await call('GET', '/api/tools/password/audit'))
+    ).data
+    expect(entries.map((entry) => entry.action)).toEqual(['wipe_ok'])
   })
 })

@@ -4,6 +4,7 @@ import type {
   PasswordAccount,
   PasswordSettings,
   PasswordBackupRecord,
+  PasswordAuditEntry,
 } from '@shared/tools/password/types'
 
 const BASE_URL = '/api/tools/password'
@@ -222,4 +223,6 @@ export const passwordApi = {
       method: 'DELETE',
       headers: { 'X-Inkstone-Confirm': confirmToken },
     }),
+
+  getAudit: (limit = 30) => request<PasswordAuditEntry[]>(`/audit?limit=${limit}`),
 }

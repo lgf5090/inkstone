@@ -94,6 +94,14 @@ export interface PasswordBackupRecord {
   createdAt: number
 }
 
+/** One recorded security event. `detail` holds ids/counts only — never a secret. */
+export interface PasswordAuditEntry {
+  id: string
+  action: string
+  detail: Record<string, unknown>
+  createdAt: number
+}
+
 export interface PasswordBackupData {
   _backup_info: {
     type: 'upassword_backup' | 'inkstone_password_backup'

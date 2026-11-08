@@ -70,6 +70,19 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tools_password_backups_user
      ON tools_password_backups(user_id, created_at DESC)`,
+
+  // Security events a reader can come back to: who unlocked, who wiped, what the server refused.
+  // Only ids, counts and outcomes are stored — never a password, a TOTP secret or a ciphertext body.
+  `CREATE TABLE IF NOT EXISTS tools_password_audit (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_password_audit_user
+     ON tools_password_audit(user_id, created_at DESC)`,
 ]
 
 export const TOOLS_PASSWORD_REQUIRED_TABLES: readonly string[] = [
@@ -78,6 +91,7 @@ export const TOOLS_PASSWORD_REQUIRED_TABLES: readonly string[] = [
   'tools_password_accounts',
   'tools_password_settings',
   'tools_password_backups',
+  'tools_password_audit',
 ]
 
 export const TOOLS_PASSWORD_REQUIRED_INDEXES: readonly string[] = [
@@ -86,6 +100,7 @@ export const TOOLS_PASSWORD_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_password_accounts_fav',
   'idx_tools_password_accounts_user',
   'idx_tools_password_backups_user',
+  'idx_tools_password_audit_user',
 ]
 
 export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -133,6 +148,13 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
     'r2_key',
     'size',
     'type',
+    'created_at',
+  ],
+  tools_password_audit: [
+    'user_id',
+    'id',
+    'action',
+    'detail',
     'created_at',
   ],
 }
