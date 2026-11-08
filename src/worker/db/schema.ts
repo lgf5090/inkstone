@@ -213,6 +213,15 @@ import {
   DEVELOPMENT_CERTHUB_SCHEMA_STATEMENTS,
 } from '../development/certhub/schema'
 import {
+  DEVELOPMENT_ICONS_CORE_SCHEMA_STATEMENTS,
+  DEVELOPMENT_ICONS_JOB_EXECUTION_STATEMENTS,
+  DEVELOPMENT_ICONS_OUTPUTS_STATEMENTS,
+  DEVELOPMENT_ICONS_REQUIRED_COLUMNS,
+  DEVELOPMENT_ICONS_REQUIRED_INDEXES,
+  DEVELOPMENT_ICONS_REQUIRED_TABLES,
+  DEVELOPMENT_ICONS_SETTINGS_STATEMENTS,
+} from '../development/icons/schema'
+import {
   CALENDAR_REQUIRED_COLUMNS,
   CALENDAR_REQUIRED_INDEXES,
   CALENDAR_REQUIRED_TABLES,
@@ -811,6 +820,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...DEVELOPMENT_APITESTER_WS_SESSION_SCHEMA_STATEMENTS,
   ...DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS,
   ...DEVELOPMENT_CERTHUB_SCHEMA_STATEMENTS,
+  ...DEVELOPMENT_ICONS_CORE_SCHEMA_STATEMENTS,
+  ...DEVELOPMENT_ICONS_SETTINGS_STATEMENTS,
+  ...DEVELOPMENT_ICONS_OUTPUTS_STATEMENTS,
   ...CALENDAR_SCHEMA_STATEMENTS,
   ...CLOUDFLARE_SCHEMA_STATEMENTS,
   ...AI_GATEWAY_SCHEMA_STATEMENTS,
@@ -4091,6 +4103,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: DEVELOPMENT_CERTHUB_DNS_SCHEMA_STATEMENTS,
   },
   {
+    version: 320,
+    statements: DEVELOPMENT_ICONS_CORE_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 321,
+    statements: DEVELOPMENT_ICONS_SETTINGS_STATEMENTS,
+  },
+  {
     // The password vault's old `recovery_hint` column held the first three characters of the master
     // password under a key shipped in the bundle; nothing has read it since 170, but the bytes stayed
     // in D1. 325 is the first number free above the reserved WebSSH/icon lanes (318–321) and the
@@ -4108,6 +4128,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // 325 above the same reserved lanes.
     version: 326,
     statements: TOOLS_PASSWORD_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 327,
+    statements: DEVELOPMENT_ICONS_OUTPUTS_STATEMENTS,
+  },
+  {
+    version: 328,
+    statements: DEVELOPMENT_ICONS_JOB_EXECUTION_STATEMENTS,
+    skipIfColumnExists: { table: 'development_icons_jobs', column: 'execution' },
   },
   {
     // The reader's own choice of verifier cost (low/standard/high) plus the verify times this
@@ -4207,6 +4236,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...DEVELOPMENT_XGET_REQUIRED_COLUMNS,
   ...DEVELOPMENT_APITESTER_REQUIRED_COLUMNS,
   ...DEVELOPMENT_GITHUB_REQUIRED_COLUMNS,
+  ...DEVELOPMENT_ICONS_REQUIRED_COLUMNS,
   ...CALENDAR_REQUIRED_COLUMNS,
   ...CLOUDFLARE_REQUIRED_COLUMNS,
   ...YOUTUBE_REQUIRED_COLUMNS,
@@ -4289,6 +4319,7 @@ export const REQUIRED_TABLES = [
   ...DEVELOPMENT_APITESTER_WS_SESSION_REQUIRED_TABLES,
   ...DEVELOPMENT_GITHUB_REQUIRED_TABLES,
   ...DEVELOPMENT_CERTHUB_REQUIRED_TABLES,
+  ...DEVELOPMENT_ICONS_REQUIRED_TABLES,
   ...CALENDAR_REQUIRED_TABLES,
   ...CLOUDFLARE_REQUIRED_TABLES,
   ...YOUTUBE_REQUIRED_TABLES,
@@ -4385,6 +4416,7 @@ export const REQUIRED_INDEXES = [
   ...DEVELOPMENT_APITESTER_WS_SESSION_REQUIRED_INDEXES,
   ...DEVELOPMENT_GITHUB_REQUIRED_INDEXES,
   ...DEVELOPMENT_CERTHUB_REQUIRED_INDEXES,
+  ...DEVELOPMENT_ICONS_REQUIRED_INDEXES,
   ...CALENDAR_REQUIRED_INDEXES,
   ...CLOUDFLARE_REQUIRED_INDEXES,
   ...YOUTUBE_REQUIRED_INDEXES,
@@ -4849,6 +4881,16 @@ function todoDayColumn(instant: number, zone: string): string {
   return localDate(instant, zone)
 }
 
+export function assertUniqueSchemaMigrations(
+  migrations: readonly { version: number }[] = SCHEMA_MIGRATIONS,
+): void {
+  const declared = new Set<number>()
+  for (const migration of migrations) {
+    if (declared.has(migration.version)) throw new Error(`Duplicate schema migration version ${migration.version}`)
+    declared.add(migration.version)
+  }
+}
+
 async function applyMigrations(db: D1Database): Promise<void> {
   await db.prepare(
     `CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -4858,6 +4900,7 @@ async function applyMigrations(db: D1Database): Promise<void> {
   ).run()
   const { results } = await db.prepare(`SELECT version FROM schema_migrations`).all<{ version: number }>()
   const applied = new Set(results.map((row) => row.version))
+  assertUniqueSchemaMigrations()
 
   for (const migration of SCHEMA_MIGRATIONS) {
     // A database whose ledger says a version ran, but which does not have the shape that version

@@ -6,13 +6,14 @@ export const DEVELOPMENT_NAV_WIDTH = {
   default: 260,
 } as const
 
-export type DevelopmentModuleId = 'database' | 'api-tester' | 'xget' | 'github' | 'certhub'
+export type DevelopmentModuleId = 'database' | 'api-tester' | 'xget' | 'github' | 'certhub' | 'icons'
 
 export function developmentModuleForPath(pathname: string): DevelopmentModuleId {
   if (pathname.startsWith('/development/api-tester')) return 'api-tester'
   if (pathname.startsWith('/development/xget')) return 'xget'
   if (pathname.startsWith('/development/github')) return 'github'
   if (pathname.startsWith('/development/certhub')) return 'certhub'
+  if (pathname.startsWith('/development/icons')) return 'icons'
   return 'database'
 }
 

@@ -250,7 +250,7 @@ function drawToCanvas(
     element.height = height
     canvas = element
   }
-  const context = canvas.getContext('2d')
+  const context = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null
   if (!context) return null
   context.drawImage(bitmap, 0, 0, width, height)
   return canvas

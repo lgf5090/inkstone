@@ -87,6 +87,15 @@ run_worker_first = [
 [images]
 binding = "IMAGES"
 
+[[queues.producers]]
+binding = "ICONS_JOBS"
+queue = "inkstone-icons-jobs"
+
+[[queues.consumers]]
+queue = "inkstone-icons-jobs"
+max_batch_size = 10
+max_retries = 3
+
 [[d1_databases]]
 binding = "DB"
 database_name = "inkstone-db"

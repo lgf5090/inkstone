@@ -1,4 +1,4 @@
-import { BadgeCheck, Database, GitBranch, PanelLeftClose, PanelLeft, Send, Terminal, Zap } from 'lucide-react'
+import { BadgeCheck, Database, GitBranch, PanelLeftClose, PanelLeft, Send, Shapes, Terminal, Zap } from 'lucide-react'
 import { usePathname, navigateToPath } from '../../lib/app-history'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -43,6 +43,12 @@ const NAV_ITEMS = [
     path: '/development/certhub',
     labelKey: 'development.certhub.module_name',
     icon: BadgeCheck,
+  },
+  {
+    id: 'icons',
+    path: '/development/icons',
+    labelKey: 'development.icons.module_name',
+    icon: Shapes,
   },
 ] as const
 

@@ -188,6 +188,8 @@ export interface Env {
   /** The per-account download queue; optional so a deployment without R2 can omit it. */
   MUSIC_QUEUE?: DurableObjectNamespace
   SUBAGENT?: DurableObjectNamespace
+  /** Icon conversion queue; optional so a deployment without Queues falls back to browser conversion. */
+  ICONS_JOBS?: Queue
 
   /** The cross-isolate public-share counter; optional so a small deployment can omit it. */
   MUSIC_SHARE_LIMITER?: DurableObjectNamespace

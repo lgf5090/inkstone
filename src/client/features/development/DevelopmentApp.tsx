@@ -23,6 +23,9 @@ const GithubApp = lazy(() =>
 const CerthubApp = lazy(() =>
   import('./certhub/CerthubApp').then((module) => ({ default: module.CerthubApp })),
 )
+const IconsApp = lazy(() =>
+  import('./icons/IconsApp').then((module) => ({ default: module.IconsApp })),
+)
 
 export function DevelopmentApp() {
   const breakpoint = useBreakpoint()
@@ -61,7 +64,9 @@ export function DevelopmentApp() {
                     ? t('development.github.module_name')
                     : moduleId === 'certhub'
                       ? t('development.certhub.module_name')
-                      : t('development.database.module_name')}
+                      : moduleId === 'icons'
+                        ? t('development.icons.module_name')
+                        : t('development.database.module_name')}
             </span>
           </div>
         </header>
@@ -109,6 +114,10 @@ export function DevelopmentApp() {
           ) : moduleId === 'certhub' ? (
             <Suspense fallback={<LoadingBlock />}>
               <CerthubApp />
+            </Suspense>
+          ) : moduleId === 'icons' ? (
+            <Suspense fallback={<LoadingBlock />}>
+              <IconsApp />
             </Suspense>
           ) : (
             <DatabaseApp />

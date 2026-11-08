@@ -7024,6 +7024,46 @@ const allowed = new Map([
     "// A kind the catalog does not know yet must not leak its dotted key onto the page: the event list is",
     "// rendered for any stored row, including ones written by a newer worker.",
   ]],
+  ["src/client/features/development/icons/IconsApp.tsx", [
+    "// The tuple below is the exact filter surface; the browse object also carries view settings that",
+    "// must not refetch the list.",
+    "// eslint-disable-next-line react-hooks/exhaustive-deps",
+    "// A failed poll leaves the last known list on screen.",
+    "// A failed look-up leaves the page usable; the banner appears on the next visit.",
+    "// Resume once per mount; the import id guard inside driveImport prevents a second loop.",
+    "// The library's declared total remains the fallback.",
+  ]],
+  ["src/client/features/development/icons/components/DetailDrawer.tsx", [
+    "/**\n * The drawer is a workbench: the glyph is the subject, size/stroke/colour repaint it live, and the\n * code and download controls sit under it. Copy and download stay pinned to the bottom so a long\n * metadata list never pushes the primary verbs out of reach.\n */",
+    "// Brand sets are recorded as one colour by the importer; only a body that genuinely carries several",
+    "// painted colours keeps its palette, so a Simple Icons mark stays recolourable.",
+  ]],
+  ["src/client/features/development/icons/components/FilterPanel.tsx", [
+    "/**\n * One place for every facet, with the count each choice would leave behind. Chips toggle in place;\n * the grid refetches while the panel stays open, so a reader can see the effect before closing it.\n */",
+  ]],
+  ["src/client/features/development/icons/components/IconCard.tsx", [
+    "/**\n * A square tile with a two-line name and a fixed caption. Hover swaps the caption for four equal\n * action cells, so the verbs are always inside the card and never clipped by its rounded overflow.\n */",
+    "/** The compact list keeps one line per icon; it is the mode for scanning names, not for browsing art. */",
+    "/** The table mode is the audit view: every fact a row carries is a column, not a tooltip. */",
+  ]],
+  ["src/client/features/development/icons/components/Sidebar.tsx", [
+    "/** The mobile drawer already prints the title and the close button, so the rail drops its own. */",
+    "/**\n * The rail is a tree of filters, not a list of links: every row toggles a facet, carries the number\n * of icons behind it, and remembers which groups the reader folded away.\n */",
+    "// Ignored: folding state is a convenience.",
+  ]],
+  ["src/client/features/development/icons/components/Toolbar.tsx", [
+    "/**\n * Two rows, like a file browser: the first is how you find things, the second is what you do with\n * them. Keeping the verbs off the search row is what stops the toolbar from becoming a strip of\n * unlabeled glyphs at 1440px.\n */",
+  ]],
+  ["src/client/features/development/icons/lib/browse.ts", [
+    "// Private modes can refuse storage; the URL still carries the same selection.",
+    "/** The API names a comma list for every multi-select and keeps the single-value keys for old links. */",
+  ]],
+  ["src/client/features/development/icons/lib/convert.ts", [
+    "/**\n * Browser-side conversion.\n *\n * This is the fallback when no Queues binding is deployed: the client rasterizes with Canvas,\n * packs ICO/sprite containers itself, and uploads the real bytes to the job. The server re-checks\n * every file before it records an output, so the job cannot reach `done` on a status change alone.\n */",
+  ]],
+  ["src/client/features/development/icons/lib/preview.ts", [
+    "/**\n * Stroke libraries paint through the wrapper, fill libraries through their own paths, and brand sets\n * keep their own colours. The body is already sanitized on the way in, so the only rewrite here is\n * the colour a reader is previewing.\n */",
+  ]],
   ["src/client/features/email/ComposePanel.tsx", [
     "/** The other device's copy of this draft, as a save refused it. */",
     "/** The draft write this save is typed on; a mismatch means another device saved after it. */",
@@ -32170,6 +32210,28 @@ const allowed = new Map([
   ["src/shared/development/database/assistant-context.ts", [
     "/** Absent for a local SQLite file, which only exists in the browser. */",
   ]],
+  ["src/shared/development/icons/builtins.ts", [
+    "/**\n * The collections a fresh personal library starts with.\n *\n * They are imported by the worker into the reader's own R2/D1 space the first time the library is\n * opened, so the grid shows real icons instead of an empty state. The list is shared with the client\n * so the import dialog can describe every library before a single request goes out.\n */",
+    "/** How many icons the automatic first-run import takes from this library. */",
+    "/** The first-run import is deliberately bounded so it finishes in the background in a few minutes. */",
+  ]],
+  ["src/shared/development/icons/formats.ts", [
+    "/**\n * The upload MIME whitelist.\n *\n * Anything else — including a ZIP — has no storage path in this module: v1 accepts one icon per\n * request, so there is no archive to unpack and no place for a ZIP bomb to enter.\n */",
+  ]],
+  ["src/shared/development/icons/limits.ts", [
+    "/** Conversion outputs are their own ledger so quotas and cleanup can account for them. */",
+    "/** Records whether a job is meant to run in a queue consumer or in the browser. */",
+    "/** The base cell of a PNG sheet; the padding is added on each side. */",
+    "/** A per-user ceiling on conversion jobs created in one minute. */",
+    "/** How long a failed first-run seed is allowed to wait before another visit may retry it. */",
+    "/** Material Symbols ships one 8.5 MB `icons.json`; the ceiling has to clear the largest built-in set. */",
+  ]],
+  ["src/shared/development/icons/types.ts", [
+    "/** `queue` when a consumer will run it; `browser` when the client converts and uploads the outputs. */",
+    "/** Iconify's own count for the whole set. */",
+    "/** Rows actually present in D1 for this account and collection. */",
+    "/** Names skipped because their body matched another name in the set (aliases). */",
+  ]],
   ["src/shared/email/model.ts", [
     "/** The row's write time, the token a draft save compares before it overwrites another device. */",
     "/**\n   * The `updatedAt` this save was written against.\n   *\n   * Present, the save refuses to overwrite a draft another device wrote since; absent, it is the\n   * unconditional write the agent and import paths have always made.\n   */",
@@ -40245,6 +40307,56 @@ const allowed = new Map([
     "// The row expires with the idle window regardless; a failed cleanup must not fail the socket.",
     "// Checked before the ticket is consumed so a refused upgrade can be retried with the same ticket.",
   ]],
+  ["src/worker/development/icons/bulk-import.ts", [
+    "/** Names this job will walk (the missing subset for a fill-missing job). */",
+    "/** Names in the whole collection, so the drill-down can report the true set size. */",
+    "/**\n * Fetching one collection archive once and splitting it into 50-icon chunks turns a paginated import\n * into a sequence of small R2 reads: the expensive 8 MB download happens at creation, and a resumed\n * step never touches the network or re-downloads the name list.\n */",
+    "// Aliases are alternate names for the same glyph, not additional icons. Importing them would make",
+    "// the planned total exceed the rows the grid can show (they collide on the content hash).",
+    "/**\n * One chunk per call. `processed_items` is the cursor: closing the tab pauses the import and the\n * next visit resumes at the same chunk. Names already in the collection are skipped before any byte\n * is written, so a repeated import and \"fill missing\" are both idempotent.\n */",
+    "// The staged bodies are only needed while the cursor is moving; the manifest stays for the",
+    "// drill-down's source total.",
+    "/**\n * The collection drill-down: the full total the import planned, the rows actually in D1, and the\n * latest attempt. The imported number is the count the sidebar shows, so a short count is visible.\n */",
+  ]],
+  ["src/worker/development/icons/convert.ts", [
+    "/**\n * Advance a job by one bounded chunk.\n *\n * A queue message calls this once; a browser fallback calls it only to finalize the manifest. The\n * expensive conversion itself never runs inside the request that created the job.\n */",
+    "/** Finalize a job whose outputs the browser has already uploaded. */",
+    "/** Build artifacts for an export without touching the job tables. */",
+  ]],
+  ["src/worker/development/icons/ico.ts", [
+    "/**\n * ICO packing.\n *\n * Every entry is a PNG payload: the format allows PNG-compressed images and that is the only\n * encoder this worker already has. The directory is validated on both sides so a corrupt upstream\n * artifact cannot be served as if it were an icon.\n */",
+    "/** The canonical token used in object keys: sizes sorted ascending and joined with dashes. */",
+    "/** Parse and validate an ICO's directory. Used by tests and by the upload guard. */",
+  ]],
+  ["src/worker/development/icons/import.ts", [
+    "/**\n * Brands and duotone collections paint several colours; monochrome sets paint one. The filter panel\n * offers this as a facet, so it is recorded once at import time rather than guessed per request.\n */",
+  ]],
+  ["src/worker/development/icons/png.ts", [
+    "/**\n * A minimal PNG encoder.\n *\n * Rasterization hands back RGBA pixels, and the outputs are written to R2 as PNG. The repository\n * already ships `fflate` for ZIP work, so the only pieces missing are the chunk framing and the\n * CRC table — both are defined by the PNG specification and do not need a dependency of their own.\n */",
+    "/** Encode straight (unfiltered) RGBA bytes as a PNG. A zero-length image is refused. */",
+  ]],
+  ["src/worker/development/icons/queue.ts", [
+    "/**\n * The queue consumer.\n *\n * Each message advances one bounded chunk. When items remain the consumer enqueues the next message\n * instead of looping inside one invocation, so a 500-item job never risks the consumer's wall clock.\n */",
+  ]],
+  ["src/worker/development/icons/r2.ts", [
+    "/** Turn an internal object key into the public, immutable URL that serves it. */",
+  ]],
+  ["src/worker/development/icons/raster.ts", [
+    "/**\n * Rasterization for conversion jobs.\n *\n * `resvg` is compiled at deploy time and initialized once per isolate. Raster sources already carry\n * pixels, so they go through the Images binding instead; when that binding is absent the original\n * bytes are only usable at their own size, which is the same \"do not upscale\" rule the UI states.\n */",
+    "/**\n * Produce a PNG at `width` from an uploaded raster.\n *\n * `sourceWidth` lets the caller apply the \"never upscale\" rule without decoding the raster twice.\n */",
+  ]],
+  ["src/worker/development/icons/seed.ts", [
+    "/**\n * The first-run seed runs behind `waitUntil`, never inside the request that asked for it, so a cold\n * library still answers `bootstrap` immediately and the UI can draw its skeleton. The ledger row is\n * the lock: a second tab sees a recent running seed and leaves it alone.\n */",
+    "/** Collections that already hold most of their seed are left alone, so a retry resumes instead of duplicating. */",
+  ]],
+  ["src/worker/development/icons/sprite.ts", [
+    "/** The children of an outer `<svg>` element, with declarations, comments and the wrapper removed. */",
+  ]],
+  ["src/worker/development/icons/store.ts", [
+    "// A percent or underscore a reader types is a character in the name, not a wildcard.",
+    "// The total is measured over the filters, before the cursor narrows the page, so the toolbar can",
+    "// say how many icons the current selection holds even while the grid streams in later pages.",
+  ]],
   ["src/worker/development/xget/lib/app/handle-request.ts", [
     "// Derived from Xget (AGPL-3.0-only) src/app/handle-request.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
     "// The site's session cookie is stripped before the upstream request; it must not",
@@ -40405,6 +40517,7 @@ const allowed = new Map([
     "/** TTL for gateway-generated images, in hours. Default 168 (7 days); 0 keeps them forever. */",
     "/**\n   * Development-only escape hatch for the WebSSH outbound gate. Setting it to `1` lets a local\n   * `wrangler dev` connect to a Docker sshd on a private or loopback address; production must leave\n   * it unset, and port 25 and Cloudflare's own ranges stay blocked either way.\n   */",
     "/** Optional DNS-over-HTTPS endpoint for the WebSSH target resolver; must be https. */",
+    "/** Icon conversion queue; optional so a deployment without Queues falls back to browser conversion. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -40483,6 +40596,7 @@ const allowed = new Map([
     "// holds R2 bytes that nothing else can release until its session row is closed.",
     "// An upload the compare tool never saved into a project is an R2 object with no row pointing at",
     "// it. The sweep rides the top of the hour with the other bounded cleanups, not every minute.",
+    "/**\n   * Icon conversion. The message only names the job; the consumer loads the rows itself so a\n   * redelivery after a crash picks up exactly the items that are still queued.\n   */",
   ]],
   ["src/worker/inknote/assets.ts", [
     "/**\n * Inknote's binary assets: object keys, upload validation, reference scans and the cleanup queue.\n *\n * Page JSON stays in D1; only bytes live in R2/KV. Every object key is generated here from an id the\n * server made, and every row query binds `user_id`, because a filename or note id supplied by a\n * client must never be able to name another account's object.\n */",
@@ -42413,6 +42527,11 @@ const allowed = new Map([
     "/**\n * Publishing counts against a per-account hourly budget so one account cannot\n * flood the shared directory. Updating your own template spends the same\n * budget, which is the point: an edit is another write.\n */",
     "/**\n * Resolves the row an update targets and enforces both ceilings. A supplied id\n * is only honoured when it is new or already belongs to this account, so one\n * author can neither overwrite nor squat another author's id.\n */",
     "/**\n * One account adopting a template into its own library is the only signal worth\n * counting, so the author's own copy never adds to it. The budget is per account\n * and generous: it stops a script, not a person browsing the directory.\n */",
+  ]],
+  ["src/worker/routes/development-icons.ts", [
+    "/** A brake on a client that spams the conversion endpoint; it is per isolate, like the other budgets. */",
+    "/**\n * The first visit asks for this once. It answers before a single icon is written, and the import\n * itself runs in the background so the grid can paint its skeleton immediately.\n */",
+    "/**\n * The browser fallback's upload door.\n *\n * The client rasterizes with Canvas, then posts the produced files here. The bytes are re-checked\n * (PNG signature, ICO directory) and stored under content-addressed keys, so a job only reaches\n * `done` when a real artifact exists — never merely because a status column changed.\n */",
   ]],
   ["src/worker/routes/email.ts", [
     "// The reader's other tab (or another device) wrote this draft after the copy this save was",
@@ -49281,6 +49400,9 @@ const allowed = new Map([
     "// integration lane had already published before the five WebSSH lanes were renumbered onto `test`;",
     "// splitting it would need fresh numbers the merge plan does not have, so it joins the recorded",
     "// baseline instead of being rewritten.",
+    "// 329 carries the password vault's three verifier-cost columns (cost, samples and measurement stamp)",
+    "// as one guarded statement batch; they were published together on the password lane and there is no",
+    "// free number left between 329 and the icon lane to split them onto.",
   ]],
   ["tests/scriptshub-path.test.ts", [
     "// The route decodes `%2e%2e` before validating; a second encoding leaves a percent sign, which",

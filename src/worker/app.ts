@@ -87,6 +87,7 @@ import { developmentApiTesterRoutes } from './routes/development-api-tester'
 import { developmentGithubRoutes } from './routes/development-github'
 import { developmentCerthubRoutes } from './routes/development-certhub'
 import { developmentCerthubOpenRoutes } from './routes/development-certhub-open'
+import { developmentIconsRoutes } from './routes/development-icons'
 import { websshRoutes } from './webssh/routes'
 import { websshPublicShareRoutes } from './webssh/routes-share'
 import { imgbedUploadRoutes } from './imgbed/upload-routes'
@@ -328,6 +329,7 @@ export function createApp() {
   app.route('/api/development/github', developmentGithubRoutes)
   app.route('/api/development/certhub', developmentCerthubOpenRoutes)
   app.route('/api/development/certhub', developmentCerthubRoutes)
+  app.route('/api/development/icons', developmentIconsRoutes)
   app.route('/api/webssh', websshRoutes)
   app.route('/api/imgbed', imgbedUploadRoutes)
   app.route('/api/youtube', youtubeRoutes)
