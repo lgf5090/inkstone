@@ -7019,10 +7019,19 @@ const allowed = new Map([
     "// Reject a bad domain here rather than travelling to the server for the same answer: the server still",
     "// validates (a crafted request must not get past it), this is only the first gate.",
     "// An event row can outlive the order it describes; a raw identifier is worse than nothing.",
+    "/**\n * An order action answers with a code the reader can act on. A missing provider is not a generic\n * failure — it names the one step left — so it gets its own sentence instead of the route's English.\n */",
+    "// A 200 that only re-queues a retry is still an answer the reader should see: without this the",
+    "// button looks inert while the order silently waits for DNS propagation.",
+    "// A provider that covers the typed domain is the one the automatic path can actually write to.",
+    "// The fill only touches rows the reader has not pinned: choosing the manual option explicitly is a",
+    "// decision, and a later keystroke in the name must not silently undo it.",
   ]],
   ["src/client/features/development/certhub/events.ts", [
     "// A kind the catalog does not know yet must not leak its dotted key onto the page: the event list is",
     "// rendered for any stored row, including ones written by a newer worker.",
+  ]],
+  ["src/client/features/development/certhub/rules.ts", [
+    "/**\n * The provider whose zone canonically contains this domain, or `''` when none does.\n *\n * A provider is matched by its configured zone name, not its label: the label is free text, while the\n * zone name is what the token is allowed to write to. The longest matching zone wins, so a provider\n * for `sub.example.com` is preferred over one for `example.com`. The wildcard prefix is dropped before\n * matching because `*.example.com` lives inside the `example.com` zone.\n */",
   ]],
   ["src/client/features/development/icons/IconsApp.tsx", [
     "// The tuple below is the exact filter surface; the browse object also carries view settings that",
@@ -32209,6 +32218,10 @@ const allowed = new Map([
   ["src/shared/development/api-tester/mock-data.ts", [
     "// The zh/en data pools are data, not interface copy: they stay out of the client i18n gate.",
   ]],
+  ["src/shared/development/certhub/validation.ts", [
+    "// An empty id is deliberate: it detaches the domain from a provider and returns it to the manual",
+    "// flow, which is the only way to undo a wrong pick without touching the order itself.",
+  ]],
   ["src/shared/development/database/assistant-context.ts", [
     "/** Absent for a local SQLite file, which only exists in the browser. */",
   ]],
@@ -40241,6 +40254,10 @@ const allowed = new Map([
     "// reserved 318–321 (WebSSH/icons), 322–324 (certhub) and 327–328 (other lanes); `skipIfColumnExists`",
     "// makes this a no-op on a database whose settings table already carries the column, and on a",
     "// fresh database the statements above already created it.",
+    "// The missing-provider audit line is read by \"was this reported in the last hour?\" on every",
+    "// queue wake; without (order, kind, created_at) the read walks the order's whole event history.",
+    "// 360 starts a fresh lane above the reservations for the api-client (330), database-studio (340)",
+    "// and xget (350) branches.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -40308,6 +40325,24 @@ const allowed = new Map([
     "// Workers fetch a WebSocket as an HTTP upgrade, not as a ws(s):// URL.",
     "// The row expires with the idle window regardless; a failed cleanup must not fail the socket.",
     "// Checked before the ticket is consumed so a refused upgrade can be retried with the same ticket.",
+  ]],
+  ["src/worker/development/certhub/dns/cloudflare.ts", [
+    "/**\n * Writes the TXT record this order owns, or returns the id of the one it already owns.\n *\n * Two orders for the same name (`example.com` and `*.example.com`) need two values at\n * `_acme-challenge.example.com`, so the write must never replace an existing record. An interrupted\n * attempt, though, can leave the record already there, and retrying would stack a duplicate value.\n * The comment carries the order id: a record with this name, value and comment is this order's own\n * record, while another order's value at the same name is left untouched.\n */",
+  ]],
+  ["src/worker/development/certhub/state-machine.ts", [
+    "/**\n   * Why the order did not move. A blocked result is a finished answer, not an error: the queue treats\n   * it as \"ask again later\" while the interactive action surfaces it as a refusal the reader can act on.\n   */",
+    "/** A waiting order may be re-checked often; its `updated_at` moves at most this slowly. */",
+    "/** The missing-provider event repeats at most this slowly, so a stuck order cannot flood the log. */",
+    "/** The DNS-01 domains that still have no provider to write their TXT record. */",
+    "/**\n * Moves `updated_at` so a waiting order does not look frozen in the list, without touching `version`.\n *\n * The heartbeat is throttled: the poller wakes every few minutes, and rewriting the row on every wake\n * would turn an idle order into constant D1 writes. No event is written here — the pending-DNS event\n * already explains the wait, and one such row per tick would bury the rest of the history.\n */",
+    "/**\n * Records that this order cannot be written automatically, at most once an hour.\n *\n * The queue touches the same condition every five minutes; an event per wake would fill the ten-row\n * detail view with the same line and force older events out of the retention window.\n */",
+    "// The names are resolved but nothing can write the TXT record: the reader has to bind a",
+    "// provider, or add the record by hand before this order can move. The queue still retries,",
+    "// because the manual path becomes valid the moment the record appears in DNS.",
+    "// The retry job keeps the manual path alive: a record added by hand is noticed on the next tick",
+    "// even when the reader never presses the button again.",
+    "/** The order states in which a domain may still change its provider: everything before the CA decides. */",
+    "/**\n * Binds (or changes, or clears) the DNS provider of one domain, then re-queues the order.\n *\n * The order goes back to `queued` so the next advance re-reads the authorizations and writes the\n * record through the newly bound provider; the domain's own record fields are cleared because the\n * record that was attached to the previous provider no longer describes where the value lives.\n *\n * Only the stored `dns_record_id` is deleted on the way out. Two orders for `example.com` and\n * `*.example.com` share `_acme-challenge.example.com` but hold different values, and deleting by id\n * removes this domain's value while leaving the other order's TXT in place.\n */",
   ]],
   ["src/worker/development/certhub/store.ts", [
     "/** Grouped order counts, scoped to one reader or to the whole deployment for the admin overview. */",
@@ -40614,6 +40649,8 @@ const allowed = new Map([
     "// An upload the compare tool never saved into a project is an R2 object with no row pointing at",
     "// it. The sweep rides the top of the hour with the other bounded cleanups, not every minute.",
     "/**\n   * Icon conversion. The message only names the job; the consumer loads the rows itself so a\n   * redelivery after a crash picks up exactly the items that are still queued.\n   */",
+    "// One certificate order that throws must not take the whole scheduled round with it: the other",
+    "// ticks, and every order behind this one, still have work to do in the same fire.",
   ]],
   ["src/worker/inknote/assets.ts", [
     "/**\n * Inknote's binary assets: object keys, upload validation, reference scans and the cleanup queue.\n *\n * Page JSON stays in D1; only bytes live in R2/KV. Every object key is generated here from an id the\n * server made, and every row query binds `user_id`, because a filename or note id supplied by a\n * client must never be able to name another account's object.\n */",
@@ -47414,6 +47451,9 @@ const allowed = new Map([
     "/**\n * The request form's two visible bugs: a checkbox that printed its label twice, and a wildcard row\n * that still offered HTTP-01 even though the CA refuses it.\n */",
     "// The accessible name is the button's own content: a wrapping `<label>` would add a second copy",
     "// outside the control and leave the name unchanged, which is what made this hard to notice.",
+  ]],
+  ["tests/certhub-dns-provider.test.ts", [
+    "/**\n * The DNS-provider contract of a DNS-01 order.\n *\n * These cases cover the four ways an order could silently sit in \"waiting for DNS\": the request form\n * never picks a provider, the queue has no way to report the missing provider, an existing order\n * cannot gain one, and a retried write stacks a duplicate value beside another order's TXT.\n */",
   ]],
   ["tests/certhub-help.test.tsx", [
     "/**\n * The per-page guide: every topic has to speak both languages, and the drawer has to move between\n * topics and close again. A missing key would otherwise print `development.certhub.help.…` at a\n * reader, which is the failure this module exists to prevent.\n */",
