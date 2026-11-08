@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useId,
   useImperativeHandle,
@@ -63,6 +64,7 @@ const DIVIDER_SNIPPET = '---\n'
 const CODE_CURSOR = '```ts\n'.length
 const MATH_CURSOR = '$$\n'.length
 const MAX_IMAGE_DIMENSION = 10_000
+type MemoFormatGroup = 'inline' | 'list' | 'heading'
 
 const memoEditorTheme = EditorView.theme({
   '&': {
@@ -481,19 +483,24 @@ export function MemoEditor({
     })
   }, [value])
 
-  const buttons: { id: string; label: MessageKey; action: MemoFormatAction; icon: ReactElement }[] = [
-    { id: 'bold', label: 'memos.composer.bold', action: { kind: 'inline', open: '**' }, icon: <Bold size={14} /> },
-    { id: 'italic', label: 'memos.composer.italic', action: { kind: 'inline', open: '*' }, icon: <Italic size={14} /> },
-    { id: 'strike', label: 'memos.composer.strikethrough', action: { kind: 'inline', open: '~~' }, icon: <Strikethrough size={14} /> },
-    { id: 'code', label: 'memos.composer.inline_code', action: { kind: 'inline', open: '`' }, icon: <Code size={14} /> },
-    { id: 'quote', label: 'memos.composer.quote', action: { kind: 'line', prefix: '> ', pattern: MEMO_LIST_PATTERNS.quote }, icon: <Quote size={14} /> },
-    { id: 'bullet', label: 'memos.composer.bullet_list', action: { kind: 'line', prefix: '- ', pattern: MEMO_LIST_PATTERNS.bullet, replacement: MEMO_ANY_LIST_PREFIX }, icon: <List size={14} /> },
-    { id: 'ordered', label: 'memos.composer.ordered_list', action: { kind: 'line', prefix: '1. ', pattern: MEMO_LIST_PATTERNS.ordered, replacement: MEMO_ANY_LIST_PREFIX }, icon: <ListOrdered size={14} /> },
-    { id: 'task', label: 'memos.composer.task_list', action: { kind: 'line', prefix: '- [ ] ', pattern: MEMO_LIST_PATTERNS.task, replacement: MEMO_ANY_LIST_PREFIX }, icon: <ListTodo size={14} /> },
-    { id: 'link', label: 'memos.composer.link', action: { kind: 'link' }, icon: <Link2 size={14} /> },
-    { id: 'h1', label: 'memos.composer.heading_level', action: { kind: 'heading', level: 1 }, icon: <Heading1 size={14} /> },
-    { id: 'h2', label: 'memos.composer.heading_level', action: { kind: 'heading', level: 2 }, icon: <Heading2 size={14} /> },
-    { id: 'h3', label: 'memos.composer.heading_level', action: { kind: 'heading', level: 3 }, icon: <Heading3 size={14} /> },
+  const buttons: { id: string; label: MessageKey; group: MemoFormatGroup; action: MemoFormatAction; icon: ReactElement }[] = [
+    { id: 'bold', label: 'memos.composer.bold', group: 'inline', action: { kind: 'inline', open: '**' }, icon: <Bold size={14} /> },
+    { id: 'italic', label: 'memos.composer.italic', group: 'inline', action: { kind: 'inline', open: '*' }, icon: <Italic size={14} /> },
+    { id: 'strike', label: 'memos.composer.strikethrough', group: 'inline', action: { kind: 'inline', open: '~~' }, icon: <Strikethrough size={14} /> },
+    { id: 'code', label: 'memos.composer.inline_code', group: 'inline', action: { kind: 'inline', open: '`' }, icon: <Code size={14} /> },
+    { id: 'quote', label: 'memos.composer.quote', group: 'list', action: { kind: 'line', prefix: '> ', pattern: MEMO_LIST_PATTERNS.quote }, icon: <Quote size={14} /> },
+    { id: 'bullet', label: 'memos.composer.bullet_list', group: 'list', action: { kind: 'line', prefix: '- ', pattern: MEMO_LIST_PATTERNS.bullet, replacement: MEMO_ANY_LIST_PREFIX }, icon: <List size={14} /> },
+    { id: 'ordered', label: 'memos.composer.ordered_list', group: 'list', action: { kind: 'line', prefix: '1. ', pattern: MEMO_LIST_PATTERNS.ordered, replacement: MEMO_ANY_LIST_PREFIX }, icon: <ListOrdered size={14} /> },
+    { id: 'task', label: 'memos.composer.task_list', group: 'list', action: { kind: 'line', prefix: '- [ ] ', pattern: MEMO_LIST_PATTERNS.task, replacement: MEMO_ANY_LIST_PREFIX }, icon: <ListTodo size={14} /> },
+    { id: 'link', label: 'memos.composer.link', group: 'inline', action: { kind: 'link' }, icon: <Link2 size={14} /> },
+    { id: 'h1', label: 'memos.composer.heading_level', group: 'heading', action: { kind: 'heading', level: 1 }, icon: <Heading1 size={14} /> },
+    { id: 'h2', label: 'memos.composer.heading_level', group: 'heading', action: { kind: 'heading', level: 2 }, icon: <Heading2 size={14} /> },
+    { id: 'h3', label: 'memos.composer.heading_level', group: 'heading', action: { kind: 'heading', level: 3 }, icon: <Heading3 size={14} /> },
+  ]
+  const formatGroups: { id: MemoFormatGroup; label: MessageKey }[] = [
+    { id: 'inline', label: 'memos.composer.group_inline' },
+    { id: 'list', label: 'memos.composer.group_list' },
+    { id: 'heading', label: 'memos.composer.group_heading' },
   ]
   const insertItems: MenuItem[] = [
     {
@@ -548,21 +555,30 @@ export function MemoEditor({
         aria-label={t('memos.composer.formatting')}
         className="flex flex-wrap items-center gap-0.5 border-b border-[var(--border-subtle)] pb-1"
       >
-        {buttons.map((button) => (
-          <TooltipIconButton
-            key={button.id}
-            label={t(button.label, button.id.startsWith('h') ? { level: button.id.slice(1) } : undefined)}
-            size="sm"
-            disabled={disabled}
-            onClick={() => {
-              const view = viewRef.current
-              if (!view) return
-              runMemoFormat(view, button.action)
-              view.focus()
-            }}
-          >
-            {button.icon}
-          </TooltipIconButton>
+        {formatGroups.map((group, groupIndex) => (
+          <Fragment key={group.id}>
+            {groupIndex > 0 ? (
+              <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]" />
+            ) : null}
+            <span role="group" aria-label={t(group.label)} className="flex flex-wrap items-center gap-0.5">
+              {buttons.filter((button) => button.group === group.id).map((button) => (
+                <TooltipIconButton
+                  key={button.id}
+                  label={t(button.label, button.id.startsWith('h') ? { level: button.id.slice(1) } : undefined)}
+                  size="sm"
+                  disabled={disabled}
+                  onClick={() => {
+                    const view = viewRef.current
+                    if (!view) return
+                    runMemoFormat(view, button.action)
+                    view.focus()
+                  }}
+                >
+                  {button.icon}
+                </TooltipIconButton>
+              ))}
+            </span>
+          </Fragment>
         ))}
         <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]" />
         <TooltipIconButton

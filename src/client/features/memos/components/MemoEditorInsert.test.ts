@@ -71,6 +71,16 @@ afterEach(() => {
 })
 
 describe('the memo editor insert menu', () => {
+  it('groups the formatting buttons under labelled groups', () => {
+    const container = renderEditor()
+    const groups = [...container.querySelectorAll<HTMLElement>('[role="toolbar"] [role="group"]')]
+    expect(groups.map((group) => group.getAttribute('aria-label'))).toEqual([
+      t('memos.composer.group_inline'),
+      t('memos.composer.group_list'),
+      t('memos.composer.group_heading'),
+    ])
+    expect(groups.map((group) => group.querySelectorAll('button').length)).toEqual([5, 4, 3])
+  })
   it('inserts every block snippet at the cursor', () => {
     const cases = [
       { label: t('memos.composer.table'), snippet: '| Column | Column |\n| --- | --- |\n| Cell | Cell |\n' },
