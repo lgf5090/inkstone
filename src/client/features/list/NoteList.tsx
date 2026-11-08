@@ -701,7 +701,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
               {blogStatus && <BlogOpenIcon status={blogStatus}/>}
             </div>
 
-            {density === 'comfortable' && !locked && note.excerpt && (<p className="truncate-2 mt-1 text-[length:var(--text-11-5)] leading-[1.5] text-[var(--text-tertiary)]">
+            {density === 'comfortable' && !locked && note.excerpt && (<p className="truncate-2 mt-1 text-[length:var(--text-12)] leading-[var(--ui-line)] text-[var(--text-tertiary)]">
                 {note.excerpt}
               </p>)}
 
