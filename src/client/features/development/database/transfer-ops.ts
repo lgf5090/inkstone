@@ -1,6 +1,6 @@
 import { sqlLiteral } from './export-utils'
 import { quoteIdent } from '@shared/development/database/sql-utils'
-import type { StudioDriver } from './drivers'
+import type { StudioDriver, StudioQueryOptions, StudioStatement } from './drivers'
 
 const MAX_ROWS_PER_CHUNK = 50
 const MAX_CHARS_PER_CHUNK = 120_000
@@ -44,6 +44,16 @@ export function chunkInsertRows(columns: string[], rows: unknown[][]): unknown[]
   return chunks
 }
 
+export function buildInsertStatements(
+  table: string,
+  columns: string[],
+  rows: unknown[][],
+): StudioStatement[] {
+  return chunkInsertRows(columns, rows).map((chunk) => ({
+    sql: buildInsertManySql(table, columns, chunk),
+  }))
+}
+
 export interface InsertOutcome {
   inserted: number
   failed: number
@@ -56,17 +66,18 @@ export async function insertRowsInChunks(
   columns: string[],
   rows: unknown[][],
   onProgress?: (done: number) => void,
+  options?: StudioQueryOptions,
 ): Promise<InsertOutcome> {
   const outcome: InsertOutcome = { inserted: 0, failed: 0, errors: [] }
   if (rows.length === 0 || columns.length === 0) return outcome
   for (const chunk of chunkInsertRows(columns, rows)) {
     try {
-      await driver.query(buildInsertManySql(table, columns, chunk))
+      await driver.query(buildInsertManySql(table, columns, chunk), undefined, options)
       outcome.inserted += chunk.length
     } catch {
       for (const row of chunk) {
         try {
-          await driver.query(buildRowInsert(table, columns, row))
+          await driver.query(buildRowInsert(table, columns, row), undefined, options)
           outcome.inserted += 1
         } catch (error) {
           outcome.failed += 1

@@ -255,9 +255,11 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       setError(t('development.database.query.no_statements'))
       return
     }
+    let confirmedProduction = false
     if (ensureWritable && statements.some(isWriteSql)) {
       const ok = await ensureWritable()
       if (!ok) return
+      confirmedProduction = true
     }
     if (statements.some(isDestructiveSql)) {
       const ok = await confirm({
@@ -279,7 +281,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
           const chunk = statements.slice(offset, offset + MAX_BATCH_STATEMENTS)
           setProgress({ current: Math.min(offset + chunk.length, statements.length), total: statements.length })
           try {
-            next.push(...await runBatch(connectionId, chunk.map((statement) => ({ sql: statement })), true))
+            next.push(...await runBatch(connectionId, chunk.map((statement) => ({ sql: statement })), true, confirmedProduction))
           } catch (cause) {
             if (cause instanceof ApiError) {
               const index = (cause.details as { statementIndex?: unknown } | undefined)?.statementIndex
@@ -291,7 +293,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       } else {
         for (let index = 0; index < statements.length; index++) {
           setProgress({ current: index + 1, total: statements.length })
-          next.push(await driver.query(statements[index]!, undefined, { recordHistory: true }))
+          next.push(await driver.query(statements[index]!, undefined, { recordHistory: true, confirmProduction: confirmedProduction }))
         }
       }
       setResults(next)
@@ -336,6 +338,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
         if (!ok) return
       }
     }
+    const confirmedProduction = statements.some(isWriteSql) && Boolean(ensureWritable)
     fileCancel.current = false
     setFileRunning(true)
     const failed: Array<{ index: number; sql: string; message: string }> = []
@@ -345,7 +348,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       for (let index = 0; index < statements.length; index++) {
         if (fileCancel.current) break
         try {
-          await driver.query(statements[index]!)
+          await driver.query(statements[index]!, undefined, { confirmProduction: confirmedProduction })
         } catch (cause) {
           failed.push({ index: index + 1, sql: statements[index]!.slice(0, 160), message: cause instanceof Error ? cause.message : String(cause) })
         }
@@ -522,6 +525,13 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   }
 
   const removeSaved = async (item: SavedQuery) => {
+    const ok = await confirm({
+      title: t('development.database.query.delete_saved_title', { name: item.name }),
+      description: t('development.database.query.delete_saved_description'),
+      confirmLabel: t('development.database.query.delete_saved_confirm'),
+      tone: 'danger',
+    })
+    if (!ok) return
     try {
       if (!isLocal) await deleteSavedQuery(item.id)
       const next = saved.filter((entry) => entry.id !== item.id)
@@ -931,6 +941,13 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
         </div>
         {history.length > 0 && (
           <Button variant="ghost" size="sm" className="mt-2 w-full justify-start text-[var(--danger)]" onClick={() => { void (async () => {
+            const ok = await confirm({
+              title: t('development.database.query.clear_history_title'),
+              description: t('development.database.query.clear_history_description'),
+              confirmLabel: t('development.database.query.clear_history'),
+              tone: 'danger',
+            })
+            if (!ok) return
             if (!isLocal) await clearHistory(connectionId)
             setHistory([])
             if (isLocal) writeLocal(`${LOCAL_HISTORY_PREFIX}${connectionId}`, [])

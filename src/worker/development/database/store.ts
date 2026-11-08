@@ -24,6 +24,9 @@ export interface ConnectionRecord {
   sort: number
   isFavorite: boolean
   isPinned: boolean
+  readOnly: boolean
+  production: boolean
+  unlockedUntil: number
   createdAt: number
   updatedAt: number
 }
@@ -53,6 +56,18 @@ export interface ConnectionPatch {
 export interface ConnectionFlags {
   isFavorite?: boolean
   isPinned?: boolean
+}
+
+export interface ConnectionGuardState {
+  readOnly: boolean
+  production: boolean
+  unlockedUntil: number
+}
+
+export interface ConnectionGuardPatch {
+  readOnly?: boolean
+  production?: boolean
+  unlockedUntil?: number
 }
 
 export interface SavedQueryInsert {
@@ -110,6 +125,9 @@ interface ConnectionRow {
   sort: number
   is_favorite: number
   is_pinned: number
+  read_only?: number
+  production?: number
+  unlocked_until?: number
   created_at: number
   updated_at: number
 }
@@ -142,8 +160,16 @@ interface ExportRow {
   created_at: number
 }
 
-const CONNECTION_COLUMNS = `id, name, type, d1_account_id, d1_database_id, d1_database_name,
-  turso_url, secret_ciphertext, sort, is_favorite, is_pinned, created_at, updated_at`
+const CONNECTION_COLUMNS = `c.id, c.name, c.type, c.d1_account_id, c.d1_database_id, c.d1_database_name,
+  c.turso_url, c.secret_ciphertext, c.sort, c.is_favorite, c.is_pinned,
+  COALESCE(g.read_only, 0) AS read_only,
+  COALESCE(g.production, 0) AS production,
+  COALESCE(g.unlocked_until, 0) AS unlocked_until,
+  c.created_at, c.updated_at`
+
+const CONNECTION_FROM = `development_database_connections c
+  LEFT JOIN development_database_connection_guards g
+    ON g.user_id = c.user_id AND g.connection_id = c.id`
 
 const SAVED_QUERY_COLUMNS = `id, connection_id, name, sql, namespace, created_at, updated_at`
 
@@ -173,6 +199,9 @@ function rowToConnection(row: ConnectionRow): ConnectionRecord {
     sort: row.sort,
     isFavorite: row.is_favorite === 1,
     isPinned: row.is_pinned === 1,
+    readOnly: (row.read_only ?? 0) === 1,
+    production: (row.production ?? 0) === 1,
+    unlockedUntil: Number(row.unlocked_until ?? 0) || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -224,6 +253,9 @@ export function toConnectionView(record: ConnectionRecord): DatabaseConnectionVi
     sort: record.sort,
     isFavorite: record.isFavorite,
     isPinned: record.isPinned,
+    readOnly: record.readOnly,
+    production: record.production,
+    unlockedUntil: record.unlockedUntil,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   }
@@ -233,9 +265,9 @@ export async function listConnections(db: D1Database, userId: string): Promise<C
   const result = await db
     .prepare(
       `SELECT ${CONNECTION_COLUMNS}
-         FROM development_database_connections
-        WHERE user_id = ?1
-        ORDER BY is_pinned DESC, is_favorite DESC, sort ASC, id ASC`,
+         FROM ${CONNECTION_FROM}
+        WHERE c.user_id = ?1
+        ORDER BY c.is_pinned DESC, c.is_favorite DESC, c.sort ASC, c.id ASC`,
     )
     .bind(userId)
     .all<ConnectionRow>()
@@ -258,8 +290,8 @@ export async function findConnection(
   const row = await db
     .prepare(
       `SELECT ${CONNECTION_COLUMNS}
-         FROM development_database_connections
-        WHERE user_id = ?1 AND id = ?2`,
+         FROM ${CONNECTION_FROM}
+        WHERE c.user_id = ?1 AND c.id = ?2`,
     )
     .bind(userId, id)
     .first<ConnectionRow>()
@@ -359,6 +391,62 @@ export async function updateConnectionFlags(
   return (result.meta.changes ?? 0) > 0
 }
 
+export async function findConnectionGuard(
+  db: D1Database,
+  userId: string,
+  connectionId: string,
+): Promise<ConnectionGuardState> {
+  const row = await db
+    .prepare(
+      `SELECT read_only, production, unlocked_until
+         FROM development_database_connection_guards
+        WHERE user_id = ?1 AND connection_id = ?2`,
+    )
+    .bind(userId, connectionId)
+    .first<{ read_only: number; production: number; unlocked_until: number }>()
+  return {
+    readOnly: (row?.read_only ?? 0) === 1,
+    production: (row?.production ?? 0) === 1,
+    unlockedUntil: Number(row?.unlocked_until ?? 0) || 0,
+  }
+}
+
+export async function saveConnectionGuard(
+  db: D1Database,
+  userId: string,
+  connectionId: string,
+  patch: ConnectionGuardPatch,
+  updatedAt: number,
+): Promise<ConnectionGuardState> {
+  const current = await findConnectionGuard(db, userId, connectionId)
+  const next: ConnectionGuardState = {
+    readOnly: patch.readOnly ?? current.readOnly,
+    production: patch.production ?? current.production,
+    unlockedUntil: patch.unlockedUntil ?? current.unlockedUntil,
+  }
+  await db
+    .prepare(
+      `INSERT INTO development_database_connection_guards
+         (user_id, connection_id, read_only, production, unlocked_until, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(user_id, connection_id) DO UPDATE
+          SET read_only = excluded.read_only,
+              production = excluded.production,
+              unlocked_until = excluded.unlocked_until,
+              updated_at = excluded.updated_at`,
+    )
+    .bind(
+      userId,
+      connectionId,
+      next.readOnly ? 1 : 0,
+      next.production ? 1 : 0,
+      next.unlockedUntil,
+      updatedAt,
+    )
+    .run()
+  return next
+}
+
 export async function findMissingConnectionIds(
   db: D1Database,
   userId: string,
@@ -409,6 +497,9 @@ export async function deleteConnection(db: D1Database, userId: string, id: strin
       .bind(userId, id),
     db
       .prepare('DELETE FROM development_database_query_history WHERE user_id = ?1 AND connection_id = ?2')
+      .bind(userId, id),
+    db
+      .prepare('DELETE FROM development_database_connection_guards WHERE user_id = ?1 AND connection_id = ?2')
       .bind(userId, id),
     db
       .prepare('DELETE FROM development_database_connections WHERE user_id = ?1 AND id = ?2')

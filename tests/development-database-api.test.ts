@@ -554,12 +554,73 @@ describe('query endpoint', () => {
   })
 })
 
+describe('server-side write policy', () => {
+  it('blocks writes on a read-only connection and allows them after a server unlock', async () => {
+    const created = await createConnection('Primary')
+    const flags = await call('PATCH', `/connections/${created.id}/flags`, { body: { readOnly: true } })
+    expect(flags.status).toBe(200)
+    expect((await bodyOf<DatabaseConnectionView>(flags)).data?.readOnly).toBe(true)
+
+    const fetchMock = vi.fn(async () => queryResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+    const blocked = await call('POST', '/query', {
+      body: { connectionId: created.id, sql: 'update t set a = 1' },
+    })
+    expect(blocked.status).toBe(403)
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    const unlocked = await call('POST', `/connections/${created.id}/unlock`, { body: { minutes: 1 } })
+    expect(unlocked.status).toBe(200)
+    expect((await bodyOf<DatabaseConnectionView>(unlocked)).data?.unlockedUntil).toBeGreaterThan(Date.now())
+
+    const allowed = await call('POST', '/query', {
+      body: { connectionId: created.id, sql: 'update t set a = 1', confirmProduction: true },
+    })
+    expect(allowed.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    const locked = await call('POST', `/connections/${created.id}/unlock`, { body: { minutes: 0 } })
+    expect(locked.status).toBe(200)
+    expect((await bodyOf<DatabaseConnectionView>(locked)).data?.unlockedUntil).toBe(0)
+  })
+
+  it('requires an explicit production confirmation from the caller', async () => {
+    const created = await createConnection('Primary')
+    const flags = await call('PATCH', `/connections/${created.id}/flags`, { body: { production: true } })
+    expect(flags.status).toBe(200)
+    expect((await bodyOf<DatabaseConnectionView>(flags)).data?.production).toBe(true)
+
+    const fetchMock = vi.fn(async () => queryResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+    const unconfirmed = await call('POST', '/query', {
+      body: { connectionId: created.id, sql: 'delete from t where id = 1' },
+    })
+    expect(unconfirmed.status).toBe(400)
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    const confirmed = await call('POST', '/query', {
+      body: { connectionId: created.id, sql: 'delete from t where id = 1', confirmProduction: true },
+    })
+    expect(confirmed.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    const read = await call('POST', '/query', {
+      body: { connectionId: created.id, sql: 'select 1' },
+    })
+    expect(read.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('batch endpoint', () => {
-  it('runs D1 statements sequentially and keeps the result order', async () => {
+  it('runs D1 statements in one atomic batch and keeps the result order', async () => {
     const created = await createConnection('Primary')
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
-      const sql = (JSON.parse(String(init.body)) as { sql: string }).sql
-      return queryResponse([{ sql }])
+      const body = JSON.parse(String(init.body)) as { batch: Array<{ sql: string }> }
+      return jsonResponse({
+        success: true,
+        result: body.batch.map((statement) => ({ success: true, results: [{ sql: statement.sql }], meta: {} })),
+      })
     })
     vi.stubGlobal('fetch', fetchMock)
 
@@ -570,13 +631,48 @@ describe('batch endpoint', () => {
       },
     })
     expect(response.status).toBe(200)
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     const results = (await bodyOf<{ results: QueryResult[] }>(response)).data!.results
     expect(results.map((result) => result.rows[0]![0])).toEqual(['select 1', 'select 2', 'select 3'])
-    const bodies = fetchMock.mock.calls.map(
-      ([, init]) => JSON.parse(String(init.body)) as { sql: string; params: unknown[] },
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({
+      batch: [
+        { sql: 'select 1', params: [] },
+        { sql: 'select 2', params: ['x'] },
+        { sql: 'select 3', params: [] },
+      ],
+    })
+  })
+
+  it('runs the transaction endpoint as one upstream batch', async () => {
+    const created = await createConnection('Primary')
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        success: true,
+        result: [
+          { success: true, results: [], meta: {} },
+          { success: true, results: [], meta: {} },
+        ],
+      }),
     )
-    expect(bodies[1]).toEqual({ sql: 'select 2', params: ['x'] })
+    vi.stubGlobal('fetch', fetchMock)
+    const response = await call('POST', '/query/transaction', {
+      body: {
+        connectionId: created.id,
+        statements: [{ sql: 'update t set a = 1' }, { sql: 'delete from t where id = 2' }],
+        confirmProduction: true,
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({
+      batch: [
+        { sql: 'update t set a = 1', params: [] },
+        { sql: 'delete from t where id = 2', params: [] },
+      ],
+    })
+    expect((await bodyOf<{ statements: number }>(response)).data?.statements).toBe(2)
   })
 
   it('caps the batch size and rejects multi-statement entries', async () => {

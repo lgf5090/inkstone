@@ -5,6 +5,7 @@ import { runSqliteQuery } from './sqlite-query'
 type Request =
   | { id: number; type: 'open'; bytes: ArrayBuffer | null }
   | { id: number; type: 'query'; sql: string; params: unknown[] }
+  | { id: number; type: 'batch'; statements: Array<{ sql: string; params?: unknown[] }>; foreignKeysOff?: boolean }
   | { id: number; type: 'export' }
   | { id: number; type: 'close' }
 
@@ -45,6 +46,28 @@ async function handle(request: Request): Promise<void> {
     if (request.type === 'query') {
       if (!db) throw new Error('The local database is not open.')
       reply({ id: request.id, ok: true, result: runSqliteQuery(db, request.sql, request.params) })
+      return
+    }
+    if (request.type === 'batch') {
+      if (!db) throw new Error('The local database is not open.')
+      if (request.foreignKeysOff) db.exec('PRAGMA foreign_keys = OFF')
+      db.exec('BEGIN')
+      try {
+        for (const statement of request.statements) {
+          runSqliteQuery(db, statement.sql, statement.params ?? [])
+        }
+        db.exec('COMMIT')
+      } catch (error) {
+        try {
+          db.exec('ROLLBACK')
+        } catch (rollbackError) {
+          console.warn('[inkstone] local SQLite worker rollback failed', rollbackError)
+        }
+        if (request.foreignKeysOff) db.exec('PRAGMA foreign_keys = ON')
+        throw error
+      }
+      if (request.foreignKeysOff) db.exec('PRAGMA foreign_keys = ON')
+      reply({ id: request.id, ok: true })
       return
     }
     if (request.type === 'export') {

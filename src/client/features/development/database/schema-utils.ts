@@ -26,8 +26,8 @@ export async function loadSchema(driver: StudioDriver): Promise<SchemaModel> {
     .filter((object) => !INTERNAL_OBJECT.test(object.name) && !INTERNAL_OBJECT.test(object.tbl_name))
 
   const tables: ParsedTable[] = []
-  const views: { name: string; sql: string }[] = []
-  const triggers: { name: string; sql: string }[] = []
+  const views: { name: string; sql: string; table?: string }[] = []
+  const triggers: { name: string; sql: string; table?: string }[] = []
 
   for (const object of objects) {
     if (object.type === 'table') {
@@ -43,9 +43,9 @@ export async function loadSchema(driver: StudioDriver): Promise<SchemaModel> {
         },
       )
     } else if (object.type === 'view') {
-      if (object.sql) views.push({ name: object.name, sql: object.sql })
+      if (object.sql) views.push({ name: object.name, sql: object.sql, table: object.tbl_name })
     } else if (object.type === 'trigger') {
-      if (object.sql) triggers.push({ name: object.name, sql: object.sql })
+      if (object.sql) triggers.push({ name: object.name, sql: object.sql, table: object.tbl_name })
     }
   }
 

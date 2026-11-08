@@ -89,11 +89,18 @@ export async function saveConnectionOrder(ids: string[]): Promise<void> {
 
 export function updateConnectionFlags(
   id: string,
-  flags: { isFavorite?: boolean; isPinned?: boolean },
+  flags: { isFavorite?: boolean; isPinned?: boolean; readOnly?: boolean; production?: boolean },
 ): Promise<DatabaseConnectionView> {
   return requestData<DatabaseConnectionView>(`/connections/${encodeURIComponent(id)}/flags`, {
     method: 'PATCH',
     body: flags,
+  })
+}
+
+export function unlockConnection(id: string, minutes: number): Promise<DatabaseConnectionView> {
+  return requestData<DatabaseConnectionView>(`/connections/${encodeURIComponent(id)}/unlock`, {
+    method: 'POST',
+    body: { minutes },
   })
 }
 
@@ -130,10 +137,17 @@ export function runQuery(
   sql: string,
   params: unknown[] = [],
   recordHistory = false,
+  confirmProduction = false,
 ): Promise<QueryResult> {
   return requestData<QueryResult>('/query', {
     method: 'POST',
-    body: { connectionId, sql, params, ...(recordHistory ? { recordHistory: true } : {}) },
+    body: {
+      connectionId,
+      sql,
+      params,
+      ...(recordHistory ? { recordHistory: true } : {}),
+      ...(confirmProduction ? { confirmProduction: true } : {}),
+    },
   })
 }
 
@@ -141,12 +155,33 @@ export async function runBatch(
   connectionId: string,
   statements: QueryStatement[],
   recordHistory = false,
+  confirmProduction = false,
 ): Promise<QueryResult[]> {
   const data = await requestData<{ results?: QueryResult[] }>('/query/batch', {
     method: 'POST',
-    body: { connectionId, statements, ...(recordHistory ? { recordHistory: true } : {}) },
+    body: {
+      connectionId,
+      statements,
+      ...(recordHistory ? { recordHistory: true } : {}),
+      ...(confirmProduction ? { confirmProduction: true } : {}),
+    },
   })
   return data.results ?? []
+}
+
+export async function runTransaction(
+  connectionId: string,
+  statements: QueryStatement[],
+  confirmProduction = false,
+): Promise<void> {
+  await requestData<{ statements?: number }>('/query/transaction', {
+    method: 'POST',
+    body: {
+      connectionId,
+      statements,
+      ...(confirmProduction ? { confirmProduction: true } : {}),
+    },
+  })
 }
 
 export function listSavedQueries(connectionId: string): Promise<SavedQuery[]> {

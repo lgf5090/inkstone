@@ -684,7 +684,7 @@ export function parseCreateIndex(sql: string): Omit<TableIndexInfo, 'name' | 'sq
 }
 
 export function parseIndexesFromSchema(
-  objects: ReadonlyArray<{ type: string; name: string; sql: string | null }>,
+  objects: ReadonlyArray<{ type: string; name: string; tbl_name?: string; sql: string | null }>,
 ): TableIndexInfo[] {
   const indexes: TableIndexInfo[] = []
   for (const object of objects) {
@@ -692,8 +692,8 @@ export function parseIndexesFromSchema(
     const parsed = parseCreateIndex(object.sql)
     indexes.push(
       parsed
-        ? { name: object.name, sql: object.sql, ...parsed }
-        : { name: object.name, sql: object.sql, unique: false, columns: [], origin: 'c' },
+        ? { name: object.name, sql: object.sql, ...parsed, ...(object.tbl_name ? { table: object.tbl_name } : {}) }
+        : { name: object.name, sql: object.sql, unique: false, columns: [], origin: 'c', ...(object.tbl_name ? { table: object.tbl_name } : {}) },
     )
   }
   return indexes
@@ -703,4 +703,21 @@ export function extractSqlIdentifiers(sql: string): string[] {
   return tokenize(sql)
     .filter((token) => token.type === 'ident')
     .map((token) => token.text)
+}
+
+export function rewriteSqlIdentifiers(sql: string, mapping: ReadonlyMap<string, string>): string {
+  if (mapping.size === 0) return sql
+  const tokens = tokenize(sql).map((token) => {
+    if (token.type !== 'ident') return token
+    const replacement = mapping.get(token.text.toLowerCase())
+    if (!replacement) return token
+    if (token.quoted) {
+      const quote = token.raw.trimStart()[0]
+      if (quote === '`') return { ...token, text: replacement, raw: `\`${replacement.replace(/`/g, '``')}\`` }
+      if (quote === '[') return { ...token, text: replacement, raw: `[${replacement}]` }
+      return { ...token, text: replacement, raw: `"${replacement.replace(/"/g, '""')}"` }
+    }
+    return { ...token, text: replacement, raw: replacement }
+  })
+  return renderTokens(tokens)
 }

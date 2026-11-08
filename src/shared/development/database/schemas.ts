@@ -10,6 +10,7 @@ import {
   MAX_QUERY_ROWS,
   MAX_SAVED_SQL_LENGTH,
   MAX_SQL_LENGTH,
+  MAX_TRANSACTION_STATEMENTS,
 } from './types'
 
 export const DATABASE_ID_RE = /^[0-9a-hjkmnp-tv-z]{26}$/
@@ -52,6 +53,12 @@ export const UpdateConnectionSchema = z.object({
 export const ConnectionFlagsSchema = z.object({
   isFavorite: z.boolean().optional(),
   isPinned: z.boolean().optional(),
+  readOnly: z.boolean().optional(),
+  production: z.boolean().optional(),
+})
+
+export const ConnectionUnlockSchema = z.object({
+  minutes: z.number().int().min(0).max(60),
 })
 
 export const ConnectionOrderSchema = z.object({
@@ -100,6 +107,7 @@ export const QuerySchema = z.object({
   sql: z.string().min(1).max(MAX_SQL_LENGTH),
   params: ParamsSchema.optional(),
   recordHistory: z.boolean().optional(),
+  confirmProduction: z.boolean().optional(),
 })
 
 export const QueryBatchSchema = z.object({
@@ -114,6 +122,22 @@ export const QueryBatchSchema = z.object({
     .min(1)
     .max(20),
   recordHistory: z.boolean().optional(),
+  confirmProduction: z.boolean().optional(),
+})
+
+export const TransactionSchema = z.object({
+  connectionId: ConnectionIdSchema,
+  statements: z
+    .array(
+      z.object({
+        sql: z.string().min(1).max(MAX_SQL_LENGTH),
+        params: ParamsSchema.optional(),
+      }),
+    )
+    .min(1)
+    .max(MAX_TRANSACTION_STATEMENTS),
+  recordHistory: z.boolean().optional(),
+  confirmProduction: z.boolean().optional(),
 })
 
 export const SavedQueryCreateSchema = z.object({

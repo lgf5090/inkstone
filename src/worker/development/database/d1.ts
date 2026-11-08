@@ -25,6 +25,14 @@ export interface D1DatabaseListOptions {
   apiToken: string
 }
 
+export interface D1BatchOptions {
+  accountId: string
+  apiToken: string
+  databaseId: string
+  statements: Array<{ sql: string; params?: unknown[] }>
+  signal?: AbortSignal
+}
+
 export interface D1DatabaseInfo {
   uuid: string
   name: string
@@ -34,6 +42,7 @@ export class D1ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly statementIndex?: number,
   ) {
     super(message)
     this.name = 'D1ApiError'
@@ -98,6 +107,19 @@ function normalizeMeta(meta: unknown): Record<string, unknown> | undefined {
   return Object.keys(out).length > 0 ? out : undefined
 }
 
+function entryToResult(entry: D1ApiQueryEntry | undefined, status: number, body: unknown): D1RawResult {
+  if (entry && entry.success === false) {
+    throw new D1ApiError(status, firstErrorMessage(body, 'Cloudflare API did not accept the query'))
+  }
+  const sourceRows = Array.isArray(entry?.results) ? entry.results : []
+  const columns = sourceRows.length > 0 && sourceRows[0] ? Object.keys(sourceRows[0]) : []
+  const rows = sourceRows.map((row) => columns.map((column) => (row[column] === undefined ? null : row[column])))
+  const meta = normalizeMeta(entry?.meta)
+  const rowsAffected =
+    meta && typeof meta.changes === 'number' && Number.isFinite(meta.changes) ? meta.changes : undefined
+  return { columns, rows, rowsAffected, meta }
+}
+
 export async function executeD1Query(options: D1QueryOptions): Promise<D1RawResult> {
   const response = await fetch(queryUrl(options.accountId, options.databaseId), {
     method: 'POST',
@@ -122,16 +144,55 @@ export async function executeD1Query(options: D1QueryOptions): Promise<D1RawResu
     )
   }
   const entry = Array.isArray(envelope.result) ? envelope.result[0] : undefined
-  if (entry && entry.success === false) {
-    throw new D1ApiError(response.status, firstErrorMessage(body, 'Cloudflare API did not accept the query'))
+  return entryToResult(entry, response.status, body)
+}
+
+// D1 REST batch is the transaction boundary: a failed entry rolls the whole sequence back.
+export async function executeD1Batch(options: D1BatchOptions): Promise<D1RawResult[]> {
+  const response = await fetch(queryUrl(options.accountId, options.databaseId), {
+    method: 'POST',
+    headers: authorizationHeader(options.apiToken),
+    body: JSON.stringify({
+      batch: options.statements.map((statement) => ({
+        sql: statement.sql,
+        params: statement.params ?? [],
+      })),
+    }),
+    signal: options.signal,
+    redirect: NO_REDIRECT,
+  })
+  if (isRedirectResponse(response)) throw new D1ApiError(502, 'Cloudflare API responded with a redirect')
+  const body = await readBody(response)
+  if (!response.ok) {
+    throw new D1ApiError(
+      response.status,
+      firstErrorMessage(body, `Cloudflare API responded with ${response.status}`),
+    )
   }
-  const sourceRows = Array.isArray(entry?.results) ? entry.results : []
-  const columns = sourceRows.length > 0 && sourceRows[0] ? Object.keys(sourceRows[0]) : []
-  const rows = sourceRows.map((row) => columns.map((column) => (row[column] === undefined ? null : row[column])))
-  const meta = normalizeMeta(entry?.meta)
-  const rowsAffected =
-    meta && typeof meta.changes === 'number' && Number.isFinite(meta.changes) ? meta.changes : undefined
-  return { columns, rows, rowsAffected, meta }
+  const envelope = body as D1ApiEnvelope<D1ApiQueryEntry[]> | null
+  if (!envelope || envelope.success !== true) {
+    throw new D1ApiError(
+      response.status,
+      firstErrorMessage(body, 'Cloudflare API did not accept the batch'),
+    )
+  }
+  const entries = Array.isArray(envelope.result) ? envelope.result : []
+  if (entries.length !== options.statements.length) {
+    throw new D1ApiError(
+      response.status,
+      `Cloudflare API returned ${entries.length} result(s) for ${options.statements.length} statement(s)`,
+    )
+  }
+  return entries.map((entry, index) => {
+    try {
+      return entryToResult(entry, response.status, body)
+    } catch (error) {
+      if (error instanceof D1ApiError) {
+        throw new D1ApiError(error.status, `Statement ${index + 1}: ${error.message}`, index)
+      }
+      throw error
+    }
+  })
 }
 
 export async function listD1Databases(

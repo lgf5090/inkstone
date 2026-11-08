@@ -37,15 +37,25 @@ export function MassDropPanel({ driver, tables, onSchemaChanged, ensureWritable,
     if (ensureWritable && !(await ensureWritable())) return
     setRunning(true)
     const names = [...selected]
+    const statements = names.map((name) => ({
+      sql: operation === 'drop' ? `DROP TABLE ${quoteIdent(name)}` : `DELETE FROM ${quoteIdent(name)}`,
+    }))
     for (const name of names) {
       setStatus((current) => ({ ...current, [name]: 'running' }))
-      try {
-        await driver.query(operation === 'drop' ? `DROP TABLE ${quoteIdent(name)}` : `DELETE FROM ${quoteIdent(name)}`)
+    }
+    try {
+      await driver.transaction(statements, { confirmProduction: true })
+      for (const name of names) {
         setStatus((current) => ({ ...current, [name]: 'done' }))
-      } catch (cause) {
-        setStatus((current) => ({ ...current, [name]: 'failed' }))
-        onError(t('development.database.mass.failed_row', { table: name, message: cause instanceof Error ? cause.message : String(cause) }))
       }
+    } catch (cause) {
+      for (const name of names) {
+        setStatus((current) => ({ ...current, [name]: 'failed' }))
+      }
+      onError(t('development.database.mass.failed_row', {
+        table: names.join(', '),
+        message: cause instanceof Error ? cause.message : String(cause),
+      }))
     }
     setRunning(false)
     setOperation(null)

@@ -179,6 +179,7 @@ import {
   DEVELOPMENT_DATABASE_REQUIRED_COLUMNS,
   DEVELOPMENT_DATABASE_REQUIRED_INDEXES,
   DEVELOPMENT_DATABASE_REQUIRED_TABLES,
+  DEVELOPMENT_DATABASE_GUARD_SCHEMA_STATEMENTS,
   DEVELOPMENT_DATABASE_SCHEMA_STATEMENTS,
 } from '../development/database/schema'
 import {
@@ -4152,6 +4153,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE tools_password_settings ADD COLUMN verifier_samples TEXT NOT NULL DEFAULT '{}'`,
       `ALTER TABLE tools_password_settings ADD COLUMN verifier_measured_at INTEGER NOT NULL DEFAULT 0`,
     ],
+  },
+  {
+    version: 340,
+    statements: DEVELOPMENT_DATABASE_GUARD_SCHEMA_STATEMENTS,
   },
   {
     version: 350,

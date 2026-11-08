@@ -6,6 +6,7 @@ import { copyText } from '../../../lib/clipboard'
 import { useUi } from '../../../store/ui'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input, Segmented } from '../../../components/form'
+import { confirm } from '../../../components/overlay'
 import { ToolbarPanel } from './ToolbarPanel'
 import { createExport, deleteExport, fetchExportBlob, listExports } from './api'
 import { downloadBlob, exportMimeType, toCsv, toDelimited, toInsertSql, toJson } from './export-utils'
@@ -103,6 +104,13 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
   }
 
   const removeRecent = async (file: DatabaseExportFile) => {
+    const ok = await confirm({
+      title: t('development.database.export.delete_title', { name: file.filename }),
+      description: t('development.database.export.delete_description'),
+      confirmLabel: t('development.database.export.delete_confirm'),
+      tone: 'danger',
+    })
+    if (!ok) return
     try {
       await deleteExport(file.id)
       setRecent((current) => current.filter((entry) => entry.id !== file.id))

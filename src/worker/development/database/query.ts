@@ -1,12 +1,13 @@
 import { classifyDatabaseError, databaseErrorMessage } from '@shared/development/database/errors'
 import { MAX_QUERY_BYTES, MAX_QUERY_ROWS, INKSTONE_BLOB_KEY } from '@shared/development/database/types'
 import type { DatabaseErrorKind, QueryResult } from '@shared/development/database/types'
+import { isWriteSql } from '@shared/development/database/sql-utils'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { Env } from '../../env'
 import { toBase64 } from '../../lib/encoding'
 import { ApiError } from '../../lib/errors'
 import { openConnectionSecret } from './credentials'
-import { D1ApiError, D1_REQUEST_TIMEOUT_MS, executeD1Query } from './d1'
+import { D1ApiError, D1_REQUEST_TIMEOUT_MS, executeD1Batch, executeD1Query } from './d1'
 import type { D1RawResult } from './d1'
 import { findConnection } from './store'
 import type { ConnectionRecord } from './store'
@@ -18,6 +19,25 @@ export const QUERY_TIMEOUT_MS = D1_REQUEST_TIMEOUT_MS
 export interface QueryTarget {
   connection: ConnectionRecord
   token: string
+}
+
+export interface QueryRunOptions {
+  confirmProduction?: boolean
+}
+
+export function assertWritePolicy(
+  connection: ConnectionRecord,
+  statements: ReadonlyArray<{ sql: string }>,
+  options: QueryRunOptions = {},
+): void {
+  if (!statements.some((statement) => isWriteSql(statement.sql))) return
+  const unlocked = connection.unlockedUntil > Date.now()
+  if (connection.readOnly && !unlocked) {
+    throw ApiError.forbidden('This database connection is read-only')
+  }
+  if (connection.production && options.confirmProduction !== true) {
+    throw ApiError.badRequest('Writes to a production connection require explicit confirmation')
+  }
 }
 
 export class QueryTimeoutError extends Error {
@@ -246,6 +266,28 @@ async function runOnTarget(
   })
 }
 
+async function runBatchOnTarget(
+  target: QueryTarget,
+  statements: Array<{ sql: string; params?: unknown[] }>,
+  signal: AbortSignal,
+): Promise<Array<D1RawResult | TursoStatementResult>> {
+  if (target.connection.type === 'd1') {
+    return await executeD1Batch({
+      accountId: target.connection.d1AccountId,
+      apiToken: target.token,
+      databaseId: target.connection.d1DatabaseId,
+      statements,
+      signal,
+    })
+  }
+  return await executeTursoBatch({
+    url: target.connection.tursoUrl,
+    token: target.token,
+    statements,
+    signal,
+  })
+}
+
 export async function executeQuery(
   env: Env,
   db: D1Database,
@@ -253,8 +295,10 @@ export async function executeQuery(
   connectionId: string,
   sql: string,
   params: unknown[] = [],
+  options: QueryRunOptions = {},
 ): Promise<QueryResult> {
   const target = await resolveQueryTarget(env, db, userId, connectionId)
+  assertWritePolicy(target.connection, [{ sql }], options)
   const startedAt = Date.now()
   try {
     const raw = await withTimeout((signal) => runOnTarget(target, sql, params, signal))
@@ -270,38 +314,34 @@ export async function executeBatch(
   userId: string,
   connectionId: string,
   statements: Array<{ sql: string; params?: unknown[] }>,
+  options: QueryRunOptions = {},
 ): Promise<QueryResult[]> {
   const target = await resolveQueryTarget(env, db, userId, connectionId)
+  assertWritePolicy(target.connection, statements, options)
   const secrets = targetSecrets(target)
-  if (target.connection.type === 'd1') {
-    const results: QueryResult[] = []
-    for (const [index, statement] of statements.entries()) {
-      const startedAt = Date.now()
-      try {
-        const raw = await withTimeout((signal) =>
-          runOnTarget(target, statement.sql, statement.params ?? [], signal),
-        )
-        results.push(normalizeQueryResult(raw as D1RawResult, startedAt))
-      } catch (error) {
-        const failure = failureFromError(error, secrets)
-        throw failure.statementIndex === undefined
-          ? new QueryFailure(failure.kind, failure.detail, index)
-          : failure
-      }
-    }
-    return results
-  }
   const startedAt = Date.now()
   try {
-    const raw = await withTimeout((signal) =>
-      executeTursoBatch({
-        url: target.connection.tursoUrl,
-        token: target.token,
-        statements,
-        signal,
-      }),
-    )
+    const raw = await withTimeout((signal) => runBatchOnTarget(target, statements, signal))
     return raw.map((result) => normalizeQueryResult(result, startedAt))
+  } catch (error) {
+    throw failureFromError(error, secrets)
+  }
+}
+
+export async function executeTransaction(
+  env: Env,
+  db: D1Database,
+  userId: string,
+  connectionId: string,
+  statements: Array<{ sql: string; params?: unknown[] }>,
+  options: QueryRunOptions = {},
+): Promise<number> {
+  const target = await resolveQueryTarget(env, db, userId, connectionId)
+  assertWritePolicy(target.connection, statements, options)
+  const secrets = targetSecrets(target)
+  try {
+    await withTimeout((signal) => runBatchOnTarget(target, statements, signal))
+    return statements.length
   } catch (error) {
     throw failureFromError(error, secrets)
   }
