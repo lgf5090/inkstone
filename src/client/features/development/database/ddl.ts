@@ -1,7 +1,7 @@
 import type { ParsedTable, TableIndexInfo } from '@shared/development/database/types'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import type { ColumnDraft } from './types'
-import { extractSqlIdentifiers, parseCreateIndex } from './schema-parse'
+import { extractSqlIdentifiers, parseCreateIndex, rewriteSqlIdentifiers } from './schema-parse'
 
 export type DdlWarningCode =
   | 'missing_table_name'
@@ -28,7 +28,7 @@ export interface DdlTableOptions {
 }
 
 export interface RebuildObjects {
-  indexes?: ReadonlyArray<Pick<TableIndexInfo, 'name' | 'columns' | 'sql'>>
+  indexes?: ReadonlyArray<Pick<TableIndexInfo, 'name' | 'columns' | 'sql'> & { unique?: boolean }>
   triggers?: ReadonlyArray<{ name: string; sql: string }>
   views?: ReadonlyArray<{ name: string; sql: string }>
 }
@@ -153,6 +153,12 @@ export function buildRebuildSql(
       .filter((value): value is string => Boolean(value))
       .map((value) => value.toLowerCase()),
   )
+  const renamed = new Map<string, string>()
+  for (const draft of alive) {
+    if (draft.original && draft.name.trim() !== draft.original.name) {
+      renamed.set(draft.original.name.toLowerCase(), draft.name.trim())
+    }
+  }
   const removed = original.columns
     .filter((column) => !sourceNames.has(column.name.toLowerCase()))
     .map((column) => column.name)
@@ -165,7 +171,7 @@ export function buildRebuildSql(
       warnings.push({ code: 'constraint_references_removed_column', target: constraint, columns })
       continue
     }
-    constraints.push(constraint)
+    constraints.push(rewriteSqlIdentifiers(constraint, renamed))
   }
 
   const body = tableBody(alive, constraints, true)
@@ -203,7 +209,7 @@ export function buildRebuildSql(
   lines.push(`DROP TABLE ${table};`, `ALTER TABLE ${temporary} RENAME TO ${table};`)
 
   for (const view of dependentViews) {
-    lines.push(withoutSemicolon(view.sql))
+    lines.push(withoutSemicolon(rewriteSqlIdentifiers(view.sql, renamed)))
   }
 
   for (const index of objects.indexes ?? []) {
@@ -218,7 +224,15 @@ export function buildRebuildSql(
       })
       continue
     }
-    lines.push(withoutSemicolon(index.sql))
+    if (renamed.size > 0 && index.columns.length > 0 && !/\bwhere\b/i.test(index.sql)) {
+      const mapped = index.columns.map((column) => renamed.get(column.toLowerCase()) ?? column)
+      lines.push(
+        `CREATE ${index.unique ? 'UNIQUE ' : ''}INDEX ${quoteIdent(index.name)} ` +
+          `ON ${table} (${mapped.map(quoteIdent).join(', ')});`,
+      )
+      continue
+    }
+    lines.push(withoutSemicolon(rewriteSqlIdentifiers(index.sql, renamed)))
   }
 
   for (const trigger of objects.triggers ?? []) {
@@ -230,7 +244,7 @@ export function buildRebuildSql(
         columns: referenced,
       })
     }
-    lines.push(withoutSemicolon(trigger.sql))
+    lines.push(withoutSemicolon(rewriteSqlIdentifiers(trigger.sql, renamed)))
   }
 
   lines.push('COMMIT;', 'PRAGMA foreign_keys = ON;')

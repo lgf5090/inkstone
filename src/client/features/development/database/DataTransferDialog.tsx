@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRightLeft, Loader2 } from 'lucide-react'
 import type { DatabaseConnectionView, SchemaModel } from '@shared/development/database/types'
+import { MAX_TRANSACTION_STATEMENTS } from '@shared/development/database/types'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import { t } from '../../../lib/i18n'
 import { Button } from '../../../components/primitives'
@@ -8,9 +9,8 @@ import { Checkbox, Segmented } from '../../../components/form'
 import { Modal, confirm } from '../../../components/overlay'
 import { SelectMenu } from '../../../components/select-menu'
 import { useUi } from '../../../store/ui'
-import { createDriver, type StudioDriver } from './drivers'
-import { insertRowsInChunks } from './transfer-ops'
-import { loadGuards } from './guards'
+import { createDriver, type StudioDriver, type StudioStatement } from './drivers'
+import { buildInsertStatements } from './transfer-ops'
 import { stableOrderBy } from './schema-utils'
 
 type Mode = 'both' | 'structure' | 'data'
@@ -57,12 +57,11 @@ export function DataTransferDialog({ open, sourceDriver, sourceLabel, sourceConn
   const run = async () => {
     const target = targets.find((connection) => connection.id === targetId)
     if (!target || chosen.length === 0 || running) return
-    const guard = loadGuards()[`saved:${target.id}`]
-    if (guard?.readOnly) {
+    if (target.readOnly) {
       onError(t('development.database.transfer.readonly_target', { name: target.name }))
       return
     }
-    if (guard?.production) {
+    if (target.production) {
       const ok = await confirm({
         title: t('development.database.guard.prod_title', { name: target.name }),
         description: t('development.database.guard.prod_description'),
@@ -84,9 +83,8 @@ export function DataTransferDialog({ open, sourceDriver, sourceLabel, sourceConn
       setRunning(false)
       return
     }
-    let done = 0
-    let failed = 0
-    let objectsFailed = 0
+    const statements: StudioStatement[] = []
+    const rowsByTable = new Map<string, number>()
     try {
       for (let index = 0; index < chosen.length; index++) {
         const tableName = chosen[index]!
@@ -95,60 +93,62 @@ export function DataTransferDialog({ open, sourceDriver, sourceLabel, sourceConn
         setStatus((current) => ({ ...current, [tableName]: { state: 'running' } }))
         const table = schema.tables.find((entry) => entry.name === tableName)
         let rows = 0
-        try {
-          if (mode !== 'data') {
-            if (!table?.sql.trim()) throw new Error(t('development.database.transfer.no_definition'))
-            await targetDriver.query(table.sql.trim().replace(/;+$/, ''))
-          }
-          if (mode !== 'structure') {
-            let offset = 0
-            const orderBy = table ? stableOrderBy(table) : ''
-            for (;;) {
-              if (cancelRef.current) break
-              const page = await sourceDriver.query(`SELECT * FROM ${quoteIdent(tableName)}${orderBy ? ` ${orderBy}` : ''} LIMIT ${PAGE} OFFSET ${offset}`)
-              if (page.rows.length === 0) break
-              const remaining = ROW_CAP - rows
-              if (remaining <= 0) break
-              const outcome = await insertRowsInChunks(targetDriver, tableName, page.columns, page.rows.slice(0, remaining))
-              rows += outcome.inserted
-              if (outcome.failed > 0) {
-                throw new Error(t('development.database.transfer.row_failed', { count: outcome.failed, message: outcome.errors[0] ?? '' }))
-              }
-              if (rows >= ROW_CAP || page.rows.length < PAGE) break
-              offset += PAGE
-            }
-          }
-          done += 1
-          setStatus((current) => ({ ...current, [tableName]: { state: 'done', rows } }))
-        } catch (error) {
-          failed += 1
-          setStatus((current) => ({ ...current, [tableName]: { state: 'failed', rows, message: error instanceof Error ? error.message : String(error) } }))
+        if (mode !== 'data') {
+          if (!table?.sql.trim()) throw new Error(t('development.database.transfer.no_definition'))
+          statements.push({ sql: table.sql.trim().replace(/;+$/, '') })
         }
-      }
-      if (mode !== 'data' && !cancelRef.current) {
-        const objects = [
-          ...schema.indexes.filter((index) => index.sql).map((index) => index.sql as string),
-          ...schema.views.map((view) => view.sql),
-          ...schema.triggers.map((trigger) => trigger.sql),
-        ]
-        for (const sql of objects) {
-          if (cancelRef.current) break
-          try {
-            await targetDriver.query(sql.trim().replace(/;+$/, ''))
-          } catch (error) {
-            objectsFailed += 1
-            onError(t('development.database.transfer.object_failed', { message: error instanceof Error ? error.message : String(error) }))
+        if (mode !== 'structure') {
+          let offset = 0
+          const orderBy = table ? stableOrderBy(table) : ''
+          for (;;) {
+            if (cancelRef.current) break
+            const page = await sourceDriver.query(`SELECT * FROM ${quoteIdent(tableName)}${orderBy ? ` ${orderBy}` : ''} LIMIT ${PAGE} OFFSET ${offset}`)
+            if (page.rows.length === 0) break
+            const remaining = ROW_CAP - rows
+            if (remaining <= 0) throw new Error(t('development.database.transfer.row_cap_exceeded', { rows: ROW_CAP }))
+            const slice = page.rows.slice(0, remaining)
+            statements.push(...buildInsertStatements(tableName, page.columns, slice))
+            rows += slice.length
+            if (rows >= ROW_CAP || page.rows.length < PAGE) break
+            offset += PAGE
           }
         }
+        rowsByTable.set(tableName, rows)
       }
-      const description = [
-        failed > 0 ? t('development.database.transfer.failed_summary', { count: failed }) : '',
-        objectsFailed > 0 ? t('development.database.transfer.object_failed_summary', { count: objectsFailed }) : '',
-      ].filter(Boolean).join(' · ')
+      if (cancelRef.current) {
+        for (const name of chosen) setStatus((current) => ({ ...current, [name]: { state: 'pending' } }))
+        return
+      }
+      if (mode !== 'data') {
+        const chosenSet = new Set(chosen)
+        statements.push(
+          ...schema.indexes
+            .filter((index) => index.sql && index.table && chosenSet.has(index.table))
+            .map((index) => ({ sql: index.sql!.trim().replace(/;+$/, '') })),
+          ...schema.views
+            .filter((view) => view.sql && view.table && chosenSet.has(view.table))
+            .map((view) => ({ sql: view.sql.trim().replace(/;+$/, '') })),
+          ...schema.triggers
+            .filter((trigger) => trigger.sql && trigger.table && chosenSet.has(trigger.table))
+            .map((trigger) => ({ sql: trigger.sql.trim().replace(/;+$/, '') })),
+        )
+      }
+      if (statements.length > MAX_TRANSACTION_STATEMENTS) {
+        throw new Error(t('development.database.transfer.too_many_statements', { max: MAX_TRANSACTION_STATEMENTS }))
+      }
+      await targetDriver.transaction(statements, { confirmProduction: true })
+      for (const name of chosen) {
+        setStatus((current) => ({ ...current, [name]: { state: 'done', rows: rowsByTable.get(name) ?? 0 } }))
+      }
       useUi.getState().toast({
-        title: t('development.database.transfer.done', { done }),
-        ...(description ? { description, tone: 'warning' as const } : { tone: 'success' as const }),
+        title: t('development.database.transfer.done', { done: chosen.length }),
+        tone: 'success',
       })
+    } catch (error) {
+      for (const name of chosen) {
+        setStatus((current) => ({ ...current, [name]: { state: 'failed', message: error instanceof Error ? error.message : String(error) } }))
+      }
+      onError(t('development.database.transfer.failed_summary', { count: chosen.length }))
     } finally {
       targetDriver.close()
       setRunning(false)

@@ -43,7 +43,7 @@ import {
   createDriver,
   type StudioDriver,
 } from './drivers'
-import { deleteConnection, listConnections, saveConnectionOrder, updateConnectionFlags } from './api'
+import { deleteConnection, listConnections, saveConnectionOrder, unlockConnection, updateConnectionFlags } from './api'
 import { loadSchema } from './schema-utils'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import { downloadBlob, downloadTextFile, toSchemaSql } from './export-utils'
@@ -107,6 +107,7 @@ export function StudioApp() {
   const [schemaLoading, setSchemaLoading] = useState(false)
   const [guards, setGuards] = useState<Record<string, ConnectionGuard>>(loadGuards)
   const [unlocks, setUnlocks] = useState<Record<string, number>>({})
+  const [localDirty, setLocalDirty] = useState(false)
   const [unlockAsk, setUnlockAsk] = useState<{ resolve: (ok: boolean) => void } | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -232,13 +233,25 @@ export function StudioApp() {
   const guardKey = selection?.kind === 'saved'
     ? `saved:${selection.id}`
     : selection?.kind === 'local' ? `local:${selection.name}` : null
-  const guard = (guardKey ? guards[guardKey] : undefined) ?? DEFAULT_GUARD
-  const unlockedUntil = guardKey ? unlocks[guardKey] : undefined
+  const localGuard = guardKey ? guards[guardKey] : undefined
+  const guard = selection?.kind === 'saved'
+    ? {
+        readOnly: activeSaved?.readOnly ?? false,
+        production: activeSaved?.production ?? false,
+      }
+    : localGuard ?? DEFAULT_GUARD
+  const unlockedUntil = selection?.kind === 'saved'
+    ? activeSaved?.unlockedUntil
+    : guardKey ? unlocks[guardKey] : undefined
   const unlocked = Boolean(unlockedUntil && unlockedUntil > Date.now())
 
   useEffect(() => {
     if (!guardKey || !unlockedUntil || unlockedUntil <= Date.now()) return
     const timeout = setTimeout(() => {
+      if (selection?.kind === 'saved') {
+        void refreshConnections()
+        return
+      }
       setUnlocks((current) => {
         if (!(guardKey in current)) return current
         const next = { ...current }
@@ -247,7 +260,7 @@ export function StudioApp() {
       })
     }, unlockedUntil - Date.now())
     return () => clearTimeout(timeout)
-  }, [guardKey, unlockedUntil])
+  }, [guardKey, unlockedUntil, selection?.kind, refreshConnections])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -263,13 +276,35 @@ export function StudioApp() {
 
   const updateGuard = (patch: Partial<ConnectionGuard>) => {
     if (!guardKey) return
+    if (selection?.kind === 'saved' && activeSaved) {
+      const next = { ...activeSaved, ...patch }
+      setConnections((current) => current.map((entry) => entry.id === activeSaved.id ? next : entry))
+      void updateConnectionFlags(activeSaved.id, patch)
+        .then((saved) => setConnections((current) => current.map((entry) => entry.id === saved.id ? saved : entry)))
+        .catch((error) => notifyError(error instanceof Error ? error.message : String(error)))
+      return
+    }
     const next = { ...guards, [guardKey]: { ...guard, ...patch } }
     setGuards(next)
     saveGuards(next)
+    if (patch.readOnly === true) {
+      setUnlocks((current) => {
+        if (!(guardKey in current)) return current
+        const copy = { ...current }
+        delete copy[guardKey]
+        return copy
+      })
+    }
   }
 
   const lockNow = () => {
     if (!guardKey) return
+    if (selection?.kind === 'saved' && activeSaved) {
+      void unlockConnection(activeSaved.id, 0)
+        .then((saved) => setConnections((current) => current.map((entry) => entry.id === saved.id ? saved : entry)))
+        .catch((error) => notifyError(error instanceof Error ? error.message : String(error)))
+      return
+    }
     setUnlocks((current) => {
       const next = { ...current }
       delete next[guardKey]
@@ -304,6 +339,18 @@ export function StudioApp() {
       ask.resolve(false)
       return
     }
+    if (selection?.kind === 'saved' && activeSaved) {
+      void unlockConnection(activeSaved.id, minutes)
+        .then((saved) => {
+          setConnections((current) => current.map((entry) => entry.id === saved.id ? saved : entry))
+          ask.resolve(true)
+        })
+        .catch((error) => {
+          notifyError(error instanceof Error ? error.message : String(error))
+          ask.resolve(false)
+        })
+      return
+    }
     if (guardKey) setUnlocks((current) => ({ ...current, [guardKey]: Date.now() + minutes * 60_000 }))
     ask.resolve(true)
   }
@@ -330,6 +377,7 @@ export function StudioApp() {
     setSchema(null)
     setSchemaError(null)
     setTableSearch('')
+    setLocalDirty(false)
     setDriver((previous) => {
       previous?.close()
       return null
@@ -342,7 +390,12 @@ export function StudioApp() {
     let next: StudioDriver
     try {
       next = selection.kind === 'local'
-        ? createDriver({ kind: 'local', label: localFile?.name ?? selection.name, ...(localFile?.file ? { file: localFile.file } : {}) })
+        ? createDriver({
+            kind: 'local',
+            label: localFile?.name ?? selection.name,
+            ...(localFile?.file ? { file: localFile.file } : {}),
+            onDirtyChange: setLocalDirty,
+          })
         : createDriver({
             kind: 'remote',
             connectionId: selection.id,
@@ -369,24 +422,51 @@ export function StudioApp() {
     }
   }, [selection, localFile, activeSaved?.type, notifyError, reloadSchema, initialLayout])
 
-  const handleSaved = (connection: DatabaseConnectionView) => {
-    const wasCreating = editingConnection === null
-    setConnections((current) => sortConnections([
-      ...current.filter((entry) => entry.id !== connection.id),
-      connection,
-    ]))
-    setSelection((current) => {
-      if (current?.kind === 'saved' && current.id === connection.id) return current
-      if (wasCreating || !current) return { kind: 'saved', id: connection.id }
-      return current
+  // beforeunload is the forced browser API a Dialog cannot replace; it is scoped to an unsaved local SQLite file.
+  useEffect(() => {
+    if (!localDirty || selection?.kind !== 'local') return
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [localDirty, selection?.kind])
+
+  const confirmDiscardLocal = async (): Promise<boolean> => {
+    if (selection?.kind !== 'local' || !localDirty) return true
+    return await confirm({
+      title: t('development.database.app.local_discard_title'),
+      description: t('development.database.app.local_discard_description'),
+      confirmLabel: t('development.database.app.local_discard'),
+      tone: 'danger',
     })
-    setMobileSidebarOpen(false)
+  }
+
+  const handleSaved = (connection: DatabaseConnectionView) => {
+    void (async () => {
+      if (!(await confirmDiscardLocal())) return
+      const wasCreating = editingConnection === null
+      setConnections((current) => sortConnections([
+        ...current.filter((entry) => entry.id !== connection.id),
+        connection,
+      ]))
+      setSelection((current) => {
+        if (current?.kind === 'saved' && current.id === connection.id) return current
+        if (wasCreating || !current) return { kind: 'saved', id: connection.id }
+        return current
+      })
+      setMobileSidebarOpen(false)
+    })()
   }
 
   const handleLocalFile = (file: File) => {
-    setLocalFile({ name: file.name, file })
-    setSelection({ kind: 'local', name: file.name, file })
-    setMobileSidebarOpen(false)
+    void (async () => {
+      if (!(await confirmDiscardLocal())) return
+      setLocalFile({ name: file.name, file })
+      setSelection({ kind: 'local', name: file.name, file })
+      setMobileSidebarOpen(false)
+    })()
   }
 
   const handleDelete = async (connection: DatabaseConnectionView) => {
@@ -430,6 +510,8 @@ export function StudioApp() {
       const source = localFile?.name ?? 'database.sqlite'
       const filename = /\.(?:sqlite3?|db3?)$/i.test(source) ? source : `${source}.sqlite`
       downloadBlob(filename, new Blob([new Uint8Array(bytes)], { type: 'application/x-sqlite3' }))
+      driver.markSaved()
+      setLocalDirty(false)
       notify(t('development.database.app.download_sqlite_done'), undefined, 'success')
     } catch (error) {
       notifyError(error instanceof Error ? error.message : String(error))
@@ -455,27 +537,15 @@ export function StudioApp() {
     if (!ok) return
     setDefinitionSaving(true)
     try {
-      await driver.query(`DROP ${definition.kind === 'view' ? 'VIEW' : 'TRIGGER'} IF EXISTS ${quoteIdent(definition.name)}`)
-      await driver.query(text)
+      await driver.transaction([
+        { sql: `DROP ${definition.kind === 'view' ? 'VIEW' : 'TRIGGER'} IF EXISTS ${quoteIdent(definition.name)}` },
+        { sql: text },
+      ], { confirmProduction: true })
       setSqlViewOpen(null)
       await reloadSchema(driver)
       notify(t('development.database.app.definition_done', { name: definition.name }), undefined, 'success')
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      const previous = definition.sql.trim()
-      if (!previous) {
-        notifyError(message)
-      } else {
-        try {
-          await driver.query(`DROP ${definition.kind === 'view' ? 'VIEW' : 'TRIGGER'} IF EXISTS ${quoteIdent(definition.name)}`)
-          await driver.query(previous)
-          notify(t('development.database.app.definition_restored'), message, 'warning')
-        } catch (restoreError) {
-          notifyError(t('development.database.app.definition_restore_failed', {
-            message: `${message} — ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
-          }))
-        }
-      }
+      notifyError(error instanceof Error ? error.message : String(error))
     } finally {
       setDefinitionSaving(false)
     }
@@ -732,17 +802,22 @@ export function StudioApp() {
       connFilter={connFilter}
       onConnFilter={setConnFilter}
       onSelectSaved={(id) => {
-        setSelection((current) => current?.kind === 'saved' && current.id === id ? current : { kind: 'saved', id })
-        setMobileSidebarOpen(false)
+        void (async () => {
+          if (!(await confirmDiscardLocal())) return
+          setSelection((current) => current?.kind === 'saved' && current.id === id ? current : { kind: 'saved', id })
+          setMobileSidebarOpen(false)
+        })()
       }}
       onSelectLocal={() => {
-        if (localFile) {
+        void (async () => {
+          if (!localFile || !(await confirmDiscardLocal())) return
           setSelection((current) => current?.kind === 'local' && current.name === localFile.name && current.file === localFile.file
             ? current
             : { kind: 'local', name: localFile.name, file: localFile.file })
           setMobileSidebarOpen(false)
-        }
+        })()
       }}
+      localDirty={localDirty}
       onDownloadLocal={() => void handleDownloadLocal()}
       onNew={() => {
         setEditingConnection(null)
@@ -1056,11 +1131,19 @@ export function StudioApp() {
         connections={connections}
         hasLocal={Boolean(localFile)}
         schema={schema}
-        onSelectSaved={(id) => setSelection((current) => current?.kind === 'saved' && current.id === id ? current : { kind: 'saved', id })}
+        onSelectSaved={(id) => {
+          void (async () => {
+            if (!(await confirmDiscardLocal())) return
+            setSelection((current) => current?.kind === 'saved' && current.id === id ? current : { kind: 'saved', id })
+          })()
+        }}
         onSelectLocal={() => {
-          if (localFile) setSelection((current) => current?.kind === 'local' && current.name === localFile.name && current.file === localFile.file
-            ? current
-            : { kind: 'local', name: localFile.name, file: localFile.file })
+          void (async () => {
+            if (!localFile || !(await confirmDiscardLocal())) return
+            setSelection((current) => current?.kind === 'local' && current.name === localFile.name && current.file === localFile.file
+              ? current
+              : { kind: 'local', name: localFile.name, file: localFile.file })
+          })()
         }}
         onOpenData={openDataTab}
         onOpenSchema={openSchemaTab}

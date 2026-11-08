@@ -15,7 +15,6 @@ import { diffSchemas, objectDiffStatements, schemaStatements, type TableShape } 
 import { diffRows } from './data-diff'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import { downloadTextFile } from './export-utils'
-import { loadGuards } from './guards'
 
 type Mode = 'schema' | 'data'
 
@@ -146,12 +145,11 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
     const target = targets.find((connection) => connection.id === targetId)
     if ((!localTarget && !target) || !result || result.statements.length === 0 || applying) return
     if (target && !localTarget) {
-      const guard = loadGuards()[`saved:${target.id}`]
-      if (guard?.readOnly) {
+      if (target.readOnly) {
         onError(t('development.database.transfer.readonly_target', { name: target.name }))
         return
       }
-      if (guard?.production) {
+      if (target.production) {
         const proceed = await confirm({
           title: t('development.database.guard.prod_title', { name: target.name }),
           description: t('development.database.guard.prod_description'),
@@ -171,19 +169,15 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
     setApplying(true)
     let targetDriver: StudioDriver | null = null
     let closeAfter = false
-    let done = 0
     try {
       targetDriver = makeTargetDriver()
       if (!targetDriver) return
       closeAfter = !localTarget
-      for (const statement of result.statements) {
-        await targetDriver.query(statement)
-        done += 1
-      }
-      useUi.getState().toast({ title: t('development.database.compare.applied', { count: done }), tone: 'success' })
+      await targetDriver.transaction(result.statements.map((sql) => ({ sql })), { confirmProduction: true })
+      useUi.getState().toast({ title: t('development.database.compare.applied', { count: result.statements.length }), tone: 'success' })
       setResult(null)
     } catch (error) {
-      onError(t('development.database.compare.apply_failed', { done, total: result.statements.length, message: error instanceof Error ? error.message : String(error) }))
+      onError(t('development.database.compare.apply_failed', { done: 0, total: result.statements.length, message: error instanceof Error ? error.message : String(error) }))
     } finally {
       if (closeAfter) targetDriver?.close()
       setApplying(false)

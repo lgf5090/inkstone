@@ -60,7 +60,7 @@ export function DataGenerateDialog({ open, table, driver, ensureWritable, onClos
     try {
       const outcome = await insertRowsInChunks(driver, table.name, columns, rows, (done) => {
         setProgress({ done, total })
-      })
+      }, { confirmProduction: true })
       if (outcome.failed > 0) {
         onGenerated()
         onError(t('development.database.generate.partial', {

@@ -100,7 +100,7 @@ export function CsvImportDialog({ open, table, driver, ensureWritable, onClose, 
           const values = parsed.rows.map((row) => row[index] ?? '')
           return `${quoteIdent(header)} ${inferColumnType(values)}`
         })
-        await driver.query(`CREATE TABLE ${quoteIdent(targetTable)} (${columns.join(', ')})`)
+        await driver.query(`CREATE TABLE ${quoteIdent(targetTable)} (${columns.join(', ')})`, undefined, { confirmProduction: true })
       }
       const indexes = effectiveMapping.map((target, index) => target ? index : -1).filter((index) => index >= 0)
       const rows = parsed.rows.map((row) => indexes.map((sourceIndex) => {
@@ -109,7 +109,7 @@ export function CsvImportDialog({ open, table, driver, ensureWritable, onClose, 
       }))
       const outcome = await insertRowsInChunks(driver, targetTable, targets, rows, (done) => {
         setProgress({ done, total: rows.length })
-      })
+      }, { confirmProduction: true })
       const done = outcome.inserted
       const failed = outcome.failed
       useUi.getState().toast({

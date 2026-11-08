@@ -42,6 +42,7 @@ export interface StudioSidebarProps {
   onRetryConnections?: () => void
   selection: StudioSelection | null
   localName?: string
+  localDirty?: boolean
   schema: SchemaModel | null
   schemaError?: string | null
   schemaLoading: boolean
@@ -258,6 +259,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
     onRetryConnections,
     selection,
     localName,
+    localDirty = false,
     schema,
     schemaError,
     schemaLoading,
@@ -507,7 +509,9 @@ export function StudioSidebar(props: StudioSidebarProps) {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{localName}</span>
                       <span className="block truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-                        {t('development.database.app.local_file_memory')}
+                        {localDirty
+                          ? t('development.database.app.local_dirty')
+                          : t('development.database.app.local_file_memory')}
                       </span>
                     </span>
                   </button>
@@ -681,7 +685,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
                           <li key={column.name} className="flex items-center gap-1.5 text-[length:var(--text-11)]">
                             <span className="truncate font-mono text-[var(--text-secondary)]" title={column.name}>{column.name}</span>
                             {column.pk && (
-                              <KeyRound size={9} className="shrink-0 text-[var(--warning)]" aria-label={t('development.database.app.primary_key')} />
+                              <KeyRound size={9} role="img" className="shrink-0 text-[var(--warning)]" aria-label={t('development.database.app.primary_key')} />
                             )}
                             <span className="ml-auto shrink-0 font-mono text-[length:var(--text-11)] text-[var(--text-tertiary)]">{column.type || '—'}</span>
                           </li>

@@ -1,8 +1,16 @@
 import type { QueryResult } from '@shared/development/database/types'
-import { runQuery, runBatch, MAX_BATCH_STATEMENTS } from './api'
+import { isWriteSql } from '@shared/development/database/sql-utils'
+import { runQuery, runBatch, runTransaction, MAX_BATCH_STATEMENTS } from './api'
 
 export interface StudioQueryOptions {
   recordHistory?: boolean
+  confirmProduction?: boolean
+  foreignKeysOff?: boolean
+}
+
+export interface StudioStatement {
+  sql: string
+  params?: unknown[]
 }
 
 export interface StudioDriver {
@@ -10,19 +18,22 @@ export interface StudioDriver {
   readonly label: string
   query(sql: string, params?: unknown[], options?: StudioQueryOptions): Promise<QueryResult>
   batch?(statements: string[]): Promise<void>
+  transaction(statements: StudioStatement[], options?: StudioQueryOptions): Promise<void>
   exportFile?(): Promise<Uint8Array>
+  isDirty(): boolean
+  markSaved(): void
   close(): void
 }
 
 export type DriverSource =
   | { kind: 'remote'; connectionId: string; type: 'd1' | 'turso'; label: string }
-  | { kind: 'local'; label: string; file?: File }
+  | { kind: 'local'; label: string; file?: File; onDirtyChange?: (dirty: boolean) => void }
 
 export function createDriver(source: DriverSource): StudioDriver {
   if (source.kind === 'local') {
     return typeof Worker === 'function'
-      ? new SqliteWorkerDriver(source.file, source.label)
-      : new LazyMemorySqliteDriver(source.file, source.label)
+      ? new SqliteWorkerDriver(source.file, source.label, source.onDirtyChange)
+      : new LazyMemorySqliteDriver(source.file, source.label, source.onDirtyChange)
   }
   return new RemoteDriver(source.connectionId, source.type, source.label)
 }
@@ -35,7 +46,13 @@ export class RemoteDriver implements StudioDriver {
   ) {}
 
   query(sql: string, params: unknown[] = [], options?: StudioQueryOptions): Promise<QueryResult> {
-    return runQuery(this.connectionId, sql, params, options?.recordHistory === true)
+    return runQuery(
+      this.connectionId,
+      sql,
+      params,
+      options?.recordHistory === true,
+      options?.confirmProduction === true,
+    )
   }
 
   async batch(statements: string[]): Promise<void> {
@@ -46,6 +63,16 @@ export class RemoteDriver implements StudioDriver {
       )
     }
   }
+
+  async transaction(statements: StudioStatement[], options?: StudioQueryOptions): Promise<void> {
+    await runTransaction(this.connectionId, statements, options?.confirmProduction === true)
+  }
+
+  isDirty(): boolean {
+    return false
+  }
+
+  markSaved(): void {}
 
   close(): void {}
 }
@@ -79,14 +106,22 @@ export class SqliteWorkerDriver implements StudioDriver {
   private seq = 0
   private opened: Promise<void> | null = null
   private closed = false
+  private dirty = false
 
   constructor(
     private readonly file: File | undefined,
     readonly label: string,
+    private readonly onDirtyChange?: (dirty: boolean) => void,
   ) {
     if (file && file.size > MAX_LOCAL_SQLITE_FILE_BYTES) {
       throw new Error('The SQLite file is larger than the 100 MB limit.')
     }
+  }
+
+  private setDirty(dirty: boolean): void {
+    if (this.dirty === dirty) return
+    this.dirty = dirty
+    this.onDirtyChange?.(dirty)
   }
 
   private ensureWorker(): Worker {
@@ -138,17 +173,33 @@ export class SqliteWorkerDriver implements StudioDriver {
 
   async query(sql: string, params: unknown[] = [], _options?: StudioQueryOptions): Promise<QueryResult> {
     await this.ensureOpen()
-    return this.request<QueryResult>({ type: 'query', sql, params })
+    const result = await this.request<QueryResult>({ type: 'query', sql, params })
+    if (isWriteSql(sql)) this.setDirty(true)
+    return result
   }
 
   async batch(statements: string[]): Promise<void> {
-    for (const sql of statements) await this.query(sql)
+    await this.transaction(statements.map((sql) => ({ sql })))
+  }
+
+  async transaction(statements: StudioStatement[], options?: StudioQueryOptions): Promise<void> {
+    await this.ensureOpen()
+    await this.request({ type: 'batch', statements, foreignKeysOff: options?.foreignKeysOff === true })
+    if (statements.some((statement) => isWriteSql(statement.sql))) this.setDirty(true)
   }
 
   async exportFile(): Promise<Uint8Array> {
     await this.ensureOpen()
     const bytes = await this.request<Uint8Array>({ type: 'export' })
     return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as ArrayBuffer)
+  }
+
+  isDirty(): boolean {
+    return this.dirty
+  }
+
+  markSaved(): void {
+    this.setDirty(false)
   }
 
   close(): void {
@@ -172,14 +223,22 @@ export class SqliteWorkerDriver implements StudioDriver {
 class LazyMemorySqliteDriver implements StudioDriver {
   readonly type = 'sqlite' as const
   private impl: Promise<import('./sqlite-memory').MemorySqliteDriver> | null = null
+  private dirty = false
 
   constructor(
     private readonly file: File | undefined,
     readonly label: string,
+    private readonly onDirtyChange?: (dirty: boolean) => void,
   ) {
     if (file && file.size > MAX_LOCAL_SQLITE_FILE_BYTES) {
       throw new Error('The SQLite file is larger than the 100 MB limit.')
     }
+  }
+
+  private setDirty(dirty: boolean): void {
+    if (this.dirty === dirty) return
+    this.dirty = dirty
+    this.onDirtyChange?.(dirty)
   }
 
   private load(): Promise<import('./sqlite-memory').MemorySqliteDriver> {
@@ -188,15 +247,30 @@ class LazyMemorySqliteDriver implements StudioDriver {
   }
 
   async query(sql: string, params: unknown[] = [], options?: StudioQueryOptions): Promise<QueryResult> {
-    return (await this.load()).query(sql, params, options)
+    const result = await (await this.load()).query(sql, params, options)
+    if (isWriteSql(sql)) this.setDirty(true)
+    return result
   }
 
   async batch(statements: string[]): Promise<void> {
-    return (await this.load()).batch(statements)
+    return this.transaction(statements.map((sql) => ({ sql })))
+  }
+
+  async transaction(statements: StudioStatement[]): Promise<void> {
+    await (await this.load()).transaction(statements)
+    if (statements.some((statement) => isWriteSql(statement.sql))) this.setDirty(true)
   }
 
   async exportFile(): Promise<Uint8Array> {
     return (await this.load()).exportFile()
+  }
+
+  isDirty(): boolean {
+    return this.dirty
+  }
+
+  markSaved(): void {
+    this.setDirty(false)
   }
 
   close(): void {

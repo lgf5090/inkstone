@@ -110,6 +110,26 @@ describe('development database core', () => {
     expect(result.sql).toContain('CREATE INDEX idx_t_name ON t(name);')
   })
 
+  it('rewrites index and constraint identifiers when a rebuilt column is renamed', () => {
+    const table = parseCreateTable(
+      'CREATE TABLE "t" ("a" INTEGER, "b" TEXT, UNIQUE ("a"))',
+    )!
+    const result = buildRebuildSql(
+      table,
+      [
+        { id: '1', name: 'c', type: 'INTEGER', notNull: true, pk: false, unique: false, default: '', original: table.columns[0] },
+        { id: '2', name: 'b', type: 'TEXT', notNull: false, pk: false, unique: false, default: '', original: table.columns[1] },
+      ],
+      {
+        indexes: [{ name: 'idx_t_a', columns: ['a'], sql: 'CREATE INDEX idx_t_a ON t(a)', unique: false }],
+      },
+    )
+    expect(result.sql).toContain('"c" INTEGER NOT NULL')
+    expect(result.sql).toContain('UNIQUE("c")')
+    expect(result.sql).toContain('CREATE INDEX "idx_t_a" ON "t" ("c");')
+    expect(result.sql).not.toContain('CREATE INDEX idx_t_a ON t(a)')
+  })
+
   it('projects columns and row values together when a column is hidden', () => {
     const projected = projectColumns(
       ['id', 'name', 'email', 'age'],
@@ -134,6 +154,9 @@ describe('development database core', () => {
       type: 'sqlite',
       label: 'fake',
       close: () => {},
+      transaction: async () => {},
+      isDirty: () => false,
+      markSaved: () => {},
       query: async () => ({
         columns: ['type', 'name', 'tbl_name', 'sql'],
         rows: [

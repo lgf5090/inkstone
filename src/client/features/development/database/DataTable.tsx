@@ -40,7 +40,7 @@ import { SNAPSHOT_MAX_ROWS, canvasToPngBlob, renderGridSnapshot } from './snapsh
 import { ExportPanel } from './ExportPanel'
 import { AggregatePanel } from './AggregatePanel'
 import { ToolbarPanel } from './ToolbarPanel'
-import type { StudioDriver } from './drivers'
+import type { StudioDriver, StudioStatement } from './drivers'
 import { buildCountSql, buildTableDataSql, primaryKeyColumns } from './schema-utils'
 import { buildWhere } from './filter-ops'
 import { buildDelete, buildUpdate, fromTemporalInput, rowKeyOf, temporalKind, toTemporalInput } from './row-ops'
@@ -345,32 +345,25 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
   const commitChanges = async () => {
     if (!(await allowed())) return
     if (dirtyCount === 0) return
-    let done = 0
-    let failed = false
+    const statements: StudioStatement[] = []
     for (const [rowIndex, cells] of dirty) {
       const key = keyFor(rowIndex)
       if (key.kind === 'none') continue
       const changes = [...cells].map(([column, value]) => [columns[column] ?? '', value] as const).filter(([column]) => column)
       const statement = buildUpdate(table.name, key, changes)
-      if (!statement) continue
-      try {
-        await driver.query(statement.sql, statement.params)
-        done++
-        setDirty((current) => {
-          const next = new Map(current)
-          next.delete(rowIndex)
-          return next
-        })
-      } catch (cause) {
-        failed = true
-        onError(t('development.database.table.update_failed', {
-          n: done + 1,
-          message: cause instanceof Error ? cause.message : String(cause),
-        }))
-        break
-      }
+      if (statement) statements.push(statement)
     }
-    if (done > 0) void load(page, pageSize, sort, where, false, failed)
+    if (statements.length === 0) return
+    try {
+      await driver.transaction(statements, { confirmProduction: true })
+      setDirty(new Map())
+      setEditing(null)
+      void load(page, pageSize, sort, where)
+    } catch (cause) {
+      onError(t('development.database.table.transaction_failed', {
+        message: cause instanceof Error ? cause.message : String(cause),
+      }))
+    }
   }
 
   const deleteRows = async (targets: Set<number>) => {
@@ -383,19 +376,21 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
       tone: 'danger',
     })
     if (!okToDelete) return
-    let done = 0
-    for (const rowIndex of [...targets].sort((left, right) => right - left)) {
+    const statements: StudioStatement[] = []
+    for (const rowIndex of targets) {
       const statement = buildDelete(table.name, keyFor(rowIndex))
-      if (!statement) continue
-      try {
-        await driver.query(statement.sql, statement.params)
-        done++
-      } catch (cause) {
-        onError(t('development.database.table.delete_failed', { message: cause instanceof Error ? cause.message : String(cause) }))
-        break
-      }
+      if (statement) statements.push(statement)
     }
-    if (done > 0) void load(page, pageSize, sort, where)
+    if (statements.length === 0) return
+    try {
+      await driver.transaction(statements, { confirmProduction: true })
+      setSelectedRows(new Set())
+      void load(page, pageSize, sort, where)
+    } catch (cause) {
+      onError(t('development.database.table.delete_failed', {
+        message: cause instanceof Error ? cause.message : String(cause),
+      }))
+    }
   }
 
   const deleteSelected = async () => {
@@ -443,7 +438,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
     const count = Math.max(1, Math.min(100, Math.trunc(Number(insertCount)) || 1))
     const rows = Array.from({ length: count }, () => row)
     try {
-      const outcome = await insertRowsInChunks(driver, table.name, columns, rows)
+      const outcome = await insertRowsInChunks(driver, table.name, columns, rows, undefined, { confirmProduction: true })
       if (outcome.failed > 0) {
         if (outcome.inserted > 0) {
           setInsertOpen(false)
@@ -476,22 +471,23 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
       ...(current === null || current === undefined ? {} : { defaultValue: String(current) }),
     })
     if (value === null) return
-    let done = 0
+    const statements: StudioStatement[] = []
     for (const rowIndex of targets) {
       const key = keyFor(rowIndex)
       if (key.kind === 'none') continue
       const statement = buildUpdate(table.name, key, [[column, value === '' ? null : value]])
-      if (!statement) continue
-      try {
-        await driver.query(statement.sql, statement.params)
-        done += 1
-      } catch (cause) {
-        onError(t('development.database.table.bulk_partial', { done, total: targets.length }) + ' — ' + (cause instanceof Error ? cause.message : String(cause)))
-        void load(page, pageSize, sort, where)
-        return
-      }
+      if (statement) statements.push(statement)
     }
-    useUi.getState().toast({ title: t('development.database.table.bulk_done', { count: done }), tone: 'success' })
+    if (statements.length === 0) return
+    try {
+      await driver.transaction(statements, { confirmProduction: true })
+    } catch (cause) {
+      onError(t('development.database.table.transaction_failed', {
+        message: cause instanceof Error ? cause.message : String(cause),
+      }))
+      return
+    }
+    useUi.getState().toast({ title: t('development.database.table.bulk_done', { count: statements.length }), tone: 'success' })
     setSelectedRows(new Set())
     void load(page, pageSize, sort, where)
   }
@@ -522,7 +518,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
     const statement = buildUpdate(table.name, key, changes)
     if (!statement) return
     try {
-      await driver.query(statement.sql, statement.params)
+      await driver.query(statement.sql, statement.params, { confirmProduction: true })
       void load(page, pageSize, sort, where)
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : String(cause))

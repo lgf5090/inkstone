@@ -102,7 +102,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
           if (ensureWritable && !(await ensureWritable())) return
           const built = buildCreateTableSql(name, columns)
           try {
-            await driver.query(built.sql)
+            await driver.query(built.sql, undefined, { confirmProduction: true })
             onSchemaChanged?.()
             onTableCreated?.(name.trim())
             setCreateOpen(false)
@@ -153,8 +153,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
       if (needsRebuild) {
         setPreview({ sql: rebuild.sql, warnings: rebuild.warnings })
       } else if (simple.length > 0) {
-        if (driver.batch) await driver.batch(simple)
-        else for (const statement of simple) await driver.query(statement)
+        await driver.transaction(simple.map((sql) => ({ sql })), { confirmProduction: true })
         onSchemaChanged?.()
         onOpenSql?.(simple.join('\n'))
       }
@@ -169,28 +168,15 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
     if (!preview) return
     if (ensureWritable && !(await ensureWritable())) return
     const statements = splitSqlStatements(preview.sql)
-    const remote = driver.type !== 'sqlite'
-    const runnable = remote
-      ? statements.filter((statement) => !/^(?:begin|commit|rollback|pragma\s+foreign_keys)\b/i.test(statement.trim()))
-      : statements
+    const runnable = statements.filter((statement) => !/^(?:begin|commit|rollback|pragma\s+foreign_keys)\b/i.test(statement.trim()))
     try {
-      if (remote && driver.batch) await driver.batch(runnable)
-      else for (const statement of runnable) await driver.query(statement)
+      await driver.transaction(runnable.map((sql) => ({ sql })), {
+        confirmProduction: true,
+        foreignKeysOff: true,
+      })
       setPreview(null)
       onSchemaChanged?.()
     } catch (cause) {
-      if (!remote) {
-        try {
-          await driver.query('ROLLBACK')
-        } catch (error) {
-          console.warn('[inkstone] development database rebuild rollback failed:', error)
-        }
-        try {
-          await driver.query('PRAGMA foreign_keys = ON')
-        } catch (error) {
-          console.warn('[inkstone] development database foreign_keys restore failed:', error)
-        }
-      }
       onError(cause instanceof Error ? cause.message : String(cause))
     }
   }
@@ -205,7 +191,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
     })
     if (!ok) return
     try {
-      await driver.query(`DROP TABLE ${quoteIdent(table.name)};`)
+      await driver.query(`DROP TABLE ${quoteIdent(table.name)};`, undefined, { confirmProduction: true })
       onSchemaChanged?.()
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : String(cause))
@@ -319,7 +305,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
         if (ensureWritable && !(await ensureWritable())) return
         const built = buildCreateTableSql(name, columns)
         try {
-          await driver.query(built.sql)
+          await driver.query(built.sql, undefined, { confirmProduction: true })
           onSchemaChanged?.()
           onTableCreated?.(name.trim())
           setCreateOpen(false)

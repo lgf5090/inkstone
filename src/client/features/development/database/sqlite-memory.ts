@@ -1,8 +1,9 @@
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
 import type { Database as SqlJsDatabase } from 'sql.js'
 import type { QueryResult } from '@shared/development/database/types'
+import { isWriteSql } from '@shared/development/database/sql-utils'
 import { runSqliteQuery } from './sqlite-query'
-import type { StudioDriver, StudioQueryOptions } from './drivers'
+import type { StudioDriver, StudioQueryOptions, StudioStatement } from './drivers'
 
 export class MemorySqliteDriver implements StudioDriver {
   readonly type = 'sqlite' as const
@@ -10,6 +11,7 @@ export class MemorySqliteDriver implements StudioDriver {
   private db: SqlJsDatabase | null = null
   private initPromise: Promise<SqlJsDatabase> | null = null
   private closed = false
+  private dirty = false
 
   constructor(
     private readonly file: File | undefined,
@@ -43,7 +45,9 @@ export class MemorySqliteDriver implements StudioDriver {
   }
 
   async query(sql: string, params: unknown[] = [], _options?: StudioQueryOptions): Promise<QueryResult> {
-    return runSqliteQuery(await this.getDb(), sql, params)
+    const result = runSqliteQuery(await this.getDb(), sql, params)
+    if (isWriteSql(sql)) this.dirty = true
+    return result
   }
 
   async exportFile(): Promise<Uint8Array> {
@@ -52,7 +56,37 @@ export class MemorySqliteDriver implements StudioDriver {
   }
 
   async batch(statements: string[]): Promise<void> {
-    for (const sql of statements) await this.query(sql)
+    return this.transaction(statements.map((sql) => ({ sql })))
+  }
+
+  async transaction(statements: StudioStatement[], options?: StudioQueryOptions): Promise<void> {
+    const db = await this.getDb()
+    if (options?.foreignKeysOff) db.exec('PRAGMA foreign_keys = OFF')
+    db.exec('BEGIN')
+    try {
+      for (const statement of statements) {
+        runSqliteQuery(db, statement.sql, statement.params ?? [])
+      }
+      db.exec('COMMIT')
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK')
+      } catch (rollbackError) {
+        console.warn('[inkstone] local SQLite transaction rollback failed:', rollbackError)
+      }
+      if (options?.foreignKeysOff) db.exec('PRAGMA foreign_keys = ON')
+      throw error
+    }
+    if (options?.foreignKeysOff) db.exec('PRAGMA foreign_keys = ON')
+    if (statements.some((statement) => isWriteSql(statement.sql))) this.dirty = true
+  }
+
+  isDirty(): boolean {
+    return this.dirty
+  }
+
+  markSaved(): void {
+    this.dirty = false
   }
 
   close(): void {

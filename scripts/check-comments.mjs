@@ -7014,6 +7014,9 @@ const allowed = new Map([
     "// The peer may already be gone; the session state below is what the user sees either way.",
     "/** A deleted request takes its conversation with it. */",
   ]],
+  ["src/client/features/development/database/StudioApp.tsx", [
+    "// beforeunload is the forced browser API a Dialog cannot replace; it is scoped to an unsaved local SQLite file.",
+  ]],
   ["src/client/features/development/certhub/CerthubApp.tsx", [
     "/**\n * One domain line of the request form. The label lives on the `Checkbox` itself: an earlier version\n * wrapped the control in a `<label>` that also printed the same string, so every checkbox read twice.\n */",
     "// Reject a bad domain here rather than travelling to the server for the same answer: the server still",
@@ -40312,6 +40315,9 @@ const allowed = new Map([
   ["src/worker/development/certhub/worker.ts", [
     "// DELETE ... LIMIT is an SQLite extension this deployment cannot rely on, so the cap lives on a",
     "// SELECT subquery: the oldest finished jobs go first and the batch stays bounded per tick.",
+  ]],
+  ["src/worker/development/database/d1.ts", [
+    "// D1 REST batch is the transaction boundary: a failed entry rolls the whole sequence back.",
   ]],
   ["src/worker/development/icons/bulk-import.ts", [
     "/** Names this job will walk (the missing subset for a fill-missing job). */",
