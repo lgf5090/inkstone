@@ -61,7 +61,7 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
             <button type="button" className="w-40 shrink-0 truncate text-left text-[length:var(--text-12)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
               {card.title || t('project.board.untitled_card')}
             </button>
-            <div className="relative h-5 min-w-0 flex-1 rounded-[var(--r-sm)] bg-[var(--bg-subtle)]">
+            <div className="relative h-5 min-w-0 flex-1 rounded-[var(--r-sm)] bg-[var(--bg-sunken)]">
               <div className="absolute top-0 h-full rounded-[var(--r-sm)] bg-[var(--accent-soft)]" style={{ left: `${left}%`, width: `${width}%` }} />
             </div>
             {gantt && blocked.has(card.id) && <span className="shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1 text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('project.view.blocked')}</span>}

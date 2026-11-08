@@ -29,7 +29,7 @@ function setInput(el: HTMLInputElement, value: string) {
 
 describe('view settings modals', () => {
   it('sort modal saves an added sort', async () => {
-    const onPatch = vi.fn()
+    const onPatch = vi.fn().mockResolvedValue(undefined)
     await act(async () => { viewEl = renderElement(createElement(SortModal, { view, properties, onClose: vi.fn(), onPatch })) })
     await act(async () => { clickButton(t('project.view.add_sort')) })
     await act(async () => { clickButton(t('common.save')) })
@@ -37,7 +37,7 @@ describe('view settings modals', () => {
   })
 
   it('filter modal saves an added clause in an and group', async () => {
-    const onPatch = vi.fn()
+    const onPatch = vi.fn().mockResolvedValue(undefined)
     await act(async () => { viewEl = renderElement(createElement(FilterModal, { view, properties, onClose: vi.fn(), onPatch })) })
     const valueInput = document.body.querySelector(`input[placeholder="${t('project.view.filter_value')}"]`) as HTMLInputElement
     await act(async () => { setInput(valueInput, 'abc') })
@@ -47,7 +47,7 @@ describe('view settings modals', () => {
   })
 
   it('properties modal saves the unchecked set', async () => {
-    const onPatch = vi.fn()
+    const onPatch = vi.fn().mockResolvedValue(undefined)
     await act(async () => { viewEl = renderElement(createElement(PropertiesModal, { view, properties, onClose: vi.fn(), onPatch })) })
     const checkbox = [...document.body.querySelectorAll('[role="checkbox"]')][0] as HTMLButtonElement
     await act(async () => { checkbox.click() })

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import type { ProjectBoardMember, ProjectProperty } from '@shared/project/model'
-import { Checkbox, Input, Select } from '../../components/form'
+import { Checkbox, commitOnEnter, Input, Select } from '../../components/form'
+import { DatePicker } from '../../components/date-picker'
 
 interface PropertyValueEditorProps {
   property: ProjectProperty
@@ -72,14 +73,11 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
       return <Checkbox ariaLabel={property.name} checked={value === 'true'} disabled={disabled} onChange={(checked) => onChange(checked ? 'true' : 'false')} />
     case 'date':
       return (
-        <Input
-          type="date"
+        <DatePicker
           className="w-full"
+          label={property.name}
           value={readDateFrom(value)}
-          disabled={disabled}
-          aria-label={property.name}
-          onChange={(event) => {
-            const raw = event.target.value
+          onChange={(raw) => {
             if (!raw) onChange(null)
             else onChange(JSON.stringify({ from: new Date(`${raw}T00:00:00`).getTime() }))
           }}
@@ -107,7 +105,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
           inputMode={property.type === 'number' ? 'decimal' : undefined}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={commitText}
-          onKeyDown={(event) => { if (event.key === 'Enter') commitText() }}
+          onKeyDown={(event) => commitOnEnter(event, commitText)}
         />
       )
   }

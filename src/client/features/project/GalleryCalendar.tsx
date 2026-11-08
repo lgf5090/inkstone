@@ -27,10 +27,10 @@ export function GalleryView({ cards, onOpenCard }: { cards: ProjectCard[], onOpe
           key={card.id}
           type="button"
           data-project-card={card.id}
-          className="flex flex-col items-start gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 text-left shadow-[var(--shadow-1)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+          className="flex flex-col items-start gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 text-left shadow-[var(--shadow-sm)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
           onClick={() => onOpenCard(card.id)}
         >
-          <span aria-hidden="true" className="flex h-16 w-full items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-subtle)] text-[length:var(--text-20)]">
+          <span aria-hidden="true" className="flex h-16 w-full items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-sunken)] text-[length:var(--text-20)]">
             {card.icon || <SquareKanban size={24} className="text-[var(--text-quaternary)]" />}
           </span>
           <span className="min-w-0 truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>

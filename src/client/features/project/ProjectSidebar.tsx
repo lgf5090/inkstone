@@ -31,7 +31,7 @@ export function ProjectSidebar({ boards }: { boards: ProjectBoardSummary[] }): R
     setCategories(result.categories)
     setEdges(result.categoryBoards)
   }, [])
-  useEffect(() => { void reload().catch(() => undefined) }, [reload])
+  useEffect(() => { void reload().catch(() => { /* best-effort: an unreadable category list leaves the board list usable */ return undefined }) }, [reload])
 
   const guard = async (action: () => Promise<void>) => {
     try { await action(); await reload() } catch (reason) { toast({ title: errorText(reason), tone: 'danger' }) }
@@ -72,7 +72,7 @@ export function ProjectSidebar({ boards }: { boards: ProjectBoardSummary[] }): R
   )
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-subtle)]" aria-label={t('project.title')}>
+    <aside className="flex w-60 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]" aria-label={t('project.title')}>
       <div className="flex items-center gap-1 p-2">
         <Input className="min-w-0 flex-1" value={query} placeholder={t('project.sidebar.search')} aria-label={t('project.sidebar.search')} onChange={(event) => setQuery(event.target.value)} />
         <IconButton label={t('project.sidebar.new_category')} size="sm" onClick={newCategory}><FolderPlus size={15} /></IconButton>

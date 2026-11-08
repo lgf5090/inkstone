@@ -63,7 +63,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     const timer = window.setInterval(() => {
       fetchProjectBoardBundle(boardId, controller.signal)
         .then((fresh) => setBundle(fresh))
-        .catch(() => undefined)
+        .catch(() => { /* best-effort convergence poll: a failed refetch keeps the last good bundle */ return undefined })
     }, 30_000)
     return () => { window.clearInterval(timer); controller.abort() }
   }, [boardId])
@@ -192,7 +192,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         onDeleteCard={(id) => void removeCard(id)}
         onCreateView={(type) => void addView(type)}
         onOpenCard={setOpenCardId}
-        onPatchView={(id, patch) => void patchView(id, patch)}
+        onPatchView={(id, patch) => patchView(id, patch)}
       />
       {showProps && (
         <BoardPropertiesDialog
@@ -225,7 +225,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           canEdit={canEdit}
           onClose={() => setOpenCardId(null)}
           onUpdated={(updated) => setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current))}
-          onRefresh={() => { void fetchProjectBoardBundle(boardId).then(setBundle).catch(() => undefined) }}
+          onRefresh={() => { void fetchProjectBoardBundle(boardId).then(setBundle).catch(() => { /* best-effort: dialog stays usable if the refetch fails */ return undefined }) }}
         />
       )}
     </div>

@@ -3,7 +3,7 @@ import { CheckSquare, Minus, Paperclip, Plus, Trash2, Type } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
-import { Checkbox, Input, Select, Textarea } from '../../components/form'
+import { Checkbox, commitOnEnter, Input, Select, Textarea } from '../../components/form'
 import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
 import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteProjectFile, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
@@ -131,7 +131,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           aria-label={t('project.board.title_column')}
           onChange={(event) => setTitle(event.target.value)}
           onBlur={commitTitle}
-          onKeyDown={(event) => { if (event.key === 'Enter') commitTitle() }}
+          onKeyDown={(event) => commitOnEnter(event, commitTitle)}
         />
         {canEdit && (
           <Button size="sm" variant="ghost" onClick={() => { void saveCardAsTemplate(card.id).then(onRefresh) }}>{t('project.card.save_as_template')}</Button>
@@ -236,7 +236,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.comments')}</h3>
           <ul className="space-y-2">
             {comments.map((comment) => (
-              <li key={comment.id} className="rounded-[var(--r-sm)] bg-[var(--bg-subtle)] px-3 py-2">
+              <li key={comment.id} className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2">
                 <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{comment.authorId}</p>
                 <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{comment.body}</p>
               </li>

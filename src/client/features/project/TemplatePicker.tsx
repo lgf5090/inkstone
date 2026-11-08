@@ -25,7 +25,7 @@ export function TemplatePicker({ onClose, onPick }: { onClose: () => void, onPic
                 className="flex flex-col items-start gap-1 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                 onClick={() => onPick(null)}
               >
-                <span aria-hidden="true" className="flex size-8 items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-subtle)]"><SquareKanban size={18} className="text-[var(--text-tertiary)]" /></span>
+                <span aria-hidden="true" className="flex size-8 items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-sunken)]"><SquareKanban size={18} className="text-[var(--text-tertiary)]" /></span>
                 <span className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{t('project.templates.blank')}</span>
                 <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.templates.blank_description')}</span>
               </button>
@@ -36,7 +36,7 @@ export function TemplatePicker({ onClose, onPick }: { onClose: () => void, onPic
                   className="flex flex-col items-start gap-1 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                   onClick={() => onPick(template.id)}
                 >
-                  <span aria-hidden="true" className="flex size-8 items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-subtle)] text-[length:var(--text-16)]">{template.icon}</span>
+                  <span aria-hidden="true" className="flex size-8 items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-sunken)] text-[length:var(--text-16)]">{template.icon}</span>
                   <span className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{template.title}</span>
                   <span className="line-clamp-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{template.description}</span>
                 </button>

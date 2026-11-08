@@ -11,7 +11,7 @@ interface ModalProps {
   view: ProjectView
   properties: ProjectProperty[]
   onClose: () => void
-  onPatch: (fields: Partial<ProjectViewFields>) => void
+  onPatch: (fields: Partial<ProjectViewFields>) => Promise<void>
 }
 
 function Footer({ onClose, onSave }: { onClose: () => void, onSave: () => void }): ReactElement {
@@ -23,7 +23,7 @@ export function SortModal({ view, properties, onClose, onPatch }: ModalProps): R
   const [propertyId, setPropertyId] = useState(properties[0]?.id ?? '')
   const [reversed, setReversed] = useState(false)
   return (
-    <Modal open onClose={onClose} title={t('project.view.sort')} width={480} footer={<Footer onClose={onClose} onSave={() => { onPatch({ sortOptions: draft }); onClose() }} />}>
+    <Modal open onClose={onClose} title={t('project.view.sort')} width={480} footer={<Footer onClose={onClose} onSave={async () => { await onPatch({ sortOptions: draft }); onClose() }} />}>
       <div className="space-y-2">
         {draft.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.no_sorts')}</p>}
         {draft.map((sort, index) => (
@@ -57,7 +57,7 @@ export function FilterModal({ view, properties, onClose, onPatch }: ModalProps):
   const valueType = property ? PROJECT_PROPERTY_CAPABILITIES[property.type].filterValueType : 'text'
   const conditions = PROJECT_CONDITIONS_BY_VALUE_TYPE[valueType].conditions
   return (
-    <Modal open onClose={onClose} title={t('project.view.filter')} width={560} footer={<Footer onClose={onClose} onSave={() => { onPatch({ filter: { operation: 'and', filters: draft } }); onClose() }} />}>
+    <Modal open onClose={onClose} title={t('project.view.filter')} width={560} footer={<Footer onClose={onClose} onSave={async () => { await onPatch({ filter: { operation: 'and', filters: draft } }); onClose() }} />}>
       <div className="space-y-2">
         {draft.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.no_filters')}</p>}
         {draft.map((clause, index) => (
@@ -86,7 +86,7 @@ export function FilterModal({ view, properties, onClose, onPatch }: ModalProps):
 export function PropertiesModal({ view, properties, onClose, onPatch }: ModalProps): ReactElement {
   const [draft, setDraft] = useState<string[]>(() => (view.fields.visiblePropertyIds.length ? view.fields.visiblePropertyIds : properties.map((p) => p.id)))
   return (
-    <Modal open onClose={onClose} title={t('project.view.properties')} width={400} footer={<Footer onClose={onClose} onSave={() => { onPatch({ visiblePropertyIds: draft }); onClose() }} />}>
+    <Modal open onClose={onClose} title={t('project.view.properties')} width={400} footer={<Footer onClose={onClose} onSave={async () => { await onPatch({ visiblePropertyIds: draft }); onClose() }} />}>
       <div className="space-y-2">
         {properties.map((property) => (
           <Checkbox

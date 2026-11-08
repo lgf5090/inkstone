@@ -52,7 +52,7 @@ interface BoardViewsProps {
   onDeleteCard: (id: string) => void
   onCreateView: (type: ProjectViewType) => void
   onOpenCard: (id: string) => void
-  onPatchView: (viewId: string, patch: ProjectViewPatch) => void
+  onPatchView: (viewId: string, patch: ProjectViewPatch) => Promise<void>
 }
 
 export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView }: BoardViewsProps): ReactElement {
@@ -262,7 +262,7 @@ function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onO
         const calc = fields.kanbanCalculations[key]?.calculation ?? 'count'
         const calcProperty = groupProperty ?? properties[0]
         return (
-          <section key={key || 'empty'} className="flex w-64 shrink-0 flex-col rounded-[var(--r-md)] bg-[var(--bg-subtle)]" aria-label={label}>
+          <section key={key || 'empty'} className="flex w-64 shrink-0 flex-col rounded-[var(--r-md)] bg-[var(--bg-sunken)]" aria-label={label}>
             <header className="flex items-center gap-2 px-3 py-2 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
               <span className="min-w-0 flex-1 truncate">{label}</span>
               {calcProperty && (
@@ -297,7 +297,7 @@ function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onO
             <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
               {bucket.length === 0 && <li className="px-1 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.empty_column')}</li>}
               {bucket.map((card) => (
-                <li key={card.id} className={`flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--bg-base)] shadow-[var(--shadow-1)] ${cardPad}`} data-project-card={card.id}>
+                <li key={card.id} className={`flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--bg-base)] shadow-[var(--shadow-sm)] ${cardPad}`} data-project-card={card.id}>
                   <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
                     {card.title || t('project.board.untitled_card')}
                   </button>
