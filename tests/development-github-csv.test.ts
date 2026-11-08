@@ -60,4 +60,11 @@ describe('repository CSV export', () => {
     const csv = buildRepoCsv([], [])
     expect(csv).toBe(`${REPO_CSV_HEADER.join(',')}\r\n`)
   })
+
+  it('defuses spreadsheet formulas in exported cells', () => {
+    const row = saved()
+    row.notes = '=HYPERLINK("https://evil.example")'
+    const csv = buildRepoCsv([row], [])
+    expect(csv).toContain(`"'=HYPERLINK(""https://evil.example"")"`)
+  })
 })

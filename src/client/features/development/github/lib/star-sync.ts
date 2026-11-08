@@ -2,7 +2,7 @@ import type { GithubRepo } from '@shared/development/github/types'
 import { githubApi } from '../api'
 
 export const STAR_SYNC_PAGE_SIZE = 100
-export const STAR_SYNC_MAX_PAGES = 20
+export const STAR_SYNC_MAX_PAGES = 100
 
 export interface StarSyncResult {
   added: number

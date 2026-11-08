@@ -248,7 +248,7 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.repos.sync_stars": "同步 GitHub Stars",
   "development.github.repos.syncing_stars": "同步中…",
   "development.github.repos.stars_synced": "已新增 {added} 个仓库（共读取 {total} 个）",
-  "development.github.repos.stars_synced_partial": "已读取前 {pages} 页（{total} 个），新增 {added} 个；剩余星标尚未同步，可再次执行继续。",
+  "development.github.repos.stars_synced_partial": "已读取前 {pages} 页（{total} 个），新增 {added} 个；超出该上限的星标尚未同步。",
   "development.github.repos.stars_sync_failed": "Stars 同步失败",
   "development.github.repos.import_repo": "导入仓库",
   "development.github.repos.import_title": "导入 GitHub 仓库",

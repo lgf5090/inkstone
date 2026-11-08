@@ -248,7 +248,7 @@ export const EN_US_DEVELOPMENT_GITHUB = {
   "development.github.repos.sync_stars": "Sync GitHub stars",
   "development.github.repos.syncing_stars": "Syncing…",
   "development.github.repos.stars_synced": "Added {added} of {total} starred repositories",
-  "development.github.repos.stars_synced_partial": "Added {added} of the first {total} starred repositories after {pages} pages; the rest is not synced yet. Run it again to continue.",
+  "development.github.repos.stars_synced_partial": "Added {added} of the first {total} starred repositories after {pages} pages; stars beyond that limit are not synced.",
   "development.github.repos.stars_sync_failed": "Star sync failed",
   "development.github.repos.import_repo": "Import repository",
   "development.github.repos.import_title": "Import a GitHub repository",
