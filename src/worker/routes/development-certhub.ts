@@ -19,7 +19,8 @@ import {
   tokenCreateSchema,
 } from '@shared/development/certhub/validation'
 import type { CerthubAction, CerthubActor, CerthubConfigView } from '@shared/development/certhub/types'
-import { ensureAccount, importAccountKey, rotateAccountKey } from '../development/certhub/accounts'
+import { parseOrderSort } from '@shared/development/certhub/sorting'
+import { accountRegistrationApiError, ensureAccount, importAccountKey, rotateAccountKey } from '../development/certhub/accounts'
 import { quotaContext, verifyTurnstile } from '../development/certhub/quota'
 import { createOrderForUser } from '../development/certhub/orders'
 import { handleOrderAction } from '../development/certhub/state-machine'
@@ -51,13 +52,15 @@ import {
   updateSettings,
   usageDay,
   usageMonth,
+  type OrderCursor,
 } from '../development/certhub/store'
 import {
   deleteCerthubObjects,
   readCerthubText,
 } from '../development/certhub/storage'
-import { verifyCloudflareToken } from '../development/certhub/dns/cloudflare'
+import { verifyCloudflareConnection, verifyCloudflareToken } from '../development/certhub/dns/cloudflare'
 import { pemToPfx } from '../development/certhub/crypto/pfx'
+import { exportPassword } from '../development/certhub/export-password'
 import { buildCerthubZip } from '../development/certhub/export/zip'
 
 export const developmentCerthubRoutes = new Hono<AppBindings>()
@@ -137,18 +140,21 @@ developmentCerthubRoutes.get('/orders', async (c) => {
   const status = query.status && /^[a-z_]+$/.test(query.status) ? query.status : undefined
   const ca = query.ca && /^[a-z-]+$/.test(query.ca) ? query.ca : undefined
   const expiring = query.expiring ? Number(query.expiring) : undefined
+  const sort = parseOrderSort(query.sort)
+  if (!sort) throw ApiError.badRequest('Unknown sort')
   const result = await listOrders(c.env.DB, userId, {
     status: status as never,
     ca: ca as never,
     q: query.q,
     expiringWithinDays: Number.isFinite(expiring) ? expiring : undefined,
+    sort,
     cursor,
     limit,
   })
   return c.json({ ok: true, data: result })
 })
 
-function decodeCursorSafe(raw: string): { updatedAt: number; id: string } | null {
+function decodeCursorSafe(raw: string): OrderCursor | null {
   try {
     return decodeCursor(raw)
   } catch {
@@ -316,7 +322,7 @@ developmentCerthubRoutes.get('/orders/:id/export', async (c) => {
     detail: { kind },
   })
   if (kind === 'pfx') {
-    const password = `${newId().slice(0, 8)}${usageDay().replace(/-/g, '').slice(0, 4)}`
+    const password = exportPassword()
     const bytes = pemToPfx(privateKey, fullchain, password, primaryName)
     return new Response(bytes, {
       headers: {
@@ -372,9 +378,15 @@ developmentCerthubRoutes.post('/accounts', async (c) => {
   const body = await parseBody(c, accountSchema)
   const settings = await readSettings(c.env.DB, userId)
   const environment = body.environment === 'staging' && c.env.CERTHUB_ALLOW_STAGING === '1' ? 'staging' : 'production'
-  const account = body.privateKey
-    ? await importAccountKey(c.env, c.env.DB, userId, body.ca, environment, settings.defaultKeyAlgorithm, body.privateKey, c.get('user').login)
-    : (await ensureAccount(c.env, c.env.DB, userId, body.ca, environment, settings.defaultKeyAlgorithm, c.get('user').login)).account
+  let account
+  try {
+    account = body.privateKey
+      ? await importAccountKey(c.env, c.env.DB, userId, body.ca, environment, settings.defaultKeyAlgorithm, body.privateKey, c.get('user').login)
+      : (await ensureAccount(c.env, c.env.DB, userId, body.ca, environment, settings.defaultKeyAlgorithm, c.get('user').login)).account
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    throw accountRegistrationApiError(error)
+  }
   await appendEvent(c.env.DB, {
     userId,
     actor: actionActor(c),
@@ -401,6 +413,18 @@ developmentCerthubRoutes.post('/accounts/:id/rotate', async (c) => {
 
 developmentCerthubRoutes.get('/dns-providers', async (c) => {
   return c.json({ ok: true, data: { items: await listProviders(c.env.DB, userIdOf(c)) } })
+})
+
+developmentCerthubRoutes.post('/dns-providers/test', async (c) => {
+  const body = await parseBody(c, dnsProviderSchema)
+  if (body.kind !== 'cloudflare') {
+    const configured = Boolean(c.env.CERTHUB_DCV_ZONE && c.env.CERTHUB_DCV_TOKEN)
+    return c.json({ ok: true, data: { ok: true, degraded: !configured } })
+  }
+  if (!body.zoneId) throw ApiError.badRequest('A Cloudflare connection needs a zone id', { reason: 'zone_id_required' })
+  if (!body.secret) throw ApiError.badRequest('A Cloudflare connection needs an API token', { reason: 'token_required' })
+  await verifyCloudflareConnection(body.secret, body.zoneId)
+  return c.json({ ok: true, data: { ok: true } })
 })
 
 developmentCerthubRoutes.post('/dns-providers', async (c) => {

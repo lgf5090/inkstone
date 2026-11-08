@@ -6,10 +6,23 @@ import { newId } from '../../lib/id'
 import type { CerthubCa, CerthubKeyAlgorithm } from '@shared/development/certhub/types'
 import { directoryFor, eabFor } from './acme/directories'
 import { buildAcmeClient, registerAccount, type AcmeBundle } from './acme/client'
+import { parseAcmeFailure } from './acme/errors'
 import { findAccount, findAccountForCa, insertAccount, updateAccount, type AccountRow } from './store'
 import { generateKey } from './crypto/keys'
 
 const EAB_REQUIRED: ReadonlySet<CerthubCa> = new Set(['google-trust', 'zerossl', 'sslcom'])
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+export function acmeContactEmail(login: string): string {
+  const value = login.trim()
+  return EMAIL.test(value) ? value : ''
+}
+
+export function accountRegistrationApiError(error: unknown): ApiError {
+  const failure = parseAcmeFailure(error)
+  console.error('[certhub] account registration failed:', error)
+  return new ApiError(502, 'acme_error', failure.detail || 'The certificate authority rejected the account registration')
+}
 
 export function keyFingerprint(privateKeyPem: string): string {
   const publicKey = createPublicKey(privateKeyPem)
@@ -39,11 +52,12 @@ export async function ensureAccount(
   if (EAB_REQUIRED.has(ca) && !eabFor(env, ca)) {
     throw new ApiError(503, 'config_unavailable', `The deployment is missing the ${ca} external account binding`)
   }
+  const contact = acmeContactEmail(contactEmail)
   const existing = await findAccountForCa(db, userId, ca, environment)
   if (existing) {
     const bundle = await accountBundle(env, existing, keyAlgorithm)
     if (!existing.account_url) {
-      const accountUrl = await registerAccount(bundle, contactEmail)
+      const accountUrl = await registerAccount(bundle, contact)
       await updateAccount(db, userId, existing.id, { account_url: accountUrl, updated_at: Date.now(), last_used_at: Date.now() })
       existing.account_url = accountUrl
     }
@@ -62,7 +76,7 @@ export async function ensureAccount(
     account_url: '',
     key_ciphertext: await encryptCerthubAccountKey(env, accountId, privateKey),
     key_fingerprint: keyFingerprint(privateKey),
-    contact_email: contactEmail,
+    contact_email: contact,
     status: 'active',
     last_error_code: null,
     last_error_message: null,
@@ -73,7 +87,7 @@ export async function ensureAccount(
   await insertAccount(db, row)
   const bundle = buildAcmeClient(env, ca, keyAlgorithm, privateKey, environment, '')
   try {
-    const accountUrl = await registerAccount(bundle, contactEmail)
+    const accountUrl = await registerAccount(bundle, contact)
     await updateAccount(db, userId, accountId, { account_url: accountUrl, updated_at: Date.now() })
     row.account_url = accountUrl
     return { account: row, bundle }
@@ -106,6 +120,7 @@ export async function importAccountKey(
   if (EAB_REQUIRED.has(ca) && !eabFor(env, ca)) {
     throw new ApiError(503, 'config_unavailable', `The deployment is missing the ${ca} external account binding`)
   }
+  const contact = acmeContactEmail(contactEmail)
   const accountId = newId()
   const now = Date.now()
   const row: AccountRow = {
@@ -117,7 +132,7 @@ export async function importAccountKey(
     account_url: '',
     key_ciphertext: await encryptCerthubAccountKey(env, accountId, keyPem),
     key_fingerprint: keyFingerprint(keyPem),
-    contact_email: contactEmail,
+    contact_email: contact,
     status: 'active',
     last_error_code: null,
     last_error_message: null,
@@ -128,7 +143,7 @@ export async function importAccountKey(
   await insertAccount(db, row)
   const bundle = buildAcmeClient(env, ca, keyAlgorithm, keyPem, environment, '')
   try {
-    const accountUrl = await registerAccount(bundle, contactEmail)
+    const accountUrl = await registerAccount(bundle, contact)
     await updateAccount(db, userId, accountId, { account_url: accountUrl, updated_at: Date.now() })
     row.account_url = accountUrl
     return row
@@ -159,7 +174,7 @@ export async function rotateAccountKey(
   }
   const privateKey = await generateKey('eccp256')
   const bundle = buildAcmeClient(env, account.ca, 'eccp256', privateKey, account.environment, account.account_url)
-  const accountUrl = await registerAccount(bundle, account.contact_email)
+  const accountUrl = await registerAccount(bundle, acmeContactEmail(account.contact_email))
   const keyCiphertext = await encryptCerthubAccountKey(env, accountId, privateKey)
   const fingerprint = keyFingerprint(privateKey)
   await updateAccount(db, userId, accountId, {

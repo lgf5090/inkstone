@@ -12,6 +12,7 @@ import type {
   CerthubEventLevel,
   CerthubEventView,
   CerthubKeyAlgorithm,
+  CerthubOrderSort,
   CerthubOrderStatus,
   CerthubOrderSummary,
   CerthubOrderView,
@@ -257,16 +258,23 @@ export function summaryFromRow(
   }
 }
 
-export function encodeCursor(updatedAt: number, id: string): string {
-  return toBase64Url(utf8(JSON.stringify({ updatedAt, id })))
+export interface OrderCursor {
+  sort: CerthubOrderSort
+  key: string | number
+  id: string
 }
 
-export function decodeCursor(raw: string | undefined): { updatedAt: number; id: string } | null {
+export function encodeCursor(sort: CerthubOrderSort, key: string | number, id: string): string {
+  return toBase64Url(utf8(JSON.stringify({ sort, key, id })))
+}
+
+export function decodeCursor(raw: string | undefined): OrderCursor | null {
   if (!raw) return null
   try {
-    const value = JSON.parse(new TextDecoder().decode(fromBase64Url(raw))) as { updatedAt?: unknown; id?: unknown }
-    if (typeof value.updatedAt !== 'number' || typeof value.id !== 'string') return null
-    return { updatedAt: value.updatedAt, id: value.id }
+    const value = JSON.parse(new TextDecoder().decode(fromBase64Url(raw))) as { sort?: unknown; key?: unknown; id?: unknown }
+    if (typeof value.sort !== 'string' || typeof value.id !== 'string') return null
+    if (typeof value.key !== 'string' && typeof value.key !== 'number') return null
+    return { sort: value.sort as CerthubOrderSort, key: value.key, id: value.id }
   } catch {
     throw ApiError.badRequest('The cursor is not valid')
   }
@@ -472,10 +480,13 @@ export async function listOrders(
     ca?: CerthubCa
     q?: string
     expiringWithinDays?: number
-    cursor?: { updatedAt: number; id: string } | null
+    sort?: CerthubOrderSort
+    cursor?: OrderCursor | null
     limit: number
   },
 ): Promise<{ items: CerthubOrderSummary[]; nextCursor: string | null }> {
+  const sort = options.sort ?? 'updated'
+  if (options.cursor && options.cursor.sort !== sort) throw ApiError.badRequest('The cursor does not match the sort')
   const where: string[] = ['o.user_id = ?1', 'o.deleted_at IS NULL']
   const params: unknown[] = [userId]
   let index = 2
@@ -503,30 +514,47 @@ export async function listOrders(
     params.push(Date.now() + options.expiringWithinDays * 86_400_000)
     index += 1
   }
+  const primaryName = `(SELECT d.name FROM development_certhub_order_domains d
+       WHERE d.user_id = o.user_id AND d.order_id = o.id AND d.is_primary = 1 LIMIT 1)`
+  const sortExpr = sort === 'expires'
+    ? 'COALESCE(o.cert_not_after, 9e15)'
+    : sort === 'name'
+      ? `COALESCE(${primaryName}, '')`
+      : 'o.updated_at'
+  const direction = sort === 'updated' ? 'DESC' : 'ASC'
+  const compare = direction === 'DESC' ? '<' : '>'
   if (options.cursor) {
-    where.push(`(o.updated_at < ?${index} OR (o.updated_at = ?${index} AND o.id < ?${index + 1}))`)
-    params.push(options.cursor.updatedAt, options.cursor.id)
+    where.push(`(${sortExpr} ${compare} ?${index} OR (${sortExpr} = ?${index} AND o.id ${compare} ?${index + 1}))`)
+    params.push(options.cursor.key, options.cursor.id)
     index += 2
   }
   const limit = Math.min(CERTHUB_LIMITS.listPageMax, Math.max(1, options.limit))
   const { results } = await db.prepare(`SELECT ${ORDER_SELECT},
-      (SELECT d.name FROM development_certhub_order_domains d
-       WHERE d.user_id = o.user_id AND d.order_id = o.id AND d.is_primary = 1 LIMIT 1) AS primary_name,
+      ${primaryName} AS primary_name,
       (SELECT d.wildcard FROM development_certhub_order_domains d
        WHERE d.user_id = o.user_id AND d.order_id = o.id AND d.is_primary = 1 LIMIT 1) AS primary_wildcard,
       (SELECT COUNT(*) FROM development_certhub_order_domains d
        WHERE d.user_id = o.user_id AND d.order_id = o.id) AS domain_count
     FROM development_certhub_orders o
     WHERE ${where.join(' AND ')}
-    ORDER BY o.updated_at DESC, o.id DESC
+    ORDER BY ${sortExpr} ${direction}, o.id ${direction}
     LIMIT ?${index}`)
     .bind(...params, limit + 1)
     .all<OrderRow & { primary_name: string | null; primary_wildcard: number | null; domain_count: number }>()
   const rows = results.slice(0, limit)
   const last = rows[rows.length - 1]
+  const cursorKey = last
+    ? sort === 'updated'
+      ? last.updated_at
+      : sort === 'expires'
+        ? last.cert_not_after ?? 9e15
+        : last.primary_name ?? ''
+    : null
   return {
     items: rows.map(summaryFromRow),
-    nextCursor: results.length > limit && last ? encodeCursor(last.updated_at, last.id) : null,
+    nextCursor: results.length > limit && last && cursorKey !== null
+      ? encodeCursor(sort, cursorKey, last.id)
+      : null,
   }
 }
 

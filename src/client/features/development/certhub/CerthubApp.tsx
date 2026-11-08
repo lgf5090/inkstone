@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BadgeCheck, Download, FileKey2, Plus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react'
+import { BadgeCheck, CalendarClock, CircleAlert, CircleCheck, CircleHelp, Clock3, Download, FileKey2, History, Plus, RefreshCw, ShieldCheck, Trash2, type LucideIcon } from 'lucide-react'
 import { request } from '../../../lib/api'
-import { navigateToPath, usePathname } from '../../../lib/app-history'
+import { navigateToPath, replaceAddress, usePathname, useSearch } from '../../../lib/app-history'
+import { orderSortFromSearch } from '../../../../shared/development/certhub/sorting'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { useBreakpoint } from '../../../lib/hooks'
@@ -14,6 +15,10 @@ import { Modal, confirm, prompt } from '../../../components/overlay'
 import { Tabs } from '../../../components/tabs'
 import { CopyButton } from '../../../components/copy-button'
 import { TagPill } from '../../../components/TagChip'
+import { applyChallengeOptions, applyDomainErrorKey, dnsConnectionErrorKeys, dnsLabelErrorKey } from './rules'
+import { eventLabel, eventStyle, eventToneText } from './events'
+import { HelpButton } from './help'
+import { relativeTime } from '../../../lib/time'
 import type {
   CerthubAccountView,
   CerthubAction,
@@ -26,6 +31,7 @@ import type {
   CerthubOrderSummary,
   CerthubOrderView,
   CerthubOverview,
+  CerthubQuotaView,
   CerthubSettingsView,
   CerthubTokenView,
 } from '../../../../shared/development/certhub/types'
@@ -80,12 +86,12 @@ async function api<T>(path: string, options: Parameters<typeof request>[1] = {})
 
 type ModuleView = 'overview' | 'certificates' | 'detail' | 'apply' | 'accounts' | 'dns' | 'settings' | 'api' | 'admin'
 
-function viewForPath(pathname: string): { view: ModuleView; id: string } {
+export function viewForPath(pathname: string): { view: ModuleView; id: string } {
   const rest = pathname.replace(/^\/development\/certhub/, '')
   if (!rest || rest === '/') return { view: 'overview', id: '' }
   if (rest.startsWith('/certificates/')) return { view: 'detail', id: rest.slice('/certificates/'.length) }
   if (rest.startsWith('/certificates')) return { view: 'certificates', id: '' }
-  if (rest.startsWith('/new')) return { view: 'apply', id: '' }
+  if (rest.startsWith('/new') || rest.startsWith('/apply')) return { view: 'apply', id: '' }
   if (rest.startsWith('/accounts')) return { view: 'accounts', id: '' }
   if (rest.startsWith('/dns')) return { view: 'dns', id: '' }
   if (rest.startsWith('/settings')) return { view: 'settings', id: '' }
@@ -136,9 +142,12 @@ export function CerthubApp() {
           label={t('development.certhub.module_name')}
           className="max-w-full"
         />
-        <Button size="sm" icon={<Plus size={14} />} onClick={() => navigateToPath('/development/certhub/new')}>
-          {t('development.certhub.cert.new')}
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <HelpButton topic={view === 'detail' ? 'certificates' : view} />
+          <Button size="sm" icon={<Plus size={14} />} onClick={() => navigateToPath('/development/certhub/new')}>
+            {t('development.certhub.cert.new')}
+          </Button>
+        </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-5">
         {view === 'overview' ? <OverviewPage compact={compact} /> : null}
@@ -189,47 +198,115 @@ function OverviewPage({ compact }: { compact: boolean }) {
   if (!data && !error) return <LoadingBlock />
   if (error) return <Empty art="search" title={t('development.certhub.error.generic')} description={error} action={<Button onClick={load}>{t('common.retry')}</Button>} />
   const counts = (data?.counts ?? {}) as Record<string, number>
+  const quota = data?.quota
+  const certUsage = quotaRatio(quota?.activeCerts, quota?.maxActiveCerts)
+  const dailyUsage = quotaRatio(quota?.dailyUsed, quota?.dailyLimit)
   return (
-    <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-[1.4fr_1fr]')}>
-      <Panel title={t('development.certhub.overview.title')} subtitle={t('development.certhub.overview.subtitle')}>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-          {(['issued', 'awaiting_dns', 'failed', 'expired'] as CerthubOrderStatus[]).map((status) => (
-            <div key={status} className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2">
-              <div className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t(statusKey(status) as never)}</div>
-              <div className="mt-1 text-[length:var(--text-20)] font-semibold tabular text-[var(--text-primary)]">{counts[status] ?? 0}</div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 flex items-center justify-between rounded-[var(--r-md)] bg-[var(--bg-sunken)] px-3 py-2">
-          <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('development.certhub.overview.expiring')}</span>
-          <span className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{counts.expiringSoon ?? 0}</span>
-        </div>
-        <div className="mt-2 rounded-[var(--r-md)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
-          {t('development.certhub.apply.quota')}: {data?.quota.activeCerts ?? 0}/{data?.quota.maxActiveCerts ?? 0} · {data?.quota.dailyUsed ?? 0}/{data?.quota.dailyLimit ?? 0}
-        </div>
-      </Panel>
-      <Panel title={t('development.certhub.overview.recent')}>
-        {data?.recentOrders.length ? (
-          <div className="space-y-2">
-            {data.recentOrders.map((order) => (
-              <button key={order.id} type="button" onClick={() => navigateToPath(`/development/certhub/certificates/${order.id}`)} className="flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2 py-2 text-left hover:bg-[var(--bg-hover)]">
-                <span className="min-w-0 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{order.primaryDomain || order.id}</span>
-                <StatusBadge status={order.status} />
-              </button>
+    <div className="space-y-3">
+      <IntroCard />
+      <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]')}>
+      <div className="min-w-0 space-y-3">
+        <Panel title={t('development.certhub.overview.title')} subtitle={t('development.certhub.overview.subtitle')}>
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            {OVERVIEW_CARDS.map(({ status, icon: Icon, tone }) => (
+              <div key={status} className="min-w-0 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2">
+                <div className="flex min-w-0 items-center gap-1.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                  <Icon size={13} aria-hidden="true" className={cn('shrink-0', tone)} />
+                  <span className="truncate">{t(statusKey(status) as never)}</span>
+                </div>
+                <div className={cn('mt-1 text-[length:var(--text-20)] font-semibold tabular', tone)}>{counts[status] ?? 0}</div>
+              </div>
             ))}
           </div>
-        ) : (
-          <Empty art="starred" title={t('development.certhub.overview.empty')} description={t('development.certhub.cert.empty_hint')} compact />
-        )}
-      </Panel>
-      <Panel title={t('development.certhub.overview.recent')}>
-        {data?.recentEvents.length ? <EventList events={data.recentEvents} /> : <Empty art="search" title={t('development.certhub.detail.no_events')} compact />}
-      </Panel>
+          <div className="mt-3 flex items-center justify-between rounded-[var(--r-md)] bg-[var(--bg-sunken)] px-3 py-2">
+            <span className="flex items-center gap-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+              <CalendarClock size={13} aria-hidden="true" className={counts.expiringSoon ? 'text-[var(--warning)]' : 'text-[var(--text-quaternary)]'} />
+              {t('development.certhub.overview.expiring')}
+            </span>
+            <span className={cn('text-[length:var(--text-13)] font-semibold tabular', counts.expiringSoon ? 'text-[var(--warning)]' : 'text-[var(--text-primary)]')}>{counts.expiringSoon ?? 0}</span>
+          </div>
+          <div className="mt-2 space-y-1.5 rounded-[var(--r-md)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11-5)]">
+            <QuotaLine label={t('development.certhub.overview.quota_certs')} used={quota?.activeCerts ?? 0} limit={quota?.maxActiveCerts ?? 0} ratio={certUsage} />
+            <QuotaLine label={t('development.certhub.overview.quota_daily')} used={quota?.dailyUsed ?? 0} limit={quota?.dailyLimit ?? 0} ratio={dailyUsage} />
+          </div>
+        </Panel>
+        <Panel title={t('development.certhub.overview.recent_orders')}>
+          {data?.recentOrders.length ? (
+            <div className="space-y-2">
+              {data.recentOrders.map((order) => (
+                <button key={order.id} type="button" onClick={() => navigateToPath(`/development/certhub/certificates/${order.id}`)} className="flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2 py-2 text-left hover:bg-[var(--bg-hover)]">
+                  <span className="min-w-0 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{order.primaryDomain || order.id}</span>
+                  <StatusBadge status={order.status} />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <Empty art="notes" title={t('development.certhub.overview.empty')} description={t('development.certhub.overview.empty_hint')} action={<Button icon={<Plus size={14} />} onClick={() => navigateToPath('/development/certhub/new')}>{t('development.certhub.cert.new')}</Button>} />
+          )}
+        </Panel>
+      </div>
+      <div className="min-w-0">
+        <Panel title={t('development.certhub.overview.recent')}>
+          {data?.recentEvents.length ? <EventList events={data.recentEvents} /> : <Empty art="search" title={t('development.certhub.detail.no_events')} compact />}
+        </Panel>
+      </div>
+      </div>
+    </div>
+  )
+}
+
+const INTRO_DISMISSED_KEY = 'certhub.intro.dismissed'
+
+function IntroCard() {
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem(INTRO_DISMISSED_KEY) === '1' } catch { return false }
+  })
+  if (dismissed) return null
+  const dismiss = () => {
+    try { localStorage.setItem(INTRO_DISMISSED_KEY, '1') } catch {}
+    setDismissed(true)
+  }
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 rounded-[var(--r-xl)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3 md:p-4">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <CircleHelp size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--accent)]" />
+        <div className="min-w-0">
+          <p className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('development.certhub.intro.title')}</p>
+          <p className="mt-1 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">{t('development.certhub.intro.body')}</p>
+        </div>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        <Button size="sm" onClick={() => navigateToPath('/development/certhub/new')}>{t('development.certhub.intro.start')}</Button>
+        <Button size="sm" variant="ghost" onClick={dismiss}>{t('development.certhub.intro.skip')}</Button>
+      </div>
+    </div>
+  )
+}
+
+const OVERVIEW_CARDS: Array<{ status: CerthubOrderStatus; icon: LucideIcon; tone: string }> = [
+  { status: 'issued', icon: CircleCheck, tone: 'text-[var(--success)]' },
+  { status: 'awaiting_dns', icon: Clock3, tone: 'text-[var(--warning)]' },
+  { status: 'failed', icon: CircleAlert, tone: 'text-[var(--danger)]' },
+  { status: 'expired', icon: History, tone: 'text-[var(--warning)]' },
+]
+
+function quotaRatio(used = 0, limit = 0): number {
+  return limit > 0 ? used / limit : 0
+}
+
+function QuotaLine({ label, used, limit, ratio }: { label: string; used: number; limit: number; ratio: number }) {
+  const tone = ratio >= 1 ? 'text-[var(--danger)]' : ratio >= 0.8 ? 'text-[var(--warning)]' : 'text-[var(--text-tertiary)]'
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[var(--text-tertiary)]">{label}</span>
+      <span className={cn('font-medium tabular', tone)}>{t('development.certhub.overview.quota_value', { used, limit })}</span>
     </div>
   )
 }
 
 function CertificatesPage({ compact }: { compact: boolean }) {
+  const search = useSearch()
+  const sort = orderSortFromSearch(search)
   const [items, setItems] = useState<CerthubOrderSummary[]>([])
   const [next, setNext] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -239,7 +316,7 @@ function CertificatesPage({ compact }: { compact: boolean }) {
   const load = (cursor?: string) => {
     setLoading(true)
     setError(null)
-    const params = new URLSearchParams({ limit: '30' })
+    const params = new URLSearchParams({ limit: '30', sort })
     if (query.trim()) params.set('q', query.trim())
     if (status) params.set('status', status)
     if (cursor) params.set('cursor', cursor)
@@ -251,17 +328,23 @@ function CertificatesPage({ compact }: { compact: boolean }) {
       .catch((reason) => setError(String(reason?.message ?? reason)))
       .finally(() => setLoading(false))
   }
-  useEffect(() => { load() }, [status])
+  useEffect(() => { load() }, [status, sort])
   const statusOptions = useMemo(() => [
     { value: '', label: t('development.certhub.cert.all') },
     ...(['issued', 'awaiting_dns', 'awaiting_http', 'validating', 'failed', 'expired', 'revoked', 'canceled'] as CerthubOrderStatus[]).map((value) => ({ value, label: t(statusKey(value) as never) })),
   ], [])
+  const sortOptions = useMemo(() => ([
+    { value: 'updated', label: t('development.certhub.cert.sort.updated') },
+    { value: 'expires', label: t('development.certhub.cert.sort.expires') },
+    { value: 'name', label: t('development.certhub.cert.sort.name') },
+  ]), [])
   return (
     <Panel title={t('development.certhub.cert.title')} subtitle={t('development.certhub.cert.subtitle')}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('development.certhub.cert.search')} className="min-w-[200px] flex-1" />
         <Button onClick={() => load()} icon={<RefreshCw size={14} />}>{t('common.retry')}</Button>
         <SelectMenu label={t('development.certhub.cert.filter')} value={status} options={statusOptions} onChange={setStatus} size="sm" width={200} />
+        <SelectMenu label={t('development.certhub.cert.sort')} value={sort} options={sortOptions} onChange={(value) => replaceAddress('/development/certhub/certificates', `sort=${value}`)} size="sm" width={200} />
       </div>
       {loading && items.length === 0 ? <Skeleton className="h-40" /> : null}
       {error ? <Empty art="search" title={t('development.certhub.error.generic')} description={error} action={<Button onClick={() => load()}>{t('common.retry')}</Button>} /> : null}
@@ -384,11 +467,26 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
       <Panel title={t('development.certhub.detail.title')} subtitle={order.primaryDomain} actions={<StatusBadge status={order.status} />}>
         <div className="mb-3 flex flex-wrap gap-2">
           <Button size="sm" onClick={() => runAction('advance')} loading={busy} icon={<RefreshCw size={14} />}>{t('development.certhub.detail.verify')}</Button>
+          <Button size="sm" variant="ghost" onClick={load} icon={<RefreshCw size={14} />}>{t('development.certhub.detail.refresh')}</Button>
+          {['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating', 'ready', 'finalizing'].includes(order.status) ? <Button size="sm" variant="ghost" onClick={() => runAction('regenerate')}>{t('development.certhub.detail.regenerate')}</Button> : null}
+          {['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating', 'ready', 'finalizing'].includes(order.status) ? <Button size="sm" variant="ghost" onClick={async () => { if (await typedConfirm(t('development.certhub.detail.confirm_cancel'), order.id)) runAction('cancel') }}>{t('development.certhub.detail.cancel')}</Button> : null}
+          <CopyButton text={order.id} label={t('development.certhub.detail.copy_id')} />
           {order.status === 'issued' || order.status === 'expired' ? <Button size="sm" onClick={() => runAction('renew')}>{t('development.certhub.detail.renew')}</Button> : null}
           {order.status === 'issued' || order.status === 'expired' ? <Button size="sm" variant="danger" onClick={async () => { if (await typedConfirm(t('development.certhub.detail.confirm_revoke'), order.id)) runAction('revoke') }}>{t('development.certhub.detail.revoke')}</Button> : null}
           {order.hasPrivateKey ? <Button size="sm" variant="ghost" onClick={async () => { if (await typedConfirm(t('development.certhub.detail.confirm_purge'), order.id)) runAction('purge_key') }}>{t('development.certhub.detail.purge')}</Button> : null}
           {['failed', 'canceled', 'revoked', 'expired'].includes(order.status) ? <Button size="sm" variant="ghost" onClick={async () => { if (await typedConfirm(t('development.certhub.detail.confirm_delete'), order.id)) runAction('delete', { confirm: order.id }) }}>{t('development.certhub.detail.delete')}</Button> : null}
         </div>
+        {order.status === 'failed' ? (
+          <div className="mb-3 rounded-[var(--r-md)] border border-[var(--danger)] bg-[color-mix(in_oklab,var(--danger)_10%,transparent)] p-3">
+            <div className="flex items-center gap-1.5 text-[var(--danger)]">
+              <CircleAlert size={14} aria-hidden="true" />
+              <span className="text-[length:var(--text-12-5)] font-medium">{t('development.certhub.failure.title')}</span>
+            </div>
+            {order.failureMessage ? <p className="mt-1 break-words text-[length:var(--text-12)] text-[var(--text-secondary)]">{order.failureMessage}</p> : null}
+            <p className="mt-1 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">{failureHint(order.failureCode)}</p>
+            <div className="mt-2"><Button size="sm" onClick={() => navigateToPath('/development/certhub/new')}>{t('development.certhub.failure.retry')}</Button></div>
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-2 text-[length:var(--text-12)]">
           <Info label={t('development.certhub.apply.ca')} value={order.ca} />
           <Info label={t('development.certhub.apply.algorithm')} value={order.keyAlgorithm} />
@@ -423,7 +521,7 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
         </div>
       </Panel>
       <Panel title={t('development.certhub.detail.events')}>
-        {events.length ? <EventList events={events} /> : <Empty art="search" title={t('development.certhub.detail.no_events')} compact />}
+        {events.length ? <EventList events={events} subject={order.primaryDomain} /> : <Empty art="search" title={t('development.certhub.detail.no_events')} compact />}
       </Panel>
       <Modal open={Boolean(pfxPassword)} onClose={() => setPfxPassword('')} title={t('development.certhub.detail.pfx')} width={420}>
         <div className="space-y-2 text-[length:var(--text-12)]">
@@ -440,23 +538,73 @@ function Info({ label, value }: { label: string; value: string }) {
   return <div className="rounded-[var(--r-md)] bg-[var(--bg-sunken)] p-2"><div className="text-[var(--text-quaternary)]">{label}</div><div className="mt-1 break-all text-[var(--text-primary)]">{value}</div></div>
 }
 
-function EventList({ events }: { events: CerthubEventView[] }) {
+export function EventList({ events, subject }: { events: CerthubEventView[]; subject?: string }) {
   return (
-    <ol className="space-y-2">
-      {events.map((event) => (
-        <li key={event.id} className="rounded-[var(--r-md)] bg-[var(--bg-sunken)] p-2 text-[length:var(--text-11-5)]">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium text-[var(--text-secondary)]">{event.kind}</span>
-            <span className="text-[var(--text-quaternary)]">{formatDate(event.createdAt)}</span>
-          </div>
-          <div className="mt-0.5 text-[var(--text-tertiary)]">{event.messageCode}</div>
-        </li>
-      ))}
+    <ol className="space-y-1.5">
+      {events.map((event) => {
+        const style = eventStyle(event.kind)
+        const Icon = style.icon
+        const name = eventSubject(event, subject)
+        return (
+          <li key={event.id} className="rounded-[var(--r-md)] bg-[var(--bg-sunken)] p-2 text-[length:var(--text-11-5)]">
+            <div className="flex items-center gap-2">
+              <Icon size={13} aria-hidden="true" className={cn('shrink-0', eventToneText(style.tone))} />
+              <span className="min-w-0 flex-1 truncate font-medium text-[var(--text-secondary)]">{eventLabel(event.kind)}</span>
+              <time dateTime={new Date(event.createdAt).toISOString()} title={formatDate(event.createdAt)} className="shrink-0 text-[var(--text-quaternary)]">{relativeTime(event.createdAt)}</time>
+            </div>
+            {name ? <div className="mt-0.5 truncate pl-[21px] text-[var(--text-tertiary)]">{name}</div> : null}
+          </li>
+        )
+      })}
     </ol>
   )
 }
 
+function eventSubject(event: CerthubEventView, fallback?: string): string {
+  const detail = event.detail ?? {}
+  const candidate = [detail['name'], detail['domain'], detail['fqdn'], fallback]
+    .find((value) => typeof value === 'string' && value.trim())
+  if (typeof candidate !== 'string') return ''
+  const value = candidate.trim()
+  // An event row can outlive the order it describes; a raw identifier is worse than nothing.
+  return value === event.orderId || value === event.id ? '' : value
+}
+
+function failureHint(code: string | null): string {
+  const key = `development.certhub.failure.${code ?? 'unknown'}`
+  const text = t(key as never)
+  return text === key ? t('development.certhub.failure.unknown' as never) : text
+}
+
 interface DomainForm { id: string; name: string; wildcard: boolean; primary: boolean; challengeMode: 'dns-01' | 'http-01'; dnsProviderId: string }
+
+/**
+ * One domain line of the request form. The label lives on the `Checkbox` itself: an earlier version
+ * wrapped the control in a `<label>` that also printed the same string, so every checkbox read twice.
+ */
+export function ApplyDomainRow({ row, providers, onChange, onPrimary, onRemove }: {
+  row: DomainForm
+  providers: CerthubDnsProviderView[]
+  onChange: (patch: Partial<DomainForm>) => void
+  onPrimary: (next: boolean) => void
+  onRemove?: () => void
+}) {
+  return (
+    <div className="space-y-2 rounded-[var(--r-lg)] border border-[var(--border-subtle)] p-2">
+      <div className="flex items-center gap-2">
+        <Input value={row.name} onChange={(event) => onChange({ name: event.target.value })} placeholder={t('development.certhub.apply.domain_placeholder')} aria-label={t('development.certhub.cert.domain')} />
+        {onRemove ? <Button size="sm" variant="ghost" aria-label={t('development.certhub.apply.remove_domain')} onClick={onRemove} icon={<Trash2 size={14} />} /> : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <Checkbox checked={row.wildcard} onChange={(next) => onChange({ wildcard: next, ...(next ? { challengeMode: 'dns-01' as const } : {}) })} label={t('development.certhub.apply.wildcard')} />
+        <Checkbox checked={row.primary} onChange={onPrimary} label={t('development.certhub.apply.primary')} />
+        <SelectMenu label={t('development.certhub.apply.challenge')} value={row.challengeMode} options={applyChallengeOptions(row.wildcard).map((option) => ({ value: option.value, label: t(option.labelKey as never), disabled: option.disabled }))} onChange={(value) => onChange({ challengeMode: value })} size="sm" width={200} />
+        {row.challengeMode === 'dns-01' ? <SelectMenu label={t('development.certhub.apply.provider')} value={row.dnsProviderId} options={[{ value: '', label: t('development.certhub.apply.provider_none') }, ...providers.map((provider) => ({ value: provider.id, label: provider.label }))]} onChange={(value) => onChange({ dnsProviderId: value })} size="sm" width={200} /> : null}
+      </div>
+      {row.wildcard ? <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('development.certhub.apply.wildcard_dns_only')}</p> : null}
+    </div>
+  )
+}
 
 function ApplyPage({ compact }: { compact: boolean }) {
   const [domains, setDomains] = useState<DomainForm[]>([{ id: crypto.randomUUID(), name: '', wildcard: false, primary: true, challengeMode: 'dns-01', dnsProviderId: '' }])
@@ -466,10 +614,14 @@ function ApplyPage({ compact }: { compact: boolean }) {
   const [providers, setProviders] = useState<CerthubDnsProviderView[]>([])
   const [subject, setSubject] = useState({ country: '', state: '', locality: '', organization: '', organizationUnit: '' })
   const [busy, setBusy] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [quota, setQuota] = useState<CerthubQuotaView | null>(null)
   const [captcha, setCaptcha] = useState({ enabled: false, siteKey: '' })
   const [captchaToken, setCaptchaToken] = useState('')
   const captchaRef = useRef<HTMLDivElement>(null)
   useEffect(() => { api<{ items: CerthubDnsProviderView[] }>('/dns-providers').then((data) => setProviders(data.items)).catch(() => setProviders([])) }, [])
+  useEffect(() => { api<CerthubOverview>('/overview').then((data) => setQuota(data.quota)).catch(() => setQuota(null)) }, [])
+  const quotaReached = Boolean(quota && ((quota.maxActiveCerts > 0 && quota.activeCerts >= quota.maxActiveCerts) || (quota.dailyLimit > 0 && quota.dailyUsed >= quota.dailyLimit)))
   useEffect(() => {
     api<{ captcha: { enabled: boolean; siteKey: string } }>('/health')
       .then((data) => setCaptcha(data.captcha))
@@ -497,6 +649,19 @@ function ApplyPage({ compact }: { compact: boolean }) {
   }, [captcha.enabled, captcha.siteKey])
   const update = (id: string, patch: Partial<DomainForm>) => setDomains((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row))
   const submit = async () => {
+    // Reject a bad domain here rather than travelling to the server for the same answer: the server still
+    // validates (a crafted request must not get past it), this is only the first gate.
+    const rows = domains.filter((row) => row.name.trim())
+    const errorKey = applyDomainErrorKey(rows)
+    if (errorKey) {
+      setFormError(errorKey)
+      return
+    }
+    setFormError(null)
+    if (quotaReached) {
+      setFormError('development.certhub.apply.quota_reached')
+      return
+    }
     if (captcha.enabled && !captchaToken) {
       toastError(new Error(t('development.certhub.apply.captcha_hint')))
       return
@@ -507,7 +672,7 @@ function ApplyPage({ compact }: { compact: boolean }) {
         method: 'POST',
         idempotencyKey: crypto.randomUUID(),
         body: {
-          domains: domains.filter((row) => row.name.trim()).map((row) => ({ name: row.name, wildcard: row.wildcard, primary: row.primary, challengeMode: row.challengeMode, dnsProviderId: row.dnsProviderId || undefined })),
+          domains: rows.map((row) => ({ name: row.name, wildcard: row.wildcard, primary: row.primary, challengeMode: row.challengeMode, dnsProviderId: row.dnsProviderId || undefined })),
           ca,
           keyAlgorithm: algorithm,
           autoRenew,
@@ -530,26 +695,26 @@ function ApplyPage({ compact }: { compact: boolean }) {
   }
   return (
     <Panel title={t('development.certhub.apply.title')} subtitle={t('development.certhub.apply.step_review')}>
-      <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-2')}>
-        <div className="space-y-3">
+      <div className={cn('grid grid-cols-1 gap-3', !compact && 'xl:grid-cols-2')}>
+        <div className="min-w-0 space-y-3">
           <SectionLabel>{t('development.certhub.apply.step_domains')}</SectionLabel>
           {domains.map((row) => (
-            <div key={row.id} className="space-y-2 rounded-[var(--r-lg)] border border-[var(--border-subtle)] p-2">
-              <Input value={row.name} onChange={(event) => update(row.id, { name: event.target.value })} placeholder={t('development.certhub.apply.domain_placeholder')} aria-label={t('development.certhub.cert.domain')} />
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="flex items-center gap-1.5 text-[length:var(--text-11-5)]"><Checkbox checked={row.wildcard} onChange={(next) => update(row.id, { wildcard: next, ...(next ? { challengeMode: 'dns-01' as const } : {}) })} label={t('development.certhub.apply.wildcard')} />{t('development.certhub.apply.wildcard')}</label>
-                <label className="flex items-center gap-1.5 text-[length:var(--text-11-5)]"><Checkbox checked={row.primary} onChange={(next) => setDomains((current) => current.map((entry) => ({ ...entry, primary: entry.id === row.id ? next : false })))} label={t('development.certhub.apply.primary')} />{t('development.certhub.apply.primary')}</label>
-                <SelectMenu label={t('development.certhub.apply.challenge')} value={row.challengeMode} options={[{ value: 'dns-01', label: t('development.certhub.apply.dns_manual') }, { value: 'http-01', label: t('development.certhub.apply.http_manual') }]} onChange={(value) => update(row.id, { challengeMode: value })} size="sm" width={200} />
-                {row.challengeMode === 'dns-01' ? <SelectMenu label={t('development.certhub.apply.provider')} value={row.dnsProviderId} options={[{ value: '', label: t('development.certhub.apply.provider_none') }, ...providers.map((provider) => ({ value: provider.id, label: provider.label }))]} onChange={(value) => update(row.id, { dnsProviderId: value })} size="sm" width={200} /> : null}
-              </div>
-            </div>
+            <ApplyDomainRow
+              key={row.id}
+              row={row}
+              providers={providers}
+              onChange={(patch) => update(row.id, patch)}
+              onPrimary={(next) => setDomains((current) => current.map((entry) => ({ ...entry, primary: entry.id === row.id ? next : false })))}
+              {...(domains.length > 1 ? { onRemove: () => setDomains((current) => current.filter((entry) => entry.id !== row.id)) } : {})}
+            />
           ))}
           <Button size="sm" icon={<Plus size={14} />} onClick={() => setDomains((current) => [...current, { id: crypto.randomUUID(), name: '', wildcard: false, primary: false, challengeMode: 'dns-01', dnsProviderId: '' }])}>{t('development.certhub.apply.add_domain')}</Button>
+          {formError ? <p role="alert" className="text-[length:var(--text-11-5)] text-[var(--danger)]">{t(formError as never)}</p> : null}
         </div>
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <SectionLabel>{t('development.certhub.apply.step_settings')}</SectionLabel>
-          <Field label={t('development.certhub.apply.ca')}><SelectMenu label={t('development.certhub.apply.ca')} value={ca} options={CA_OPTIONS.filter((option) => !option.disabled)} onChange={setCa} /></Field>
-          <Field label={t('development.certhub.apply.algorithm')}><SelectMenu label={t('development.certhub.apply.algorithm')} value={algorithm} options={ALGORITHM_OPTIONS} onChange={setAlgorithm} /></Field>
+          <Field label={t('development.certhub.apply.ca')} hint={t('development.certhub.apply.ca_hint')}><SelectMenu label={t('development.certhub.apply.ca')} value={ca} options={CA_OPTIONS.filter((option) => !option.disabled)} onChange={setCa} /></Field>
+          <Field label={t('development.certhub.apply.algorithm')} hint={t('development.certhub.apply.algorithm_hint')}><SelectMenu label={t('development.certhub.apply.algorithm')} value={algorithm} options={ALGORITHM_OPTIONS} onChange={setAlgorithm} /></Field>
           <div className="flex items-center justify-between gap-2"><span className="text-[length:var(--text-12)]">{t('development.certhub.apply.auto_renew')}</span><Switch checked={autoRenew} onChange={setAutoRenew} label={t('development.certhub.apply.auto_renew')} /></div>
           <SectionLabel>{t('development.certhub.apply.subject')}</SectionLabel>
           <div className="grid grid-cols-2 gap-2">
@@ -557,7 +722,9 @@ function ApplyPage({ compact }: { compact: boolean }) {
             <Input value={subject.state} onChange={(event) => setSubject({ ...subject, state: event.target.value })} aria-label={t('development.certhub.apply.subject_state')} placeholder={t('development.certhub.apply.subject_state')} />
             <Input value={subject.locality} onChange={(event) => setSubject({ ...subject, locality: event.target.value })} aria-label={t('development.certhub.apply.subject_locality')} placeholder={t('development.certhub.apply.subject_locality')} />
             <Input value={subject.organization} onChange={(event) => setSubject({ ...subject, organization: event.target.value })} aria-label={t('development.certhub.apply.subject_organization')} placeholder={t('development.certhub.apply.subject_organization')} />
+            <Input value={subject.organizationUnit} onChange={(event) => setSubject({ ...subject, organizationUnit: event.target.value })} aria-label={t('development.certhub.apply.subject_organization_unit')} placeholder={t('development.certhub.apply.subject_organization_unit')} />
           </div>
+          {quota ? <p className={cn('text-[length:var(--text-11-5)]', quotaReached ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]')}>{t('development.certhub.apply.quota_line', { certsUsed: quota.activeCerts, certsLimit: quota.maxActiveCerts, dailyUsed: quota.dailyUsed, dailyLimit: quota.dailyLimit })}</p> : null}
           {captcha.enabled ? <div ref={captchaRef} className="min-h-[65px]" /> : null}
           <Button variant="primary" onClick={submit} loading={busy}>{t('development.certhub.apply.submit')}</Button>
         </div>
@@ -607,16 +774,44 @@ function DnsPage({ compact }: { compact: boolean }) {
   const [items, setItems] = useState<CerthubDnsProviderView[]>([])
   const [kind, setKind] = useState<'cloudflare' | 'dcv-delegate'>('cloudflare')
   const [form, setForm] = useState({ label: '', zoneId: '', zoneName: '', email: '', token: '' })
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const [testing, setTesting] = useState(false)
   const load = () => api<{ items: CerthubDnsProviderView[] }>('/dns-providers').then((data) => setItems(data.items)).catch(toastError)
   useEffect(() => { void load() }, [])
+  const connectionErrors = (): Record<string, string> => {
+    const next = dnsConnectionErrorKeys(kind, form.zoneId, form.token) as Record<string, string>
+    for (const [field, key] of Object.entries(next)) next[field] = t(key as never)
+    return next
+  }
   const create = async () => {
+    const next: Record<string, string> = { ...connectionErrors() }
+    const labelKey = dnsLabelErrorKey(form.label)
+    if (labelKey) next.label = t(labelKey as never)
+    setErrors(next)
+    if (Object.keys(next).length > 0) return
     setBusy(true)
     try {
       await api('/dns-providers', { method: 'POST', body: { kind, label: form.label, zoneId: form.zoneId || '', zoneName: form.zoneName || '', accountEmail: form.email || '', secret: form.token || '' } })
       setForm({ label: '', zoneId: '', zoneName: '', email: '', token: '' })
       load()
     } catch (reason) { toastError(reason) } finally { setBusy(false) }
+  }
+  const testForm = async () => {
+    const next = connectionErrors()
+    setErrors(next)
+    if (Object.keys(next).length > 0) return
+    setTesting(true)
+    try {
+      const result = await api<{ ok: boolean; degraded?: boolean }>('/dns-providers/test', {
+        method: 'POST',
+        body: { kind, label: form.label || 'test', zoneId: form.zoneId || '', zoneName: form.zoneName || '', accountEmail: form.email || '', secret: form.token || '' },
+      })
+      useUi.getState().toast({
+        title: result.degraded ? t('development.certhub.dns.test_degraded') : t('development.certhub.dns.test_ok'),
+        tone: result.degraded ? 'warning' : 'success',
+      })
+    } catch (reason) { toastError(reason) } finally { setTesting(false) }
   }
   const remove = async (provider: CerthubDnsProviderView) => {
     const value = await prompt({ title: t('development.certhub.dns.delete'), description: t('development.certhub.dns.confirm'), placeholder: provider.label, confirmLabel: t('common.delete') })
@@ -625,9 +820,9 @@ function DnsPage({ compact }: { compact: boolean }) {
   }
   const test = async (id: string) => { try { await api(`/dns-providers/${id}/test`, { method: 'POST' }); load() } catch (reason) { toastError(reason) } }
   return (
-    <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-[1fr_1fr]')}>
+    <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)]')}>
       <Panel title={t('development.certhub.dns.title')}>
-        {items.length === 0 ? <Empty art="starred" title={t('development.certhub.dns.empty')} compact /> : (
+        {items.length === 0 ? <Empty art="starred" title={t('development.certhub.dns.empty')} description={t('development.certhub.dns.empty_hint')} compact /> : (
           <div className="space-y-2">
             {items.map((provider) => (
               <div key={provider.id} className="rounded-[var(--r-md)] bg-[var(--bg-sunken)] p-3">
@@ -641,17 +836,30 @@ function DnsPage({ compact }: { compact: boolean }) {
       </Panel>
       <Panel title={t('development.certhub.dns.add')}>
         <div className="space-y-2">
-          <Field label={t('development.certhub.dns.kind')}><SelectMenu label={t('development.certhub.dns.kind')} value={kind} options={[{ value: 'cloudflare', label: t('development.certhub.dns.cloudflare') }, { value: 'dcv-delegate', label: t('development.certhub.dns.dcv') }]} onChange={setKind} /></Field>
-          <Field label={t('development.certhub.dns.label')}><Input value={form.label} onChange={(event) => setForm({ ...form, label: event.target.value })} /></Field>
+          <Field label={t('development.certhub.dns.kind')}><SelectMenu label={t('development.certhub.dns.kind')} value={kind} options={[{ value: 'cloudflare', label: t('development.certhub.dns.cloudflare') }, { value: 'dcv-delegate', label: t('development.certhub.dns.dcv') }]} onChange={(value) => { setKind(value); setErrors({}) }} /></Field>
+          <FormField error={errors.label} label={t('development.certhub.dns.label')}><Input value={form.label} onChange={(event) => setForm({ ...form, label: event.target.value })} /></FormField>
           {kind === 'cloudflare' ? <>
-            <Field label={t('development.certhub.dns.zone_id')}><Input value={form.zoneId} onChange={(event) => setForm({ ...form, zoneId: event.target.value })} /></Field>
-            <Field label={t('development.certhub.dns.zone_name')}><Input value={form.zoneName} onChange={(event) => setForm({ ...form, zoneName: event.target.value })} /></Field>
-            <Field label={t('development.certhub.dns.email')}><Input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></Field>
-            <Field label={t('development.certhub.dns.token')}><Textarea value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value })} rows={3} /></Field>
-          </> : null}
-          <Button variant="primary" onClick={create} loading={busy}>{t('development.certhub.dns.add')}</Button>
+            <FormField error={errors.zoneId} label={t('development.certhub.dns.zone_id')} hint={t('development.certhub.dns.zone_id_hint')}><Input value={form.zoneId} onChange={(event) => setForm({ ...form, zoneId: event.target.value })} /></FormField>
+            <FormField label={t('development.certhub.dns.zone_name')}><Input value={form.zoneName} onChange={(event) => setForm({ ...form, zoneName: event.target.value })} /></FormField>
+            <FormField label={t('development.certhub.dns.email')}><Input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></FormField>
+            <FormField error={errors.token} label={t('development.certhub.dns.token')} hint={t('development.certhub.dns.token_hint')}><Textarea value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value })} rows={3} /></FormField>
+            {!form.token.trim() ? <p className="text-[length:var(--text-11-5)] text-[var(--warning)]">{t('development.certhub.dns.manual_only')}</p> : null}
+          </> : <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('development.certhub.dns.dcv_hint')}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={testForm} loading={testing} icon={<RefreshCw size={14} />}>{t('development.certhub.dns.test_connection')}</Button>
+            <Button variant="primary" onClick={create} loading={busy}>{t('development.certhub.dns.add')}</Button>
+          </div>
         </div>
       </Panel>
+    </div>
+  )
+}
+
+function FormField({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <Field label={label} hint={hint}>{children}</Field>
+      {error ? <p role="alert" className="text-[length:var(--text-11)] text-[var(--danger)]">{error}</p> : null}
     </div>
   )
 }
@@ -682,6 +890,13 @@ function SettingsPage({ compact }: { compact: boolean }) {
     } catch (reason) { toastError(reason) }
   }
   const revoke = async (id: string) => { if (await confirm({ title: t('development.certhub.settings.token_revoke'), tone: 'danger' })) { await api(`/tokens/${id}`, { method: 'DELETE' }).then(load).catch(toastError) } }
+  const rotateToken = async (id: string) => {
+    try {
+      const result = await api<{ token: string }>(`/tokens/${id}/rotate`, { method: 'POST' })
+      setRevealed(result.token)
+      load()
+    } catch (reason) { toastError(reason) }
+  }
   return (
     <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-[1.4fr_1fr]')}>
       <Panel title={t('development.certhub.settings.title')} actions={<Button onClick={save} loading={busy}>{t('development.certhub.settings.save')}</Button>}>
@@ -704,12 +919,11 @@ function SettingsPage({ compact }: { compact: boolean }) {
       <Panel title={t('development.certhub.settings.tokens')}>
         <div className="mb-2 flex gap-2"><Input value={tokenName} onChange={(event) => setTokenName(event.target.value)} placeholder={t('development.certhub.settings.token_name')} /><Button onClick={createToken}>{t('development.certhub.settings.token_create')}</Button></div>
         {revealed ? <div className="mb-2 rounded-[var(--r-md)] bg-[var(--accent-soft)] p-2 text-[length:var(--text-11-5)] text-[var(--accent-on-soft)]"><div>{t('development.certhub.settings.token_reveal')}</div><code className="break-all">{revealed}</code><CopyButton text={revealed} label={t('common.copy')} /></div> : null}
-        {tokens.length ? tokens.map((token) => (
-          <div key={token.id} className="flex items-center justify-between gap-2 rounded-[var(--r-md)] bg-[var(--bg-sunken)] p-2 text-[length:var(--text-11-5)]">
-            <span className="min-w-0 truncate">{token.name} · {token.prefix}…</span>
-            <Button size="sm" variant="ghost" onClick={() => revoke(token.id)}>{t('development.certhub.settings.token_revoke')}</Button>
+        {tokens.length ? (
+          <div className="space-y-2">
+            {tokens.map((token) => <TokenRow key={token.id} token={token} onRevoke={revoke} onRotate={rotateToken} />)}
           </div>
-        )) : <Empty art="starred" title={t('development.certhub.dns.empty')} compact />}
+        ) : <Empty art="starred" title={t('development.certhub.settings.tokens_empty')} compact />}
       </Panel>
     </div>
   )
@@ -717,6 +931,31 @@ function SettingsPage({ compact }: { compact: boolean }) {
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return <div className="flex items-center justify-between gap-2 text-[length:var(--text-12)]"><span>{label}</span><Switch checked={checked} onChange={onChange} label={label} /></div>
+}
+
+export function TokenRow({ token, onRevoke, onRotate }: { token: CerthubTokenView; onRevoke: (id: string) => void; onRotate?: (id: string) => void }) {
+  const revoked = token.revokedAt !== null
+  return (
+    <div className={cn('rounded-[var(--r-md)] bg-[var(--bg-sunken)] p-2 text-[length:var(--text-11-5)]', revoked && 'opacity-60')}>
+      <div className="flex items-center justify-between gap-2">
+        <span className={cn('min-w-0 truncate', revoked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]')}>{token.name} · {token.prefix}…</span>
+        {revoked
+          ? <span className="shrink-0 text-[var(--text-quaternary)]">{t('development.certhub.settings.token_revoked_at', { time: formatDate(token.revokedAt) })}</span>
+          : (
+            <div className="flex shrink-0 items-center gap-1">
+              {onRotate ? <Button size="sm" variant="ghost" onClick={() => onRotate(token.id)}>{t('development.certhub.settings.token_rotate')}</Button> : null}
+              <Button size="sm" variant="ghost" onClick={() => onRevoke(token.id)}>{t('development.certhub.settings.token_revoke')}</Button>
+            </div>
+          )}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        {token.scopes.map((scope) => (
+          <span key={scope} className="rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[var(--text-quaternary)]">{t(`development.certhub.scope.${scope.replace('-', '_')}` as never)}</span>
+        ))}
+        {token.expiresAt ? <span className="text-[var(--text-quaternary)]">· {t('development.certhub.settings.token_expires', { time: formatDate(token.expiresAt) })}</span> : null}
+      </div>
+    </div>
+  )
 }
 
 function ApiPage() {

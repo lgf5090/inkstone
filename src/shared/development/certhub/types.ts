@@ -43,6 +43,9 @@ export type CerthubAction = (typeof CERTHUB_ACTIONS)[number]
 export const CERTHUB_TOKEN_SCOPES = ['read', 'issue', 'revoke', 'read-key'] as const
 export type CerthubTokenScope = (typeof CERTHUB_TOKEN_SCOPES)[number]
 
+export const CERTHUB_ORDER_SORTS = ['updated', 'expires', 'name'] as const
+export type CerthubOrderSort = (typeof CERTHUB_ORDER_SORTS)[number]
+
 export type CerthubActor = 'user' | 'api' | 'system' | 'owner'
 export type CerthubEventLevel = 'info' | 'warn' | 'error'
 export type CerthubDnsProviderKind = 'cloudflare' | 'dcv-delegate'

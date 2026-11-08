@@ -39,7 +39,7 @@ export function errorResponse(c: Context, err: unknown): Response {
       err.status,
     )
   }
-  console.error('[inkstone] Unhandled error:', err)
+  console.error('[inkstone] Unhandled error:', c.req.method, c.req.path, err)
 
   return c.json({ error: { code: 'internal', message: "Internal server error" } }, 500)
 }
