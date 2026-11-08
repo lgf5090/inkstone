@@ -239,15 +239,21 @@ export async function bootstrap(db: D1Database, userId: string, isOwner = false)
 }
 
 export async function countsFor(db: D1Database, userId: string, _shard: string): Promise<IconCounts> {
-  // The smart-view rows reuse `countAssets`, which is the grid's own predicate; the facet groups reuse
-  // the same CASE expressions the facet filters are built from. A number can therefore never describe a
-  // different set of icons than the list it opens.
-  const [all, favorites, pinned, recent, uncategorized, collections, tags, formats, colorModes, styles] = await Promise.all([
-    countAssets(db, userId, {}),
-    countAssets(db, userId, { state: 'favorites' }),
-    countAssets(db, userId, { state: 'pinned' }),
-    countAssets(db, userId, { state: 'recent' }),
-    countAssets(db, userId, { state: 'uncategorized' }),
+  // The smart-view rows are five conditional sums over one scan of the user's assets, with exactly the
+  // predicates the grid uses (favorites/pinned state, the 30-day recent window, a null collection).
+  // Counting them with five separate queries made every bootstrap scan the whole library five times.
+  const cutoff = Date.now() - ICON_RECENT_DAYS * 24 * 60 * 60 * 1000
+  const [smart, collections, tags, formats, colorModes, styles] = await Promise.all([
+    db.prepare(
+      `SELECT COUNT(*) AS all_rows,
+              SUM(CASE WHEN COALESCE(s.favorited, 0) = 1 THEN 1 ELSE 0 END) AS favorites,
+              SUM(CASE WHEN COALESCE(s.pinned, 0) = 1 THEN 1 ELSE 0 END) AS pinned,
+              SUM(CASE WHEN s.last_used_at >= ?2 THEN 1 ELSE 0 END) AS recent,
+              SUM(CASE WHEN a.collection_id IS NULL THEN 1 ELSE 0 END) AS uncategorized
+         FROM development_icons_assets a
+         LEFT JOIN development_icons_user_state s ON s.user_id = a.user_id AND s.asset_id = a.id
+        WHERE a.user_id = ?1`,
+    ).bind(userId, cutoff).first<{ all_rows: number; favorites: number; pinned: number; recent: number; uncategorized: number }>(),
     db.prepare(
       `SELECT collection_id AS id, COUNT(*) AS n FROM development_icons_assets
         WHERE user_id = ?1 AND collection_id IS NOT NULL GROUP BY collection_id`,
@@ -271,11 +277,11 @@ export async function countsFor(db: D1Database, userId: string, _shard: string):
     ).bind(userId).all<{ style_key: string; n: number }>(),
   ])
   return {
-    all,
-    favorites,
-    pinned,
-    recent,
-    uncategorized,
+    all: number(smart?.all_rows),
+    favorites: number(smart?.favorites),
+    pinned: number(smart?.pinned),
+    recent: number(smart?.recent),
+    uncategorized: number(smart?.uncategorized),
     collections: Object.fromEntries((collections.results ?? []).map((row) => [row.id, row.n])),
     tags: Object.fromEntries((tags.results ?? []).map((row) => [row.id, row.n])),
     formats: Object.fromEntries((formats.results ?? []).map((row) => [row.id, row.n])),
