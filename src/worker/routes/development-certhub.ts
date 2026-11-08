@@ -92,6 +92,10 @@ developmentCerthubRoutes.get('/health', async (c) => {
       r2: Boolean(c.env.FILES),
       enabledCas: config.enabledCas,
       staging: c.env.CERTHUB_ALLOW_STAGING === '1',
+      captcha: {
+        enabled: Boolean(c.env.CERTHUB_TURNSTILE_SECRET),
+        siteKey: c.env.CERTHUB_TURNSTILE_SITE_KEY ?? '',
+      },
     },
   })
 })

@@ -64,6 +64,7 @@ export const ZH_CN_DEVELOPMENT_CERTHUB = {
   "development.certhub.apply.subject_locality": "城市",
   "development.certhub.apply.subject_organization": "组织",
   "development.certhub.apply.submit": "提交申请",
+  "development.certhub.apply.captcha_hint": "请先完成人机验证",
   "development.certhub.apply.quota": "配额",
   "development.certhub.apply.provider": "DNS 供应商",
   "development.certhub.apply.provider_none": "不使用（手动）",

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BadgeCheck, Download, FileKey2, Plus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react'
 import { request } from '../../../lib/api'
 import { navigateToPath, usePathname } from '../../../lib/app-history'
@@ -466,9 +466,41 @@ function ApplyPage({ compact }: { compact: boolean }) {
   const [providers, setProviders] = useState<CerthubDnsProviderView[]>([])
   const [subject, setSubject] = useState({ country: '', state: '', locality: '', organization: '', organizationUnit: '' })
   const [busy, setBusy] = useState(false)
+  const [captcha, setCaptcha] = useState({ enabled: false, siteKey: '' })
+  const [captchaToken, setCaptchaToken] = useState('')
+  const captchaRef = useRef<HTMLDivElement>(null)
   useEffect(() => { api<{ items: CerthubDnsProviderView[] }>('/dns-providers').then((data) => setProviders(data.items)).catch(() => setProviders([])) }, [])
+  useEffect(() => {
+    api<{ captcha: { enabled: boolean; siteKey: string } }>('/health')
+      .then((data) => setCaptcha(data.captcha))
+      .catch(() => setCaptcha({ enabled: false, siteKey: '' }))
+  }, [])
+  useEffect(() => {
+    if (!captcha.enabled || !captcha.siteKey || !captchaRef.current) return
+    const scope = window as unknown as { turnstile?: { render: (element: HTMLElement, options: Record<string, unknown>) => string; remove: (id: string) => void } }
+    let widgetId = ''
+    const render = () => {
+      if (!scope.turnstile || !captchaRef.current) return
+      widgetId = scope.turnstile.render(captchaRef.current, { sitekey: captcha.siteKey, callback: (token: string) => setCaptchaToken(token) })
+    }
+    if (scope.turnstile) render()
+    else {
+      const script = document.createElement('script')
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+      script.async = true
+      script.onload = render
+      document.head.appendChild(script)
+    }
+    return () => {
+      if (widgetId && scope.turnstile) scope.turnstile.remove(widgetId)
+    }
+  }, [captcha.enabled, captcha.siteKey])
   const update = (id: string, patch: Partial<DomainForm>) => setDomains((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row))
   const submit = async () => {
+    if (captcha.enabled && !captchaToken) {
+      toastError(new Error(t('development.certhub.apply.captcha_hint')))
+      return
+    }
     setBusy(true)
     try {
       const result = await api<{ order: CerthubOrderView }>('/orders', {
@@ -479,6 +511,7 @@ function ApplyPage({ compact }: { compact: boolean }) {
           ca,
           keyAlgorithm: algorithm,
           autoRenew,
+          captchaToken: captcha.enabled ? captchaToken : undefined,
           subject: {
             country: subject.country || undefined,
             state: subject.state || undefined,
@@ -525,6 +558,7 @@ function ApplyPage({ compact }: { compact: boolean }) {
             <Input value={subject.locality} onChange={(event) => setSubject({ ...subject, locality: event.target.value })} aria-label={t('development.certhub.apply.subject_locality')} placeholder={t('development.certhub.apply.subject_locality')} />
             <Input value={subject.organization} onChange={(event) => setSubject({ ...subject, organization: event.target.value })} aria-label={t('development.certhub.apply.subject_organization')} placeholder={t('development.certhub.apply.subject_organization')} />
           </div>
+          {captcha.enabled ? <div ref={captchaRef} className="min-h-[65px]" /> : null}
           <Button variant="primary" onClick={submit} loading={busy}>{t('development.certhub.apply.submit')}</Button>
         </div>
       </div>

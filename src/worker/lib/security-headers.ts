@@ -60,7 +60,7 @@ export function securityHeaders(url: string, options: SecurityHeaderOptions = {}
   // compile a wasm module. `'wasm-unsafe-eval'` is the narrow form of that permission: it covers
   // `WebAssembly.instantiate` and nothing else, so `new Function` and `eval` stay refused and the
   // template sandbox keeps needing the interpreter rather than a hole in this header.
-  const scriptSrc = `script-src 'self' 'wasm-unsafe-eval' ${CLOUDFLARE_INSIGHTS_SCRIPT_SOURCE}${options.allowDevInlineScripts ? " 'unsafe-inline'" : ''}; `
+  const scriptSrc = `script-src 'self' 'wasm-unsafe-eval' ${CLOUDFLARE_INSIGHTS_SCRIPT_SOURCE} https://challenges.cloudflare.com${options.allowDevInlineScripts ? " 'unsafe-inline'" : ''}; `
   const aiConnectSources = resolveAiConnectHosts(options.aiConnectHosts)
     .map((host) => `https://${host}`)
     .join(' ')
@@ -73,8 +73,8 @@ export function securityHeaders(url: string, options: SecurityHeaderOptions = {}
     'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()',
     'Content-Security-Policy': [
       `default-src 'self'; base-uri 'self'; ${scriptSrc}style-src 'self' 'unsafe-inline'; `,
-      `img-src 'self' data: blob: ${imageSchemes} ${MEMO_MAP_TILE_SOURCE}; font-src 'self' data: https://esm.sh; connect-src 'self' data: blob: ${CLOUDFLARE_INSIGHTS_REPORT_SOURCE} ${MEMO_MAP_GEOCODE_SOURCE} ${aiConnectSources}; worker-src 'self' blob:; `,
-      `manifest-src 'self'; media-src 'self' blob: ${NETEASE_MEDIA_SOURCES}; form-action 'self'; frame-src 'self' blob: https://www.youtube-nocookie.com https://www.youtube.com; `,
+      `img-src 'self' data: blob: ${imageSchemes} ${MEMO_MAP_TILE_SOURCE}; font-src 'self' data: https://esm.sh; connect-src 'self' data: blob: ${CLOUDFLARE_INSIGHTS_REPORT_SOURCE} ${MEMO_MAP_GEOCODE_SOURCE} https://challenges.cloudflare.com ${aiConnectSources}; worker-src 'self' blob:; `,
+      `manifest-src 'self'; media-src 'self' blob: ${NETEASE_MEDIA_SOURCES}; form-action 'self'; frame-src 'self' blob: https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com; `,
       "frame-ancestors 'none'; object-src 'none'",
     ].join(''),
   }

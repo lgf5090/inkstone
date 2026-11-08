@@ -64,6 +64,7 @@ export const EN_US_DEVELOPMENT_CERTHUB = {
   "development.certhub.apply.subject_locality": "City",
   "development.certhub.apply.subject_organization": "Organization",
   "development.certhub.apply.submit": "Submit request",
+  "development.certhub.apply.captcha_hint": "Please complete the human verification first",
   "development.certhub.apply.quota": "Quota",
   "development.certhub.apply.provider": "DNS provider",
   "development.certhub.apply.provider_none": "No provider (manual)",
