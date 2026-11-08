@@ -1220,7 +1220,7 @@
   overflow: hidden;
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-11);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1232,7 +1232,7 @@
   height: 20px;
   padding: 0 7px;
   border-radius: var(--r-sm);
-  font-size: 11px;
+  font-size: var(--text-11);
   color: var(--text-tertiary);
   opacity: 0;
   transition:
@@ -1257,7 +1257,7 @@
   padding: 0 7px;
   border-radius: var(--r-sm);
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: var(--text-11);
   line-height: 20px;
   transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
@@ -1335,12 +1335,23 @@
   background: color-mix(in oklab, var(--accent) 12%, transparent);
   box-shadow: inset 2px 0 var(--accent);
 }
+/* The gutter is a column of its own, not inline content: a wrapped line continues in the
+   text column instead of sliding back under the number it belongs to. `padding-left` is the
+   gutter width the number is absolutely positioned into, and the flex row keeps the number
+   at the top of the line while the text owns the rest of the width. */
 .ink-prose .code-block.has-line-numbers pre { padding-left: 0; }
+.ink-prose .code-block.has-line-numbers .line {
+  display: block;
+  position: relative;
+  padding-left: var(--code-gutter, 4.4em);
+}
 .ink-prose .code-block.has-line-numbers .line::before {
-  display: inline-block;
-  width: 3.4em;
-  margin-right: 1em;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--code-gutter, 4.4em) - 1em);
   padding-right: 0.75em;
+  border-right: 1px solid transparent;
   color: var(--text-quaternary);
   content: attr(data-line-number);
   font-variant-numeric: tabular-nums;
@@ -2195,7 +2206,7 @@
   overflow: hidden;
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-11);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2317,7 +2328,7 @@
   overflow: hidden;
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-11);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2519,7 +2530,7 @@
 }
 .ink-prose .excalidraw-tab-btn {
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--text-11);
   border-radius: var(--r-sm);
   color: var(--text-tertiary);
   cursor: pointer;
@@ -2541,7 +2552,7 @@
 .ink-prose .excalidraw-head-title {
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-11);
   font-weight: 500;
 }
 .ink-prose .excalidraw-head-actions {
@@ -3044,7 +3055,11 @@
   max-width: none;
   margin-inline: 0;
   padding-block: 0;
-  font-size: var(--prose-size, 14px);
+  /* A 340px card is a reading surface of its own: the note's column size would wrap the
+     same paragraph twice as often, so the card reads at a step down the shared scale
+     instead of squeezing the reader's chosen size into it. */
+  font-size: var(--hover-card-size, 13.5px);
+  line-height: var(--hover-card-line, 1.6);
 }
 .wiki-hover-body .ink-prose h1,
 .wiki-hover-body .ink-prose h2,
@@ -3312,7 +3327,7 @@
 }
 .ink-prose .jt-count {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--text-11);
 }
 .ink-prose .jt-value {
   cursor: text;
@@ -3431,7 +3446,7 @@
 .jm-edge-label {
   fill: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-11);
   text-anchor: middle;
   dominant-baseline: central;
   paint-order: stroke;
@@ -3544,7 +3559,7 @@
      dark theme — a control's name has to clear AA like any other text. */
   color: var(--text-secondary);
   background: var(--bg-inset);
-  font-size: 11px;
+  font-size: var(--text-11);
   line-height: 1;
   cursor: pointer;
 }
@@ -3613,7 +3628,7 @@
   border-radius: var(--r-md);
   background: var(--bg-overlay);
   box-shadow: var(--shadow-pop);
-  font-size: 11px;
+  font-size: var(--text-11);
   cursor: auto;
   user-select: text;
 }

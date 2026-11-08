@@ -190,6 +190,15 @@ function withContentsEntry(contents: Record<string, string>, id: string, text: s
     return next;
 }
 const pendingNoteCreates = new Map<string, Promise<Note>>();
+/**
+ * Notes a create call could not reach the server for.
+ *
+ * The body stays in the local cache and the queue keeps one create item per note, so a draft
+ * made with the network down is not a toast that evaporates: typing on, reloading and flushing
+ * all end at the same first write, and the note uploads with its original id.
+ */
+const offlineCreates = new Map<string, { folderId: string | null; isStarred: boolean }>();
+const OFFLINE_CREATE_QUEUE = 'create:';
 
 interface PendingFolderMutation {
     entityId: string;
@@ -890,6 +899,18 @@ export const useNotes = create<NotesState>((set, get) => ({
             return note.id;
         }
         catch (err) {
+            // A create that never reached the server is a draft, not a failure: the optimistic
+            // note is already on screen, so throwing it away would delete what the reader just
+            // typed. Keep it, queue the create, and answer with its id so the caller can go on
+            // treating it as the note it is.
+            if (err instanceof ApiError && err.isOffline && !dirty.has(id)) {
+                offlineCreates.set(id, { folderId, isStarred });
+                stageNoteTextWrite(id, content, title, set, get, { create: true });
+                set({ saveStatus: 'offline' });
+                scheduleShellSave(get);
+                useUi.getState().toast({ title: t("notes.offline_draft_saved"), tone: 'warning' });
+                return id;
+            }
             if (!dirty.has(id)) {
                 set((state) => {
                     const notes = { ...state.notes };
@@ -1793,23 +1814,31 @@ if (typeof window !== 'undefined') {
     });
 }
 
-function stageNoteTextWrite(id: string, content: string, title: string | undefined, set: SetNotesState, get: () => NotesState): void {
+function stageNoteTextWrite(id: string, content: string, title: string | undefined, set: SetNotesState, get: () => NotesState, options?: { create?: boolean }): void {
     const state = get();
     const summary = state.notes[id];
     if (!summary || !hasOwnContent(state.contents, id))
         return;
     const previousDirty = dirty.get(id);
     const writeId = newLocalWriteId();
-    const queueId = previousDirty?.queueId ?? outboxId(id);
+    // A draft whose first write never reached the server keeps one queue item whose replay is a
+    // create, not a patch. Typing before the network returns merges into it rather than replacing
+    // the create with a patch against a note the server has never seen.
+    const creating = options?.create === true
+        || offlineCreates.has(id)
+        || previousDirty?.queueId.startsWith(OFFLINE_CREATE_QUEUE) === true;
+    const queueId = creating ? `${OFFLINE_CREATE_QUEUE}${id}` : previousDirty?.queueId ?? outboxId(id);
     const dependsOnWriteId = previousDirty?.dependsOnWriteId ?? inheritedOutboxWrites.get(id);
     const updatedAt = previousDirty?.updatedAt ?? Math.max(Date.now(), summary.updatedAt + 1);
     const contentChanged = state.contents[id] !== content;
-    const contentDirty = previousDirty?.contentDirty === true || contentChanged;
+    const contentDirty = creating || previousDirty?.contentDirty === true || contentChanged;
+    const createMeta = creating ? offlineCreates.get(id) : undefined;
     const payload = {
         content,
         contentDirty,
         rev: previousDirty?.rev ?? summary.rev,
         ...(title !== undefined ? { title } : {}),
+        ...(createMeta ? { create: true, folderId: createMeta.folderId, isStarred: createMeta.isStarred } : {}),
     };
     const item: OutboxItem = {
         id: queueId,
@@ -2816,6 +2845,52 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
             const rev = latestLocal?.rev ?? item.payload.rev;
             if (typeof content !== 'string' || !Number.isInteger(rev) || (rev as number) < 1) {
                 await localDb.markOutboxFailure(item.id, item.writeId, 'invalid offline journal payload').catch(() => { });
+                continue;
+            }
+            // The first write of a note that was created while offline is a create, not a patch.
+            // It was enqueued before any edit could add a patch item, and the server's idempotent
+            // create answers with the note if a previous attempt landed.
+            if (item.payload.create === true) {
+                if (noteContentTooLarge(content)) {
+                    await localDb.markOutboxFailure(item.id, item.writeId, 'note content exceeds the save limit').catch(() => { });
+                    warnOversizedContent(item.entityId, t("notes.content_too_large"));
+                    continue;
+                }
+                try {
+                    const created = await api.notes.create({
+                        id: item.entityId,
+                        title: typeof title === 'string' ? title : '',
+                        content,
+                        folderId: typeof item.payload.folderId === 'string' || item.payload.folderId === null
+                            ? item.payload.folderId as string | null
+                            : null,
+                        ...(item.payload.isStarred === true ? { isStarred: true } : {}),
+                    });
+                    // The note exists on the server now, so an edit arriving during the settle below
+                    // is a patch, not another create.
+                    offlineCreates.delete(item.entityId);
+                    if (item.clientId === CLIENT_ID)
+                        await settleSavedPatch(item.entityId, { content, writeId: item.writeId }, created, set, get);
+                    else
+                        adoptNote(created, set, get);
+                    // Any write queued while the create was in flight is now a patch against the
+                    // revision the server just made. Without this it replays as a create, and the
+                    // idempotent create answers with the old body and drops the newer text.
+                    await localDb.settleOfflineCreate(item.entityId, created.rev);
+                    const completed = await completeOutboxQuietly(item.id, item.writeId);
+                    if (completed)
+                        publishBroadcast({ type: 'local-write', clientId: CLIENT_ID });
+                    set({ lastSavedAt: Date.now(), online: true });
+                }
+                catch (error) {
+                    if (error instanceof ApiError && error.isOffline) {
+                        stoppedOffline = true;
+                        set({ online: false, saveStatus: 'offline' });
+                        break;
+                    }
+                    await localDb.markOutboxFailure(item.id, item.writeId,
+                        error instanceof Error ? error.message : String(error)).catch(() => { });
+                }
                 continue;
             }
             // A body over the route's byte ceiling is refused before it is sent: the server would answer

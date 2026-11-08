@@ -90,6 +90,7 @@ export function FormatToolbar({
 
   return (
     <div
+      role="group"
       aria-label={t('workspace.formatting_tools')}
       className={cn(
         'flex shrink-0 items-center gap-0.5 overflow-x-auto no-scrollbar',
@@ -241,7 +242,7 @@ export function MenuButton({ buttonRef, label, open, onClick, children, mobile =
         className={cn(
           'inline-flex shrink-0 items-center gap-0.5 rounded-[var(--r-md)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
           open && 'bg-[var(--bg-hover)] text-[var(--text-primary)]',
-          mobile ? 'h-9' : 'h-7',
+          mobile ? 'h-11' : 'h-7',
         )}
       >
         {children}
@@ -261,7 +262,7 @@ export function ToolButton({ label, combo, onClick, children, buttonRef, expande
 }) {
   return (
     <Tooltip label={label} combo={combo}>
-      <IconButton ref={buttonRef} label={label} size="sm" onClick={onClick} aria-expanded={expanded} aria-haspopup={popup} className="size-9 shrink-0 md:size-7">
+      <IconButton ref={buttonRef} label={label} size="sm" onClick={onClick} aria-expanded={expanded} aria-haspopup={popup} className="size-11 shrink-0 md:size-7">
         {children}
       </IconButton>
     </Tooltip>
@@ -269,7 +270,7 @@ export function ToolButton({ label, combo, onClick, children, buttonRef, expande
 }
 
 export function Divider() {
-  return <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-[var(--border-subtle)]" />
+  return <span role="separator" aria-orientation="vertical" className="mx-1 h-4 w-px shrink-0 bg-[var(--border-subtle)]" />
 }
 
 function FormatMenuButton({ buttonRef, label, open, onClick, children, mobile = false, primary }: {

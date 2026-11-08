@@ -797,10 +797,6 @@ const allowed = new Map([
     "// Enter hands the field over rather than offering itself: the panel is about to",
     "// unmount, and a second offer of the same colour would read as the toggle-off.",
   ]],
-  ["src/client/editor/codeLanguages.ts", [
-    "// Highlighting removed: no code languages are loaded.",
-    "// Kept as empty array so the editor behaves as plain Markdown without syntax colors.",
-  ]],
   ["src/client/editor/commands.test.ts", [
     "// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is",
     "// attached and focused; the shim keeps the completion path exercisable instead of untestable.",
@@ -1308,6 +1304,11 @@ const allowed = new Map([
     "/**\n * Inline decoration only. Code spans, maths and `%%` comments keep their own markers: dropping the\n * backticks of `` `a*b` `` would hand the asterisks to the emphasis rules and change what the text\n * says, and a comment is content the author chose to hide.\n */",
     "/**\n * Width, not typography: the reference plugin's converter also guesses the language from the\n * selection's CJK ratio and rewrites every full stop it finds, which turns an ordered list marker\n * into a sentence terminator. These two commands only swap a character for its counterpart at the\n * other width.\n */",
     "/** `template` fronts every line; `{n}` stands for the running number, which a blank line never spends. */",
+  ]],
+  ["src/client/editor/wrap-line-numbers.ts", [
+    "/**\n * How many visual rows one logical line occupies.\n *\n * A wrapped line's CodeMirror block is taller than the editor's default line height by exactly\n * the rows it wrapped into; rounding guards the fractional pixels the browser reports for\n * `1.64`-style leading.\n */",
+    "/**\n * A line number followed by one faint tick per wrapped continuation row.\n *\n * The number still names the logical line, so go-to-line, the status bar and the outline keep\n * agreeing with it — but every visual row now has a gutter mark at its own height, which is what\n * makes a long paragraph read as aligned instead of as a number floating above a block of text.\n */",
+    "/**\n * The note editor's line-number gutter.\n *\n * `lineNumbers()` cannot draw more than one mark per logical line, so it is replaced here rather\n * than patched around; the visual row count comes from the block CodeMirror already measured.\n */",
   ]],
   ["src/client/features/attachment-hub/api.ts", [
     "/**\n * The hub's client, one implementation for four applications.\n *\n * The scope is the only thing a caller supplies that differs; it becomes a path segment, so a\n * caller cannot address another account's files by naming a table, and the server validates the\n * segment against its own registry rather than trusting this module to have listed it correctly.\n */",
@@ -7812,8 +7813,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/list/NoteList.tsx", [
     "/** The concatenated key is the only copied string; bound it by characters, not entries. */",
-    "// Only rendered rows ask for their position, so the map covers the window instead of",
-    "// allocating one entry per note on every filter change.",
     "// Body text only ever reaches the search key through this record, so the memo has to",
     "// depend on it; reading it imperatively left freshly-opened notes unsearchable.",
     "// Crossing the tablet/desktop width is a layout change, not a new context: wiping the",
@@ -7837,6 +7836,16 @@ const allowed = new Map([
     "// search that found nothing).",
     "// A sealed note has no searchable text until this session opens it: its title and body",
     "// are envelopes, and matching an envelope would only produce noise.",
+    "// Every row is in the tree; `content-visibility: auto` on each row is what keeps a large",
+    "// vault cheap to scroll. The window used to be cut by a fixed row height, but a note row",
+    "// is 40–101px depending on its excerpt, tags and group header, so the fixed-height",
+    "// spacers drifted far enough to overlap rows in a vault over 80 notes.",
+    "// The browser's placeholder height for an off-screen row. It mirrors the measured row",
+    "// (40 / 79 / 62 / 101px in comfortable density) so the scrollbar does not jump as rows",
+    "// enter the viewport, without making the row itself a fixed height.",
+    "/** How many notes a bulk action writes at once: enough to hide the per-request latency, small enough\n *  that the worker's per-note batches do not all collide on the same account cursor. */",
+    "// A hundred selected notes used to be a hundred serial round trips. Four at a time keeps",
+    "// the editor responsive and still finishes in a quarter of the wall time.",
   ]],
   ["src/client/features/list/gap-indicator.ts", [
     "/** Newest edit key with whole days it sits outside the selected window (null when it is inside or the inputs are empty). */",
@@ -12690,6 +12699,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/preview/wiki-link-hover-card/index.tsx", [
     "// Pinning keeps a note window, so a link card has nothing to pin into.",
+    "// The card cuts the body at the reader's preview length, so the ellipsis alone would",
+    "// be a dead end. This is the one control that turns that cut into a way through: it",
+    "// opens the note the card was drawn from, in the pane the reader is already reading.",
   ]],
   ["src/client/features/preview/wiki-link-hover-card/link-preview-body.tsx", [
     "/**\n * Only the schemes a browser can follow reach this, and a destination too long to print whole is never\n * offered for opening either: the card would be launching bytes the reader cannot see.\n */",
@@ -15063,6 +15075,9 @@ const allowed = new Map([
     "// as a tree of its own, which is the whole point of the row it sits in.",
     "// The desktop sidebar no longer prints this count; the phone's view sheet is where the same",
     "// projection is read, and it has to say the same thing the inbox row does.",
+    "// The old window rendered 80 rows inside fixed-height spacers; a row whose excerpt and",
+    "// tags made it taller than 72px drifted over its neighbour. Every row is now in the tree,",
+    "// and `content-visibility` is what keeps the off-screen ones cheap.",
   ]],
   ["src/client/features/sidebar/sidebar-calendar.test.ts", [
     "// Collapsing the block hides the heatmap but used to leave the whole-vault",
@@ -21834,6 +21849,7 @@ const allowed = new Map([
     "/**\n   * Re-names the queued writes of one entity after a create landed.\n   *\n   * A task created offline is addressed by a local id until the server mints the real one. Every\n   * later queued write for that task names the local id, so they all move together: leaving one\n   * behind would replay an edit against a row that never existed.\n   */",
     "/**\n   * Move every queued write of one task that still names an older revision up to `nextRev`.\n   *\n   * The task queue is strictly ordered, so a later edit was typed on top of the row an earlier write\n   * produced. Without this, replaying three offline edits would make the second and third conflict\n   * with the first one's own result — a conflict this device caused and can settle itself.\n   */",
     "/**\n   * How far the task delta has been read, as the newest `updated_at` the server has sent.\n   *\n   * Stored apart from the note cursor because the two streams move on different clocks: notes page\n   * on a change sequence, tasks on their own write timestamps.\n   */",
+    "/**\n   * Turn the queued first write of a note that was created offline into a patch.\n   *\n   * Once the server has the note, any later content queued under the same note must be applied\n   * against the revision the create produced; leaving `create` on it would make the next replay\n   * ask the idempotent create endpoint for the note it already has, which answers with the row\n   * it created and discards the newer text.\n   */",
   ]],
   ["src/client/lib/drop-state.ts", [
     "/**\n * Drop-indicator state that cannot get stuck.\n *\n * A drag that ends outside the window, or one the user cancels with Escape, never fires `drop` on the\n * element that was highlighting itself, so a plain `useState` would leave the ring or the line painted\n * until the next drag. Every surface that shows a drop target needs the same five bail-outs, and a\n * surface that forgets one of them looks like a broken hover rather than a missing listener.\n */",
@@ -30699,6 +30715,8 @@ const allowed = new Map([
     "// The old branch completed the row; the write must still be queued so the body is not lost.",
     "// Last in this file on purpose: it leaves a 1.9 MB dirty body in the module's write-ahead state,",
     "// which is the thing it is asserting about and would distort any case that runs after it.",
+    "// Typing before the connection returns merges into the same create item instead of replacing",
+    "// it with a patch against a note the server has never seen.",
   ]],
   ["src/client/store/notes.ts", [
     "/** Coordinates the note cache, offline write-ahead log, optimistic updates, and server synchronization. */",
@@ -30820,6 +30838,22 @@ const allowed = new Map([
     "/**\n * Replace everything this device still held for a sealed note.\n *\n * A remote lock is the authority: the browser cache and queued bodies describe plaintext the note\n * no longer contains. The ciphertext the server sent is written back afterwards, because that is\n * what the unlock prompt has to open. Dropping the queued writes is deliberate — re-sending one\n * after the lock would overwrite the envelope with the plaintext the lock exists to hide.\n */",
     "// A sealed note is ready as soon as its summary is: the locked surface never needs the body,",
     "// and the body it may hold is an envelope, not a note the reader can read.",
+    "/**\n * Notes a create call could not reach the server for.\n *\n * The body stays in the local cache and the queue keeps one create item per note, so a draft\n * made with the network down is not a toast that evaporates: typing on, reloading and flushing\n * all end at the same first write, and the note uploads with its original id.\n */",
+    "// A create that never reached the server is a draft, not a failure: the optimistic",
+    "// note is already on screen, so throwing it away would delete what the reader just",
+    "// typed. Keep it, queue the create, and answer with its id so the caller can go on",
+    "// treating it as the note it is.",
+    "// A draft whose first write never reached the server keeps one queue item whose replay is a",
+    "// create, not a patch. Typing before the network returns merges into it rather than replacing",
+    "// the create with a patch against a note the server has never seen.",
+    "// The first write of a note that was created while offline is a create, not a patch.",
+    "// It was enqueued before any edit could add a patch item, and the server's idempotent",
+    "// create answers with the note if a previous attempt landed.",
+    "// The note exists on the server now, so an edit arriving during the settle below",
+    "// is a patch, not another create.",
+    "// Any write queued while the create was in flight is now a patch against the",
+    "// revision the server just made. Without this it replays as a create, and the",
+    "// idempotent create answers with the old body and drops the newer text.",
   ]],
   ["src/client/store/pinned-windows.ts", [
     "/**\n * How long a pinned window is left flashing after a link jumps to it.\n *\n * This is not a taste value: it is the duration of `pinned-window-flash` in `prose.css`, and the flag\n * that carries the class has to outlive the animation that reads it — a shorter value clips the flash\n * off mid-fade, a longer one leaves a card that no longer looks targeted still claiming to be.\n */",
@@ -31082,6 +31116,8 @@ const allowed = new Map([
     "/* Templater commands: text the reader wrote but the renderer replaces. Only the editor's own marks are\n   painted here, so a template's edge stays legible inside running prose without touching the text.\n   The body borrows the inline-code colour because that is what it is; the delimiters take the syntax\n   punctuation token, and an execution command's delimiters take the keyword one so a block of code\n   reads as a block at a glance. */",
     "/* The template library's body editor wears the note editor's chrome, because the marks, the line-number\n   gutter, the caret and the selection are the same things to paint. What it takes back is the prose: a\n   template body is code being written, so it has no typewriter padding to scroll past after the last line,\n   no measured column to centre itself in, and the monospace size the dialog's textarea carried rather than\n   the size the reader writes notes at. Last in this file on purpose — the `.ink-editor` rules above it,\n   including the phone ones inside the media query, are the ones being answered. */",
     "/* The passage the reader quoted into the chat: read-only, and gone when the note is left. */",
+    "/* A wrapped logical line carries one number and one faint tick per continuation row, each at\n   the height CodeMirror gave that visual row. The number keeps its source-line meaning. */",
+    "/* A phone keeps the toolbar on one row and scrolls it sideways. The fade says there is more\n   than the last visible icon; it is a hint, not a control, so it never takes a tap. */",
   ]],
   ["src/client/styles/inknote-canvas.css", [
     "/* Scoped styles for the ink note app; see docs/improvement/inknote/port-plan-1.md. */",
@@ -31189,6 +31225,8 @@ const allowed = new Map([
     "/* A search word is a wash behind the text, not a badge: the accent tint stays readable in every\n   theme and leaves the glyph colour to the prose around it. */",
     "/* A feed can hold hundreds of cards; letting the browser skip the layout and paint of the ones\n   outside the viewport keeps scrolling proportional to what is on screen. The intrinsic size is a\n   placeholder until a card has been measured once, so the scrollbar does not jump. */",
     "/* A feed with one memo should not draw one card across 1100px of text: cap it and centre the track. */",
+    "/* The gutter is a column of its own, not inline content: a wrapped line continues in the\n   text column instead of sliding back under the number it belongs to. `padding-left` is the\n   gutter width the number is absolutely positioned into, and the flex row keeps the number\n   at the top of the line while the text owns the rest of the width. */",
+    "/* A 340px card is a reading surface of its own: the note's column size would wrap the\n     same paragraph twice as often, so the card reads at a step down the shared scale\n     instead of squeezing the reader's chosen size into it. */",
   ]],
   ["src/client/styles/reading.css", [
     "/**\n * The reading surface.\n *\n * Two things here are not decoration and are worth the comments, because both look like a bug in the\n * other direction when they are changed: the column geometry that turns flowing text into pages, and\n * the HUD's habit of floating over the page instead of reserving a row.\n */",
@@ -31281,6 +31319,8 @@ const allowed = new Map([
     "/* The warning's own wash, same recipe as the accent's: `--warning` is per scheme and per accent\n     theme, so a fixed colour here would be wrong in one of them. Only the text on it is chosen to\n     clear AA — `--warning` on `--bg-raised` is not measured, so a badge never relies on colour alone\n     to say what it means. */",
     "/* Chart series. The Cloudflare app's graphs are the first screens here that draw more than one\n     series, so the palette is a token rather than a component's own list: `--chart-1` follows the\n     reader's accent, and the other four are hue-separated at the same lightness so no series is\n     told apart by brightness alone. */",
     "/* A plate that has to stay light whatever the theme: a QR code's quiet zone loses scannability when a\n     dark surface eats its contrast, so this is a design decision rather than a theme colour. */",
+    "/* A pinned / hover link card is narrower than the reading column, so its prose has its\n     own step and leading rather than squeezing the reader's prose size into 340px. */",
+    "/* The width reserved for a code block's line numbers; the content column starts after it. */",
   ]],
   ["src/client/styles/ui-primitives.css", [
     "/*\n * Shared floating-surface primitives.\n *\n * Kept out of app.css so the blog reading runtime can carry the same viewport, popover, utility and\n * animation rules without importing the whole application stylesheet. Both entries import this file;\n * the note app and a published article therefore draw a toast, a lightbox or a menu with one skin.\n */",
@@ -43631,6 +43671,11 @@ const allowed = new Map([
     "// note is not live, so an in:trash query has nothing left in notes_fts to match against;",
     "// it is served by likeSearch instead. Keeping trash indexed would trade a niche ranking",
     "// improvement for an index lifecycle that has to survive restore and purge races.",
+    "// `unicode61` tokenises by word separators, and Chinese, Japanese and Korean prose has",
+    "// none: a whole clause becomes one token, so a mid-sentence term the reader typed does",
+    "// not match. Zero FTS hits for a CJK query is therefore not \"no such note\"; the LIKE",
+    "// pass answers it. The scan is paid only on that empty branch, not on every query.",
+    "/**\n * Whether a query has characters `unicode61` cannot split into words.\n *\n * Kana and the CJK ideographic blocks all run without separators, so an FTS miss on one of\n * them is not proof the text is absent. Exported for the unit test that pins the ranges.\n */",
   ]],
   ["src/worker/search/store.ts", [
     "/**\n * Every read the search and graph HTTP routes make against D1.\n *\n * The shape follows `settings/store.ts`: a store built per request from the account it serves,\n * methods that hand back rows, counts or the one truncation flag a page needs, and no `Response` in\n * sight. What stays in the route is the query parsing, the FTS-over-LIKE fallback decision and its\n * warning, the re-ranking, snippets, node and\n * edge assembly, the throttles, the `ApiError` codes and the response shape.\n *\n * Scoping, statement by statement, because a search that drops the account predicate answers one\n * reader with another reader's notes and no test would notice:\n *  - both note searches bind the account first and reuse that one number for every owner predicate:\n *    `n.user_id = ?1` for LIKE, `notes_fts.user_id = ?2 AND n.user_id = ?2` for FTS, where ?2 is the\n *    account. The FTS filter expression in ?1 carries `user_id : \"…\"` with the id's quotes doubled,\n *    so the match half of the statement is scoped too — it is not only the WHERE clause that knows\n *    whose rows these are;\n *  - the graph reads bind the account into the recursive neighbourhood (`l.user_id = ?`), into the\n *    edge-degree CTE (`WHERE l.user_id = ?`) and first in the filter list (`n.user_id = ?`), and the\n *    count rides the same filters as the rows it counts;\n *  - `note_tags` has no `user_id` column at all (it is a two-column join table), so the tag halves\n *    are scoped through the tags they reach: `t.user_id = ?` in the edge/tag fetch,\n *    `t_filter.user_id = n.user_id` in the graph filters, and `t.user_id = n.user_id` inside\n *    `NOTE_COLUMNS`. The note ids handed to the edge/tag fetch come from a page that statement\n *    already scoped, and a tag id belongs to exactly one account, so neither read can name another\n *    reader's tags.\n *\n * Nothing here is account-free: unlike `auth/store.ts` and the public half of\n * `share/presence-store.ts`, search has no question to answer before a session exists.\n *\n * Bind numbers are counted by hand, since a filter clause has to know how many parameters came\n * before it — `applyFilters()` appends to the caller's bind list and numbers its own placeholders\n * against it, so the order of those pushes is part of the contract, and so is the batch grouping:\n * each graph page submits its rows and its count as one `db.batch` pair read by position, and the\n * edge/tag fetch submits one link statement plus one tag statement per `GRAPH_NOTE_ID_CHUNK` slice\n * into a single batch whose results are paired two at a time, with the link statement asked for one\n * row past `GRAPH_EDGE_CANDIDATE_LIMIT` so an over-cap page is visible as truncation rather than as\n * a complete answer.\n */",

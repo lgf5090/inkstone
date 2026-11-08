@@ -117,6 +117,12 @@
   --prose-line: 1.65;
   --prose-width: 72ch;
   --editor-size: 15px;
+  /* A pinned / hover link card is narrower than the reading column, so its prose has its
+     own step and leading rather than squeezing the reader's prose size into 340px. */
+  --hover-card-size: 13.5px;
+  --hover-card-line: 1.6;
+  /* The width reserved for a code block's line numbers; the content column starts after it. */
+  --code-gutter: 4.4em;
 
   /* A slide is laid out on a fixed 1280x720 design canvas, so its type is measured in canvas
      pixels rather than in the reader's: 28px on the canvas lands near 18px on a 1080p projector. */
