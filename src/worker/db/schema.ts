@@ -4075,6 +4075,20 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 326,
     statements: TOOLS_PASSWORD_SCHEMA_STATEMENTS,
   },
+  {
+    // The reader's own choice of verifier cost (low/standard/high) plus the verify times this
+    // deployment measured for the tiers it has actually run. 329 is the first number free above the
+    // reserved 318–321 (WebSSH/icons), 322–324 (certhub) and 327–328 (other lanes); `skipIfColumnExists`
+    // makes this a no-op on a database whose settings table already carries the column, and on a
+    // fresh database the statements above already created it.
+    version: 329,
+    skipIfColumnExists: { table: 'tools_password_settings', column: 'verifier_cost' },
+    statements: [
+      `ALTER TABLE tools_password_settings ADD COLUMN verifier_cost INTEGER NOT NULL DEFAULT 10`,
+      `ALTER TABLE tools_password_settings ADD COLUMN verifier_samples TEXT NOT NULL DEFAULT '{}'`,
+      `ALTER TABLE tools_password_settings ADD COLUMN verifier_measured_at INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

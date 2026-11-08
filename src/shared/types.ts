@@ -1527,6 +1527,8 @@ export type ApiErrorCode =
   | 'hibp_unavailable'
   | 'restore_rollback_failed'
   | 'reset_rollback_failed'
+  | 'verifier_unusable'
+  | 'verifier_changed'
   | 'too_many_attempts'
   | 'registration_closed'
   | 'setup_token_required'

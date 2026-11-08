@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   Cloud,
   RefreshCw,
@@ -11,11 +11,22 @@ import {
 import { t, type MessageKey } from '../../../lib/i18n'
 import { Modal, confirm } from '../../../components/overlay'
 import { Button } from '../../../components/primitives'
-import { Slider } from '../../../components/form'
+import { Segmented, Slider, Input } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
-import { passwordApi } from './api'
-import type { PasswordBackupRecord, PasswordBackupData, PasswordAuditEntry } from '@shared/tools/password/types'
+import { passwordApi, PasswordApiError } from './api'
+import type {
+  PasswordBackupRecord,
+  PasswordBackupData,
+  PasswordAuditEntry,
+  PasswordSettings,
+  VerifierTier,
+} from '@shared/tools/password/types'
+import {
+  FREE_PLAN_CPU_MS,
+  VERIFIER_TIERS,
+  isVerifierTierCost,
+} from '@shared/tools/password/types'
 import { ReauthDialog } from './ReauthDialog'
 
 export interface BackupSettingsModalProps {
@@ -36,6 +47,10 @@ const AUDIT_LABEL_KEYS: Record<string, MessageKey> = {
   backup_created: 'tools.password.audit.backup_created',
   backup_deleted: 'tools.password.audit.backup_deleted',
   confirm_rejected: 'tools.password.audit.confirm_rejected',
+  verifier_target_changed: 'tools.password.audit.verifier_target_changed',
+  verifier_retargeted: 'tools.password.audit.verifier_retargeted',
+  verifier_retarget_failed: 'tools.password.audit.verifier_retarget_failed',
+  verifier_switch_failed: 'tools.password.audit.verifier_switch_failed',
 }
 
 export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps) {
@@ -68,6 +83,14 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
   const [autoLockMinutes, setAutoLockMinutes] = useState<number>(5)
   const autoLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const [settings, setSettings] = useState<PasswordSettings | null>(null)
+  const [verifierWarning, setVerifierWarning] = useState<{ cost: number } | null>(null)
+  const [verifierPrompt, setVerifierPrompt] = useState<{ cost: number } | null>(null)
+  const [verifierPassword, setVerifierPassword] = useState('')
+  const [verifierError, setVerifierError] = useState<string | null>(null)
+  const [isSwitchingVerifier, setIsSwitchingVerifier] = useState(false)
+  const verifierPollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const [auditEntries, setAuditEntries] = useState<PasswordAuditEntry[]>([])
   const [isLoadingAudit, setIsLoadingAudit] = useState(false)
 
@@ -85,9 +108,10 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
 
   const fetchSettings = async () => {
     try {
-      const settings = await passwordApi.getSettings()
-      if (settings?.autoLockMinutes) {
-        setAutoLockMinutes(settings.autoLockMinutes)
+      const next = await passwordApi.getSettings()
+      setSettings(next)
+      if (next?.autoLockMinutes) {
+        setAutoLockMinutes(next.autoLockMinutes)
       }
     } catch {
       // Ignored
@@ -134,8 +158,89 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
   useEffect(() => {
     return () => {
       if (autoLockTimerRef.current) clearTimeout(autoLockTimerRef.current)
+      if (verifierPollRef.current) clearTimeout(verifierPollRef.current)
     }
   }, [])
+
+  const tierOfCost = (cost: number): VerifierTier | null => {
+    const entry = (Object.keys(VERIFIER_TIERS) as VerifierTier[]).find(
+      (tier) => VERIFIER_TIERS[tier] === cost,
+    )
+    return entry ?? null
+  }
+
+  const measuredFor = (cost: number): number | null => {
+    const value = settings?.verifierSamples[String(cost)]
+    return typeof value === 'number' && value > 0 ? value : null
+  }
+
+  /**
+   * A tier whose measured verify time exceeds the Free plan's 10 ms CPU budget would make every
+   * unlock fail there, so the reader is made to say so out loud before the request is sent. A tier
+   * that has never been measured on this deployment is treated the same way for the two expensive
+   * ones: the screen would otherwise promise a number it does not have.
+   */
+  const tierNeedsWarning = (cost: number): boolean => {
+    const measured = measuredFor(cost)
+    if (measured !== null) return measured > FREE_PLAN_CPU_MS
+    return cost > VERIFIER_TIERS.low
+  }
+
+  const handleSelectVerifierTier = (tier: VerifierTier) => {
+    const cost = VERIFIER_TIERS[tier]
+    if (!isVerifierTierCost(cost)) return
+    if (settings && cost === settings.verifierCost) return
+
+    if (tierNeedsWarning(cost)) {
+      setVerifierWarning({ cost })
+      return
+    }
+
+    setVerifierError(null)
+    setVerifierPassword('')
+    setVerifierPrompt({ cost })
+  }
+
+  const submitVerifierSwitch = async (event?: FormEvent) => {
+    event?.preventDefault()
+    if (isSwitchingVerifier || !verifierPrompt) return
+    if (!verifierPassword) {
+      setVerifierError(t('tools.password.door.placeholder'))
+      return
+    }
+
+    setIsSwitchingVerifier(true)
+    setVerifierError(null)
+    try {
+      const result = await passwordApi.setVerifierCost(verifierPrompt.cost, verifierPassword)
+      setVerifierPassword('')
+      setVerifierPrompt(null)
+      toast({
+        title:
+          result.applied === 'deferred'
+            ? t('tools.password.settings.switch_deferred')
+            : t('tools.password.settings.switch_done', { cost: String(result.storedCost) }),
+        tone: 'success',
+      })
+      await fetchSettings()
+      // The stronger tier finishes after the response; one re-read is enough to show its measurement.
+      if (result.applied === 'deferred') {
+        if (verifierPollRef.current) clearTimeout(verifierPollRef.current)
+        verifierPollRef.current = setTimeout(() => void fetchSettings(), 4000)
+      }
+      void fetchAudit()
+    } catch (err) {
+      setVerifierError(
+        err instanceof PasswordApiError && err.code === 'wrong_password'
+          ? t('tools.password.door.fail')
+          : err instanceof Error
+            ? err.message
+            : t('tools.password.settings.switch_failed'),
+      )
+    } finally {
+      setIsSwitchingVerifier(false)
+    }
+  }
 
   // Handle create cloud backup
   const handleCreateCloudBackup = async () => {
@@ -380,6 +485,77 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
                 </p>
               </div>
 
+              {/* Verifier cost. This is the only dial that changes how much CPU an unlock costs the
+                  Worker, so the reader picks it and sees what this deployment actually measured. */}
+              <div
+                data-testid="password-verifier-section"
+                className="flex flex-col gap-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4"
+              >
+                <div className="min-w-0">
+                  <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">
+                    {t('tools.password.settings.title')}
+                  </span>
+                  <p className="mt-0.5 text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
+                    {t('tools.password.settings.desc')}
+                  </p>
+                </div>
+
+                <Segmented<VerifierTier>
+                  value={tierOfCost(settings?.verifierCost ?? VERIFIER_TIERS.standard) ?? 'standard'}
+                  size="sm"
+                  label={t('tools.password.settings.title')}
+                  disabled={isSwitchingVerifier}
+                  onChange={(tier) => void handleSelectVerifierTier(tier)}
+                  options={[
+                    { value: 'low', label: t('tools.password.settings.tier_low') },
+                    { value: 'standard', label: t('tools.password.settings.tier_standard') },
+                    { value: 'high', label: t('tools.password.settings.tier_high') },
+                  ]}
+                />
+
+                <div className="flex flex-col gap-1" data-testid="password-verifier-tiers">
+                  {(Object.keys(VERIFIER_TIERS) as VerifierTier[]).map((tier) => {
+                    const cost = VERIFIER_TIERS[tier]
+                    const measured = measuredFor(cost)
+                    return (
+                      <div
+                        key={tier}
+                        data-testid={`password-verifier-tier-${tier}`}
+                        className="flex items-baseline justify-between gap-3 text-[length:var(--text-11)]"
+                      >
+                        <span className="text-[var(--text-secondary)]">
+                          {t(`tools.password.settings.tier_${tier}` as MessageKey)}
+                          <span className="ml-1 text-[var(--text-quaternary)]">{` cost ${cost}`}</span>
+                        </span>
+                        <span
+                          data-testid={`password-verifier-measured-${tier}`}
+                          className="font-mono text-[var(--text-tertiary)]"
+                        >
+                          {measured === null
+                            ? t('tools.password.settings.unmeasured')
+                            : t('tools.password.settings.measured', { ms: measured.toFixed(1) })}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <p
+                  data-testid="password-verifier-effective"
+                  className="text-[length:var(--text-11)] text-[var(--text-secondary)]"
+                >
+                  {t('tools.password.settings.effective', {
+                    target: String(settings?.verifierCost ?? VERIFIER_TIERS.standard),
+                    stored: String(settings?.verifierStoredCost ?? VERIFIER_TIERS.standard),
+                  })}
+                </p>
+
+                <p className="flex items-start gap-1.5 rounded-[var(--r-sm)] bg-[var(--warning-soft)] px-2.5 py-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-primary)]">
+                  <AlertTriangle size={12} className="mt-0.5 shrink-0 text-[var(--warning)]" aria-hidden="true" />
+                  <span>{t('tools.password.settings.free_note', { limit: String(FREE_PLAN_CPU_MS) })}</span>
+                </p>
+              </div>
+
               {/* Backup History List */}
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
@@ -572,6 +748,131 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
             : undefined
         }
       />
+
+      {/* A tier this deployment has never measured, or one measured above the Free plan's CPU
+          budget, is confirmed in its own dialog rather than silently accepted. */}
+      <Modal
+        open={Boolean(verifierWarning)}
+        onClose={() => setVerifierWarning(null)}
+        title={t('tools.password.settings.warn_title')}
+        width={420}
+      >
+        <div className="flex flex-col gap-4 text-[var(--text-primary)]">
+          <div className="flex items-start gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--warning-soft)] text-[var(--warning)]">
+              <AlertTriangle size={18} />
+            </div>
+            <div>
+              <p className="text-[length:var(--text-13)] leading-relaxed text-[var(--text-secondary)]">
+                {t('tools.password.settings.warn_desc', {
+                  limit: String(FREE_PLAN_CPU_MS),
+                })}
+              </p>
+              {verifierWarning && (
+                <p className="mt-2 text-[length:var(--text-11)] font-mono text-[var(--text-tertiary)]">
+                  {t('tools.password.settings.effective', {
+                    target: String(verifierWarning.cost),
+                    stored: String(settings?.verifierStoredCost ?? VERIFIER_TIERS.standard),
+                  })}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 border-t border-[var(--border-subtle)] pt-2">
+            <Button type="button" variant="ghost" onClick={() => setVerifierWarning(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              data-testid="password-verifier-warn-confirm"
+              type="button"
+              variant="danger"
+              onClick={() => {
+                const cost = verifierWarning?.cost
+                setVerifierWarning(null)
+                if (!cost) return
+                setVerifierError(null)
+                setVerifierPassword('')
+                setVerifierPrompt({ cost })
+              }}
+            >
+              {t('tools.password.settings.warn_confirm')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* The verifier switch needs the password itself, not a confirmation token: the server rehashes
+          from the password it has just verified, so the stored digest can never describe another one. */}
+      <Modal
+        open={Boolean(verifierPrompt)}
+        onClose={() => {
+          setVerifierPassword('')
+          setVerifierError(null)
+          setVerifierPrompt(null)
+        }}
+        title={t('tools.password.settings.switch_title')}
+        width={420}
+        dismissible={!isSwitchingVerifier}
+      >
+        <form onSubmit={(event) => void submitVerifierSwitch(event)} className="space-y-4 pt-1">
+          <p className="text-[length:var(--text-13)] leading-relaxed text-[var(--text-secondary)]">
+            {t('tools.password.settings.switch_prompt', {
+              from: String(settings?.verifierCost ?? VERIFIER_TIERS.standard),
+              to: String(verifierPrompt?.cost ?? 0),
+            })}
+          </p>
+
+          <Input
+            data-testid="password-verifier-password"
+            type="password"
+            autoComplete="current-password"
+            spellCheck={false}
+            autoFocus
+            value={verifierPassword}
+            onChange={(event) => {
+              setVerifierPassword(event.target.value)
+              if (verifierError) setVerifierError(null)
+            }}
+            placeholder={t('tools.password.door.placeholder')}
+            aria-label={t('tools.password.settings.switch_title')}
+            aria-invalid={Boolean(verifierError)}
+          />
+
+          {verifierError && (
+            <div
+              data-testid="password-verifier-error"
+              role="alert"
+              className="rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]"
+            >
+              {verifierError}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setVerifierPassword('')
+                setVerifierError(null)
+                setVerifierPrompt(null)
+              }}
+              disabled={isSwitchingVerifier}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              data-testid="password-verifier-submit"
+              type="submit"
+              variant="primary"
+              loading={isSwitchingVerifier}
+            >
+              {t('tools.password.settings.switch_submit')}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </>
   )
 }

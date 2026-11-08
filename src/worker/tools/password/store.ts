@@ -12,7 +12,12 @@ import type {
   PasswordSettings,
   PasswordVaultState,
 } from '@shared/tools/password/types'
+import {
+  DEFAULT_VERIFIER_COST,
+  verifierCostFromHash,
+} from '@shared/tools/password/types'
 import { ApiError } from '../../lib/errors'
+import { hashMasterHashAtCost, verifyMasterHash } from './verify'
 
 /**
  * D1 caps the number of statements one `batch` may carry, and the repository's other stores chunk at
@@ -93,7 +98,28 @@ interface AccountRow {
 interface SettingsRow {
   user_id: string
   auto_lock_minutes: number
+  verifier_cost: number
+  verifier_samples: string
+  verifier_measured_at: number
   updated_at: number
+}
+
+/** Parses the stored per-tier measurements; a corrupt value reads as "nothing measured yet". */
+function parseVerifierSamples(raw: string | null | undefined): Record<string, number> {
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return {}
+    const samples: Record<string, number> = {}
+    for (const [cost, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!/^\d{1,2}$/.test(cost)) continue
+      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue
+      samples[cost] = Math.round(value * 10) / 10
+    }
+    return samples
+  } catch {
+    return {}
+  }
 }
 
 interface BackupRow {
@@ -908,25 +934,35 @@ export class PasswordStore {
 
   // ---------------------------------------------------------------- Settings
   async getSettings(): Promise<PasswordSettings> {
-    const row = await this.db
-      .prepare(
-        `SELECT auto_lock_minutes, updated_at
-         FROM tools_password_settings
-         WHERE user_id = ?1`,
-      )
-      .bind(this.userId)
-      .first<SettingsRow>()
+    const [row, vault] = await Promise.all([
+      this.db
+        .prepare(
+          `SELECT auto_lock_minutes, verifier_cost, verifier_samples, verifier_measured_at, updated_at
+           FROM tools_password_settings
+           WHERE user_id = ?1`,
+        )
+        .bind(this.userId)
+        .first<SettingsRow>(),
+      this.getVault(),
+    ])
+    const storedCost = vault ? (verifierCostFromHash(vault.masterHash) ?? DEFAULT_VERIFIER_COST) : DEFAULT_VERIFIER_COST
 
     if (!row) {
       return {
         autoLockMinutes: 5,
         updatedAt: 0,
+        verifierCost: storedCost,
+        verifierStoredCost: storedCost,
+        verifierSamples: {},
       }
     }
 
     return {
       autoLockMinutes: row.auto_lock_minutes,
       updatedAt: row.updated_at,
+      verifierCost: row.verifier_cost,
+      verifierStoredCost: storedCost,
+      verifierSamples: parseVerifierSamples(row.verifier_samples),
     }
   }
 
@@ -937,19 +973,115 @@ export class PasswordStore {
 
     await this.db
       .prepare(
-        `INSERT INTO tools_password_settings (user_id, auto_lock_minutes, updated_at)
-         VALUES (?1, ?2, ?3)
+        `INSERT INTO tools_password_settings (user_id, auto_lock_minutes, verifier_cost, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT(user_id) DO UPDATE SET
            auto_lock_minutes = excluded.auto_lock_minutes,
            updated_at = excluded.updated_at`,
       )
-      .bind(this.userId, autoLockMinutes, now)
+      .bind(this.userId, autoLockMinutes, current.verifierCost, now)
       .run()
 
     return {
+      ...current,
       autoLockMinutes,
       updatedAt: now,
     }
+  }
+
+  /**
+   * Stores the tier the reader picked. It is only a target: the row keeps verifying with whatever
+   * cost its digest carries, and the next successful verification rehashes toward this value.
+   */
+  async setVerifierTarget(cost: number): Promise<void> {
+    const now = Date.now()
+    await this.db
+      .prepare(
+        `INSERT INTO tools_password_settings (user_id, auto_lock_minutes, verifier_cost, updated_at)
+         VALUES (?1, 5, ?2, ?3)
+         ON CONFLICT(user_id) DO UPDATE SET
+           verifier_cost = excluded.verifier_cost,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(this.userId, cost, now)
+      .run()
+  }
+
+  /**
+   * Rebuilds the verifier at `targetCost` and swaps it in only if the row still holds `previousHash`.
+   *
+   * The compare-and-swap is what keeps the row from ending up with a digest of one password and a
+   * salt-change or another tab's switch landing in between: either this write wins whole or the row
+   * is left exactly as it was. The new digest is verified once before it is stored, and that verify
+   * is the number the settings screen shows for this tier — a measurement from this deployment, not
+   * an estimate shipped in the bundle.
+   */
+  async retargetVerifier(password: string, targetCost: number, previousHash: string): Promise<number> {
+    // The bcrypt work is CPU-bound and synchronous, so it has to start after the response leaves the
+    // handler: started inline it would spend the very budget `waitUntil` exists to move off the reply.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const nextHash = hashMasterHashAtCost(password, targetCost)
+    const verifyStarted = performance.now()
+    if (!verifyMasterHash(password, nextHash)) {
+      throw new ApiError(500, 'verifier_unusable', 'The rebuilt verifier did not verify the password')
+    }
+    const measuredMs = Number((performance.now() - verifyStarted).toFixed(1))
+
+    const now = Date.now()
+    const result = await this.db
+      .prepare(
+        `UPDATE tools_password_vault
+         SET master_hash = ?1, updated_at = ?2
+         WHERE user_id = ?3 AND master_hash = ?4`,
+      )
+      .bind(nextHash, now, this.userId, previousHash)
+      .run()
+
+    if (!result.meta || Number(result.meta.changes ?? 0) === 0) {
+      throw new ApiError(409, 'verifier_changed', 'The verifier changed while this switch was running')
+    }
+
+    await this.recordVerifierSample(targetCost, measuredMs, true)
+    return measuredMs
+  }
+
+  /**
+   * Keeps the newest measurement for a tier. Unlock calls this on every successful verify, so it is
+   * throttled: a fresh reading for the same tier within ten minutes is not worth another D1 write per
+   * unlock. An explicit switch forces the write, because that number is what the screen has to show.
+   */
+  async recordVerifierSample(cost: number, measuredMs: number, force = false): Promise<void> {
+    const row = await this.db
+      .prepare(
+        `SELECT verifier_samples, verifier_measured_at
+         FROM tools_password_settings
+         WHERE user_id = ?1`,
+      )
+      .bind(this.userId)
+      .first<Pick<SettingsRow, 'verifier_samples' | 'verifier_measured_at'>>()
+
+    const now = Date.now()
+    const samples = parseVerifierSamples(row?.verifier_samples)
+    const fresh =
+      !force &&
+      samples[String(cost)] !== undefined &&
+      row !== null &&
+      now - row.verifier_measured_at < 10 * 60 * 1000
+    if (fresh) return
+
+    samples[String(cost)] = Math.round(measuredMs * 10) / 10
+
+    await this.db
+      .prepare(
+        `INSERT INTO tools_password_settings (user_id, auto_lock_minutes, verifier_samples, verifier_measured_at, updated_at)
+         VALUES (?1, 5, ?2, ?3, ?4)
+         ON CONFLICT(user_id) DO UPDATE SET
+           verifier_samples = excluded.verifier_samples,
+           verifier_measured_at = excluded.verifier_measured_at,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(this.userId, JSON.stringify(samples), now, now)
+      .run()
   }
 
   // ---------------------------------------------------------------- Audit

@@ -15,12 +15,18 @@ import {
   ReorderAccountsSchema,
   ResetMasterPasswordSchema,
   SaveSettingsSchema,
+  SetVerifierCostSchema,
   UnlockVaultSchema,
   UpdateAccountSchema,
   UpdateGroupSchema,
   WipeVaultSchema,
 } from '@shared/tools/password/schemas'
 import type { PasswordBackupData } from '@shared/tools/password/types'
+import {
+  DEFAULT_VERIFIER_COST,
+  isVerifierTierCost,
+  verifierCostFromHash,
+} from '@shared/tools/password/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import {
@@ -59,6 +65,19 @@ function getUserId(c: Context<AppBindings>): string {
 
 function getStore(c: Context<AppBindings>): PasswordStore {
   return new PasswordStore(c.env.DB, getUserId(c))
+}
+
+/**
+ * Runs work after the response has gone out. The platform hands every real request an execution
+ * context, but a bare Hono instance in a test does not; there the work still runs rather than
+ * turning a successful request into a 500.
+ */
+function afterResponse(c: Context<AppBindings>, task: Promise<unknown>): void {
+  try {
+    c.executionCtx.waitUntil(task)
+  } catch {
+    void task
+  }
 }
 
 async function parseBody<T>(c: Context<AppBindings>, schema: z.ZodType<T>): Promise<T> {
@@ -240,15 +259,52 @@ toolsPasswordRoutes.post('/vault/unlock', async (c) => {
   }
 
   const budgetKey = await spendUnlockBudget(c)
-  if (!verifyMasterHash(body.password, vault.masterHash)) {
+  const verifyStarted = performance.now()
+  const verified = verifyMasterHash(body.password, vault.masterHash)
+  const verifyMs = Number((performance.now() - verifyStarted).toFixed(1))
+  if (!verified) {
     await audit(c, 'unlock_failed')
     throw wrongMasterPassword()
   }
   await clearLoginFailures(c.env.DB, [budgetKey])
   await audit(c, 'unlock_ok')
+
+  // The cost in the digest is what the reader chose last time but may not be what it says now: a
+  // switch that ran out of CPU leaves a target the row has not reached yet. This records how long the
+  // verify actually took on this deployment and, when the two disagree, rehashes toward the target
+  // after the response. Verification itself never depends on the target, so an unfinished switch
+  // can never lock anybody out.
+  const storedCost = verifierCostFromHash(vault.masterHash) ?? DEFAULT_VERIFIER_COST
+  const maintenance = (async () => {
+    await store.recordVerifierSample(storedCost, verifyMs)
+    const settings = await store.getSettings()
+    if (settings.verifierCost === storedCost) return
+    try {
+      const measuredMs = await store.retargetVerifier(body.password, settings.verifierCost, vault.masterHash)
+      await audit(c, 'verifier_retargeted', {
+        from: storedCost,
+        to: settings.verifierCost,
+        measuredMs,
+        mode: 'on-unlock',
+      })
+    } catch (error) {
+      const current = await store.getVault()
+      const actualCost = current
+        ? (verifierCostFromHash(current.masterHash) ?? storedCost)
+        : storedCost
+      await store.setVerifierTarget(actualCost)
+      await audit(c, 'verifier_retarget_failed', {
+        from: storedCost,
+        to: settings.verifierCost,
+        reason: error instanceof Error ? error.message : String(error),
+      })
+    }
+  })()
+  afterResponse(c, maintenance)
+
   // An empty salt means the vault predates the salted derivation; the client re-seals it now that
   // it has the password in hand.
-  return c.json({ ok: true, data: { ok: true, salt: vault.kdfSalt } })
+  return c.json({ ok: true, data: { ok: true, salt: vault.kdfSalt, verifierMs: verifyMs } })
 })
 
 toolsPasswordRoutes.post('/vault/re-auth', async (c) => {
@@ -480,6 +536,88 @@ toolsPasswordRoutes.put('/settings', async (c) => {
   const body = await parseBody(c, SaveSettingsSchema)
   const settings = await store.saveSettings(body)
   return c.json({ ok: true, data: settings })
+})
+
+/**
+ * Moves the verifier to another bcrypt cost. The reader chooses the tier; the server does the work,
+ * so the digest is always a hash of the password it has just checked.
+ *
+ * A cheaper tier is milliseconds of CPU and lands before the response. A stronger one costs seconds
+ * and runs after it: the row keeps verifying with the old digest until the new one is swapped in by
+ * compare-and-swap, and a failed attempt puts the target back to what is actually stored.
+ */
+toolsPasswordRoutes.post('/settings/verifier', async (c) => {
+  const store = getStore(c)
+  const body = await parseBody(c, SetVerifierCostSchema)
+  if (!isVerifierTierCost(body.cost)) {
+    throw ApiError.badRequest(`Unknown verifier cost tier: ${body.cost}`)
+  }
+  const vault = await store.getVault()
+  if (!vault) {
+    throw ApiError.badRequest('Vault is not initialized')
+  }
+
+  const budgetKey = await spendUnlockBudget(c)
+  if (!verifyMasterHash(body.password, vault.masterHash)) {
+    await audit(c, 'verifier_switch_failed', { target: body.cost })
+    throw wrongMasterPassword()
+  }
+  await clearLoginFailures(c.env.DB, [budgetKey])
+
+  const storedCost = verifierCostFromHash(vault.masterHash) ?? DEFAULT_VERIFIER_COST
+  await store.setVerifierTarget(body.cost)
+  await audit(c, 'verifier_target_changed', { from: storedCost, to: body.cost })
+  const measuredMs = (await store.getSettings()).verifierSamples[String(storedCost)] ?? 0
+
+  if (body.cost === storedCost) {
+    return c.json({
+      ok: true,
+      data: { applied: 'unchanged', storedCost, targetCost: body.cost, measuredMs },
+    })
+  }
+
+  if (body.cost < storedCost) {
+    const immediateMs = await store.retargetVerifier(body.password, body.cost, vault.masterHash)
+    await audit(c, 'verifier_retargeted', {
+      from: storedCost,
+      to: body.cost,
+      measuredMs: immediateMs,
+      mode: 'immediate',
+    })
+    return c.json({
+      ok: true,
+      data: { applied: 'immediate', storedCost: body.cost, targetCost: body.cost, measuredMs: immediateMs },
+    })
+  }
+
+  const upgrade = store
+    .retargetVerifier(body.password, body.cost, vault.masterHash)
+    .then(async (upgradeMs) => {
+      await audit(c, 'verifier_retargeted', {
+        from: storedCost,
+        to: body.cost,
+        measuredMs: upgradeMs,
+        mode: 'deferred',
+      })
+    })
+    .catch(async (error: unknown) => {
+      const current = await store.getVault()
+      const actualCost = current
+        ? (verifierCostFromHash(current.masterHash) ?? storedCost)
+        : storedCost
+      await store.setVerifierTarget(actualCost)
+      await audit(c, 'verifier_retarget_failed', {
+        from: storedCost,
+        to: body.cost,
+        reason: error instanceof Error ? error.message : String(error),
+      })
+    })
+  afterResponse(c, upgrade)
+
+  return c.json({
+    ok: true,
+    data: { applied: 'deferred', storedCost, targetCost: body.cost, measuredMs },
+  })
 })
 
 // ---------------------------------------------------------------- Backups

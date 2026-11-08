@@ -212,6 +212,22 @@ export const passwordApi = {
     })
   },
 
+  /**
+   * Asks the server to rebuild the verifier at another bcrypt cost. The master password travels with
+   * the request because only the server may hash it; a weaker tier lands before the reply, a stronger
+   * one finishes after it and reports `applied: 'deferred'`.
+   */
+  setVerifierCost: (cost: number, password: string) =>
+    request<{
+      applied: 'unchanged' | 'immediate' | 'deferred'
+      storedCost: number
+      targetCost: number
+      measuredMs: number
+    }>('/settings/verifier', {
+      method: 'POST',
+      body: JSON.stringify({ cost, password }),
+    }),
+
   getBackups: () => request<PasswordBackupRecord[]>('/backups'),
 
   createBackup: () =>

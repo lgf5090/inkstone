@@ -125,3 +125,13 @@ export const BatchImportAccountsSchema = z.object({
 export const SaveSettingsSchema = z.object({
   autoLockMinutes: z.number().int().min(1).max(120).optional(),
 })
+
+/**
+ * The reader's verifier-cost switch carries the master password itself, because the server has to
+ * rehash from a password it has just verified — accepting a digest from the browser would let a bad
+ * client write a verifier for the wrong password and lock the vault with no recovery path.
+ */
+export const SetVerifierCostSchema = z.object({
+  cost: z.number().int().min(4).max(31),
+  password: z.string().min(1).max(200),
+})

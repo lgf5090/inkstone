@@ -54,6 +54,11 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS tools_password_settings (
     user_id TEXT NOT NULL,
     auto_lock_minutes INTEGER NOT NULL DEFAULT 5,
+    -- bcrypt cost the reader picked for the master-password verifier, plus the verify times this
+    -- deployment actually measured for each tier, so a switch can show a real number.
+    verifier_cost INTEGER NOT NULL DEFAULT 10,
+    verifier_samples TEXT NOT NULL DEFAULT '{}',
+    verifier_measured_at INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id)
   )`,
@@ -139,6 +144,9 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
   tools_password_settings: [
     'user_id',
     'auto_lock_minutes',
+    'verifier_cost',
+    'verifier_samples',
+    'verifier_measured_at',
     'updated_at',
   ],
   tools_password_backups: [

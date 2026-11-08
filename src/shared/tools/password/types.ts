@@ -84,6 +84,50 @@ export interface DecryptedAccount {
 export interface PasswordSettings {
   autoLockMinutes: number
   updatedAt: number
+  /**
+   * bcrypt cost the reader chose for the master-password verifier. It is a target, not a fact: the
+   * stored digest may still carry another cost until the next successful verification rehashes it.
+   */
+  verifierCost: number
+  /** What the stored verifier digest actually uses, read from its `$2a$NN$` prefix. */
+  verifierStoredCost: number
+  /** Measured verify time per bcrypt cost on this deployment, in milliseconds (keyed by cost). */
+  verifierSamples: Record<string, number>
+}
+
+/**
+ * The verifier's bcrypt cost is the only dial that decides how much CPU an unlock costs the Worker.
+ * Three tiers, because a single value cannot serve both a Free-plan deployment and a reader who
+ * wants a harder target for offline guessing.
+ */
+export const VERIFIER_TIERS = {
+  low: 4,
+  standard: 10,
+  high: 12,
+} as const
+
+export type VerifierTier = keyof typeof VERIFIER_TIERS
+
+export const VERIFIER_COSTS: readonly number[] = Object.values(VERIFIER_TIERS)
+
+export const DEFAULT_VERIFIER_COST = VERIFIER_TIERS.standard
+
+/** Workers Free allows 10 ms of CPU per request; a tier measured above it cannot unlock there. */
+export const FREE_PLAN_CPU_MS = 10
+
+export function isVerifierTierCost(cost: number): boolean {
+  return VERIFIER_COSTS.includes(cost)
+}
+
+/**
+ * bcrypt digests name their cost (`$2a$10$…`). Reading it back is what lets a deployment keep
+ * verifying with whatever cost a vault was sealed at, instead of asking the reader to switch first.
+ */
+export function verifierCostFromHash(hash: string): number | null {
+  const match = /^\$2[abxy]?\$(\d{2})\$/.exec(hash)
+  if (!match) return null
+  const cost = Number(match[1])
+  return Number.isInteger(cost) && cost >= 4 && cost <= 31 ? cost : null
 }
 
 export interface PasswordBackupRecord {

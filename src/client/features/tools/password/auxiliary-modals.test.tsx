@@ -40,8 +40,17 @@ vi.mock('./api', async (importOriginal) => {
     getSettings: vi.fn().mockResolvedValue({
       autoLockMinutes: 15,
       updatedAt: 1000,
+      verifierCost: 10,
+      verifierStoredCost: 10,
+      verifierSamples: {},
     }),
     saveSettings: vi.fn().mockResolvedValue({ ok: true }),
+    setVerifierCost: vi.fn().mockResolvedValue({
+      applied: 'deferred',
+      storedCost: 10,
+      targetCost: 12,
+      measuredMs: 0,
+    }),
     getBackups: vi.fn().mockResolvedValue([
       {
         id: 'b-1',
@@ -722,6 +731,79 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       })
 
       expect(passwordApi.createBackup).toHaveBeenCalled()
+      view.unmount()
+    })
+
+    it('shows the measured verify time per tier and asks before a tier above the Free budget', async () => {
+      vi.mocked(passwordApi.getSettings).mockResolvedValue({
+        autoLockMinutes: 15,
+        updatedAt: 1000,
+        verifierCost: 10,
+        verifierStoredCost: 10,
+        verifierSamples: { '4': 3.1, '10': 420.2 },
+      })
+      const view = renderElement(createElement(BackupSettingsModal, { open: true }))
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(document.querySelector('[data-testid="password-verifier-section"]')).not.toBeNull()
+      // The numbers come from the last real verify on this deployment, not from a constant in the bundle.
+      expect(document.querySelector('[data-testid="password-verifier-measured-low"]')?.textContent).toContain('3.1')
+      expect(document.querySelector('[data-testid="password-verifier-measured-standard"]')?.textContent).toContain('420.2')
+      expect(document.querySelector('[data-testid="password-verifier-measured-high"]')?.textContent).toContain(
+        t('tools.password.settings.unmeasured'),
+      )
+
+      const highOption = Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === t('tools.password.settings.tier_high'),
+      ) as HTMLButtonElement
+      expect(highOption).not.toBeNull()
+      await act(async () => {
+        highOption.click()
+      })
+
+      // 420.2 ms is 42× the Free plan's 10 ms, so the switch must not proceed silently.
+      expect(document.body.textContent).toContain(t('tools.password.settings.warn_title'))
+      expect(passwordApi.setVerifierCost).not.toHaveBeenCalled()
+
+      await act(async () => {
+        ;(document.querySelector('[data-testid="password-verifier-warn-confirm"]') as HTMLButtonElement).click()
+      })
+
+      const passwordInput = document.querySelector('[data-testid="password-verifier-password"]') as HTMLInputElement
+      expect(passwordInput).not.toBeNull()
+      setInputValue(passwordInput, MASTER_PASS)
+      await act(async () => {
+        ;(document.querySelector('[data-testid="password-verifier-submit"]') as HTMLButtonElement).click()
+      })
+
+      expect(passwordApi.setVerifierCost).toHaveBeenCalledWith(12, MASTER_PASS)
+      view.unmount()
+    })
+
+    it('goes straight to the password prompt for a tier measured inside the Free budget', async () => {
+      vi.mocked(passwordApi.getSettings).mockResolvedValue({
+        autoLockMinutes: 15,
+        updatedAt: 1000,
+        verifierCost: 10,
+        verifierStoredCost: 10,
+        verifierSamples: { '4': 3.1, '10': 420.2 },
+      })
+      const view = renderElement(createElement(BackupSettingsModal, { open: true }))
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      const lowOption = Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === t('tools.password.settings.tier_low'),
+      ) as HTMLButtonElement
+      await act(async () => {
+        lowOption.click()
+      })
+
+      expect(document.body.textContent).not.toContain(t('tools.password.settings.warn_title'))
+      expect(document.querySelector('[data-testid="password-verifier-password"]')).not.toBeNull()
       view.unmount()
     })
 

@@ -9,13 +9,15 @@ import {
   TOOLS_PASSWORD_REQUIRED_TABLES,
   TOOLS_PASSWORD_SCHEMA_STATEMENTS,
 } from '../src/worker/tools/password/schema'
-import { errorResponse } from '../src/worker/lib/errors'
+import { ApiError, errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { toolsPasswordRoutes } from '../src/worker/routes/tools-password'
 import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 import { issueConfirmToken } from '../src/worker/tools/password/confirm'
 import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
+import { PasswordStore } from '../src/worker/tools/password/store'
+import { verifierCostFromHash } from '../src/shared/tools/password/types'
 
 const USER_A = 'user-alice'
 const USER_B = 'user-bob'
@@ -62,6 +64,19 @@ const app = testApp()
 
 let sqlite: DatabaseSync
 let env: Env
+/**
+ * Work handed to `waitUntil` after a response. The route starts it once the reply is built, so a test
+ * that checks its effect has to let it run rather than guess at a delay.
+ */
+let backgroundTasks: Promise<unknown>[] = []
+
+async function flushBackground(): Promise<void> {
+  while (backgroundTasks.length > 0) {
+    const running = backgroundTasks
+    backgroundTasks = []
+    await Promise.allSettled(running)
+  }
+}
 
 async function call(
   method: string,
@@ -84,6 +99,13 @@ async function call(
   return app.fetch(
     new Request(`http://localhost${path}`, { method, headers, body }),
     env,
+    {
+      waitUntil: (task: Promise<unknown>) => {
+        backgroundTasks.push(task)
+      },
+      passThroughOnException: () => {},
+      props: {},
+    },
   )
 }
 
@@ -111,6 +133,7 @@ async function dangerHeaders(user = USER_A): Promise<Record<string, string>> {
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
+  backgroundTasks = []
   for (const statement of TOOLS_PASSWORD_SCHEMA_STATEMENTS) {
     sqlite.exec(statement)
   }
@@ -183,6 +206,51 @@ describe('Password Manager D1 Schema & Tenant Isolation', () => {
       kdf_salt: string
     }
     expect(row).toEqual({ master_hash: 'hash', kdf_salt: 'salt' })
+    legacy.close()
+  })
+
+  it('adds the verifier-tier settings columns to an existing vault and skips the work twice', () => {
+    const legacy = new DatabaseSync(':memory:')
+    legacy.exec(`CREATE TABLE tools_password_settings (
+      user_id TEXT NOT NULL PRIMARY KEY,
+      auto_lock_minutes INTEGER NOT NULL DEFAULT 5,
+      updated_at INTEGER NOT NULL
+    )`)
+    legacy.exec(`INSERT INTO tools_password_settings VALUES ('u1', 15, 7)`)
+
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 329)
+    expect(migration, 'migration 329 must add the verifier settings').toBeTruthy()
+    expect(migration!.skipIfColumnExists).toEqual({
+      table: 'tools_password_settings',
+      column: 'verifier_cost',
+    })
+    // 327–328 belong to other lanes; the password module may not take them.
+    expect(migration!.version).toBeGreaterThanOrEqual(329)
+
+    for (const statement of migration!.statements) legacy.exec(statement)
+
+    const columns = (legacy.prepare('PRAGMA table_info(tools_password_settings)').all() as Array<{
+      name: string
+    }>).map((column) => column.name)
+    expect(columns).toEqual(
+      expect.arrayContaining(['verifier_cost', 'verifier_samples', 'verifier_measured_at']),
+    )
+
+    // The reader's auto-lock choice survives the migration untouched.
+    const row = legacy.prepare('SELECT auto_lock_minutes FROM tools_password_settings').get() as {
+      auto_lock_minutes: number
+    }
+    expect(row.auto_lock_minutes).toBe(15)
+
+    // A fresh database already has those columns, so the version is skipped there; the ledger still
+    // records that the question was asked.
+    const fresh = new DatabaseSync(':memory:')
+    for (const statement of TOOLS_PASSWORD_SCHEMA_STATEMENTS) fresh.exec(statement)
+    const existing = (fresh.prepare('PRAGMA table_info(tools_password_settings)').all() as Array<{
+      name: string
+    }>).map((column) => column.name)
+    expect(existing).toContain('verifier_cost')
+    fresh.close()
     legacy.close()
   })
 
@@ -1549,6 +1617,155 @@ describe('Password Manager Account Paging', () => {
     // The client only holds one page of rows, so counting them locally would say "0" or the page
     // size; the total has to come from the server.
     expect(groups.find((row) => row.id === group.id)?.accountCount).toBe(3)
+  })
+})
+
+describe('Password Manager Verifier Cost Tiers', () => {
+  function storedHash(user = USER_A): string {
+    const row = sqlite
+      .prepare('SELECT master_hash FROM tools_password_vault WHERE user_id = ?')
+      .get(user) as { master_hash: string } | undefined
+    if (!row) throw new Error('no vault row')
+    return row.master_hash
+  }
+
+  function storedTarget(user = USER_A): number | null {
+    const row = sqlite
+      .prepare('SELECT verifier_cost FROM tools_password_settings WHERE user_id = ?')
+      .get(user) as { verifier_cost: number } | undefined
+    return row ? row.verifier_cost : null
+  }
+
+  function auditActions(user = USER_A): string[] {
+    return (
+      sqlite
+        .prepare('SELECT action FROM tools_password_audit WHERE user_id = ? ORDER BY created_at ASC')
+        .all(user) as Array<{ action: string }>
+    ).map((row) => row.action)
+  }
+
+  async function initAt(hash: string): Promise<void> {
+    expect(
+      (
+        await call('POST', '/api/tools/password/vault/init', {
+          body: { masterHash: hash, kdfSalt: KDF_SALT },
+        })
+      ).status,
+    ).toBe(200)
+  }
+
+  it('moves a stronger tier in the background and only then swaps the stored digest', async () => {
+    await initAt(OLD_HASH)
+    const res = await call('POST', '/api/tools/password/settings/verifier', {
+      body: { cost: 12, password: OLD_PASSWORD },
+    })
+    expect(res.status).toBe(200)
+    const data = (await json<{ data: { applied: string; storedCost: number; targetCost: number } }>(res)).data
+    expect(data.applied).toBe('deferred')
+    expect(data.targetCost).toBe(12)
+
+    // The response goes out while the row still holds the old digest: a killed isolate can only lose
+    // the upgrade, never the ability to unlock.
+    expect(verifierCostFromHash(storedHash())).toBe(4)
+    expect(storedTarget()).toBe(12)
+
+    await flushBackground()
+    expect(verifierCostFromHash(storedHash())).toBe(12)
+
+    const unlock = await call('POST', '/api/tools/password/vault/unlock', {
+      body: { password: OLD_PASSWORD },
+    })
+    expect(unlock.status).toBe(200)
+
+    const actions = auditActions()
+    expect(actions).toContain('verifier_target_changed')
+    expect(actions).toContain('verifier_retargeted')
+  })
+
+  it('applies a cheaper tier before the response', async () => {
+    await initAt(hashSync(OLD_PASSWORD, 12))
+    expect(verifierCostFromHash(storedHash())).toBe(12)
+
+    const res = await call('POST', '/api/tools/password/settings/verifier', {
+      body: { cost: 4, password: OLD_PASSWORD },
+    })
+    expect(res.status).toBe(200)
+    const data = (await json<{ data: { applied: string } }>(res)).data
+    // Downgrading is milliseconds of work, and "takes effect immediately" is what the reader picked it for.
+    expect(data.applied).toBe('immediate')
+    expect(verifierCostFromHash(storedHash())).toBe(4)
+    expect(storedTarget()).toBe(4)
+    expect(
+      (await call('POST', '/api/tools/password/vault/unlock', { body: { password: OLD_PASSWORD } })).status,
+    ).toBe(200)
+  })
+
+  it('refuses a tier it does not know and a wrong master password', async () => {
+    await initAt(OLD_HASH)
+
+    const unknown = await call('POST', '/api/tools/password/settings/verifier', {
+      body: { cost: 7, password: OLD_PASSWORD },
+    })
+    expect(unknown.status).toBe(400)
+
+    const wrong = await call('POST', '/api/tools/password/settings/verifier', {
+      body: { cost: 12, password: 'not-it' },
+    })
+    expect(wrong.status).toBe(401)
+    expect((await json<{ error: { code: string } }>(wrong)).error.code).toBe('wrong_password')
+
+    // Nothing changed, and the attempt is in the log next to the other refused password checks.
+    expect(verifierCostFromHash(storedHash())).toBe(4)
+    expect(storedTarget()).toBeNull()
+    expect(auditActions()).toContain('verifier_switch_failed')
+  })
+
+  it('finishes a drifted tier on the next successful unlock', async () => {
+    await initAt(OLD_HASH)
+    // A switch that recorded its target but never got to rebuild the digest: the unlock has to
+    // repair that instead of leaving the two values disagreeing forever.
+    sqlite
+      .prepare(
+        `INSERT INTO tools_password_settings (user_id, auto_lock_minutes, verifier_cost, verifier_samples, verifier_measured_at, updated_at)
+         VALUES (?, 5, 12, '{}', 0, 1)`,
+      )
+      .run(USER_A)
+
+    const unlock = await call('POST', '/api/tools/password/vault/unlock', {
+      body: { password: OLD_PASSWORD },
+    })
+    expect(unlock.status).toBe(200)
+    expect(verifierCostFromHash(storedHash())).toBe(4)
+
+    await flushBackground()
+    expect(verifierCostFromHash(storedHash())).toBe(12)
+    expect(auditActions()).toContain('verifier_retargeted')
+    // The measurement the settings screen shows comes from this deployment's own verify.
+    const settings = (await json<{ data: { verifierSamples: Record<string, number>; verifierStoredCost: number } }>(
+      await call('GET', '/api/tools/password/settings'),
+    )).data
+    expect(settings.verifierStoredCost).toBe(12)
+    expect(settings.verifierSamples['12']).toBeGreaterThan(0)
+  })
+
+  it('puts the target back when the upgrade fails and leaves a record of it', async () => {
+    await initAt(OLD_HASH)
+    const spy = vi
+      .spyOn(PasswordStore.prototype, 'retargetVerifier')
+      .mockRejectedValueOnce(new ApiError(500, 'verifier_unusable', 'the rebuilt digest did not verify'))
+    try {
+      const res = await call('POST', '/api/tools/password/settings/verifier', {
+        body: { cost: 12, password: OLD_PASSWORD },
+      })
+      expect(res.status).toBe(200)
+      await flushBackground()
+
+      expect(verifierCostFromHash(storedHash())).toBe(4)
+      expect(storedTarget()).toBe(4)
+      expect(auditActions()).toContain('verifier_retarget_failed')
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
 
