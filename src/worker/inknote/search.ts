@@ -75,6 +75,9 @@ export async function searchInknote(
   const notebookId = input.notebookId?.trim() || undefined
   const notebookFilter = notebookId ? ' AND n.notebook_id = ?3' : ''
   const notebookFilterPages = notebookId ? ' AND n.notebook_id = ?3' : ''
+  // Only the first rows can reach the response; reading every matching page back made a common
+  // one-character query pay for the whole account's text.
+  const scanLimit = Math.min(INKNOTE_LIMITS.searchResultsMax, Math.max(limit, limit * 2))
 
   const titleStatement = db.prepare(
     `SELECT n.id AS note_id, n.title, n.notebook_id,
@@ -86,7 +89,8 @@ export async function searchInknote(
        LEFT JOIN inknote_subjects s ON s.user_id = b.user_id AND s.id = b.subject_id
       WHERE n.user_id = ?1 AND n.deleted_at IS NULL
         AND n.title_key LIKE ?2 ESCAPE '\\'${notebookFilter}
-      ORDER BY n.updated_at DESC, n.id ASC`,
+      ORDER BY n.updated_at DESC, n.id ASC
+      LIMIT ${scanLimit}`,
   )
   const pageStatement = db.prepare(
     `WITH hits AS (
@@ -104,7 +108,8 @@ export async function searchInknote(
      )
      SELECT note_id, title, notebook_id, notebook_name, subject_name, updated_at, page_position, hit_text
        FROM hits WHERE rank_no = 1
-      ORDER BY updated_at DESC, note_id ASC`,
+      ORDER BY updated_at DESC, note_id ASC
+      LIMIT ${scanLimit}`,
   )
   const bind = (statement: D1PreparedStatement) => (
     notebookId ? statement.bind(userId, pattern, notebookId) : statement.bind(userId, pattern)

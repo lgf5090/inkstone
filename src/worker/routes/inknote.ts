@@ -214,6 +214,18 @@ inknoteRoutes.post('/notes', async (c) => {
     notebookId: requiredId(body.notebookId, 'notebookId'),
     title: optionalText(body.title, 'title', INKNOTE_LIMITS.titleMaxLength),
     paper: optionalPaper(body.paper),
+    pageWidth: optionalPageSize(
+      body.pageWidth,
+      'pageWidth',
+      INKNOTE_PAGE_SIZE_LIMITS.minWidth,
+      INKNOTE_PAGE_SIZE_LIMITS.maxWidth,
+    ),
+    pageHeight: optionalPageSize(
+      body.pageHeight,
+      'pageHeight',
+      INKNOTE_PAGE_SIZE_LIMITS.minHeight,
+      INKNOTE_PAGE_SIZE_LIMITS.maxHeight,
+    ),
   })
   const response: InknoteNoteResponse = { note: result.note, pages: result.pages }
   return c.json(response, result.created ? 201 : 200)

@@ -39,7 +39,11 @@ export function RecordingPanel({ open, noteId, onClose, getEngine, onPage }: { o
     },
   })
   const load = () => { if (noteId) void inknoteApi.recordings(noteId).then((response) => setItems(response.recordings)).catch(() => setItems([])) }
-  useEffect(load, [noteId, open])
+  useEffect(() => {
+    // The panel stays mounted while closed; only an opened panel needs the note's recording list.
+    if (!open || !noteId) return
+    void inknoteApi.recordings(noteId).then((response) => setItems(response.recordings)).catch(() => setItems([]))
+  }, [noteId, open])
   useEffect(() => {
     if (!recorder.error) return
     toast({ title: t(recorder.error as MessageKey), tone: 'danger' })
