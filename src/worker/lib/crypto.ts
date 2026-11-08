@@ -463,6 +463,64 @@ function isMemoWebhookSecret(value: unknown): value is string {
     && value.length <= 512
 }
 
+export async function encryptCerthubAccountKey(env: Env, accountId: string, privateKey: string): Promise<string> {
+  if (!isValidId(accountId) || !isPrivateKeyPem(privateKey)) throw new Error('invalid_certhub_credential')
+  return encryptCredential(env, `certhub-account:${accountId}`, { privateKey })
+}
+
+export async function decryptCerthubAccountKey(env: Env, accountId: string, stored: string): Promise<string | null> {
+  if (!isValidId(accountId) || !stored || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `certhub-account:${accountId}`, stored)
+  const privateKey = isPlainRecord(value) ? value.privateKey : null
+  return isPrivateKeyPem(privateKey) ? privateKey : null
+}
+
+export async function encryptCerthubOrderKey(env: Env, orderId: string, privateKey: string): Promise<string> {
+  if (!isValidId(orderId) || !isPrivateKeyPem(privateKey)) throw new Error('invalid_certhub_credential')
+  return encryptCredential(env, `certhub-order:${orderId}`, { privateKey })
+}
+
+export async function decryptCerthubOrderKey(env: Env, orderId: string, stored: string): Promise<string | null> {
+  if (!isValidId(orderId) || !stored || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `certhub-order:${orderId}`, stored)
+  const privateKey = isPlainRecord(value) ? value.privateKey : null
+  return isPrivateKeyPem(privateKey) ? privateKey : null
+}
+
+export async function encryptCerthubDnsCredential(
+  env: Env,
+  providerId: string,
+  value: { token: string; email?: string },
+): Promise<string> {
+  if (!isValidId(providerId) || !value.token || value.token.length > 4096) throw new Error('invalid_certhub_credential')
+  return encryptCredential(env, `certhub-dns:${providerId}`, {
+    token: value.token,
+    ...(value.email ? { email: value.email } : {}),
+  })
+}
+
+export async function decryptCerthubDnsCredential(
+  env: Env,
+  providerId: string,
+  stored: string,
+): Promise<{ token: string; email: string } | null> {
+  if (!isValidId(providerId) || !stored || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `certhub-dns:${providerId}`, stored)
+  if (!isPlainRecord(value) || typeof value.token !== 'string' || !value.token || value.token.length > 4096) return null
+  return { token: value.token, email: typeof value.email === 'string' ? value.email : '' }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isPrivateKeyPem(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 16 * 1024
+    && /-----BEGIN (?:ENCRYPTED |RSA |EC )?PRIVATE KEY-----/.test(value)
+}
+
 async function encryptCredential(env: Env, scope: string, value: unknown): Promise<string> {
   const response = await vaultRequest(env, '/encrypt', { scope, value })
   if (!response.ok) {

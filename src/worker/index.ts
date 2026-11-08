@@ -37,6 +37,7 @@ import { runShortlinksRetention } from './tools/shortlinks/maintenance'
 import { runCompareRetention } from './tools/compare/retention'
 import { runDueCloudflareTasks } from './cloudflare/tasks'
 import { runDueCloudDriveJobs } from './clouddrive/routes-jobs'
+import { runCerthubTick } from './development/certhub/worker'
 import { resumeCloudDriveIndexTasks } from './clouddrive/routes-admin'
 import { resumeCloudDriveRemoteTasks } from './clouddrive/remote'
 import { runWebsshRetention } from './webssh/retention'
@@ -104,6 +105,7 @@ export default {
       // Task reminders ride the same every-fire cadence, for the same reason: the claim on the row is
       // what deduplicates them, so a second fire in the same minute finds nothing left to deliver.
       const reminderTick = sweepTaskReminders(env, event.scheduledTime, (task) => { ctx.waitUntil(task) })
+      const certhubTick = runCerthubTick(env, event.scheduledTime)
       const emailDraftTick = runEmailAutoDraftJobs(env, event.scheduledTime, 2)
       const emailSnoozeTick = runEmailSnoozeWake(env, event.scheduledTime)
       const emailFollowUpTick = runEmailFollowUpSweep(env, event.scheduledTime)
@@ -146,7 +148,7 @@ export default {
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
+        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -194,7 +196,7 @@ export default {
             providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
           ]
         : []
-      await Promise.all([...drains, ...heavy, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, clouddriveTick])
+      await Promise.all([...drains, ...heavy, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, clouddriveTick])
     })())
   },
 

@@ -68,6 +68,32 @@ export interface Env {
   /** Optional default password for navigation categories that choose "use default". Set as a secret. */
   NAV_DEFAULT_CATEGORY_PASSWORD?: string
 
+  CERTHUB_DCV_ZONE?: string
+
+  CERTHUB_DCV_ZONE_ID?: string
+
+  CERTHUB_DCV_TOKEN?: string
+
+  CERTHUB_DCV_EMAIL?: string
+
+  CERTHUB_GTS_EAB_KID?: string
+
+  CERTHUB_GTS_EAB_HMAC?: string
+
+  CERTHUB_ZEROSSL_EAB_KID?: string
+
+  CERTHUB_ZEROSSL_EAB_HMAC?: string
+
+  CERTHUB_SSLCOM_EAB_KID?: string
+
+  CERTHUB_SSLCOM_EAB_HMAC?: string
+
+  CERTHUB_TURNSTILE_SECRET?: string
+
+  CERTHUB_TURNSTILE_SITE_KEY?: string
+
+  CERTHUB_ALLOW_STAGING?: string
+
   APP_NAME?: string
 
   PUBLIC_URL?: string
