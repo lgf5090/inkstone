@@ -40463,6 +40463,9 @@ const allowed = new Map([
     "// collection; for those the library's declared total is the honest fallback.",
     "// A collection can never hold more rows than its own total; a stale declared size would otherwise show",
     "// \"total 1960, imported 2108\".",
+    "// No matching import row means this collection has never run through the archive pipeline (the old",
+    "// per-icon seed wrote a single unlabelled row). Reporting \"done\" there hid a real gap behind a",
+    "// completed-looking status; \"idle\" lets the missing count and the fill button tell the truth.",
   ]],
   ["src/worker/development/icons/convert.ts", [
     "/**\n * Advance a job by one bounded chunk.\n *\n * A queue message calls this once; a browser fallback calls it only to finalize the manifest. The\n * expensive conversion itself never runs inside the request that created the job.\n */",

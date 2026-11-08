@@ -533,7 +533,10 @@ export async function collectionStats(env: Env, userId: string, collectionId: st
   // A collection can never hold more rows than its own total; a stale declared size would otherwise show
   // "total 1960, imported 2108".
   const total = Math.max(Number(declared ?? 0), imported)
-  const status = last ? String(last.status) : 'done'
+  // No matching import row means this collection has never run through the archive pipeline (the old
+  // per-icon seed wrote a single unlabelled row). Reporting "done" there hid a real gap behind a
+  // completed-looking status; "idle" lets the missing count and the fill button tell the truth.
+  const status = last ? String(last.status) : 'idle'
   return {
     collectionId,
     prefix: collection.slug,
