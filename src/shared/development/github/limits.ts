@@ -20,7 +20,6 @@ export const BOOTSTRAP_ITEMS_LIMIT = 1000
 export const MAX_EXPORT_BYTES = 8 * 1024 * 1024
 export const EXPORT_TTL_MS = 24 * 60 * 60 * 1000
 export const MAX_SEARCH_PAGE = 40
-export const MAX_REMOTE_PER_PAGE = 100
 export const GITHUB_TIMEOUT_MS = 15_000
 export const GITHUB_SEARCH_TIMEOUT_MS = 12_000
 export const GITHUB_DETAIL_TIMEOUT_MS = 10_000

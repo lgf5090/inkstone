@@ -5,6 +5,7 @@ import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { IconButton } from '../../../../components/primitives'
 import { buildTagTree, tagCountsWithAncestors, type TagTreeNode } from '../lib/tags'
+import { treeIndent } from '../../../../lib/tree/indent'
 
 export function SidebarItem({ icon, label, count, active, onClick, badge }: { icon: ReactNode; label: string; count?: number; active: boolean; onClick: () => void; badge?: ReactNode }) {
   return (
@@ -28,7 +29,7 @@ function TagTreeItem({ node, selectedView, onSelect, expanded, onToggleExpand, c
   const hasChildren = node.children.length > 0
   return (
     <div>
-      <div className="flex items-center gap-1" style={{ paddingLeft: `${depth * 12 + 4}px` }}>
+      <div className="flex items-center gap-1" style={{ paddingLeft: treeIndent(depth) }}>
         {hasChildren ? (
           <IconButton label={open ? t('development.github.common.collapse') : t('development.github.common.expand')} size="sm" onClick={() => onToggleExpand(node.id)}>
             {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -50,7 +51,7 @@ export function TagTreeList({ tags, items, selectedView, onSelect, expanded, onT
   const counts = useMemo(() => tagCountsWithAncestors(tags, items), [tags, items])
   const countForTag = (id: string) => counts.get(id) ?? 0
   if (tree.length === 0) {
-    return <button type="button" onClick={emptyAction} className="flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-left text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"><Plus size={12} />{t('development.github.tags.create_first')}</button>
+    return <SidebarItem icon={<Plus size={12} />} label={t('development.github.tags.create_first')} active={false} onClick={emptyAction} />
   }
   return <>{tree.map((node) => <TagTreeItem key={node.id} node={node} selectedView={selectedView} onSelect={onSelect} expanded={expanded} onToggleExpand={onToggleExpand} countForTag={countForTag} depth={0} />)}</>
 }

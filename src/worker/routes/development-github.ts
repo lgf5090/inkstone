@@ -969,6 +969,7 @@ developmentGithubRoutes.get('/exports/:id', async (c) => {
       'Content-Length': String(object.size),
       'Content-Disposition': contentDisposition('application/octet-stream', record.filename),
       'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 })
