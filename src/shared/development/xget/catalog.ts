@@ -703,3 +703,43 @@ export function xgetCategoryOf(key: string): XgetCategory | null {
 export const XGET_PLATFORMS_BY_LONGEST_PREFIX = [...XGET_PLATFORMS].sort(
   (a, b) => xgetPathPrefix(b.key).length - xgetPathPrefix(a.key).length,
 )
+
+const XGET_REGISTRY_KEYS = new Set([
+  ...XGET_PLATFORMS.filter((platform) => platform.category === 'registry').map(
+    (platform) => platform.key,
+  ),
+  'homebrew-bottles',
+])
+
+export const XGET_REGISTRY_PLATFORMS = XGET_PLATFORMS.filter((platform) =>
+  XGET_REGISTRY_KEYS.has(platform.key),
+)
+
+export const XGET_REGISTRY_PLATFORMS_BY_LONGEST_PREFIX = [...XGET_REGISTRY_PLATFORMS].sort(
+  (a, b) => xgetPathPrefix(b.key).length - xgetPathPrefix(a.key).length,
+)
+
+export function xgetRegistryPlatformForPath(pathname: string): string | null {
+  for (const platform of XGET_REGISTRY_PLATFORMS_BY_LONGEST_PREFIX) {
+    const prefix = `/${xgetPathPrefix(platform.key)}`
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return platform.key
+  }
+  return null
+}
+
+export function xgetRegistryPlatformForV2Path(pathname: string): string | null {
+  for (const platform of XGET_REGISTRY_PLATFORMS_BY_LONGEST_PREFIX) {
+    const prefix = `/${xgetPathPrefix(platform.key)}`
+    if (pathname === `${prefix}/v2` || pathname.startsWith(`${prefix}/v2/`)) return platform.key
+  }
+  return null
+}
+
+export function xgetRegistryPlatformForAuthPath(pathname: string): string | null {
+  for (const platform of XGET_REGISTRY_PLATFORMS_BY_LONGEST_PREFIX) {
+    const prefix = `/${xgetPathPrefix(platform.key)}`
+    if (pathname === `${prefix}/v2/auth` || pathname === `${prefix}/v2/auth/`) return platform.key
+  }
+  return null
+}
+

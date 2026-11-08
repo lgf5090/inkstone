@@ -1,5 +1,5 @@
 // Derived from Xget (AGPL-3.0-only) src/routing/resolve-target.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.
-import { xgetPathPrefix } from '@shared/development/xget/catalog'
+import { xgetPathPrefix, xgetRegistryPlatformForPath } from '@shared/development/xget/catalog'
 import { normalizeRegistryApiPath } from '../protocols/docker'
 import { shouldVaryCacheByOrigin } from '../upstream/cache-policy'
 import { createErrorResponse } from '../utils/security'
@@ -20,7 +20,8 @@ export function normalizeEffectivePath(
   if (
     !url.pathname.startsWith('/cr/') &&
     !url.pathname.startsWith('/v2/cr/') &&
-    url.pathname !== '/v2/auth'
+    url.pathname !== '/v2/auth' &&
+    !xgetRegistryPlatformForPath(url.pathname)
   ) {
     return {
       response: createErrorResponse('container registry requests must use /cr/ prefix', 400),

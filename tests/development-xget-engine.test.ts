@@ -752,3 +752,80 @@ describe('the site cookie and the shared cache', () => {
     expect(cache.put).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('the Homebrew bottle registry path', () => {
+  it('keeps Accept and retries with an anonymous token like the /cr/ghcr prefix', async () => {
+    const calls: { url: string; accept: string | null; authorization: string | null }[] = []
+    stubFetch(async (input, init) => {
+      const url = readUrl(input)
+      const headers = new Headers(init?.headers as Headers)
+      calls.push({
+        url,
+        accept: headers.get('accept'),
+        authorization: headers.get('authorization'),
+      })
+      if (url.startsWith('https://ghcr.io/token?')) {
+        return new Response(JSON.stringify({ token: 'bottle-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (headers.get('authorization') === 'Bearer bottle-token') {
+        return new Response('manifest', { status: 200 })
+      }
+      return new Response('{}', {
+        status: 401,
+        headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+      })
+    })
+
+    const response = await call('/homebrew/bottles/v2/homebrew/core/git/manifests/2.39.0', {
+      headers: { Accept: 'application/vnd.oci.image.manifest.v1+json' },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe('manifest')
+    expect(calls[0]?.accept).toBe('application/vnd.oci.image.manifest.v1+json')
+    expect(calls.some((entry) => entry.url.startsWith('https://ghcr.io/token?'))).toBe(true)
+    expect(calls.some((entry) => entry.authorization === 'Bearer bottle-token')).toBe(true)
+  })
+
+  it('challenges through the bottle auth path when no token is issued', async () => {
+    stubFetch(async (input) => {
+      if (readUrl(input).startsWith('https://ghcr.io/token?')) return new Response('no', { status: 401 })
+      return new Response('{}', {
+        status: 401,
+        headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+      })
+    })
+
+    const response = await call('/homebrew/bottles/v2/homebrew/core/git/manifests/2.39.0')
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get('www-authenticate')).toContain('/homebrew/bottles/v2/auth')
+  })
+
+  it('proxies the bottle auth path to the registry token service', async () => {
+    let tokenUrl = ''
+    stubFetch(async (input) => {
+      const url = readUrl(input)
+      if (url === 'https://ghcr.io/v2/') {
+        return new Response('{}', {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+        })
+      }
+      tokenUrl = url
+      return new Response(JSON.stringify({ token: 'bottle-token' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+
+    const response = await call('/homebrew/bottles/v2/auth?scope=repository:homebrew/core/git:pull')
+
+    expect(response.status).toBe(200)
+    expect(tokenUrl).toContain('service=ghcr.io')
+    expect(tokenUrl).toContain('scope=repository%3Ahomebrew%2Fcore%2Fgit%3Apull')
+  })
+})

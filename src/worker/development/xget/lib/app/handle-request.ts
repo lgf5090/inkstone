@@ -1,5 +1,5 @@
 // Derived from Xget (AGPL-3.0-only) src/app/handle-request.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.
-import { XGET_PLATFORMS } from '@shared/development/xget/catalog'
+import { XGET_PLATFORMS, xgetRegistryPlatformForAuthPath } from '@shared/development/xget/catalog'
 import type { XgetConfigOverrides } from '../config'
 import { createConfig } from '../config'
 import { handleDockerAuth } from '../protocols/docker'
@@ -104,7 +104,7 @@ export async function handleXgetRequest(
         if (!response) {
           if (
             isDocker &&
-            (url.pathname === '/v2/auth' || /^\/cr\/[^/]+\/v2\/auth\/?$/.test(url.pathname))
+            (url.pathname === '/v2/auth' || xgetRegistryPlatformForAuthPath(url.pathname))
           ) {
             response = await handleDockerAuth(request, url, config)
           } else {
