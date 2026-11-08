@@ -41052,6 +41052,9 @@ const allowed = new Map([
     "/** Adding a 'blocks' edge that would close a cycle is refused, keeping the dependency graph acyclic. */",
     "/** New card from a template card: copies its values and content blocks into a fresh live card. */",
     "/** X-5: a card ↔ /todo task mapping, one task per card. */",
+    "/** A card reads as done when a checkbox property is ticked or its status option names completion. */",
+    "/** X-5 card→todo: mirror the card's completion onto its linked task. */",
+    "/** X-5 todo→card: mirror a task's completion onto the linked card's checkbox/status property. */",
   ]],
   ["src/worker/project/insights.ts", [
     "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.\n */",

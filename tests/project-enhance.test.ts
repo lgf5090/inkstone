@@ -6,6 +6,7 @@ import { createSession } from '../src/worker/lib/session-store'
 import { CLIENT_HEADER, LEGACY_SESSION_COOKIE } from '../src/shared/constants'
 import type { Env } from '../src/worker/env'
 import type { ProjectBoard, ProjectCard } from '../src/shared/project/model'
+import { syncTodoCompletionToCard } from '../src/worker/project/enhance'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -24,7 +25,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  sqlite.exec(`DELETE FROM project_card_links; DELETE FROM project_activity; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_cards`)
+  sqlite.exec(`DELETE FROM project_card_links; DELETE FROM project_activity; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_cards; DELETE FROM project_todo_links; DELETE FROM todos_tasks`)
 })
 
 async function req(method: string, path: string, body?: unknown): Promise<Response> {
@@ -79,5 +80,21 @@ describe('card templates', () => {
     expect(copy.title).toBe('Alpha')
     const bundle = ((await (await req('GET', `/boards/${board.id}/bundle`)).json()) as { contents: { cardId: string, title: string }[] })
     expect(bundle.contents.some((c) => c.cardId === copy.id && c.title === 'body text')).toBe(true)
+  })
+})
+
+describe('todo two-way completion sync (X-5)', () => {
+  it('mirrors card checkbox to the task and task completion back to the card', async () => {
+    const board = ((await (await req('POST', '/boards', { title: 'Sync', cardProperties: [{ id: 'p'.repeat(27), name: 'Done', type: 'checkbox', options: [] }] })).json()) as { board: ProjectBoard }).board
+    const card = ((await (await req('POST', `/boards/${board.id}/cards`, { title: 'Task card' })).json()) as { card: ProjectCard }).card
+    sqlite.prepare(`INSERT INTO todos_tasks (user_id, id, title, created_at, updated_at) VALUES ('alice', 't1', 'Linked task', 1, 1)`).run()
+    expect((await req('POST', `/cards/${card.id}/todo-link`, { todoId: 't1' })).status).toBe(201)
+    await req('PATCH', `/cards/${card.id}`, { values: { ['p'.repeat(27)]: 'true' } })
+    const todo = sqlite.prepare('SELECT status, completed_at FROM todos_tasks WHERE id = ?').get('t1') as { status: string, completed_at: number | null }
+    expect(todo.status).toBe('done')
+    expect(todo.completed_at).not.toBeNull()
+    await syncTodoCompletionToCard(env.DB, 't1', false, Date.now())
+    const value = sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id) as { value: string }
+    expect(value.value).toBe('false')
   })
 })

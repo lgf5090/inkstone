@@ -90,7 +90,7 @@ import {
 import { ProjectStore } from './store'
 import { searchProject } from './search'
 import { topProjectBoards } from './insights'
-import { addCardLink, createCardFromTemplate, getCardTodoLink, linkCardTodo, listBoardLinks, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate, unlinkCardTodo } from './enhance'
+import { addCardLink, createCardFromTemplate, getCardTodoLink, linkCardTodo, listBoardLinks, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate, syncCardCompletionToTodo, unlinkCardTodo } from './enhance'
 import { projectBoardToMarkdown } from '@shared/project/markdown'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
 import { projectStatistics } from './statistics'
@@ -409,7 +409,13 @@ projectRoutes.get('/cards/:id', async (c) => {
 projectRoutes.patch('/cards/:id', async (c) => {
   const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
   const patch = await projectBody(c, ProjectCardPatchSchema)
-  return c.json({ card: await patchProjectCard(c.env.DB, card, patch, userId, Date.now()) })
+  const updated = await patchProjectCard(c.env.DB, card, patch, userId, Date.now())
+  if (patch.values !== undefined) {
+    const { results } = await c.env.DB.prepare('SELECT id, type, options FROM project_properties WHERE board_id = ?1').bind(card.boardId).all<{ id: string, type: string, options: string }>()
+    const properties = results.map((p) => ({ id: p.id, type: p.type, options: JSON.parse(p.options) as { id: string, value: string }[] }))
+    await syncCardCompletionToTodo(c.env.DB, updated, properties, Date.now())
+  }
+  return c.json({ card: updated })
 })
 
 projectRoutes.delete('/cards/:id', async (c) => {

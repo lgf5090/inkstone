@@ -107,3 +107,55 @@ export async function getCardTodoLink(db: D1Database, cardId: string): Promise<s
   const row = await db.prepare('SELECT todo_id FROM project_todo_links WHERE card_id = ?1').bind(cardId).first<{ todo_id: string }>()
   return row?.todo_id ?? null
 }
+
+const DONE_PATTERN = /done|complete|finished/i
+
+/** A card reads as done when a checkbox property is ticked or its status option names completion. */
+export function cardIsDone(card: ProjectCard, properties: readonly { id: string, type: string, options: { id: string, value: string }[] }[]): boolean {
+  for (const property of properties) {
+    const raw = card.values[property.id]
+    if (!raw) continue
+    if (property.type === 'checkbox' && raw === 'true') return true
+    if (property.type === 'select') {
+      const option = property.options.find((o) => o.id === raw)
+      if (option && DONE_PATTERN.test(option.value)) return true
+    }
+  }
+  return false
+}
+
+/** X-5 card→todo: mirror the card's completion onto its linked task. */
+export async function syncCardCompletionToTodo(db: D1Database, card: ProjectCard, properties: readonly { id: string, type: string, options: { id: string, value: string }[] }[], now: number): Promise<void> {
+  const row = await db.prepare('SELECT todo_id, user_id FROM project_todo_links WHERE card_id = ?1').bind(card.id).first<{ todo_id: string, user_id: string }>()
+  if (!row) return
+  const done = cardIsDone(card, properties)
+  await db.prepare('UPDATE todos_tasks SET status = ?1, completed_at = ?2 WHERE id = ?3 AND user_id = ?4')
+    .bind(done ? 'done' : 'todo', done ? now : null, row.todo_id, row.user_id).run()
+}
+
+/** X-5 todo→card: mirror a task's completion onto the linked card's checkbox/status property. */
+export async function syncTodoCompletionToCard(db: D1Database, todoId: string, done: boolean, now: number): Promise<void> {
+  const row = await db.prepare('SELECT card_id FROM project_todo_links WHERE todo_id = ?1').bind(todoId).first<{ card_id: string }>()
+  if (!row) return
+  const card = await getProjectCard(db, row.card_id)
+  if (!card) return
+  const { results } = await db.prepare('SELECT id, type, options FROM project_properties WHERE board_id = ?1').bind(card.boardId).all<{ id: string, type: string, options: string }>()
+  const checkbox = results.find((p) => p.type === 'checkbox')
+  if (checkbox) {
+    await db.prepare(
+      'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+    ).bind(card.id, checkbox.id, done ? 'true' : 'false', now).run()
+    return
+  }
+  const select = results.find((p) => p.type === 'select')
+  if (select) {
+    const options = JSON.parse(select.options) as { id: string, value: string }[]
+    const doneOption = options.find((o) => DONE_PATTERN.test(o.value))
+    const target = done ? doneOption : options.find((o) => !DONE_PATTERN.test(o.value))
+    if (target) {
+      await db.prepare(
+        'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+      ).bind(card.id, select.id, target.id, now).run()
+    }
+  }
+}
