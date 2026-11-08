@@ -7085,6 +7085,12 @@ const allowed = new Map([
     "// A failed look-up leaves the page usable; the banner appears on the next visit.",
     "// Resume once per mount; the import id guard inside driveImport prevents a second loop.",
     "// The library's declared total remains the fallback.",
+    "// Several collections can be queued at once during a first-run seed; each is resumed in turn so a",
+    "// closed tab never leaves a collection half-imported without anyone noticing.",
+    "/**\n   * The first-run seed, driven from the browser through the resumable bulk import.\n   *\n   * It used to run in `waitUntil` with a per-icon importer capped at 140 icons; the platform killed it\n   * partway and the remaining rows were treated as complete, which is how a library ended up with 85\n   * icons forever. Now every seed is a small import job with a cursor: it is announced in the banner,\n   * it survives a reload, and the collection's own numbers always match D1.\n   */",
+    "// The seed runs once per mount; it is driven through the same resumable import the dialog uses.",
+    "/**\n   * Every write that moves a facet count re-reads the rail, so \"favorited 3\" and the grid never disagree\n   * until a manual reload. The request is cheap: the same bootstrap the first paint used.\n   */",
+    "// A failed refresh keeps the last known numbers instead of zeroing the rail.",
   ]],
   ["src/client/features/development/icons/components/DetailDrawer.tsx", [
     "/**\n * The drawer is a workbench: the glyph is the subject, size/stroke/colour repaint it live, and the\n * code and download controls sit under it. Copy and download stay pinned to the bottom so a long\n * metadata list never pushes the primary verbs out of reach.\n */",
@@ -32293,6 +32299,9 @@ const allowed = new Map([
     "/** How long a failed first-run seed is allowed to wait before another visit may retry it. */",
     "/** Material Symbols ships one 8.5 MB `icons.json`; the ceiling has to clear the largest built-in set. */",
   ]],
+  ["src/shared/development/icons/schemas.ts", [
+    "/** `seed` tops a collection up to its announced seed target; it never claims to be a full import. */",
+  ]],
   ["src/shared/development/icons/types.ts", [
     "/** `queue` when a consumer will run it; `browser` when the client converts and uploads the outputs. */",
     "/** Iconify's own count for the whole set. */",
@@ -40433,6 +40442,21 @@ const allowed = new Map([
     "// The staged bodies are only needed while the cursor is moving; the manifest stays for the",
     "// drill-down's source total.",
     "/**\n * The collection drill-down: the full total the import planned, the rows actually in D1, and the\n * latest attempt. The imported number is the count the sidebar shows, so a short count is visible.\n */",
+    "// A seed is a small, announced top-up rather than a silent half-import: it stage-copies only as many",
+    "// missing names as the library's seed target still needs, so a killed seed resumes and a partially",
+    "// seeded collection is topped up to the target instead of being treated as complete.",
+    "// The grid paints `thumbUrl`, which falls back to the raw SVG when no thumbnail exists. Generating the",
+    "// 96px WebP while the chunk is already in memory keeps a bulk import fast to browse; importing it without",
+    "// a thumbnail is what left the deployed library scrolling at a fraction of the frame rate.",
+    "// A failed write is a failed import, not a silently short collection: the job carries the reason and",
+    "// the drill-down keeps the gap visible so \"fill missing\" can finish it.",
+    "// Only a run where every planned icon failed is a failed import; a partial failure stays \"done\" with a",
+    "// visible failure count and a retry entry.",
+    "// The archive manifest knows the exact set size. Rows written by the retired per-icon seed carry no",
+    "// manifest and used to report `total_items: 140`, which described the seed batch rather than the",
+    "// collection; for those the library's declared total is the honest fallback.",
+    "// A collection can never hold more rows than its own total; a stale declared size would otherwise show",
+    "// \"total 1960, imported 2108\".",
   ]],
   ["src/worker/development/icons/convert.ts", [
     "/**\n * Advance a job by one bounded chunk.\n *\n * A queue message calls this once; a browser fallback calls it only to finalize the manifest. The\n * expensive conversion itself never runs inside the request that created the job.\n */",
@@ -40445,7 +40469,7 @@ const allowed = new Map([
     "/** Parse and validate an ICO's directory. Used by tests and by the upload guard. */",
   ]],
   ["src/worker/development/icons/import.ts", [
-    "/**\n * Brands and duotone collections paint several colours; monochrome sets paint one. The filter panel\n * offers this as a facet, so it is recorded once at import time rather than guessed per request.\n */",
+    "/**\n * Brand and duotone collections paint several colours; monochrome sets paint one. The filter panel\n * offers this as a facet, so it is recorded once at import time rather than guessed per request.\n */",
   ]],
   ["src/worker/development/icons/png.ts", [
     "/**\n * A minimal PNG encoder.\n *\n * Rasterization hands back RGBA pixels, and the outputs are written to R2 as PNG. The repository\n * already ships `fflate` for ZIP work, so the only pieces missing are the chunk framing and the\n * CRC table — both are defined by the PNG specification and do not need a dependency of their own.\n */",
@@ -40461,10 +40485,6 @@ const allowed = new Map([
     "/**\n * Rasterization for conversion jobs.\n *\n * `resvg` is compiled at deploy time and initialized once per isolate. Raster sources already carry\n * pixels, so they go through the Images binding instead; when that binding is absent the original\n * bytes are only usable at their own size, which is the same \"do not upscale\" rule the UI states.\n */",
     "/**\n * Produce a PNG at `width` from an uploaded raster.\n *\n * `sourceWidth` lets the caller apply the \"never upscale\" rule without decoding the raster twice.\n */",
   ]],
-  ["src/worker/development/icons/seed.ts", [
-    "/**\n * The first-run seed runs behind `waitUntil`, never inside the request that asked for it, so a cold\n * library still answers `bootstrap` immediately and the UI can draw its skeleton. The ledger row is\n * the lock: a second tab sees a recent running seed and leaves it alone.\n */",
-    "/** Collections that already hold most of their seed are left alone, so a retry resumes instead of duplicating. */",
-  ]],
   ["src/worker/development/icons/sprite.ts", [
     "/** The children of an outer `<svg>` element, with declarations, comments and the wrapper removed. */",
   ]],
@@ -40476,6 +40496,17 @@ const allowed = new Map([
     "/** Records one uploaded asset after its bytes and thumbnails are already in R2. */",
     "/** The export record behind a download link, before its expiration is judged. */",
     "/** Assets still missing a thumbnail, newest first, for the owner's background backfill. */",
+    "// The smart-view rows reuse `countAssets`, which is the grid's own predicate; the facet groups reuse",
+    "// the same CASE expressions the facet filters are built from. A number can therefore never describe a",
+    "// different set of icons than the list it opens.",
+    "// The two fixed facets are always present, even at zero, so a client never has to guess whether a",
+    "// missing key means \"empty bucket\" or \"not counted\".",
+    "/**\n * One exhaustive style partition, shared by the sidebar counts and the style filter.\n *\n * The old predicate asked \"is this collection a line set?\" and let everything else fall through, so a\n * mixed library such as Remix left most of its outline icons in no bucket at all: the four style rows\n * added up to far less than the library total. This expression answers for every row — duotone, brand,\n * fill or line — and the filter is derived from the same text, so a count can never disagree with the\n * list it describes.\n */",
+    "/** Rows written before the colour detector existed read as mono, so the two colour chips still add up. */",
+    "/**\n * The filter half of the list query, shared with `countAssets`.\n *\n * Every facet number in the sidebar or filter panel is produced by the same predicate the grid uses,\n * so \"count says 3, the grid shows 12\" cannot happen again — there is only one definition of each filter.\n * Callers append their own cursor or LIMIT afterwards.\n */",
+    "// The sidebar's \"recent\" is the same window the list applies; before, the count used 30 days while the",
+    "// list accepted any use ever, so an old library showed 0 in the rail and a non-zero grid.",
+    "/** The number of icons a filter holds — the same predicate the grid pages through. */",
   ]],
   ["src/worker/development/xget/lib/app/handle-request.ts", [
     "// Derived from Xget (AGPL-3.0-only) src/app/handle-request.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
@@ -42656,7 +42687,6 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/development-icons.ts", [
     "/** A brake on a client that spams the conversion endpoint; it is per isolate, like the other budgets. */",
-    "/**\n * The first visit asks for this once. It answers before a single icon is written, and the import\n * itself runs in the background so the grid can paint its skeleton immediately.\n */",
     "/**\n * The browser fallback's upload door.\n *\n * The client rasterizes with Canvas, then posts the produced files here. The bytes are re-checked\n * (PNG signature, ICO directory) and stored under content-addressed keys, so a job only reaches\n * `done` when a real artifact exists — never merely because a status column changed.\n */",
   ]],
   ["src/worker/routes/email.ts", [
@@ -48160,6 +48190,13 @@ const allowed = new Map([
   ]],
   ["tests/development-apitester-ws.test.ts", [
     "// 524,289 characters but 1,048,578 bytes: a character-count check would forward this.",
+  ]],
+  ["tests/development-icons-counts.test.ts", [
+    "/**\n * A D1-shaped facade over Node's built-in SQLite.\n *\n * The counting bug this guards against was a data-shape bug — the rail, the facet chips and the grid\n * each asked the database a different question — so the test runs the real SQL over a real database\n * rather than mocking the store.\n */",
+    "// Remix carries both outline and `-fill` names; simple-icons is a brand set.",
+    "// Five rows were used long ago: the rail used to call these \"recent\" while the grid counted them, and",
+    "// the other way around after the window moved.",
+    "// The five rows used 40 days ago sit outside the 30-day window in both places.",
   ]],
   ["tests/development-xget-upstream.test.ts", [
     "// The second call is the token request and is also answered with 401.",

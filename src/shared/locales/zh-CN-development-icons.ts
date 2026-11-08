@@ -172,6 +172,7 @@ export const ZH_CN_DEVELOPMENT_ICONS = {
   'development.icons.import.imported': '已导入',
   'development.icons.import.finished': '集合导入完成',
   'development.icons.import.failures': '失败项',
+  'development.icons.import.retry': '重试',
   'development.icons.import.failures_title': '未能导入的图标',
   'development.icons.import.no_failures': '没有失败项',
   'development.icons.import.dismiss': '关闭',

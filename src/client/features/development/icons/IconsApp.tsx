@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Download, Images, Loader2, Trash2, Upload, X } from 'lucide-react'
+import { AlertCircle, Download, Images, Loader2, RotateCcw, Trash2, Upload, X } from 'lucide-react'
 import type {
   IconAssetDetail,
   IconAssetSummary,
@@ -730,6 +730,11 @@ export function IconsApp() {
             </div>
             {activeImport.failedItems > 0 && (
               <Button size="sm" variant="ghost" onClick={() => void openFailures()}>{t('development.icons.import.failures')} {activeImport.failedItems}</Button>
+            )}
+            {activeImport.status !== 'running' && (activeImport.status === 'failed' || activeImport.failedItems > 0) && (
+              <Button size="sm" variant="secondary" onClick={() => void startImport(activeImport.prefix, 'missing')}>
+                <RotateCcw size={13} />{t('development.icons.import.retry')}
+              </Button>
             )}
             {activeImport.status === 'running' && (
               <Button size="sm" variant="ghost" onClick={() => void cancelBulkImport(activeImport.id).then(() => setActiveImport(null))}>{t('development.icons.common.cancel')}</Button>

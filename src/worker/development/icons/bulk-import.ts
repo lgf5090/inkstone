@@ -526,10 +526,13 @@ export async function collectionStats(env: Env, userId: string, collectionId: st
   // The archive manifest knows the exact set size. Rows written by the retired per-icon seed carry no
   // manifest and used to report `total_items: 140`, which described the seed batch rather than the
   // collection; for those the library's declared total is the honest fallback.
-  const total = manifest?.sourceTotal
+  const declared = manifest?.sourceTotal
     ?? builtinLibrary(collection.slug)?.totalIcons
     ?? manifest?.total
-    ?? (Number(largest?.n ?? 0) || imported)
+    ?? Number(largest?.n ?? 0)
+  // A collection can never hold more rows than its own total; a stale declared size would otherwise show
+  // "total 1960, imported 2108".
+  const total = Math.max(Number(declared ?? 0), imported)
   const status = last ? String(last.status) : 'done'
   return {
     collectionId,
