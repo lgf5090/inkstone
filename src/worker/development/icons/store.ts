@@ -38,7 +38,6 @@ import { decodeIconCursor, encodeIconCursor } from '@shared/development/icons/cu
 import {
   ICON_BRAND_PREFIXES,
   ICON_FILL_PREFIXES,
-  ICON_LINE_PREFIXES,
 } from '@shared/development/icons/builtins'
 import { ApiError } from '../../lib/errors'
 import { newId } from '../../lib/id'
@@ -240,25 +239,15 @@ export async function bootstrap(db: D1Database, userId: string, isOwner = false)
 }
 
 export async function countsFor(db: D1Database, userId: string, _shard: string): Promise<IconCounts> {
-  const cutoff = Date.now() - ICON_RECENT_DAYS * 24 * 60 * 60 * 1000
+  // The smart-view rows reuse `countAssets`, which is the grid's own predicate; the facet groups reuse
+  // the same CASE expressions the facet filters are built from. A number can therefore never describe a
+  // different set of icons than the list it opens.
   const [all, favorites, pinned, recent, uncategorized, collections, tags, formats, colorModes, styles] = await Promise.all([
-    db.prepare(`SELECT COUNT(*) AS n FROM development_icons_assets WHERE user_id = ?1`).bind(userId).first<{ n: number }>(),
-    db.prepare(
-      `SELECT COUNT(*) AS n FROM development_icons_user_state s
-        JOIN development_icons_assets a ON a.user_id = s.user_id AND a.id = s.asset_id
-       WHERE s.user_id = ?1 AND s.favorited = 1`,
-    ).bind(userId).first<{ n: number }>(),
-    db.prepare(
-      `SELECT COUNT(*) AS n FROM development_icons_user_state s
-        JOIN development_icons_assets a ON a.user_id = s.user_id AND a.id = s.asset_id
-       WHERE s.user_id = ?1 AND s.pinned = 1`,
-    ).bind(userId).first<{ n: number }>(),
-    db.prepare(
-      `SELECT COUNT(*) AS n FROM development_icons_user_state s
-        JOIN development_icons_assets a ON a.user_id = s.user_id AND a.id = s.asset_id
-       WHERE s.user_id = ?1 AND s.last_used_at >= ?2`,
-    ).bind(userId, cutoff).first<{ n: number }>(),
-    db.prepare(`SELECT COUNT(*) AS n FROM development_icons_assets WHERE user_id = ?1 AND collection_id IS NULL`).bind(userId).first<{ n: number }>(),
+    countAssets(db, userId, {}),
+    countAssets(db, userId, { state: 'favorites' }),
+    countAssets(db, userId, { state: 'pinned' }),
+    countAssets(db, userId, { state: 'recent' }),
+    countAssets(db, userId, { state: 'uncategorized' }),
     db.prepare(
       `SELECT collection_id AS id, COUNT(*) AS n FROM development_icons_assets
         WHERE user_id = ?1 AND collection_id IS NOT NULL GROUP BY collection_id`,
@@ -270,19 +259,11 @@ export async function countsFor(db: D1Database, userId: string, _shard: string):
       `SELECT format AS id, COUNT(*) AS n FROM development_icons_assets WHERE user_id = ?1 GROUP BY format`,
     ).bind(userId).all<{ id: string; n: number }>(),
     db.prepare(
-      `SELECT color_mode AS id, COUNT(*) AS n FROM development_icons_assets WHERE user_id = ?1 GROUP BY color_mode`,
-    ).bind(userId).all<{ id: string; n: number }>(),
+      `SELECT (${colorModeCase('a')}) AS color_key, COUNT(*) AS n
+         FROM development_icons_assets a WHERE a.user_id = ?1 GROUP BY color_key`,
+    ).bind(userId).all<{ color_key: string; n: number }>(),
     db.prepare(
-      `SELECT CASE
-                WHEN a.name_key LIKE '%-duotone%' THEN 'duotone'
-                WHEN c.slug IN (${sqlList(ICON_BRAND_PREFIXES)}) THEN 'brand'
-                WHEN c.slug IN (${sqlList(ICON_FILL_PREFIXES)})
-                  OR a.name_key LIKE '%-fill%'
-                  OR a.name_key LIKE '%-solid%' THEN 'fill'
-                WHEN c.slug IN (${sqlList(ICON_LINE_PREFIXES)}) THEN 'line'
-                ELSE 'unknown'
-              END AS style_key,
-              COUNT(*) AS n
+      `SELECT (${styleCase('a', 'c')}) AS style_key, COUNT(*) AS n
          FROM development_icons_assets a
          LEFT JOIN development_icons_collections c ON c.user_id = a.user_id AND c.id = a.collection_id
         WHERE a.user_id = ?1
@@ -290,20 +271,30 @@ export async function countsFor(db: D1Database, userId: string, _shard: string):
     ).bind(userId).all<{ style_key: string; n: number }>(),
   ])
   return {
-    all: number(all?.n),
-    favorites: number(favorites?.n),
-    pinned: number(pinned?.n),
-    recent: number(recent?.n),
-    uncategorized: number(uncategorized?.n),
+    all,
+    favorites,
+    pinned,
+    recent,
+    uncategorized,
     collections: Object.fromEntries((collections.results ?? []).map((row) => [row.id, row.n])),
     tags: Object.fromEntries((tags.results ?? []).map((row) => [row.id, row.n])),
     formats: Object.fromEntries((formats.results ?? []).map((row) => [row.id, row.n])),
-    colorModes: Object.fromEntries((colorModes.results ?? []).map((row) => [row.id, row.n])),
-    styles: Object.fromEntries((styles.results ?? []).map((row) => [row.style_key, row.n])),
+    // The two fixed facets are always present, even at zero, so a client never has to guess whether a
+    // missing key means "empty bucket" or "not counted".
+    colorModes: {
+      mono: Number((colorModes.results ?? []).find((row) => row.color_key === 'mono')?.n ?? 0),
+      multi: Number((colorModes.results ?? []).find((row) => row.color_key === 'multi')?.n ?? 0),
+    },
+    styles: {
+      line: Number((styles.results ?? []).find((row) => row.style_key === 'line')?.n ?? 0),
+      fill: Number((styles.results ?? []).find((row) => row.style_key === 'fill')?.n ?? 0),
+      duotone: Number((styles.results ?? []).find((row) => row.style_key === 'duotone')?.n ?? 0),
+      brand: Number((styles.results ?? []).find((row) => row.style_key === 'brand')?.n ?? 0),
+    },
   }
 }
 
-interface ListInput {
+export interface IconListInput {
   limit: number
   cursor?: string
   q?: string
@@ -327,16 +318,33 @@ function sqlList(values: readonly string[]): string {
   return values.map((value) => `'${value.replace(/'/g, "''")}'`).join(', ')
 }
 
-function styleCondition(style: NonNullable<ListInput['style']>): string {
-  const line = sqlList(ICON_LINE_PREFIXES)
-  const fill = sqlList(ICON_FILL_PREFIXES)
+/**
+ * One exhaustive style partition, shared by the sidebar counts and the style filter.
+ *
+ * The old predicate asked "is this collection a line set?" and let everything else fall through, so a
+ * mixed library such as Remix left most of its outline icons in no bucket at all: the four style rows
+ * added up to far less than the library total. This expression answers for every row — duotone, brand,
+ * fill or line — and the filter is derived from the same text, so a count can never disagree with the
+ * list it describes.
+ */
+export function styleCase(asset = 'a', collection = 'c'): string {
   const brand = sqlList(ICON_BRAND_PREFIXES)
-  if (style === 'duotone') return `(a.name_key LIKE '%-duotone%')`
-  if (style === 'brand') return `(c.slug IN (${brand}))`
-  if (style === 'line') {
-    return `(c.slug IN (${line}) AND a.name_key NOT LIKE '%-fill%' AND a.name_key NOT LIKE '%-solid%' AND a.name_key NOT LIKE '%-duotone%')`
-  }
-  return `((c.slug IN (${fill}) OR a.name_key LIKE '%-fill%' OR a.name_key LIKE '%-solid%') AND a.name_key NOT LIKE '%-duotone%')`
+  const fill = sqlList(ICON_FILL_PREFIXES)
+  return `CASE
+      WHEN ${asset}.name_key LIKE '%-duotone%' THEN 'duotone'
+      WHEN ${collection}.slug IN (${brand}) THEN 'brand'
+      WHEN ${asset}.name_key LIKE '%-fill%' OR ${asset}.name_key LIKE '%-solid%' OR ${collection}.slug IN (${fill}) THEN 'fill'
+      ELSE 'line'
+    END`
+}
+
+/** Rows written before the colour detector existed read as mono, so the two colour chips still add up. */
+export function colorModeCase(asset = 'a'): string {
+  return `CASE WHEN ${asset}.color_mode = 'multi' THEN 'multi' ELSE 'mono' END`
+}
+
+function styleCondition(style: NonNullable<IconListInput['style']>): string {
+  return `(${styleCase('a', 'c')}) = '${style}'`
 }
 
 function cursorCondition(sort: string, cursor: { key: string | number; id: string }, direction: 'asc' | 'desc'): { sql: string; values: unknown[] } {
@@ -348,8 +356,19 @@ function cursorCondition(sort: string, cursor: { key: string | number; id: strin
   }
 }
 
-export async function listAssets(db: D1Database, userId: string, input: ListInput): Promise<IconPage<IconAssetSummary>> {
-  const shard = await userShard(userId)
+interface AssetFilter {
+  where: string[]
+  values: unknown[]
+}
+
+/**
+ * The filter half of the list query, shared with `countAssets`.
+ *
+ * Every facet number in the sidebar or filter panel is produced by the same predicate the grid uses,
+ * so "count says 3, the grid shows 12" cannot happen again — there is only one definition of each filter.
+ * Callers append their own cursor or LIMIT afterwards.
+ */
+async function buildAssetFilter(db: D1Database, userId: string, input: Partial<IconListInput>): Promise<AssetFilter> {
   const where: string[] = ['a.user_id = ?1']
   const values: unknown[] = [userId]
   const add = (sql: string, value: unknown): void => {
@@ -370,7 +389,7 @@ export async function listAssets(db: D1Database, userId: string, input: ListInpu
       `SELECT rowid FROM development_icons_fts WHERE development_icons_fts MATCH ?1 AND user_id = ?2 LIMIT 80`,
     ).bind(query, userId).all<{ rowid: number }>()
     searchRowIds = (matches.results ?? []).map((row) => row.rowid)
-    if (!searchRowIds.length) return { items: [], nextCursor: null, hasMore: false, total: 0 }
+    if (!searchRowIds.length) return { where: ['0 = 1'], values: [userId] }
   }
   if (input.collectionId) add('a.collection_id = ?', input.collectionId)
   if (input.collections?.length) addIn('a.collection_id', input.collections)
@@ -385,14 +404,16 @@ export async function listAssets(db: D1Database, userId: string, input: ListInpu
     where.push(`EXISTS (SELECT 1 FROM development_icons_tag_links l WHERE l.user_id = a.user_id AND l.asset_id = a.id AND l.tag_id IN (${marks.join(', ')}))`)
   }
   if (input.style) where.push(styleCondition(input.style))
-  if (input.colorMode) add('a.color_mode = ?', input.colorMode)
+  if (input.colorMode) add(`(${colorModeCase('a')}) = ?`, input.colorMode)
   if (input.sizeMin !== undefined) add('COALESCE(a.width, 0) >= ?', input.sizeMin)
   if (input.sizeMax !== undefined) add('COALESCE(a.width, 0) <= ?', input.sizeMax)
   if (input.from !== undefined) add('a.created_at >= ?', input.from)
   if (input.to !== undefined) add('a.created_at <= ?', input.to)
   if (input.state === 'favorites') where.push('COALESCE(s.favorited, 0) = 1')
   if (input.state === 'pinned') where.push('COALESCE(s.pinned, 0) = 1')
-  if (input.state === 'recent') where.push('s.last_used_at IS NOT NULL')
+  // The sidebar's "recent" is the same window the list applies; before, the count used 30 days while the
+  // list accepted any use ever, so an old library showed 0 in the rail and a non-zero grid.
+  if (input.state === 'recent') add('s.last_used_at >= ?', Date.now() - ICON_RECENT_DAYS * 24 * 60 * 60 * 1000)
   if (input.state === 'uncategorized') where.push('a.collection_id IS NULL')
   if (input.q) {
     const query = input.q.trim()
@@ -408,18 +429,32 @@ export async function listAssets(db: D1Database, userId: string, input: ListInpu
       add("a.name_key LIKE ? ESCAPE '\\'", `${escaped}%`)
     }
   }
-  // The total is measured over the filters, before the cursor narrows the page, so the toolbar can
-  // say how many icons the current selection holds even while the grid streams in later pages.
-  const filterWhere = [...where]
-  const filterValues = [...values]
-  const totalRow = await db.prepare(
+  return { where, values }
+}
+
+async function countFiltered(db: D1Database, where: readonly string[], values: readonly unknown[]): Promise<number> {
+  const row = await db.prepare(
     `SELECT COUNT(*) AS n
        FROM development_icons_assets a
        LEFT JOIN development_icons_collections c ON c.user_id = a.user_id AND c.id = a.collection_id
        LEFT JOIN development_icons_user_state s ON s.user_id = a.user_id AND s.asset_id = a.id
-      WHERE ${filterWhere.join(' AND ')}`,
-  ).bind(...filterValues).first<{ n: number }>()
-  const total = number(totalRow?.n)
+      WHERE ${where.join(' AND ')}`,
+  ).bind(...values).first<{ n: number }>()
+  return number(row?.n)
+}
+
+/** The number of icons a filter holds — the same predicate the grid pages through. */
+export async function countAssets(db: D1Database, userId: string, input: Partial<IconListInput> = {}): Promise<number> {
+  const { where, values } = await buildAssetFilter(db, userId, input)
+  return countFiltered(db, where, values)
+}
+
+export async function listAssets(db: D1Database, userId: string, input: IconListInput): Promise<IconPage<IconAssetSummary>> {
+  const shard = await userShard(userId)
+  const { where, values } = await buildAssetFilter(db, userId, input)
+  // The total is measured over the filters, before the cursor narrows the page, so the toolbar can
+  // say how many icons the current selection holds even while the grid streams in later pages.
+  const total = await countFiltered(db, where, values)
   const cursor = input.cursor ? decodeIconCursor(input.cursor) : null
   if (input.cursor && !cursor) throw ApiError.badRequest('The cursor is not valid')
   const direction = input.sort === 'name' ? 'asc' : 'desc'
