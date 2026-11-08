@@ -131,6 +131,14 @@ export const createOrderSchema = z
   })
   .strict()
 
+export const providerBindSchema = z
+  .object({
+    // An empty id is deliberate: it detaches the domain from a provider and returns it to the manual
+    // flow, which is the only way to undo a wrong pick without touching the order itself.
+    dnsProviderId: z.string().trim().max(64),
+  })
+  .strict()
+
 export const actionSchema = z
   .object({
     action: z.enum(CERTHUB_ACTIONS),

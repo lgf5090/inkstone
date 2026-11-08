@@ -23,8 +23,8 @@ import { createCsr, generateKey, parseCertificate } from './crypto/keys'
 import { splitCertificateChain } from './crypto/pem'
 import { queryDns } from './dns/doh'
 import { notifyFromOrder } from './notify'
-import { createDelegatedTxt, deleteDelegatedTxt } from './dns/dcv'
-import { createTxtRecord, deleteDnsRecord } from './dns/cloudflare'
+import { createDelegatedTxt, deleteDelegatedTxt, dcvAvailable } from './dns/dcv'
+import { deleteDnsRecord, ensureTxtRecord } from './dns/cloudflare'
 import { http01Instruction } from './dns/http01'
 import {
   appendEvent,
@@ -796,6 +796,87 @@ export async function handleOrderAction(
     return advanceOrder(env, db, userId, orderId, actor)
   }
   throw ApiError.badRequest('Unknown certificate action')
+}
+
+/** The order states in which a domain may still change its provider: everything before the CA decides. */
+const PROVIDER_BINDABLE = new Set(['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating'])
+
+/**
+ * Binds (or changes, or clears) the DNS provider of one domain, then re-queues the order.
+ *
+ * The order goes back to `queued` so the next advance re-reads the authorizations and writes the
+ * record through the newly bound provider; the domain's own record fields are cleared because the
+ * record that was attached to the previous provider no longer describes where the value lives.
+ *
+ * Only the stored `dns_record_id` is deleted on the way out. Two orders for `example.com` and
+ * `*.example.com` share `_acme-challenge.example.com` but hold different values, and deleting by id
+ * removes this domain's value while leaving the other order's TXT in place.
+ */
+export async function bindOrderDomainProvider(
+  env: Env,
+  db: D1Database,
+  userId: string,
+  orderId: string,
+  domainId: string,
+  providerId: string,
+  actor: CerthubActor,
+): Promise<OrderRow> {
+  const order = await findOrder(db, userId, orderId)
+  if (!order) throw ApiError.notFound('The certificate order was not found')
+  if (!PROVIDER_BINDABLE.has(order.status)) {
+    throw new ApiError(409, 'order_state_conflict', 'This order has reached a state where its DNS provider cannot change')
+  }
+  const domain = await findDomain(db, userId, orderId, domainId)
+  if (!domain) throw ApiError.notFound('The domain was not found')
+  if (domain.challenge_mode !== 'dns-01') {
+    throw new ApiError(409, 'order_state_conflict', 'Only a DNS-01 domain uses a DNS provider')
+  }
+  const next = providerId ? await findProvider(db, userId, providerId) : null
+  if (providerId && !next) throw ApiError.notFound('The DNS provider was not found')
+  if (next) {
+    if (next.status === 'disabled') throw new ApiError(409, 'order_state_conflict', 'The DNS provider is disabled')
+    if (next.kind === 'dcv-delegate' && !dcvAvailable(env)) {
+      throw new ApiError(503, 'config_unavailable', 'The deployment has no DCV delegation credentials')
+    }
+    if (next.kind === 'cloudflare' && !next.credential_ciphertext) {
+      throw ApiError.badRequest('The DNS provider has no API token')
+    }
+  }
+  if (domain.dns_provider_id === (next?.id ?? '')) return order
+
+  if (domain.dns_record_id && domain.dns_provider_id) {
+    const previous = await findProvider(db, userId, domain.dns_provider_id)
+    if (previous?.kind === 'cloudflare') {
+      await deleteDnsRecord(await providerToken(env, previous), previous.zone_id, domain.dns_record_id)
+    } else if (previous?.kind === 'dcv-delegate') {
+      await deleteDelegatedTxt(env, domain.dns_record_id)
+    }
+  }
+
+  await updateDomain(db, userId, orderId, domainId, {
+    dns_provider_id: next?.id ?? '',
+    dns_record_id: '',
+    dns_record_name: '',
+    dns_record_type: '',
+    dns_record_value: '',
+    status: 'pending',
+    error_code: null,
+    error_message: null,
+    updated_at: now(),
+  })
+  const at = now()
+  const changed = await updateOrder(db, userId, orderId, {
+    status: 'queued',
+    updated_at: at,
+    version: order.version + 1,
+  }, order.version)
+  if (!changed) throw ApiError.conflict('The order changed while its DNS provider was being bound')
+  await record(db, userId, orderId, actor, 'order.provider_bound', 'order.provider_bound', 'info', domainId, {
+    domain: domain.name,
+    provider: next?.label ?? '',
+  })
+  await enqueueJob(db, { userId, orderId, kind: 'advance', runAfter: at })
+  return (await findOrder(db, userId, orderId))!
 }
 
 export function orderRetryAfter(result: AdvanceResult): number {
