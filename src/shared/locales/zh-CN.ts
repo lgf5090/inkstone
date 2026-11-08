@@ -26,6 +26,7 @@ import { ZH_CN_CALENDAR } from './zh-CN-calendar';
 import { ZH_CN_DEVELOPMENT_DATABASE } from './zh-CN-development-database';
 import { ZH_CN_DEVELOPMENT_APITESTER } from './zh-CN-development-apitester';
 import { ZH_CN_DEVELOPMENT_GITHUB } from './zh-CN-development-github';
+import { ZH_CN_DEVELOPMENT_CERTHUB } from './zh-CN-development-certhub';
 import { ZH_CN_DEVELOPMENT_XGET_SHELL } from './zh-CN-development-xget-shell';
 import { ZH_CN_DEVELOPMENT_XGET_CORE } from './zh-CN-development-xget-core';
 import { ZH_CN_DEVELOPMENT_XGET_PLATFORMS } from './zh-CN-development-xget-platforms';
@@ -10909,6 +10910,7 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_DEVELOPMENT_DATABASE,
     ...ZH_CN_DEVELOPMENT_APITESTER,
     ...ZH_CN_DEVELOPMENT_GITHUB,
+    ...ZH_CN_DEVELOPMENT_CERTHUB,
     ...ZH_CN_DEVELOPMENT_XGET_SHELL,
     ...ZH_CN_DEVELOPMENT_XGET_CORE,
     ...ZH_CN_DEVELOPMENT_XGET_PLATFORMS,
