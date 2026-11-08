@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Annotation, Compartment, EditorSelection, EditorState, Prec, type Extension } from '@codemirror/state';
-import { EditorView, drawSelection, dropCursor, keymap, lineNumbers, placeholder as placeholderExt, rectangularSelection, } from '@codemirror/view';
+import { EditorView, drawSelection, dropCursor, keymap, placeholder as placeholderExt, rectangularSelection, } from '@codemirror/view';
 import { foldGutter, indentOnInput, indentUnit, } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { search, searchKeymap } from '@codemirror/search';
@@ -36,6 +36,7 @@ import { useLinkHoverHost } from '../features/preview/link-hover-host';
 import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../features/tags/TagContextMenuAt';
 import { useLongPress } from '../features/workspace/context-menu/use-long-press';
 import { quotedHighlight } from './quoted-highlight';
+import { wrapAwareLineNumbers } from './wrap-line-numbers';
 import type { Heading } from '../lib/markdown/renderer';
 import { t } from "../lib/i18n";
 
@@ -251,7 +252,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             keymap.of([indentWithTab]),
             lineNumbersCompartment.current.of(
                 settings.lineNumbers && !live
-                    ? [lineNumbers(), foldGutter()]
+                    ? [wrapAwareLineNumbers(), foldGutter()]
                     : [],
             ),
             EditorView.updateListener.of((update) => {
@@ -433,7 +434,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         view.dispatch({
             effects: lineNumbersCompartment.current.reconfigure(
                 settings.lineNumbers && !live
-                    ? [lineNumbers(), foldGutter()]
+                    ? [wrapAwareLineNumbers(), foldGutter()]
                     : [],
             ),
         });
