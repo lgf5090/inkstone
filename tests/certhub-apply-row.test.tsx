@@ -55,6 +55,27 @@ describe('ApplyDomainRow', () => {
     expect(boxes[1]?.textContent).toBe(t('development.certhub.apply.primary'))
   })
 
+  it('removes a domain row only when the form can spare one', () => {
+    rendered = renderRow(row())
+    const labelled = [...rendered.container.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.getAttribute('aria-label') === t('development.certhub.apply.remove_domain'))
+    expect(labelled).toBeUndefined()
+
+    let removed = false
+    rendered.rerender(createElement(ApplyDomainRow, {
+      row: row(),
+      providers: [],
+      onChange: () => undefined,
+      onPrimary: () => undefined,
+      onRemove: () => { removed = true },
+    }))
+    const withRemove = [...rendered.container.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.getAttribute('aria-label') === t('development.certhub.apply.remove_domain'))
+    expect(withRemove).toBeTruthy()
+    act(() => { withRemove?.click() })
+    expect(removed).toBe(true)
+  })
+
   it('switches the wildcard row to DNS-01 and explains why', async () => {
     const changes: unknown[] = []
     rendered = renderRow(row(), (patch) => changes.push(patch))

@@ -31,6 +31,7 @@ import type {
   CerthubOrderSummary,
   CerthubOrderView,
   CerthubOverview,
+  CerthubQuotaView,
   CerthubSettingsView,
   CerthubTokenView,
 } from '../../../../shared/development/certhub/types'
@@ -466,6 +467,10 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
       <Panel title={t('development.certhub.detail.title')} subtitle={order.primaryDomain} actions={<StatusBadge status={order.status} />}>
         <div className="mb-3 flex flex-wrap gap-2">
           <Button size="sm" onClick={() => runAction('advance')} loading={busy} icon={<RefreshCw size={14} />}>{t('development.certhub.detail.verify')}</Button>
+          <Button size="sm" variant="ghost" onClick={load} icon={<RefreshCw size={14} />}>{t('development.certhub.detail.refresh')}</Button>
+          {['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating', 'ready', 'finalizing'].includes(order.status) ? <Button size="sm" variant="ghost" onClick={() => runAction('regenerate')}>{t('development.certhub.detail.regenerate')}</Button> : null}
+          {['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating', 'ready', 'finalizing'].includes(order.status) ? <Button size="sm" variant="ghost" onClick={async () => { if (await typedConfirm(t('development.certhub.detail.confirm_cancel'), order.id)) runAction('cancel') }}>{t('development.certhub.detail.cancel')}</Button> : null}
+          <CopyButton text={order.id} label={t('development.certhub.detail.copy_id')} />
           {order.status === 'issued' || order.status === 'expired' ? <Button size="sm" onClick={() => runAction('renew')}>{t('development.certhub.detail.renew')}</Button> : null}
           {order.status === 'issued' || order.status === 'expired' ? <Button size="sm" variant="danger" onClick={async () => { if (await typedConfirm(t('development.certhub.detail.confirm_revoke'), order.id)) runAction('revoke') }}>{t('development.certhub.detail.revoke')}</Button> : null}
           {order.hasPrivateKey ? <Button size="sm" variant="ghost" onClick={async () => { if (await typedConfirm(t('development.certhub.detail.confirm_purge'), order.id)) runAction('purge_key') }}>{t('development.certhub.detail.purge')}</Button> : null}
@@ -577,15 +582,19 @@ interface DomainForm { id: string; name: string; wildcard: boolean; primary: boo
  * One domain line of the request form. The label lives on the `Checkbox` itself: an earlier version
  * wrapped the control in a `<label>` that also printed the same string, so every checkbox read twice.
  */
-export function ApplyDomainRow({ row, providers, onChange, onPrimary }: {
+export function ApplyDomainRow({ row, providers, onChange, onPrimary, onRemove }: {
   row: DomainForm
   providers: CerthubDnsProviderView[]
   onChange: (patch: Partial<DomainForm>) => void
   onPrimary: (next: boolean) => void
+  onRemove?: () => void
 }) {
   return (
     <div className="space-y-2 rounded-[var(--r-lg)] border border-[var(--border-subtle)] p-2">
-      <Input value={row.name} onChange={(event) => onChange({ name: event.target.value })} placeholder={t('development.certhub.apply.domain_placeholder')} aria-label={t('development.certhub.cert.domain')} />
+      <div className="flex items-center gap-2">
+        <Input value={row.name} onChange={(event) => onChange({ name: event.target.value })} placeholder={t('development.certhub.apply.domain_placeholder')} aria-label={t('development.certhub.cert.domain')} />
+        {onRemove ? <Button size="sm" variant="ghost" aria-label={t('development.certhub.apply.remove_domain')} onClick={onRemove} icon={<Trash2 size={14} />} /> : null}
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <Checkbox checked={row.wildcard} onChange={(next) => onChange({ wildcard: next, ...(next ? { challengeMode: 'dns-01' as const } : {}) })} label={t('development.certhub.apply.wildcard')} />
         <Checkbox checked={row.primary} onChange={onPrimary} label={t('development.certhub.apply.primary')} />
@@ -606,10 +615,13 @@ function ApplyPage({ compact }: { compact: boolean }) {
   const [subject, setSubject] = useState({ country: '', state: '', locality: '', organization: '', organizationUnit: '' })
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [quota, setQuota] = useState<CerthubQuotaView | null>(null)
   const [captcha, setCaptcha] = useState({ enabled: false, siteKey: '' })
   const [captchaToken, setCaptchaToken] = useState('')
   const captchaRef = useRef<HTMLDivElement>(null)
   useEffect(() => { api<{ items: CerthubDnsProviderView[] }>('/dns-providers').then((data) => setProviders(data.items)).catch(() => setProviders([])) }, [])
+  useEffect(() => { api<CerthubOverview>('/overview').then((data) => setQuota(data.quota)).catch(() => setQuota(null)) }, [])
+  const quotaReached = Boolean(quota && ((quota.maxActiveCerts > 0 && quota.activeCerts >= quota.maxActiveCerts) || (quota.dailyLimit > 0 && quota.dailyUsed >= quota.dailyLimit)))
   useEffect(() => {
     api<{ captcha: { enabled: boolean; siteKey: string } }>('/health')
       .then((data) => setCaptcha(data.captcha))
@@ -646,6 +658,10 @@ function ApplyPage({ compact }: { compact: boolean }) {
       return
     }
     setFormError(null)
+    if (quotaReached) {
+      setFormError('development.certhub.apply.quota_reached')
+      return
+    }
     if (captcha.enabled && !captchaToken) {
       toastError(new Error(t('development.certhub.apply.captcha_hint')))
       return
@@ -689,6 +705,7 @@ function ApplyPage({ compact }: { compact: boolean }) {
               providers={providers}
               onChange={(patch) => update(row.id, patch)}
               onPrimary={(next) => setDomains((current) => current.map((entry) => ({ ...entry, primary: entry.id === row.id ? next : false })))}
+              {...(domains.length > 1 ? { onRemove: () => setDomains((current) => current.filter((entry) => entry.id !== row.id)) } : {})}
             />
           ))}
           <Button size="sm" icon={<Plus size={14} />} onClick={() => setDomains((current) => [...current, { id: crypto.randomUUID(), name: '', wildcard: false, primary: false, challengeMode: 'dns-01', dnsProviderId: '' }])}>{t('development.certhub.apply.add_domain')}</Button>
@@ -705,7 +722,9 @@ function ApplyPage({ compact }: { compact: boolean }) {
             <Input value={subject.state} onChange={(event) => setSubject({ ...subject, state: event.target.value })} aria-label={t('development.certhub.apply.subject_state')} placeholder={t('development.certhub.apply.subject_state')} />
             <Input value={subject.locality} onChange={(event) => setSubject({ ...subject, locality: event.target.value })} aria-label={t('development.certhub.apply.subject_locality')} placeholder={t('development.certhub.apply.subject_locality')} />
             <Input value={subject.organization} onChange={(event) => setSubject({ ...subject, organization: event.target.value })} aria-label={t('development.certhub.apply.subject_organization')} placeholder={t('development.certhub.apply.subject_organization')} />
+            <Input value={subject.organizationUnit} onChange={(event) => setSubject({ ...subject, organizationUnit: event.target.value })} aria-label={t('development.certhub.apply.subject_organization_unit')} placeholder={t('development.certhub.apply.subject_organization_unit')} />
           </div>
+          {quota ? <p className={cn('text-[length:var(--text-11-5)]', quotaReached ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]')}>{t('development.certhub.apply.quota_line', { certsUsed: quota.activeCerts, certsLimit: quota.maxActiveCerts, dailyUsed: quota.dailyUsed, dailyLimit: quota.dailyLimit })}</p> : null}
           {captcha.enabled ? <div ref={captchaRef} className="min-h-[65px]" /> : null}
           <Button variant="primary" onClick={submit} loading={busy}>{t('development.certhub.apply.submit')}</Button>
         </div>
@@ -871,6 +890,13 @@ function SettingsPage({ compact }: { compact: boolean }) {
     } catch (reason) { toastError(reason) }
   }
   const revoke = async (id: string) => { if (await confirm({ title: t('development.certhub.settings.token_revoke'), tone: 'danger' })) { await api(`/tokens/${id}`, { method: 'DELETE' }).then(load).catch(toastError) } }
+  const rotateToken = async (id: string) => {
+    try {
+      const result = await api<{ token: string }>(`/tokens/${id}/rotate`, { method: 'POST' })
+      setRevealed(result.token)
+      load()
+    } catch (reason) { toastError(reason) }
+  }
   return (
     <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-[1.4fr_1fr]')}>
       <Panel title={t('development.certhub.settings.title')} actions={<Button onClick={save} loading={busy}>{t('development.certhub.settings.save')}</Button>}>
@@ -895,7 +921,7 @@ function SettingsPage({ compact }: { compact: boolean }) {
         {revealed ? <div className="mb-2 rounded-[var(--r-md)] bg-[var(--accent-soft)] p-2 text-[length:var(--text-11-5)] text-[var(--accent-on-soft)]"><div>{t('development.certhub.settings.token_reveal')}</div><code className="break-all">{revealed}</code><CopyButton text={revealed} label={t('common.copy')} /></div> : null}
         {tokens.length ? (
           <div className="space-y-2">
-            {tokens.map((token) => <TokenRow key={token.id} token={token} onRevoke={revoke} />)}
+            {tokens.map((token) => <TokenRow key={token.id} token={token} onRevoke={revoke} onRotate={rotateToken} />)}
           </div>
         ) : <Empty art="starred" title={t('development.certhub.settings.tokens_empty')} compact />}
       </Panel>
@@ -907,7 +933,7 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
   return <div className="flex items-center justify-between gap-2 text-[length:var(--text-12)]"><span>{label}</span><Switch checked={checked} onChange={onChange} label={label} /></div>
 }
 
-export function TokenRow({ token, onRevoke }: { token: CerthubTokenView; onRevoke: (id: string) => void }) {
+export function TokenRow({ token, onRevoke, onRotate }: { token: CerthubTokenView; onRevoke: (id: string) => void; onRotate?: (id: string) => void }) {
   const revoked = token.revokedAt !== null
   return (
     <div className={cn('rounded-[var(--r-md)] bg-[var(--bg-sunken)] p-2 text-[length:var(--text-11-5)]', revoked && 'opacity-60')}>
@@ -915,7 +941,12 @@ export function TokenRow({ token, onRevoke }: { token: CerthubTokenView; onRevok
         <span className={cn('min-w-0 truncate', revoked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]')}>{token.name} · {token.prefix}…</span>
         {revoked
           ? <span className="shrink-0 text-[var(--text-quaternary)]">{t('development.certhub.settings.token_revoked_at', { time: formatDate(token.revokedAt) })}</span>
-          : <Button size="sm" variant="ghost" onClick={() => onRevoke(token.id)}>{t('development.certhub.settings.token_revoke')}</Button>}
+          : (
+            <div className="flex shrink-0 items-center gap-1">
+              {onRotate ? <Button size="sm" variant="ghost" onClick={() => onRotate(token.id)}>{t('development.certhub.settings.token_rotate')}</Button> : null}
+              <Button size="sm" variant="ghost" onClick={() => onRevoke(token.id)}>{t('development.certhub.settings.token_revoke')}</Button>
+            </div>
+          )}
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-1">
         {token.scopes.map((scope) => (

@@ -74,6 +74,18 @@ describe('TokenRow', () => {
     expect(revoke).toBeTruthy()
   })
 
+  it('offers rotate only when a handler is supplied', () => {
+    rendered = renderElement(createElement(TokenRow, { token: token(), onRevoke: () => undefined, onRotate: () => undefined }))
+    const rotate = [...rendered.container.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === t('development.certhub.settings.token_rotate'))
+    expect(rotate).toBeTruthy()
+    rendered.unmount()
+    rendered = renderElement(createElement(TokenRow, { token: token(), onRevoke: () => undefined }))
+    const missing = [...rendered.container.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === t('development.certhub.settings.token_rotate'))
+    expect(missing).toBeUndefined()
+  })
+
   it('greys out a revoked token, hides revoke and prints when it was revoked', () => {
     const revokedAt = Date.UTC(2026, 10, 8, 4, 30)
     rendered = renderElement(createElement(TokenRow, { token: token({ revokedAt }), onRevoke: () => undefined }))
