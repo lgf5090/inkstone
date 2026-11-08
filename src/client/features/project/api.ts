@@ -3,6 +3,7 @@ import { CLIENT_HEADER } from '@shared/constants'
 import { request } from '../../lib/api'
 import type {
   ProjectActivityEntry,
+  ProjectAttachment,
   ProjectBoard,
   ProjectBoardBundle,
   ProjectBoardPatch,
@@ -219,4 +220,26 @@ export async function saveCardAsTemplate(cardId: string): Promise<void> {
 export async function createCardFromTemplate(boardId: string, templateId: string): Promise<ProjectCard> {
   const body = await request<{ card: ProjectCard }>(`/api/project/boards/${encodeURIComponent(boardId)}/cards/from-template`, { method: 'POST', body: { templateId } })
   return body.card
+}
+
+export async function listBoardFiles(boardId: string, cardId?: string): Promise<ProjectAttachment[]> {
+  const query = cardId ? `?cardId=${encodeURIComponent(cardId)}` : ''
+  const body = await request<{ files: ProjectAttachment[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/files${query}`)
+  return body.files
+}
+
+export async function uploadBoardFile(boardId: string, file: File, cardId?: string): Promise<ProjectAttachment> {
+  const form = new FormData()
+  form.append('file', file)
+  if (cardId) form.append('cardId', cardId)
+  const body = await request<{ file: ProjectAttachment }>(`/api/project/boards/${encodeURIComponent(boardId)}/files`, { method: 'POST', formData: form })
+  return body.file
+}
+
+export async function deleteProjectFile(id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/files/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function projectFileUrl(id: string): string {
+  return `/api/project/files/${encodeURIComponent(id)}`
 }

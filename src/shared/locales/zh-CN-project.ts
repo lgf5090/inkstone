@@ -118,4 +118,6 @@ export const ZH_CN_PROJECT = {
     "project.view.no_dates": "暂无带日期的卡片",
     "project.view.blocked": "被阻塞",
     "project.view.swimlane": "泳道",
+    "project.card.attachments": "附件",
+    "project.card.add_attachment": "添加附件",
 } as const

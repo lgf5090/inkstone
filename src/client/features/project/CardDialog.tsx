@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import { CheckSquare, Minus, Plus, Trash2, Type } from 'lucide-react'
-import type { ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
+import { CheckSquare, Minus, Paperclip, Plus, Trash2, Type } from 'lucide-react'
+import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Input, Select, Textarea } from '../../components/form'
 import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
-import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, fetchCardComments, fetchCardLinks, patchCardContent, patchProjectCard, removeCardLink, saveCardAsTemplate } from './api'
+import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteProjectFile, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
 
 interface CardDialogProps {
@@ -27,13 +27,21 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
   const [posting, setPosting] = useState(false)
   const [blocks, setBlocks] = useState<ProjectContent[]>(contents)
   const [links, setLinks] = useState<ProjectCardLink[]>([])
+  const [files, setFiles] = useState<ProjectAttachment[]>([])
+  const fileInput = useRef<HTMLInputElement>(null)
   const [blocker, setBlocker] = useState('')
   const addAnchor = useRef<HTMLButtonElement>(null)
   const [addOpen, setAddOpen] = useState(false)
 
   useEffect(() => {
     fetchCardLinks(card.id).then(setLinks).catch(() => setLinks([]))
-  }, [card.id])
+    listBoardFiles(card.boardId, card.id).then(setFiles).catch(() => setFiles([]))
+  }, [card.id, card.boardId])
+
+  const attachFile = async (file: File) => {
+    const uploaded = await uploadBoardFile(card.boardId, file, card.id)
+    setFiles((current) => [uploaded, ...current])
+  }
 
   useEffect(() => { setTitle(card.title) }, [card.title])
   useEffect(() => {
@@ -204,6 +212,25 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
               <Button size="sm" disabled={!blocker} onClick={() => void addDependency()}>{t('project.card.add_dependency')}</Button>
             </div>
           )}
+        </section>
+        <section aria-label={t('project.card.attachments')} className="space-y-2">
+          <div className="flex items-center gap-2">
+            <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.attachments')}</h3>
+            {canEdit && (
+              <>
+                <input ref={fileInput} type="file" className="hidden" onChange={(event) => { const f = event.target.files?.[0]; if (f) void attachFile(f); event.target.value = '' }} />
+                <Button size="sm" icon={<Paperclip size={14} />} onClick={() => fileInput.current?.click()}>{t('project.card.add_attachment')}</Button>
+              </>
+            )}
+          </div>
+          <ul className="space-y-1">
+            {files.map((file) => (
+              <li key={file.id} className="flex items-center gap-2">
+                <a className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--accent)]" href={projectFileUrl(file.id)} target="_blank" rel="noreferrer">{file.filename}</a>
+                {canEdit && <IconButton label={t('common.delete')} size="sm" onClick={() => { void deleteProjectFile(file.id).then(() => setFiles((current) => current.filter((f) => f.id !== file.id))) }}><Trash2 size={14} /></IconButton>}
+              </li>
+            ))}
+          </ul>
         </section>
         <section aria-label={t('project.card.comments')} className="space-y-2">
           <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.comments')}</h3>

@@ -17,6 +17,10 @@ vi.mock('./api', () => ({
   createProjectCard: vi.fn(),
   addCardLink: vi.fn(),
   removeCardLink: vi.fn(),
+  listBoardFiles: vi.fn(),
+  uploadBoardFile: vi.fn(),
+  deleteProjectFile: vi.fn(),
+  projectFileUrl: vi.fn((id: string) => `/api/project/files/${id}`),
 }))
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
@@ -38,6 +42,7 @@ beforeEach(async () => {
   vi.clearAllMocks()
   vi.mocked(api.fetchCardComments).mockResolvedValue([])
   vi.mocked(api.fetchCardLinks).mockResolvedValue([])
+  vi.mocked(api.listBoardFiles).mockResolvedValue([])
   await initI18n()
 })
 afterEach(() => { view?.unmount() })

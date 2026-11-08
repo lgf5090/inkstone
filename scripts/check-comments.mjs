@@ -41056,6 +41056,9 @@ const allowed = new Map([
     "/** X-5 card→todo: mirror the card's completion onto its linked task. */",
     "/** X-5 todo→card: mirror a task's completion onto the linked card's checkbox/status property. */",
   ]],
+  ["src/worker/project/files.ts", [
+    "/**\n * Project attachments (F-8/D-9): bytes live in R2 under a four-segment `project/<category>/<user>/<id>`\n * key, rows in project_attachments. The category segment keeps images/pdf/text apart for browsing and\n * cleanup. Uploads are editor-only; reads follow the board's viewer boundary so a private board's\n * files stay private.\n */",
+  ]],
   ["src/worker/project/insights.ts", [
     "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.\n */",
   ]],
@@ -41074,6 +41077,9 @@ const allowed = new Map([
     "/**\n * After any successful board-scoped write, tell every member's sync hub so open boards refetch. The\n * board id comes from the path for /boards/:id and from a row lookup for the child entities; routes\n * that own no board (categories, subscriptions, import) fall through untouched.\n */",
     "// Best-effort: the test harness fetches without an ExecutionContext, whose getter throws.",
     "/* no ExecutionContext in tests */",
+  ]],
+  ["src/worker/project/scheduler.ts", [
+    "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
   ]],
   ["src/worker/project/schema.ts", [
     "/**\n * The project app's tables, in arrays so a fresh database and a migrated one arrive at the same shape\n * by the same text: `SCHEMA_STATEMENTS` spreads these, and migrations 287-291 apply the very same\n * arrays to a database that predates the app.\n *\n * Boards are shared objects, so a board-scoped row keys on its own id and reaches its audience through\n * `project_board_members`; only the account's own furniture (categories, settings) keys on the account.\n * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.\n */",

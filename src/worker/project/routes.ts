@@ -92,6 +92,7 @@ import { searchProject } from './search'
 import { topProjectBoards } from './insights'
 import { addCardLink, createCardFromTemplate, getCardTodoLink, linkCardTodo, listBoardLinks, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate, syncCardCompletionToTodo, unlinkCardTodo } from './enhance'
 import { projectBoardToMarkdown } from '@shared/project/markdown'
+import { deleteProjectAttachment, getProjectAttachment, listBoardAttachments, uploadProjectAttachment, PROJECT_UPLOAD_LIMIT } from './files'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
 import { projectStatistics } from './statistics'
 import { createBoardFromTemplate, listProjectTemplates, saveBoardAsTemplate } from './templates'
@@ -228,6 +229,41 @@ projectRoutes.post('/cards/:id/todo-link', async (c) => {
 projectRoutes.delete('/cards/:id/todo-link', async (c) => {
   const { card } = await requireCard(c, c.req.param('id'), 'editor')
   await unlinkCardTodo(c.env.DB, card.id)
+  return c.json({ ok: true })
+})
+
+projectRoutes.get('/boards/:id/files', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ files: await listBoardAttachments(c.env.DB, board.id, c.req.query('cardId')) })
+})
+
+projectRoutes.post('/boards/:id/files', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
+  assertDeclaredBodySize(c.req, PROJECT_UPLOAD_LIMIT + 1024 * 1024)
+  const form = await c.req.formData()
+  const file = form.get('file')
+  if (!(file instanceof File)) throw ApiError.badRequest('A file field is required')
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const cardId = typeof form.get('cardId') === 'string' ? (form.get('cardId') as string) : null
+  const attachment = await uploadProjectAttachment(c.env.DB, c.env.FILES, { boardId: board.id, cardId, userId, filename: file.name, mime: file.type || 'application/octet-stream', bytes }, Date.now())
+  return c.json({ file: attachment }, 201)
+})
+
+projectRoutes.get('/files/:id', async (c) => {
+  const attachment = await getProjectAttachment(c.env.DB, c.req.param('id'))
+  if (!attachment) throw ApiError.notFound('File not found')
+  await requireBoard(c, attachment.boardId, 'viewer')
+  if (!c.env.FILES) throw ApiError.notFound('File not found')
+  const object = await c.env.FILES.get(attachment.objectKey)
+  if (!object) throw ApiError.notFound('File not found')
+  return new Response(object.body, { headers: { 'Content-Type': attachment.mime, 'Content-Disposition': `inline; filename="${encodeURIComponent(attachment.filename)}"` } })
+})
+
+projectRoutes.delete('/files/:id', async (c) => {
+  const attachment = await getProjectAttachment(c.env.DB, c.req.param('id'))
+  if (!attachment) throw ApiError.notFound('File not found')
+  await requireBoard(c, attachment.boardId, 'editor')
+  await deleteProjectAttachment(c.env.DB, c.env.FILES, attachment)
   return c.json({ ok: true })
 })
 

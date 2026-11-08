@@ -118,4 +118,6 @@ export const EN_US_PROJECT = {
     "project.view.no_dates": "No dated cards",
     "project.view.blocked": "Blocked",
     "project.view.swimlane": "Swimlane",
+    "project.card.attachments": "Attachments",
+    "project.card.add_attachment": "Attach file",
 } as const
