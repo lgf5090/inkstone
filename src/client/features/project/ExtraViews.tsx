@@ -4,7 +4,7 @@
  * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.
  */
 import type { ProjectCard, ProjectCardLink, ProjectProperty } from '@shared/project/model'
-import { groupProjectCards } from '@shared/project/view-eval'
+import { groupProjectCards, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
 
 function dateRange(card: ProjectCard, propertyId: string | undefined): { from: number, to: number } | null {
@@ -27,7 +27,7 @@ export function ListView({ cards, properties, onOpenCard }: { cards: ProjectCard
           <button type="button" className="flex w-full items-center gap-2 px-3 py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
             <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>
             {properties.slice(0, 3).map((property) => (
-              <span key={property.id} className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{card.values[property.id] ?? ''}</span>
+              <span key={property.id} className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{projectPropertyDisplayText(card, property)}</span>
             ))}
           </button>
         </li>

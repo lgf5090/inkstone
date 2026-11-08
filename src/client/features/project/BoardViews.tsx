@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, type ReactElement } from 'react'
 import { ArrowUpDown, Eye, Filter, Plus, Trash2 } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
-import { groupProjectCards, matchProjectFilterGroup, sortProjectCards } from '@shared/project/view-eval'
+import { groupProjectCards, matchProjectFilterGroup, projectOptionLabel, projectPropertyDisplayText, sortProjectCards } from '@shared/project/view-eval'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
@@ -19,31 +19,10 @@ const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   table: 'project.view.table',
   gallery: 'project.view.gallery',
   calendar: 'project.view.calendar',
-}
-
-function optionLabel(property: ProjectProperty, id: string): string {
-  return property.options.find((option) => option.id === id)?.value ?? id
-}
-
-function cellText(card: ProjectCard, property: ProjectProperty): string {
-  const raw = card.values[property.id] ?? ''
-  switch (property.type) {
-    case 'select': return raw ? optionLabel(property, raw) : ''
-    case 'multiSelect': {
-      if (!raw) return ''
-      try {
-        const ids: unknown = JSON.parse(raw)
-        if (Array.isArray(ids)) return ids.map((id) => optionLabel(property, String(id))).join(', ')
-      } catch { /* scalar falls through */ }
-      return raw
-    }
-    case 'checkbox': return raw === 'true' ? '✓' : ''
-    case 'createdBy': return card.createdBy
-    case 'updatedBy': return card.modifiedBy
-    case 'createdTime': return new Date(card.createAt).toLocaleDateString()
-    case 'updatedTime': return new Date(card.updateAt).toLocaleDateString()
-    default: return raw
-  }
+  list: 'project.view.list',
+  timeline: 'project.view.timeline',
+  gantt: 'project.view.gantt',
+  chart: 'project.view.chart',
 }
 
 interface BoardViewsProps {
@@ -79,14 +58,14 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-3 py-1.5" role="tablist" aria-label={t('project.view.add')}>
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] px-3 py-1.5" role="tablist" aria-label={t('project.view.add')}>
         {bundle.views.map((view) => (
           <button
             key={view.id}
             type="button"
             role="tab"
             aria-selected={active?.id === view.id}
-            className={`rounded-[var(--r-sm)] px-2 py-1 text-[length:var(--text-12)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active?.id === view.id ? 'bg-[var(--bg-hover)] font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}
+            className={`shrink-0 whitespace-nowrap rounded-[var(--r-sm)] px-2 py-1 text-[length:var(--text-12)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active?.id === view.id ? 'bg-[var(--bg-hover)] font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}
             onClick={() => setActiveId(view.id)}
           >
             {view.title || t(VIEW_LABEL[view.viewType] ?? 'project.view.table')}
@@ -191,7 +170,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                             {card.title || t('project.board.untitled_card')}
                           </button>
                         </td>
-                        {columns.map((property) => <td key={property.id} className="px-3 py-2 text-[var(--text-secondary)]">{cellText(card, property)}</td>)}
+                        {columns.map((property) => <td key={property.id} className="px-3 py-2 text-[var(--text-secondary)]">{projectPropertyDisplayText(card, property)}</td>)}
                         {canEdit && (
                           <td className="px-2 py-1">
                             <IconButton label={t('project.board.delete_card')} size="sm" onClick={() => onDeleteCard(card.id)}>
@@ -258,7 +237,7 @@ function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onO
     <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
       {columnKeys.map((key) => {
         const bucket = groups.get(key) ?? []
-        const label = key === '' ? t('project.view.no_value') : optionLabel(groupProperty!, key)
+        const label = key === '' ? t('project.view.no_value') : projectOptionLabel(groupProperty!, key)
         const calc = fields.kanbanCalculations[key]?.calculation ?? 'count'
         const calcProperty = groupProperty ?? properties[0]
         return (

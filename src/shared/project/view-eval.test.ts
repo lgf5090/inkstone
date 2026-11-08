@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectCard, ProjectFilterClause, ProjectFilterGroup, ProjectProperty } from './model'
 import { emptyProjectFilterGroup } from './model'
-import { groupProjectCards, matchProjectFilterGroup, sortProjectCards } from './view-eval'
+import { groupProjectCards, matchProjectFilterGroup, projectPropertyDisplayText, sortProjectCards } from './view-eval'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u2', createAt: 1_000_000, updateAt: 2_000_000, deleteAt: 0 }
 
@@ -109,5 +109,37 @@ describe('sort and group', () => {
     expect(groups.get('o1')!.map((c) => c.id)).toEqual(['a', 'c'])
     expect(groups.get('o2')!.map((c) => c.id)).toEqual(['b'])
     expect(groups.get('')!.map((c) => c.id)).toEqual(['e'])
+  })
+})
+
+describe('property display text', () => {
+  const byId = (id: string): ProjectProperty => props.find((p) => p.id === id)!
+
+  it('renders a select option label, not the option id', () => {
+    expect(projectPropertyDisplayText(card('a', { ps: 'o1' }), byId('ps'))).toBe('Open')
+    expect(projectPropertyDisplayText(card('a'), byId('ps'))).toBe('')
+  })
+
+  it('renders a date as a locale date, never the raw JSON envelope', () => {
+    const from = Date.UTC(2026, 10, 15)
+    const text = projectPropertyDisplayText(card('a', { pd: JSON.stringify({ from }) }), byId('pd'))
+    expect(text).toBe(new Date(from).toLocaleDateString())
+    expect(text).not.toContain('{')
+    expect(projectPropertyDisplayText(card('a'), byId('pd'))).toBe('')
+  })
+
+  it('renders a date range with both endpoints', () => {
+    const from = Date.UTC(2026, 10, 15)
+    const to = Date.UTC(2026, 10, 20)
+    const text = projectPropertyDisplayText(card('a', { pd: JSON.stringify({ from, to }) }), byId('pd'))
+    expect(text).toBe(`${new Date(from).toLocaleDateString()} – ${new Date(to).toLocaleDateString()}`)
+  })
+
+  it('renders multiSelect labels joined and checkbox as a tick', () => {
+    const multi: ProjectProperty = { id: 'pm2', name: 'Tags', type: 'multiSelect', options: [{ id: 'm1', value: 'One', color: '' }, { id: 'm2', value: 'Two', color: '' }] }
+    expect(projectPropertyDisplayText(card('a', { pm2: JSON.stringify(['m1', 'm2']) }), multi)).toBe('One, Two')
+    const check: ProjectProperty = { id: 'pk', name: 'Done', type: 'checkbox', options: [] }
+    expect(projectPropertyDisplayText(card('a', { pk: 'true' }), check)).toBe('✓')
+    expect(projectPropertyDisplayText(card('a', { pk: 'false' }), check)).toBe('')
   })
 })

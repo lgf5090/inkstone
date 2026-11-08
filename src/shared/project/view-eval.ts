@@ -74,6 +74,31 @@ function asArray(value: string): string[] {
   return [value]
 }
 
+export function projectOptionLabel(property: ProjectProperty, id: string): string {
+  return property.options.find((option) => option.id === id)?.value ?? id
+}
+
+/** Human-readable cell text shared by the table cells and the compact list rows. */
+export function projectPropertyDisplayText(card: ProjectCard, property: ProjectProperty): string {
+  const raw = card.values[property.id] ?? ''
+  switch (property.type) {
+    case 'select': return raw ? projectOptionLabel(property, raw) : ''
+    case 'multiSelect': return raw ? asArray(raw).map((id) => projectOptionLabel(property, id)).join(', ') : ''
+    case 'checkbox': return raw === 'true' ? '✓' : ''
+    case 'date': {
+      const range = parseDateValue(raw)
+      if (range?.from === undefined) return ''
+      const from = new Date(range.from).toLocaleDateString()
+      return range.to !== undefined && range.to !== range.from ? `${from} – ${new Date(range.to).toLocaleDateString()}` : from
+    }
+    case 'createdBy': return card.createdBy
+    case 'updatedBy': return card.modifiedBy
+    case 'createdTime': return new Date(card.createAt).toLocaleDateString()
+    case 'updatedTime': return new Date(card.updateAt).toLocaleDateString()
+    default: return raw
+  }
+}
+
 function matchClause(card: ProjectCard, clause: ProjectFilterClause, properties: readonly ProjectProperty[]): boolean {
   const property = properties.find((entry) => entry.id === clause.propertyId)
   const isTitle = clause.propertyId === PROJECT_TITLE_PROPERTY_ID || clause.propertyId === 'title'

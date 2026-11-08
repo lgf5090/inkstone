@@ -1,7 +1,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectBoardBundle } from '@shared/project/model'
-import { emptyProjectViewFields } from '@shared/project/model'
+import type { ProjectBoardBundle, ProjectViewType } from '@shared/project/model'
+import { emptyProjectViewFields, PROJECT_VIEW_TYPES } from '@shared/project/model'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { BoardViews } from './BoardViews'
@@ -62,5 +62,26 @@ describe('the board view', () => {
     expect(columns[0]!.querySelectorAll('[data-project-card]')).toHaveLength(1)
     expect(columns[0]!.textContent).toContain('Alpha')
     expect(columns[2]!.textContent).toContain('Gamma')
+  })
+})
+
+describe('view tab labels', () => {
+  it('labels every untitled view tab with its own type, not the table fallback', async () => {
+    const base = bundle()
+    base.views = PROJECT_VIEW_TYPES.map((viewType: ProjectViewType, index) => ({
+      id: `v${index}`, boardId: 'b1', title: '', viewType, fields: emptyProjectViewFields(), position: index, ...stamps,
+    }))
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn() }))
+    })
+    const labels = [...view.container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)
+    expect(labels).toEqual(PROJECT_VIEW_TYPES.map((viewType) => t(`project.view.${viewType}` as Parameters<typeof t>[0])))
+    expect(labels).toContain(t('project.view.list'))
+    expect(labels).toContain(t('project.view.gantt'))
+    for (const tab of view.container.querySelectorAll('[role="tab"]')) {
+      expect(tab.className).toContain('whitespace-nowrap')
+      expect(tab.className).toContain('shrink-0')
+    }
+    expect(view.container.querySelector('[role="tablist"]')!.className).toContain('overflow-x-auto')
   })
 })
