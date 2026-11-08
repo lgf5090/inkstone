@@ -72,6 +72,11 @@ const apiCodeMessages: Record<string, MessageKey> = {
     clouddrive_upload_expired: 'clouddrive.error.upload_expired',
     clouddrive_share_locked: 'clouddrive.error.share_locked',
     clouddrive_share_expired: 'clouddrive.error.share_expired',
+    dns_error: 'development.certhub.error.dns_error',
+    acme_error: 'development.certhub.error.acme_error',
+    ca_rate_limited: 'development.certhub.error.ca_rate_limited',
+    ca_unavailable: 'development.certhub.error.ca_unavailable',
+    vault_unavailable: 'development.certhub.error.vault_unavailable',
     clouddrive_share_disabled: 'clouddrive.error.share_disabled',
 };
 let englishMessageKeys = new Map<string, MessageKey>();
@@ -217,9 +222,13 @@ export function translateApiError(code: string, fallback: string): string {
     const key = apiCodeMessages[code];
     if (key)
         return t(key);
-    return fallback ? translateServiceMessage(fallback) : t('api.error.unknown');
+    if (!fallback)
+        return t('api.error.unknown');
+    // This translator ends by calling anything it cannot place a storage error, which is right for the
+    // backup surfaces and wrong here: a DNS failure must not be reported as a storage failure.
+    return translateServiceMessage(fallback, true);
 }
-export function translateServiceMessage(message: string | null | undefined): string {
+export function translateServiceMessage(message: string | null | undefined, knownOnly = false): string {
     if (!message || locale === 'en-US')
         return message ?? '';
     const exactKey = englishMessageKeys.get(message);
@@ -247,6 +256,7 @@ export function translateServiceMessage(message: string | null | undefined): str
     if (match)
         return t('backup.service.cleanup_failed', { status: match[1] });
     if (message === 'Old backup cleanup will continue after the next successful backup') return t('backup.service.cleanup_pending');
+    if (knownOnly) return message;
     const http = /HTTP\s+\d{3}/i.exec(message)?.[0];
     return `${t('backup.error.storage_service')}${http ? ` (${http})` : ''}`;
 }

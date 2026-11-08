@@ -7,7 +7,7 @@
  */
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { initI18n, t } from '../src/client/lib/i18n'
+import { initI18n, initI18nForReading, t, translateApiError } from '../src/client/lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../src/client/lib/test-render'
 import { EventList, TokenRow } from '../src/client/features/development/certhub/CerthubApp'
 import { CERTHUB_EVENT_KINDS, eventKindKey } from '../src/shared/development/certhub/events'
@@ -128,6 +128,18 @@ describe('EventList', () => {
       events: [event({ kind: 'challenge.pending_dns', messageCode: 'challenge.pending_dns', detail: { name: '_acme-challenge.example.com', type: 'TXT' } })],
     }))
     expect(rendered.container.textContent).toContain('_acme-challenge.example.com')
+  })
+})
+
+describe('API error copy', () => {
+  it('translates a certificate failure by its code, not as a storage failure', async () => {
+    await initI18nForReading('zh-CN')
+    expect(translateApiError('dns_error', 'The DNS provider answered HTTP 401')).toBe(t('development.certhub.error.dns_error'))
+    expect(translateApiError('ca_rate_limited', 'slow down')).toBe(t('development.certhub.error.ca_rate_limited'))
+    // An unknown code keeps the server's own words instead of being relabelled.
+    expect(translateApiError('mystery_code', 'The certificate authority refused the order')).toBe('The certificate authority refused the order')
+    expect(translateApiError('mystery_code', 'The certificate authority refused the order')).not.toBe(t('backup.error.storage_service'))
+    await initI18nForReading('en-US')
   })
 })
 

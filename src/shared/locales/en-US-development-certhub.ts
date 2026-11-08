@@ -336,4 +336,9 @@ export const EN_US_DEVELOPMENT_CERTHUB = {
   "development.certhub.common.not_available": "Not available",
   "development.certhub.common.confirm": "Confirm",
   "development.certhub.error.generic": "The request failed",
+  "development.certhub.error.dns_error": "The DNS provider returned an error. Check its credentials or the network and retry.",
+  "development.certhub.error.acme_error": "The certificate authority rejected the request; see the failure reason.",
+  "development.certhub.error.ca_rate_limited": "The certificate authority asked for fewer requests. Retry shortly.",
+  "development.certhub.error.ca_unavailable": "The certificate authority is unavailable. Retry shortly.",
+  "development.certhub.error.vault_unavailable": "The key vault is unavailable, so the key material cannot be read right now.",
 } as const
