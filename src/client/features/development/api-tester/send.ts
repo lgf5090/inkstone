@@ -1,20 +1,28 @@
 import { newApiTesterId } from '@shared/development/api-tester/ids'
 import type {
-  ApiTesterState,
   EnvVariable,
   HistoryEntry,
   HttpRequestConfig,
   ResponseResult,
   ScriptContext,
 } from '@shared/development/api-tester/types'
-import { appendHistory } from './api'
+import { appendHistory, exchangeOAuthToken } from './api'
 import { executeRequest, RelayClientError } from './lib/relay-client'
 import { runPreScript, runTests } from './lib/script-sandbox'
 import { activeVariables, variableRecord, type Variable } from './lib/variables'
-import { beginRequest, cancelRequest, endRequest } from './lib/inflight'
-import { t } from '../../../lib/i18n'
+import { mergeResponseCookies } from './lib/cookies'
+import { beginRequest, cancelRequest, discardRequest, endRequest, isCurrentRequest } from './lib/inflight'
+import { t, type MessageKey } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { useApiTesterStore } from './store'
+
+const TRANSPORT_ERROR_KEYS: Record<string, MessageKey> = {
+  upstream_unreachable: 'development.apitester.error.upstream_unreachable',
+  response_too_large: 'development.apitester.error.response_too_large',
+  too_many_redirects: 'development.apitester.error.too_many_redirects',
+  invalid_redirect: 'development.apitester.error.invalid_redirect',
+  cross_origin_redirect: 'development.apitester.error.cross_origin_redirect',
+}
 
 function contextFor(
   environment: Record<string, string>,
@@ -35,7 +43,7 @@ function contextFor(
   }
 }
 
-function applyEnvironmentChanges(store: typeof useApiTesterStore, before: Record<string, string>, after: Record<string, string>): void {
+export function applyEnvironmentChanges(store: typeof useApiTesterStore, before: Record<string, string>, after: Record<string, string>): void {
   const state = store.getState()
   const environment = state.state.environments.find((entry) => entry.id === state.state.activeEnvId)
   if (!environment) return
@@ -91,6 +99,43 @@ function historyEntry(
   }
 }
 
+/** Refreshes an expired OAuth2 access token before the request; failure keeps the old token. */
+async function refreshExpiredOAuth(
+  store: typeof useApiTesterStore,
+  nodeId: string,
+  request: HttpRequestConfig,
+): Promise<HttpRequestConfig> {
+  const oauth = request.auth.type === 'oauth2' ? request.auth.oauth2 : undefined
+  if (!oauth?.tokenUrl || !oauth.refreshToken || !oauth.expiresAt || Date.now() < oauth.expiresAt) return request
+  try {
+    const data = await exchangeOAuthToken({
+      tokenUrl: oauth.tokenUrl,
+      grantType: 'refresh_token',
+      refreshToken: oauth.refreshToken,
+      clientId: oauth.clientId,
+      clientSecret: oauth.clientSecret,
+    })
+    if (data.error || !data.accessToken) {
+      if (data.error) console.warn('[inkstone] API Tester OAuth refresh refused:', data.error)
+      return request
+    }
+    const oauth2 = {
+      ...oauth,
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken ?? oauth.refreshToken,
+      tokenType: data.tokenType || oauth.tokenType || 'Bearer',
+      expiresAt: data.expiresIn ? Date.now() + data.expiresIn * 1_000 : oauth.expiresAt,
+    }
+    const next = { ...request, auth: { ...request.auth, oauth2 } }
+    store.getState().updateNode(nodeId, { request: next })
+    return next
+  } catch (error) {
+    console.warn('[inkstone] API Tester OAuth refresh failed', error)
+    useUi.getState().toast({ title: t('development.apitester.oauth_refresh_failed'), tone: 'warning' })
+    return request
+  }
+}
+
 export function cancelActiveRequest(tabId: string): void {
   cancelRequest(tabId)
 }
@@ -107,6 +152,13 @@ export async function sendActiveRequest(): Promise<void> {
   let request = node.request
   let variables: Variable[] = baseVariables
 
+  // A send replaces whatever that tab was doing, including a request still in its pre-script phase.
+  discardRequest(tabId)
+  const controller = beginRequest(tabId)
+  store.getState().setTabLoading(tabId, true)
+  store.getState().setResult(tabId, null)
+  store.getState().setTestResults(tabId, null)
+
   if (node.preScript?.trim()) {
     const context = contextFor(environment, {
       method: request.method,
@@ -116,6 +168,11 @@ export async function sendActiveRequest(): Promise<void> {
       body: request.body,
     })
     const pre = await runPreScript(node.preScript, context)
+    if (!isCurrentRequest(tabId, controller)) return
+    if (controller.signal.aborted) {
+      if (endRequest(tabId, controller)) store.getState().setTabLoading(tabId, false)
+      return
+    }
     if (pre.error) {
       store.getState().setResult(tabId, {
         status: 0,
@@ -129,6 +186,7 @@ export async function sendActiveRequest(): Promise<void> {
         url: request.url,
         error: t('development.apitester.pre_script_error', { msg: pre.error }),
       })
+      if (endRequest(tabId, controller)) store.getState().setTabLoading(tabId, false)
       return
     }
     request = { ...request, headers: pre.headers ?? request.headers, params: pre.params ?? request.params }
@@ -141,10 +199,12 @@ export async function sendActiveRequest(): Promise<void> {
     environment = pre.env
   }
 
-  const controller = beginRequest(tabId)
-  store.getState().setTabLoading(tabId, true)
-  store.getState().setResult(tabId, null)
-  store.getState().setTestResults(tabId, null)
+  request = await refreshExpiredOAuth(store, tabId, request)
+  if (!isCurrentRequest(tabId, controller)) return
+  if (controller.signal.aborted) {
+    if (endRequest(tabId, controller)) store.getState().setTabLoading(tabId, false)
+    return
+  }
 
   try {
     let result = await executeRequest(request, {
@@ -152,10 +212,22 @@ export async function sendActiveRequest(): Promise<void> {
       followRedirects: snapshot.state.settings.followRedirects,
       timeoutMs: snapshot.state.settings.timeoutMs,
       kind,
+      cookies: snapshot.state.cookies ?? [],
       signal: controller.signal,
     })
     if (result.error === 'request_timeout') result = { ...result, error: t('development.apitester.request_timeout', { ms: snapshot.state.settings.timeoutMs }) }
+    else if (result.error) {
+      const key = TRANSPORT_ERROR_KEYS[result.error]
+      if (key) result = { ...result, error: t(key) }
+    }
+    if (!isCurrentRequest(tabId, controller)) return
     store.getState().setResult(tabId, result)
+    if (result.cookies && result.cookies.length > 0) {
+      store.getState().patchState((state) => ({
+        ...state,
+        cookies: mergeResponseCookies(state.cookies ?? [], result),
+      }))
+    }
     store.getState().updateNode(tabId, { lastStatus: result.status })
 
     if (node.tests?.trim()) {
@@ -193,6 +265,7 @@ export async function sendActiveRequest(): Promise<void> {
         useUi.getState().toast({ title: t('development.apitester.history_save_failed'), tone: 'danger' })
       })
   } catch (error) {
+    if (!isCurrentRequest(tabId, controller)) return
     const message = error instanceof RelayClientError
       ? error.code === 'url_required'
         ? t('development.apitester.url_required')
@@ -213,11 +286,6 @@ export async function sendActiveRequest(): Promise<void> {
       error: message,
     })
   } finally {
-    endRequest(tabId, controller)
-    store.getState().setTabLoading(tabId, false)
+    if (endRequest(tabId, controller)) store.getState().setTabLoading(tabId, false)
   }
-}
-
-export function currentState(): ApiTesterState {
-  return useApiTesterStore.getState().state
 }

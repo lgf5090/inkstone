@@ -1,29 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { FolderPlus, Globe, Plus, Radio, Search, Settings2, Tag as TagIcon, Webhook, X } from 'lucide-react'
-import type { CollectionNode, RequestKind, TagNode } from '@shared/development/api-tester/types'
+import type { CollectionNode, RequestKind } from '@shared/development/api-tester/types'
 import { newApiTesterId } from '@shared/development/api-tester/ids'
 import { defaultRequest, defaultWs } from '@shared/development/api-tester/state'
 import type { MenuItem } from '../../../../components/overlay'
-import { Menu } from '../../../../components/overlay'
+import { Menu, confirm } from '../../../../components/overlay'
 import { IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { useApiTesterStore } from '../store'
-import { childrenOf, collectionMatches, filterByTag, tagCounts } from '../lib/tree'
+import { childrenOf, collectionMatches, collectionNodesOf, filterByTag, subtreeIds, tagCounts } from '../lib/tree'
+import { tagPath } from '../lib/variables'
 import { CollectionRow, type CollectionDragState, type CollectionFolderOption } from './CollectionRow'
 import { TagTree } from './TagTree'
 import { TagManagerDialog } from './TagManagerDialog'
-
-function tagPath(tags: readonly TagNode[], id: string): string {
-  const byId = new Map(tags.map((tag) => [tag.id, tag]))
-  const parts: string[] = []
-  let current = byId.get(id)
-  while (current) {
-    parts.unshift(current.name)
-    current = current.parentId ? byId.get(current.parentId) : undefined
-  }
-  return parts.join(' / ')
-}
 
 function SearchField({
   value,
@@ -54,7 +44,7 @@ function SearchField({
   )
 }
 
-export function CollectionsPanel({
+export function CollectionsPanelBase({
   compact,
   onOpenTagManager,
   onRunCollection,
@@ -65,7 +55,7 @@ export function CollectionsPanel({
   onRunCollection: (folder: CollectionNode) => void
   onRequestClose?: () => void
 }) {
-  const nodes = useApiTesterStore((s) => s.state.nodes)
+  const nodes = useApiTesterStore((s) => collectionNodesOf(s.state.nodes))
   const tags = useApiTesterStore((s) => s.state.tags)
   const activeId = useApiTesterStore((s) => s.activeId)
   const openTab = useApiTesterStore((s) => s.openTab)
@@ -94,8 +84,8 @@ export function CollectionsPanel({
     [nodes, search],
   )
   const tagFilter = useMemo(
-    () => (activeTagId ? filterByTag(nodes, activeTagId) : null),
-    [nodes, activeTagId],
+    () => (activeTagId ? filterByTag(nodes, activeTagId, tags) : null),
+    [nodes, activeTagId, tags],
   )
   const visibleNodes = useMemo(() => {
     let list: readonly CollectionNode[] = nodes
@@ -195,7 +185,17 @@ export function CollectionsPanel({
     setRenameTarget(id)
   }
 
-  const removeNode = (id: string) => {
+  const removeNode = async (id: string) => {
+    const before = useApiTesterStore.getState().state.nodes
+    const removed = subtreeIds(before, id)
+    const ok = await confirm({
+      title: t('development.apitester.delete_node_title'),
+      description: t('development.apitester.delete_node_confirm', { count: removed.size }),
+      tone: 'danger',
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+    })
+    if (!ok) return
     if (renameTarget === id) setRenameTarget(null)
     deleteNode(id)
   }
@@ -340,3 +340,10 @@ export function CollectionsPanel({
     </section>
   )
 }
+
+/**
+ * The sidebar's callbacks only close/open panes; the panel's real data arrives through its own
+ * store subscriptions. A parent re-render from typing in the request editor therefore must not
+ * re-render the whole collection tree.
+ */
+export const CollectionsPanel = memo(CollectionsPanelBase, (previous, next) => previous.compact === next.compact)

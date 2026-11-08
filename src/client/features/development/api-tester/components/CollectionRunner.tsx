@@ -9,6 +9,8 @@ import { cn } from '../../../../lib/cn'
 import { executeRequest } from '../lib/relay-client'
 import { runPreScript, runTests } from '../lib/script-sandbox'
 import { activeVariables, variableRecord } from '../lib/variables'
+import { mergeResponseCookies } from '../lib/cookies'
+import { applyEnvironmentChanges } from '../send'
 import { useApiTesterStore } from '../store'
 
 interface Row {
@@ -21,6 +23,12 @@ interface Row {
   error?: string
   tests?: { results: TestResult[]; error?: string }
   state: 'pending' | 'running' | 'done' | 'skipped'
+}
+
+function rowPassed(row: Row): boolean {
+  if (row.error || row.status === 0 || row.status >= 400) return false
+  if (!row.tests) return true
+  return !row.tests.error && row.tests.results.every((test) => test.passed)
 }
 
 function collectRequests(nodes: CollectionNode[], folderId: string | null): CollectionNode[] {
@@ -92,8 +100,9 @@ export function CollectionRunner({ open, onClose, folder }: { open: boolean; onC
       patch(node.id, { state: 'running' })
       try {
         let request = node.request!
-        let variables = activeVariables(state)
+        let variables = Object.entries(environment).map(([key, value]) => ({ key, value, enabled: true }))
         if (node.preScript?.trim()) {
+          const before = environment
           const pre = await runPreScript(node.preScript, {
             environment,
             variables: { ...environment },
@@ -105,6 +114,7 @@ export function CollectionRunner({ open, onClose, folder }: { open: boolean; onC
             continue
           }
           request = { ...request, headers: pre.headers ?? request.headers, params: pre.params ?? request.params }
+          applyEnvironmentChanges(useApiTesterStore, before, pre.env)
           environment = pre.env
           variables = [
             ...variables.filter((variable) => !(variable.key in pre.variables) && !(variable.key in pre.env)),
@@ -117,12 +127,20 @@ export function CollectionRunner({ open, onClose, folder }: { open: boolean; onC
           followRedirects: state.settings.followRedirects,
           timeoutMs: state.settings.timeoutMs,
           kind: (node.kind ?? 'rest') as 'rest' | 'graphql' | 'websocket',
+          cookies: useApiTesterStore.getState().state.cookies ?? [],
           signal: controller.signal,
         })
+        if (result.cookies && result.cookies.length > 0) {
+          useApiTesterStore.getState().patchState((snapshot) => ({
+            ...snapshot,
+            cookies: mergeResponseCookies(snapshot.cookies ?? [], result),
+          }))
+        }
         let tests: Row['tests']
         if (node.tests?.trim()) {
           const headers: Record<string, string> = {}
           for (const header of result.headers) headers[header.key] = header.value
+          const before = environment
           const outcome = await runTests(node.tests, {
             environment,
             variables: { ...environment },
@@ -138,6 +156,7 @@ export function CollectionRunner({ open, onClose, folder }: { open: boolean; onC
             dynamic: { timestamp: Date.now(), uuid: crypto.randomUUID(), iso: new Date().toISOString() },
           })
           tests = outcome
+          applyEnvironmentChanges(useApiTesterStore, before, outcome.env)
           environment = outcome.env
         }
         patch(node.id, { state: 'done', status: result.status, durationMs: result.durationMs, error: result.error, tests })
@@ -150,13 +169,13 @@ export function CollectionRunner({ open, onClose, folder }: { open: boolean; onC
   }
 
   const done = rows.filter((row) => row.state === 'done')
-  const passed = done.filter((row) => row.status >= 200 && row.status < 400 && !row.error).length
-  const failed = done.filter((row) => row.error || row.status === 0 || row.status >= 400).length
+  const passed = done.filter((row) => rowPassed(row)).length
+  const failed = done.filter((row) => !rowPassed(row)).length
   const totalMs = done.reduce((sum, row) => sum + row.durationMs, 0)
   const byId = new Map(rows.map((row) => [row.nodeId, row]))
 
   return (
-    <Modal open={open} onClose={onClose} title={`${t('development.apitester.runner_title')}${folder ? ` — ${folder.name}` : ''}`} description={t('development.apitester.runner_desc')} width={720}>
+    <Modal open={open} onClose={() => { if (running) stop(); onClose() }} title={`${t('development.apitester.runner_title')}${folder ? ` — ${folder.name}` : ''}`} description={t('development.apitester.runner_desc')} width={720}>
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] pb-2">
           <Checkbox
@@ -183,7 +202,7 @@ export function CollectionRunner({ open, onClose, folder }: { open: boolean; onC
                   <Checkbox checked={selected.has(node.id)} disabled={running} onChange={() => toggle(node.id)} ariaLabel={node.name} />
                   <span className="flex w-4 shrink-0 justify-center">
                     {running && currentIndex === index ? <Loader2 size={13} className="animate-spin text-[var(--accent)]" /> : row?.state === 'done' ? (
-                      row.error || row.status === 0 ? <XCircle size={13} className="text-[var(--danger)]" /> : row.status >= 400 ? <XCircle size={13} className="text-[var(--warning)]" /> : <CheckCircle2 size={13} className="text-[var(--success)]" />
+                      rowPassed(row) ? <CheckCircle2 size={13} className="text-[var(--success)]" /> : <XCircle size={13} className="text-[var(--danger)]" />
                     ) : row?.state === 'skipped' ? <span className="text-[var(--text-quaternary)]">—</span> : null}
                   </span>
                   <span className="w-12 shrink-0 font-mono font-semibold text-[var(--text-secondary)]">{node.request?.method ?? 'GET'}</span>

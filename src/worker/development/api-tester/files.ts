@@ -56,11 +56,6 @@ interface FileRow {
   expires_at: number
 }
 
-interface QuotaRow {
-  file_count: number
-  total_bytes: number
-}
-
 function requireUserId(c: Context<AppBindings>): string {
   const userId = c.get('userId')
   if (!userId) throw ApiError.unauthenticated()
@@ -190,21 +185,6 @@ async function cleanupExpiredFiles(env: Env, userId: string): Promise<void> {
   }
 }
 
-async function readQuota(db: D1Database, userId: string, now: number): Promise<QuotaRow> {
-  const row = await db
-    .prepare(
-      `SELECT COUNT(*) AS file_count, COALESCE(SUM(size), 0) AS total_bytes
-         FROM development_apitester_files
-        WHERE user_id = ? AND expires_at > ?`,
-    )
-    .bind(userId, now)
-    .first<QuotaRow>()
-  return {
-    file_count: Number(row?.file_count ?? 0),
-    total_bytes: Number(row?.total_bytes ?? 0),
-  }
-}
-
 fileRoutes.post('/files', async (c) => {
   const userId = requireUserId(c)
   const bucket = requireBucket(c.env)
@@ -236,10 +216,6 @@ fileRoutes.post('/files', async (c) => {
 
   await cleanupExpiredFiles(c.env, userId)
   const now = Date.now()
-  const quota = await readQuota(c.env.DB, userId, now)
-  if (quota.file_count >= MAX_FILES_PER_USER || quota.total_bytes + file.size > MAX_FILE_BYTES_PER_USER) {
-    throw new ApiError(409, 'apitester_quota_exceeded', 'The API tester file quota has been reached')
-  }
 
   const bytes = new Uint8Array(await file.arrayBuffer())
   if (bytes.byteLength > MAX_FILE_BYTES) {
@@ -250,23 +226,45 @@ fileRoutes.post('/files', async (c) => {
   const contentType = contentTypeFor(fileKind, file.type)
   const key = fileKey(fileKind, userId, id, contentType)
   const expiresAt = now + FILE_TTL_MS
-  await bucket.put(key, bytes, { httpMetadata: { contentType } })
+
+  // One conditional INSERT is the quota decision: checking the count and the sum in the same
+  // statement keeps two concurrent uploads from both passing the old read-then-write check.
   try {
-    await c.env.DB.prepare(
+    const inserted = await c.env.DB.prepare(
       `INSERT INTO development_apitester_files
          (id, user_id, kind, name, content_type, size, r2_key, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
+        WHERE (SELECT COUNT(*) FROM development_apitester_files
+                WHERE user_id = ?2 AND expires_at > ?10) < ?11
+          AND (SELECT COALESCE(SUM(size), 0) FROM development_apitester_files
+                WHERE user_id = ?2 AND expires_at > ?10) + ?6 <= ?12`,
     )
-      .bind(id, userId, fileKind, name, contentType, bytes.byteLength, key, now, expiresAt)
+      .bind(
+        id, userId, fileKind, name, contentType, bytes.byteLength, key, now, expiresAt,
+        now, MAX_FILES_PER_USER, MAX_FILE_BYTES_PER_USER,
+      )
       .run()
-  } catch (error) {
-    try {
-      await bucket.delete(key)
-    } catch (cleanupError) {
-      console.warn('[inkstone] Removing an unrecorded API tester file failed:', cleanupError)
+    if (!inserted.meta.changes) {
+      throw new ApiError(409, 'apitester_quota_exceeded', 'The API tester file quota has been reached')
     }
+  } catch (error) {
+    if (error instanceof ApiError) throw error
     console.warn('[inkstone] Recording an API tester file failed:', error)
     throw new ApiError(500, 'internal', 'The uploaded file could not be recorded')
+  }
+
+  try {
+    await bucket.put(key, bytes, { httpMetadata: { contentType } })
+  } catch (error) {
+    try {
+      await c.env.DB.prepare('DELETE FROM development_apitester_files WHERE user_id = ? AND id = ?')
+        .bind(userId, id)
+        .run()
+    } catch (cleanupError) {
+      console.warn('[inkstone] Removing an unrecorded API tester file row failed:', cleanupError)
+    }
+    console.warn('[inkstone] Storing an API tester file failed:', error)
+    throw new ApiError(500, 'internal', 'The uploaded file could not be stored')
   }
 
   return c.json(
@@ -346,6 +344,30 @@ fileRoutes.delete('/files/:id', async (c) => {
   }
   return c.json({ ok: true })
 })
+
+/** Removes uploaded objects and rows for a workspace that is being deleted. Best effort by design. */
+export async function deleteOwnedFiles(env: Env, userId: string, fileIds: readonly string[]): Promise<void> {
+  if (fileIds.length === 0) return
+  const bucket = env.FILES
+  for (const id of fileIds) {
+    const row = await findFileRow(env.DB, userId, id)
+    if (!row) continue
+    try {
+      await env.DB.prepare('DELETE FROM development_apitester_files WHERE user_id = ? AND id = ?')
+        .bind(userId, id)
+        .run()
+    } catch (error) {
+      console.warn('[inkstone] Removing a deleted workspace file row failed:', error)
+    }
+    if (bucket) {
+      try {
+        await bucket.delete(row.r2_key)
+      } catch (error) {
+        console.warn('[inkstone] Removing a deleted workspace file object failed:', error)
+      }
+    }
+  }
+}
 
 /** The bytes of a file the caller owns, for a relay request body. */
 export async function readOwnedFileBytes(env: Env, userId: string, fileId: string): Promise<Uint8Array> {

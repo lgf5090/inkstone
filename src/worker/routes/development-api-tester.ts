@@ -9,20 +9,23 @@ import {
   HISTORY_JSON_LIMIT,
   STATE_JSON_LIMIT,
 } from '@shared/development/api-tester/schemas'
+import { HISTORY_RATE_LIMIT, STATE_RATE_LIMIT } from '@shared/development/api-tester/limits'
 import type {
   ApiTesterStateData,
   ApiTesterStateResponse,
   HistoryEntry,
 } from '@shared/development/api-tester/types'
+import { fileIdsOfState } from '@shared/development/api-tester/state'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { readJson } from '../lib/request'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
 import { sealHistory, sealState, openState, openHistory } from '../development/api-tester/crypto'
 import { relayRoutes } from '../development/api-tester/relay'
 import { oauthRoutes } from '../development/api-tester/oauth'
 import { wsRoutes } from '../development/api-tester/ws'
-import { fileRoutes } from '../development/api-tester/files'
+import { deleteOwnedFiles, fileRoutes } from '../development/api-tester/files'
 import {
   assertWorkspace,
   clearHistory,
@@ -80,7 +83,24 @@ developmentApiTesterRoutes.put('/workspaces/:id', async (c) => {
 })
 
 developmentApiTesterRoutes.delete('/workspaces/:id', async (c) => {
-  return c.json(await deleteWorkspace(c.env.DB, userIdOf(c), c.req.param('id')))
+  const userId = userIdOf(c)
+  const workspaceId = c.req.param('id')
+  await assertWorkspace(c.env.DB, userId, workspaceId)
+
+  let fileIds: string[] = []
+  const row = await getStateRow(c.env.DB, userId, workspaceId)
+  if (row) {
+    try {
+      fileIds = fileIdsOfState(await openState<ApiTesterStateData>(c.env, workspaceId, row.data))
+    } catch (error) {
+      // A state that cannot be opened is still deletable; its objects will expire on their own.
+      console.warn('[inkstone] API Tester workspace files could not be listed for deletion', error)
+    }
+  }
+
+  const workspaces = await deleteWorkspace(c.env.DB, userId, workspaceId)
+  await deleteOwnedFiles(c.env, userId, fileIds)
+  return c.json(workspaces)
 })
 
 developmentApiTesterRoutes.get('/state', async (c) => {
@@ -96,6 +116,10 @@ developmentApiTesterRoutes.get('/state', async (c) => {
 
 developmentApiTesterRoutes.put('/state', async (c) => {
   const userId = userIdOf(c)
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(c.env.DB, [{ key: `apitester-state:${userId}`, ...STATE_RATE_LIMIT }]),
+    'Too many workspace saves',
+  )
   const input = await parseBody(c, StatePutSchema, STATE_JSON_LIMIT)
   await assertWorkspace(c.env.DB, userId, input.workspaceId)
   const sealed = await sealState(c.env, input.workspaceId, input.data)
@@ -108,11 +132,20 @@ developmentApiTesterRoutes.get('/history', async (c) => {
   const workspaceId = workspaceIdOf(c)
   await assertWorkspace(c.env.DB, userId, workspaceId)
   const rows = await listHistoryRows(c.env.DB, userId, workspaceId)
-  return c.json(await Promise.all(rows.map((entry) => openHistory<HistoryEntry>(c.env, entry.id, entry.data))))
+  const history: HistoryEntry[] = []
+  // Decrypt in small batches: opening a hundred rows at once would burst the credential vault.
+  for (let index = 0; index < rows.length; index += 10) {
+    history.push(...await Promise.all(rows.slice(index, index + 10).map((entry) => openHistory<HistoryEntry>(c.env, entry.id, entry.data))))
+  }
+  return c.json(history)
 })
 
 developmentApiTesterRoutes.post('/history', async (c) => {
   const userId = userIdOf(c)
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(c.env.DB, [{ key: `apitester-history:${userId}`, ...HISTORY_RATE_LIMIT }]),
+    'Too many history writes',
+  )
   const input = await parseBody(c, HistoryAppendSchema, HISTORY_JSON_LIMIT)
   await assertWorkspace(c.env.DB, userId, input.workspaceId)
   const ciphertext = await sealHistory(c.env, input.entry.id, input.entry.data)

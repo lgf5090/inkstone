@@ -155,13 +155,18 @@ async function pruneExpiredSessions(db: D1Database, now: number): Promise<void> 
   await db.prepare('DELETE FROM development_apitester_ws_sessions WHERE expires_at <= ?1').bind(now).run()
 }
 
-async function insertSession(db: D1Database, userId: string, now: number): Promise<string> {
+async function insertSession(db: D1Database, userId: string, now: number): Promise<string | null> {
   const id = newApiTesterId()
-  await db
-    .prepare('INSERT INTO development_apitester_ws_sessions (id, user_id, expires_at) VALUES (?1, ?2, ?3)')
-    .bind(id, userId, now + WS_IDLE_TIMEOUT_MS)
+  const result = await db
+    .prepare(
+      `INSERT INTO development_apitester_ws_sessions (id, user_id, expires_at)
+       SELECT ?1, ?2, ?3
+        WHERE (SELECT COUNT(*) FROM development_apitester_ws_sessions
+                WHERE user_id = ?2 AND expires_at > ?4) < ?5`,
+    )
+    .bind(id, userId, now + WS_IDLE_TIMEOUT_MS, now, MAX_WS_CONNECTIONS_PER_USER)
     .run()
-  return id
+  return result.meta.changes ? id : null
 }
 
 async function releaseSession(db: D1Database, userId: string, id: string): Promise<void> {
@@ -306,6 +311,13 @@ wsRoutes.get('/ws', async (c) => {
   headers.Upgrade = 'websocket'
 
   const sessionId = await insertSession(c.env.DB, userId, now)
+  if (!sessionId) {
+    throw new ApiError(
+      429,
+      'apitester_too_many_sockets',
+      `At most ${MAX_WS_CONNECTIONS_PER_USER} WebSocket connections may be open at once`,
+    )
+  }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), WS_HANDSHAKE_TIMEOUT_MS)
   let upstreamResponse: Response

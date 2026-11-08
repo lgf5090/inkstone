@@ -107,8 +107,10 @@ export function collectionMatches(nodes: readonly CollectionNode[], query: strin
 export function filterByTag(
   nodes: readonly CollectionNode[],
   tagId: string,
+  tags: readonly TagNode[] = [],
 ): { visibleNodes: CollectionNode[]; autoExpandIds: Set<string> } {
-  const matched = nodes.filter((node) => node.tags.includes(tagId))
+  const wanted = tags.length > 0 ? tagDescendantIds(tags, tagId) : new Set([tagId])
+  const matched = nodes.filter((node) => node.tags.some((id) => wanted.has(id)))
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const keep = new Set<string>()
   const expand = new Set<string>()
@@ -154,8 +156,12 @@ export function tagCounts(tags: readonly TagNode[], nodes: readonly CollectionNo
     children.set(tag.parentId, list)
   }
   const totals = new Map<string, number>()
+  const visiting = new Set<string>()
   const sum = (id: string): number => {
+    if (visiting.has(id)) return 0
+    visiting.add(id)
     const total = (direct.get(id) ?? 0) + (children.get(id) ?? []).reduce((value, child) => value + sum(child), 0)
+    visiting.delete(id)
     totals.set(id, total)
     return total
   }
@@ -166,18 +172,42 @@ export function tagCounts(tags: readonly TagNode[], nodes: readonly CollectionNo
   return totals
 }
 
-export function buildTagTree(tags: readonly TagNode[]): Array<TagNode & { children: Array<TagNode & { children: unknown[] }> }> {
-  type Node = TagNode & { children: Node[] }
-  const byId = new Map<string, Node>(tags.map((tag) => [tag.id, { ...tag, children: [] }]))
-  const roots: Node[] = []
-  for (const tag of byId.values()) {
-    if (tag.parentId && byId.has(tag.parentId)) byId.get(tag.parentId)!.children.push(tag)
-    else roots.push(tag)
+function sameTags(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false
+  for (let index = 0; index < left.length; index += 1) if (left[index] !== right[index]) return false
+  return true
+}
+
+function sameCollectionNode(left: CollectionNode, right: CollectionNode): boolean {
+  return left.id === right.id
+    && left.type === right.type
+    && left.name === right.name
+    && left.parentId === right.parentId
+    && left.order === right.order
+    && left.collapsed === right.collapsed
+    && left.kind === right.kind
+    && left.lastStatus === right.lastStatus
+    && left.request?.method === right.request?.method
+    && left.request?.url === right.request?.url
+    && left.ws?.url === right.ws?.url
+    && sameTags(left.tags, right.tags)
+}
+
+let cachedNodes: readonly CollectionNode[] = []
+let cachedCollection: readonly CollectionNode[] = []
+
+/**
+ * The subset of node state the collection sidebar draws.
+ *
+ * Typing in a request body replaces the node object and the nodes array, but nothing the tree shows
+ * changes. Returning the previous array keeps Zustand from re-rendering the whole sidebar on every
+ * keystroke; structural edits still produce a new array.
+ */
+export function collectionNodesOf(nodes: readonly CollectionNode[]): readonly CollectionNode[] {
+  if (nodes.length === cachedNodes.length && nodes.every((node, index) => sameCollectionNode(node, cachedNodes[index]!))) {
+    return cachedCollection
   }
-  const sort = (list: Node[]) => {
-    list.sort((left, right) => left.sortOrder - right.sortOrder || left.createdAt - right.createdAt)
-    for (const node of list) sort(node.children)
-  }
-  sort(roots)
-  return roots
+  cachedNodes = nodes
+  cachedCollection = nodes
+  return nodes
 }

@@ -247,12 +247,18 @@ describe('CollectionsPanel', () => {
     expect(useApiTesterStore.getState().state.nodes.find((node) => node.id === 'req-list')?.name).toBe('Users list')
   })
 
-  it('deletes a folder with all of its children', () => {
+  it('deletes a folder with all of its children after confirmation', async () => {
     installState()
     const { container } = mount()
 
     click(container.querySelector(`[data-node-id="folder-products"] button[aria-label="${t('development.apitester.more_actions')}"]`))
     click(menuItem(t('development.apitester.delete')) ?? null)
+    await act(async () => {})
+    const confirmButton = Array.from(document.querySelectorAll('[role="dialog"] button')).find(
+      (button) => button.textContent === t('common.delete'),
+    )
+    click(confirmButton ?? null)
+    await act(async () => {})
     expect(useApiTesterStore.getState().state.nodes.map((node) => node.id)).toEqual(['req-health'])
   })
 

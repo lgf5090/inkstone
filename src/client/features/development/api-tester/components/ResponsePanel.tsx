@@ -16,12 +16,10 @@ import { Badge, Button, IconButton } from '../../../../components/primitives'
 import { CopyButton } from '../../../../components/copy-button'
 import { Tabs } from '../../../../components/tabs'
 import { t } from '../../../../lib/i18n'
+import { formatBytes } from '../../../../lib/time'
 import { useUi } from '../../../../store/ui'
 import { uploadFile, uploadText } from '../api'
-import {
-  base64ToBytes,
-  formatSize,
-} from '../lib/relay-client'
+import { base64ToBytes } from '../lib/relay-client'
 import { ResponseBody, readResponseBodyShape, type BodyMode } from './ResponseBody'
 import { TimingView } from './TimingView'
 import { TestResultsView } from './TestResultsView'
@@ -166,7 +164,7 @@ export function ResponsePanel({
         // The response body is binary. It goes up as a binary file, never as a text body.
         const bytes = base64ToBytes(result.bodyB64)
         const mime = result.contentType || 'application/octet-stream'
-        await uploadFile(new Blob([bytes], { type: mime }), 'bin', name)
+        await uploadFile(new Blob([bytes], { type: mime }), fileKindOf(result.contentType), name)
       } else {
         await uploadText(
           result.body,
@@ -215,7 +213,7 @@ export function ResponsePanel({
           </StatusPill>
         )}
         <Badge tone="neutral">{result.durationMs} {t('development.apitester.ms')}</Badge>
-        <Badge tone="neutral">{formatSize(result.sizeBytes)}</Badge>
+        <Badge tone="neutral">{formatBytes(result.sizeBytes)}</Badge>
         {result.redirected && <StatusPill tone="warning">{t('development.apitester.redirected')}</StatusPill>}
         <div className="flex-1" />
         <div className="flex min-w-0 items-center gap-0.5">
