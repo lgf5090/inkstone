@@ -20620,6 +20620,8 @@ const allowed = new Map([
     "// The two boards differ only in the body they start from, and which one a fence is stays the fence's",
     "// own business — so the pair is worth pinning: an outline board and a JSON board are different notes.",
     "/** Mount the toolbar over a document whose whole body is selected. */",
+    "// The formatting toolbar is a `role=\"group\"` too, so the panel is found by the family label",
+    "// rather than by being the first group in the document.",
   ]],
   ["src/client/features/workspace/EditorToolbar.tsx", [
     "// The dropdown closes before the command runs, so a menu still holding the pointer cannot keep",

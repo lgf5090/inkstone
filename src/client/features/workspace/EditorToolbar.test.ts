@@ -114,8 +114,11 @@ describe('editor toolbar interactions', () => {
     }
     for (const [label, leaves] of parents) {
       await act(() => menuRow(label).click())
-      const panel = document.querySelector<HTMLElement>('[role="group"]')
-      expect(panel, label).not.toBeNull()
+      // The formatting toolbar is a `role="group"` too, so the panel is found by the family label
+      // rather than by being the first group in the document.
+      const panel = [...document.querySelectorAll<HTMLElement>('[role="group"]')]
+        .find((node) => node.getAttribute('aria-label') === label)
+      expect(panel, label).not.toBeUndefined()
       expect([...panel!.querySelectorAll('[role="menuitem"]')]).toHaveLength(leaves)
       expect(menuRow(label).getAttribute('aria-expanded')).toBe('true')
     }
