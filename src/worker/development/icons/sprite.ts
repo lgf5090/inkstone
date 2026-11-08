@@ -13,6 +13,7 @@ export interface SpriteIcon {
   y: number
   width: number
   height: number
+  viewBox?: string
 }
 
 export interface SpriteJson {
@@ -80,7 +81,7 @@ export function buildSvgSymbolSprite(assets: readonly SpriteAsset[], spriteId: s
     return `<symbol id="${slug}" viewBox="${viewBox}">${svgInner(asset.svg)}</symbol>`
   })
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" style="display:none" data-sprite="${spriteId}">${symbols.join('')}</svg>`
-  const icons: SpriteIcon[] = slugs.map((slug) => ({ name: slug, id: slug, x: 0, y: 0, width: 0, height: 0 }))
+  const icons: SpriteIcon[] = assets.map((asset, index) => ({ name: slugs[index]!, id: slugs[index]!, x: 0, y: 0, width: 0, height: 0, viewBox: svgViewBox(asset.svg) }))
   return {
     svg,
     icons,
