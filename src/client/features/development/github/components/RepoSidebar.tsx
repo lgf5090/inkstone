@@ -34,7 +34,7 @@ export const RepoSidebar = memo(function RepoSidebar({ tags, collections, savedR
             <Button variant="ghost" size="sm" className="ml-auto h-6 px-1.5" onClick={onManageCollections} title={t('development.github.collections.manage')} aria-label={t('development.github.collections.manage')}><Settings2 size={12} /></Button>
           </div>
           {collections.length === 0 ? (
-            <button type="button" onClick={onManageCollections} className="flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-left text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"><Plus size={12} />{t('development.github.collections.create_first')}</button>
+            <SidebarItem icon={<Plus size={12} />} label={t('development.github.collections.create_first')} active={false} onClick={onManageCollections} />
           ) : collections.map((collection) => (
             <SidebarItem
               key={collection.id}

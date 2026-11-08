@@ -55,6 +55,9 @@ export function RepoList({
   onRefresh,
   items,
   totalCount,
+  savedTotal,
+  savedTruncated,
+  onLoadAllSaved,
   page,
   onPageChange,
   repoMap,
@@ -77,6 +80,7 @@ export function RepoList({
   onSyncStars,
   syncingStars,
   onExportLibrary,
+  onExportCsv,
   toggleSidebar,
   toggleDetail,
   detailDisabled,
@@ -100,6 +104,9 @@ export function RepoList({
   onRefresh: () => void
   items: GithubRepo[]
   totalCount: number
+  savedTotal: number
+  savedTruncated: boolean
+  onLoadAllSaved: () => void
   page: number
   onPageChange: (page: number) => void
   repoMap: Map<string, SavedGithubRepo>
@@ -122,6 +129,7 @@ export function RepoList({
   onSyncStars: () => void
   syncingStars: boolean
   onExportLibrary: () => void
+  onExportCsv: () => void
   toggleSidebar: () => void
   toggleDetail: () => void
   detailDisabled: boolean
@@ -157,6 +165,7 @@ export function RepoList({
     { id: 'refresh', label: t('development.github.common.refresh'), icon: <RefreshCw size={13} className={cn(loading && 'animate-spin')} />, separatorBefore: true, onSelect: onRefresh },
     { id: 'sync-stars', label: syncingStars ? t('development.github.repos.syncing_stars') : t('development.github.repos.sync_stars'), icon: <Star size={13} />, disabled: syncingStars, onSelect: onSyncStars },
     { id: 'export-library', label: t('development.github.repos.export_library'), icon: <Download size={13} />, onSelect: onExportLibrary },
+    { id: 'export-csv', label: t('development.github.repos.export_csv'), icon: <Download size={13} />, onSelect: onExportCsv },
   ]
   const mirrorItems: MenuItem[] = [
     ...mirrors.filter((mirror) => mirror.enabled).map((mirror) => ({ id: `mirror-${mirror.id}`, label: mirror.name, icon: <Globe size={13} />, checked: currentMirrorId === mirror.id, onSelect: () => onCurrentMirrorChange(mirror.id) })),
@@ -211,14 +220,14 @@ export function RepoList({
         </div>
         {isExplore ? (
           <div className="flex items-center gap-1.5 px-2 pb-2">
-            <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex">
+            <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto xl:flex">
               {GITHUB_RANGE_OPTIONS.map((option) => {
                 const active = prefs.range === option.value
                 return <button key={option.value} type="button" onClick={() => onUpdatePrefs({ range: option.value }, draft)} data-active={active || undefined} className={cn('shrink-0 rounded-full px-2.5 py-1 text-[length:var(--text-11)] font-medium transition-colors', active ? 'bg-[var(--accent)] text-[var(--accent-contrast)]' : 'bg-[var(--bg-raised)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]')}>{t(option.labelKey)}</button>
               })}
               <LanguageMenu value={prefs.language} onChange={(language) => onUpdatePrefs({ language }, draft)} />
             </div>
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 md:hidden">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 xl:hidden">
               <SelectMenu
                 value={prefs.range}
                 options={GITHUB_RANGE_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
@@ -235,6 +244,10 @@ export function RepoList({
         ) : (
           <div className="flex flex-wrap items-center gap-2 px-2 pb-2 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
             <span>{t('development.github.repos.repo_count', { count: totalCount })}</span>
+            {savedTruncated && <>
+              <span className="text-[var(--warning)]">{t('development.github.repos.partial_saved', { shown: totalCount, total: savedTotal })}</span>
+              <Button variant="ghost" size="sm" onClick={onLoadAllSaved}><RefreshCw size={11} />{t('development.github.repos.load_all')}</Button>
+            </>}
             {collection && <>
               {collection.description && <span className="min-w-0 flex-1 truncate" title={collection.description}>{collection.description}</span>}
               <Button ref={memberAnchor} variant="ghost" size="sm" onClick={() => setMemberOpen(true)}><ListChecks size={11} />{t('development.github.collections.members')}</Button>

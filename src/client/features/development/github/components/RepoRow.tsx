@@ -71,8 +71,8 @@ export const RepoRow = memo(function RepoRow({
           <div className="flex items-start gap-2">
             <GithubAvatar src={repo.owner.avatarUrl} name={repo.owner.login} size={24} className="mt-0.5" />
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <button type="button" data-slot="repo-select" onClick={(event) => { event.stopPropagation(); onSelect(repo) }} aria-current={selected ? 'true' : undefined} className="min-w-0 truncate bg-transparent text-left text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] hover:text-[var(--accent)] hover:underline focus-visible:underline focus-visible:outline-none" title={repo.fullName}>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" data-slot="repo-select" onClick={(event) => { event.stopPropagation(); onSelect(repo) }} aria-current={selected ? 'true' : undefined} className="w-full min-w-0 truncate bg-transparent text-left text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] hover:text-[var(--accent)] hover:underline focus-visible:underline focus-visible:outline-none md:w-auto md:flex-1" title={repo.fullName}>
                   {repo.owner.login}/<span className="text-[var(--accent)]">{repo.name}</span>
                 </button>
                 {repo.isArchived && <span className="inline-flex shrink-0 items-center gap-1 rounded bg-[color-mix(in_oklab,var(--warning)_14%,transparent)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--warning)]"><Archive size={10} /> {t('development.github.repos.archived')}</span>}

@@ -177,6 +177,19 @@ describe('development github repository proxy', () => {
       if (url.endsWith('/tags?per_page=100')) {
         return jsonResponse(Array.from({ length: 100 }, (_, index) => ({ name: `t${index}` })))
       }
+      if (url.endsWith('/commits?per_page=10')) {
+        return jsonResponse([
+          {
+            sha: 'abc1234def5678',
+            html_url: 'https://github.com/owner/name/commit/abc1234def5678',
+            commit: {
+              message: 'Fix the build\n\nDetails',
+              author: { name: 'Octo', date: '2026-01-01T00:00:00Z' },
+            },
+            author: { login: 'octo', avatar_url: 'https://avatars.githubusercontent.com/u/1' },
+          },
+        ])
+      }
       if (url.endsWith('/languages')) return jsonResponse({ TypeScript: 750, CSS: 250 })
       if (url.endsWith('/releases?per_page=30')) {
         return jsonResponse(
@@ -204,12 +217,27 @@ describe('development github repository proxy', () => {
       return new Response('# Readme', { status: 200 })
     })
     const detail = await fetchRepoDetail('owner/name', undefined, 'tok')
-    expect(calls).toHaveLength(5)
+    expect(calls).toHaveLength(6)
     expect(detail.fullName).toBe('owner/name')
     expect(detail.branchesCount).toBe(100)
     expect(detail.branchesTruncated).toBe(true)
+    expect(detail.branchNames).toHaveLength(100)
     expect(detail.tagsCount).toBe(100)
     expect(detail.tagsTruncated).toBe(true)
+    expect(detail.tagNames).toHaveLength(100)
+    expect(detail.commits).toEqual([
+      {
+        sha: 'abc1234def5678',
+        message: 'Fix the build',
+        author: {
+          login: 'octo',
+          name: 'Octo',
+          avatarUrl: 'https://avatars.githubusercontent.com/u/1',
+        },
+        date: '2026-01-01T00:00:00Z',
+        url: 'https://github.com/owner/name/commit/abc1234def5678',
+      },
+    ])
     expect(detail.releasesTruncated).toBe(true)
     expect(detail.releases[0]?.isLatest).toBe(true)
     expect(detail.releases[0]?.assets[0]).not.toHaveProperty('apiUrl')
@@ -241,9 +269,9 @@ describe('development github repository proxy', () => {
       expect.arrayContaining([
         expect.objectContaining({ source: 'branches', code: 'rate_limited' }),
         expect.objectContaining({ source: 'releases', code: 'upstream' }),
-        expect.objectContaining({ source: 'readme', code: 'not_found' }),
       ]),
     )
+    expect(detail.warnings.some((warning) => warning.source === 'readme')).toBe(false)
     expect(detail.branchesCount).toBe(0)
     expect(detail.languages).toEqual([{ name: 'Go', bytes: 100, percentage: 100 }])
     expect(detail.readme).toBeNull()
@@ -477,8 +505,8 @@ describe('development github http errors', () => {
       jsonResponse({ message: 'forbidden' }, 403, { 'x-ratelimit-remaining': '10' }),
     )
     await expect(githubJson('/user')).rejects.toMatchObject({
-      status: 502,
-      code: 'github_upstream',
+      status: 403,
+      code: 'github_forbidden',
     })
 
     stubFetch(() => jsonResponse({ message: 'boom' }, 500))
@@ -545,12 +573,13 @@ describe('development github repo detail cache', () => {
       if (url.endsWith('/languages')) return jsonResponse({ TypeScript: 1000 })
       if (url.includes('/releases?per_page=30')) return jsonResponse([])
       if (url.endsWith('/readme')) return new Response('# hi', { status: 200 })
+      if (url.includes('/commits?per_page=10')) return jsonResponse([])
       return jsonResponse({}, 404)
     })
     const first = await fetchRepoDetail('cache/demo', 'main')
-    expect(calls).toHaveLength(5)
+    expect(calls).toHaveLength(6)
     const second = await fetchRepoDetail('cache/demo', 'main')
-    expect(calls).toHaveLength(5)
+    expect(calls).toHaveLength(6)
     expect(second).toEqual(first)
     expect(second.readme).toBe('# hi')
   })
@@ -587,5 +616,60 @@ describe('development github starred repositories', () => {
     const result = await fetchStarredRepos(1, 100, 'tok')
     expect(result.items[0]?.fullName).toBe('octo/demo')
     expect(result.hasNext).toBe(true)
+  })
+})
+
+describe('development github upstream error classification', () => {
+  it('reports a bare 403 as a permission problem', async () => {
+    stubFetch(() => jsonResponse({ message: 'Resource not accessible' }, 403))
+    await expect(githubJson('/user')).rejects.toMatchObject({
+      status: 403,
+      code: 'github_forbidden',
+    })
+  })
+
+  it('reports a 403 that carries Retry-After as a rate limit with the wait', async () => {
+    stubFetch(() => jsonResponse({ message: 'You have exceeded a secondary rate limit' }, 403, { 'retry-after': '60' }))
+    await expect(githubJson('/user')).rejects.toMatchObject({
+      status: 429,
+      code: 'github_rate_limited',
+      details: { retryAfterSeconds: 60 },
+    })
+  })
+
+  it('reports an exhausted rate limit and its reset time', async () => {
+    stubFetch(() => jsonResponse({ message: 'API rate limit exceeded' }, 403, {
+      'x-ratelimit-limit': '60',
+      'x-ratelimit-remaining': '0',
+      'x-ratelimit-reset': '1794129600',
+    }))
+    await expect(githubJson('/user')).rejects.toMatchObject({
+      status: 429,
+      code: 'github_rate_limited',
+      details: { remaining: 0 },
+    })
+  })
+})
+
+describe('development github repository detail edges', () => {
+  it('treats a missing README as an empty README instead of a warning', async () => {
+    stubFetch((url) => {
+      if (url.endsWith('/readme')) return jsonResponse({ message: 'Not Found' }, 404)
+      if (url.endsWith('/languages')) return jsonResponse({ TypeScript: 10 })
+      return jsonResponse([], 200)
+    })
+    const detail = await fetchRepoDetail('no-readme/demo', 'main', undefined, ['readme'])
+    expect(detail.readme).toBeNull()
+    expect(detail.warnings).toEqual([])
+  })
+
+  it('marks the newest published release as latest regardless of list order', async () => {
+    stubFetch(() => jsonResponse([
+      { id: 1, tag_name: 'v1.0.0', published_at: '2025-01-01T00:00:00Z', prerelease: false, assets: [] },
+      { id: 2, tag_name: 'v2.0.0', published_at: '2025-06-01T00:00:00Z', prerelease: false, assets: [] },
+      { id: 3, tag_name: 'v3.0.0-beta', published_at: '2025-09-01T00:00:00Z', prerelease: true, assets: [] },
+    ], 200))
+    const detail = await fetchRepoDetail('releases/demo', 'main', undefined, ['releases'])
+    expect(detail.releases.map((release) => release.isLatest)).toEqual([false, true, false])
   })
 })

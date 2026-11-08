@@ -14,6 +14,11 @@ describe('GitHub addresses', () => {
     expect(parseGithubRoute('/development/github/repos/owner')).toEqual({ tab: 'repos', repoFullName: null, gistId: null })
   })
 
+  it('survives malformed percent encoding in a deep link', () => {
+    expect(parseGithubRoute('/development/github/repos/%/x')).toEqual({ tab: 'repos', repoFullName: null, gistId: null })
+    expect(parseGithubRoute('/development/github/repos/octo/%E0%A4%A')).toEqual({ tab: 'repos', repoFullName: null, gistId: null })
+  })
+
   it('builds the addresses it parses', () => {
     expect(repoAddress('Octo/Repo.js')).toBe('/development/github/repos/Octo/Repo.js')
     expect(gistAddress('abcdef12')).toBe('/development/github/gists/abcdef12')

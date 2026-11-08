@@ -306,14 +306,18 @@ export async function deleteTags(db: D1Database, userId: string, ids: readonly s
   return removed
 }
 
-export async function listRepos(db: D1Database, userId: string): Promise<SavedGithubRepo[]> {
+export async function listRepos(
+  db: D1Database,
+  userId: string,
+  limit?: number,
+): Promise<SavedGithubRepo[]> {
   const { results } = await db
     .prepare(
       `SELECT ${REPO_COLUMNS} FROM development_github_repos
         WHERE user_id = ?1
-        ORDER BY updated_at DESC`,
+        ORDER BY updated_at DESC${limit === undefined ? '' : ' LIMIT ?2'}`,
     )
-    .bind(userId)
+    .bind(...(limit === undefined ? [userId] : [userId, limit]))
     .all<RepoRow>()
   return results.map(toRepo)
 }
@@ -626,14 +630,18 @@ export async function deleteGistTags(
   return removed
 }
 
-export async function listGists(db: D1Database, userId: string): Promise<SavedGist[]> {
+export async function listGists(
+  db: D1Database,
+  userId: string,
+  limit?: number,
+): Promise<SavedGist[]> {
   const { results } = await db
     .prepare(
       `SELECT ${GIST_COLUMNS} FROM development_github_gists
         WHERE user_id = ?1
-        ORDER BY updated_at DESC`,
+        ORDER BY updated_at DESC${limit === undefined ? '' : ' LIMIT ?2'}`,
     )
-    .bind(userId)
+    .bind(...(limit === undefined ? [userId] : [userId, limit]))
     .all<GistRow>()
   return results.map(toGist)
 }
@@ -657,8 +665,12 @@ export function toGistSummary(gist: SavedGist): SavedGist {
   }
 }
 
-export async function listGistSummaries(db: D1Database, userId: string): Promise<SavedGist[]> {
-  return (await listGists(db, userId)).map(toGistSummary)
+export async function listGistSummaries(
+  db: D1Database,
+  userId: string,
+  limit?: number,
+): Promise<SavedGist[]> {
+  return (await listGists(db, userId, limit)).map(toGistSummary)
 }
 
 export async function searchGistIds(
@@ -673,7 +685,7 @@ export async function searchGistIds(
         WHERE user_id = ?1
           AND (description LIKE ?2 ESCAPE '\\' OR data_json LIKE ?2 ESCAPE '\\')
         ORDER BY updated_at DESC
-        LIMIT 500`,
+        LIMIT ${MAX_GISTS}`,
     )
     .bind(userId, `%${escaped}%`)
     .all<{ id: string }>()

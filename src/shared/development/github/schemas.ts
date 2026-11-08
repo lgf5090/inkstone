@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { isHttpUrl } from './url'
 import {
+  GITHUB_TOKEN_MAX_LENGTH,
   MAX_BATCH_IDS,
   MAX_COLLECTION_REPOS,
   MAX_GIST_DATA_BYTES,
@@ -146,7 +147,7 @@ export const GithubMirrorProbeSchema = z.object({
 })
 
 export const GithubAccountTokenSchema = z.object({
-  token: z.string().trim().min(1).max(4096),
+  token: z.string().trim().min(1).max(GITHUB_TOKEN_MAX_LENGTH),
 })
 
 export const GithubBatchDeleteSchema = z.object({

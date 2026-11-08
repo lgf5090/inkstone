@@ -34,9 +34,15 @@ export interface GithubStore {
   accounts: GithubAccountView[]
   activeAccountId: string | null
   capabilities: GithubCapabilities
+  repoTotal: number
+  gistTotal: number
+  truncatedRepos: boolean
+  truncatedGists: boolean
   load: () => Promise<void>
   reload: () => Promise<void>
   refresh: () => Promise<void>
+  loadAllRepos: () => Promise<void>
+  loadAllGists: () => Promise<void>
   upsertTag: (tag: GithubTag) => Promise<void>
   deleteTag: (id: string) => Promise<void>
   upsertGistTag: (tag: GithubTag) => Promise<void>
@@ -231,6 +237,10 @@ export const useGithubStore = create<GithubStore>((set, get) => {
       accounts,
       activeAccountId,
       capabilities: { exports: data.capabilities?.exports === true },
+      repoTotal: data.counts?.repos ?? (data.repos ?? []).length,
+      gistTotal: data.counts?.gists ?? (data.gists ?? []).length,
+      truncatedRepos: data.truncated?.repos === true,
+      truncatedGists: data.truncated?.gists === true,
     })
   }
 
@@ -261,6 +271,10 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     accounts: [],
     activeAccountId: loadActiveAccountId(),
     capabilities: DEFAULT_CAPABILITIES,
+    repoTotal: 0,
+    gistTotal: 0,
+    truncatedRepos: false,
+    truncatedGists: false,
 
     load: async () => {
       if (get().status === 'ready') return
@@ -279,6 +293,30 @@ export const useGithubStore = create<GithubStore>((set, get) => {
 
     refresh: async () => {
       await runBootstrap(true)
+    },
+
+    loadAllRepos: async () => {
+      const revision = bump('repos')
+      try {
+        const repos = await githubApi.listRepos()
+        if (isCurrent('repos', revision)) {
+          set({ repos, repoTotal: repos.length, truncatedRepos: false })
+        }
+      } catch (error) {
+        notifyFailure(error)
+      }
+    },
+
+    loadAllGists: async () => {
+      const revision = bump('gists')
+      try {
+        const gists = await githubApi.listGists()
+        if (isCurrent('gists', revision)) {
+          set({ gists, gistTotal: gists.length, truncatedGists: false })
+        }
+      } catch (error) {
+        notifyFailure(error)
+      }
     },
 
     upsertTag: async (tag) => {

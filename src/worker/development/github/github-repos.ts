@@ -5,6 +5,7 @@ import {
   MAX_GITHUB_TEXT_BYTES,
 } from '@shared/development/github/limits'
 import type {
+  GithubCommit,
   GithubRelease,
   GithubReleaseAsset,
   GithubRepo,
@@ -218,19 +219,64 @@ function normalizeAsset(value: unknown): GithubReleaseAsset {
   }
 }
 
-function normalizeRelease(value: unknown, index: number): GithubRelease {
+function normalizeRelease(value: unknown, isLatest: boolean): GithubRelease {
   const raw = isRecord(value) ? value : {}
   return {
     id: readInteger(raw.id),
     tagName: readString(raw.tag_name, 200),
     name: readNullableString(raw.name, 200),
     isPrerelease: raw.prerelease === true,
-    isLatest: index === 0,
+    isLatest,
     publishedAt: readString(raw.published_at ?? raw.created_at, 64),
     htmlUrl: readHttpUrl(raw.html_url, 2048),
     body: readNullableString(raw.body, 40000),
     assets: Array.isArray(raw.assets) ? raw.assets.map((asset) => normalizeAsset(asset)) : [],
   }
+}
+
+function latestReleaseId(values: readonly unknown[]): string | null {
+  let latest: { id: string; publishedAt: number } | null = null
+  for (const value of values) {
+    const raw = isRecord(value) ? value : {}
+    if (raw.prerelease === true) continue
+    const id = String(readInteger(raw.id))
+    if (id === '0') continue
+    const publishedAt = Date.parse(String(raw.published_at ?? raw.created_at ?? ''))
+    if (!Number.isFinite(publishedAt)) continue
+    if (!latest || publishedAt > latest.publishedAt) latest = { id, publishedAt }
+  }
+  return latest?.id ?? null
+}
+
+function normalizeCommit(value: unknown): GithubCommit {
+  const raw = isRecord(value) ? value : {}
+  const commit = isRecord(raw.commit) ? raw.commit : {}
+  const author = isRecord(commit.author) ? commit.author : {}
+  const user = isRecord(raw.author) ? raw.author : null
+  const login = user ? readString(user.login, 100) : ''
+  const name = readString(author.name, 200) || login
+  const message = readString(commit.message, 2000)
+  return {
+    sha: readString(raw.sha, 64),
+    message: message.split('\n')[0]!.slice(0, 300),
+    author: login || name
+      ? {
+          login,
+          name,
+          avatarUrl: user ? readHttpUrl(user.avatar_url, 2048) : '',
+        }
+      : null,
+    date: readString(author.date, 64),
+    url: readHttpUrl(raw.html_url, 2048),
+  }
+}
+
+function readEntityNames(value: unknown, limit: number): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => isRecord(entry) ? readString(entry.name, 200) : '')
+    .filter((name) => name.length > 0)
+    .slice(0, limit)
 }
 
 function normalizeLanguages(value: unknown): GithubRepoDetail['languages'] {
@@ -282,6 +328,7 @@ export const REPO_DETAIL_PARTS: readonly GithubRepoDetailPart[] = [
   'languages',
   'releases',
   'readme',
+  'commits',
 ]
 
 export async function fetchRepoDetail(
@@ -302,7 +349,7 @@ export async function fetchRepoDetail(
   const base = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.name)}`
   const request = { token, timeoutMs: GITHUB_DETAIL_TIMEOUT_MS }
   const skipped: SourceOutcome<unknown> = { data: null, error: null }
-  const [branches, tags, languages, releases, readme] = await Promise.all([
+  const [branches, tags, languages, releases, readme, commits] = await Promise.all([
     requested.has('branches')
       ? fetchSource(async () => (await githubJson<unknown[]>(`${base}/branches?per_page=100`, request)).data)
       : Promise.resolve(skipped),
@@ -327,6 +374,9 @@ export async function fetchRepoDetail(
           ).data,
       )
       : Promise.resolve(skipped),
+    requested.has('commits')
+      ? fetchSource(async () => (await githubJson<unknown[]>(`${base}/commits?per_page=10`, request)).data)
+      : Promise.resolve(skipped),
   ])
   const outcomes: Array<[GithubWarningSource, SourceOutcome<unknown>]> = []
   if (requested.has('branches')) outcomes.push(['branches', branches])
@@ -334,6 +384,7 @@ export async function fetchRepoDetail(
   if (requested.has('languages')) outcomes.push(['languages', languages])
   if (requested.has('releases')) outcomes.push(['releases', releases])
   if (requested.has('readme')) outcomes.push(['readme', readme])
+  if (requested.has('commits')) outcomes.push(['commits', commits])
   const tokenFailures = outcomes.filter(
     ([, outcome]) => outcome.error?.code === 'github_token_invalid',
   )
@@ -341,11 +392,13 @@ export async function fetchRepoDetail(
     throw tokenFailures[0]![1].error!
   }
   const warnings = outcomes
-    .filter(([, outcome]) => outcome.error !== null)
+    .filter(([source, outcome]) => outcome.error !== null
+      && !(source === 'readme' && outcome.error.code === 'github_not_found'))
     .map(([source, outcome]) => warningFor(source, outcome.error!))
   const branchList = Array.isArray(branches.data) ? branches.data : []
   const tagList = Array.isArray(tags.data) ? tags.data : []
   const releaseList = Array.isArray(releases.data) ? releases.data : []
+  const latestId = latestReleaseId(releaseList)
   const detail: GithubRepoDetail = {
     fullName: `${parsed.owner}/${parsed.name}`,
     branchesCount: branchList.length,
@@ -354,8 +407,14 @@ export async function fetchRepoDetail(
     tagsCount: tagList.length,
     tagsTruncated: tagList.length >= 100,
     languages: normalizeLanguages(languages.data),
-    releases: releaseList.map((release, index) => normalizeRelease(release, index)),
+    releases: releaseList.map((release) => {
+      const raw = isRecord(release) ? release : {}
+      return normalizeRelease(release, latestId !== null && String(readInteger(raw.id)) === latestId)
+    }),
     releasesTruncated: releaseList.length >= 30,
+    branchNames: readEntityNames(branchList, 100),
+    tagNames: readEntityNames(tagList, 100),
+    commits: Array.isArray(commits.data) ? commits.data.map((commit) => normalizeCommit(commit)) : [],
     readme: typeof readme.data === 'string' ? readme.data : null,
     readmeHtmlUrl: `https://github.com/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.name)}#readme`,
     warnings,

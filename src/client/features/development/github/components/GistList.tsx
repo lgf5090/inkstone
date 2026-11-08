@@ -104,6 +104,9 @@ export function GistList({
   onQueryChange,
   onClear,
   totalCount,
+  savedTotal,
+  savedTruncated,
+  onLoadAllSaved,
   viewMode,
   onViewModeChange,
   prefs,
@@ -144,6 +147,9 @@ export function GistList({
   onQueryChange: (value: string) => void
   onClear: () => void
   totalCount: number
+  savedTotal: number
+  savedTruncated: boolean
+  onLoadAllSaved: () => void
   viewMode: 'list' | 'card'
   onViewModeChange: (mode: 'list' | 'card') => void
   prefs: GistPrefs
@@ -222,6 +228,10 @@ export function GistList({
         </div>
         <div className="flex flex-wrap items-center gap-2 px-2 pb-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
           <span>{t('development.github.gists.count', { count: totalCount })}</span>
+          {savedTruncated && <>
+            <span className="text-[var(--warning)]">{t('development.github.gists.partial_saved', { shown: totalCount, total: savedTotal })}</span>
+            <Button variant="ghost" size="sm" onClick={onLoadAllSaved}><RefreshCw size={11} />{t('development.github.gists.load_all')}</Button>
+          </>}
           {!remote && selectedIds.size > 0 && <>
             <span className="font-medium text-[var(--accent)]">{t('development.github.gists.selected', { count: selectedIds.size })}</span>
             <Button variant="ghost" size="sm" onClick={() => onBatchPin(!allSelectedPinned)}><Pin size={11} />{allSelectedPinned ? t('development.github.repos.unpin') : t('development.github.repos.pin')}</Button>

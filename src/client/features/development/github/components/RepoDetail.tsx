@@ -21,7 +21,9 @@ const README_RENDER_MAX_CHARS = 600_000
 const LANGUAGE_LEGEND_LIMIT = 6
 const RELEASE_BODY_PREVIEW_CHARS = 400
 const OVERVIEW_PARTS = ['readme', 'languages', 'releases'] as const
-const META_PARTS = ['branches', 'tags'] as const
+const META_PARTS = ['branches', 'tags', 'commits'] as const
+const BRANCH_CHIP_LIMIT = 24
+const TAG_CHIP_LIMIT = 24
 
 function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
@@ -120,12 +122,18 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
       branchesTruncated: meta.data.branchesTruncated,
       tagsCount: meta.data.tagsCount,
       tagsTruncated: meta.data.tagsTruncated,
+      branchNames: meta.data.branchNames ?? [],
+      tagNames: meta.data.tagNames ?? [],
+      commits: meta.data.commits ?? [],
       warnings: [...overview.data.warnings, ...meta.data.warnings],
       rateLimited: overview.data.rateLimited || meta.data.rateLimited,
       loaded: [...(overview.data.loaded ?? []), ...(meta.data.loaded ?? [])],
     }
   }, [overview.data, meta.data])
   const metaLoaded = !detail?.loaded || detail.loaded.includes('branches')
+  const branchNames = detail?.branchNames ?? []
+  const tagNames = detail?.tagNames ?? []
+  const commits = detail?.commits ?? []
   const loading = overview.loading
   const error = overview.error
   const refetch = () => {
@@ -229,6 +237,22 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
           </div>
         )}
         {detail.languages.length > 0 && <div className="mt-3"><div className="mb-1 text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{t('development.github.repos.language_dist')}</div><div className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--bg-inset)]">{detail.languages.map((language) => <div key={language.name} className="h-full" style={{ width: `${language.percentage}%`, backgroundColor: getLanguageColor(language.name) }} title={`${language.name} ${language.percentage}%`} />)}</div><div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">{detail.languages.slice(0, LANGUAGE_LEGEND_LIMIT).map((language) => <span key={language.name} className="inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><span className="size-2 rounded-full" style={{ backgroundColor: getLanguageColor(language.name) }} />{language.name}<span className="font-medium text-[var(--text-secondary)]">{language.percentage}%</span></span>)}</div></div>}
+        {metaLoaded && (branchNames.length > 0 || tagNames.length > 0) && <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {branchNames.length > 0 && <div>
+            <div className="mb-1 text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{t('development.github.repos.branches_section', { count: detail.branchesCount })}</div>
+            <div className="flex flex-wrap gap-1">
+              {branchNames.slice(0, BRANCH_CHIP_LIMIT).map((name) => <Button key={name} variant="secondary" size="sm" className="h-6 gap-1 px-1.5 text-[length:var(--text-11)]" onClick={() => void copyValue(name, t('development.github.repos.branch_copied'))}><GitBranch size={10} /><span className="max-w-28 truncate">{name}</span></Button>)}
+              {branchNames.length > BRANCH_CHIP_LIMIT && <span className="self-center text-[length:var(--text-11)] text-[var(--text-quaternary)]">+{branchNames.length - BRANCH_CHIP_LIMIT}</span>}
+            </div>
+          </div>}
+          {tagNames.length > 0 && <div>
+            <div className="mb-1 text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{t('development.github.repos.tags_section', { count: detail.tagsCount })}</div>
+            <div className="flex flex-wrap gap-1">
+              {tagNames.slice(0, TAG_CHIP_LIMIT).map((name) => <Button key={name} variant="secondary" size="sm" className="h-6 gap-1 px-1.5 text-[length:var(--text-11)]" onClick={() => void copyValue(name, t('development.github.repos.tag_copied'))}><TagIcon size={10} /><span className="max-w-28 truncate">{name}</span></Button>)}
+              {tagNames.length > TAG_CHIP_LIMIT && <span className="self-center text-[length:var(--text-11)] text-[var(--text-quaternary)]">+{tagNames.length - TAG_CHIP_LIMIT}</span>}
+            </div>
+          </div>}
+        </div>}
       </div>
 
       <div className="border-b border-[var(--border-subtle)] p-4">
@@ -243,6 +267,21 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
           </div>
         )}
       </div>
+
+      {metaLoaded && <div className="border-b border-[var(--border-subtle)] p-4">
+        <div className="mb-2 flex items-center gap-2"><History size={15} className="text-[var(--text-tertiary)]" /><h3 className="text-[length:var(--text-13)] font-semibold">{t('development.github.repos.commits_section')}</h3>{commits.length > 0 && <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.github.repos.commits_count', { count: commits.length })}</span>}</div>
+        {commits.length === 0 ? <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{detail.warnings.some((warning) => warning.source === 'commits') ? t('development.github.repos.commits_failed') : t('development.github.repos.commits_empty')}</p> : (
+          <ul className="divide-y divide-[var(--border-subtle)] rounded-[var(--r-md)] border border-[var(--border-subtle)]">
+            {commits.map((commit) => <li key={commit.sha} className="flex items-center gap-2 px-2.5 py-1.5 text-[length:var(--text-11)]">
+              <code className="shrink-0 rounded bg-[var(--bg-inset)] px-1 font-mono text-[var(--text-tertiary)]">{commit.sha.slice(0, 7)}</code>
+              <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]" title={commit.message}>{commit.message}</span>
+              {commit.author && <span className="hidden shrink-0 text-[var(--text-quaternary)] sm:inline">{commit.author.name}</span>}
+              <span className="shrink-0 text-[var(--text-quaternary)]">{formatDate(commit.date)}</span>
+              {commit.url && <a href={commit.url} target="_blank" rel="noopener noreferrer" aria-label={t('development.github.repos.open_on_github')} title={t('development.github.repos.open_on_github')} className="shrink-0 rounded p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"><ExternalLink size={11} /></a>}
+            </li>)}
+          </ul>
+        )}
+      </div>}
 
       <div className="p-4">
         <div className="mb-2 flex items-center gap-2"><FileText size={15} className="text-[var(--text-tertiary)]" /><h3 className="text-[length:var(--text-13)] font-semibold">{t('development.github.repos.readme')}</h3>{detail.readmeHtmlUrl && <a href={detail.readmeHtmlUrl} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{t('development.github.repos.view_on_github')}</a>}</div>

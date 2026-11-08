@@ -9,6 +9,7 @@ import {
   MAX_REPO_DATA_BYTES,
   MAX_TAG_IDS,
   EXPORT_TTL_MS,
+  BOOTSTRAP_ITEMS_LIMIT,
 } from '@shared/development/github/limits'
 import {
   GithubAccountTokenSchema,
@@ -69,6 +70,8 @@ import {
   batchUpdateGists,
   batchUpdateRepos,
   collectDescendantTagIds,
+  countGists,
+  countRepos,
   deleteCollection,
   deleteExport,
   deleteGist,
@@ -169,6 +172,10 @@ const RepoDetailQuerySchema = z.object({
   repo: z.string().min(3).max(300),
   defaultBranch: z.string().max(200).optional(),
   parts: z.string().max(200).optional(),
+})
+
+const BootstrapQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(BOOTSTRAP_ITEMS_LIMIT).default(BOOTSTRAP_ITEMS_LIMIT),
 })
 
 const RepoLookupQuerySchema = z.object({
@@ -409,18 +416,32 @@ developmentGithubRoutes.get('/image', async (c) => {
 
 developmentGithubRoutes.get('/bootstrap', async (c) => {
   const userId = userIdOf(c)
-  const [tags, repos, collections, gistTags, gists, mirrors, accounts] = await Promise.all([
+  const query = parseQuery(c, BootstrapQuerySchema)
+  const [tags, repos, collections, gistTags, gists, mirrors, accounts, repoCount, gistCount] = await Promise.all([
     listTags(c.env.DB, userId),
-    listRepos(c.env.DB, userId),
+    listRepos(c.env.DB, userId, query.limit),
     listCollections(c.env.DB, userId),
     listGistTags(c.env.DB, userId),
-    listGistSummaries(c.env.DB, userId),
+    listGistSummaries(c.env.DB, userId, query.limit),
     listMirrors(c.env.DB, userId),
     listAccountViews(c.env.DB, userId),
+    countRepos(c.env.DB, userId),
+    countGists(c.env.DB, userId),
   ])
   return c.json({
     ok: true,
-    data: { tags, repos, collections, gistTags, gists, mirrors, accounts, capabilities: { exports: Boolean(c.env.FILES) } },
+    data: {
+      tags,
+      repos,
+      collections,
+      gistTags,
+      gists,
+      mirrors,
+      accounts,
+      capabilities: { exports: Boolean(c.env.FILES) },
+      counts: { repos: repoCount, gists: gistCount },
+      truncated: { repos: repoCount > repos.length, gists: gistCount > gists.length },
+    },
   })
 })
 
@@ -948,6 +969,7 @@ developmentGithubRoutes.get('/exports/:id', async (c) => {
       'Content-Length': String(object.size),
       'Content-Disposition': contentDisposition('application/octet-stream', record.filename),
       'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 })

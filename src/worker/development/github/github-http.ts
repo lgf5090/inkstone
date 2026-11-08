@@ -62,12 +62,24 @@ function readScopes(headers: Headers): string[] | null {
   return raw.split(',').map((scope) => scope.trim()).filter(Boolean)
 }
 
-function rateLimitDetails(rateLimit: GithubRateLimit | null): Record<string, unknown> | undefined {
-  if (!rateLimit) return undefined
+function readRetryAfter(headers: Headers): number | null {
+  const raw = headers.get('retry-after')
+  if (raw === null || raw.trim() === '') return null
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.trunc(seconds)
+  const at = Date.parse(raw)
+  if (!Number.isFinite(at)) return null
+  return Math.max(0, Math.ceil((at - Date.now()) / 1000))
+}
+
+function rateLimitDetails(rateLimit: GithubRateLimit | null, retryAfter?: number | null): Record<string, unknown> | undefined {
   const details: Record<string, unknown> = {}
-  if (rateLimit.remaining !== null) details.remaining = rateLimit.remaining
-  if (rateLimit.reset !== null) details.resetAt = new Date(rateLimit.reset * 1000).toISOString()
-  if (rateLimit.resource) details.resource = rateLimit.resource
+  if (rateLimit?.remaining !== null && rateLimit?.remaining !== undefined) details.remaining = rateLimit.remaining
+  if (rateLimit?.reset !== null && rateLimit?.reset !== undefined) {
+    details.resetAt = new Date(rateLimit.reset * 1000).toISOString()
+  }
+  if (rateLimit?.resource) details.resource = rateLimit.resource
+  if (retryAfter !== null && retryAfter !== undefined) details.retryAfterSeconds = retryAfter
   return Object.keys(details).length > 0 ? details : undefined
 }
 
@@ -90,15 +102,25 @@ async function responseError(
     return new ApiError(400, 'github_token_invalid', 'The GitHub token is invalid or expired')
   }
   if (status === 403 || status === 429) {
-    const remaining = rateLimit?.remaining ?? 0
-    if (status === 429 || remaining === 0) {
+    const retryAfter = readRetryAfter(response.headers)
+    const remaining = rateLimit?.remaining ?? null
+    const exhausted = status === 429 || remaining === 0 || retryAfter !== null
+    if (exhausted) {
       return new ApiError(
         429,
         'github_rate_limited',
-        'The GitHub API rate limit has been reached',
-        rateLimitDetails(rateLimit),
+        retryAfter !== null && remaining !== 0
+          ? 'GitHub asked this request to back off before retrying'
+          : 'The GitHub API rate limit has been reached',
+        rateLimitDetails(rateLimit, retryAfter),
       )
     }
+    return new ApiError(
+      403,
+      'github_forbidden',
+      'GitHub refused this request. The token may be missing a required scope, or the resource is protected by SSO or an IP allowlist',
+      rateLimitDetails(rateLimit, retryAfter),
+    )
   }
   if (status === 404) {
     return new ApiError(404, 'github_not_found', 'GitHub could not find the requested resource')

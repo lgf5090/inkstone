@@ -90,6 +90,9 @@ function renderList(options: { explore?: boolean; pinned?: boolean; collection?:
         onRefresh={() => undefined}
         items={repos}
         totalCount={repos.length}
+        savedTotal={repos.length}
+        savedTruncated={false}
+        onLoadAllSaved={() => undefined}
         page={1}
         onPageChange={() => undefined}
         repoMap={saved}
@@ -112,6 +115,7 @@ function renderList(options: { explore?: boolean; pinned?: boolean; collection?:
         onSyncStars={() => undefined}
         syncingStars={false}
         onExportLibrary={() => undefined}
+        onExportCsv={() => undefined}
         toggleSidebar={() => undefined}
         toggleDetail={() => undefined}
         detailDisabled
