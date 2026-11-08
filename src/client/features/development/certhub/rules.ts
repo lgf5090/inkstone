@@ -42,3 +42,20 @@ export function applyChallengeOptions(wildcard: boolean): Array<{ value: 'dns-01
     { value: 'http-01', labelKey: 'development.certhub.apply.http_manual', ...(wildcard ? { disabled: true } : {}) },
   ]
 }
+
+export type DnsKind = 'cloudflare' | 'dcv-delegate'
+
+const ZONE_ID = /^[a-f0-9]{32}$/i
+
+export function dnsLabelErrorKey(label: string): string | null {
+  return label.trim() ? null : 'development.certhub.dns.error.label_required'
+}
+
+export function dnsConnectionErrorKeys(kind: DnsKind, zoneId: string, token: string): { zoneId?: string; token?: string } {
+  if (kind !== 'cloudflare') return {}
+  const next: { zoneId?: string; token?: string } = {}
+  if (!zoneId.trim()) next.zoneId = 'development.certhub.dns.error.zone_id_required'
+  else if (!ZONE_ID.test(zoneId.trim())) next.zoneId = 'development.certhub.dns.error.zone_id_invalid'
+  if (!token.trim()) next.token = 'development.certhub.dns.error.token_required'
+  return next
+}

@@ -12,6 +12,7 @@ import { certhubValidationApiError } from '../src/worker/development/certhub/val
 import { validateDomainRows } from '../src/shared/development/certhub/validation'
 import { decodeCursor, encodeCursor } from '../src/worker/development/certhub/store'
 import { orderSortFromSearch, parseOrderSort } from '../src/shared/development/certhub/sorting'
+import { dnsConnectionErrorKeys, dnsLabelErrorKey } from '../src/client/features/development/certhub/rules'
 import { ApiError } from '../src/worker/lib/errors'
 
 describe('acme contact for account registration', () => {
@@ -80,5 +81,23 @@ describe('order sorting contract', () => {
       id: 'order-2',
     })
     expect(decodeCursor(undefined)).toBeNull()
+  })
+})
+
+describe('DNS provider form validation', () => {
+  it('names the field that is wrong instead of failing silently', () => {
+    expect(dnsLabelErrorKey('')).toBe('development.certhub.dns.error.label_required')
+    expect(dnsLabelErrorKey('  ')).toBe('development.certhub.dns.error.label_required')
+    expect(dnsLabelErrorKey('zone')).toBeNull()
+
+    expect(dnsConnectionErrorKeys('cloudflare', '', '')).toEqual({
+      zoneId: 'development.certhub.dns.error.zone_id_required',
+      token: 'development.certhub.dns.error.token_required',
+    })
+    expect(dnsConnectionErrorKeys('cloudflare', 'not-a-zone', 'token')).toEqual({
+      zoneId: 'development.certhub.dns.error.zone_id_invalid',
+    })
+    expect(dnsConnectionErrorKeys('cloudflare', 'a'.repeat(32), 'token')).toEqual({})
+    expect(dnsConnectionErrorKeys('dcv-delegate', '', '')).toEqual({})
   })
 })

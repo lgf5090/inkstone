@@ -58,7 +58,7 @@ import {
   deleteCerthubObjects,
   readCerthubText,
 } from '../development/certhub/storage'
-import { verifyCloudflareToken } from '../development/certhub/dns/cloudflare'
+import { verifyCloudflareConnection, verifyCloudflareToken } from '../development/certhub/dns/cloudflare'
 import { pemToPfx } from '../development/certhub/crypto/pfx'
 import { buildCerthubZip } from '../development/certhub/export/zip'
 
@@ -412,6 +412,18 @@ developmentCerthubRoutes.post('/accounts/:id/rotate', async (c) => {
 
 developmentCerthubRoutes.get('/dns-providers', async (c) => {
   return c.json({ ok: true, data: { items: await listProviders(c.env.DB, userIdOf(c)) } })
+})
+
+developmentCerthubRoutes.post('/dns-providers/test', async (c) => {
+  const body = await parseBody(c, dnsProviderSchema)
+  if (body.kind !== 'cloudflare') {
+    const configured = Boolean(c.env.CERTHUB_DCV_ZONE && c.env.CERTHUB_DCV_TOKEN)
+    return c.json({ ok: true, data: { ok: true, degraded: !configured } })
+  }
+  if (!body.zoneId) throw ApiError.badRequest('A Cloudflare connection needs a zone id', { reason: 'zone_id_required' })
+  if (!body.secret) throw ApiError.badRequest('A Cloudflare connection needs an API token', { reason: 'token_required' })
+  await verifyCloudflareConnection(body.secret, body.zoneId)
+  return c.json({ ok: true, data: { ok: true } })
 })
 
 developmentCerthubRoutes.post('/dns-providers', async (c) => {

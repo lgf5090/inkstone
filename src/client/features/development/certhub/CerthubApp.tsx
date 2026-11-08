@@ -15,7 +15,7 @@ import { Modal, confirm, prompt } from '../../../components/overlay'
 import { Tabs } from '../../../components/tabs'
 import { CopyButton } from '../../../components/copy-button'
 import { TagPill } from '../../../components/TagChip'
-import { applyChallengeOptions, applyDomainErrorKey } from './rules'
+import { applyChallengeOptions, applyDomainErrorKey, dnsConnectionErrorKeys, dnsLabelErrorKey } from './rules'
 import { eventLabel, eventStyle, eventToneText } from './events'
 import { relativeTime } from '../../../lib/time'
 import type {
@@ -703,16 +703,44 @@ function DnsPage({ compact }: { compact: boolean }) {
   const [items, setItems] = useState<CerthubDnsProviderView[]>([])
   const [kind, setKind] = useState<'cloudflare' | 'dcv-delegate'>('cloudflare')
   const [form, setForm] = useState({ label: '', zoneId: '', zoneName: '', email: '', token: '' })
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const [testing, setTesting] = useState(false)
   const load = () => api<{ items: CerthubDnsProviderView[] }>('/dns-providers').then((data) => setItems(data.items)).catch(toastError)
   useEffect(() => { void load() }, [])
+  const connectionErrors = (): Record<string, string> => {
+    const next = dnsConnectionErrorKeys(kind, form.zoneId, form.token) as Record<string, string>
+    for (const [field, key] of Object.entries(next)) next[field] = t(key as never)
+    return next
+  }
   const create = async () => {
+    const next: Record<string, string> = { ...connectionErrors() }
+    const labelKey = dnsLabelErrorKey(form.label)
+    if (labelKey) next.label = t(labelKey as never)
+    setErrors(next)
+    if (Object.keys(next).length > 0) return
     setBusy(true)
     try {
       await api('/dns-providers', { method: 'POST', body: { kind, label: form.label, zoneId: form.zoneId || '', zoneName: form.zoneName || '', accountEmail: form.email || '', secret: form.token || '' } })
       setForm({ label: '', zoneId: '', zoneName: '', email: '', token: '' })
       load()
     } catch (reason) { toastError(reason) } finally { setBusy(false) }
+  }
+  const testForm = async () => {
+    const next = connectionErrors()
+    setErrors(next)
+    if (Object.keys(next).length > 0) return
+    setTesting(true)
+    try {
+      const result = await api<{ ok: boolean; degraded?: boolean }>('/dns-providers/test', {
+        method: 'POST',
+        body: { kind, label: form.label || 'test', zoneId: form.zoneId || '', zoneName: form.zoneName || '', accountEmail: form.email || '', secret: form.token || '' },
+      })
+      useUi.getState().toast({
+        title: result.degraded ? t('development.certhub.dns.test_degraded') : t('development.certhub.dns.test_ok'),
+        tone: result.degraded ? 'warning' : 'success',
+      })
+    } catch (reason) { toastError(reason) } finally { setTesting(false) }
   }
   const remove = async (provider: CerthubDnsProviderView) => {
     const value = await prompt({ title: t('development.certhub.dns.delete'), description: t('development.certhub.dns.confirm'), placeholder: provider.label, confirmLabel: t('common.delete') })
@@ -721,9 +749,9 @@ function DnsPage({ compact }: { compact: boolean }) {
   }
   const test = async (id: string) => { try { await api(`/dns-providers/${id}/test`, { method: 'POST' }); load() } catch (reason) { toastError(reason) } }
   return (
-    <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-[1fr_1fr]')}>
+    <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)]')}>
       <Panel title={t('development.certhub.dns.title')}>
-        {items.length === 0 ? <Empty art="starred" title={t('development.certhub.dns.empty')} compact /> : (
+        {items.length === 0 ? <Empty art="starred" title={t('development.certhub.dns.empty')} description={t('development.certhub.dns.empty_hint')} compact /> : (
           <div className="space-y-2">
             {items.map((provider) => (
               <div key={provider.id} className="rounded-[var(--r-md)] bg-[var(--bg-sunken)] p-3">
@@ -737,17 +765,30 @@ function DnsPage({ compact }: { compact: boolean }) {
       </Panel>
       <Panel title={t('development.certhub.dns.add')}>
         <div className="space-y-2">
-          <Field label={t('development.certhub.dns.kind')}><SelectMenu label={t('development.certhub.dns.kind')} value={kind} options={[{ value: 'cloudflare', label: t('development.certhub.dns.cloudflare') }, { value: 'dcv-delegate', label: t('development.certhub.dns.dcv') }]} onChange={setKind} /></Field>
-          <Field label={t('development.certhub.dns.label')}><Input value={form.label} onChange={(event) => setForm({ ...form, label: event.target.value })} /></Field>
+          <Field label={t('development.certhub.dns.kind')}><SelectMenu label={t('development.certhub.dns.kind')} value={kind} options={[{ value: 'cloudflare', label: t('development.certhub.dns.cloudflare') }, { value: 'dcv-delegate', label: t('development.certhub.dns.dcv') }]} onChange={(value) => { setKind(value); setErrors({}) }} /></Field>
+          <FormField error={errors.label} label={t('development.certhub.dns.label')}><Input value={form.label} onChange={(event) => setForm({ ...form, label: event.target.value })} /></FormField>
           {kind === 'cloudflare' ? <>
-            <Field label={t('development.certhub.dns.zone_id')}><Input value={form.zoneId} onChange={(event) => setForm({ ...form, zoneId: event.target.value })} /></Field>
-            <Field label={t('development.certhub.dns.zone_name')}><Input value={form.zoneName} onChange={(event) => setForm({ ...form, zoneName: event.target.value })} /></Field>
-            <Field label={t('development.certhub.dns.email')}><Input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></Field>
-            <Field label={t('development.certhub.dns.token')}><Textarea value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value })} rows={3} /></Field>
-          </> : null}
-          <Button variant="primary" onClick={create} loading={busy}>{t('development.certhub.dns.add')}</Button>
+            <FormField error={errors.zoneId} label={t('development.certhub.dns.zone_id')} hint={t('development.certhub.dns.zone_id_hint')}><Input value={form.zoneId} onChange={(event) => setForm({ ...form, zoneId: event.target.value })} /></FormField>
+            <FormField label={t('development.certhub.dns.zone_name')}><Input value={form.zoneName} onChange={(event) => setForm({ ...form, zoneName: event.target.value })} /></FormField>
+            <FormField label={t('development.certhub.dns.email')}><Input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></FormField>
+            <FormField error={errors.token} label={t('development.certhub.dns.token')} hint={t('development.certhub.dns.token_hint')}><Textarea value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value })} rows={3} /></FormField>
+            {!form.token.trim() ? <p className="text-[length:var(--text-11-5)] text-[var(--warning)]">{t('development.certhub.dns.manual_only')}</p> : null}
+          </> : <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('development.certhub.dns.dcv_hint')}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={testForm} loading={testing} icon={<RefreshCw size={14} />}>{t('development.certhub.dns.test_connection')}</Button>
+            <Button variant="primary" onClick={create} loading={busy}>{t('development.certhub.dns.add')}</Button>
+          </div>
         </div>
       </Panel>
+    </div>
+  )
+}
+
+function FormField({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <Field label={label} hint={hint}>{children}</Field>
+      {error ? <p role="alert" className="text-[length:var(--text-11)] text-[var(--danger)]">{error}</p> : null}
     </div>
   )
 }

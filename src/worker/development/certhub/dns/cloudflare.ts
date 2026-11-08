@@ -52,6 +52,11 @@ export async function verifyCloudflareToken(token: string): Promise<void> {
   await request<{ id: string; status: string }>('/user/tokens/verify', token)
 }
 
+export async function verifyCloudflareConnection(token: string, zoneId: string): Promise<void> {
+  await verifyCloudflareToken(token)
+  await request<{ id: string; name: string }>(`/zones/${zoneId}`, token)
+}
+
 export async function listDnsRecords(
   token: string,
   zoneId: string,
