@@ -172,6 +172,7 @@ export const EN_US_DEVELOPMENT_ICONS = {
   'development.icons.import.imported': 'Imported',
   'development.icons.import.finished': 'Collection import finished',
   'development.icons.import.failures': 'Failed items',
+  'development.icons.import.retry': 'Retry',
   'development.icons.import.failures_title': 'Items that could not be imported',
   'development.icons.import.no_failures': 'No failed items',
   'development.icons.import.dismiss': 'Dismiss',

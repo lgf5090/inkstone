@@ -346,6 +346,8 @@ export function Slider({
   'aria-labelledby': ariaLabelledBy,
   'aria-describedby': ariaDescribedBy,
   'aria-required': ariaRequired,
+  showValue = true,
+  valueText,
   immediate = false,
 }: {
   value: number
@@ -360,6 +362,10 @@ export function Slider({
   'aria-labelledby'?: string
   'aria-describedby'?: string
   'aria-required'?: boolean
+  /** A caller that prints the value itself hides the built-in number to avoid showing it twice. */
+  showValue?: boolean
+  /** The spoken value when the number is not the meaning, e.g. a density step rather than "1". */
+  valueText?: string
   /**
    * Hand every step straight to the caller instead of coalescing to one write per frame. For a caller
    * that batches on its own — the gantt's progress bar holds a draft and commits one undo step on
@@ -394,7 +400,7 @@ export function Slider({
         aria-labelledby={ariaLabelledBy}
         aria-describedby={ariaDescribedBy}
         aria-required={ariaRequired}
-        aria-valuetext={`${shown}${suffix ?? ''}`}
+        aria-valuetext={valueText ?? `${shown}${suffix ?? ''}`}
         min={min}
         max={max}
         step={step}
@@ -419,10 +425,12 @@ export function Slider({
         className="ink-slider h-[18px] flex-1 cursor-pointer appearance-none bg-transparent"
         style={{ '--pct': `${pct}%` } as React.CSSProperties}
       />
-      <span className="w-11 shrink-0 text-right text-[length:var(--text-12)] tabular text-[var(--text-tertiary)]">
-        {shown}
-        {suffix}
-      </span>
+      {showValue && (
+        <span className="w-11 shrink-0 text-right text-[length:var(--text-12)] tabular text-[var(--text-tertiary)]">
+          {shown}
+          {suffix}
+        </span>
+      )}
     </div>
   )
 }

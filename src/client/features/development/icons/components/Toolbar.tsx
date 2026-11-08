@@ -144,7 +144,7 @@ export function Toolbar({
           <IconButton label={t('development.icons.toolbar.sidebar')} size="sm" variant="secondary" className="h-8 w-8 shrink-0 lg:hidden" onClick={onOpenSidebar}><Menu size={15} /></IconButton>
         </Tooltip>
 
-        <div className="min-w-[180px] flex-1 sm:max-w-md">
+        <div className="min-w-[180px] flex-1 sm:max-w-xs">
           <Input
             ref={searchRef}
             value={state.q}
@@ -202,9 +202,11 @@ export function Toolbar({
               max={2}
               onChange={(value) => onChange({ ...state, density: DENSITY_ORDER[value] ?? 'medium' })}
               label={t('development.icons.toolbar.density')}
-              className="w-20"
+              valueText={t(DENSITY_LABELS[state.density] as never)}
+              showValue={false}
+              className="w-24"
             />
-            <span className="w-14 shrink-0 text-[length:var(--text-10)] text-[var(--text-secondary)]">{t(DENSITY_LABELS[state.density] as never)}</span>
+            <span aria-hidden="true" className="w-12 shrink-0 text-[length:var(--text-10)] text-[var(--text-secondary)]">{t(DENSITY_LABELS[state.density] as never)}</span>
           </div>
         )}
 
@@ -217,17 +219,9 @@ export function Toolbar({
             { value: '120', label: t('development.icons.toolbar.page_120'), icon: <Rows3 size={12} /> },
           ]}
           size="sm"
-          className="w-24"
+          className="w-28"
         />
 
-        <Tooltip label={t('development.icons.toolbar.refresh')}>
-          <IconButton label={t('development.icons.toolbar.refresh')} size="sm" className="h-8 w-8" onClick={onRefresh}>
-            <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
-          </IconButton>
-        </Tooltip>
-        <Tooltip label={t('development.icons.toolbar.settings')}>
-          <IconButton label={t('development.icons.toolbar.settings')} size="sm" className="h-8 w-8" onClick={onSettings}><Settings2 size={14} /></IconButton>
-        </Tooltip>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 border-t border-[var(--border-subtle)] px-3 py-1.5">
@@ -258,7 +252,18 @@ export function Toolbar({
           <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.icons.toolbar.hint')}</span>
         )}
 
-        <span className="ml-auto flex items-center gap-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+        <div className="ml-auto flex items-center gap-1">
+          <Tooltip label={t('development.icons.toolbar.refresh')}>
+            <IconButton label={t('development.icons.toolbar.refresh')} size="sm" className="h-7 w-7" onClick={onRefresh}>
+              <RefreshCw size={13} className={cn(loading && 'animate-spin')} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('development.icons.toolbar.settings')}>
+            <IconButton label={t('development.icons.toolbar.settings')} size="sm" className="h-7 w-7" onClick={onSettings}><Settings2 size={13} /></IconButton>
+          </Tooltip>
+        </div>
+
+        <span className="flex items-center gap-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
           {selectionCount > 0 ? (
             <>
               <span className="tabular-nums">{t('development.icons.toolbar.selected')} {selectionCount}</span>

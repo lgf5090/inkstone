@@ -210,9 +210,10 @@ export const IconImportCreateSchema = z.object({
   }
 })
 
+/** `seed` tops a collection up to its announced seed target; it never claims to be a full import. */
 export const IconBulkImportSchema = z.object({
   prefix: z.enum(ICON_ICONIFY_PREFIXES),
-  mode: z.enum(['full', 'missing']).default('full'),
+  mode: z.enum(['full', 'missing', 'seed']).default('full'),
 })
 
 export const IconBulkStepSchema = z.object({
