@@ -46,7 +46,6 @@ import {
   fetchJobs,
   finishJob,
   retryJob,
-  seedBuiltinCollections,
   startBulkImport,
   stepBulkImport,
   updateAsset,
@@ -134,7 +133,6 @@ export function IconsApp() {
   const sentinelRef = useRef<HTMLDivElement>(null)
   const scrollFrame = useRef(0)
   const scrollTopRef = useRef(0)
-  const seededReload = useRef(false)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(600)
   const [contentWidth, setContentWidth] = useState(960)
@@ -195,41 +193,6 @@ export function IconsApp() {
     setCursor(page.nextCursor)
     setHasMore(page.hasMore)
   }, [applyBootstrap, browse, debouncedQuery])
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const next = await fetchBootstrap()
-        if (cancelled) return
-        applyBootstrap(next)
-        if (next.counts.all === 0 && next.collections.length === 0) {
-          setSeeding(true)
-          await seedBuiltinCollections().catch(() => undefined)
-        }
-      } catch (cause) {
-        if (!cancelled) setError(message(cause))
-      }
-    })()
-    return () => { cancelled = true }
-  }, [applyBootstrap])
-
-  useEffect(() => {
-    if (!seeding) return
-    const timer = window.setInterval(() => {
-      void fetchBootstrap().then((next) => {
-        applyBootstrap(next)
-        if (next.counts.all > 0) {
-          setSeeding(false)
-          if (!seededReload.current) {
-            seededReload.current = true
-            void load(true)
-          }
-        }
-      }).catch(() => undefined)
-    }, 2500)
-    return () => window.clearInterval(timer)
-  }, [applyBootstrap, load, seeding])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 })
@@ -315,12 +278,59 @@ export function IconsApp() {
   const resumeImport = useCallback(async () => {
     try {
       const rows = await fetchImports()
-      const running = rows.find((row) => row.status === 'running' && row.kind === 'iconify')
-      if (running) void driveImport(running)
+      // Several collections can be queued at once during a first-run seed; each is resumed in turn so a
+      // closed tab never leaves a collection half-imported without anyone noticing.
+      for (const row of rows.filter((entry) => entry.status === 'running' && entry.kind === 'iconify')) {
+        await driveImport(row)
+      }
     } catch {
       // A failed look-up leaves the page usable; the banner appears on the next visit.
     }
   }, [driveImport])
+
+  /**
+   * The first-run seed, driven from the browser through the resumable bulk import.
+   *
+   * It used to run in `waitUntil` with a per-icon importer capped at 140 icons; the platform killed it
+   * partway and the remaining rows were treated as complete, which is how a library ended up with 85
+   * icons forever. Now every seed is a small import job with a cursor: it is announced in the banner,
+   * it survives a reload, and the collection's own numbers always match D1.
+   */
+  const seedLibraries = useCallback(async () => {
+    setSeeding(true)
+    try {
+      for (const library of ICON_BUILTIN_LIBRARIES) {
+        const current = await fetchBootstrap()
+        applyBootstrap(current)
+        const existing = current.collections.find((collection) => collection.slug === library.prefix)?.count ?? 0
+        if (existing >= library.seedLimit) continue
+        const job = await startBulkImport(library.prefix, 'seed')
+        if (job.status === 'running') await driveImport(job)
+      }
+    } catch (cause) {
+      toast({ title: message(cause), tone: 'danger' })
+    } finally {
+      setSeeding(false)
+      await refresh()
+    }
+  }, [applyBootstrap, driveImport, refresh, toast])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const next = await fetchBootstrap()
+        if (cancelled) return
+        applyBootstrap(next)
+        if (next.counts.all === 0 && next.collections.length === 0) await seedLibraries()
+      } catch (cause) {
+        if (!cancelled) setError(message(cause))
+      }
+    })()
+    return () => { cancelled = true }
+    // The seed runs once per mount; it is driven through the same resumable import the dialog uses.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyBootstrap])
 
   useEffect(() => {
     void resumeImport()
@@ -389,17 +399,41 @@ export function IconsApp() {
     [bootstrap],
   )
 
+  /**
+   * Every write that moves a facet count re-reads the rail, so "favorited 3" and the grid never disagree
+   * until a manual reload. The request is cheap: the same bootstrap the first paint used.
+   */
+  const refreshCounts = useCallback(async () => {
+    try {
+      applyBootstrap(await fetchBootstrap())
+    } catch {
+      // A failed refresh keeps the last known numbers instead of zeroing the rail.
+    }
+  }, [applyBootstrap])
+
   const toggleFavorite = useCallback(async (item: IconAssetSummary) => {
     await batchAssets(item.favorited ? 'unfavorite' : 'favorite', [item.id])
-    setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, favorited: !entry.favorited } : entry))
-    setDetail((current) => current && current.id === item.id ? { ...current, favorited: !current.favorited } : current)
-  }, [])
+    const favorited = !item.favorited
+    setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, favorited } : entry))
+    setDetail((current) => current && current.id === item.id ? { ...current, favorited } : current)
+    if (browse.state === 'favorites' && !favorited) {
+      setItems((current) => current.filter((entry) => entry.id !== item.id))
+      setTotal((current) => Math.max(0, current - 1))
+    }
+    await refreshCounts()
+  }, [browse.state, refreshCounts])
 
   const togglePinned = useCallback(async (item: IconAssetSummary) => {
     await batchAssets(item.pinned ? 'unpin' : 'pin', [item.id])
-    setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, pinned: !entry.pinned } : entry))
-    setDetail((current) => current && current.id === item.id ? { ...current, pinned: !current.pinned } : current)
-  }, [])
+    const pinned = !item.pinned
+    setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, pinned } : entry))
+    setDetail((current) => current && current.id === item.id ? { ...current, pinned } : current)
+    if (browse.state === 'pinned' && !pinned) {
+      setItems((current) => current.filter((entry) => entry.id !== item.id))
+      setTotal((current) => Math.max(0, current - 1))
+    }
+    await refreshCounts()
+  }, [browse.state, refreshCounts])
 
   const remove = useCallback(async (item: IconAssetSummary) => {
     if (!(await confirm({ title: t('development.icons.common.delete_title'), description: t('development.icons.common.delete_description'), tone: 'danger' }))) return
@@ -408,8 +442,9 @@ export function IconsApp() {
     setTotal((current) => Math.max(0, current - 1))
     setSelection((current) => { const next = new Set(current); next.delete(item.id); return next })
     setDetail((current) => current?.id === item.id ? null : current)
+    await refreshCounts()
     toast({ title: t('development.icons.common.delete'), tone: 'success' })
-  }, [toast])
+  }, [refreshCounts, toast])
 
   const toggleSelect = useCallback((id: string, checked: boolean) => {
     setSelection((current) => {
@@ -461,7 +496,8 @@ export function IconsApp() {
     const tags = (bootstrap?.tags ?? []).filter((tag) => tagIds.includes(tag.id)).map((tag) => ({ id: tag.id, name: tag.name, color: tag.color }))
     setDetail((current) => current?.id === item.id ? { ...current, tags } : current)
     setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, tags } : entry))
-  }, [bootstrap])
+    await refreshCounts()
+  }, [bootstrap, refreshCounts])
 
   const uploadFiles = useCallback(async (files: FileList | File[]) => {
     const list = Array.from(files)
@@ -741,7 +777,7 @@ export function IconsApp() {
               action={(
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   {filtersActive && <Button size="sm" onClick={() => setBrowse(clearFilters({ ...browse, q: '' }))}>{t('development.icons.filter.clear')}</Button>}
-                  {!filtersActive && <Button size="sm" onClick={() => { setSeeding(true); void seedBuiltinCollections().then(() => setSeeding(true)).catch((cause) => { setSeeding(false); toast({ title: message(cause), tone: 'danger' }) }) }}><Images size={14} />{t('development.icons.grid.empty.builtin')}</Button>}
+                  {!filtersActive && <Button size="sm" onClick={() => void seedLibraries()}><Images size={14} />{t('development.icons.grid.empty.builtin')}</Button>}
                   {!filtersActive && <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}><Download size={14} />{t('development.icons.grid.empty.iconify')}</Button>}
                   {!filtersActive && <Button size="sm" variant="secondary" disabled={overQuota} onClick={() => setUploadOpen(true)}><Upload size={14} />{t('development.icons.toolbar.upload')}</Button>}
                 </div>

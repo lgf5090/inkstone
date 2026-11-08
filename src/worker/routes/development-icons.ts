@@ -14,7 +14,6 @@ import {
   IconCollectionInputSchema,
   IconCollectionPatchSchema,
   IconExportCreateSchema,
-  IconImportCreateSchema,
   IconJobCreateSchema,
   IconLimitsPatchSchema,
   IconListQuerySchema,
@@ -84,7 +83,7 @@ import { inspectIco, icoSizesToken } from '../development/icons/ico'
 import { webpThumbnail } from '../development/icons/raster'
 import { buildExportArtifacts, finalizeBrowserJob } from '../development/icons/convert'
 import { enqueueIconJob, iconQueueAvailable } from '../development/icons/queue'
-import { detectColorMode, importIconifyCollection } from '../development/icons/import'
+import { detectColorMode } from '../development/icons/import'
 import {
   cancelBulkImport,
   collectionStats,
@@ -92,7 +91,6 @@ import {
   failedItems,
   stepBulkImport,
 } from '../development/icons/bulk-import'
-import { seedBuiltins, seedRunning } from '../development/icons/seed'
 
 export const developmentIconsRoutes = new Hono<AppBindings>()
 
@@ -150,18 +148,6 @@ function isOwner(c: { get: (key: 'user') => { role: string } }): boolean {
 }
 
 developmentIconsRoutes.get('/bootstrap', async (c) => c.json({ ok: true, data: await bootstrap(c.env.DB, userId(c), isOwner(c)) }))
-
-/**
- * The first visit asks for this once. It answers before a single icon is written, and the import
- * itself runs in the background so the grid can paint its skeleton immediately.
- */
-developmentIconsRoutes.post('/bootstrap/seed', async (c) => {
-  if (await seedRunning(c.env.DB, userId(c))) {
-    return c.json({ ok: true, data: { started: false, running: true } }, 202)
-  }
-  c.executionCtx.waitUntil(seedBuiltins(c.env, userId(c)))
-  return c.json({ ok: true, data: { started: true, running: true } }, 202)
-})
 
 developmentIconsRoutes.get('/assets', async (c) => {
   const url = new URL(c.req.url)
@@ -598,19 +584,6 @@ developmentIconsRoutes.get('/exports/:id/download', async (c) => {
 })
 
 developmentIconsRoutes.get('/imports', async (c) => c.json({ ok: true, data: await listImports(c.env.DB, userId(c)) }))
-
-developmentIconsRoutes.post('/imports', async (c) => {
-  const body = IconImportCreateSchema.parse(await readJson<unknown>(c, 16 * 1024))
-  if (body.kind !== 'iconify' || !body.prefix) throw ApiError.badRequest('Only Iconify collections can be imported')
-  const usage = await usageFor(c.env.DB, userId(c))
-  if (usage.overQuota) throw new ApiError(413, 'icons_quota_exceeded', 'The icon storage quota is exceeded')
-  try {
-    const data = await importIconifyCollection(c.env, userId(c), body.prefix, body.limit)
-    return c.json({ ok: true, data }, 201)
-  } catch (error) {
-    throw new ApiError(422, 'icons_import_incomplete', error instanceof Error ? error.message : 'The import failed')
-  }
-})
 
 developmentIconsRoutes.post('/imports/bulk', async (c) => {
   const body = IconBulkImportSchema.parse(await readJson<unknown>(c, 4 * 1024))

@@ -5,13 +5,17 @@ import {
   ICON_ICONIFY_MAX_BYTES,
   ICON_ICONIFY_SOURCE,
   ICON_ICONIFY_TIMEOUT_MS,
+  ICON_SEED_IMPORT_LIMIT,
 } from '@shared/development/icons/limits'
 import { builtinLibrary } from '@shared/development/icons/builtins'
 import type { IconCollectionStats, IconImport, IconImportItem } from '@shared/development/icons/types'
 import { ensureSettings, usageFor } from './store'
-import { deleteIconObject, getIconObject, iconObjectKey, putIconObject, userShard } from './r2'
+import { deleteIconObject, getIconObject, iconObjectKey, iconThumbKey, putIconObject, userShard } from './r2'
+import { webpThumbnail } from './raster'
 import { sanitizeSvgText } from './svg-sanitize'
 import { detectColorMode } from './import'
+
+export type IconBulkMode = 'full' | 'missing' | 'seed'
 
 interface IconifyIcon {
   body: string
@@ -184,7 +188,7 @@ async function mapLimit<T, R>(items: readonly T[], limit: number, run: (item: T)
   return output
 }
 
-export async function createBulkImport(env: Env, userId: string, prefix: string, mode: 'full' | 'missing'): Promise<IconImport> {
+export async function createBulkImport(env: Env, userId: string, prefix: string, mode: IconBulkMode): Promise<IconImport> {
   const running = await env.DB.prepare(
     `SELECT * FROM development_icons_imports
       WHERE user_id=?1 AND prefix=?2 AND status='running' AND kind='iconify'
@@ -194,7 +198,17 @@ export async function createBulkImport(env: Env, userId: string, prefix: string,
 
   const source = await fetchSource(prefix)
   const collectionId = await ensureCollection(env, userId, prefix, source.name, source.license, source.homepage)
-  const names = mode === 'missing' ? await missingNames(env, userId, collectionId, source.names) : source.names
+  const missing = mode === 'full' ? source.names : await missingNames(env, userId, collectionId, source.names)
+  // A seed is a small, announced top-up rather than a silent half-import: it stage-copies only as many
+  // missing names as the library's seed target still needs, so a killed seed resumes and a partially
+  // seeded collection is topped up to the target instead of being treated as complete.
+  const capacity = builtinLibrary(prefix)?.seedLimit ?? ICON_SEED_IMPORT_LIMIT
+  const seeded = mode === 'seed'
+    ? Number((await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM development_icons_assets WHERE user_id=?1 AND collection_id=?2`,
+      ).bind(userId, collectionId).first<{ n: number }>())?.n ?? 0)
+    : 0
+  const names = mode === 'seed' ? missing.slice(0, Math.max(0, capacity - seeded)) : missing
 
   const id = newId()
   const now = Date.now()
@@ -298,7 +312,7 @@ export async function stepBulkImport(env: Env, userId: string, id: string): Prom
   let skipped = 0
   let bytes = 0
   const itemRows: { name: string; status: string; assetId: string | null; error: string }[] = []
-  const assetRows: { id: string; name: string; content: Uint8Array; sha256: string; key: string; width: number; height: number; license: string; sourceUrl: string; colorMode: string }[] = []
+  const assetRows: { id: string; name: string; content: Uint8Array; sha256: string; key: string; thumbKey: string | null; width: number; height: number; license: string; sourceUrl: string; colorMode: string }[] = []
 
   for (const name of chunk.names) {
     const existingId = existing.get(name.toLowerCase())
@@ -322,7 +336,7 @@ export async function stepBulkImport(env: Env, userId: string, id: string): Prom
       if (usage.usedBytes + content.byteLength > settings.quotaBytes) throw new Error('icons_quota_exceeded')
       const sha256 = await sha256Hex(content)
       assetRows.push({
-        id: newId(), name, content, sha256, key: iconObjectKey('svg', shard, sha256),
+        id: newId(), name, content, sha256, key: iconObjectKey('svg', shard, sha256), thumbKey: null,
         width, height, license: collection.license, sourceUrl: `${prefix}/${name}`,
         colorMode: detectColorMode(icon.body),
       })
@@ -363,20 +377,33 @@ export async function stepBulkImport(env: Env, userId: string, id: string): Prom
     return true
   })
 
+  // The grid paints `thumbUrl`, which falls back to the raw SVG when no thumbnail exists. Generating the
+  // 96px WebP while the chunk is already in memory keeps a bulk import fast to browse; importing it without
+  // a thumbnail is what left the deployed library scrolling at a fraction of the frame rate.
   await mapLimit(writable, 8, async (asset) => {
     await putIconObject(env, asset.key, asset.content, 'image/svg+xml')
+    try {
+      const thumb = await webpThumbnail(env, asset.content, 'image/svg+xml', 96)
+      if (thumb) {
+        const key = iconThumbKey(shard, asset.sha256, 96)
+        await putIconObject(env, key, thumb, 'image/webp')
+        asset.thumbKey = key
+      }
+    } catch (error) {
+      console.warn('[inkstone] bulk import thumbnail failed:', error)
+    }
   })
 
   const statements: D1PreparedStatement[] = []
   for (const asset of writable) {
     const createdAt = Date.now()
     statements.push(env.DB.prepare(
-      `INSERT INTO development_icons_assets
+      `INSERT OR IGNORE INTO development_icons_assets
          (user_id, id, collection_id, name, name_key, format, mime, bytes, width, height, view_box, sha256, r2_key, thumb_key, keywords, color_mode, license, source_url, sanitized, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, 'svg', 'image/svg+xml', ?6, ?7, ?8, ?9, ?10, ?11, NULL, '', ?12, ?13, ?14, 1, ?15, ?15)`,
+       VALUES (?1, ?2, ?3, ?4, ?5, 'svg', 'image/svg+xml', ?6, ?7, ?8, ?9, ?10, ?11, ?12, '', ?13, ?14, ?15, 1, ?16, ?16)`,
     ).bind(
       userId, asset.id, collection.id, asset.name, asset.name.toLowerCase(), asset.content.byteLength,
-      asset.width, asset.height, `0 0 ${asset.width} ${asset.height}`, asset.sha256, asset.key,
+      asset.width, asset.height, `0 0 ${asset.width} ${asset.height}`, asset.sha256, asset.key, asset.thumbKey,
       asset.colorMode, asset.license, asset.sourceUrl, createdAt,
     ))
     itemRows.push({ name: asset.name, status: 'done', assetId: asset.id, error: '' })
@@ -389,19 +416,45 @@ export async function stepBulkImport(env: Env, userId: string, id: string): Prom
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)`,
     ).bind(userId, id, item.name, `${prefix}/${item.name}.svg`, item.status, item.assetId, item.error, createdAt))
   }
-  for (let index = 0; index < statements.length; index += 100) {
-    await env.DB.batch(statements.slice(index, index + 100))
+  try {
+    for (let index = 0; index < statements.length; index += 100) {
+      await env.DB.batch(statements.slice(index, index + 100))
+    }
+  } catch (error) {
+    // A failed write is a failed import, not a silently short collection: the job carries the reason and
+    // the drill-down keeps the gap visible so "fill missing" can finish it.
+    const reason = error instanceof Error ? error.message : 'The icon rows could not be written'
+    await env.DB.prepare(
+      `UPDATE development_icons_imports SET status='failed', error=?3, updated_at=?4, finished_at=?4
+        WHERE user_id=?1 AND id=?2`,
+    ).bind(userId, id, reason, Date.now()).run()
+    const failedRow = await getImportRow(env, userId, id)
+    return {
+      import: failedRow ? importRow(failedRow) : importRow(row),
+      failures: await failedItems(env, userId, id),
+    }
   }
 
   const end = Math.min(total, start + chunk.names.length)
   const finished = end >= total
-  const finalStatus = finished ? (failed >= total ? 'failed' : 'done') : 'running'
   await env.DB.prepare(
     `UPDATE development_icons_imports
         SET status=?3, processed_items=?4, failed_items=failed_items+?5,
             skipped_items=skipped_items+?6, bytes_total=bytes_total+?7, updated_at=?8, finished_at=?9
       WHERE user_id=?1 AND id=?2`,
-  ).bind(userId, id, finalStatus, end, failed, skipped, bytes, Date.now(), finished ? Date.now() : null).run()
+  ).bind(userId, id, finished ? 'done' : 'running', end, failed, skipped, bytes, Date.now(), finished ? Date.now() : null).run()
+  if (finished) {
+    // Only a run where every planned icon failed is a failed import; a partial failure stays "done" with a
+    // visible failure count and a retry entry.
+    const totals = await env.DB.prepare(
+      `SELECT failed_items AS f FROM development_icons_imports WHERE user_id=?1 AND id=?2`,
+    ).bind(userId, id).first<{ f: number }>()
+    if (Number(totals?.f ?? 0) >= total && total > 0) {
+      await env.DB.prepare(
+        `UPDATE development_icons_imports SET status='failed', error=?3 WHERE user_id=?1 AND id=?2`,
+      ).bind(userId, id, 'Every icon in this import failed').run()
+    }
+  }
 
   if (finished) {
     // The staged bodies are only needed while the cursor is moving; the manifest stays for the
@@ -470,9 +523,13 @@ export async function collectionStats(env: Env, userId: string, collectionId: st
           WHERE user_id=?1 AND import_id=?2 AND status='skipped' AND error='duplicate'`,
       ).bind(userId, String(last.id)).first<{ n: number }>()
     : null
+  // The archive manifest knows the exact set size. Rows written by the retired per-icon seed carry no
+  // manifest and used to report `total_items: 140`, which described the seed batch rather than the
+  // collection; for those the library's declared total is the honest fallback.
   const total = manifest?.sourceTotal
+    ?? builtinLibrary(collection.slug)?.totalIcons
     ?? manifest?.total
-    ?? (Number(largest?.n ?? 0) || builtinLibrary(collection.slug)?.totalIcons || imported)
+    ?? (Number(largest?.n ?? 0) || imported)
   const status = last ? String(last.status) : 'done'
   return {
     collectionId,
