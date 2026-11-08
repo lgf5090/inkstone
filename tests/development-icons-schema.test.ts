@@ -32,20 +32,20 @@ async function installed(): Promise<DatabaseSync> {
 }
 
 describe('development icons schema', () => {
-  it('declares 320, 321, 325 and 326 exactly once and keeps 326 as the maximum', () => {
+  it('declares 320, 321, 327 and 328 exactly once and keeps 328 as the maximum', () => {
     const versions = SCHEMA_MIGRATIONS.map((migration) => migration.version)
-    for (const version of [320, 321, 325, 326]) {
+    for (const version of [320, 321, 327, 328]) {
       expect(versions.filter((entry) => entry === version)).toHaveLength(1)
     }
     expect(new Set(versions).size).toBe(versions.length)
-    expect(Math.max(...versions)).toBe(326)
+    expect(Math.max(...versions)).toBe(328)
   })
 
   it('keeps every development_icons_ statement inside the icon migrations', () => {
     const owners = SCHEMA_MIGRATIONS
       .filter((migration) => migration.statements.some((statement) => statement.includes('development_icons_')))
       .map((migration) => migration.version)
-    expect(owners).toEqual([320, 321, 325, 326])
+    expect(owners).toEqual([320, 321, 327, 328])
   })
 
   it('creates every required table and index and records every migration', async () => {
@@ -55,7 +55,7 @@ describe('development icons schema', () => {
     for (const table of DEVELOPMENT_ICONS_REQUIRED_TABLES) expect(tables).toContain(table)
     for (const index of DEVELOPMENT_ICONS_REQUIRED_INDEXES) expect(indexes).toContain(index)
     expect(tables).toContain('development_icons_fts')
-    for (const version of [320, 321, 325, 326]) expect(versionsOf(sqlite)).toContain(version)
+    for (const version of [320, 321, 327, 328]) expect(versionsOf(sqlite)).toContain(version)
   })
 
   it('boots twice without changing the shape', async () => {
@@ -65,7 +65,7 @@ describe('development icons schema', () => {
     const before = tablesOf(sqlite).sort()
     await initializeDatabase({ DB: makeD1(sqlite) } as never)
     expect(tablesOf(sqlite).sort()).toEqual(before)
-    for (const version of [320, 321, 325, 326]) {
+    for (const version of [320, 321, 327, 328]) {
       expect(versionsOf(sqlite).filter((entry) => entry === version)).toHaveLength(1)
     }
   })
@@ -73,6 +73,6 @@ describe('development icons schema', () => {
   it('refuses duplicate migration versions', () => {
     expect(() => assertUniqueSchemaMigrations([{ version: 320 }, { version: 320 }])).toThrow('Duplicate schema migration version 320')
     expect(() => assertUniqueSchemaMigrations([{ version: 321 }, { version: 321 }])).toThrow('Duplicate schema migration version 321')
-    expect(() => assertUniqueSchemaMigrations([{ version: 325 }, { version: 325 }])).toThrow('Duplicate schema migration version 325')
+    expect(() => assertUniqueSchemaMigrations([{ version: 327 }, { version: 327 }])).toThrow('Duplicate schema migration version 327')
   })
 })

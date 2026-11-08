@@ -46,6 +46,7 @@
     "a11y:check": "node scripts/check-a11y.mjs",
     "gates": "npm run typecheck:force && npm run typecheck:tests:force && npm run i18n:check && npm run comments:check && npm run hooks:check && npm run a11y:check",
     "test:e2e": "node scripts/e2e.mjs",
+    "test:e2e:icons": "node scripts/e2e-icons.mjs",
     "fixture:blog-e2e": "node scripts/fixture-blog-e2e.mjs",
     "cf-typegen": "wrangler types",
     "cf-typegen:kv": "wrangler types --config wrangler.kv.toml",

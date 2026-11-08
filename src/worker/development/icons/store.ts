@@ -230,7 +230,7 @@ export async function bootstrap(db: D1Database, userId: string, isOwner = false)
     limits,
     usage,
     isOwner,
-    schemaVersions: [320, 321, 325, 326],
+    schemaVersions: [320, 321, 327, 328],
   }
 }
 
@@ -380,19 +380,22 @@ export async function listAssets(db: D1Database, userId: string, input: ListInpu
 async function tagsForAssets(db: D1Database, userId: string, ids: string[]): Promise<Map<string, IconTagSummary[]>> {
   const map = new Map<string, IconTagSummary[]>()
   if (!ids.length) return map
-  const placeholders = ids.map((_, index) => `?${index + 2}`).join(', ')
-  const rows = await db.prepare(
-    `SELECT l.asset_id, l.tag_id, t.name, t.color
-       FROM development_icons_tag_links l
-       JOIN development_icons_tags t ON t.user_id = l.user_id AND t.id = l.tag_id
-      WHERE l.user_id = ?1 AND l.asset_id IN (${placeholders})
-      ORDER BY t.sort_order, t.created_at`,
-  ).bind(userId, ...ids).all<Row>()
-  for (const row of rows.results ?? []) {
-    const assetId = text(row.asset_id)
-    const list = map.get(assetId) ?? []
-    list.push(tagSummary(row))
-    map.set(assetId, list)
+  for (let index = 0; index < ids.length; index += 90) {
+    const slice = ids.slice(index, index + 90)
+    const placeholders = slice.map((_, offset) => `?${offset + 2}`).join(', ')
+    const rows = await db.prepare(
+      `SELECT l.asset_id, l.tag_id, t.name, t.color
+         FROM development_icons_tag_links l
+         JOIN development_icons_tags t ON t.user_id = l.user_id AND t.id = l.tag_id
+        WHERE l.user_id = ?1 AND l.asset_id IN (${placeholders})
+        ORDER BY t.sort_order, t.created_at`,
+    ).bind(userId, ...slice).all<Row>()
+    for (const row of rows.results ?? []) {
+      const assetId = text(row.asset_id)
+      const list = map.get(assetId) ?? []
+      list.push(tagSummary(row))
+      map.set(assetId, list)
+    }
   }
   return map
 }
@@ -684,11 +687,16 @@ export async function createJob(
   if (assetIds.length > settings.batchLimit || assetIds.length > ICON_JOB_MAX_ITEMS) throw ApiError.badRequest('The batch limit was exceeded')
   const uniqueIds = [...new Set(assetIds)]
   if (uniqueIds.length !== assetIds.length) throw ApiError.badRequest('The batch repeats an icon')
-  const marks = uniqueIds.map((_, index) => `?${index + 2}`).join(', ')
-  const owned = await db.prepare(
-    `SELECT COUNT(*) AS n FROM development_icons_assets WHERE user_id=?1 AND id IN (${marks})`,
-  ).bind(userId, ...uniqueIds).first<{ n: number }>()
-  if (Number(owned?.n ?? 0) !== uniqueIds.length) throw ApiError.notFound('An icon in this task was not found')
+  let ownedCount = 0
+  for (let index = 0; index < uniqueIds.length; index += 90) {
+    const slice = uniqueIds.slice(index, index + 90)
+    const marks = slice.map((_, offset) => `?${offset + 2}`).join(', ')
+    const owned = await db.prepare(
+      `SELECT COUNT(*) AS n FROM development_icons_assets WHERE user_id=?1 AND id IN (${marks})`,
+    ).bind(userId, ...slice).first<{ n: number }>()
+    ownedCount += Number(owned?.n ?? 0)
+  }
+  if (ownedCount !== uniqueIds.length) throw ApiError.notFound('An icon in this task was not found')
   if (options.kind === 'sprite_svg' || options.kind === 'sprite_png') {
     if (assetIds.length > ICON_SPRITE_MAX_ASSETS) throw ApiError.badRequest('The sprite asset limit was exceeded')
   }
@@ -700,17 +708,17 @@ export async function createJob(
   if (running) throw new ApiError(409, 'icons_job_conflict', 'Another conversion task is still running')
   const id = newId()
   const now = Date.now()
-  const statements = [
-    db.prepare(
-      `INSERT INTO development_icons_jobs (user_id, id, kind, status, execution, options_json, total_items, created_at, updated_at)
-       VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?7, ?7)`,
-    ).bind(userId, id, options.kind, execution, JSON.stringify(options), assetIds.length, now),
-    ...assetIds.map((assetId) => db.prepare(
+  await db.prepare(
+    `INSERT INTO development_icons_jobs (user_id, id, kind, status, execution, options_json, total_items, created_at, updated_at)
+     VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?7, ?7)`,
+  ).bind(userId, id, options.kind, execution, JSON.stringify(options), assetIds.length, now).run()
+  for (let index = 0; index < assetIds.length; index += 50) {
+    const slice = assetIds.slice(index, index + 50)
+    await db.batch(slice.map((assetId) => db.prepare(
       `INSERT OR IGNORE INTO development_icons_job_items (user_id, job_id, asset_id, status, updated_at)
        VALUES (?1, ?2, ?3, 'queued', ?4)`,
-    ).bind(userId, id, assetId, now)),
-  ]
-  await db.batch(statements)
+    ).bind(userId, id, assetId, now)))
+  }
   return jobRow({
     id,
     kind: options.kind,
@@ -776,12 +784,17 @@ export async function getJobAssets(db: D1Database, userId: string, jobId: string
 
 export async function getAssetsByIds(db: D1Database, userId: string, ids: readonly string[]): Promise<JobAssetRow[]> {
   if (!ids.length) return []
-  const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
-  const rows = await db.prepare(
-    `SELECT id, name, format, mime, r2_key, sha256, width, height, collection_id, license, source_url
-       FROM development_icons_assets WHERE user_id = ?1 AND id IN (${marks}) ORDER BY name_key, id`,
-  ).bind(userId, ...ids).all<Row>()
-  return (rows.results ?? []).map((row) => ({
+  const rows: Row[] = []
+  for (let index = 0; index < ids.length; index += 90) {
+    const slice = ids.slice(index, index + 90)
+    const marks = slice.map((_, offset) => `?${offset + 2}`).join(', ')
+    const page = await db.prepare(
+      `SELECT id, name, format, mime, r2_key, sha256, width, height, collection_id, license, source_url
+         FROM development_icons_assets WHERE user_id = ?1 AND id IN (${marks}) ORDER BY name_key, id`,
+    ).bind(userId, ...slice).all<Row>()
+    rows.push(...(page.results ?? []))
+  }
+  return rows.map((row) => ({
     id: text(row.id),
     name: text(row.name),
     format: text(row.format, 'svg'),

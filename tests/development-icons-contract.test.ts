@@ -44,7 +44,7 @@ describe('development icons contract', () => {
   it('keeps the agreed schema versions and presets', () => {
     expect(DEVELOPMENT_ICONS_CORE_SCHEMA_VERSION).toBe(320)
     expect(DEVELOPMENT_ICONS_SETTINGS_SCHEMA_VERSION).toBe(321)
-    expect(DEVELOPMENT_ICONS_SCHEMA_VERSIONS).toEqual([320, 321, 325, 326])
+    expect(DEVELOPMENT_ICONS_SCHEMA_VERSIONS).toEqual([320, 321, 327, 328])
     expect(ICON_PNG_PRESETS).toEqual([24, 48, 96, 192, 512])
     expect(ICON_ICO_PRESETS).toEqual([16, 32, 48, 256])
     expect(ICON_PAGE_SIZE_DEFAULT).toBe(60)
@@ -58,12 +58,15 @@ describe('development icons contract', () => {
     expect(IconListQuerySchema.safeParse({ q: 'x'.repeat(65) }).success).toBe(false)
   })
 
-  it('accepts only the agreed PNG and ICO presets', () => {
+  it('accepts the agreed PNG and ICO presets', () => {
     expect(IconJobCreateSchema.safeParse({ assetIds: ['a1'], options: { kind: 'png', sizes: [24, 512] } }).success).toBe(true)
     expect(IconJobCreateSchema.safeParse({ assetIds: ['a1'], options: { kind: 'png', sizes: [32] } }).success).toBe(false)
     expect(IconJobCreateSchema.safeParse({ assetIds: ['a1'], options: { kind: 'png', sizes: [24, 24] } }).success).toBe(false)
     expect(IconJobCreateSchema.safeParse({ assetIds: ['a1'], options: { kind: 'ico', sizes: [16, 256] } }).success).toBe(true)
     expect(IconJobCreateSchema.safeParse({ assetIds: ['a1'], options: { kind: 'ico', sizes: [128] } }).success).toBe(false)
+    const fiveHundred = Array.from({ length: 500 }, (_, index) => `a${index}`)
+    expect(IconJobCreateSchema.safeParse({ assetIds: fiveHundred, options: { kind: 'png', sizes: [24] } }).success).toBe(true)
+    expect(IconJobCreateSchema.safeParse({ assetIds: [...fiveHundred, 'overflow'], options: { kind: 'png', sizes: [24] } }).success).toBe(false)
   })
 
   it('applies sprite defaults and rejects unsupported scales', () => {

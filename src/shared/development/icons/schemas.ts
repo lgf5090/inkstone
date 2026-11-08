@@ -169,13 +169,13 @@ const IconJobOptionsSchema = z.discriminatedUnion('kind', [
 })
 
 export const IconJobCreateSchema = z.object({
-  assetIds: z.array(Id).min(1).max(ICON_MAX_BATCH_IDS),
+  assetIds: z.array(Id).min(1).max(500),
   options: IconJobOptionsSchema,
 })
 
 export const IconExportCreateSchema = z.object({
   format: z.enum(ICON_EXPORT_FORMATS),
-  assetIds: z.array(Id).min(1).max(ICON_MAX_BATCH_IDS),
+  assetIds: z.array(Id).min(1).max(500),
   options: IconJobOptionsSchema.optional(),
 })
 

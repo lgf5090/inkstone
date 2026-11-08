@@ -596,22 +596,35 @@ developmentIconsRoutes.post('/maintenance/thumbnails', async (c) => {
   ).bind(userId(c), limit).all<{ id: string; format: string; mime: string; sha256: string; r2_key: string }>()
   let processed = 0
   let failed = 0
-  for (const row of rows.results ?? []) {
-    try {
-      const object = await getIconObject(c.env, row.r2_key)
-      if (!object) throw new Error('missing object')
-      const bytes = new Uint8Array(await object.arrayBuffer())
-      const thumb = await webpThumbnail(c.env, bytes, row.mime, 96)
-      if (!thumb) throw new Error('thumbnail unavailable')
-      const key = iconThumbKey(shard, row.sha256, 96)
-      await putIconObject(c.env, key, thumb, 'image/webp')
-      const thumb2x = await webpThumbnail(c.env, bytes, row.mime, 192)
-      if (thumb2x) await putIconObject(c.env, iconThumbKey(shard, row.sha256, 192), thumb2x, 'image/webp')
-      await c.env.DB.prepare(`UPDATE development_icons_assets SET thumb_key=?3 WHERE user_id=?1 AND id=?2`).bind(userId(c), row.id, key).run()
-      processed += 1
-    } catch {
-      failed += 1
+  const rowsToDo = rows.results ?? []
+  for (let index = 0; index < rowsToDo.length; index += 8) {
+    const slice = rowsToDo.slice(index, index + 8)
+    const results = await Promise.all(slice.map(async (row) => {
+      try {
+        const key = iconThumbKey(shard, row.sha256, 96)
+        const existing = await getIconObject(c.env, key)
+        if (existing) {
+          await c.env.DB.prepare(`UPDATE development_icons_assets SET thumb_key=?3 WHERE user_id=?1 AND id=?2`).bind(userId(c), row.id, key).run()
+          return true
+        }
+        const object = await getIconObject(c.env, row.r2_key)
+        if (!object) throw new Error('missing object')
+        const bytes = new Uint8Array(await object.arrayBuffer())
+        const thumb = await webpThumbnail(c.env, bytes, row.mime, 96)
+        if (!thumb) throw new Error('thumbnail unavailable')
+        await putIconObject(c.env, key, thumb, 'image/webp')
+        const thumb2x = await webpThumbnail(c.env, bytes, row.mime, 192)
+        if (thumb2x) await putIconObject(c.env, iconThumbKey(shard, row.sha256, 192), thumb2x, 'image/webp')
+        await c.env.DB.prepare(`UPDATE development_icons_assets SET thumb_key=?3 WHERE user_id=?1 AND id=?2`).bind(userId(c), row.id, key).run()
+        return true
+      } catch {
+        return false
+      }
+    }))
+    for (const ok of results) {
+      if (ok) processed += 1
+      else failed += 1
     }
   }
-  return c.json({ ok: true, data: { processed, failed, remaining: Math.max(0, (rows.results?.length ?? 0) - processed - failed) } })
+  return c.json({ ok: true, data: { processed, failed, remaining: Math.max(0, rowsToDo.length - processed - failed) } })
 })

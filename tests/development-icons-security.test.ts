@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { initializeDatabase } from '../src/worker/db/schema'
@@ -17,11 +18,12 @@ let sqlite: DatabaseSync
 let db: ReturnType<typeof makeD1>
 
 async function seedAsset(userId: string, id: string, bytes = 100): Promise<void> {
+  const sha = createHash('sha256').update(`${userId}:${id}`).digest('hex')
   await db.prepare(
     `INSERT INTO development_icons_assets
        (user_id, id, collection_id, name, name_key, format, mime, bytes, width, height, view_box, sha256, r2_key, thumb_key, keywords, color_mode, license, source_url, sanitized, created_at, updated_at)
      VALUES (?1, ?2, NULL, ?2, ?2, 'svg', 'image/svg+xml', ?3, NULL, NULL, NULL, ?4, ?5, NULL, '', 'mono', '', '', 1, 1, 1)`,
-  ).bind(userId, id, bytes, `${id}`.padEnd(64, '0'), `development/icons/svg/u00000000/00/00/${id}.svg`).run()
+  ).bind(userId, id, bytes, sha, `development/icons/svg/u00000000/00/00/${id}.svg`).run()
 }
 
 beforeEach(async () => {
@@ -53,6 +55,15 @@ describe('icon ownership', () => {
   it('creates a task for owned assets', async () => {
     const job = await createJob(db, 'user-a', ['asset-a'], { kind: 'png', sizes: [24] }, 'browser')
     expect(job).toMatchObject({ mode: 'browser', status: 'queued', totalItems: 1 })
+  })
+
+  it('chunks ownership checks and item inserts past the D1 parameter ceiling', async () => {
+    const ids = Array.from({ length: 120 }, (_, index) => `bulk-${index}`)
+    for (const id of ids) await seedAsset('user-a', id)
+    const job = await createJob(db, 'user-a', ids, { kind: 'png', sizes: [24] }, 'browser')
+    expect(job.totalItems).toBe(120)
+    const count = await db.prepare(`SELECT COUNT(*) AS n FROM development_icons_job_items WHERE user_id='user-a' AND job_id=?1`).bind(job.id).first<{ n: number }>()
+    expect(Number(count?.n ?? 0)).toBe(120)
   })
 })
 

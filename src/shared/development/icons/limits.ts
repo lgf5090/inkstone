@@ -1,9 +1,9 @@
 export const DEVELOPMENT_ICONS_CORE_SCHEMA_VERSION = 320
 export const DEVELOPMENT_ICONS_SETTINGS_SCHEMA_VERSION = 321
 /** Conversion outputs are their own ledger so quotas and cleanup can account for them. */
-export const DEVELOPMENT_ICONS_OUTPUTS_SCHEMA_VERSION = 325
+export const DEVELOPMENT_ICONS_OUTPUTS_SCHEMA_VERSION = 327
 /** Records whether a job is meant to run in a queue consumer or in the browser. */
-export const DEVELOPMENT_ICONS_JOB_EXECUTION_SCHEMA_VERSION = 326
+export const DEVELOPMENT_ICONS_JOB_EXECUTION_SCHEMA_VERSION = 328
 export const DEVELOPMENT_ICONS_SCHEMA_VERSIONS = [
   DEVELOPMENT_ICONS_CORE_SCHEMA_VERSION,
   DEVELOPMENT_ICONS_SETTINGS_SCHEMA_VERSION,

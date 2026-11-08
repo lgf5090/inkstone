@@ -4077,11 +4077,11 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: DEVELOPMENT_ICONS_SETTINGS_STATEMENTS,
   },
   {
-    version: 325,
+    version: 327,
     statements: DEVELOPMENT_ICONS_OUTPUTS_STATEMENTS,
   },
   {
-    version: 326,
+    version: 328,
     statements: DEVELOPMENT_ICONS_JOB_EXECUTION_STATEMENTS,
     skipIfColumnExists: { table: 'development_icons_jobs', column: 'execution' },
   },
