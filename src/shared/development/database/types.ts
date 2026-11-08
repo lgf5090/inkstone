@@ -20,6 +20,7 @@ export type ExportFormat = (typeof EXPORT_FORMATS)[number]
 export const MAX_AI_MESSAGES = 20
 export const MAX_AI_MESSAGE_CHARS = 20_000
 export const MAX_AI_OUTPUT_TOKENS = 2_048
+export const MAX_TRANSACTION_STATEMENTS = 500
 
 export interface DatabaseConnectionView {
   id: string
@@ -33,6 +34,9 @@ export interface DatabaseConnectionView {
   sort: number
   isFavorite: boolean
   isPinned: boolean
+  readOnly: boolean
+  production: boolean
+  unlockedUntil: number
   createdAt: number
   updatedAt: number
 }
@@ -167,6 +171,7 @@ export interface TableIndexInfo {
   columns: string[]
   origin: string
   sql: string | null
+  table?: string
 }
 
 export interface TableFkInfo {
@@ -182,8 +187,8 @@ export interface TableFkInfo {
 
 export interface SchemaModel {
   tables: ParsedTable[]
-  views: { name: string; sql: string }[]
-  triggers: { name: string; sql: string }[]
+  views: { name: string; sql: string; table?: string }[]
+  triggers: { name: string; sql: string; table?: string }[]
   indexes: TableIndexInfo[]
   truncated?: boolean
 }

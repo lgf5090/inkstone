@@ -1,3 +1,15 @@
+export const DEVELOPMENT_DATABASE_GUARD_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS development_database_connection_guards (
+    user_id TEXT NOT NULL,
+    connection_id TEXT NOT NULL,
+    read_only INTEGER NOT NULL DEFAULT 0 CHECK (read_only IN (0, 1)),
+    production INTEGER NOT NULL DEFAULT 0 CHECK (production IN (0, 1)),
+    unlocked_until INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, connection_id)
+  )`,
+]
+
 export const DEVELOPMENT_DATABASE_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS development_database_connections (
     user_id TEXT NOT NULL,
@@ -18,6 +30,8 @@ export const DEVELOPMENT_DATABASE_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_development_database_connections_user_sort
      ON development_database_connections(user_id, is_pinned DESC, is_favorite DESC, sort ASC, id)`,
+
+  ...DEVELOPMENT_DATABASE_GUARD_SCHEMA_STATEMENTS,
 
   `CREATE TABLE IF NOT EXISTS development_database_saved_queries (
     user_id TEXT NOT NULL,
@@ -71,6 +85,7 @@ export const DEVELOPMENT_DATABASE_SCHEMA_STATEMENTS: readonly string[] = [
 
 export const DEVELOPMENT_DATABASE_REQUIRED_TABLES: readonly string[] = [
   'development_database_connections',
+  'development_database_connection_guards',
   'development_database_saved_queries',
   'development_database_query_history',
   'development_database_settings',
@@ -99,6 +114,14 @@ export const DEVELOPMENT_DATABASE_REQUIRED_COLUMNS: Readonly<Record<string, read
     'is_favorite',
     'is_pinned',
     'created_at',
+    'updated_at',
+  ],
+  development_database_connection_guards: [
+    'user_id',
+    'connection_id',
+    'read_only',
+    'production',
+    'unlocked_until',
     'updated_at',
   ],
   development_database_saved_queries: [

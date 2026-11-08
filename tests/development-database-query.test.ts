@@ -317,10 +317,17 @@ describe('query execution', () => {
     expect(error).toMatchObject({ status: 404, code: 'not_found' })
   })
 
-  it('runs D1 batches sequentially in order', async () => {
+  it('runs a D1 batch in one atomic API request', async () => {
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
-      const sql = (JSON.parse(String(init.body)) as { sql: string }).sql
-      return queryResponse([{ sql }], { changes: 1 })
+      const body = JSON.parse(String(init.body)) as { batch: Array<{ sql: string }> }
+      return jsonResponse({
+        success: true,
+        result: body.batch.map((statement) => ({
+          success: true,
+          results: [{ sql: statement.sql }],
+          meta: { changes: 1 },
+        })),
+      })
     })
     vi.stubGlobal('fetch', fetchMock)
     const results = await executeBatch(env, db, USER, CONNECTION_ID, [
@@ -328,15 +335,16 @@ describe('query execution', () => {
       { sql: 'insert into t values (2)' },
       { sql: 'insert into t values (3)' },
     ])
-    expect(fetchMock).toHaveBeenCalledTimes(3)
-    const calls = fetchMock.mock.calls.map(
-      ([, init]) => (JSON.parse(String(init.body)) as { sql: string }).sql,
-    )
-    expect(calls).toEqual([
-      'insert into t values (1)',
-      'insert into t values (2)',
-      'insert into t values (3)',
-    ])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toContain('/query')
+    expect(JSON.parse(String(init.body))).toEqual({
+      batch: [
+        { sql: 'insert into t values (1)', params: [] },
+        { sql: 'insert into t values (2)', params: [] },
+        { sql: 'insert into t values (3)', params: [] },
+      ],
+    })
     expect(results.map((result) => result.rows[0]![0])).toEqual([
       'insert into t values (1)',
       'insert into t values (2)',
@@ -345,15 +353,15 @@ describe('query execution', () => {
   })
 
   it('reports the failing statement index in a D1 batch', async () => {
-    let call = 0
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => {
-        call += 1
-        return call === 2
-          ? jsonResponse({ success: false, errors: [{ message: 'no such table: x' }] }, 400)
-          : queryResponse([])
-      }),
+      vi.fn(async () => jsonResponse({
+        success: true,
+        result: [
+          { success: true, results: [], meta: {} },
+          { success: false, results: [], meta: {} },
+        ],
+      })),
     )
     const error = await executeBatch(env, db, USER, CONNECTION_ID, [
       { sql: 'select 1' },
@@ -362,7 +370,7 @@ describe('query execution', () => {
     expect(error).toBeInstanceOf(QueryFailure)
     expect((error as QueryFailure).statementIndex).toBe(1)
     expect(failureToApiError(error as QueryFailure).details).toMatchObject({
-      kind: 'no_table',
+      kind: 'unknown',
       statementIndex: 1,
     })
   })

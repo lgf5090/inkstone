@@ -5,6 +5,7 @@ import {
   AiChatSchema,
   ConnectionFlagsSchema,
   ConnectionOrderSchema,
+  ConnectionUnlockSchema,
   CreateConnectionSchema,
   D1DatabasesSchema,
   DatabaseIdSchema,
@@ -16,6 +17,7 @@ import {
   SavedQueryCreateSchema,
   SavedQueryUpdateSchema,
   TestConnectionSchema,
+  TransactionSchema,
   UpdateConnectionSchema,
 } from '@shared/development/database/schemas'
 import {
@@ -40,6 +42,7 @@ import { assertTursoUrl, executeTursoQuery } from '../development/database/turso
 import {
   executeBatch,
   executeQuery,
+  executeTransaction,
   failureFromError,
   failureToApiError,
   QueryFailure,
@@ -64,6 +67,7 @@ import {
   listSavedQueries,
   listExports,
   recordHistory,
+  saveConnectionGuard,
   saveSettings,
   toConnectionView,
   updateConnection,
@@ -307,8 +311,40 @@ developmentDatabaseRoutes.patch('/connections/:id/flags', async (c) => {
   const body = await parseBody(c, ConnectionFlagsSchema, CONNECTION_BODY_LIMIT)
   await requireConnection(c, id)
   if (body.isFavorite !== undefined || body.isPinned !== undefined) {
-    await updateConnectionFlags(c.env.DB, userIdOf(c), id, body, Date.now())
+    await updateConnectionFlags(c.env.DB, userIdOf(c), id, {
+      ...(body.isFavorite !== undefined ? { isFavorite: body.isFavorite } : {}),
+      ...(body.isPinned !== undefined ? { isPinned: body.isPinned } : {}),
+    }, Date.now())
   }
+  if (body.readOnly !== undefined || body.production !== undefined) {
+    await saveConnectionGuard(
+      c.env.DB,
+      userIdOf(c),
+      id,
+      {
+        ...(body.readOnly !== undefined ? { readOnly: body.readOnly } : {}),
+        ...(body.production !== undefined ? { production: body.production } : {}),
+        ...(body.readOnly === true ? { unlockedUntil: 0 } : {}),
+      },
+      Date.now(),
+    )
+  }
+  const connection = await requireConnection(c, id)
+  return c.json({ ok: true, data: toConnectionView(connection) })
+})
+
+developmentDatabaseRoutes.post('/connections/:id/unlock', async (c) => {
+  const id = pathId(c)
+  const body = await parseBody(c, ConnectionUnlockSchema, CONNECTION_BODY_LIMIT)
+  await requireConnection(c, id)
+  const minutes = body.minutes
+  await saveConnectionGuard(
+    c.env.DB,
+    userIdOf(c),
+    id,
+    { unlockedUntil: minutes > 0 ? Date.now() + minutes * 60_000 : 0 },
+    Date.now(),
+  )
   const connection = await requireConnection(c, id)
   return c.json({ ok: true, data: toConnectionView(connection) })
 })
@@ -355,6 +391,7 @@ developmentDatabaseRoutes.post('/query', async (c) => {
       body.connectionId,
       body.sql,
       body.params ?? [],
+      { confirmProduction: body.confirmProduction === true },
     )
     if (body.recordHistory) await recordQueryRun(c, body.connectionId, body.sql, Date.now() - startedAt, null)
     return c.json({ ok: true, data: result })
@@ -386,12 +423,46 @@ developmentDatabaseRoutes.post('/query/batch', async (c) => {
       userIdOf(c),
       body.connectionId,
       body.statements,
+      { confirmProduction: body.confirmProduction === true },
     )
     if (body.recordHistory) await recordQueryRun(c, body.connectionId, joined, Date.now() - startedAt, null)
     return c.json({ ok: true, data: { results } })
   } catch (error) {
     if (body.recordHistory) {
       const detail = error instanceof QueryFailure ? (error.detail || error.message) : (error instanceof Error ? error.message : String(error))
+      await recordQueryRun(c, body.connectionId, joined, Date.now() - startedAt, detail)
+    }
+    queryFailure(error)
+  }
+})
+
+developmentDatabaseRoutes.post('/query/transaction', async (c) => {
+  const body = await parseBody(c, TransactionSchema, BATCH_BODY_LIMIT)
+  for (const statement of body.statements) {
+    const parts = splitSqlStatements(statement.sql)
+    if (parts.length === 0) throw ApiError.badRequest('SQL cannot be empty')
+    if (parts.length > 1) {
+      throw ApiError.badRequest('Each transaction statement must contain a single SQL statement')
+    }
+  }
+  const startedAt = Date.now()
+  const joined = body.statements.map((statement) => statement.sql).join(';\n')
+  try {
+    const count = await executeTransaction(
+      c.env,
+      c.env.DB,
+      userIdOf(c),
+      body.connectionId,
+      body.statements,
+      { confirmProduction: body.confirmProduction === true },
+    )
+    if (body.recordHistory) await recordQueryRun(c, body.connectionId, joined, Date.now() - startedAt, null)
+    return c.json({ ok: true, data: { statements: count } })
+  } catch (error) {
+    if (body.recordHistory) {
+      const detail = error instanceof QueryFailure
+        ? (error.detail || error.message)
+        : (error instanceof Error ? error.message : String(error))
       await recordQueryRun(c, body.connectionId, joined, Date.now() - startedAt, detail)
     }
     queryFailure(error)
