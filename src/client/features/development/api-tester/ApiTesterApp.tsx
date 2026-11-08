@@ -18,6 +18,7 @@ import { Resizer } from '../../shell/Resizer'
 import { EnvironmentDialog } from './components/EnvironmentDialog'
 import { WorkspaceManagerDialog } from './components/WorkspaceManagerDialog'
 import { HistoryDialog } from './components/HistoryDialog'
+import { CookieJarDialog } from './components/CookieJarDialog'
 import { CurlImportDialog } from './components/CurlImportDialog'
 import { ImportExportDialog } from './components/ImportExportDialog'
 import { MockGeneratorDialog } from './components/MockGeneratorDialog'
@@ -195,6 +196,7 @@ export function ApiTesterApp() {
       <EnvironmentDialog open={dialog === 'env'} onClose={() => setDialog(null)} />
       <WorkspaceManagerDialog open={dialog === 'workspaces'} onClose={() => setDialog(null)} />
       <HistoryDialog open={dialog === 'history'} onClose={() => setDialog(null)} />
+      <CookieJarDialog open={dialog === 'cookies'} onClose={() => setDialog(null)} />
       <CurlImportDialog
         open={dialog === 'curl'}
         onClose={() => setDialog(null)}

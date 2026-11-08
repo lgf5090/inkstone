@@ -14,6 +14,7 @@ import {
   Timer,
   Upload,
   Code2,
+  Cookie,
 } from 'lucide-react'
 import type { MenuItem } from '../../../../components/overlay'
 import { Menu, Tooltip } from '../../../../components/overlay'
@@ -24,7 +25,7 @@ import { cn } from '../../../../lib/cn'
 import { TIMEOUT_OPTIONS } from '@shared/development/api-tester/limits'
 import { useApiTesterStore } from '../store'
 
-export type ToolbarDialog = 'env' | 'tags' | 'curl' | 'history' | 'mock' | 'io' | 'ws' | 'workspaces'
+export type ToolbarDialog = 'env' | 'tags' | 'curl' | 'history' | 'mock' | 'io' | 'cookies' | 'workspaces'
 
 export function AppToolbar({
   compact,
@@ -37,7 +38,9 @@ export function AppToolbar({
 }) {
   const workspaces = useApiTesterStore((s) => s.workspaces)
   const activeWorkspaceId = useApiTesterStore((s) => s.activeWorkspaceId)
-  const state = useApiTesterStore((s) => s.state)
+  const settings = useApiTesterStore((s) => s.state.settings)
+  const environments = useApiTesterStore((s) => s.state.environments)
+  const activeEnvId = useApiTesterStore((s) => s.state.activeEnvId)
   const switchWorkspace = useApiTesterStore((s) => s.switchWorkspace)
   const patchState = useApiTesterStore((s) => s.patchState)
   const patchSettings = useApiTesterStore((s) => s.patchSettings)
@@ -48,11 +51,13 @@ export function AppToolbar({
 
   const workspaceRef = useRef<HTMLButtonElement>(null)
   const settingsRef = useRef<HTMLButtonElement>(null)
+  const envRef = useRef<HTMLButtonElement>(null)
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [envOpen, setEnvOpen] = useState(false)
 
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
-  const activeEnvironment = state.environments.find((environment) => environment.id === state.activeEnvId)
+  const activeEnvironment = environments.find((environment) => environment.id === activeEnvId)
 
   const workspaceItems: MenuItem[] = [
     ...workspaces.map((workspace) => ({
@@ -67,21 +72,43 @@ export function AppToolbar({
     { id: 'ws-manage', label: t('development.apitester.toolbar.manage_workspaces'), icon: <Settings2 size={14} />, separatorBefore: true, onSelect: () => { setWorkspaceOpen(false); onOpen('workspaces') } },
   ]
 
+  const envMenuItems: MenuItem[] = [
+    {
+      id: 'env-none',
+      label: t('development.apitester.toolbar.no_environment'),
+      checked: activeEnvId === null,
+      onSelect: () => {
+        setEnvOpen(false)
+        patchState((current) => ({ ...current, activeEnvId: null }))
+      },
+    },
+    ...environments.map((environment) => ({
+      id: `env-${environment.id}`,
+      label: environment.name,
+      checked: environment.id === activeEnvId,
+      onSelect: () => {
+        setEnvOpen(false)
+        patchState((current) => ({ ...current, activeEnvId: environment.id }))
+      },
+    })),
+  ]
+
   const settingsItems: MenuItem[] = [
     { id: 'workspaces', label: t('development.apitester.toolbar.manage_workspaces'), icon: <Layers size={14} />, onSelect: () => { setSettingsOpen(false); onOpen('workspaces') } },
     { id: 'env', label: t('development.apitester.toolbar.environments'), icon: <Globe size={14} />, onSelect: () => { setSettingsOpen(false); onOpen('env') } },
     { id: 'tags', label: t('development.apitester.toolbar.tags'), icon: <Tag size={14} />, onSelect: () => { setSettingsOpen(false); onOpen('tags') } },
     { id: 'curl', label: t('development.apitester.toolbar.curl'), icon: <Code2 size={14} />, onSelect: () => { setSettingsOpen(false); onOpen('curl') } },
     { id: 'history', label: t('development.apitester.toolbar.history'), icon: <History size={14} />, onSelect: () => { setSettingsOpen(false); onOpen('history') } },
+    { id: 'cookies', label: t('development.apitester.toolbar.cookies'), icon: <Cookie size={14} />, onSelect: () => { setSettingsOpen(false); onOpen('cookies') } },
     { id: 'mock', label: t('development.apitester.toolbar.mock'), icon: <Sparkles size={14} />, onSelect: () => { setSettingsOpen(false); onOpen('mock') } },
     { id: 'io', label: t('development.apitester.toolbar.io'), icon: <Upload size={14} />, separatorBefore: true, onSelect: () => { setSettingsOpen(false); onOpen('io') } },
-    { id: 'redirects', label: t('development.apitester.toolbar.follow_redirects'), checked: state.settings.followRedirects, separatorBefore: true, onSelect: () => patchSettings({ followRedirects: !state.settings.followRedirects }) },
-    { id: 'prettify', label: t('development.apitester.toolbar.auto_prettify'), checked: state.settings.autoPrettify, onSelect: () => patchSettings({ autoPrettify: !state.settings.autoPrettify }) },
+    { id: 'redirects', label: t('development.apitester.toolbar.follow_redirects'), checked: settings.followRedirects, separatorBefore: true, onSelect: () => patchSettings({ followRedirects: !settings.followRedirects }) },
+    { id: 'prettify', label: t('development.apitester.toolbar.auto_prettify'), checked: settings.autoPrettify, onSelect: () => patchSettings({ autoPrettify: !settings.autoPrettify }) },
     ...TIMEOUT_OPTIONS.map((ms) => ({
       id: `timeout-${ms}`,
       label: `${t('development.apitester.toolbar.timeout')}: ${ms / 1000}s`,
       icon: <Timer size={14} />,
-      checked: state.settings.timeoutMs === ms,
+      checked: settings.timeoutMs === ms,
       separatorBefore: ms === TIMEOUT_OPTIONS[0],
       onSelect: () => patchSettings({ timeoutMs: ms }),
     })),
@@ -126,15 +153,32 @@ export function AppToolbar({
           <ChevronDown size={12} className="shrink-0 opacity-60" />
         </button>
       )}
+      {compact && (
+        <button
+          ref={envRef}
+          type="button"
+          aria-label={t('development.apitester.toolbar.environment')}
+          aria-haspopup="menu"
+          aria-expanded={envOpen}
+          onClick={() => setEnvOpen((open) => !open)}
+          className={cn(
+            'inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--r-sm)]',
+            activeEnvId ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]',
+            'hover:bg-[var(--bg-hover)]',
+          )}
+        >
+          <Globe size={16} />
+        </button>
+      )}
       {!compact && (
         <Select
           aria-label={t('development.apitester.toolbar.environment')}
-          value={state.activeEnvId ?? ''}
+          value={activeEnvId ?? ''}
           onChange={(event) => patchState((current) => ({ ...current, activeEnvId: event.target.value || null }))}
           className="h-8 w-36 text-[length:var(--text-12)]"
         >
           <option value="">{t('development.apitester.toolbar.no_environment')}</option>
-          {state.environments.map((environment) => (
+          {environments.map((environment) => (
             <option key={environment.id} value={environment.id}>{environment.name}</option>
           ))}
         </Select>
@@ -170,13 +214,13 @@ export function AppToolbar({
         </div>
       )}
       {!compact && (
-        <Tooltip label={state.settings.splitDirection === 'vertical' ? t('development.apitester.toolbar.split_horizontal') : t('development.apitester.toolbar.split_vertical')}>
+        <Tooltip label={settings.splitDirection === 'vertical' ? t('development.apitester.toolbar.split_horizontal') : t('development.apitester.toolbar.split_vertical')}>
           <IconButton
-            label={state.settings.splitDirection === 'vertical' ? t('development.apitester.toolbar.split_horizontal') : t('development.apitester.toolbar.split_vertical')}
+            label={settings.splitDirection === 'vertical' ? t('development.apitester.toolbar.split_horizontal') : t('development.apitester.toolbar.split_vertical')}
             size="sm"
-            onClick={() => patchSettings({ splitDirection: state.settings.splitDirection === 'vertical' ? 'horizontal' : 'vertical' })}
+            onClick={() => patchSettings({ splitDirection: settings.splitDirection === 'vertical' ? 'horizontal' : 'vertical' })}
           >
-            {state.settings.splitDirection === 'vertical' ? <Columns2 size={16} /> : <Rows2 size={16} />}
+            {settings.splitDirection === 'vertical' ? <Columns2 size={16} /> : <Rows2 size={16} />}
           </IconButton>
         </Tooltip>
       )}
@@ -200,6 +244,17 @@ export function AppToolbar({
         width={220}
         label={t('development.apitester.toolbar.workspace')}
       />
+      {compact && (
+        <Menu
+          anchor={envRef}
+          open={envOpen}
+          onClose={() => setEnvOpen(false)}
+          items={envMenuItems}
+          align="start"
+          width={220}
+          label={t('development.apitester.toolbar.environment')}
+        />
+      )}
       <Menu
         anchor={settingsRef}
         open={settingsOpen}

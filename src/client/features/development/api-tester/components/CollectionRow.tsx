@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronRight,
   Copy,
   CornerDownRight,
@@ -145,6 +147,16 @@ export function CollectionRow({
   }
 
   const excludedIds = useMemo(() => subtreeIds(allNodes, node.id), [allNodes, node.id])
+  const siblings = useMemo(() => childrenOf(allNodes, node.parentId), [allNodes, node.parentId])
+  const siblingIndex = siblings.findIndex((entry) => entry.id === node.id)
+  const moveSibling = (delta: -1 | 1) => {
+    const target = siblings[siblingIndex + delta]
+    if (!target) return
+    const ids = siblings.map((entry) => entry.id)
+    const [moving] = ids.splice(siblingIndex, 1)
+    ids.splice(siblingIndex + delta, 0, moving!)
+    onReorder(node.parentId, ids)
+  }
   const moveTargets = useMemo(
     () => folderOptions.filter((option) => !excludedIds.has(option.id)),
     [folderOptions, excludedIds],
@@ -197,6 +209,22 @@ export function CollectionRow({
       onSelect: () => onDuplicate(node.id),
     })
   }
+  menuItems.push(
+    {
+      id: 'move-up',
+      label: t('development.apitester.move_up'),
+      icon: <ArrowUp size={14} />,
+      disabled: siblingIndex <= 0,
+      onSelect: () => moveSibling(-1),
+    },
+    {
+      id: 'move-down',
+      label: t('development.apitester.move_down'),
+      icon: <ArrowDown size={14} />,
+      disabled: siblingIndex < 0 || siblingIndex >= siblings.length - 1,
+      onSelect: () => moveSibling(1),
+    },
+  )
   menuItems.push({
     id: 'move',
     label: t('development.apitester.move_to'),

@@ -71,9 +71,10 @@ export function OAuth2Editor({ config, onChange }: { config: OAuth2Config; onCha
   const applyToken = (data: { accessToken: string; refreshToken?: string; tokenType?: string; expiresIn?: number }) => {
     update({
       accessToken: data.accessToken,
-      refreshToken: data.refreshToken || undefined,
-      tokenType: data.tokenType || 'Bearer',
-      expiresAt: data.expiresIn ? Date.now() + data.expiresIn * 1_000 : undefined,
+      // Providers commonly omit refresh_token on a refresh response; keep the one we already have.
+      refreshToken: data.refreshToken ?? config.refreshToken,
+      tokenType: data.tokenType || config.tokenType || 'Bearer',
+      expiresAt: data.expiresIn ? Date.now() + data.expiresIn * 1_000 : config.expiresAt,
     })
   }
 

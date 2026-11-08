@@ -2,20 +2,33 @@ import { AlertTriangle, Download, RefreshCw } from 'lucide-react'
 import { stateDataOf } from '@shared/development/api-tester/state'
 import { t } from '../../../../lib/i18n'
 import { Button } from '../../../../components/primitives'
+import { confirm } from '../../../../components/overlay'
 import { useApiTesterStore } from '../store'
 
 export function ConflictBanner() {
   const conflict = useApiTesterStore((s) => s.conflict)
-  const reload = useApiTesterStore((s) => s.dismissConflict)
+  const dismissConflict = useApiTesterStore((s) => s.dismissConflict)
   const state = useApiTesterStore((s) => s.state)
   if (!conflict) return null
+  const reload = async () => {
+    const ok = await confirm({
+      title: t('development.apitester.app.reload_server'),
+      description: t('development.apitester.app.reload_confirm'),
+      tone: 'danger',
+      confirmLabel: t('development.apitester.app.reload_server'),
+      cancelLabel: t('common.cancel'),
+    })
+    if (ok) dismissConflict()
+  }
   const download = () => {
     const blob = new Blob([JSON.stringify(stateDataOf(state), null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = `api-tester-local-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(anchor)
     anchor.click()
+    anchor.remove()
     URL.revokeObjectURL(url)
   }
   return (

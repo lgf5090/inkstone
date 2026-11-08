@@ -34,7 +34,7 @@ export function WorkspaceView({
   const onChange = (patch: Partial<CollectionNode>) => updateNode(node.id, patch)
 
   if (kind === 'websocket') {
-    return <WebSocketPanel node={node} onChange={onChange} />
+    return <WebSocketPanel node={node} variables={variables} onChange={onChange} />
   }
 
   const request = (

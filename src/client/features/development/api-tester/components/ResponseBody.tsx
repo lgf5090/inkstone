@@ -122,7 +122,7 @@ export function ResponseBody({
         />
       ) : (
         <pre className="h-full overflow-auto overscroll-contain p-3 font-mono text-[length:var(--text-12)] whitespace-pre-wrap break-all text-[var(--text-secondary)]">
-          {result.body || t('development.apitester.empty_body')}
+          {result.body || (result.bodyB64 ? t('development.apitester.binary_data') : t('development.apitester.empty_body'))}
         </pre>
       )}
     </div>

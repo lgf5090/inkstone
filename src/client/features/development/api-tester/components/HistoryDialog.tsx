@@ -1,12 +1,14 @@
-import { useEffect } from 'react'
-import { History as HistoryIcon, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { History as HistoryIcon, Search, Trash2 } from 'lucide-react'
 import { newApiTesterId } from '@shared/development/api-tester/ids'
 import type { HistoryEntry } from '@shared/development/api-tester/types'
 import { Modal, confirm } from '../../../../components/overlay'
 import { LoadingBlock } from '../../../../components/feedback'
 import { Button } from '../../../../components/primitives'
+import { Input } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
+import { useUi } from '../../../../store/ui'
 import { clearHistory as clearHistoryRemote } from '../api'
 import { useApiTesterStore } from '../store'
 
@@ -24,6 +26,12 @@ export function HistoryDialog({ open, onClose }: { open: boolean; onClose: () =>
   const loadHistory = useApiTesterStore((s) => s.loadHistory)
   const historyLoading = useApiTesterStore((s) => s.historyLoading)
   const historyError = useApiTesterStore((s) => s.historyError)
+  const [query, setQuery] = useState('')
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return history
+    return history.filter((entry) => `${entry.method} ${entry.url} ${entry.name} ${entry.status}`.toLowerCase().includes(needle))
+  }, [history, query])
 
   // History no longer rides along with the workspace state: it is read when the dialog needs it.
   useEffect(() => {
@@ -62,6 +70,7 @@ export function HistoryDialog({ open, onClose }: { open: boolean; onClose: () =>
     clearLocal()
     void clearHistoryRemote(workspaceId).catch((error) => {
       console.warn('[inkstone] API Tester history could not be cleared', error)
+      useUi.getState().toast({ title: t('development.apitester.history_clear_failed'), tone: 'danger' })
     })
   }
 
@@ -73,6 +82,17 @@ export function HistoryDialog({ open, onClose }: { open: boolean; onClose: () =>
             <Trash2 size={13} /> {t('development.apitester.clear_history')}
           </Button>
         </div>
+        {history.length > 0 && (
+          <Input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('development.apitester.search_history')}
+            aria-label={t('development.apitester.search_history')}
+            leading={<Search size={12} aria-hidden="true" />}
+            className="h-7 text-[length:var(--text-11-5)]"
+          />
+        )}
         {historyError ? (
           <div className="flex flex-col items-center gap-2 py-8 text-center text-[length:var(--text-12)] text-[var(--danger)]">
             <p className="max-w-[420px] break-words">{t('development.apitester.load_failed', { msg: historyError })}</p>
@@ -84,9 +104,11 @@ export function HistoryDialog({ open, onClose }: { open: boolean; onClose: () =>
           <LoadingBlock label={t('development.apitester.loading')} />
         ) : history.length === 0 ? (
           <p className="py-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('development.apitester.history_empty')}</p>
+        ) : visible.length === 0 ? (
+          <p className="py-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('development.apitester.no_match_found')}</p>
         ) : (
           <div className="max-h-[60vh] overflow-y-auto overscroll-contain">
-            {history.map((entry) => (
+            {visible.map((entry) => (
               <button
                 key={entry.id}
                 type="button"

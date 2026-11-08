@@ -6,6 +6,7 @@ import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
+import { resolveVariable, type Variable } from '../lib/variables'
 import {
   connectWs,
   disconnectWs,
@@ -25,9 +26,11 @@ const STATUS_CLASS: Record<WsStatus, string> = {
 
 export function WebSocketPanel({
   node,
+  variables,
   onChange,
 }: {
   node: CollectionNode
+  variables: readonly Variable[]
   onChange: (patch: Partial<CollectionNode>) => void
 }) {
   const ws = node.ws ?? { url: '', headers: [] }
@@ -48,8 +51,10 @@ export function WebSocketPanel({
   const connect = () => {
     void connectWs(
       node.id,
-      ws.url,
-      ws.headers.filter((header) => header.enabled && header.key).map((header) => ({ key: header.key, value: header.value })),
+      resolveVariable(ws.url, variables),
+      ws.headers
+        .filter((header) => header.enabled && header.key)
+        .map((header) => ({ key: resolveVariable(header.key, variables), value: resolveVariable(header.value, variables) })),
     )
   }
 

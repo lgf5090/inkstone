@@ -27,6 +27,7 @@ const EMPTY_SESSION: WsSession = { status: 'idle', messages: [] }
  */
 const sessions = new Map<string, WsSession>()
 const sockets = new Map<string, WebSocket>()
+const attempts = new Map<string, number>()
 const listeners = new Set<() => void>()
 let messageSequence = 0
 
@@ -89,12 +90,15 @@ export async function connectWs(
     push(nodeId, 'system', t('development.apitester.ws_url_invalid'))
     return
   }
+  const attempt = (attempts.get(nodeId) ?? 0) + 1
+  attempts.set(nodeId, attempt)
   dropSocket(nodeId)
   patch(nodeId, { status: 'connecting' })
   push(nodeId, 'system', t('development.apitester.ws_connecting_msg', { url }))
   try {
     const ticket = await createWsTicket(url, headers)
-    if (sessions.get(nodeId)?.status !== 'connecting') return
+    // A second connect/disconnect while the ticket was in flight owns the session now.
+    if (attempts.get(nodeId) !== attempt || sessions.get(nodeId)?.status !== 'connecting') return
     const socket = new WebSocket(absoluteSocketUrl(ticket.url))
     sockets.set(nodeId, socket)
     socket.onopen = () => {
@@ -102,7 +106,15 @@ export async function connectWs(
       push(nodeId, 'system', t('development.apitester.ws_connected_msg'))
     }
     socket.onmessage = (event) => {
-      push(nodeId, 'in', typeof event.data === 'string' ? event.data : t('development.apitester.binary_data'))
+      if (typeof event.data === 'string') {
+        push(nodeId, 'in', event.data)
+      } else if (event.data instanceof ArrayBuffer) {
+        push(nodeId, 'in', `${t('development.apitester.binary_data')} (${event.data.byteLength} B)`)
+      } else if (typeof (event.data as Blob).size === 'number') {
+        push(nodeId, 'in', `${t('development.apitester.binary_data')} (${(event.data as Blob).size} B)`)
+      } else {
+        push(nodeId, 'in', t('development.apitester.binary_data'))
+      }
     }
     socket.onerror = () => {
       patch(nodeId, { status: 'error' })
@@ -124,6 +136,7 @@ export async function connectWs(
 }
 
 export function disconnectWs(nodeId: string): void {
+  attempts.set(nodeId, (attempts.get(nodeId) ?? 0) + 1)
   dropSocket(nodeId)
   patch(nodeId, { status: 'closed' })
 }
@@ -138,13 +151,17 @@ export function sendWsMessage(nodeId: string, text: string): boolean {
 
 /** A deleted request takes its conversation with it. */
 export function closeWsSession(nodeId: string): void {
+  attempts.set(nodeId, (attempts.get(nodeId) ?? 0) + 1)
   dropSocket(nodeId)
   sessions.delete(nodeId)
   emit()
 }
 
 export function closeAllWsSessions(): void {
-  for (const nodeId of [...sockets.keys()]) dropSocket(nodeId)
+  for (const nodeId of [...sockets.keys()]) {
+    attempts.set(nodeId, (attempts.get(nodeId) ?? 0) + 1)
+    dropSocket(nodeId)
+  }
   sessions.clear()
   emit()
 }

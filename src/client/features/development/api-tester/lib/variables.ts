@@ -1,5 +1,4 @@
-import { DYNAMIC_VARIABLES } from '@shared/development/api-tester/keywords'
-import type { ApiTesterState, EnvVariable, TagNode } from '@shared/development/api-tester/types'
+import type { ApiTesterState, TagNode } from '@shared/development/api-tester/types'
 
 export interface Variable {
   key: string
@@ -22,19 +21,33 @@ const DYNAMIC_FNS: Record<string, () => string> = {
   $randomFloat: () => String(Math.random()),
 }
 
-export function isDynamicVariable(name: string): boolean {
-  return (DYNAMIC_VARIABLES as readonly string[]).includes(name)
+const MAX_VARIABLE_DEPTH = 8
+const VARIABLE_PATTERN = /\{\{\s*([^}]+?)\s*\}\}/g
+
+function expandVariable(
+  raw: string,
+  variables: readonly Variable[],
+  depth: number,
+  stack: ReadonlySet<string>,
+): string {
+  if (depth >= MAX_VARIABLE_DEPTH) return raw
+  VARIABLE_PATTERN.lastIndex = 0
+  return raw.replace(VARIABLE_PATTERN, (match, name: string) => {
+    const key = name.trim()
+    const dynamic = DYNAMIC_FNS[key]
+    if (dynamic) return dynamic()
+    if (stack.has(key)) return match
+    const found = variables.find((variable) => variable.enabled !== false && variable.key === key)
+    if (!found) return match
+    const nextStack = new Set(stack)
+    nextStack.add(key)
+    return expandVariable(found.value, variables, depth + 1, nextStack)
+  })
 }
 
 export function resolveVariable(raw: string, variables: readonly Variable[]): string {
   if (!raw) return raw
-  return raw.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, name: string) => {
-    const key = name.trim()
-    const dynamic = DYNAMIC_FNS[key]
-    if (dynamic) return dynamic()
-    const found = variables.find((variable) => variable.enabled !== false && variable.key === key)
-    return found ? found.value : match
-  })
+  return expandVariable(raw, variables, 0, new Set())
 }
 
 export function collectVarNames(raw: string): string[] {
@@ -80,9 +93,4 @@ export function tagPath(tags: readonly TagNode[], tagId: string): string {
     current = current.parentId ? byId.get(current.parentId) : undefined
   }
   return parts.join(' / ')
-}
-
-export function secretVariableValue(variable: EnvVariable, revealed: boolean): string {
-  if (!variable.secret || revealed) return variable.value
-  return variable.value ? '••••••••' : ''
 }
