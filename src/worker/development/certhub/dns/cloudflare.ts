@@ -30,7 +30,7 @@ async function request<T>(
       'Content-Type': 'application/json',
       ...(init.headers ?? {}),
     },
-    redirect: 'error',
+    redirect: 'manual',
     signal: AbortSignal.timeout(10_000),
   })
   const text = await response.text()

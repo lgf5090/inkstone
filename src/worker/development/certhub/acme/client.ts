@@ -59,7 +59,8 @@ export async function fetchAcmeOrder(bundle: AcmeBundle, orderUrl: string): Prom
 }
 
 export async function fetchAuthorizations(bundle: AcmeBundle, orderUrl: string): Promise<acme.Authorization[]> {
-  return bundle.client.getAuthorizations({ url: orderUrl } as acme.Order)
+  const order = await fetchAcmeOrder(bundle, orderUrl)
+  return bundle.client.getAuthorizations(order)
 }
 
 export async function challengeKeyAuthorization(

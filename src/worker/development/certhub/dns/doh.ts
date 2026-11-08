@@ -19,7 +19,7 @@ export async function queryDns(name: string, type: 'TXT' | 'CNAME'): Promise<str
       url.searchParams.set('type', type)
       const response = await fetch(url, {
         headers: { Accept: 'application/dns-json' },
-        redirect: 'error',
+        redirect: 'manual',
         signal: AbortSignal.timeout(10_000),
       })
       if (!response.ok) continue

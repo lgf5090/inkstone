@@ -519,8 +519,8 @@ export async function renewOrder(
     created_at: nowMs,
     updated_at: nowMs,
   }))
-  const job = await enqueueJob(db, { userId, orderId: nextId, kind: 'advance' })
-  await insertOrder(db, { order: newOrder, domains: domainRows, job })
+  await insertOrder(db, { order: newOrder, domains: domainRows })
+  await enqueueJob(db, { userId, orderId: nextId, kind: 'advance' })
   await record(db, userId, orderId, 'user', 'order.renewed', 'order.renewed', 'info', undefined, { nextId })
   await record(db, userId, nextId, 'user', 'order.queued', 'order.queued')
   return newOrder

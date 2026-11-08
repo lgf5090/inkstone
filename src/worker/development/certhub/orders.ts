@@ -124,8 +124,8 @@ export async function createOrderForUser(
     created_at: now,
     updated_at: now,
   }))
+  await insertOrder(db, { order, domains: domainRows })
   const job = await enqueueJob(db, { userId, orderId, kind: 'advance' })
-  await insertOrder(db, { order, domains: domainRows, job })
   await recordOrderCreated(db, userId)
   await appendEvent(db, {
     userId,

@@ -56,6 +56,10 @@ const STATUS_TONES: Record<string, 'neutral' | 'accent' | 'success' | 'warning' 
   revoked: 'danger',
   expired: 'danger',
   canceled: 'neutral',
+  pending: 'neutral',
+  prepared: 'warning',
+  valid: 'success',
+  invalid: 'danger',
 }
 
 function statusKey(status: string): string {
@@ -391,7 +395,7 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
           <Info label={t('development.certhub.cert.issued')} value={formatDate(order.issuedAt)} />
           <Info label={t('development.certhub.cert.expires')} value={formatDate(order.certNotAfter)} />
           <Info label={t('development.certhub.accounts.fingerprint')} value={order.keyFingerprint || '-'} />
-          <Info label={t('development.certhub.detail.progress')} value={`${order.domains.length} domains`} />
+          <Info label={t('development.certhub.detail.progress')} value={t('development.certhub.detail.domain_count').replace('{count}', String(order.domains.length))} />
         </div>
         <div className="mt-4">
           <SectionLabel>{t('development.certhub.detail.download')}</SectionLabel>

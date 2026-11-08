@@ -369,7 +369,6 @@ export async function findDomain(
 export interface CreateOrderRow {
   order: OrderRow
   domains: DomainRow[]
-  job: JobRow
 }
 
 export async function insertOrder(db: D1Database, created: CreateOrderRow): Promise<void> {
@@ -404,16 +403,6 @@ export async function insertOrder(db: D1Database, created: CreateOrderRow): Prom
         d.dns_record_type, d.dns_record_value, d.dns_provider_id, d.dns_record_id, d.validated_at,
         d.error_code, d.error_message, d.created_at, d.updated_at,
       )),
-    db.prepare(`INSERT INTO development_certhub_jobs (
-      user_id, id, order_id, kind, status, priority, run_after, attempts, max_attempts, lock_owner,
-      locked_until, last_error_code, last_error_message, created_at, updated_at
-    ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`)
-      .bind(
-        created.job.user_id, created.job.id, created.job.order_id, created.job.kind, created.job.status,
-        created.job.priority, created.job.run_after, created.job.attempts, created.job.max_attempts,
-        created.job.lock_owner, created.job.locked_until, created.job.last_error_code,
-        created.job.last_error_message, created.job.created_at, created.job.updated_at,
-      ),
   ]
   await db.batch(statements)
 }
