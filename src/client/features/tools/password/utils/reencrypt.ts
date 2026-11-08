@@ -1,7 +1,11 @@
 import type { KeyIV } from '@shared/tools/password/types'
 import { decryptValue, encryptValue } from '../crypto'
 
-export const REENCRYPT_FIELDS = ['title', 'username', 'password', 'link', 'remark'] as const
+/**
+ * Every sealed column on an account row, not just the ones the form shows first. `totpSecret` was
+ * missing from this list once, and a reset silently replaced every second-factor secret with ''.
+ */
+export const REENCRYPT_FIELDS = ['title', 'username', 'password', 'link', 'remark', 'totpSecret'] as const
 
 export type ReencryptField = (typeof REENCRYPT_FIELDS)[number]
 
@@ -14,6 +18,7 @@ export interface ReencryptRow {
   password: string
   link: string
   remark: string
+  totpSecret: string
 }
 
 export interface ReencryptResult {
@@ -40,23 +45,32 @@ export function reencryptAccounts(
 ): ReencryptResult {
   let failedIndex = -1
   const rows = accounts.map((account, index): ReencryptRow => {
-    const row: ReencryptRow = { id: account.id, title: '', username: '', password: '', link: '', remark: '' }
+    const row: ReencryptRow = {
+      id: account.id,
+      title: '',
+      username: '',
+      password: '',
+      link: '',
+      remark: '',
+      totpSecret: '',
+    }
 
     for (const field of REENCRYPT_FIELDS) {
       const ciphertext = account[field] ?? ''
+      const aad = `${field}:${account.id}`
       let plain = ''
       if (ciphertext) {
         try {
-          plain = decryptValue(from, ciphertext)
+          plain = decryptValue(from, ciphertext, aad)
         } catch {
           if (failedIndex < 0) failedIndex = index
           continue
         }
       }
 
-      const sealed = encryptValue(to, plain)
+      const sealed = encryptValue(to, plain, aad)
       try {
-        if (decryptValue(to, sealed) !== plain && failedIndex < 0) failedIndex = index
+        if (decryptValue(to, sealed, aad) !== plain && failedIndex < 0) failedIndex = index
       } catch {
         if (failedIndex < 0) failedIndex = index
       }

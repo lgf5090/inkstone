@@ -112,9 +112,9 @@ describe('the WebSSH tables', () => {
   it('keeps the numbered ledger unique and every lane migration represented once', () => {
     const versions = SCHEMA_MIGRATIONS.map((migration) => migration.version)
     expect(new Set(versions).size).toBe(versions.length)
-    expect(Math.max(...versions)).toBe(324)
+    expect(Math.max(...versions)).toBe(329)
     expect(versions.filter((version) => version === 298)).toHaveLength(1)
-    for (const version of [301, 304, 313, 314, 315, 316, 317, 318, 319, 322, 323, 324]) {
+    for (const version of [301, 304, 313, 314, 315, 316, 317, 318, 319, 322, 323, 324, 325, 326, 329]) {
       expect(versions.filter((entry) => entry === version)).toHaveLength(1)
     }
   })

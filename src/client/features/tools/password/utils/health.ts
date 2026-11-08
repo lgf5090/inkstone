@@ -16,6 +16,10 @@ export interface VaultHealth {
   stale: DecryptedAccount[]
   /** No URL and no username: a credential that cannot be used on its own. */
   incomplete: DecryptedAccount[]
+  /** A stored TOTP secret that the current key cannot open: the second factor has to be re-entered. */
+  totpUnreadable: DecryptedAccount[]
+  /** Rows with at least one sealed field the current key cannot open. */
+  decryptUnreadable: DecryptedAccount[]
   withTotp: number
 }
 
@@ -47,6 +51,8 @@ export function analyzeVault(accounts: readonly DecryptedAccount[], now = Date.n
     reused,
     stale: accounts.filter((account) => account.updatedAt > 0 && account.updatedAt < staleCutoff),
     incomplete: accounts.filter((account) => !account.link.trim() && !account.username.trim()),
+    totpUnreadable: accounts.filter((account) => Boolean(account.totpUnreadable)),
+    decryptUnreadable: accounts.filter((account) => Boolean(account.decryptUnreadable)),
     withTotp: accounts.filter((account) => Boolean(account.totpSecret?.trim())).length,
   }
 }

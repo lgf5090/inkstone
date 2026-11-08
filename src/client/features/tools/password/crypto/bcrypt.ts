@@ -11,14 +11,3 @@ export function hashMasterPassword(password: string, rounds = DEFAULT_BCRYPT_ROU
   }
   return bcrypt.hashSync(password, rounds)
 }
-
-export function verifyMasterPassword(password: string, hash: string): boolean {
-  if (!password || !hash) {
-    return false
-  }
-  try {
-    return bcrypt.compareSync(password, hash)
-  } catch {
-    return false
-  }
-}

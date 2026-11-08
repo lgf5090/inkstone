@@ -118,9 +118,10 @@ describe('password vault conventions', () => {
     expect(routes).toMatch(/oldPassword[\s\S]{0,400}verifyMasterHash|verifyMasterHash\(body\.oldPassword/)
   })
 
-  it('never hands the stored WebDAV secret back to the client', () => {
+  it('no longer keeps or returns WebDAV credentials now that the fake sync is gone', () => {
     const store = readFileSync('src/worker/tools/password/store.ts', 'utf8')
-    expect(store).toContain('hasPassword')
-    expect(store).not.toMatch(/password: row\.webdav_password/)
+    expect(store).not.toContain('webdav_password')
+    expect(store).not.toContain('webdav_url')
+    expect(store).not.toContain('hasPassword')
   })
 })

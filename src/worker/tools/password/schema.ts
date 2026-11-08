@@ -6,7 +6,6 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS tools_password_vault (
     user_id TEXT NOT NULL,
     master_hash TEXT NOT NULL,
-    recovery_hint TEXT NOT NULL DEFAULT '',
     kdf_salt TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -37,7 +36,6 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
     link TEXT NOT NULL DEFAULT '',
     remark TEXT NOT NULL DEFAULT '',
     totp_secret TEXT NOT NULL DEFAULT '',
-    favicon TEXT NOT NULL DEFAULT '',
     is_favorite INTEGER NOT NULL DEFAULT 0,
     sort INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
@@ -55,12 +53,12 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
 
   `CREATE TABLE IF NOT EXISTS tools_password_settings (
     user_id TEXT NOT NULL,
-    webdav_url TEXT NOT NULL DEFAULT '',
-    webdav_username TEXT NOT NULL DEFAULT '',
-    webdav_password TEXT NOT NULL DEFAULT '',
-    webdav_enabled INTEGER NOT NULL DEFAULT 0,
-    auto_backup_enabled INTEGER NOT NULL DEFAULT 1,
     auto_lock_minutes INTEGER NOT NULL DEFAULT 5,
+    -- bcrypt cost the reader picked for the master-password verifier, plus the verify times this
+    -- deployment actually measured for each tier, so a switch can show a real number.
+    verifier_cost INTEGER NOT NULL DEFAULT 10,
+    verifier_samples TEXT NOT NULL DEFAULT '{}',
+    verifier_measured_at INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id)
   )`,
@@ -77,6 +75,19 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tools_password_backups_user
      ON tools_password_backups(user_id, created_at DESC)`,
+
+  // Security events a reader can come back to: who unlocked, who wiped, what the server refused.
+  // Only ids, counts and outcomes are stored — never a password, a TOTP secret or a ciphertext body.
+  `CREATE TABLE IF NOT EXISTS tools_password_audit (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_password_audit_user
+     ON tools_password_audit(user_id, created_at DESC)`,
 ]
 
 export const TOOLS_PASSWORD_REQUIRED_TABLES: readonly string[] = [
@@ -85,6 +96,7 @@ export const TOOLS_PASSWORD_REQUIRED_TABLES: readonly string[] = [
   'tools_password_accounts',
   'tools_password_settings',
   'tools_password_backups',
+  'tools_password_audit',
 ]
 
 export const TOOLS_PASSWORD_REQUIRED_INDEXES: readonly string[] = [
@@ -93,13 +105,13 @@ export const TOOLS_PASSWORD_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_password_accounts_fav',
   'idx_tools_password_accounts_user',
   'idx_tools_password_backups_user',
+  'idx_tools_password_audit_user',
 ]
 
 export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   tools_password_vault: [
     'user_id',
     'master_hash',
-    'recovery_hint',
     'kdf_salt',
     'created_at',
     'updated_at',
@@ -124,7 +136,6 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
     'link',
     'remark',
     'totp_secret',
-    'favicon',
     'is_favorite',
     'sort',
     'created_at',
@@ -132,12 +143,10 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
   ],
   tools_password_settings: [
     'user_id',
-    'webdav_url',
-    'webdav_username',
-    'webdav_password',
-    'webdav_enabled',
-    'auto_backup_enabled',
     'auto_lock_minutes',
+    'verifier_cost',
+    'verifier_samples',
+    'verifier_measured_at',
     'updated_at',
   ],
   tools_password_backups: [
@@ -147,6 +156,13 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
     'r2_key',
     'size',
     'type',
+    'created_at',
+  ],
+  tools_password_audit: [
+    'user_id',
+    'id',
+    'action',
+    'detail',
     'created_at',
   ],
 }

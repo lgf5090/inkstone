@@ -4,7 +4,7 @@ import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { IconButton } from '../../../components/primitives'
 import { copySecret } from './utils/clipboard'
-import { normalizeTotpSecret, totpCode, totpSecondsRemaining } from './utils/totp'
+import { normalizeTotpSecret, parseTotpConfig, totpCode, totpSecondsRemaining } from './utils/totp'
 
 /**
  * The live code for an account's TOTP secret, with the seconds left in the current step.
@@ -21,10 +21,11 @@ export function TotpCodeLine({ secret }: { secret: string }) {
   }, [])
 
   const normalized = normalizeTotpSecret(secret)
+  const config = parseTotpConfig(normalized)
   const code = normalized ? totpCode(normalized, now) : null
   if (!code) return null
 
-  const remaining = totpSecondsRemaining(now)
+  const remaining = totpSecondsRemaining(now, config?.period)
 
   const handleCopy = () => {
     void copySecret(code).catch(() => {

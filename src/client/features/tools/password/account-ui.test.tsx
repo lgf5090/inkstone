@@ -17,7 +17,7 @@ import { AccountForm, PasswordStrengthIndicator } from './AccountForm'
 import { FavoriteAccounts } from './FavoriteAccounts'
 import { AccountArea } from './AccountArea'
 import { PasswordApp } from './PasswordApp'
-import { generatePassword } from './Generator'
+import { generateRandomPassword } from './utils/generator'
 
 let host: HTMLDivElement
 let root: Root
@@ -49,7 +49,6 @@ const MOCK_ACCOUNT_1: DecryptedAccount = {
   password: 'Password123!',
   link: 'https://github.com/shuaiplus/inkstone',
   remark: 'Self-hosted notebook',
-  favicon: '',
   isFavorite: true,
   sort: 0,
   createdAt: 1700000000000,
@@ -64,7 +63,6 @@ const MOCK_ACCOUNT_2: DecryptedAccount = {
   password: 'AdminPassword456#',
   link: 'https://google.com',
   remark: 'Primary search and mail',
-  favicon: 'https://google.com/custom-favicon.ico',
   isFavorite: false,
   sort: 1,
   createdAt: 1700000000000,
@@ -109,6 +107,7 @@ beforeEach(() => {
   vi.spyOn(passwordApi, 'getVaultState').mockResolvedValue({ hasVault: true })
   vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([MOCK_GROUP])
   vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue(MOCK_RAW_ACCOUNTS)
+  vi.spyOn(passwordApi, 'getAccountsPage').mockResolvedValue({ items: MOCK_RAW_ACCOUNTS, nextCursor: null })
   vi.spyOn(passwordApi, 'createAccount').mockImplementation(async (payload) => ({
     id: 'acc-new',
     groupId: payload.groupId || 'g-default',
@@ -117,7 +116,6 @@ beforeEach(() => {
     password: payload.password || '',
     link: payload.link || '',
     remark: payload.remark || '',
-    favicon: payload.favicon || '',
     isFavorite: payload.isFavorite || false,
     sort: payload.sort || 0,
     createdAt: Date.now(),
@@ -131,7 +129,6 @@ beforeEach(() => {
     password: payload.password || '',
     link: payload.link || '',
     remark: payload.remark || '',
-    favicon: payload.favicon || '',
     isFavorite: payload.isFavorite ?? false,
     sort: payload.sort || 0,
     createdAt: Date.now(),
@@ -585,7 +582,7 @@ describe('PasswordApp Integration', () => {
 
 describe('Password Generator Logic', () => {
   it('generates random password conforming to length and options', () => {
-    const pwd1 = generatePassword({
+    const pwd1 = generateRandomPassword({
       length: 20,
       uppercase: true,
       lowercase: true,
@@ -594,7 +591,7 @@ describe('Password Generator Logic', () => {
     })
     expect(pwd1.length).toBe(20)
 
-    const numOnly = generatePassword({
+    const numOnly = generateRandomPassword({
       length: 8,
       uppercase: false,
       lowercase: false,

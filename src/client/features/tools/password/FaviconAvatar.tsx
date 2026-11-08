@@ -4,7 +4,6 @@ import { cn } from '../../../lib/cn'
 export interface FaviconAvatarProps {
   url?: string
   title?: string
-  favicon?: string
   size?: number
   className?: string
 }
@@ -53,7 +52,6 @@ export function getInitial(title?: string, url?: string): string {
 export function FaviconAvatar({
   url,
   title = '',
-  favicon,
   size = 32,
   className,
 }: FaviconAvatarProps) {
@@ -61,8 +59,9 @@ export function FaviconAvatar({
   const domain = extractDomain(url)
   // The site's own icon, fetched by this deployment rather than by a third-party service — the old
   // Google URL handed that service the list of every site the vault holds.
-  const candidateSrc =
-    favicon || (domain ? `/api/tools/password/favicon?domain=${encodeURIComponent(domain)}` : '')
+  const candidateSrc = domain
+    ? `/api/tools/password/favicon?domain=${encodeURIComponent(domain)}`
+    : ''
 
   useEffect(() => {
     setLoadFailed(false)

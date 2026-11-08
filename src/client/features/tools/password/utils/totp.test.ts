@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { decodeBase32, normalizeTotpSecret, totpCode, totpSecondsRemaining } from './totp'
+import {
+  decodeBase32,
+  normalizeTotpSecret,
+  parseTotpConfig,
+  totpCode,
+  totpSecondsRemaining,
+} from './totp'
 
 // RFC 6238 Appendix B: the SHA-1 seed is ASCII "12345678901234567890".
 const RFC_SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
@@ -65,6 +71,63 @@ describe('normalizeTotpSecret', () => {
   it('refuses garbage instead of storing it', () => {
     expect(normalizeTotpSecret('hello world!')).toBe('')
     expect(normalizeTotpSecret('')).toBe('')
+  })
+
+  it('keeps eight digits, a custom period and a stronger algorithm', () => {
+    const stored = normalizeTotpSecret(
+      `otpauth://totp/Acme:me?secret=${RFC_SECRET}&digits=8&period=60&algorithm=SHA256`,
+    )
+    const parsed = parseTotpConfig(stored)
+    expect(parsed).toEqual({
+      secret: RFC_SECRET,
+      digits: 8,
+      period: 60,
+      algorithm: 'SHA256',
+    })
+    expect(parseTotpConfig(stored)!.algorithm).toBe('SHA256')
+  })
+})
+
+describe('parseTotpConfig', () => {
+  it('defaults to six digits, thirty seconds and SHA-1 for a bare secret', () => {
+    expect(parseTotpConfig(RFC_SECRET)).toEqual({
+      secret: RFC_SECRET,
+      digits: 6,
+      period: 30,
+      algorithm: 'SHA1',
+    })
+    expect(parseTotpConfig('not base32!')).toBeNull()
+  })
+
+  it('ignores a digit count or period outside the RFC range', () => {
+    const stored = normalizeTotpSecret(
+      `otpauth://totp/x?secret=${RFC_SECRET}&digits=99&period=0`,
+    )
+    expect(stored).toBe(RFC_SECRET)
+  })
+})
+
+describe('totpCode with provider parameters', () => {
+  // The RFC's eight-digit vectors use a longer seed per algorithm; these are the same RFC 6238
+  // construction applied to the twenty-byte seed above, at T = 59.
+  it('matches SHA-256 when the URI asks for it', () => {
+    const uri = `otpauth://totp/x?secret=${RFC_SECRET}&digits=8&algorithm=SHA256`
+    expect(totpCode(uri, 59_000)).toBe('32247374')
+    expect(totpCode(uri, 59_000)).not.toBe(totpCode(RFC_SECRET, 59_000))
+  })
+
+  it('matches SHA-512 when the URI asks for it', () => {
+    const uri = `otpauth://totp/x?secret=${RFC_SECRET}&digits=8&algorithm=SHA512`
+    expect(totpCode(uri, 59_000)).toBe('69342147')
+  })
+
+  it('takes the time step from the period instead of assuming thirty seconds', () => {
+    const uri = `otpauth://totp/x?secret=${RFC_SECRET}&period=60`
+    // At T = 59 s a 60-second step still sits in counter 0, so the code equals the one a 30-second
+    // step produces at the start of its own first window.
+    expect(totpCode(uri, 59_000)).toBe(totpCode(RFC_SECRET, 0))
+    expect(totpCode(uri, 59_000)).not.toBe(totpCode(RFC_SECRET, 59_000))
+    expect(totpSecondsRemaining(59_000, parseTotpConfig(uri)!.period)).toBe(1)
   })
 })
 

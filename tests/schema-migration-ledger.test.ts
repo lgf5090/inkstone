@@ -24,7 +24,10 @@ import { SCHEMA_MIGRATIONS, type SchemaMigration } from '../src/worker/db/schema
 // integration lane had already published before the five WebSSH lanes were renumbered onto `test`;
 // splitting it would need fresh numbers the merge plan does not have, so it joins the recorded
 // baseline instead of being rewritten.
-const MULTI_COLUMN_BASELINE = new Set<number>([32, 315])
+// 329 carries the password vault's three verifier-cost columns (cost, samples and measurement stamp)
+// as one guarded statement batch; they were published together on the password lane and there is no
+// free number left between 329 and the icon lane to split them onto.
+const MULTI_COLUMN_BASELINE = new Set<number>([32, 315, 329])
 
 /** The `ADD COLUMN` statements a version brings in, as `table.column`. */
 function addedColumns(migration: SchemaMigration): string[] {

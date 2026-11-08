@@ -7,9 +7,11 @@ vi.mock('./api', () => ({
     getVaultState: vi.fn(),
     getGroups: vi.fn(),
     getAccounts: vi.fn(),
+    getAccountsPage: vi.fn(),
     updateAccount: vi.fn(),
     createAccount: vi.fn(),
     deleteAccount: vi.fn(),
+    reorderAccounts: vi.fn(),
     unlock: vi.fn(),
     resetMasterPassword: vi.fn(),
   },
@@ -30,7 +32,6 @@ function account(overrides: Partial<PasswordAccount> = {}): PasswordAccount {
     password: encryptValue(key, 'hunter2'),
     link: encryptValue(key, 'https://github.com'),
     remark: '',
-    favicon: '',
     isFavorite: false,
     sort: 0,
     createdAt: 1,
@@ -59,6 +60,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(passwordApi.getGroups).mockResolvedValue([])
   vi.mocked(passwordApi.getAccounts).mockResolvedValue([])
+  vi.mocked(passwordApi.getAccountsPage).mockResolvedValue({ items: [], nextCursor: null })
   resetStore()
 })
 
@@ -77,7 +79,6 @@ describe('vault store locking and races', () => {
           password: 'hunter2',
           link: '',
           remark: '',
-          favicon: '',
           isFavorite: false,
           sort: 0,
           createdAt: 1,
@@ -87,6 +88,11 @@ describe('vault store locking and races', () => {
     })
     const before = usePasswordVaultStore.getState().keyEpoch
 
+    usePasswordVaultStore.setState({
+      groups: [{ id: 'grp-1', userId: 'u', name: 'Work', parentId: '', icon: '', sort: 0, createdAt: 1, updatedAt: 1 }],
+      accounts: [row],
+      selectedGroupId: 'grp-1',
+    })
     usePasswordVaultStore.getState().lock()
 
     const after = usePasswordVaultStore.getState()
@@ -94,6 +100,12 @@ describe('vault store locking and races', () => {
     expect(after.keyIV).toBeNull()
     expect(after.decryptedAccounts).toEqual({})
     expect(after.keyEpoch).toBeGreaterThan(before)
+    // Group names and account titles are metadata, not plaintext secrets, but the locked pane has no
+    // business keeping them either — a locked vault should look empty until it is unlocked again.
+    expect(after.groups).toEqual([])
+    expect(after.groupTree).toEqual([])
+    expect(after.accounts).toEqual([])
+    expect(after.selectedGroupId).toBeNull()
   })
 
   it('does not write plaintext back when the vault is locked mid-refresh', async () => {
@@ -126,7 +138,6 @@ describe('vault store locking and races', () => {
           password: 'hunter2',
           link: '',
           remark: '',
-          favicon: '',
           isFavorite: false,
           sort: 0,
           createdAt: 1,
@@ -149,6 +160,19 @@ describe('vault store locking and races', () => {
     expect(usePasswordVaultStore.getState().decryptedAccounts['acc-1']?.isFavorite).toBe(false)
   })
 
+  it('surfaces a TOTP secret that does not open instead of showing ciphertext as the secret', async () => {
+    vi.mocked(passwordApi.getAccountsPage).mockResolvedValue({
+      items: [account({ id: 'acc-broken', totpSecret: 'deadbeef' })],
+      nextCursor: null,
+    })
+
+    await usePasswordVaultStore.getState().refreshData()
+
+    const row = usePasswordVaultStore.getState().decryptedAccounts['acc-broken']
+    expect(row?.totpSecret).toBe('')
+    expect(row?.totpUnreadable).toBe(true)
+  })
+
   it('forgetSession leaves nothing behind for the next reader', () => {
     usePasswordVaultStore.setState({ accounts: [account()], isSettingOpen: true })
 
@@ -160,5 +184,88 @@ describe('vault store locking and races', () => {
     expect(state.decryptedAccounts).toEqual({})
     expect(state.isUnlocked).toBe(false)
     expect(state.isSettingOpen).toBe(false)
+  })
+
+  it('moves the list immediately after a drag instead of waiting for the next refresh', async () => {
+    vi.mocked(passwordApi.reorderAccounts).mockResolvedValue(undefined as never)
+    usePasswordVaultStore.setState({
+      accounts: [
+        account({ id: 'first', sort: 0 }),
+        account({ id: 'second', sort: 1 }),
+        account({ id: 'third', sort: 2 }),
+      ],
+    })
+
+    await usePasswordVaultStore.getState().reorderAccounts([
+      { id: 'first', sort: 5 },
+      { id: 'third', sort: 0 },
+    ])
+
+    // Before the fix only `sort` changed: the array kept its old order, so a drag looked like a no-op
+    // until a full reload.
+    expect(usePasswordVaultStore.getState().accounts.map((row) => row.id)).toEqual([
+      'third',
+      'second',
+      'first',
+    ])
+  })
+
+  it('orders the group tree by sort, not by name', async () => {
+    vi.mocked(passwordApi.getGroups).mockResolvedValue([
+      { id: 'g2', name: 'Alpha', parentId: '', sort: 2, createdAt: 1, updatedAt: 1 },
+      { id: 'g1', name: 'Zulu', parentId: '', sort: 1, createdAt: 1, updatedAt: 1 },
+    ])
+    usePasswordVaultStore.setState({ keyIV: key, isUnlocked: true })
+
+    await usePasswordVaultStore.getState().refreshData()
+
+    // Alphabetical order would put "Alpha" first and make the stored `sort` column decorative.
+    expect(usePasswordVaultStore.getState().groupTree.map((group) => group.id)).toEqual(['g1', 'g2'])
+  })
+
+  it('paints only the first page until the whole vault is asked for', async () => {
+    vi.mocked(passwordApi.getAccountsPage).mockResolvedValue({
+      items: [account({ id: 'a', sort: 0 })],
+      nextCursor: 'cursor-1',
+    })
+    vi.mocked(passwordApi.getAccounts).mockResolvedValue([
+      account({ id: 'a', sort: 0 }),
+      account({ id: 'b', sort: 1 }),
+      account({ id: 'c', sort: 2 }),
+    ])
+    usePasswordVaultStore.setState({ keyIV: key, isUnlocked: true })
+
+    await usePasswordVaultStore.getState().refreshData()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    let state = usePasswordVaultStore.getState()
+    expect(state.accounts.map((row) => row.id)).toEqual(['a'])
+    expect(state.nextAccountsCursor).toBe('cursor-1')
+    expect(Object.keys(state.decryptedAccounts)).toEqual(['a'])
+    // Unlocking a big vault must not fetch and decrypt every row: the list pages from here.
+    expect(passwordApi.getAccounts).not.toHaveBeenCalled()
+
+    await usePasswordVaultStore.getState().ensureAllAccounts()
+
+    state = usePasswordVaultStore.getState()
+    expect(state.accounts.map((row) => row.id)).toEqual(['a', 'b', 'c'])
+    expect(state.nextAccountsCursor).toBeNull()
+    expect(Object.keys(state.decryptedAccounts)).toHaveLength(3)
+  })
+
+  it('appends the next cursor page when the background load could not finish', async () => {
+    vi.mocked(passwordApi.getAccountsPage)
+      .mockResolvedValueOnce({ items: [account({ id: 'a', sort: 0 })], nextCursor: 'cursor-1' })
+      .mockResolvedValueOnce({ items: [account({ id: 'b', sort: 1 })], nextCursor: null })
+    vi.mocked(passwordApi.getAccounts).mockRejectedValue(new Error('offline'))
+    usePasswordVaultStore.setState({ keyIV: key, isUnlocked: true })
+
+    await usePasswordVaultStore.getState().refreshData()
+    await usePasswordVaultStore.getState().loadMoreAccounts()
+
+    const state = usePasswordVaultStore.getState()
+    expect(state.accounts.map((row) => row.id)).toEqual(['a', 'b'])
+    expect(state.nextAccountsCursor).toBeNull()
   })
 })

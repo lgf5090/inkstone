@@ -6,12 +6,18 @@
 
 import type {
   PasswordAccount,
+  PasswordAuditEntry,
   PasswordBackupRecord,
   PasswordGroup,
   PasswordSettings,
   PasswordVaultState,
 } from '@shared/tools/password/types'
+import {
+  DEFAULT_VERIFIER_COST,
+  verifierCostFromHash,
+} from '@shared/tools/password/types'
 import { ApiError } from '../../lib/errors'
+import { hashMasterHashAtCost, verifyMasterHash } from './verify'
 
 /**
  * D1 caps the number of statements one `batch` may carry, and the repository's other stores chunk at
@@ -19,6 +25,31 @@ import { ApiError } from '../../lib/errors'
  * whose length came from a request body.
  */
 const STATEMENT_CHUNK = 90
+const MAX_GROUP_DEPTH = 7
+
+/** How many security events one vault keeps; older rows are dropped as new ones arrive. */
+const AUDIT_RETENTION = 1000
+
+/** Largest page the list route will serve; the client asks for fewer on first paint. */
+const MAX_ACCOUNT_PAGE = 500
+
+function encodeAccountCursor(sort: number, id: string): string {
+  return btoa(`${sort}:${id}`)
+}
+
+function decodeAccountCursor(raw: string): { sort: number; id: string } | null {
+  try {
+    const text = atob(raw)
+    const separator = text.indexOf(':')
+    if (separator <= 0) return null
+    const sort = Number(text.slice(0, separator))
+    const id = text.slice(separator + 1)
+    if (!Number.isInteger(sort) || !id) return null
+    return { sort, id }
+  } catch {
+    return null
+  }
+}
 
 /** How many snapshots a vault keeps before the oldest are dropped. */
 const BACKUP_RETENTION = 20
@@ -32,7 +63,6 @@ async function runBatched(db: D1Database, statements: D1PreparedStatement[]): Pr
 interface VaultRow {
   user_id: string
   master_hash: string
-  recovery_hint: string
   kdf_salt: string
   created_at: number
   updated_at: number
@@ -59,7 +89,6 @@ interface AccountRow {
   link: string
   remark: string
   totp_secret: string
-  favicon: string
   is_favorite: number
   sort: number
   created_at: number
@@ -68,13 +97,29 @@ interface AccountRow {
 
 interface SettingsRow {
   user_id: string
-  webdav_url: string
-  webdav_username: string
-  webdav_password: string
-  webdav_enabled: number
-  auto_backup_enabled: number
   auto_lock_minutes: number
+  verifier_cost: number
+  verifier_samples: string
+  verifier_measured_at: number
   updated_at: number
+}
+
+/** Parses the stored per-tier measurements; a corrupt value reads as "nothing measured yet". */
+function parseVerifierSamples(raw: string | null | undefined): Record<string, number> {
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return {}
+    const samples: Record<string, number> = {}
+    for (const [cost, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!/^\d{1,2}$/.test(cost)) continue
+      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue
+      samples[cost] = Math.round(value * 10) / 10
+    }
+    return samples
+  } catch {
+    return {}
+  }
 }
 
 interface BackupRow {
@@ -85,6 +130,28 @@ interface BackupRow {
   size: number
   type: string
   created_at: number
+}
+
+/** One-based depth of a group in the tenant's tree, or 0 when the id is unknown. */
+function groupDepth(groups: PasswordGroup[], groupId: string): number {
+  const byId = new Map(groups.map((group) => [group.id, group]))
+  let depth = 1
+  let cursor = byId.get(groupId)
+  const seen = new Set<string>()
+  while (cursor?.parentId) {
+    if (seen.has(cursor.id)) break
+    seen.add(cursor.id)
+    depth += 1
+    cursor = byId.get(cursor.parentId)
+  }
+  return byId.has(groupId) ? depth : 0
+}
+
+/** Number of levels the subtree rooted at `groupId` occupies. */
+function subtreeHeight(groups: PasswordGroup[], groupId: string): number {
+  const children = groups.filter((group) => group.parentId === groupId)
+  if (children.length === 0) return 1
+  return 1 + Math.max(...children.map((child) => subtreeHeight(groups, child.id)))
 }
 
 function toGroup(row: GroupRow): PasswordGroup {
@@ -111,7 +178,6 @@ function toAccount(row: AccountRow): PasswordAccount {
     link: row.link,
     remark: row.remark,
     totpSecret: row.totp_secret,
-    favicon: row.favicon,
     isFavorite: Boolean(row.is_favorite),
     sort: row.sort,
     createdAt: row.created_at,
@@ -127,22 +193,22 @@ export class PasswordStore {
 
   // ---------------------------------------------------------------- Vault
   /**
-   * `recovery_hint` is deliberately not read or written any more: it held the first three characters
-   * of the master password under a key that shipped in the bundle, so it was a leak dressed as a
-   * feature. The column stays in the schema (dropping it needs a migration over live rows) and
-   * always reads as ''.
+   * The old `recovery_hint` column held the first three characters of the master password under a
+   * key that shipped in the bundle. It is gone from the schema; databases created before that keep
+   * the unused column until a future migration drops it, but nothing reads or writes it.
    */
   async getVaultState(): Promise<PasswordVaultState> {
     const row = await this.db
-      .prepare(`SELECT created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
+      .prepare(`SELECT kdf_salt, created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
       .bind(this.userId)
-      .first<Pick<VaultRow, 'created_at' | 'updated_at'>>()
+      .first<Pick<VaultRow, 'kdf_salt' | 'created_at' | 'updated_at'>>()
 
     if (!row) {
       return { hasVault: false }
     }
     return {
       hasVault: true,
+      kdfSalt: row.kdf_salt,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
@@ -180,11 +246,21 @@ export class PasswordStore {
 
     return {
       hasVault: true,
+      kdfSalt,
       createdAt: now,
       updatedAt: now,
     }
   }
 
+  /**
+   * Swaps the verifier and every sealed row together, without a transaction.
+   *
+   * The write order is what makes a failure recoverable: the verifier is written **last**, so a
+   * failure while the rows are being replaced still leaves a vault the old password opens, and the
+   * rows already written are rolled back to the snapshot taken before the first write. The request
+   * must carry every account the server currently has; a stale client list would silently leave an
+   * old-key row behind, which is a vault that cannot be opened completely.
+   */
   async resetMasterPassword(
     newMasterHash: string,
     newKdfSalt: string,
@@ -203,39 +279,94 @@ export class PasswordStore {
       throw ApiError.badRequest('Vault is not initialized')
     }
 
+    const snapshot = await this.getAccounts()
+    const snapshotById = new Map(snapshot.map((account) => [account.id, account]))
+    const incomingIds = new Set<string>()
+    for (const account of accounts) {
+      if (incomingIds.has(account.id)) {
+        throw ApiError.badRequest(`Duplicate account id ${account.id} in reset payload`)
+      }
+      incomingIds.add(account.id)
+      if (!snapshotById.has(account.id)) {
+        throw ApiError.conflict('The vault changed while the password was being reset. Refresh and try again.')
+      }
+    }
+    if (incomingIds.size !== snapshot.length) {
+      throw ApiError.conflict('The reset payload does not cover every account. Refresh and try again.')
+    }
+
     const now = Date.now()
-    const statements: D1PreparedStatement[] = [
-      this.db
+    try {
+      await runBatched(this.db, this.buildAccountUpdates(accounts, now))
+      await this.db
         .prepare(
           `UPDATE tools_password_vault SET master_hash = ?1, kdf_salt = ?2, updated_at = ?3
            WHERE user_id = ?4`,
         )
-        .bind(newMasterHash, newKdfSalt, now, this.userId),
-    ]
-
-    for (const acc of accounts) {
-      statements.push(
-        this.db
-          .prepare(
-            `UPDATE tools_password_accounts
-             SET title = ?1, username = ?2, password = ?3, link = ?4, remark = ?5, totp_secret = ?6, updated_at = ?7
-             WHERE user_id = ?8 AND id = ?9`,
-          )
-          .bind(
-            acc.title,
-            acc.username,
-            acc.password,
-            acc.link ?? '',
-            acc.remark ?? '',
-            acc.totpSecret ?? '',
-            now,
-            this.userId,
-            acc.id,
+        .bind(newMasterHash, newKdfSalt, now, this.userId)
+        .run()
+    } catch (error) {
+      try {
+        await runBatched(
+          this.db,
+          this.buildAccountUpdates(
+            snapshot.map((account) => ({
+              id: account.id,
+              title: account.title,
+              username: account.username,
+              password: account.password,
+              link: account.link,
+              remark: account.remark,
+              totpSecret: account.totpSecret ?? '',
+            })),
+            Date.now(),
           ),
-      )
+        )
+      } catch (rollbackError) {
+        throw new ApiError(
+          500,
+          'reset_rollback_failed',
+          `The reset failed and the previous rows could not be written back: ${
+            rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+          }`,
+          { cause: error },
+        )
+      }
+      throw error
     }
+  }
 
-    await runBatched(this.db, statements)
+  private buildAccountUpdates(
+    accounts: Array<{
+      id: string
+      title: string
+      username: string
+      password: string
+      link?: string
+      remark?: string
+      totpSecret?: string
+    }>,
+    now: number,
+  ): D1PreparedStatement[] {
+    return accounts.map((account) =>
+      this.db
+        .prepare(
+          `UPDATE tools_password_accounts
+           SET title = ?1, username = ?2, password = ?3, link = ?4, remark = ?5, totp_secret = ?6, updated_at = ?7
+           WHERE user_id = ?8 AND id = ?9`,
+        )
+        .bind(
+          account.title,
+          account.username,
+          account.password,
+          account.link ?? '',
+          account.remark ?? '',
+          account.totpSecret ?? '',
+          now,
+          this.userId,
+          account.id,
+        ),
+    )
   }
 
   /**
@@ -254,6 +385,8 @@ export class PasswordStore {
       this.db.prepare(`DELETE FROM tools_password_groups WHERE user_id = ?1`).bind(this.userId),
       this.db.prepare(`DELETE FROM tools_password_settings WHERE user_id = ?1`).bind(this.userId),
       this.db.prepare(`DELETE FROM tools_password_backups WHERE user_id = ?1`).bind(this.userId),
+      // A wipe is meant to leave nothing; the route records the wipe itself afterwards.
+      this.db.prepare(`DELETE FROM tools_password_audit WHERE user_id = ?1`).bind(this.userId),
       this.db.prepare(`DELETE FROM tools_password_vault WHERE user_id = ?1`).bind(this.userId),
     ])
 
@@ -275,6 +408,26 @@ export class PasswordStore {
     return (results ?? []).map(toGroup)
   }
 
+  /**
+   * Rows per group. The client list is paged, so counting the loaded rows would label a group with
+   * the page size instead of the vault; one GROUP BY answers it for every group at once.
+   */
+  async getGroupAccountCounts(): Promise<Record<string, number>> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT group_id, COUNT(*) AS count
+         FROM tools_password_accounts
+         WHERE user_id = ?1
+         GROUP BY group_id`,
+      )
+      .bind(this.userId)
+      .all<{ group_id: string; count: number }>()
+
+    const counts: Record<string, number> = {}
+    for (const row of results ?? []) counts[row.group_id] = row.count
+    return counts
+  }
+
   async getGroup(id: string): Promise<PasswordGroup | null> {
     const row = await this.db
       .prepare(
@@ -291,6 +444,16 @@ export class PasswordStore {
   async createGroup(data: { id?: string; name: string; parentId?: string; icon?: string; sort?: number }): Promise<PasswordGroup> {
     const id = data.id || crypto.randomUUID()
     const parentId = data.parentId ?? ''
+    if (parentId) {
+      const groups = await this.getGroups()
+      const parent = groups.find((group) => group.id === parentId)
+      if (!parent) {
+        throw ApiError.badRequest('Parent group not found')
+      }
+      if (groupDepth(groups, parentId) + 1 > MAX_GROUP_DEPTH) {
+        throw ApiError.badRequest(`Groups cannot be nested deeper than ${MAX_GROUP_DEPTH} levels`)
+      }
+    }
     const icon = data.icon ?? ''
     const sort = data.sort ?? 0
     const now = Date.now()
@@ -323,6 +486,28 @@ export class PasswordStore {
 
     const name = data.name !== undefined ? data.name : existing.name
     const parentId = data.parentId !== undefined ? data.parentId : existing.parentId
+    if (parentId !== existing.parentId && parentId) {
+      const groups = await this.getGroups()
+      if (!groups.some((group) => group.id === parentId)) {
+        throw ApiError.badRequest('Parent group not found')
+      }
+      if (parentId === id) {
+        throw ApiError.badRequest('A group cannot be its own parent')
+      }
+      const seen = new Set<string>([id])
+      let cursor = parentId
+      while (cursor) {
+        if (seen.has(cursor)) {
+          throw ApiError.badRequest('A group cannot be moved under its own descendant')
+        }
+        seen.add(cursor)
+        cursor = groups.find((group) => group.id === cursor)?.parentId ?? ''
+      }
+      const depth = groupDepth(groups, parentId) + 1
+      if (depth + subtreeHeight(groups, id) - 1 > MAX_GROUP_DEPTH) {
+        throw ApiError.badRequest(`Groups cannot be nested deeper than ${MAX_GROUP_DEPTH} levels`)
+      }
+    }
     const icon = data.icon !== undefined ? data.icon : existing.icon
     const sort = data.sort !== undefined ? data.sort : existing.sort
     const now = Date.now()
@@ -376,27 +561,12 @@ export class PasswordStore {
       .run()
   }
 
-  async reorderGroups(groups: Array<{ id: string; parentId?: string; sort: number }>): Promise<void> {
-    if (groups.length === 0) return
-    const now = Date.now()
-    const statements = groups.map((g) =>
-      this.db
-        .prepare(
-          `UPDATE tools_password_groups
-           SET parent_id = ?1, sort = ?2, updated_at = ?3
-           WHERE user_id = ?4 AND id = ?5`,
-        )
-        .bind(g.parentId ?? '', g.sort, now, this.userId, g.id),
-    )
-    await runBatched(this.db, statements)
-  }
-
   // ---------------------------------------------------------------- Accounts
   async getAccounts(groupId?: string): Promise<PasswordAccount[]> {
     if (groupId) {
       const { results } = await this.db
         .prepare(
-          `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
+          `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, is_favorite, sort, created_at, updated_at
            FROM tools_password_accounts
            WHERE user_id = ?1 AND group_id = ?2
            ORDER BY sort ASC, id ASC`,
@@ -408,7 +578,7 @@ export class PasswordStore {
 
     const { results } = await this.db
       .prepare(
-        `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
+        `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, is_favorite, sort, created_at, updated_at
          FROM tools_password_accounts
          WHERE user_id = ?1
          ORDER BY sort ASC, id ASC`,
@@ -419,10 +589,57 @@ export class PasswordStore {
     return (results ?? []).map(toAccount)
   }
 
+  /**
+   * One page of the list, ordered by `(sort, id)` with a keyset cursor.
+   *
+   * The cursor carries the last row's `sort` and `id` rather than an offset: rows move while the
+   * reader scrolls (a save, a drag, another tab), and an offset would then repeat or skip rows.
+   */
+  async getAccountsPage(options: {
+    limit: number
+    cursor?: string
+    groupId?: string
+  }): Promise<{ items: PasswordAccount[]; nextCursor: string | null }> {
+    const limit = Math.min(Math.max(Math.floor(options.limit), 1), MAX_ACCOUNT_PAGE)
+    const conditions = ['user_id = ?1']
+    const bindings: Array<string | number> = [this.userId]
+
+    if (options.groupId) {
+      conditions.push(`group_id = ?${bindings.length + 1}`)
+      bindings.push(options.groupId)
+    }
+    if (options.cursor) {
+      const cursor = decodeAccountCursor(options.cursor)
+      if (!cursor) throw ApiError.badRequest('Invalid account cursor')
+      conditions.push(`(sort > ?${bindings.length + 1} OR (sort = ?${bindings.length + 1} AND id > ?${bindings.length + 2}))`)
+      bindings.push(cursor.sort, cursor.id)
+    }
+
+    // One extra row tells us whether another page exists without a second COUNT query.
+    const { results } = await this.db
+      .prepare(
+        `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, is_favorite, sort, created_at, updated_at
+         FROM tools_password_accounts
+         WHERE ${conditions.join(' AND ')}
+         ORDER BY sort ASC, id ASC
+         LIMIT ?${bindings.length + 1}`,
+      )
+      .bind(...bindings, limit + 1)
+      .all<AccountRow>()
+
+    const rows = results ?? []
+    const pageRows = rows.slice(0, limit)
+    const last = pageRows[pageRows.length - 1]
+    return {
+      items: pageRows.map(toAccount),
+      nextCursor: rows.length > limit && last ? encodeAccountCursor(last.sort, last.id) : null,
+    }
+  }
+
   async getAccount(id: string): Promise<PasswordAccount | null> {
     const row = await this.db
       .prepare(
-        `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
+        `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, is_favorite, sort, created_at, updated_at
          FROM tools_password_accounts
          WHERE user_id = ?1 AND id = ?2`,
       )
@@ -441,7 +658,6 @@ export class PasswordStore {
     link?: string
     remark?: string
     totpSecret?: string
-    favicon?: string
     isFavorite?: boolean
     sort?: number
   }): Promise<PasswordAccount> {
@@ -460,7 +676,6 @@ export class PasswordStore {
     const link = data.link ?? ''
     const remark = data.remark ?? ''
     const totpSecret = data.totpSecret ?? ''
-    const favicon = data.favicon ?? ''
     const isFavorite = data.isFavorite ? 1 : 0
     const sort = data.sort ?? 0
     const now = Date.now()
@@ -468,8 +683,8 @@ export class PasswordStore {
     await this.db
       .prepare(
         `INSERT INTO tools_password_accounts (
-           user_id, id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
+           user_id, id, group_id, title, username, password, link, remark, totp_secret, is_favorite, sort, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
       )
       .bind(
         this.userId,
@@ -481,7 +696,6 @@ export class PasswordStore {
         link,
         remark,
         totpSecret,
-        favicon,
         isFavorite,
         sort,
         now,
@@ -499,7 +713,6 @@ export class PasswordStore {
       link,
       remark,
       totpSecret,
-      favicon,
       isFavorite: Boolean(isFavorite),
       sort,
       createdAt: now,
@@ -517,14 +730,17 @@ export class PasswordStore {
       link?: string
       remark?: string
       totpSecret?: string
-      favicon?: string
       isFavorite?: boolean
       sort?: number
+      expectedUpdatedAt?: number
     },
   ): Promise<PasswordAccount> {
     const existing = await this.getAccount(id)
     if (!existing) {
       throw ApiError.notFound('Account not found')
+    }
+    if (data.expectedUpdatedAt !== undefined && data.expectedUpdatedAt !== existing.updatedAt) {
+      throw ApiError.conflict('This account changed in another tab. Refresh before saving again.')
     }
 
     if (data.groupId !== undefined && data.groupId !== existing.groupId) {
@@ -541,7 +757,6 @@ export class PasswordStore {
     const link = data.link !== undefined ? data.link : existing.link
     const remark = data.remark !== undefined ? data.remark : existing.remark
     const totpSecret = data.totpSecret !== undefined ? data.totpSecret : existing.totpSecret
-    const favicon = data.favicon !== undefined ? data.favicon : existing.favicon
     const isFavorite = data.isFavorite !== undefined ? (data.isFavorite ? 1 : 0) : (existing.isFavorite ? 1 : 0)
     const sort = data.sort !== undefined ? data.sort : existing.sort
     const now = Date.now()
@@ -550,8 +765,8 @@ export class PasswordStore {
       .prepare(
         `UPDATE tools_password_accounts
          SET group_id = ?1, title = ?2, username = ?3, password = ?4, link = ?5, remark = ?6,
-             totp_secret = ?7, favicon = ?8, is_favorite = ?9, sort = ?10, updated_at = ?11
-         WHERE user_id = ?12 AND id = ?13`,
+             totp_secret = ?7, is_favorite = ?8, sort = ?9, updated_at = ?10
+         WHERE user_id = ?11 AND id = ?12`,
       )
       .bind(
         groupId,
@@ -561,7 +776,6 @@ export class PasswordStore {
         link,
         remark,
         totpSecret,
-        favicon,
         isFavorite,
         sort,
         now,
@@ -579,7 +793,6 @@ export class PasswordStore {
       link,
       remark,
       totpSecret,
-      favicon,
       isFavorite: Boolean(isFavorite),
       sort,
       updatedAt: now,
@@ -648,7 +861,6 @@ export class PasswordStore {
       link?: string
       remark?: string
       totpSecret?: string
-      favicon?: string
       sort?: number
     }>,
   ): Promise<PasswordAccount[]> {
@@ -670,15 +882,14 @@ export class PasswordStore {
       const link = item.link ?? ''
       const remark = item.remark ?? ''
       const totpSecret = item.totpSecret ?? ''
-      const favicon = item.favicon ?? ''
       const sort = item.sort ?? i
 
       statements.push(
         this.db
           .prepare(
             `INSERT INTO tools_password_accounts (
-               user_id, id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
+               user_id, id, group_id, title, username, password, link, remark, totp_secret, is_favorite, sort, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
           )
           .bind(
             this.userId,
@@ -690,7 +901,6 @@ export class PasswordStore {
             link,
             remark,
             totpSecret,
-            favicon,
             0,
             sort,
             now,
@@ -708,7 +918,6 @@ export class PasswordStore {
         link,
         remark,
         totpSecret,
-        favicon,
         isFavorite: false,
         sort,
         createdAt: now,
@@ -725,110 +934,209 @@ export class PasswordStore {
 
   // ---------------------------------------------------------------- Settings
   async getSettings(): Promise<PasswordSettings> {
-    const row = await this.db
-      .prepare(
-        `SELECT webdav_url, webdav_username, webdav_password, webdav_enabled, auto_backup_enabled, auto_lock_minutes, updated_at
-         FROM tools_password_settings
-         WHERE user_id = ?1`,
-      )
-      .bind(this.userId)
-      .first<SettingsRow>()
+    const [row, vault] = await Promise.all([
+      this.db
+        .prepare(
+          `SELECT auto_lock_minutes, verifier_cost, verifier_samples, verifier_measured_at, updated_at
+           FROM tools_password_settings
+           WHERE user_id = ?1`,
+        )
+        .bind(this.userId)
+        .first<SettingsRow>(),
+      this.getVault(),
+    ])
+    const storedCost = vault ? (verifierCostFromHash(vault.masterHash) ?? DEFAULT_VERIFIER_COST) : DEFAULT_VERIFIER_COST
 
     if (!row) {
       return {
-        webdav: {
-          url: '',
-          username: '',
-          password: '',
-          hasPassword: false,
-          enabled: false,
-        },
-        autoBackupEnabled: true,
         autoLockMinutes: 5,
         updatedAt: 0,
+        verifierCost: storedCost,
+        verifierStoredCost: storedCost,
+        verifierSamples: {},
       }
     }
 
     return {
-      webdav: {
-        url: row.webdav_url,
-        username: row.webdav_username,
-        // The WebDAV secret is write-only: the client may replace it but never read it back, so a
-        // response that lands in a log, a cache or a screenshot carries no credential.
-        password: '',
-        hasPassword: Boolean(row.webdav_password),
-        enabled: Boolean(row.webdav_enabled),
-      },
-      autoBackupEnabled: Boolean(row.auto_backup_enabled),
       autoLockMinutes: row.auto_lock_minutes,
       updatedAt: row.updated_at,
+      verifierCost: row.verifier_cost,
+      verifierStoredCost: storedCost,
+      verifierSamples: parseVerifierSamples(row.verifier_samples),
     }
   }
 
-  private async storedWebdavPassword(): Promise<string> {
-    const row = await this.db
-      .prepare(`SELECT webdav_password FROM tools_password_settings WHERE user_id = ?1`)
-      .bind(this.userId)
-      .first<{ webdav_password: string }>()
-    return row?.webdav_password ?? ''
-  }
-
-  async saveSettings(data: {
-    webdavUrl?: string
-    webdavUsername?: string
-    webdavPassword?: string
-    webdavEnabled?: boolean
-    autoBackupEnabled?: boolean
-    autoLockMinutes?: number
-  }): Promise<PasswordSettings> {
+  async saveSettings(data: { autoLockMinutes?: number }): Promise<PasswordSettings> {
     const current = await this.getSettings()
-    const webdavUrl = data.webdavUrl !== undefined ? data.webdavUrl : current.webdav.url
-    const webdavUsername = data.webdavUsername !== undefined ? data.webdavUsername : current.webdav.username
-    // getSettings no longer carries the secret, so "absent" has to read it from its own column.
-    const webdavPassword = data.webdavPassword !== undefined ? data.webdavPassword : await this.storedWebdavPassword()
-    const webdavEnabled = data.webdavEnabled !== undefined ? (data.webdavEnabled ? 1 : 0) : (current.webdav.enabled ? 1 : 0)
-    const autoBackupEnabled = data.autoBackupEnabled !== undefined ? (data.autoBackupEnabled ? 1 : 0) : (current.autoBackupEnabled ? 1 : 0)
     const autoLockMinutes = data.autoLockMinutes !== undefined ? data.autoLockMinutes : current.autoLockMinutes
     const now = Date.now()
 
     await this.db
       .prepare(
-        `INSERT INTO tools_password_settings (
-           user_id, webdav_url, webdav_username, webdav_password, webdav_enabled, auto_backup_enabled, auto_lock_minutes, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        `INSERT INTO tools_password_settings (user_id, auto_lock_minutes, verifier_cost, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT(user_id) DO UPDATE SET
-           webdav_url = excluded.webdav_url,
-           webdav_username = excluded.webdav_username,
-           webdav_password = excluded.webdav_password,
-           webdav_enabled = excluded.webdav_enabled,
-           auto_backup_enabled = excluded.auto_backup_enabled,
            auto_lock_minutes = excluded.auto_lock_minutes,
            updated_at = excluded.updated_at`,
       )
-      .bind(
-        this.userId,
-        webdavUrl,
-        webdavUsername,
-        webdavPassword,
-        webdavEnabled,
-        autoBackupEnabled,
-        autoLockMinutes,
-        now,
-      )
+      .bind(this.userId, autoLockMinutes, current.verifierCost, now)
       .run()
 
     return {
-      webdav: {
-        url: webdavUrl,
-        username: webdavUsername,
-        password: '',
-        hasPassword: Boolean(webdavPassword),
-        enabled: Boolean(webdavEnabled),
-      },
-      autoBackupEnabled: Boolean(autoBackupEnabled),
+      ...current,
       autoLockMinutes,
       updatedAt: now,
     }
+  }
+
+  /**
+   * Stores the tier the reader picked. It is only a target: the row keeps verifying with whatever
+   * cost its digest carries, and the next successful verification rehashes toward this value.
+   */
+  async setVerifierTarget(cost: number): Promise<void> {
+    const now = Date.now()
+    await this.db
+      .prepare(
+        `INSERT INTO tools_password_settings (user_id, auto_lock_minutes, verifier_cost, updated_at)
+         VALUES (?1, 5, ?2, ?3)
+         ON CONFLICT(user_id) DO UPDATE SET
+           verifier_cost = excluded.verifier_cost,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(this.userId, cost, now)
+      .run()
+  }
+
+  /**
+   * Rebuilds the verifier at `targetCost` and swaps it in only if the row still holds `previousHash`.
+   *
+   * The compare-and-swap is what keeps the row from ending up with a digest of one password and a
+   * salt-change or another tab's switch landing in between: either this write wins whole or the row
+   * is left exactly as it was. The new digest is verified once before it is stored, and that verify
+   * is the number the settings screen shows for this tier — a measurement from this deployment, not
+   * an estimate shipped in the bundle.
+   */
+  async retargetVerifier(password: string, targetCost: number, previousHash: string): Promise<number> {
+    // The bcrypt work is CPU-bound and synchronous, so it has to start after the response leaves the
+    // handler: started inline it would spend the very budget `waitUntil` exists to move off the reply.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const nextHash = hashMasterHashAtCost(password, targetCost)
+    const verifyStarted = performance.now()
+    if (!verifyMasterHash(password, nextHash)) {
+      throw new ApiError(500, 'verifier_unusable', 'The rebuilt verifier did not verify the password')
+    }
+    const measuredMs = Number((performance.now() - verifyStarted).toFixed(1))
+
+    const now = Date.now()
+    const result = await this.db
+      .prepare(
+        `UPDATE tools_password_vault
+         SET master_hash = ?1, updated_at = ?2
+         WHERE user_id = ?3 AND master_hash = ?4`,
+      )
+      .bind(nextHash, now, this.userId, previousHash)
+      .run()
+
+    if (!result.meta || Number(result.meta.changes ?? 0) === 0) {
+      throw new ApiError(409, 'verifier_changed', 'The verifier changed while this switch was running')
+    }
+
+    await this.recordVerifierSample(targetCost, measuredMs, true)
+    return measuredMs
+  }
+
+  /**
+   * Keeps the newest measurement for a tier. Unlock calls this on every successful verify, so it is
+   * throttled: a fresh reading for the same tier within ten minutes is not worth another D1 write per
+   * unlock. An explicit switch forces the write, because that number is what the screen has to show.
+   */
+  async recordVerifierSample(cost: number, measuredMs: number, force = false): Promise<void> {
+    const row = await this.db
+      .prepare(
+        `SELECT verifier_samples, verifier_measured_at
+         FROM tools_password_settings
+         WHERE user_id = ?1`,
+      )
+      .bind(this.userId)
+      .first<Pick<SettingsRow, 'verifier_samples' | 'verifier_measured_at'>>()
+
+    const now = Date.now()
+    const samples = parseVerifierSamples(row?.verifier_samples)
+    const fresh =
+      !force &&
+      samples[String(cost)] !== undefined &&
+      row !== null &&
+      now - row.verifier_measured_at < 10 * 60 * 1000
+    if (fresh) return
+
+    samples[String(cost)] = Math.round(measuredMs * 10) / 10
+
+    await this.db
+      .prepare(
+        `INSERT INTO tools_password_settings (user_id, auto_lock_minutes, verifier_samples, verifier_measured_at, updated_at)
+         VALUES (?1, 5, ?2, ?3, ?4)
+         ON CONFLICT(user_id) DO UPDATE SET
+           verifier_samples = excluded.verifier_samples,
+           verifier_measured_at = excluded.verifier_measured_at,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(this.userId, JSON.stringify(samples), now, now)
+      .run()
+  }
+
+  // ---------------------------------------------------------------- Audit
+  /**
+   * Appends one security event and trims the oldest beyond the retention limit.
+   *
+   * The entry carries what the console line carries: an action name and ids/counts. A caller must
+   * never put a password, a TOTP secret or a ciphertext body in `detail`; the route helper is the
+   * only writer and keeps to that shape.
+   */
+  async recordAudit(action: string, detail: Record<string, unknown> = {}): Promise<void> {
+    const now = Date.now()
+    await this.db
+      .prepare(
+        `INSERT INTO tools_password_audit (user_id, id, action, detail, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(this.userId, crypto.randomUUID(), action, JSON.stringify(detail), now)
+      .run()
+
+    await this.db
+      .prepare(
+        `DELETE FROM tools_password_audit
+         WHERE user_id = ?1 AND id NOT IN (
+           SELECT id FROM tools_password_audit WHERE user_id = ?1 ORDER BY created_at DESC LIMIT ?2
+         )`,
+      )
+      .bind(this.userId, AUDIT_RETENTION)
+      .run()
+  }
+
+  async listAudit(limit = 30): Promise<PasswordAuditEntry[]> {
+    const capped = Math.min(Math.max(limit, 1), 100)
+    const { results } = await this.db
+      .prepare(
+        `SELECT id, action, detail, created_at
+         FROM tools_password_audit
+         WHERE user_id = ?1
+         ORDER BY created_at DESC
+         LIMIT ?2`,
+      )
+      .bind(this.userId, capped)
+      .all<{ id: string; action: string; detail: string; created_at: number }>()
+
+    return (results ?? []).map((row) => {
+      let detail: Record<string, unknown> = {}
+      if (row.detail) {
+        try {
+          detail = JSON.parse(row.detail) as Record<string, unknown>
+        } catch {
+          detail = {}
+        }
+      }
+      return { id: row.id, action: row.action, detail, createdAt: row.created_at }
+    })
   }
 
   // ---------------------------------------------------------------- Backups
@@ -954,74 +1262,259 @@ export class PasswordStore {
     return { groups, accounts }
   }
 
+  /**
+   * Replaces the vault with a validated backup.
+   *
+   * Two write plans, because D1 cannot hold an interactive transaction:
+   * - a small backup is written as one `batch` (deletes and inserts together, applied atomically);
+   * - a large backup upserts every row first and only then drops rows the backup does not contain.
+   *   A failure half way therefore never leaves the vault empty, and the pre-restore snapshot is
+   *   written back before the error leaves the request.
+   */
   async restoreData(data: { groups: PasswordGroup[]; accounts: PasswordAccount[] }): Promise<void> {
-    // A backup is a foreign document: every reference in it has to resolve inside the same file, or
-    // the restore writes rows that no view can reach (they are filtered by a group that never came
-    // back). Refusing is cheaper than a dangling-row cleanup nobody runs.
-    const groupIds = new Set(data.groups.map((group) => group.id))
-    for (const group of data.groups) {
-      if (group.parentId && !groupIds.has(group.parentId)) {
-        throw ApiError.badRequest(`Group ${group.id} points at a missing parent`)
-      }
-    }
-    for (const account of data.accounts) {
-      if (!groupIds.has(account.groupId)) {
-        throw ApiError.badRequest(`Account ${account.id} belongs to a missing group`)
-      }
+    assertRestorableBackup(data)
+
+    const snapshot = await this.getAllData()
+    const statements = this.buildReplaceStatements(data)
+
+    if (statements.length <= STATEMENT_CHUNK) {
+      await this.db.batch(statements)
+      return
     }
 
+    try {
+      await runBatched(this.db, this.buildUpsertStatements(data))
+      await this.deleteRowsMissingFrom(data, snapshot)
+    } catch (error) {
+      try {
+        await runBatched(this.db, this.buildReplaceStatements(snapshot))
+      } catch (rollbackError) {
+        throw new ApiError(
+          500,
+          'restore_rollback_failed',
+          `Restore failed and the previous rows could not be written back: ${
+            rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+          }`,
+          { cause: error },
+        )
+      }
+      throw error
+    }
+  }
+
+  private buildReplaceStatements(data: {
+    groups: PasswordGroup[]
+    accounts: PasswordAccount[]
+  }): D1PreparedStatement[] {
     const statements: D1PreparedStatement[] = [
       this.db.prepare(`DELETE FROM tools_password_accounts WHERE user_id = ?1`).bind(this.userId),
       this.db.prepare(`DELETE FROM tools_password_groups WHERE user_id = ?1`).bind(this.userId),
     ]
+    for (const group of data.groups) statements.push(this.bindGroupInsert(group))
+    for (const account of data.accounts) statements.push(this.bindAccountInsert(account))
+    return statements
+  }
 
-    for (const g of data.groups) {
-      statements.push(
-        this.db
-          .prepare(
-            `INSERT INTO tools_password_groups (user_id, id, name, parent_id, icon, sort, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
-          )
-          .bind(
-            this.userId,
-            g.id,
-            g.name,
-            g.parentId ?? '',
-            g.icon ?? '',
-            g.sort ?? 0,
-            g.createdAt || Date.now(),
-            g.updatedAt || Date.now(),
-          ),
+  /**
+   * The large-backup plan: every row is written with `ON CONFLICT DO UPDATE`, so existing rows are
+   * replaced in place and no delete happens until all inserts have landed.
+   */
+  private buildUpsertStatements(data: {
+    groups: PasswordGroup[]
+    accounts: PasswordAccount[]
+  }): D1PreparedStatement[] {
+    const statements: D1PreparedStatement[] = []
+    for (const group of data.groups) statements.push(this.bindGroupInsert(group, true))
+    for (const account of data.accounts) statements.push(this.bindAccountInsert(account, true))
+    return statements
+  }
+
+  private bindGroupInsert(group: PasswordGroup, upsert = false): D1PreparedStatement {
+    const conflict = upsert
+      ? ` ON CONFLICT(user_id, id) DO UPDATE SET
+            name = excluded.name,
+            parent_id = excluded.parent_id,
+            icon = excluded.icon,
+            sort = excluded.sort,
+            created_at = excluded.created_at,
+            updated_at = excluded.updated_at`
+      : ''
+    return this.db
+      .prepare(
+        `INSERT INTO tools_password_groups (user_id, id, name, parent_id, icon, sort, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)${conflict}`,
       )
+      .bind(
+        this.userId,
+        group.id,
+        group.name,
+        group.parentId ?? '',
+        group.icon ?? '',
+        group.sort ?? 0,
+        group.createdAt || Date.now(),
+        group.updatedAt || Date.now(),
+      )
+  }
+
+  private bindAccountInsert(account: PasswordAccount, upsert = false): D1PreparedStatement {
+    const conflict = upsert
+      ? ` ON CONFLICT(user_id, id) DO UPDATE SET
+            group_id = excluded.group_id,
+            title = excluded.title,
+            username = excluded.username,
+            password = excluded.password,
+            link = excluded.link,
+            remark = excluded.remark,
+            totp_secret = excluded.totp_secret,
+            is_favorite = excluded.is_favorite,
+            sort = excluded.sort,
+            created_at = excluded.created_at,
+            updated_at = excluded.updated_at`
+      : ''
+    return this.db
+      .prepare(
+        `INSERT INTO tools_password_accounts (
+           user_id, id, group_id, title, username, password, link, remark, totp_secret, is_favorite, sort, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)${conflict}`,
+      )
+      .bind(
+        this.userId,
+        account.id,
+        account.groupId,
+        account.title ?? '',
+        account.username ?? '',
+        account.password ?? '',
+        account.link ?? '',
+        account.remark ?? '',
+        account.totpSecret ?? '',
+        account.isFavorite ? 1 : 0,
+        account.sort ?? 0,
+        account.createdAt || Date.now(),
+        account.updatedAt || Date.now(),
+      )
+  }
+
+  /**
+   * Drops rows that are not in the backup. Only runs after every insert succeeded, so a failure here
+   * leaves a superset of the backup rather than an empty vault.
+   */
+  private async deleteRowsMissingFrom(
+    data: { groups: PasswordGroup[]; accounts: PasswordAccount[] },
+    snapshot: { groups: PasswordGroup[]; accounts: PasswordAccount[] },
+  ): Promise<void> {
+    const groupIds = new Set(data.groups.map((group) => group.id))
+    const accountIds = new Set(data.accounts.map((account) => account.id))
+    const statements: D1PreparedStatement[] = []
+
+    for (const group of snapshot.groups) {
+      if (!groupIds.has(group.id)) {
+        statements.push(
+          this.db
+            .prepare(`DELETE FROM tools_password_accounts WHERE user_id = ?1 AND group_id = ?2`)
+            .bind(this.userId, group.id),
+        )
+        statements.push(
+          this.db
+            .prepare(`DELETE FROM tools_password_groups WHERE user_id = ?1 AND id = ?2`)
+            .bind(this.userId, group.id),
+        )
+      }
+    }
+    for (const account of snapshot.accounts) {
+      if (!accountIds.has(account.id)) {
+        statements.push(
+          this.db
+            .prepare(`DELETE FROM tools_password_accounts WHERE user_id = ?1 AND id = ?2`)
+            .bind(this.userId, account.id),
+        )
+      }
     }
 
-    for (const a of data.accounts) {
-      statements.push(
-        this.db
-          .prepare(
-            `INSERT INTO tools_password_accounts (
-               user_id, id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
-          )
-          .bind(
-            this.userId,
-            a.id,
-            a.groupId,
-            a.title ?? '',
-            a.username ?? '',
-            a.password ?? '',
-            a.link ?? '',
-            a.remark ?? '',
-            a.totpSecret ?? '',
-            a.favicon ?? '',
-            a.isFavorite ? 1 : 0,
-            a.sort ?? 0,
-            a.createdAt || Date.now(),
-            a.updatedAt || Date.now(),
-          ),
-      )
-    }
+    if (statements.length > 0) await runBatched(this.db, statements)
+  }
+}
 
-    await runBatched(this.db, statements)
+const RESTORE_MAX_GROUPS = 5000
+const RESTORE_MAX_ACCOUNTS = 20000
+const RESTORE_FIELD_MAX = 8000
+const RESTORE_ID_MAX = 128
+
+function invalidRestore(message: string): never {
+  throw ApiError.badRequest(message)
+}
+
+function requireFieldString(value: unknown, field: string, max = RESTORE_FIELD_MAX): string {
+  if (typeof value !== 'string' || value.length > max) {
+    invalidRestore(`${field} must be a string of at most ${max} characters`)
+  }
+  return value
+}
+
+/**
+ * Validates a backup before a single row is written. The previous flow deleted first and validated
+ * (partly) later, so a duplicate id or a dangling group turned into a wiped vault.
+ */
+export function assertRestorableBackup(data: {
+  groups: PasswordGroup[]
+  accounts: PasswordAccount[]
+}): void {
+  if (!Array.isArray(data.groups) || !Array.isArray(data.accounts)) {
+    invalidRestore('Backup must contain groups and accounts arrays')
+  }
+  if (data.groups.length > RESTORE_MAX_GROUPS) {
+    invalidRestore(`Backup has more than ${RESTORE_MAX_GROUPS} groups`)
+  }
+  if (data.accounts.length > RESTORE_MAX_ACCOUNTS) {
+    invalidRestore(`Backup has more than ${RESTORE_MAX_ACCOUNTS} accounts`)
+  }
+
+  const groupIds = new Set<string>()
+  for (const group of data.groups) {
+    if (typeof group.id !== 'string' || !group.id || group.id.length > RESTORE_ID_MAX) {
+      invalidRestore('Every group needs an id of at most 128 characters')
+    }
+    if (groupIds.has(group.id)) invalidRestore(`Duplicate group id ${group.id}`)
+    groupIds.add(group.id)
+    requireFieldString(group.name, `Group ${group.id} name`, 100)
+    requireFieldString(group.parentId ?? '', `Group ${group.id} parentId`, RESTORE_ID_MAX)
+    requireFieldString(group.icon ?? '', `Group ${group.id} icon`, 64)
+    if (!Number.isFinite(group.sort)) invalidRestore(`Group ${group.id} sort must be a number`)
+  }
+
+  for (const group of data.groups) {
+    if (group.parentId && !groupIds.has(group.parentId)) {
+      invalidRestore(`Group ${group.id} points at a missing parent`)
+    }
+    if (group.parentId === group.id) invalidRestore(`Group ${group.id} is its own parent`)
+
+    const seen = new Set<string>([group.id])
+    let parentId = group.parentId
+    while (parentId) {
+      if (seen.has(parentId)) invalidRestore(`Group ${group.id} is part of a parent cycle`)
+      seen.add(parentId)
+      parentId = data.groups.find((candidate) => candidate.id === parentId)?.parentId ?? ''
+    }
+  }
+
+  const accountIds = new Set<string>()
+  for (const account of data.accounts) {
+    if (typeof account.id !== 'string' || !account.id || account.id.length > RESTORE_ID_MAX) {
+      invalidRestore('Every account needs an id of at most 128 characters')
+    }
+    if (accountIds.has(account.id)) invalidRestore(`Duplicate account id ${account.id}`)
+    accountIds.add(account.id)
+    if (!groupIds.has(account.groupId)) {
+      invalidRestore(`Account ${account.id} belongs to a missing group`)
+    }
+    requireFieldString(account.title ?? '', `Account ${account.id} title`)
+    requireFieldString(account.username ?? '', `Account ${account.id} username`)
+    requireFieldString(account.password ?? '', `Account ${account.id} password`)
+    requireFieldString(account.link ?? '', `Account ${account.id} link`)
+    requireFieldString(account.remark ?? '', `Account ${account.id} remark`)
+    requireFieldString(account.totpSecret ?? '', `Account ${account.id} totpSecret`)
+    if (!Number.isFinite(account.sort)) invalidRestore(`Account ${account.id} sort must be a number`)
+    if (!Number.isFinite(account.createdAt) || !Number.isFinite(account.updatedAt)) {
+      invalidRestore(`Account ${account.id} timestamps must be numbers`)
+    }
   }
 }

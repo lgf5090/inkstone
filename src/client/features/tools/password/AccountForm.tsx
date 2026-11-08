@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useDeferredValue, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import {
   ArrowLeft,
   Check,
@@ -33,9 +33,13 @@ export interface AccountFormProps {
 }
 
 export function PasswordStrengthIndicator({ password }: { password: string }) {
+  // zxcvbn is the expensive part of this form: running it synchronously on every keystroke made
+  // typing a long password feel laggy. The deferred value lets React paint the character first and
+  // score the value a moment later.
+  const deferred = useDeferredValue(password)
   if (!password) return null
 
-  const result = evaluatePasswordStrength(password)
+  const result = evaluatePasswordStrength(deferred || password)
   const score = result.score // 0 to 4
 
   const getBarColor = (index: number) => {
@@ -114,7 +118,6 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
       password: pending.password,
       link: pending.link,
       remark: pending.remark,
-      favicon: pending.favicon,
       totpSecret: pending.totpSecret,
     }).catch(() => {
       useUi.getState().toast({ title: t('common.save_failed'), tone: 'danger' })
@@ -167,7 +170,6 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
           password: dataToSave.password,
           link: dataToSave.link,
           remark: dataToSave.remark,
-          favicon: dataToSave.favicon,
           totpSecret: dataToSave.totpSecret,
         })
         setSaveStatus('saved')
@@ -183,7 +185,12 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
 
   const handleFieldChange = (field: keyof DecryptedAccount, value: string) => {
     if (isLocked || !formData) return
-    const next = { ...formData, [field]: value }
+    const next = {
+      ...formData,
+      [field]: value,
+      // Typing a replacement secret resolves the unreadable state for this row.
+      ...(field === 'totpSecret' ? { totpUnreadable: false } : {}),
+    }
     setFormData(next)
     triggerSave(next)
   }
@@ -475,12 +482,20 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
       {/* Form Content Area */}
       <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
         <div className="mx-auto max-w-2xl space-y-5">
+          {formData.decryptUnreadable && (
+            <p
+              data-testid="decrypt-unreadable-warning"
+              role="alert"
+              className="rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]"
+            >
+              {t('tools.password.account.decrypt_unreadable')}
+            </p>
+          )}
           {/* Title Header with Favicon */}
           <div className="flex items-center gap-3">
             <FaviconAvatar
               url={formData.link}
               title={formData.title}
-              favicon={formData.favicon}
               size={44}
             />
             <div className="flex-1 min-w-0">
@@ -612,6 +627,15 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
               data-testid="input-totp"
             />
             <TotpCodeLine secret={formData.totpSecret ?? ''} />
+            {formData.totpUnreadable && !formData.totpSecret && (
+              <p
+                data-testid="totp-unreadable-warning"
+                role="alert"
+                className="mt-1.5 rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-11)] text-[var(--danger)]"
+              >
+                {t('tools.password.account.totp_unreadable')}
+              </p>
+            )}
           </div>
 
           {/* Website Link */}

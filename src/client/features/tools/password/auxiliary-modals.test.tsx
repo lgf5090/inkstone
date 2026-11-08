@@ -10,7 +10,6 @@ import { escapeCSVField, parseCSVRows, parseCSV, toCSV } from '@shared/tools/pas
 import { generateRandomPassword } from './utils/generator'
 import { PasswordGeneratorModal } from './PasswordGeneratorModal'
 import { RandomPasswordView } from './RandomPasswordView'
-import { QuickAddModal } from './QuickAddModal'
 import { BatchOperationsModal } from './BatchOperationsModal'
 import { ExportModal } from './ExportModal'
 import { ImportModal, parseImportData } from './ImportModal'
@@ -28,6 +27,7 @@ vi.mock('./api', async (importOriginal) => {
       getVaultState: vi.fn(),
       getGroups: vi.fn(),
       getAccounts: vi.fn(),
+      getAccountsPage: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
       createAccount: vi.fn(),
       updateAccount: vi.fn(),
       deleteAccount: vi.fn(),
@@ -36,15 +36,21 @@ vi.mock('./api', async (importOriginal) => {
     batchDeleteAccounts: vi.fn().mockResolvedValue({ ok: true, count: 2 }),
     batchMoveAccounts: vi.fn().mockResolvedValue({ ok: true, count: 2 }),
     batchImportAccounts: vi.fn().mockResolvedValue([]),
-    exportPlaintext: vi.fn().mockResolvedValue({ fileId: 'f-1', downloadUrl: '/exp', size: 123 }),
+    reauth: vi.fn().mockResolvedValue({ token: 'confirm-token', expiresInMs: 120000 }),
     getSettings: vi.fn().mockResolvedValue({
-      webdav: { url: 'https://dav.test/pwd', username: 'tester', password: '123', enabled: true },
-      autoBackupEnabled: true,
       autoLockMinutes: 15,
       updatedAt: 1000,
+      verifierCost: 10,
+      verifierStoredCost: 10,
+      verifierSamples: {},
     }),
     saveSettings: vi.fn().mockResolvedValue({ ok: true }),
-    testWebdav: vi.fn().mockResolvedValue({ ok: true }),
+    setVerifierCost: vi.fn().mockResolvedValue({
+      applied: 'deferred',
+      storedCost: 10,
+      targetCost: 12,
+      measuredMs: 0,
+    }),
     getBackups: vi.fn().mockResolvedValue([
       {
         id: 'b-1',
@@ -65,6 +71,10 @@ vi.mock('./api', async (importOriginal) => {
     }),
     restoreBackup: vi.fn().mockResolvedValue({ ok: true, count: 5 }),
     deleteBackup: vi.fn().mockResolvedValue({ ok: true }),
+    getAudit: vi.fn().mockResolvedValue([
+      { id: 'audit-1', action: 'unlock_ok', detail: {}, createdAt: 1700000000000 },
+      { id: 'audit-2', action: 'confirm_rejected', detail: {}, createdAt: 1700000001000 },
+    ]),
     },
   }
 })
@@ -98,7 +108,6 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       password: encryptValue(keyiv, 'gh-secret-pwd'),
       link: encryptValue(keyiv, 'https://github.com'),
       remark: encryptValue(keyiv, 'personal developer account'),
-      favicon: '',
       isFavorite: true,
       sort: 0,
       createdAt: 1000,
@@ -112,7 +121,6 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       password: encryptValue(keyiv, 'work-pwd-789'),
       link: encryptValue(keyiv, 'https://slack.com'),
       remark: encryptValue(keyiv, 'company communication'),
-      favicon: '',
       isFavorite: false,
       sort: 1,
       createdAt: 1000,
@@ -126,7 +134,6 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       password: encryptValue(keyiv, 'bank-pass-321'),
       link: encryptValue(keyiv, 'https://boc.cn'),
       remark: encryptValue(keyiv, 'savings card'),
-      favicon: '',
       isFavorite: false,
       sort: 2,
       createdAt: 1000,
@@ -143,7 +150,6 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       password: 'gh-secret-pwd',
       link: 'https://github.com',
       remark: 'personal developer account',
-      favicon: '',
       isFavorite: true,
       sort: 0,
       createdAt: 1000,
@@ -157,7 +163,6 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       password: 'work-pwd-789',
       link: 'https://slack.com',
       remark: 'company communication',
-      favicon: '',
       isFavorite: false,
       sort: 1,
       createdAt: 1000,
@@ -171,7 +176,6 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       password: 'bank-pass-321',
       link: 'https://boc.cn',
       remark: 'savings card',
-      favicon: '',
       isFavorite: false,
       sort: 2,
       createdAt: 1000,
@@ -212,7 +216,6 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       selectedGroupId: 'g-root',
       selectedAccountId: null,
       isGeneratorModalOpen: false,
-      isQuickAddModalOpen: false,
       isBatchOperationsOpen: false,
       isExportModalOpen: false,
       isImportModalOpen: false,
@@ -464,77 +467,6 @@ describe('WS-7: Auxiliary Feature Modules', () => {
   })
 
   // =========================================================================
-  // 4. QuickAddModal
-  // =========================================================================
-  describe('4. QuickAddModal', () => {
-    it('parses comma-separated rows in standard mode and displays preview table', () => {
-      const view = renderElement(createElement(QuickAddModal, { open: true }))
-
-      const textarea = document.querySelector('textarea') as HTMLTextAreaElement
-      expect(textarea).not.toBeNull()
-
-      setInputValue(
-        textarea,
-        'GitHub, octo, pass1, https://github.com, my git\nGoogle, guser, pass2, https://google.com, my search'
-      )
-
-      // Check preview table
-      expect(document.body.textContent).toContain('已解析 2 条')
-      expect(document.body.textContent).toContain('GitHub')
-      expect(document.body.textContent).toContain('Google')
-      view.unmount()
-    })
-
-    it('switches to minimal mode and parses title & link pairs', () => {
-      const view = renderElement(createElement(QuickAddModal, { open: true }))
-
-      // Click minimal mode
-      const minimalTab = Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('极简模式')
-      ) as HTMLButtonElement
-      expect(minimalTab).not.toBeNull()
-
-      act(() => {
-        minimalTab.click()
-      })
-
-      const textarea = document.querySelector('textarea') as HTMLTextAreaElement
-      setInputValue(textarea, 'Twitter, https://x.com\nReddit, https://reddit.com')
-
-      expect(document.body.textContent).toContain('Twitter')
-      expect(document.body.textContent).toContain('https://x.com')
-      view.unmount()
-    })
-
-    it('encrypts accounts and calls batchImportAccounts on submission', async () => {
-      const onClose = vi.fn()
-      const view = renderElement(createElement(QuickAddModal, { open: true, onClose }))
-
-      const textarea = document.querySelector('textarea') as HTMLTextAreaElement
-      setInputValue(textarea, 'DemoSite, demo_user, demo_pwd, https://demo.com, remark')
-
-      const submitBtn = Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('确认添加')
-      ) as HTMLButtonElement
-      expect(submitBtn).not.toBeNull()
-      expect(submitBtn.disabled).toBe(false)
-
-      await act(async () => {
-        submitBtn.click()
-      })
-
-      expect(passwordApi.batchImportAccounts).toHaveBeenCalled()
-      const [groupId, accounts] = (passwordApi.batchImportAccounts as any).mock.calls[0]
-      expect(groupId).toBe('g-root')
-      expect(accounts).toHaveLength(1)
-      // Confirm encrypted ciphertext (hex string not plaintext)
-      expect(accounts[0].title).not.toBe('DemoSite')
-      expect(onClose).toHaveBeenCalled()
-      view.unmount()
-    })
-  })
-
-  // =========================================================================
   // 5. BatchOperationsModal
   // =========================================================================
   describe('5. BatchOperationsModal', () => {
@@ -693,34 +625,9 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       })
 
       expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled()
-      // Uploading a plaintext dump is opt-in now: the browser download is the only default path.
-      expect(passwordApi.exportPlaintext).not.toHaveBeenCalled()
+      // The plaintext never leaves the tab: there is no server-side export call any more.
+      expect('exportPlaintext' in passwordApi).toBe(false)
       expect(onClose).toHaveBeenCalled()
-      view.unmount()
-    })
-
-    it('uploads a cloud copy only after the reader opts in', async () => {
-      const view = renderElement(createElement(ExportModal, { open: true }))
-
-      const r2Label = Array.from(document.querySelectorAll('label')).find((el) =>
-        el.textContent?.includes(t('tools.password.export.r2_copy_label')),
-      )!
-      const r2Checkbox = r2Label.querySelector<HTMLButtonElement>('[role="checkbox"]')!
-      expect(r2Checkbox.getAttribute('aria-checked')).toBe('false')
-      act(() => {
-        r2Checkbox.click()
-      })
-
-      setInputValue(document.querySelector('#export-master-password') as HTMLInputElement, MASTER_PASS)
-      const exportBtn = Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes(t('tools.password.export.download'))
-      ) as HTMLButtonElement
-
-      await act(async () => {
-        exportBtn.click()
-      })
-
-      expect(passwordApi.exportPlaintext).toHaveBeenCalledWith('csv', expect.any(String))
       view.unmount()
     })
 
@@ -747,7 +654,7 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       })
 
       expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled()
-      expect(passwordApi.exportPlaintext).not.toHaveBeenCalled()
+      expect('exportPlaintext' in passwordApi).toBe(false)
       view.unmount()
     })
   })
@@ -827,6 +734,95 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       view.unmount()
     })
 
+    it('shows the measured verify time per tier and asks before a tier above the Free budget', async () => {
+      vi.mocked(passwordApi.getSettings).mockResolvedValue({
+        autoLockMinutes: 15,
+        updatedAt: 1000,
+        verifierCost: 10,
+        verifierStoredCost: 10,
+        verifierSamples: { '4': 3.1, '10': 420.2 },
+      })
+      const view = renderElement(createElement(BackupSettingsModal, { open: true }))
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(document.querySelector('[data-testid="password-verifier-section"]')).not.toBeNull()
+      // The numbers come from the last real verify on this deployment, not from a constant in the bundle.
+      expect(document.querySelector('[data-testid="password-verifier-measured-low"]')?.textContent).toContain('3.1')
+      expect(document.querySelector('[data-testid="password-verifier-measured-standard"]')?.textContent).toContain('420.2')
+      expect(document.querySelector('[data-testid="password-verifier-measured-high"]')?.textContent).toContain(
+        t('tools.password.settings.unmeasured'),
+      )
+
+      const highOption = Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === t('tools.password.settings.tier_high'),
+      ) as HTMLButtonElement
+      expect(highOption).not.toBeNull()
+      await act(async () => {
+        highOption.click()
+      })
+
+      // 420.2 ms is 42× the Free plan's 10 ms, so the switch must not proceed silently.
+      expect(document.body.textContent).toContain(t('tools.password.settings.warn_title'))
+      expect(passwordApi.setVerifierCost).not.toHaveBeenCalled()
+
+      await act(async () => {
+        ;(document.querySelector('[data-testid="password-verifier-warn-confirm"]') as HTMLButtonElement).click()
+      })
+
+      const passwordInput = document.querySelector('[data-testid="password-verifier-password"]') as HTMLInputElement
+      expect(passwordInput).not.toBeNull()
+      setInputValue(passwordInput, MASTER_PASS)
+      await act(async () => {
+        ;(document.querySelector('[data-testid="password-verifier-submit"]') as HTMLButtonElement).click()
+      })
+
+      expect(passwordApi.setVerifierCost).toHaveBeenCalledWith(12, MASTER_PASS)
+      view.unmount()
+    })
+
+    it('goes straight to the password prompt for a tier measured inside the Free budget', async () => {
+      vi.mocked(passwordApi.getSettings).mockResolvedValue({
+        autoLockMinutes: 15,
+        updatedAt: 1000,
+        verifierCost: 10,
+        verifierStoredCost: 10,
+        verifierSamples: { '4': 3.1, '10': 420.2 },
+      })
+      const view = renderElement(createElement(BackupSettingsModal, { open: true }))
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      const lowOption = Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === t('tools.password.settings.tier_low'),
+      ) as HTMLButtonElement
+      await act(async () => {
+        lowOption.click()
+      })
+
+      expect(document.body.textContent).not.toContain(t('tools.password.settings.warn_title'))
+      expect(document.querySelector('[data-testid="password-verifier-password"]')).not.toBeNull()
+      view.unmount()
+    })
+
+    it('shows the server-side security log with localized action names', async () => {
+      const view = renderElement(createElement(BackupSettingsModal, { open: true }))
+
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(passwordApi.getAudit).toHaveBeenCalled()
+      const rows = document.querySelectorAll('[data-testid="password-audit-row"]')
+      expect(rows).toHaveLength(2)
+      const text = document.querySelector('[data-testid="password-audit-list"]')?.textContent ?? ''
+      expect(text).toContain(t('tools.password.audit.unlock_ok'))
+      expect(text).toContain(t('tools.password.audit.confirm_rejected'))
+      view.unmount()
+    })
+
     it('downloads local JSON snapshot', () => {
       const view = renderElement(createElement(BackupSettingsModal, { open: true }))
 
@@ -872,49 +868,45 @@ describe('WS-7: Auxiliary Feature Modules', () => {
         confirmRestoreBtn.click()
       })
 
-      expect(passwordApi.restoreBackup).toHaveBeenCalledWith('b-1')
+      // A session is not enough: the destructive call waits for the master password.
+      const reauthInput = document.querySelector('[data-testid="reauth-password"]') as HTMLInputElement
+      expect(reauthInput).not.toBeNull()
+      setInputValue(reauthInput, MASTER_PASS)
+      await act(async () => {
+        ;(document.querySelector('[data-testid="reauth-submit"]') as HTMLButtonElement).click()
+      })
+
+      expect(passwordApi.reauth).toHaveBeenCalledWith(MASTER_PASS)
+      expect(passwordApi.restoreBackup).toHaveBeenCalledWith('b-1', 'confirm-token')
       expect(onClose).toHaveBeenCalled()
       view.unmount()
     })
 
-    it('switches to WebDAV tab, tests connection, and saves settings', async () => {
+    it('asks for the master password before deleting a snapshot', async () => {
       const view = renderElement(createElement(BackupSettingsModal, { open: true }))
 
       await act(async () => {
         await Promise.resolve()
       })
 
-      // Switch to WebDAV tab
-      const webdavTab = Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes(t('tools.password.backup.webdav_tab'))
+      const deleteBtn = document.querySelector(
+        `button[aria-label="${t('tools.password.backup.delete_snapshot')}"]`,
       ) as HTMLButtonElement
-      expect(webdavTab).not.toBeNull()
+      expect(deleteBtn).not.toBeNull()
+
       act(() => {
-        webdavTab.click()
+        deleteBtn.click()
       })
 
-      expect(document.body.textContent).toContain(t('tools.password.backup.webdav_enable'))
-
-      // Test connection
-      const testBtn = Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes(t('tools.password.backup.webdav_test'))
-      ) as HTMLButtonElement
-      expect(testBtn).not.toBeNull()
+      setInputValue(
+        document.querySelector('[data-testid="reauth-password"]') as HTMLInputElement,
+        MASTER_PASS,
+      )
       await act(async () => {
-        testBtn.click()
+        ;(document.querySelector('[data-testid="reauth-submit"]') as HTMLButtonElement).click()
       })
-      expect(passwordApi.testWebdav).toHaveBeenCalled()
 
-      // Save settings
-      const saveBtn = Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('保存设置')
-      ) as HTMLButtonElement
-      expect(saveBtn).not.toBeNull()
-      await act(async () => {
-        saveBtn.click()
-      })
-      expect(passwordApi.saveSettings).toHaveBeenCalled()
-
+      expect(passwordApi.deleteBackup).toHaveBeenCalledWith('b-1', 'confirm-token')
       view.unmount()
     })
   })

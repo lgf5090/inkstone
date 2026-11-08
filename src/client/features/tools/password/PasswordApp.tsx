@@ -11,11 +11,11 @@ import { PasswordHealthView } from './PasswordHealthView'
 import { FavoriteAccounts } from './FavoriteAccounts'
 import { RandomPasswordView } from './RandomPasswordView'
 import { PasswordGeneratorModal } from './PasswordGeneratorModal'
-import { QuickAddModal } from './QuickAddModal'
 import { BatchOperationsModal } from './BatchOperationsModal'
 import { ExportModal } from './ExportModal'
 import { ImportModal } from './ImportModal'
 import { BackupSettingsModal } from './BackupSettingsModal'
+import { clearClipboardSecret } from './utils/clipboard'
 
 export function PasswordApp() {
   const activePasswordView = useToolsStore((s) => s.activePasswordView)
@@ -26,8 +26,6 @@ export function PasswordApp() {
   // Store modal states
   const isGeneratorModalOpen = usePasswordVaultStore((s) => s.isGeneratorModalOpen)
   const closeGeneratorModal = usePasswordVaultStore((s) => s.closeGeneratorModal)
-  const isQuickAddModalOpen = usePasswordVaultStore((s) => s.isQuickAddModalOpen)
-  const closeQuickAddModal = usePasswordVaultStore((s) => s.closeQuickAddModal)
   const isBatchOperationsOpen = usePasswordVaultStore((s) => s.isBatchOperationsOpen)
   const closeBatchOperations = usePasswordVaultStore((s) => s.closeBatchOperations)
   const isExportModalOpen = usePasswordVaultStore((s) => s.isExportModalOpen)
@@ -53,6 +51,13 @@ export function PasswordApp() {
     const forget = () => usePasswordVaultStore.getState().forgetSession()
     window.addEventListener('inkstone:session-cleared', forget)
     return () => window.removeEventListener('inkstone:session-cleared', forget)
+  }, [])
+
+  useEffect(() => {
+    // A closed tab is as good a reason as a lock to stop leaving a password on the clipboard.
+    const clear = () => clearClipboardSecret()
+    window.addEventListener('pagehide', clear)
+    return () => window.removeEventListener('pagehide', clear)
   }, [])
 
   useEffect(() => {
@@ -123,7 +128,6 @@ export function PasswordApp() {
       <Reset />
       <Recover />
       <PasswordGeneratorModal open={isGeneratorModalOpen} onClose={closeGeneratorModal} />
-      <QuickAddModal open={isQuickAddModalOpen} onClose={closeQuickAddModal} />
       <BatchOperationsModal open={isBatchOperationsOpen} onClose={handleCloseBatchOperations} />
       <ExportModal open={isExportModalOpen} onClose={closeExportModal} group={targetGroup ?? undefined} />
       <ImportModal open={isImportModalOpen} onClose={closeImportModal} group={targetGroup ?? undefined} />

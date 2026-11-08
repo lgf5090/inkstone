@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import {
   Trash2,
   FolderInput,
@@ -30,9 +30,15 @@ export function BatchOperationsModal({ open, onClose }: BatchOperationsModalProp
   const accounts = usePasswordVaultStore((s) => s.accounts)
   const decryptedAccounts = usePasswordVaultStore((s) => s.decryptedAccounts)
   const refreshData = usePasswordVaultStore((s) => s.refreshData)
+  const ensureAllAccounts = usePasswordVaultStore((s) => s.ensureAllAccounts)
 
   const isVisible = open !== undefined ? open : storeIsOpen
   const handleClose = onClose || storeClose
+
+  // "Select all" must mean the vault, not the page the list happens to hold.
+  useEffect(() => {
+    if (isVisible) void ensureAllAccounts()
+  }, [isVisible, ensureAllAccounts])
 
   const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>('all')
   const [searchFilter, setSearchFilter] = useState<string>('')

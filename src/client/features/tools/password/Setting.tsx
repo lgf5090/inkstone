@@ -7,7 +7,7 @@ import { Button, Spinner } from '../../../components/primitives'
 import { Modal } from '../../../components/overlay'
 import { usePasswordVaultStore } from './store'
 import { MASTER_PASSWORD_MAX_LENGTH, MASTER_PASSWORD_MIN_LENGTH } from '@shared/tools/password/types'
-import { passwordApi } from './api'
+import { PasswordApiError, passwordApi } from './api'
 import {
   createVaultSalt,
   deriveVaultKey,
@@ -56,34 +56,57 @@ export function Setting({ open, onClose }: SettingProps) {
 
     try {
       const masterHash = hashMasterPassword(password)
-      const salt = createVaultSalt()
+      let salt = createVaultSalt()
+
+      // 1. Initialize the vault. A previous attempt may have created the vault and then failed
+      // before the default group or welcome account existed; in that case continue from the stored
+      // salt instead of leaving the reader stuck on "already initialized".
+      try {
+        await passwordApi.initVault(masterHash, salt)
+      } catch (err) {
+        const alreadyInitialized =
+          err instanceof PasswordApiError && err.status === 400 && /already initialized/i.test(err.message)
+        if (!alreadyInitialized) throw err
+        const { salt: storedSalt } = await passwordApi.unlock(password)
+        if (!storedSalt) {
+          throw new Error(t('tools.password.door.fail'))
+        }
+        salt = storedSalt
+      }
+
       const keyiv = deriveVaultKey(password, salt)
 
-      // 1. Initialize vault
-      await passwordApi.initVault(masterHash, salt)
+      // 2. Create the default group only when the vault has none.
+      const groups = await passwordApi.getGroups()
+      const defaultGroup =
+        groups[0] ??
+        (await passwordApi.createGroup({ name: t('tools.password.setting.default_group') }))
 
-      // 2. Create default group
-      const defaultGroupName = t('tools.password.setting.default_group')
-      const defaultGroup = await passwordApi.createGroup({ name: defaultGroupName })
+      // 3. Create the guided welcome account only when the vault is still empty.
+      const existingAccounts = await passwordApi.getAccounts()
+      if (existingAccounts.length === 0) {
+        const welcomeTitle = t('tools.password.setting.welcome_account_title')
+        const welcomeUser = t('tools.password.setting.welcome_account_user')
+        const id = crypto.randomUUID()
 
-      // 3. Create guided welcome account
-      const welcomeTitle = t('tools.password.setting.welcome_account_title')
-      const welcomeUser = t('tools.password.setting.welcome_account_user')
-
-      await passwordApi.createAccount({
-        groupId: defaultGroup.id,
-        title: encryptValue(keyiv, welcomeTitle),
-        username: encryptValue(keyiv, welcomeUser),
-        // Never the master password. Storing it here made every vault an offline oracle: open the
-        // first row, compare with the key that just opened it, and the guess is confirmed.
-        password: encryptValue(keyiv, 'demo-password'),
-        link: encryptValue(keyiv, 'https://github.com/shuaiplus/inkstone'),
-        remark: encryptValue(keyiv, 'Inkstone Password Vault'),
-      })
+        await passwordApi.createAccount({
+          id,
+          groupId: defaultGroup.id,
+          title: encryptValue(keyiv, welcomeTitle, `title:${id}`),
+          username: encryptValue(keyiv, welcomeUser, `username:${id}`),
+          // Never the master password. Storing it here made every vault an offline oracle: open the
+          // first row, compare with the key that just opened it, and the guess is confirmed.
+          password: encryptValue(keyiv, 'demo-password', `password:${id}`),
+          link: encryptValue(keyiv, 'https://github.com/shuaiplus/inkstone', `link:${id}`),
+          remark: encryptValue(keyiv, 'Inkstone Password Vault', `remark:${id}`),
+        })
+      }
 
       // 4. Close modal and unlock
       handleClose()
       unlock(keyiv)
+      setPassword('')
+      setConfirmPassword('')
 
       useUi.getState().toast({
         title: t('tools.password.setting.submit'),

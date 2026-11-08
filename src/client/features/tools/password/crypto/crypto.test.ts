@@ -11,7 +11,6 @@ import {
   hashMasterPassword,
   SEALED_PREFIX,
   STRENGTH_I18N_KEYS,
-  verifyMasterPassword,
 } from './index'
 import { getLocale, t } from '../../../../lib/i18n'
 import { ZH_CN_PASSWORD_LENGTH_SUGGESTION } from '@shared/locales/zh-CN-tools'
@@ -149,24 +148,32 @@ describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
       expect(decryptValue(key, sealed)).toBe('secret')
       expect(() => decryptValue(getKeyIv('abcdef'), sealed)).toThrow()
     })
+
+    it('binds a v3 value to its row and column through the associated data', () => {
+      const key = deriveVaultKey('abcdef', createVaultSalt())
+      const sealed = encryptValue(key, 'secret', 'password:acc-1')
+
+      expect(sealed.startsWith('v3.')).toBe(true)
+      expect(decryptValue(key, sealed, 'password:acc-1')).toBe('secret')
+      // A ciphertext copied to another row or column fails authentication.
+      expect(() => decryptValue(key, sealed, 'password:acc-2')).toThrow()
+      expect(() => decryptValue(key, sealed, 'title:acc-1')).toThrow()
+      expect(() => decryptValue(key, sealed)).toThrow()
+    })
   })
 
   describe('BCrypt Master Password Hashing', () => {
-    it('hashes master password and verifies successfully', () => {
+    it('hashes the master password into a verifier the server can compare', () => {
       const password = 'CorrectMasterPassword#999'
       const hash = hashMasterPassword(password)
 
       expect(hash).toMatch(/^\$2[aby]\$\d{2}\$/)
-      expect(verifyMasterPassword(password, hash)).toBe(true)
-      expect(verifyMasterPassword('WrongMasterPassword#999', hash)).toBe(false)
     })
 
     it('supports custom cost rounds', () => {
-      const password = 'FastHashPassword'
-      const hash = hashMasterPassword(password, 6)
+      const hash = hashMasterPassword('FastHashPassword', 6)
 
       expect(hash.startsWith('$2a$06$') || hash.startsWith('$2b$06$')).toBe(true)
-      expect(verifyMasterPassword(password, hash)).toBe(true)
     })
 
     it('uses DEFAULT_BCRYPT_ROUNDS = 10 by default', () => {
@@ -182,15 +189,6 @@ describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
     it('throws RangeError when rounds are out of bounds', () => {
       expect(() => hashMasterPassword('pass', 3)).toThrow(RangeError)
       expect(() => hashMasterPassword('pass', 32)).toThrow(RangeError)
-    })
-
-    it('returns false for empty password or empty hash in verify', () => {
-      expect(verifyMasterPassword('', '$2a$10$fakehash')).toBe(false)
-      expect(verifyMasterPassword('password', '')).toBe(false)
-    })
-
-    it('returns false for malformed hash strings without throwing', () => {
-      expect(verifyMasterPassword('password', 'malformed-hash-string')).toBe(false)
     })
   })
 
