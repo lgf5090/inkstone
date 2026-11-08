@@ -253,6 +253,31 @@ describe('host CRUD, search and pagination', () => {
     expect(row?.deleted_at).toBeTruthy()
   })
 
+  it('returns egress placement memory in the host list', async () => {
+    const host = await createHost()
+    sqlite.prepare(`UPDATE webssh_hosts SET egress = ? WHERE user_id = ? AND id = ?`)
+      .run(JSON.stringify({ region: 'apac', regionResolved: { region: 'apac', at: 1, failures: 0 } }), OWNER_ID, host.id)
+    const listed = await json<WebsshHostListResponse>(await call('GET', '/api/webssh/hosts'))
+    expect(listed.items[0]?.egress).toMatchObject({
+      region: 'apac',
+      regionResolved: { region: 'apac', failures: 0 },
+    })
+  })
+
+  it('keeps a host that another host uses as its jump host', async () => {
+    const jump = await createHost({ name: 'jump' })
+    const target = await createHost({
+      name: 'target',
+      host: '10.0.0.5',
+      egress: { jumpHostId: jump.id },
+    })
+    const refused = await call('DELETE', `/api/webssh/hosts/${jump.id}`)
+    expect(refused.status, await refused.clone().text()).toBe(409)
+    expect(await json<{ error: { code: string } }>(refused)).toMatchObject({ error: { code: 'conflict' } })
+    expect((await call('DELETE', `/api/webssh/hosts/${target.id}`)).status).toBe(200)
+    expect((await call('DELETE', `/api/webssh/hosts/${jump.id}`)).status).toBe(200)
+  })
+
   it('rejects malformed addresses, ports and auth references', async () => {
     const credential = await createCredential()
     const invalid: Array<Record<string, unknown>> = [

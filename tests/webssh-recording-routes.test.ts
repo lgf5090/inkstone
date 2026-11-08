@@ -204,7 +204,9 @@ describe('recording settings', () => {
       hostKeys: { autoTrustFirst: true },
     })
     expect(sqlite.prepare('SELECT settings FROM webssh_settings WHERE user_id = ?').get(userId))
-      .toEqual({ settings: '{"recording":{"enabled":true},"hostKeys":{"autoTrustFirst":true}}' })
+      .toEqual({
+        settings: '{"recording":{"enabled":true},"hostKeys":{"autoTrustFirst":true},"egress":{"defaultMode":"direct","defaultRegion":"auto","regionCandidates":["apac","weur","enam","wnam"],"fallbackEnabled":false,"proxyAllowlist":[]}}',
+      })
 
     const invalid = await request(app, '/api/webssh/settings/recording', {
       method: 'PUT',

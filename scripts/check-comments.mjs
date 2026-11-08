@@ -20306,6 +20306,9 @@ const allowed = new Map([
     "/**\n   * Consumes an escape sequence starting at `start` and returns how many characters it used:\n   * arrow keys drive the demo history, every other CSI/SS3 sequence is swallowed.\n   */",
     "// A CSI sequence ends with a byte in the range 0x40–0x7e.",
   ]],
+  ["src/client/features/webssh/transport/region-retry.ts", [
+    "/**\n * The one region move a terminal may make. The server only fills `retryRegion` in automatic mode,\n * and the Durable Object cannot move after creation, so the client opens a new session for it.\n */",
+  ]],
   ["src/client/features/webssh/transport/types.ts", [
     "/**\n * The replaceable transport layer between the terminal UI and a WebSSH session.\n *\n * The terminal never imports a concrete implementation directly — it receives a factory — so the\n * session wiring can change without touching the terminal, tabs or status surface.\n *\n * Wire contract (same-origin WebSocket, text frames, JSON):\n *\n *   GET /api/webssh/sessions/:sessionId/ws?ticket=<one-time ticket>\n *\n *   Client -> server\n *     { \"type\": \"input\",  \"data\": \"<raw terminal bytes>\" }\n *     { \"type\": \"resize\", \"cols\": 120, \"rows\": 32 }\n *     { \"type\": \"ping\" }\n *\n *   Server -> client\n *     { \"type\": \"ready\",  \"cols\": 120, \"rows\": 32 }\n *     { \"type\": \"output\", \"data\": \"<raw terminal bytes>\" }\n *     { \"type\": \"exit\",   \"reason\": \"eof\" | \"idle\" | \"error\", \"message\": \"<optional>\" }\n *     { \"type\": \"error\",  \"code\": \"<api error code>\", \"message\": \"<optional>\" }\n *     { \"type\": \"pong\" }\n *\n * `input` carries bytes exactly as xterm produced them (including control sequences and `\\r`),\n * so the server can write them to the SSH channel unchanged. `output` carries bytes exactly as the\n * SSH channel produced them. No terminal text is ever interpreted on the server.\n *\n * The ticket is minted over REST, consumed once on upgrade, and never reused by this client;\n * `WebSocketTerminalTransport` accepts the finished URL rather than a session id so the UI layer\n * does not need to know how tickets are issued.\n */",
     "/** What happened to the link, as the UI needs to hear it. */",
@@ -20317,6 +20320,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/webssh/transport/websocket-transport.ts", [
     "/**\n * The real terminal transport: create a WebSSH session over REST, mint a one-time ticket, then\n * exchange JSON text frames on the same-origin socket. `open` is only reported after the server's\n * `ready` frame, so the status surface never claims a connection that has not finished its handshake.\n */",
+    "// The old socket is already going away; the new session is the next attempt.",
   ]],
   ["src/client/features/webssh/use-terminal-session.ts", [
     "/**\n * Connects, hears drops, and runs the retry ladder. It owns no terminal and writes nothing except\n * the short ANSI status notes it puts in the scrollback, so the transport and the xterm surface stay\n * independent of each other.\n */",
@@ -34471,6 +34475,9 @@ const allowed = new Map([
     "/** Empty inherits the account default region; `auto` asks the resolver to pick. */",
     "/** Server-managed successful placement memory; read-only to the browser. */",
     "/** Relay modes are shipped as configuration only until a relay node exists. */",
+    "/** True when a fresh attempt may succeed; credentials and host-key failures are not retryable. */",
+    "/** The next region hint the client may try, when automatic failover is allowed. */",
+    "/** One stage of a region probe. */",
   ]],
   ["src/shared/youtube/model.ts", [
     "/**\n * The YouTube app's shared vocabulary: the upstream shapes the API hands over, the library rows a\n * reader saves, the address that names a view, and the pure formatting/tree rules both sides use.\n *\n * Nothing here touches the network or the DOM. The worker's transforms and the reader's rendering\n * have to agree on every field, so the types live once and are imported by both builds.\n */",
@@ -44758,11 +44765,23 @@ const allowed = new Map([
     "/**\n   * Runs one command on a fresh exec channel and collects its stdout/stderr up to a byte cap. The\n   * channel is closed when the cap or timeout is reached, so a slow `docker stats` cannot pin it.\n   */",
     "/**\n * Codes that describe the outbound attempt rather than the terminal after it is ready. Only these\n * produce a structured `connect_error` row, so a database or monitor failure cannot masquerade as a\n * network diagnosis.\n */",
     "/** Audit metadata only holds primitives, so the structured failure is flattened here. */",
+    "/** A credential or host-key rejection cannot be fixed by moving the Durable Object. */",
+    "// A probe has no session row: it is a short-lived Durable Object created only to measure one",
+    "// region, so it must be routed before the session-id check below.",
+    "/**\n   * One region probe: resolve, TCP open, SSH handshake, authentication/shell and optionally the\n   * first saved forward rule. The probe is deliberately its own Durable Object because only the\n   * first `get()` respects a location hint, so the measurement must happen where it was created.\n   */",
+    "// The probe owns no browser socket; a closed session needs no second teardown.",
+    "/**\n   * A failure carries the next region only when the account asked for automatic placement. The\n   * client creates a new session for that region because a Durable Object cannot move once created.\n   */",
+    "// The Worker writes `egress_fallback` before issuing the ticket, so its presence means this",
+    "// session is already the single region retry and must not propose another move.",
   ]],
   ["src/worker/webssh/egress-error.ts", [
     "/** Placeholder messages that carry no diagnostic value once a deeper cause exists. */",
     "/**\n * The deepest useful `name`/`message` in an error's `cause` chain.\n *\n * Workers can reject a socket with a platform object that is not an `Error`, and the protocol core\n * wraps that object as a cause. Reading only the outer message turns every one of those into a\n * generic sentence, which is what made the original `proxy request failed` report impossible to\n * diagnose. `String(error)` remains the final fallback.\n */",
     "/** Shape one failure for the audit row and the browser frame without leaking a stack or a secret. */",
+  ]],
+  ["src/worker/webssh/egress-memory.ts", [
+    "/**\n * The per-host placement memory: the last region that actually connected, and the failure streak\n * that invalidates it. Only `regionResolved` is touched, so a concurrent host edit cannot be lost.\n */",
+    "/** Two consecutive failures in the remembered region forget it, so the next plan starts fresh. */",
   ]],
   ["src/worker/webssh/egress.ts", [
     "/** Relay modes are reserved until a relay node exists. */",
@@ -44785,6 +44804,8 @@ const allowed = new Map([
     "/** Every live host in one ordered pass; export is the one caller that needs no page. */",
     "/** A `YYYY-MM-DD` filter value becomes the first or last millisecond of that UTC day. */",
     "/** Writes the uploaded icon object key; an empty key returns the row to its provider monogram. */",
+    "// A jump host still referenced outside the delete set is a live dependency; deleting it would",
+    "// leave the referring hosts with an egress path that can never connect.",
   ]],
   ["src/worker/webssh/import.ts", [
     "// Host import (plan W7-02): `~/.ssh/config` and CSV are parsed to a preview first, then the confirmed",
@@ -44956,6 +44977,8 @@ const allowed = new Map([
   ["src/worker/webssh/routes.ts", [
     "// The AI surface is its own sub-app so every route under `/ai` shares one validation and metering",
     "// boundary; the session, SFTP, recording and audit routers stay unaware of it.",
+    "// The probe route owns one host sub-path; it is mounted before the host router so a POST that the",
+    "// host router does not know cannot answer 404 first.",
   ]],
   ["src/worker/webssh/schema.ts", [
     "/**\n * The one AI row that outlives a session: the handoff note for the next connection to a host.\n *\n * The primary key is (account, host, kind) rather than the session, because a handoff is read by\n * the host the reader reconnects to and the latest one replaces the last. A session summary that\n * nobody asked to keep is not stored at all.\n */",
@@ -51100,6 +51123,10 @@ const allowed = new Map([
   ["tests/webssh-egress-plan.test.ts", [
     "// Region planning is the part of the egress work that can be proven without a second data centre:",
     "// inheritance, remembered placements, manual overrides and the one-retry candidate order.",
+  ]],
+  ["tests/webssh-egress-probe.test.ts", [
+    "// The multi-region probe creates one short-lived Durable Object per candidate region and asks each",
+    "// to measure the target. The route is the only place that knows the requested hints.",
   ]],
   ["tests/webssh-key-format.test.ts", [
     "// The salt is the committed fixture's own bcrypt salt, so the vector stays deterministic.",

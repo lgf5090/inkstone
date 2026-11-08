@@ -6,6 +6,7 @@ import type {
   WebsshDashboardListResponse,
   WebsshEgressConfig,
   WebsshEgressSettingsView,
+  WebsshEgressTestResponse,
   WebsshForwardGrant,
   WebsshForwardRule,
   WebsshForwardRuleListResponse,
@@ -344,6 +345,11 @@ export const websshApi = {
     method: 'PUT',
     body,
   }),
+  testEgress: async (hostId: string, body: { regions?: Array<WebsshRegionHint | 'auto'> } = {}) =>
+    await request<WebsshEgressTestResponse>(`/api/webssh/hosts/${hostId}/egress-test`, {
+      method: 'POST',
+      body,
+    }),
 
   openShare: async (slug: string, password?: string) =>
     await publicRequest<WebsshPublicShareView>(`/api/public/webssh/shares/${encodeURIComponent(slug)}`, {

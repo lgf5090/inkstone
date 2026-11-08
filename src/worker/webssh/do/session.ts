@@ -9,9 +9,13 @@ import type {
   WebsshEgressFailure,
   WebsshEgressMode,
   WebsshEgressPhase,
+  WebsshEgressTestPhase,
+  WebsshEgressTestResult,
+  WebsshEgressTestStep,
   WebsshForwardGrant,
   WebsshMonitorKillResult,
   WebsshMonitorSnapshot,
+  WebsshRegionHint,
   WebsshServerFrame,
   WebsshSessionStatus,
 } from '@shared/webssh/types'
@@ -19,6 +23,8 @@ import type { Env } from '../../env'
 import { decryptWebsshSecret } from '../../lib/crypto'
 import { isValidId, newId } from '../../lib/id'
 import { describeError, toEgressFailure } from '../egress-error'
+import { nextRegionCandidate, parseHostEgress, resolveEgressPlan, isWebsshRegionHint } from '../egress'
+import { rememberRegionFailure, rememberRegionSuccess } from '../egress-memory'
 import { SSHSession, type SSHExecChannel, type SSHSubsystemChannel } from '../ssh/session'
 import { SSHSessionError } from '../ssh/errors'
 import type {
@@ -56,7 +62,7 @@ import {
 import { ForwardProxyError, forwardHttpRequest, isLoopbackTargetHost, normalizeForwardHost, normalizeForwardPort } from '../forwarding/proxy'
 import { recordAudit } from '../audit'
 import { WebsshSessionRecorder } from '../recording/recorder'
-import { isWebsshAutoTrustFirst, isWebsshRecordingEnabled } from '../settings'
+import { isWebsshAutoTrustFirst, isWebsshRecordingEnabled, readWebsshSettings } from '../settings'
 import {
   parseMonitorOutput,
   WEBSSH_MONITOR_COMMAND,
@@ -144,6 +150,22 @@ function isEgressFailure(code: string): boolean {
   return code === 'connect_failed' || code === 'dns_failed' || EGRESS_FAILURE_CODES.has(code)
 }
 
+/** A credential or host-key rejection cannot be fixed by moving the Durable Object. */
+const NON_RETRYABLE_EGRESS_CODES = new Set([
+  'auth_failed',
+  'host_key_changed',
+  'host_key_rejected',
+  'host_signature_invalid',
+  'pty_rejected',
+  'protocol_error',
+  'input_rejected',
+  'input_limit',
+])
+
+function isRetryableEgressCode(code: string): boolean {
+  return !NON_RETRYABLE_EGRESS_CODES.has(code)
+}
+
 export class WebsshSession implements DurableObject {
   private readonly ctx: DurableObjectState
   private readonly env: Env
@@ -200,8 +222,13 @@ export class WebsshSession implements DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
-    const sessionId = url.searchParams.get('s') ?? ''
     const userId = url.searchParams.get('u') ?? ''
+    // A probe has no session row: it is a short-lived Durable Object created only to measure one
+    // region, so it must be routed before the session-id check below.
+    if (url.pathname === '/internal/egress-probe') {
+      return this.handleEgressProbe(request, userId, url)
+    }
+    const sessionId = url.searchParams.get('s') ?? ''
     if (!isValidId(sessionId) || !isValidId(userId)) {
       return new Response('Invalid WebSSH session request', { status: 400 })
     }
@@ -272,6 +299,173 @@ export class WebsshSession implements DurableObject {
     return new Response(null, { status: 101, webSocket: client })
   }
 
+  private async handleEgressProbe(request: Request, userId: string, url: URL): Promise<Response> {
+    if (request.method !== 'POST') {
+      return sftpJsonError(405, 'method_not_allowed', 'Egress probes are POST-only')
+    }
+    const hostId = url.searchParams.get('h') ?? ''
+    const region = url.searchParams.get('r') ?? ''
+    if (!isValidId(userId) || !isValidId(hostId) || !isWebsshRegionHint(region)) {
+      return sftpJsonError(400, 'bad_request', 'Invalid egress probe scope')
+    }
+    this.userId = userId
+    this.hostId = hostId
+    this.sessionId = ''
+    this.egressRegion = region
+    try {
+      const result = await this.probeEgress(region)
+      return sftpJson(result)
+    } finally {
+      this.session = null
+      await this.ctx.storage.deleteAll().catch(() => undefined)
+    }
+  }
+
+  /**
+   * One region probe: resolve, TCP open, SSH handshake, authentication/shell and optionally the
+   * first saved forward rule. The probe is deliberately its own Durable Object because only the
+   * first `get()` respects a location hint, so the measurement must happen where it was created.
+   */
+  private async probeEgress(region: WebsshRegionHint): Promise<WebsshEgressTestResult> {
+    const steps: WebsshEgressTestStep[] = []
+    let phase: WebsshEgressTestPhase = 'connect'
+    let phaseStartedAt = Date.now()
+    let lastHostKey: { algorithm: string; fingerprint: string; trust: 'trusted' | 'first-seen' | 'changed' } | undefined
+    const finishPhase = (ok: boolean, detail?: string) => {
+      steps.push({
+        phase,
+        ok,
+        elapsedMs: Math.max(0, Date.now() - phaseStartedAt),
+        ...(detail ? { detail } : {}),
+      })
+    }
+    const enterPhase = (next: WebsshEgressTestPhase) => {
+      if (next === phase) return
+      finishPhase(true)
+      phase = next
+      phaseStartedAt = Date.now()
+      this.egressPhase = next === 'shell' || next === 'forward' ? 'auth' : next
+    }
+    this.egressStartedAt = Date.now()
+    this.egressMode = 'direct'
+    this.egressAddress = ''
+    this.egressPort = 0
+    this.egressPhase = 'connect'
+
+    let session: SSHSession | null = null
+    const holder: { session: SSHSession | null } = { session: null }
+    try {
+      const runtime = await this.loadRuntimeConfig()
+      this.egressAddress = runtime.config.host
+      this.egressPort = runtime.config.port
+      phase = 'dns'
+      phaseStartedAt = Date.now()
+      this.egressPhase = 'dns'
+      const allowPrivate = readDevAllowPrivateHosts(this.env.WEBSSH_DEV_ALLOW_PRIVATE_HOSTS)
+      const target = await resolveSshTarget(runtime.config.host, runtime.config.port, {
+        allowPrivateHosts: allowPrivate,
+        dohUrl: this.env.WEBSSH_DOH_URL,
+      })
+      this.egressAddress = target.address
+      this.egressPort = target.port
+      enterPhase('connect')
+      const socket = await openSshSocket(target)
+      enterPhase('handshake')
+      this.egressPhase = 'handshake'
+
+      let settled = false
+      const ready = new Promise<SSHReadyInfo>((resolve, reject) => {
+        const sink: SSHSessionSink = {
+          status: (event) => {
+            if (event === 'authenticating') {
+              enterPhase('auth')
+              this.egressPhase = 'auth'
+            } else if (event === 'auth_success') {
+              enterPhase('shell')
+            }
+          },
+          output: () => undefined,
+          hostKey: (info) => {
+            lastHostKey = { algorithm: info.keyType, fingerprint: info.fingerprint, trust: info.trust }
+            return this.onHostKey(info)
+          },
+          ready: (info) => {
+            settled = true
+            resolve(info)
+          },
+          exit: () => undefined,
+          closed: (reason, error) => {
+            if (settled) return
+            settled = true
+            reject(error ?? new SSHSessionError('socket_error', reason))
+          },
+        }
+        session = new SSHSession(socket as SSHTransportSocket, runtime.config, sink)
+        holder.session = session
+        this.session = session
+        void session.start().catch((error) => {
+          if (!settled) {
+            settled = true
+            reject(error)
+          }
+        })
+      })
+      await ready
+      enterPhase('shell')
+      this.egressPhase = 'auth'
+
+      const rule = await this.env.DB.prepare(
+        `SELECT target_host, target_port FROM webssh_forward_rules
+          WHERE user_id = ?1 AND host_id = ?2 ORDER BY created_at ASC LIMIT 1`,
+      )
+        .bind(this.userId, this.hostId)
+        .first<{ target_host: string; target_port: number }>()
+      enterPhase('forward')
+      if (!rule) {
+        finishPhase(true, 'no_forward_rule')
+      } else {
+        try {
+          const activeSession = holder.session
+          if (!activeSession) throw new SSHSessionError('channel_rejected', 'The probe session did not open')
+          const channel = await activeSession.openForward(rule.target_host, Number(rule.target_port), {
+            onData: () => undefined,
+            onEof: () => undefined,
+            onClose: () => undefined,
+          })
+          const head = `HEAD / HTTP/1.1\r\nHost: ${rule.target_host}:${rule.target_port}\r\nConnection: close\r\n\r\n`
+          await channel.write(new TextEncoder().encode(head))
+          await new Promise((resolve) => setTimeout(resolve, 1_000))
+          await channel.close().catch(() => undefined)
+          finishPhase(true)
+        } catch (error) {
+          finishPhase(false, failureMessage(error))
+        }
+      }
+
+      return {
+        region,
+        ok: true,
+        steps,
+        ...(lastHostKey ? { hostKey: lastHostKey } : {}),
+      }
+    } catch (error) {
+      finishPhase(false, failureMessage(error))
+      return {
+        region,
+        ok: false,
+        steps,
+        failure: this.describeEgressFailure(error),
+        ...(lastHostKey ? { hostKey: lastHostKey } : {}),
+      }
+    } finally {
+      try {
+        holder.session?.close()
+      } catch {
+        // The probe owns no browser socket; a closed session needs no second teardown.
+      }
+    }
+  }
+
   private async runConnection(): Promise<void> {
     try {
       const runtime = await this.loadRuntimeConfig()
@@ -326,7 +520,7 @@ export class WebsshSession implements DurableObject {
       this.keyId = runtime.keyId
       await session.start()
     } catch (error) {
-      this.fail(error)
+      await this.fail(error)
     }
   }
 
@@ -442,7 +636,7 @@ export class WebsshSession implements DurableObject {
       },
       output: (data) => this.onOutput(data),
       hostKey: (info) => this.onHostKey(info),
-      ready: (info) => { void this.onReady(info).catch((error) => this.fail(error)) },
+      ready: (info) => { void this.onReady(info).catch((error) => { void this.fail(error) }) },
       exit: (info) => {
         this.exitInfo = info
       },
@@ -513,6 +707,8 @@ export class WebsshSession implements DurableObject {
     ).catch((error) => console.warn('[inkstone] WebSSH host key sighting failed:', failureMessage(error)))
     await markHostConnected(this.env.DB, this.userId, this.hostId, now)
       .catch((error) => console.warn('[inkstone] WebSSH host connected marker failed:', failureMessage(error)))
+    void rememberRegionSuccess(this.env.DB, this.userId, this.hostId, this.egressRegion, now)
+      .catch((error) => console.warn('[inkstone] WebSSH region memory failed:', failureMessage(error)))
     await this.markCredentialUsed(now)
     await this.audit('session_ready', {
       hostId: this.hostId,
@@ -1007,7 +1203,7 @@ export class WebsshSession implements DurableObject {
       const token = body.token
       if (typeof token !== 'string' || token.length === 0) return sftpJsonError(400, 'bad_request', 'A forward token is required')
       const stopped = this.forwardGrants.delete(token)
-      if (stopped) await this.audit('forward_stop', { hostId: this.hostId, metadata: { token } })
+      if (stopped) await this.audit('forward_stop', { hostId: this.hostId, metadata: { token, region: this.egressRegion } })
       return sftpJson({ stopped })
     }
     if (op !== 'create') return sftpJsonError(400, 'bad_request', 'Unsupported forward operation')
@@ -1017,7 +1213,7 @@ export class WebsshSession implements DurableObject {
     if (!host || !port) return sftpJsonError(400, 'bad_request', 'The forward target host or port is invalid')
     const allowPrivate = readDevAllowPrivateHosts(this.env.WEBSSH_DEV_ALLOW_PRIVATE_HOSTS)
     if (!isLoopbackTargetHost(host) && !allowPrivate) {
-      await this.audit('forward_blocked', { hostId: this.hostId, metadata: { host, port, reason: 'non_loopback' } })
+      await this.audit('forward_blocked', { hostId: this.hostId, metadata: { host, port, reason: 'non_loopback', region: this.egressRegion } })
       return sftpJsonError(403, 'forward_blocked', 'Only loopback forward targets are allowed')
     }
     if (this.forwardGrants.size >= WEBSSH_FORWARD_MAX_ACTIVE_PER_SESSION) {
@@ -1034,7 +1230,7 @@ export class WebsshSession implements DurableObject {
     this.forwardGrants.set(grant.token, grant)
     await this.audit('forward_create', {
       hostId: this.hostId,
-      metadata: { host, port, token: grant.token, expiresAt: grant.expiresAt },
+      metadata: { host, port, token: grant.token, expiresAt: grant.expiresAt, region: this.egressRegion },
     })
     return sftpJson({ grant: this.forwardGrantView(grant) }, 201)
   }
@@ -1081,7 +1277,7 @@ export class WebsshSession implements DurableObject {
     } catch (error) {
       if (error instanceof ForwardProxyError) {
         if (error.code === 'forward_method_blocked') {
-          await this.audit('forward_blocked', { hostId: this.hostId, metadata: { host: grant.host, port: grant.port, reason: error.code } })
+          await this.audit('forward_blocked', { hostId: this.hostId, metadata: { host: grant.host, port: grant.port, reason: error.code, region: this.egressRegion } })
         }
         return sftpJsonError(error.status, error.code, error.message)
       }
@@ -1099,7 +1295,7 @@ export class WebsshSession implements DurableObject {
       return
     }
     if (this.preReadyBytes + data.length > WEBSSH_PRE_READY_OUTPUT_LIMIT) {
-      this.fail(new WebsshSessionFailure('protocol_error', 'Terminal output arrived before the shell was ready'))
+      void this.fail(new WebsshSessionFailure('protocol_error', 'Terminal output arrived before the shell was ready'))
       return
     }
     this.preReadyOutput.push(data)
@@ -1129,7 +1325,9 @@ export class WebsshSession implements DurableObject {
     if (error) {
       const code = failureCode(error)
       const message = failureMessage(error)
-      const failure = !this.readySent && isEgressFailure(code) ? this.describeEgressFailure(error) : undefined
+      const failure = !this.readySent && isEgressFailure(code)
+        ? await this.withRetryHint(this.describeEgressFailure(error), code)
+        : undefined
       this.sendFrame({ type: 'error', code, message, ...(failure ? { egress: failure } : {}) })
       if (failure) this.recordConnectError(error, failure)
       await this.audit(code === 'auth_failed' ? 'auth_fail' : 'session_error', {
@@ -1157,11 +1355,13 @@ export class WebsshSession implements DurableObject {
     this.finalize('closed', reason, '', undefined, 1000)
   }
 
-  private fail(error: unknown): void {
+  private async fail(error: unknown): Promise<void> {
     if (this.finalized) return
     const code = failureCode(error)
     const message = failureMessage(error)
-    const failure = this.egressStartedAt > 0 && isEgressFailure(code) ? this.describeEgressFailure(error) : undefined
+    const failure = this.egressStartedAt > 0 && isEgressFailure(code)
+      ? await this.withRetryHint(this.describeEgressFailure(error), code)
+      : undefined
     this.sendFrame({ type: 'error', code, message, ...(failure ? { egress: failure } : {}) })
     if (failure) this.recordConnectError(error, failure)
     void this.audit(code === 'auth_failed' ? 'auth_fail' : 'session_error', {
@@ -1187,6 +1387,47 @@ export class WebsshSession implements DurableObject {
     })
   }
 
+  /**
+   * A failure carries the next region only when the account asked for automatic placement. The
+   * client creates a new session for that region because a Durable Object cannot move once created.
+   */
+  private async withRetryHint(failure: WebsshEgressFailure, code: string): Promise<WebsshEgressFailure> {
+    const retryable = isRetryableEgressCode(code)
+    const retryRegion = retryable ? await this.regionRetryHint() : null
+    return {
+      ...failure,
+      retryable,
+      ...(retryRegion ? { retryRegion } : {}),
+    }
+  }
+
+  private async regionRetryHint(): Promise<string | null> {
+    if (!this.egressRegion) return null
+    try {
+      // The Worker writes `egress_fallback` before issuing the ticket, so its presence means this
+      // session is already the single region retry and must not propose another move.
+      const retried = await this.env.DB.prepare(
+        `SELECT 1 AS found FROM webssh_audit_events
+          WHERE session_id = ?1 AND event_type = 'egress_fallback' LIMIT 1`,
+      )
+        .bind(this.sessionId)
+        .first<{ found: number }>()
+      if (retried) return null
+      const row = await this.env.DB.prepare(
+        `SELECT egress FROM webssh_hosts WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
+      )
+        .bind(this.userId, this.hostId)
+        .first<{ egress: string }>()
+      if (!row) return null
+      const settings = await readWebsshSettings(this.env.DB, this.userId)
+      const plan = resolveEgressPlan(parseHostEgress(row.egress), settings.egress)
+      return nextRegionCandidate(plan, this.egressRegion)
+    } catch (error) {
+      console.warn('[inkstone] WebSSH region retry plan failed:', failureMessage(error))
+      return null
+    }
+  }
+
   /** Audit metadata only holds primitives, so the structured failure is flattened here. */
   private egressAuditFields(failure: WebsshEgressFailure): Record<string, string | number | boolean | null> {
     return {
@@ -1197,6 +1438,8 @@ export class WebsshSession implements DurableObject {
       mode: failure.mode,
       region: failure.region,
       ...(failure.via ? { via: failure.via } : {}),
+      ...(failure.retryable !== undefined ? { retryable: failure.retryable } : {}),
+      ...(failure.retryRegion ? { retryRegion: failure.retryRegion } : {}),
     }
   }
 
@@ -1212,6 +1455,10 @@ export class WebsshSession implements DurableObject {
         ...this.egressAuditFields(detail),
       },
     })
+    if (detail.retryable !== false) {
+      void rememberRegionFailure(this.env.DB, this.userId, this.hostId, this.egressRegion)
+        .catch((memoryError) => console.warn('[inkstone] WebSSH region failure memory failed:', failureMessage(memoryError)))
+    }
   }
 
   private finalize(

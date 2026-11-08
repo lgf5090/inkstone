@@ -176,12 +176,14 @@ websshSessionRoutes.post('/sessions', async (c) => {
     },
   })
   if (retryFromRegion && retryFromRegion !== region) {
-    audit(c, {
-      eventType: 'egress_fallback',
+    await recordAudit(c.env.DB, {
+      userId,
       sessionId,
       hostId: body.hostId,
+      ipHash,
+      eventType: 'egress_fallback',
       metadata: { reason: 'region', from: retryFromRegion, to: region },
-    })
+    }).catch((error) => console.warn('[inkstone] WebSSH region switch audit failed:', error instanceof Error ? error.message : String(error)))
   }
   return c.json<WebsshSessionCreated>({ sessionId, status: 'pending', region }, 201)
 })

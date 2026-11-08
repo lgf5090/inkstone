@@ -3,6 +3,8 @@ import type {
   WebsshAuthMethod,
   WebsshCredential,
   WebsshEgressConfig,
+  WebsshEgressTestPhase,
+  WebsshEgressTestResult,
   WebsshHost,
   WebsshHostGroup,
   WebsshHostIconKind,
@@ -11,7 +13,7 @@ import type {
   WebsshRegionHint,
 } from '@shared/webssh/types'
 import { WEBSSH_BUILTIN_PROVIDERS } from '@shared/webssh/providers'
-import { Button } from '../../components/primitives'
+import { Button, Spinner } from '../../components/primitives'
 import { ColorWheelTrigger } from '../../components/color-field'
 import { Field, Input, Segmented, Select, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
@@ -47,6 +49,19 @@ interface HostDraft {
 }
 
 const COLOR_EXAMPLE_PLACEHOLDER = '#000000'
+
+const PROBE_STEP_KEY: Record<WebsshEgressTestPhase, string> = {
+  dns: 'webssh.egress.phase.dns',
+  connect: 'webssh.egress.phase.connect',
+  handshake: 'webssh.egress.phase.handshake',
+  auth: 'webssh.egress.phase.auth',
+  shell: 'webssh.egress.test.step.shell',
+  forward: 'webssh.egress.test.step.forward',
+}
+
+function probeStepLabel(phase: WebsshEgressTestPhase): string {
+  return t(PROBE_STEP_KEY[phase] as Parameters<typeof t>[0])
+}
 
 function defaultEgress(host: WebsshHost | null): WebsshEgressConfig {
   return host?.egress ?? {
@@ -105,12 +120,18 @@ export function HostDialog({ open, host, groups, credentials, keys, providers, d
   const [providerOpen, setProviderOpen] = useState(false)
   const [providerName, setProviderName] = useState('')
   const [providerColor, setProviderColor] = useState('')
+  const [probeResults, setProbeResults] = useState<WebsshEgressTestResult[]>([])
+  const [probeError, setProbeError] = useState<string | null>(null)
+  const [probing, setProbing] = useState(false)
 
   useEffect(() => {
     if (!open) return
     setDraft(host ? draftFrom(host) : { ...draftFrom(null), groupId: defaultGroupId ?? '' })
     setError(null)
     setSaving(false)
+    setProbeResults([])
+    setProbeError(null)
+    setProbing(false)
   }, [open, host, defaultGroupId])
 
   const patch = (next: Partial<HostDraft>) => setDraft((current) => ({ ...current, ...next }))
@@ -160,6 +181,21 @@ export function HostDialog({ open, host, groups, credentials, keys, providers, d
       setError(caught instanceof ApiError ? caught.message : t('webssh.error.generic'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const runProbe = async () => {
+    if (!host || probing) return
+    setProbing(true)
+    setProbeError(null)
+    setProbeResults([])
+    try {
+      const response = await websshApi.testEgress(host.id, { regions: ['apac', 'weur', 'enam'] })
+      setProbeResults(response.results)
+    } catch (caught) {
+      setProbeError(caught instanceof ApiError ? caught.message : t('webssh.error.generic'))
+    } finally {
+      setProbing(false)
     }
   }
 
@@ -305,6 +341,42 @@ export function HostDialog({ open, host, groups, credentials, keys, providers, d
               )}
               {regionMode === 'auto' && (
                 <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('webssh.egress.region.auto_hint')}</p>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={() => void runProbe()} disabled={!host || probing} loading={probing}>
+                  {t('webssh.egress.test.run')}
+                </Button>
+                {!host && <span className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('webssh.egress.test.save_first')}</span>}
+                {probing && <Spinner size={12} />}
+              </div>
+              {probeError && <p role="alert" className="text-[length:var(--text-11-5)] text-[var(--danger)]">{probeError}</p>}
+              {probeResults.length > 0 && (
+                <div className="space-y-1.5">
+                  {probeResults.map((result) => (
+                    <div key={result.region} className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] p-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="min-w-0 flex-1 text-[length:var(--text-11-5)] font-medium text-[var(--text-primary)]">{regionLabel(result.region)}</span>
+                        <span className={result.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>
+                          {result.ok ? t('webssh.egress.test.ok') : t('webssh.egress.test.failed')}
+                        </span>
+                        {result.ok && (
+                          <Button size="sm" variant="secondary" onClick={() => patch({ egressRegion: result.region })}>
+                            {t('webssh.egress.test.use')}
+                          </Button>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                        {result.steps.map((step, index) => (
+                          <span key={`${step.phase}-${index}`} className={step.ok ? undefined : 'text-[var(--danger)]'}>
+                            {probeStepLabel(step.phase)} {t('webssh.egress.test.step_ms', { ms: step.elapsedMs })}
+                            {step.detail === 'no_forward_rule' ? ` · ${t('webssh.egress.test.forward_skipped')}` : ''}
+                          </span>
+                        ))}
+                      </div>
+                      {result.failure && <p className="mt-1 text-[length:var(--text-11)] text-[var(--danger)]">{result.failure.message}</p>}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
             <div className="grid grid-cols-2 gap-3">

@@ -7,6 +7,7 @@ import { websshKeyRoutes } from './routes-keys'
 import { websshSessionRoutes } from './routes-session'
 import { websshSftpRoutes } from './routes-sftp'
 import { websshForwardRoutes } from './routes-forward'
+import { websshEgressRoutes } from './routes-egress'
 import { websshSettingsRoutes } from './routes-settings'
 import { websshRecordingRoutes } from './routes-recordings'
 import { websshShareRoutes } from './routes-share'
@@ -26,6 +27,9 @@ websshRoutes.get('/health', (c) => c.json<WebsshHealth>({ ok: true, module: 'web
 // boundary; the session, SFTP, recording and audit routers stay unaware of it.
 websshRoutes.route('/ai', websshAiRoutes)
 
+// The probe route owns one host sub-path; it is mounted before the host router so a POST that the
+// host router does not know cannot answer 404 first.
+websshRoutes.route('/', websshEgressRoutes)
 websshRoutes.route('/', websshHostRoutes)
 websshRoutes.route('/', websshKeyRoutes)
 websshRoutes.route('/', websshSessionRoutes)

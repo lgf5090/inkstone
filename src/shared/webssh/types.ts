@@ -133,6 +133,36 @@ export interface WebsshEgressFailure {
   region: string
   /** A proxy or jump hop, when the failed stage belongs to one. */
   via?: string
+  /** True when a fresh attempt may succeed; credentials and host-key failures are not retryable. */
+  retryable?: boolean
+  /** The next region hint the client may try, when automatic failover is allowed. */
+  retryRegion?: string
+}
+
+/** One stage of a region probe. */
+export type WebsshEgressTestPhase = 'dns' | 'connect' | 'handshake' | 'auth' | 'shell' | 'forward'
+
+export interface WebsshEgressTestStep {
+  phase: WebsshEgressTestPhase
+  ok: boolean
+  elapsedMs: number
+  detail?: string
+}
+
+export interface WebsshEgressTestResult {
+  region: WebsshRegionHint
+  ok: boolean
+  steps: WebsshEgressTestStep[]
+  failure?: WebsshEgressFailure
+  hostKey?: {
+    algorithm: string
+    fingerprint: string
+    trust: 'trusted' | 'first-seen' | 'changed'
+  }
+}
+
+export interface WebsshEgressTestResponse {
+  results: WebsshEgressTestResult[]
 }
 
 /** Rates are bytes per second; `null` means this is the first sample after connecting. */

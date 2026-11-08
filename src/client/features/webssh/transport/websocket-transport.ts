@@ -5,8 +5,10 @@
  */
 import type { WebsshServerFrame } from '@shared/webssh/types'
 import { ApiError } from '../../../lib/api'
+import { t } from '../../../lib/i18n'
 import { formatEgressFailure } from '../egress-error'
 import { websshApi } from '../api'
+import { regionRetryTarget } from './region-retry'
 import type { TerminalTransport, TerminalTransportHandlers } from './types'
 
 export interface WebSocketTransportOptions {
@@ -33,6 +35,10 @@ export class WebSocketTerminalTransport implements TerminalTransport {
   private ready = false
   private reported = false
   private sizes: { cols: number; rows: number }
+  private region: string | undefined
+  private currentRegion: string | undefined
+  private retryFrom: string | undefined
+  private regionRetryUsed = false
 
   constructor(
     private readonly handlers: TerminalTransportHandlers,
@@ -50,8 +56,13 @@ export class WebSocketTerminalTransport implements TerminalTransport {
 
   private async open(): Promise<void> {
     try {
-      const created = await websshApi.createSession(this.options.hostId, this.sizes.cols, this.sizes.rows)
+      const created = await websshApi.createSession(this.options.hostId, this.sizes.cols, this.sizes.rows, {
+        ...(this.region ? { region: this.region } : {}),
+        ...(this.retryFrom ? { retryFromRegion: this.retryFrom } : {}),
+      })
       if (this.disposed) return
+      this.currentRegion = created.region
+      this.retryFrom = undefined
       this.handlers.onSession?.(created.sessionId)
       const ticket = await websshApi.issueTicket(created.sessionId)
       if (this.disposed) return
@@ -68,12 +79,14 @@ export class WebSocketTerminalTransport implements TerminalTransport {
     this.ws = socket
 
     socket.onopen = () => {
+      if (this.ws !== socket) return
       if (!this.ready) this.handlers.onPhase({ phase: 'connecting' })
       this.sendFrame({ type: 'resize', cols: this.sizes.cols, rows: this.sizes.rows })
       this.pingTimer = setInterval(() => this.sendFrame({ type: 'ping' }), PING_INTERVAL_MS)
     }
 
     socket.onmessage = (event) => {
+      if (this.ws !== socket) return
       let frame: WebsshServerFrame
       try {
         frame = JSON.parse(String(event.data)) as WebsshServerFrame
@@ -98,6 +111,25 @@ export class WebSocketTerminalTransport implements TerminalTransport {
         return
       }
       if (frame.type === 'error') {
+        const retryRegion = regionRetryTarget(frame.egress, this.regionRetryUsed)
+        if (retryRegion) {
+          this.regionRetryUsed = true
+          this.retryFrom = this.currentRegion
+          this.region = retryRegion
+          this.ready = false
+          this.reported = false
+          this.stopPing()
+          this.ws = null
+          try {
+            socket.close()
+          } catch {
+            // The old socket is already going away; the new session is the next attempt.
+          }
+          this.handlers.onPhase({ phase: 'connecting' })
+          this.handlers.onOutput(`\r\n\x1b[33m${t('webssh.egress.region.retry_note', { region: retryRegion })}\x1b[0m\r\n`)
+          void this.open()
+          return
+        }
         this.reported = true
         const message = frame.egress ? formatEgressFailure(frame.egress, frame.message) : frame.message
         this.handlers.onPhase({ phase: 'error', reason: frame.code, message })
@@ -105,10 +137,12 @@ export class WebSocketTerminalTransport implements TerminalTransport {
     }
 
     socket.onerror = () => {
+      if (this.ws !== socket) return
       if (!this.deliberate && !this.reported) this.handlers.onPhase({ phase: 'error', reason: 'socket_error' })
     }
 
     socket.onclose = (event) => {
+      if (this.ws !== socket) return
       this.stopPing()
       if (this.deliberate || this.reported) return
       this.reported = true

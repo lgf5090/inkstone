@@ -350,7 +350,7 @@ export class WebsshHostsStore extends WebsshStore {
     const rows = await this.db.prepare(
       `SELECT id, name, host, port, username, group_id, auth_method, credential_id, key_id,
               encoding, term_type, initial_command, color, tags, notes, favorite, pinned, sort_order,
-              provider, icon_kind, icon_value, icon_key, last_connected_at, created_at, updated_at
+              provider, icon_kind, icon_value, icon_key, egress, last_connected_at, created_at, updated_at
          FROM webssh_hosts
         WHERE ${clause}
         ORDER BY ${order}
@@ -675,6 +675,20 @@ export class WebsshHostsStore extends WebsshStore {
   async softDelete(id: string): Promise<boolean> {
     const existing = await this.get(id)
     if (!existing) return false
+    const references = await this.db.prepare(
+      `SELECT COUNT(*) AS count FROM webssh_hosts
+        WHERE user_id = ?1 AND deleted_at IS NULL AND id <> ?2
+          AND CASE WHEN json_valid(egress) THEN json_extract(egress, '$.jumpHostId') END = ?2`,
+    )
+      .bind(this.userId, id)
+      .first<{ count: number }>()
+    const jumpHostCount = Number(references?.count ?? 0)
+    if (jumpHostCount > 0) {
+      throw ApiError.conflict(
+        'This host is used as a jump host by another host. Change those hosts first',
+        { hostCount: jumpHostCount },
+      )
+    }
     const updatedAt = Math.max(this.now, existing.updatedAt + 1)
     await this.db.batch([
       this.db.prepare(
@@ -764,6 +778,33 @@ export class WebsshHostsStore extends WebsshStore {
         'UPDATE webssh_hosts SET favorite = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL',
       ).bind(this.userId, row.id, favorite, now)))
       return { affected: found.length, skipped: input.ids.length - found.length }
+    }
+
+    if (input.action === 'delete') {
+      // A jump host still referenced outside the delete set is a live dependency; deleting it would
+      // leave the referring hosts with an egress path that can never connect.
+      let references = 0
+      const chunkSize = 40
+      for (let start = 0; start < found.length; start += chunkSize) {
+        const chunk = found.slice(start, start + chunkSize)
+        const excluded = chunk.map((_, index) => `?${index + 2}`).join(', ')
+        const referenced = chunk.map((_, index) => `?${index + 2 + chunk.length}`).join(', ')
+        const row = await this.db.prepare(
+          `SELECT COUNT(*) AS count FROM webssh_hosts
+            WHERE user_id = ?1 AND deleted_at IS NULL
+              AND id NOT IN (${excluded})
+              AND CASE WHEN json_valid(egress) THEN json_extract(egress, '$.jumpHostId') END IN (${referenced})`,
+        )
+          .bind(this.userId, ...chunk.map((entry) => entry.id), ...chunk.map((entry) => entry.id))
+          .first<{ count: number }>()
+        references += Number(row?.count ?? 0)
+      }
+      if (references > 0) {
+        throw ApiError.conflict(
+          'Some selected hosts are used as jump hosts by other hosts. Change those hosts first',
+          { hostCount: references },
+        )
+      }
     }
 
     const statements = found.map((row) => this.db.prepare(
@@ -869,7 +910,7 @@ export class WebsshHostsStore extends WebsshStore {
     const rows = await this.db.prepare(
       `SELECT id, name, host, port, username, group_id, auth_method, credential_id, key_id,
               encoding, term_type, initial_command, color, tags, notes, favorite, pinned, sort_order,
-              provider, icon_kind, icon_value, icon_key, last_connected_at, created_at, updated_at
+              provider, icon_kind, icon_value, icon_key, egress, last_connected_at, created_at, updated_at
          FROM webssh_hosts
         WHERE user_id = ?1 AND deleted_at IS NULL
         ORDER BY group_id, sort_order, name_folded`,
