@@ -9,7 +9,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { LIMITS } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
-import { CALENDAR_REMINDER_MINUTES, MAX_ATTACHMENTS_PER_EVENT, temporalValueToEpochMs } from '@shared/calendar/model'
+import { CALENDAR_REMINDER_MINUTES, MAX_ATTACHMENTS_PER_EVENT, MAX_REMINDER_MINUTES, MAX_REMINDERS_PER_EVENT, temporalValueToEpochMs } from '@shared/calendar/model'
 import type {
   CalendarAttachmentDto,
   CalendarAttendeeDto,
@@ -20,7 +20,7 @@ import type {
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
-import { Input, Select } from '../../components/form'
+import { Input, Select, commitOnEnter } from '../../components/form'
 import { X, Trash2, Copy, CopyPlus, FolderInput, BookmarkPlus, Video } from 'lucide-react'
 import * as api from './api'
 import { CALENDAR_COLOR_PRESETS } from './model'
@@ -47,7 +47,10 @@ interface CalendarEventExtrasProps {
 
 function leadLabel(minutes: number): string {
   if (minutes === 0) return t('calendar.event.reminder_at_start')
-  if (minutes >= 1440) return t('calendar.settings.reminder_day')
+  if (minutes >= 1440) {
+    const days = Math.round(minutes / 1440)
+    return days === 1 ? t('calendar.settings.reminder_day') : t('calendar.extras.reminder_days', { days })
+  }
   return t('calendar.settings.reminder_minutes', { minutes })
 }
 
@@ -88,6 +91,7 @@ export function CalendarEventExtras({
   const [savingConference, setSavingConference] = useState(false)
   const [savingSnooze, setSavingSnooze] = useState(false)
   const [savingDuplicate, setSavingDuplicate] = useState(false)
+  const [customReminder, setCustomReminder] = useState('')
   const [contacts, setContacts] = useState<Array<{ name: string; email: string }>>([])
   const contactListId = useId()
   const [draft, setDraft] = useState('')
@@ -113,6 +117,7 @@ export function CalendarEventExtras({
     setSavingConference(false)
     setSavingSnooze(false)
     setSavingDuplicate(false)
+    setCustomReminder('')
     setDraft('')
     setError(null)
     void (async () => {
@@ -153,12 +158,9 @@ export function CalendarEventExtras({
     }
   }
 
-  const toggle = (lead: number): void => {
+  const saveMinutes = (next: number[]): void => {
     if (rev === null || readOnly || savingReminders) return
     const previous = minutes
-    const next = previous.includes(lead)
-      ? previous.filter((value) => value !== lead)
-      : [...previous, lead].sort((left, right) => left - right)
     setMinutes(next)
     setSavingReminders(true)
     void (async () => {
@@ -176,6 +178,30 @@ export function CalendarEventExtras({
         setSavingReminders(false)
       }
     })()
+  }
+
+  const toggle = (lead: number): void => {
+    saveMinutes(minutes.includes(lead)
+      ? minutes.filter((value) => value !== lead)
+      : [...minutes, lead].sort((left, right) => left - right))
+  }
+
+  const addCustomReminder = (): void => {
+    const value = Number(customReminder.trim())
+    if (!Number.isInteger(value) || value < 0 || value > MAX_REMINDER_MINUTES) {
+      setError(t('calendar.extras.reminder_invalid', { limit: MAX_REMINDER_MINUTES / 1440 }))
+      return
+    }
+    if (minutes.length >= MAX_REMINDERS_PER_EVENT && !minutes.includes(value)) {
+      setError(t('calendar.extras.reminder_limit', { limit: MAX_REMINDERS_PER_EVENT }))
+      return
+    }
+    setCustomReminder('')
+    if (minutes.includes(value)) {
+      setError(null)
+      return
+    }
+    saveMinutes([...minutes, value].sort((left, right) => left - right))
   }
 
   /** The whole list is replaced on every edit, so a failed write puts the previous one back. */
@@ -459,6 +485,44 @@ export function CalendarEventExtras({
             {leadLabel(lead)}
           </Button>
         ))}
+        {minutes
+          .filter(lead => !(CALENDAR_REMINDER_MINUTES as readonly number[]).includes(lead))
+          .map(lead => (
+            <Button
+              key={`custom-${lead}`}
+              size="sm"
+              variant="primary"
+              aria-pressed
+              disabled={rev === null || readOnly || savingReminders}
+              onClick={() => { toggle(lead) }}
+            >
+              {leadLabel(lead)}
+            </Button>
+          ))}
+      </div>
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <Input
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={MAX_REMINDER_MINUTES}
+          step={1}
+          value={customReminder}
+          aria-label={t('calendar.extras.custom_reminder')}
+          placeholder={t('calendar.extras.custom_reminder_hint', { days: MAX_REMINDER_MINUTES / 1440 })}
+          disabled={rev === null || readOnly || savingReminders}
+          className="h-8 min-w-0 flex-1 text-[length:var(--text-12)]"
+          onChange={event => setCustomReminder(event.target.value)}
+          onKeyDown={(event) => { commitOnEnter(event, addCustomReminder) }}
+        />
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={!customReminder.trim() || rev === null || readOnly || savingReminders}
+          onClick={addCustomReminder}
+        >
+          {t('calendar.extras.add_reminder')}
+        </Button>
       </div>
       {rev !== null && minutes.length === 0 && (
         <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
