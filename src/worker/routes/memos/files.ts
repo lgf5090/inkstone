@@ -156,9 +156,14 @@ async function fileAccessForRow(
 
 // A public file cannot be revoked by a cache, so it gets a short window instead of `immutable`.
 const PUBLIC_FILE_CACHE = 'public, max-age=60, must-revalidate'
+// An authenticated read is cached in the reader's own browser only. `no-store` made every revisit
+// of a memo download the whole image again even though the response carries an ETag; a short private
+// window keeps the ETag useful while still expiring soon after a share is revoked or an account is
+// signed out.
+const PRIVATE_FILE_CACHE = 'private, max-age=300, must-revalidate'
 
 function cacheControlFor(access: FileAccess): string {
-  return access === 'public' ? PUBLIC_FILE_CACHE : 'private, no-store'
+  return access === 'public' ? PUBLIC_FILE_CACHE : PRIVATE_FILE_CACHE
 }
 
 function contentDisposition(contentType: string, filename: string): string {

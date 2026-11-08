@@ -293,6 +293,31 @@ describe('memo writes', () => {
     expect(useMemos.getState().detail).toEqual(saved)
   })
 
+  it('does not reset the feed when a patch only rewrites the body', async () => {
+    const original = memo()
+    await seed([original])
+    select(original)
+    const beforeList = revisionOf('list')
+    const beforeStats = revisionOf('stats')
+    const saved = memo({ content: 'edited', rev: 2 })
+    api.patch.mockResolvedValueOnce(saved)
+    const result = await useMemos.getState().patch(original.id, { rev: 1, content: 'edited' })
+    expect(result).toEqual(saved)
+    expect(revisionOf('list')).toBe(beforeList)
+    expect(revisionOf('stats')).toBe(beforeStats + 1)
+    const message = FakeBroadcastChannel.instances[0]?.messages.at(-1) as { domains: string[] } | undefined
+    expect(message?.domains).toContain('list')
+  })
+
+  it('still resets the feed when a patch can move the memo', async () => {
+    const original = memo()
+    await seed([original])
+    const beforeList = revisionOf('list')
+    api.patch.mockResolvedValueOnce(memo({ pinned: true, rev: 2 }))
+    await useMemos.getState().patch(original.id, { rev: 1, pinned: true })
+    expect(revisionOf('list')).toBe(beforeList + 1)
+  })
+
   it('rolls a patch back when the write fails', async () => {
     const original = memo()
     await seed([original])

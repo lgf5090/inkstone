@@ -35,6 +35,8 @@ export {
 
 const MEMO_LIST_WRITE_DOMAINS: readonly MemoDomain[] = ['list', 'detail', 'stats']
 const MEMO_DELETE_WRITE_DOMAINS: readonly MemoDomain[] = ['list', 'detail', 'stats', 'attachments']
+const MEMO_CONTENT_WRITE_DOMAINS: readonly MemoDomain[] = ['stats']
+const MEMO_ORDER_FIELDS = ['pinned', 'state', 'visibility', 'spaceId', 'createdAt', 'updatedAt'] as const
 const MEMO_FOCUS_DOMAINS: readonly MemoDomain[] = ['list', 'detail', 'stats']
 const MEMO_CHANNEL_NAME = 'inkstone.memos'
 const MEMO_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'
@@ -254,9 +256,18 @@ function publishMemoMutation(domains: readonly MemoDomain[]): void {
   }
 }
 
-function afterMutation(domains: readonly MemoDomain[]): void {
-  for (const domain of domains) bump(domain)
-  publishMemoMutation(domains)
+function afterMutation(local: readonly MemoDomain[], broadcast: readonly MemoDomain[] = local): void {
+  for (const domain of local) bump(domain)
+  publishMemoMutation(broadcast)
+}
+
+/**
+ * A patch that only rewrites the body keeps the memo where it is. Bumping `list` for it would make
+ * the feed refetch its first page, discarding every page already loaded and scrolling the reader
+ * back — so the local bump is limited to the statistics, while other tabs still hear about `list`.
+ */
+function patchChangesMembership(input: MemoPatchInput): boolean {
+  return MEMO_ORDER_FIELDS.some((field) => input[field] !== undefined)
 }
 
 export const useMemos = create<MemosState>()((set, get) => {
@@ -420,9 +431,11 @@ export const useMemos = create<MemosState>()((set, get) => {
           detail: state.detail?.id === id ? saved : state.detail,
           conflict: state.conflict?.memoId === id ? null : state.conflict,
         }))
-        afterMutation(input.attachmentIds
+        const domains: readonly MemoDomain[] = input.attachmentIds
           ? [...MEMO_LIST_WRITE_DOMAINS, 'attachments']
-          : MEMO_LIST_WRITE_DOMAINS)
+          : MEMO_LIST_WRITE_DOMAINS
+        if (patchChangesMembership(input)) afterMutation(domains)
+        else afterMutation(MEMO_CONTENT_WRITE_DOMAINS, domains)
         return saved
       } catch (error) {
         const message = t('api.error.conflict')
