@@ -7058,9 +7058,6 @@ const allowed = new Map([
     "/** A deleted request takes its conversation with it. */",
     "// A second connect/disconnect while the ticket was in flight owns the session now.",
   ]],
-  ["src/client/features/development/database/StudioApp.tsx", [
-    "// beforeunload is the forced browser API a Dialog cannot replace; it is scoped to an unsaved local SQLite file.",
-  ]],
   ["src/client/features/development/certhub/CerthubApp.tsx", [
     "/**\n * One domain line of the request form. The label lives on the `Checkbox` itself: an earlier version\n * wrapped the control in a `<label>` that also printed the same string, so every checkbox read twice.\n */",
     "// Reject a bad domain here rather than travelling to the server for the same answer: the server still",
@@ -7070,6 +7067,9 @@ const allowed = new Map([
   ["src/client/features/development/certhub/events.ts", [
     "// A kind the catalog does not know yet must not leak its dotted key onto the page: the event list is",
     "// rendered for any stored row, including ones written by a newer worker.",
+  ]],
+  ["src/client/features/development/database/StudioApp.tsx", [
+    "// beforeunload is the forced browser API a Dialog cannot replace; it is scoped to an unsaved local SQLite file.",
   ]],
   ["src/client/features/development/icons/IconsApp.tsx", [
     "// The tuple below is the exact filter surface; the browse object also carries view settings that",
