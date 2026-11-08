@@ -32,13 +32,13 @@ async function installed(): Promise<DatabaseSync> {
 }
 
 describe('development icons schema', () => {
-  it('declares 320, 321, 327 and 328 exactly once and keeps 328 as the maximum', () => {
+  it('declares 320, 321, 327 and 328 exactly once and keeps 329 as the maximum', () => {
     const versions = SCHEMA_MIGRATIONS.map((migration) => migration.version)
     for (const version of [320, 321, 327, 328]) {
       expect(versions.filter((entry) => entry === version)).toHaveLength(1)
     }
     expect(new Set(versions).size).toBe(versions.length)
-    expect(Math.max(...versions)).toBe(328)
+    expect(Math.max(...versions)).toBe(329)
   })
 
   it('keeps every development_icons_ statement inside the icon migrations', () => {

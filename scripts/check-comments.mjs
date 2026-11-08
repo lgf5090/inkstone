@@ -40309,6 +40309,10 @@ const allowed = new Map([
     "// The row expires with the idle window regardless; a failed cleanup must not fail the socket.",
     "// Checked before the ticket is consumed so a refused upgrade can be retried with the same ticket.",
   ]],
+  ["src/worker/development/certhub/worker.ts", [
+    "// DELETE ... LIMIT is an SQLite extension this deployment cannot rely on, so the cap lives on a",
+    "// SELECT subquery: the oldest finished jobs go first and the batch stays bounded per tick.",
+  ]],
   ["src/worker/development/icons/bulk-import.ts", [
     "/** Names this job will walk (the missing subset for a fill-missing job). */",
     "/** Names in the whole collection, so the drill-down can report the true set size. */",
@@ -44683,6 +44687,7 @@ const allowed = new Map([
     "// Offline, timed out, DNS failure, or a body that never finished: the caller draws a letter.",
     "// The cap is applied while reading: reading the whole body first let a host answer with an",
     "// arbitrarily large image and only then be rejected, which is a memory exhaustion primitive.",
+    "// The body is already over the cap and is being discarded; a failed cancel cannot change this answer.",
   ]],
   ["src/worker/tools/password/r2.ts", [
     "/**\n * R2 storage helpers for Password Manager backups.\n *\n * Backups are ciphertext snapshots. Plaintext exports never reach the server: the client already\n * holds the decrypted rows and downloads the file itself, so there is no export object to retain or\n * sweep.\n *\n * Path invariant: `tools/password/backup/${userId}/${backupId}.json`\n */",
@@ -51654,6 +51659,9 @@ const allowed = new Map([
     "// `.tsx` joins `.ts` here because the organizer's icon picker is a component and its test",
     "// spoke the component suffix — under the old pair of globs that file was collected by no",
     "// project at all and never ran once. The scratch-probe marker (`*.tmp.*`) stays excluded.",
+    "// A package may also name the file itself (`@resvg/resvg-wasm/index_bg.wasm`); its `exports`",
+    "// map decides the real path, and Node's own wasm loader would otherwise try to resolve the",
+    "// module's imports as packages (`wbg`) instead of handing back a module.",
   ]],
 ])
 const found = new Map()

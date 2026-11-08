@@ -128,8 +128,13 @@ async function renewCertificates(env: Env, db: D1Database): Promise<void> {
 async function cleanup(db: D1Database): Promise<void> {
   const before = Date.now() - CERTHUB_LIMITS.eventRetentionDays * 86_400_000
   await pruneEvents(db, before, CERTHUB_LIMITS.cleanupPerTick)
-  await db.prepare(`DELETE FROM development_certhub_jobs WHERE status IN ('done','failed','dead','canceled')
-    AND updated_at < ?1 LIMIT 500`).bind(Date.now() - 30 * 86_400_000).run()
+  // DELETE ... LIMIT is an SQLite extension this deployment cannot rely on, so the cap lives on a
+  // SELECT subquery: the oldest finished jobs go first and the batch stays bounded per tick.
+  await db.prepare(`DELETE FROM development_certhub_jobs WHERE id IN (
+    SELECT id FROM development_certhub_jobs
+    WHERE status IN ('done','failed','dead','canceled') AND updated_at < ?1
+    ORDER BY updated_at LIMIT 500
+  )`).bind(Date.now() - 30 * 86_400_000).run()
 }
 
 export async function runCerthubTick(env: Env, scheduledTime: number): Promise<void> {

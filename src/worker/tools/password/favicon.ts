@@ -62,7 +62,9 @@ export async function fetchFavicon(domain: string): Promise<FaviconResult | null
         if (done) break
         total += value.byteLength
         if (total > MAX_ICON_BYTES) {
-          await reader.cancel().catch(() => {})
+          await reader.cancel().catch(() => {
+            // The body is already over the cap and is being discarded; a failed cancel cannot change this answer.
+          })
           return null
         }
         chunks.push(value)
