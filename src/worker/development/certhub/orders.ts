@@ -2,10 +2,11 @@ import type { Env } from '../../env'
 import { ApiError } from '../../lib/errors'
 import { newId } from '../../lib/id'
 import { CERTHUB_LIMITS } from '@shared/development/certhub/limits'
-import { subjectFromInput, validateDomainRows } from '@shared/development/certhub/validation'
+import { subjectFromInput, validateDomainRows, type ValidatedDomain } from '@shared/development/certhub/validation'
 import type { CerthubActor, CerthubOrderView } from '@shared/development/certhub/types'
 import { ensureAccount } from './accounts'
 import { assertCanCreateOrder, recordOrderCreated } from './quota'
+import { certhubValidationApiError } from './validation-error'
 import {
   appendEvent,
   enqueueJob,
@@ -41,7 +42,7 @@ export async function createOrderForUser(
   idempotencyKey: string,
   environment: 'production' | 'staging',
 ): Promise<CreatedOrder> {
-  const domains = validateDomainRows(body.domains)
+  const domains = parseDomains(body.domains)
   const settings = await readSettings(db, userId)
   const ca = body.ca ?? settings.defaultCa
   const keyAlgorithm = body.keyAlgorithm ?? settings.defaultKeyAlgorithm
@@ -140,4 +141,12 @@ export async function createOrderForUser(
 
 export function orderLimit(): number {
   return CERTHUB_LIMITS.maxDomainsPerOrder
+}
+
+function parseDomains(rows: CreateOrderInput['domains']): ValidatedDomain[] {
+  try {
+    return validateDomainRows(rows)
+  } catch (error) {
+    throw certhubValidationApiError(error) ?? error
+  }
 }
