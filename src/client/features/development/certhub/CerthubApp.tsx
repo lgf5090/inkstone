@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BadgeCheck, CalendarClock, CircleAlert, CircleCheck, CircleHelp, Clock3, Download, FileKey2, History, Plus, RefreshCw, ShieldCheck, Trash2, type LucideIcon } from 'lucide-react'
-import { request } from '../../../lib/api'
+import { ApiError, request } from '../../../lib/api'
 import { navigateToPath, replaceAddress, usePathname, useSearch } from '../../../lib/app-history'
 import { orderSortFromSearch } from '../../../../shared/development/certhub/sorting'
 import { t } from '../../../lib/i18n'
@@ -15,7 +15,7 @@ import { Modal, confirm, prompt } from '../../../components/overlay'
 import { Tabs } from '../../../components/tabs'
 import { CopyButton } from '../../../components/copy-button'
 import { TagPill } from '../../../components/TagChip'
-import { applyChallengeOptions, applyDomainErrorKey, dnsConnectionErrorKeys, dnsLabelErrorKey } from './rules'
+import { applyChallengeOptions, applyDomainErrorKey, dnsConnectionErrorKeys, dnsLabelErrorKey, matchProviderForDomain } from './rules'
 import { eventLabel, eventStyle, eventToneText } from './events'
 import { HelpButton } from './help'
 import { relativeTime } from '../../../lib/time'
@@ -576,7 +576,7 @@ function failureHint(code: string | null): string {
   return text === key ? t('development.certhub.failure.unknown' as never) : text
 }
 
-interface DomainForm { id: string; name: string; wildcard: boolean; primary: boolean; challengeMode: 'dns-01' | 'http-01'; dnsProviderId: string }
+interface DomainForm { id: string; name: string; wildcard: boolean; primary: boolean; challengeMode: 'dns-01' | 'http-01'; dnsProviderId: string; providerPinned?: boolean }
 
 /**
  * One domain line of the request form. The label lives on the `Checkbox` itself: an earlier version
@@ -621,6 +621,17 @@ function ApplyPage({ compact }: { compact: boolean }) {
   const captchaRef = useRef<HTMLDivElement>(null)
   useEffect(() => { api<{ items: CerthubDnsProviderView[] }>('/dns-providers').then((data) => setProviders(data.items)).catch(() => setProviders([])) }, [])
   useEffect(() => { api<CerthubOverview>('/overview').then((data) => setQuota(data.quota)).catch(() => setQuota(null)) }, [])
+  // A provider that covers the typed domain is the one the automatic path can actually write to.
+  // The fill only touches rows the reader has not pinned: choosing the manual option explicitly is a
+  // decision, and a later keystroke in the name must not silently undo it.
+  useEffect(() => {
+    if (providers.length === 0) return
+    setDomains((current) => current.map((row) => {
+      if (row.providerPinned) return row
+      const matched = matchProviderForDomain(row.name, providers)
+      return matched && matched !== row.dnsProviderId ? { ...row, dnsProviderId: matched } : row
+    }))
+  }, [providers])
   const quotaReached = Boolean(quota && ((quota.maxActiveCerts > 0 && quota.activeCerts >= quota.maxActiveCerts) || (quota.dailyLimit > 0 && quota.dailyUsed >= quota.dailyLimit)))
   useEffect(() => {
     api<{ captcha: { enabled: boolean; siteKey: string } }>('/health')
@@ -647,7 +658,13 @@ function ApplyPage({ compact }: { compact: boolean }) {
       if (widgetId && scope.turnstile) scope.turnstile.remove(widgetId)
     }
   }, [captcha.enabled, captcha.siteKey])
-  const update = (id: string, patch: Partial<DomainForm>) => setDomains((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row))
+  const update = (id: string, patch: Partial<DomainForm>) => setDomains((current) => current.map((row) => {
+    if (row.id !== id) return row
+    const next = { ...row, ...patch }
+    if (patch.dnsProviderId !== undefined) next.providerPinned = true
+    else if (patch.name !== undefined && !row.providerPinned) next.dnsProviderId = matchProviderForDomain(patch.name, providers)
+    return next
+  }))
   const submit = async () => {
     // Reject a bad domain here rather than travelling to the server for the same answer: the server still
     // validates (a crafted request must not get past it), this is only the first gate.
