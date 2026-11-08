@@ -40,6 +40,13 @@ export async function searchUserNotes(
   if (ftsEnabled && query.terms.length && !query.trash) {
     try {
       const ftsHits = await ftsSearch(store, query, limit)
+      // `unicode61` tokenises by word separators, and Chinese, Japanese and Korean prose has
+      // none: a whole clause becomes one token, so a mid-sentence term the reader typed does
+      // not match. Zero FTS hits for a CJK query is therefore not "no such note"; the LIKE
+      // pass answers it. The scan is paid only on that empty branch, not on every query.
+      if (!ftsHits.length && queryNeedsLikeFallback(query.terms)) {
+        return { results: await likeSearch(store, query, limit), mode: 'like', query }
+      }
       const pendingNoteIds = await store.pendingFtsNoteIds()
       if (!pendingNoteIds.length) {
         return { results: ftsHits, mode: 'fts', query }
@@ -67,6 +74,16 @@ export async function searchUserNotes(
     }
   }
   return { results: await likeSearch(store, query, limit), mode: 'like', query }
+}
+
+/**
+ * Whether a query has characters `unicode61` cannot split into words.
+ *
+ * Kana and the CJK ideographic blocks all run without separators, so an FTS miss on one of
+ * them is not proof the text is absent. Exported for the unit test that pins the ranges.
+ */
+export function queryNeedsLikeFallback(terms: readonly string[]): boolean {
+  return terms.some((term) => /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(term))
 }
 
 async function ftsSearch(store: SearchStore, q: ParsedQuery, limit: number): Promise<SearchHit[]> {
