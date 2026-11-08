@@ -33,7 +33,7 @@ import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWi
 import { requireAuth } from '../middleware/auth'
 import { originOf } from '../lib/notify'
 import { broadcastProjectChange } from './realtime'
-import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectBoardArchive } from './archive'
+import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAccountArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireCard, requireComment, requireContent, requireView } from './auth'
 import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
 import { readProjectBoardBundle } from './bundle'
@@ -399,6 +399,13 @@ projectRoutes.post('/boards/import', async (c) => {
   assertDeclaredBodySize(c.req, FORM_BODY_LIMITS.import)
   const bytes = await readBytesWithinLimit(c.req.raw.body, FORM_BODY_LIMITS.import)
   return c.json(await importProjectBoardArchive(c.env.DB, userId, bytes, Date.now()), 201)
+})
+
+projectRoutes.post('/boards/import-account', async (c) => {
+  const userId = projectUserId(c)
+  assertDeclaredBodySize(c.req, FORM_BODY_LIMITS.import)
+  const bytes = await readBytesWithinLimit(c.req.raw.body, FORM_BODY_LIMITS.import)
+  return c.json({ boards: await importProjectAccountArchive(c.env.DB, userId, bytes, Date.now()) }, 201)
 })
 
 projectRoutes.get('/boards/:id/members', async (c) => {

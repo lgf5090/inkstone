@@ -6,7 +6,7 @@
  * accounts rather than trusted blindly.
  */
 import { strFromU8, strToU8, unzipSync, zipSync, type Unzipped } from 'fflate'
-import type { ProjectBoard, ProjectBoardSummary, ProjectRole } from '@shared/project/model'
+import type { ProjectBoard, ProjectBoardBundle, ProjectBoardSummary, ProjectRole } from '@shared/project/model'
 import { PROJECT_ROLES } from '@shared/project/model'
 import {
   PROJECT_ARCHIVE_VERSION,
@@ -20,6 +20,7 @@ import { projectArchiveLinesToImport, projectBundleToArchiveLines } from '@share
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { ApiError } from '../lib/errors'
 import { readProjectBoardBundle } from './bundle'
+import { duplicateProjectBoard } from './duplicate'
 import { ProjectStore } from './store'
 
 export async function exportProjectBoardArchive(
@@ -46,6 +47,33 @@ export async function exportProjectAccountArchive(db: D1Database, userId: string
     files[`${board.id}/board.jsonl`] = strToU8(serializeProjectArchiveLines(projectBundleToArchiveLines(bundle)))
   }
   return zipSync(files)
+}
+
+/** Whole-account import: every board.jsonl in the ZIP becomes a fresh board (ids remapped). */
+export async function importProjectAccountArchive(db: D1Database, userId: string, bytes: Uint8Array, now: number): Promise<ProjectBoardSummary[]> {
+  const files = unzipSync(bytes)
+  const jsonlNames = Object.keys(files).filter((name) => name.endsWith('board.jsonl'))
+  if (jsonlNames.length === 0) throw ApiError.badRequest('archive ZIP has no board.jsonl')
+  const created: ProjectBoardSummary[] = []
+  for (const name of jsonlNames) {
+    const imported = projectArchiveLinesToImport(parseProjectArchiveLines(strFromU8(files[name]!)))
+    const bundle: ProjectBoardBundle = {
+      board: {
+        id: imported.board.id, ownerId: userId, type: imported.board.type, minimumRole: imported.board.minimumRole as ProjectBoard['minimumRole'],
+        title: imported.board.title, description: imported.board.description, icon: imported.board.icon,
+        showDescription: imported.board.showDescription, isTemplate: false, templateVersion: 0,
+        createdBy: userId, modifiedBy: userId, createAt: now, updateAt: now, deleteAt: 0,
+      },
+      properties: imported.properties,
+      views: imported.views.map((view) => ({ ...view, boardId: imported.board.id })),
+      cards: imported.cards.map((card) => ({ ...card, parentId: '', boardId: imported.board.id })),
+      contents: imported.contents.map((content) => ({ ...content, boardId: imported.board.id })),
+      comments: imported.comments.map((comment) => ({ ...comment, boardId: imported.board.id })),
+      members: [], role: 'admin', cursor: now,
+    }
+    created.push(await duplicateProjectBoard(db, bundle, userId, now))
+  }
+  return created
 }
 
 function linesFromArchiveBytes(bytes: Uint8Array): ProjectArchiveLine[] {

@@ -41005,6 +41005,7 @@ const allowed = new Map([
     "// Not a ZIP: the reference's v1 export is a single JSON object with a blocks array.",
     "// D1 caps a batch at 1000 statements; a large board can exceed that, so the import runs in chunks.",
     "/** Whole-account export: one v2 ZIP carrying every readable board's JSONL side by side. */",
+    "/** Whole-account import: every board.jsonl in the ZIP becomes a fresh board (ids remapped). */",
   ]],
   ["src/worker/project/auth.ts", [
     "/** Every project write parses through this, so a rejected field reads the same on every route. */",

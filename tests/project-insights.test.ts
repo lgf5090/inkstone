@@ -70,4 +70,21 @@ describe('account export and top boards', () => {
     expect(page.boards).toHaveLength(1)
     expect(page.has_next).toBe(true)
   })
+
+  it('round-trips a whole-account export through import-account with fresh ids', async () => {
+    const a = await makeBoard('Alpha')
+    await makeBoard('Beta')
+    await req('POST', `/boards/${a.id}/cards`, { title: 'Card A' })
+    const exported = new Uint8Array(await (await req('GET', '/export')).arrayBuffer())
+    const imported = await app.fetch(new Request('http://localhost/api/project/boards/import-account', {
+      method: 'POST', headers: { Cookie: `${LEGACY_SESSION_COOKIE}=${token}`, [CLIENT_HEADER]: '1', 'Content-Type': 'application/zip' }, body: exported as BodyInit,
+    }), env)
+    expect(imported.status).toBe(201)
+    const boards = ((await imported.json()) as { boards: ProjectBoard[] }).boards
+    expect(boards).toHaveLength(2)
+    expect(boards.map((b) => b.id)).not.toContain(a.id)
+    const withCard = boards.find((b) => b.title === 'Alpha')!
+    const bundle = ((await (await req('GET', `/boards/${withCard.id}/bundle`)).json()) as { cards: { title: string }[] })
+    expect(bundle.cards.map((c) => c.title)).toEqual(['Card A'])
+  })
 })
