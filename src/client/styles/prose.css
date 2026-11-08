@@ -3035,7 +3035,11 @@
   max-width: none;
   margin-inline: 0;
   padding-block: 0;
-  font-size: var(--prose-size, 14px);
+  /* A 340px card is a reading surface of its own: the note's column size would wrap the
+     same paragraph twice as often, so the card reads at a step down the shared scale
+     instead of squeezing the reader's chosen size into it. */
+  font-size: var(--hover-card-size, 13.5px);
+  line-height: var(--hover-card-line, 1.6);
 }
 .wiki-hover-body .ink-prose h1,
 .wiki-hover-body .ink-prose h2,

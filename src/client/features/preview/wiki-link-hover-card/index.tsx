@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Layers, Loader2, PanelLeftOpen, PanelRightOpen, Pin, X } from 'lucide-react'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
+import { Button } from '../../../components/primitives'
 import { Menu } from '../../../components/overlay'
 import { PINNED_MENU_Z, hoverCardStyle, useWikiLinkHoverCard, type WikiLinkHoverCardBundle, type WikiLinkHoverCardProps } from './use-wiki-link-hover-card'
 import { CardBacklinks } from './backlinks'
@@ -78,7 +79,7 @@ function CardHeader({ b }: { b: WikiLinkHoverCardBundle }) {
 }
 
 function CardBody({ b }: { b: WikiLinkHoverCardBundle }) {
-  const { status, htmlObj, isTruncated, pinned, pinnedRect, backlinks, openBacklink } = b
+  const { status, htmlObj, isTruncated, pinned, pinnedRect, backlinks, openBacklink, openInCurrentPane } = b
   if (b.card.link) return <LinkPreviewBody preview={b.card.link} onClose={b.onClose}/>
   if (status === 'loading') {
     return (
@@ -112,8 +113,19 @@ function CardBody({ b }: { b: WikiLinkHoverCardBundle }) {
         <div className="ink-prose" dangerouslySetInnerHTML={htmlObj}/>
       </div>
       {isTruncated && (
-        <div className="border-t border-[var(--border-subtle)] px-3 py-1.5 text-center text-[length:var(--text-11)] tracking-widest text-[var(--text-quaternary)]">
-          ···
+        // The card cuts the body at the reader's preview length, so the ellipsis alone would
+        // be a dead end. This is the one control that turns that cut into a way through: it
+        // opens the note the card was drawn from, in the pane the reader is already reading.
+        <div className="border-t border-[var(--border-subtle)] p-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            block
+            onClick={openInCurrentPane}
+            aria-label={t('preview.read_whole_note')}
+          >
+            {t('preview.read_whole_note')}
+          </Button>
         </div>
       )}
       {backlinks && backlinks.length > 0 && <CardBacklinks links={backlinks} onOpen={openBacklink}/>}
