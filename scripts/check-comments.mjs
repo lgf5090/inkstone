@@ -47049,6 +47049,9 @@ const allowed = new Map([
     "// The accessible name is the button's own content: a wrapping `<label>` would add a second copy",
     "// outside the control and leave the name unchanged, which is what made this hard to notice.",
   ]],
+  ["tests/certhub-help.test.tsx", [
+    "/**\n * The per-page guide: every topic has to speak both languages, and the drawer has to move between\n * topics and close again. A missing key would otherwise print `development.certhub.help.…` at a\n * reader, which is the failure this module exists to prevent.\n */",
+  ]],
   ["tests/certhub-overview-tokens.test.tsx", [
     "/**\n * The token list and the activity feed: the two places the deployed walkthrough saw raw values.\n *\n * A revoked token kept its \"Revoke\" button and showed no scopes; the activity feed printed\n * `token.revoked` twice and never said what happened in Chinese.\n */",
   ]],

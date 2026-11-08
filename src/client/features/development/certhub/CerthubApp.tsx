@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BadgeCheck, CalendarClock, CircleAlert, CircleCheck, Clock3, Download, FileKey2, History, Plus, RefreshCw, ShieldCheck, Trash2, type LucideIcon } from 'lucide-react'
+import { BadgeCheck, CalendarClock, CircleAlert, CircleCheck, CircleHelp, Clock3, Download, FileKey2, History, Plus, RefreshCw, ShieldCheck, Trash2, type LucideIcon } from 'lucide-react'
 import { request } from '../../../lib/api'
 import { navigateToPath, replaceAddress, usePathname, useSearch } from '../../../lib/app-history'
 import { orderSortFromSearch } from '../../../../shared/development/certhub/sorting'
@@ -17,6 +17,7 @@ import { CopyButton } from '../../../components/copy-button'
 import { TagPill } from '../../../components/TagChip'
 import { applyChallengeOptions, applyDomainErrorKey, dnsConnectionErrorKeys, dnsLabelErrorKey } from './rules'
 import { eventLabel, eventStyle, eventToneText } from './events'
+import { HelpButton } from './help'
 import { relativeTime } from '../../../lib/time'
 import type {
   CerthubAccountView,
@@ -140,9 +141,12 @@ export function CerthubApp() {
           label={t('development.certhub.module_name')}
           className="max-w-full"
         />
-        <Button size="sm" icon={<Plus size={14} />} onClick={() => navigateToPath('/development/certhub/new')}>
-          {t('development.certhub.cert.new')}
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <HelpButton topic={view === 'detail' ? 'certificates' : view} />
+          <Button size="sm" icon={<Plus size={14} />} onClick={() => navigateToPath('/development/certhub/new')}>
+            {t('development.certhub.cert.new')}
+          </Button>
+        </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-5">
         {view === 'overview' ? <OverviewPage compact={compact} /> : null}
@@ -197,7 +201,9 @@ function OverviewPage({ compact }: { compact: boolean }) {
   const certUsage = quotaRatio(quota?.activeCerts, quota?.maxActiveCerts)
   const dailyUsage = quotaRatio(quota?.dailyUsed, quota?.dailyLimit)
   return (
-    <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]')}>
+    <div className="space-y-3">
+      <IntroCard />
+      <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]')}>
       <div className="min-w-0 space-y-3">
         <Panel title={t('development.certhub.overview.title')} subtitle={t('development.certhub.overview.subtitle')}>
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -242,6 +248,35 @@ function OverviewPage({ compact }: { compact: boolean }) {
         <Panel title={t('development.certhub.overview.recent')}>
           {data?.recentEvents.length ? <EventList events={data.recentEvents} /> : <Empty art="search" title={t('development.certhub.detail.no_events')} compact />}
         </Panel>
+      </div>
+      </div>
+    </div>
+  )
+}
+
+const INTRO_DISMISSED_KEY = 'certhub.intro.dismissed'
+
+function IntroCard() {
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem(INTRO_DISMISSED_KEY) === '1' } catch { return false }
+  })
+  if (dismissed) return null
+  const dismiss = () => {
+    try { localStorage.setItem(INTRO_DISMISSED_KEY, '1') } catch {}
+    setDismissed(true)
+  }
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 rounded-[var(--r-xl)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3 md:p-4">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <CircleHelp size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--accent)]" />
+        <div className="min-w-0">
+          <p className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('development.certhub.intro.title')}</p>
+          <p className="mt-1 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">{t('development.certhub.intro.body')}</p>
+        </div>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        <Button size="sm" onClick={() => navigateToPath('/development/certhub/new')}>{t('development.certhub.intro.start')}</Button>
+        <Button size="sm" variant="ghost" onClick={dismiss}>{t('development.certhub.intro.skip')}</Button>
       </div>
     </div>
   )
@@ -436,6 +471,17 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
           {order.hasPrivateKey ? <Button size="sm" variant="ghost" onClick={async () => { if (await typedConfirm(t('development.certhub.detail.confirm_purge'), order.id)) runAction('purge_key') }}>{t('development.certhub.detail.purge')}</Button> : null}
           {['failed', 'canceled', 'revoked', 'expired'].includes(order.status) ? <Button size="sm" variant="ghost" onClick={async () => { if (await typedConfirm(t('development.certhub.detail.confirm_delete'), order.id)) runAction('delete', { confirm: order.id }) }}>{t('development.certhub.detail.delete')}</Button> : null}
         </div>
+        {order.status === 'failed' ? (
+          <div className="mb-3 rounded-[var(--r-md)] border border-[var(--danger)] bg-[color-mix(in_oklab,var(--danger)_10%,transparent)] p-3">
+            <div className="flex items-center gap-1.5 text-[var(--danger)]">
+              <CircleAlert size={14} aria-hidden="true" />
+              <span className="text-[length:var(--text-12-5)] font-medium">{t('development.certhub.failure.title')}</span>
+            </div>
+            {order.failureMessage ? <p className="mt-1 break-words text-[length:var(--text-12)] text-[var(--text-secondary)]">{order.failureMessage}</p> : null}
+            <p className="mt-1 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">{failureHint(order.failureCode)}</p>
+            <div className="mt-2"><Button size="sm" onClick={() => navigateToPath('/development/certhub/new')}>{t('development.certhub.failure.retry')}</Button></div>
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-2 text-[length:var(--text-12)]">
           <Info label={t('development.certhub.apply.ca')} value={order.ca} />
           <Info label={t('development.certhub.apply.algorithm')} value={order.keyAlgorithm} />
@@ -517,6 +563,12 @@ function eventSubject(event: CerthubEventView, fallback?: string): string {
   const value = candidate.trim()
   // An event row can outlive the order it describes; a raw identifier is worse than nothing.
   return value === event.orderId || value === event.id ? '' : value
+}
+
+function failureHint(code: string | null): string {
+  const key = `development.certhub.failure.${code ?? 'unknown'}`
+  const text = t(key as never)
+  return text === key ? t('development.certhub.failure.unknown' as never) : text
 }
 
 interface DomainForm { id: string; name: string; wildcard: boolean; primary: boolean; challengeMode: 'dns-01' | 'http-01'; dnsProviderId: string }
@@ -644,8 +696,8 @@ function ApplyPage({ compact }: { compact: boolean }) {
         </div>
         <div className="min-w-0 space-y-3">
           <SectionLabel>{t('development.certhub.apply.step_settings')}</SectionLabel>
-          <Field label={t('development.certhub.apply.ca')}><SelectMenu label={t('development.certhub.apply.ca')} value={ca} options={CA_OPTIONS.filter((option) => !option.disabled)} onChange={setCa} /></Field>
-          <Field label={t('development.certhub.apply.algorithm')}><SelectMenu label={t('development.certhub.apply.algorithm')} value={algorithm} options={ALGORITHM_OPTIONS} onChange={setAlgorithm} /></Field>
+          <Field label={t('development.certhub.apply.ca')} hint={t('development.certhub.apply.ca_hint')}><SelectMenu label={t('development.certhub.apply.ca')} value={ca} options={CA_OPTIONS.filter((option) => !option.disabled)} onChange={setCa} /></Field>
+          <Field label={t('development.certhub.apply.algorithm')} hint={t('development.certhub.apply.algorithm_hint')}><SelectMenu label={t('development.certhub.apply.algorithm')} value={algorithm} options={ALGORITHM_OPTIONS} onChange={setAlgorithm} /></Field>
           <div className="flex items-center justify-between gap-2"><span className="text-[length:var(--text-12)]">{t('development.certhub.apply.auto_renew')}</span><Switch checked={autoRenew} onChange={setAutoRenew} label={t('development.certhub.apply.auto_renew')} /></div>
           <SectionLabel>{t('development.certhub.apply.subject')}</SectionLabel>
           <div className="grid grid-cols-2 gap-2">
