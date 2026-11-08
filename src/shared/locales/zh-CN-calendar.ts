@@ -167,6 +167,8 @@ export const ZH_CN_CALENDAR = {
   'calendar.event.all_day': '全天',
   'calendar.event.no_color': '自动',
   'calendar.event.copy_to': '复制到其他日历',
+  'calendar.event.duplicate': '复制日程（顺延一天）',
+  'calendar.event.duplicate_failed': '复制日程失败',
   'calendar.event.move_to': '移动到其他日历',
   'calendar.event.copy': '复制',
   'calendar.event.move': '移动',

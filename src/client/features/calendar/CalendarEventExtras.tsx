@@ -21,7 +21,7 @@ import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
-import { X, Trash2, Copy, FolderInput, BookmarkPlus, Video } from 'lucide-react'
+import { X, Trash2, Copy, CopyPlus, FolderInput, BookmarkPlus, Video } from 'lucide-react'
 import * as api from './api'
 import { CALENDAR_COLOR_PRESETS } from './model'
 import { CalendarFilePicker } from './CalendarFilePicker'
@@ -29,7 +29,7 @@ import { CalendarEventTransferDialog } from './CalendarEventTransferDialog'
 import { CalendarTemplatesDialog } from './CalendarTemplatesDialog'
 import { CalendarTimeZoneField } from './CalendarTimeZoneField'
 import { addAttendee, normalizeAttendeeEmail, withAttendeeStatus, withoutAttendee } from './attendees'
-import { eventTimeZone, reanchorValue } from './timezone'
+import { eventTimeZone, reanchorValue, shiftTemporalValue } from './timezone'
 
 interface CalendarEventExtrasProps {
   eventId: string
@@ -87,6 +87,7 @@ export function CalendarEventExtras({
   const [savingColor, setSavingColor] = useState(false)
   const [savingConference, setSavingConference] = useState(false)
   const [savingSnooze, setSavingSnooze] = useState(false)
+  const [savingDuplicate, setSavingDuplicate] = useState(false)
   const [contacts, setContacts] = useState<Array<{ name: string; email: string }>>([])
   const contactListId = useId()
   const [draft, setDraft] = useState('')
@@ -111,6 +112,7 @@ export function CalendarEventExtras({
     setSavingColor(false)
     setSavingConference(false)
     setSavingSnooze(false)
+    setSavingDuplicate(false)
     setDraft('')
     setError(null)
     void (async () => {
@@ -344,6 +346,42 @@ export function CalendarEventExtras({
     }))
   }
 
+  /**
+   * A copy is created a day later than the row it came from: duplicating onto the same slot would
+   * only stack two identical blocks and hide the one the reader just made.
+   */
+  const duplicate = (): void => {
+    if (!event || readOnly || savingDuplicate) return
+    setSavingDuplicate(true)
+    setError(null)
+    const input = {
+      id: crypto.randomUUID(),
+      title: event.title,
+      description: event.description,
+      kind: event.kind,
+      conference: event.conference,
+      start: shiftTemporalValue(event.start, 1),
+      end: shiftTemporalValue(event.end, 1),
+      allDay: event.allDay,
+      calendarId: event.calendarId,
+      calendarIds: event.calendarIds,
+      meta: event.meta,
+      icon: event.icon,
+      color: event.color,
+      recurrenceRule: null,
+    }
+    void api.createEvent(input)
+      .then((saved) => {
+        useUi.getState().toast({ title: t('calendar.event.copied'), tone: 'success' })
+        onRevision(saved.id, saved.rev)
+        onChanged(saved.id)
+      })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error && cause.message ? cause.message : t('calendar.event.duplicate_failed'))
+      })
+      .finally(() => setSavingDuplicate(false))
+  }
+
   const zone = event ? eventTimeZone(event.start, accountTimeZone) : null
   const startMillis = event ? Number(temporalValueToEpochMs(event.start, accountTimeZone)) : 0
 
@@ -355,6 +393,14 @@ export function CalendarEventExtras({
         </h3>
         <IconButton label={t('calendar.event.copy_to')} size="sm" disabled={!event} onClick={() => setTransfer('copy')}>
           <Copy size={13} aria-hidden="true" />
+        </IconButton>
+        <IconButton
+          label={t('calendar.event.duplicate')}
+          size="sm"
+          disabled={!event || readOnly || savingDuplicate}
+          onClick={duplicate}
+        >
+          <CopyPlus size={13} aria-hidden="true" />
         </IconButton>
         <IconButton label={t('calendar.event.move_to')} size="sm" disabled={readOnly || sharedEvent || !event} onClick={() => setTransfer('move')}>
           <FolderInput size={13} aria-hidden="true" />

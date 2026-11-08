@@ -165,6 +165,8 @@ export const EN_US_CALENDAR = {
   'calendar.event.all_day': 'All day',
   'calendar.event.no_color': 'Automatic',
   'calendar.event.copy_to': 'Copy to another calendar',
+  'calendar.event.duplicate': 'Duplicate event (next day)',
+  'calendar.event.duplicate_failed': 'Could not duplicate the event',
   'calendar.event.move_to': 'Move to another calendar',
   'calendar.event.copy': 'Copy',
   'calendar.event.move': 'Move',
