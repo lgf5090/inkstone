@@ -7014,6 +7014,16 @@ const allowed = new Map([
     "// The peer may already be gone; the session state below is what the user sees either way.",
     "/** A deleted request takes its conversation with it. */",
   ]],
+  ["src/client/features/development/certhub/CerthubApp.tsx", [
+    "/**\n * One domain line of the request form. The label lives on the `Checkbox` itself: an earlier version\n * wrapped the control in a `<label>` that also printed the same string, so every checkbox read twice.\n */",
+    "// Reject a bad domain here rather than travelling to the server for the same answer: the server still",
+    "// validates (a crafted request must not get past it), this is only the first gate.",
+    "// An event row can outlive the order it describes; a raw identifier is worse than nothing.",
+  ]],
+  ["src/client/features/development/certhub/events.ts", [
+    "// A kind the catalog does not know yet must not leak its dotted key onto the page: the event list is",
+    "// rendered for any stored row, including ones written by a newer worker.",
+  ]],
   ["src/client/features/email/ComposePanel.tsx", [
     "/** The other device's copy of this draft, as a save refused it. */",
     "/** The draft write this save is typed on; a mismatch means another device saved after it. */",
@@ -47033,6 +47043,17 @@ const allowed = new Map([
     "// The real application installs `loadSession` before this router; the callback depends on that, so",
     "// the test installs the same half of it instead of letting the callback read an empty context.",
     "// The browser-facing DTO is sanitized: base address and username stay server-side.",
+  ]],
+  ["tests/certhub-apply-row.test.tsx", [
+    "/**\n * The request form's two visible bugs: a checkbox that printed its label twice, and a wildcard row\n * that still offered HTTP-01 even though the CA refuses it.\n */",
+    "// The accessible name is the button's own content: a wrapping `<label>` would add a second copy",
+    "// outside the control and leave the name unchanged, which is what made this hard to notice.",
+  ]],
+  ["tests/certhub-overview-tokens.test.tsx", [
+    "/**\n * The token list and the activity feed: the two places the deployed walkthrough saw raw values.\n *\n * A revoked token kept its \"Revoke\" button and showed no scopes; the activity feed printed\n * `token.revoked` twice and never said what happened in Chinese.\n */",
+  ]],
+  ["tests/certhub-root-cause.test.ts", [
+    "/**\n * The two production 500s, reproduced at the layer that caused them.\n *\n * Account registration failed for a login that is not an email: the old code built `mailto:lgf5090`,\n * which the CA rejects with \"unable to parse email address\". Domain validation threw a plain `Error`\n * that no route mapped, so the same bad input answered 500 instead of a 400 with a reason.\n */",
   ]],
   ["tests/chat-commands.test.ts", [
     "/** Where the palette hands the reader off to, so a case can name it without repeating the address. */",
