@@ -17,7 +17,9 @@ const GRID_CLASS: Record<MemoDisplayPreferences['columns'], string> = {
   1: 'grid-cols-1',
   2: 'grid-cols-1 md:grid-cols-2',
   3: 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3',
-  auto: 'grid-cols-1 md:grid-cols-2 2xl:grid-cols-3',
+  // `auto-fit` lets the available width pick the column count; the lone-card rule in `prose.css`
+  // keeps a single memo from stretching across the whole page.
+  auto: 'grid-cols-[repeat(auto-fit,minmax(min(100%,var(--memo-card-min-width)),1fr))]',
 }
 
 export interface MemoFeedPageProps {

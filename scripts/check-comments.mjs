@@ -7880,6 +7880,10 @@ const allowed = new Map([
   ["src/client/features/memos/components/MemoBody.tsx", [
     "/** A tag is only a control when the surface gives it a handler; elsewhere it is plain marked-up text. */",
   ]],
+  ["src/client/features/memos/components/MemoCard.tsx", [
+    "// A tag written in the body is already painted there as a chip; repeating it below the body gives",
+    "// one tag two different-looking chips. Sealed cards hide the body, so their tags keep the row.",
+  ]],
   ["src/client/features/memos/components/MemoCardActions.tsx", [
     "/** A point from a right-click; when present the same rows open as a context menu there. */",
   ]],
@@ -7916,8 +7920,19 @@ const allowed = new Map([
   ["src/client/features/memos/motion-photo.ts", [
     "/**\n * Pairs picked files that belong together before any upload starts.\n *\n * A Live Photo arrives as two files with one stem, and an Android Motion Photo carries its video\n * inside the JPEG. Both become one still/video group so the gallery can play the motion instead of\n * showing a second, separate attachment. Anything that does not pair uploads exactly as before.\n */",
   ]],
+  ["src/client/features/memos/pages/MemoFeedPage.tsx", [
+    "// `auto-fit` lets the available width pick the column count; the lone-card rule in `prose.css`",
+    "// keeps a single memo from stretching across the whole page.",
+  ]],
+  ["src/client/features/memos/state.ts", [
+    "/**\n * A patch that only rewrites the body keeps the memo where it is. Bumping `list` for it would make\n * the feed refetch its first page, discarding every page already loaded and scrolling the reader\n * back — so the local bump is limited to the statistics, while other tabs still hear about `list`.\n */",
+  ]],
   ["src/client/features/memos/task-toggle.ts", [
     "/** Rewrites every task marker in place, leaving indentation, quote depth and list bullets untouched. */",
+  ]],
+  ["src/client/features/memos/url-state.ts", [
+    "/** A filter expression and the sidebar's tag chip, joined the way the list endpoint expects. */",
+    "/** The feed's whole filter, including the tag chip, in the one expression a saved view stores. */",
   ]],
   ["src/client/features/memos/use-memo-recorder.ts", [
     "/** Whole seconds since this session began recording; zero while idle. */",
@@ -31172,6 +31187,8 @@ const allowed = new Map([
     "/* The diagram's own node fills are `--pele-bg`, so the block is painted with it too: a shape\n     filled with the page's inset grey on a cream block reads as a mistake in either direction. */",
     "/* Memo cards, comments and the detail panel are surfaces inside the app, not the note page: the\n   reading column's 42vh tail turned a one-line comment into a 308px card (232px of it blank). */",
     "/* A search word is a wash behind the text, not a badge: the accent tint stays readable in every\n   theme and leaves the glyph colour to the prose around it. */",
+    "/* A feed can hold hundreds of cards; letting the browser skip the layout and paint of the ones\n   outside the viewport keeps scrolling proportional to what is on screen. The intrinsic size is a\n   placeholder until a card has been measured once, so the scrollbar does not jump. */",
+    "/* A feed with one memo should not draw one card across 1100px of text: cap it and centre the track. */",
   ]],
   ["src/client/styles/reading.css", [
     "/**\n * The reading surface.\n *\n * Two things here are not decoration and are worth the comments, because both look like a bug in the\n * other direction when they are changed: the column geometry that turns flowing text into pages, and\n * the HUD's habit of floating over the page instead of reserving a row.\n */",
@@ -42756,6 +42773,10 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/memos/files.ts", [
     "// A public file cannot be revoked by a cache, so it gets a short window instead of `immutable`.",
+    "// An authenticated read is cached in the reader's own browser only. `no-store` made every revisit",
+    "// of a memo download the whole image again even though the response carries an ETag; a short private",
+    "// window keeps the ETag useful while still expiring soon after a share is revoked or an account is",
+    "// signed out.",
   ]],
   ["src/worker/routes/music-account.ts", [
     "/**\n * The optional Netease content account.\n *\n * Inkstone's own session is the application login; this is a second, optional account that only\n * unlocks personalised content. The cookie is the credential: it is validated before it is stored,\n * sealed through the credential vault, and never returned by any route. The QR image is drawn by the\n * browser from the URL the provider returns; polling only ever answers with a status and, once the\n * scan is confirmed, the profile.\n */",
@@ -48806,6 +48827,9 @@ const allowed = new Map([
   ["tests/memos-attachments.test.ts", [
     "// Only a row no memo owns is deletable: an attachment bound to a memo row is what a comment or a",
     "// live photo keeps, and deleting it from the library would take bytes that memo still needs.",
+  ]],
+  ["tests/memos-crud.test.ts", [
+    "// The sidebar tag chip compiles to `\"tag\" in tags`; a regression here used to answer 400.",
   ]],
   ["tests/memos-pat-scope.test.ts", [
     "/**\n * What a Memos personal access token may reach.\n *\n * A PAT exists so an automation can read and write memos without holding a session cookie. It must\n * not become a session: the token ledger (`/tokens`) and a full-account archive (`/export`) stay\n * behind `requireMemoOwner`, and revoking a token takes every token it minted with it.\n */",

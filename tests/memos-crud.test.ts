@@ -380,6 +380,10 @@ describe('memo filters', () => {
     const byTag = await listMemos(`?filter=${encodeURIComponent('tag in ["work"]')}`)
     expect(byTag.items.map((memo) => memo.id)).toEqual([work.id])
 
+    // The sidebar tag chip compiles to `"tag" in tags`; a regression here used to answer 400.
+    const byTagMembership = await listMemos(`?filter=${encodeURIComponent('"work" in tags')}`)
+    expect(byTagMembership.items.map((memo) => memo.id)).toEqual([work.id])
+
     const byPinned = await listMemos(`?filter=${encodeURIComponent('pinned == true')}`)
     expect(byPinned.items.map((memo) => memo.id)).toEqual([work.id])
 

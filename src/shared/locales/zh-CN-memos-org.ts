@@ -110,12 +110,15 @@ export const ZH_CN_MEMOS_ORG = {
   "memos.stats.comments": "评论",
   "memos.stats.links": "链接",
   "memos.stats.code": "代码",
-  "memos.stats.tasks": "任务",
-  "memos.stats.open_tasks": "未完成任务",
+  "memos.stats.tasks": "含任务",
+  "memos.stats.open_tasks": "有未完成",
   "memos.stats.month_heat": "{month}的备忘录活动",
   "memos.stats.day_count": "{date}：{count}",
   "memos.stats.month_total_one": "1 条备忘录",
   "memos.stats.month_total": "{count} 条备忘录",
   "memos.stats.open_calendar": "打开日历",
+  "memos.stats.expand": "展开统计",
+  "memos.stats.collapse": "收起统计",
+  "memos.stats.month_empty": "本月还没有记录。",
   "memos.stats.error": "统计加载失败。"
 } as const

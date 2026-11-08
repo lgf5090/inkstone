@@ -276,6 +276,9 @@
   --memo-media-max-height: 420px;
   --memo-pin-badge-min: 18px;
   --memo-page-width: 1200px;
+  --memo-card-min-width: 300px;
+  --memo-card-max-width: 460px;
+  --memo-card-contain-height: 180px;
   --memo-library-width: 1100px;
   --memo-settings-width: 980px;
   --memo-reading-width: 760px;

@@ -1,6 +1,7 @@
 import { useState, useMemo, type MouseEvent, type ReactElement } from 'react'
 import { Lock, MessageCircle, MapPin, Pin } from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
+import { scanMemoTags } from '@shared/memos/markdown'
 import type { Memo, MemoOrderField, MemoTagRule, MemoVisibility } from '@shared/memos/types'
 import { Badge } from '../../../components/primitives'
 import { TagChip } from '../../../components/TagChip'
@@ -80,6 +81,15 @@ export function MemoCard({
   const decrypted = useMemoLock((state) => state.plaintext[memo.id] ?? null)
   const sealedLocked = memo.encrypted && decrypted === null
   const revealedContent = decrypted ?? memo.content
+  const bodyTags = useMemo(
+    () => new Set(scanMemoTags(memo.encrypted ? revealedContent : memo.content)),
+    [memo.content, memo.encrypted, revealedContent],
+  )
+  // A tag written in the body is already painted there as a chip; repeating it below the body gives
+  // one tag two different-looking chips. Sealed cards hide the body, so their tags keep the row.
+  const rowTags = memo.encrypted && sealedLocked
+    ? memo.tags
+    : memo.tags.filter((tag) => !bodyTags.has(tag))
   const shownAt = timeBasis === 'updated' ? memo.updatedAt : memo.createdAt
   const shownMs = shownAt * 1000
   const shownLabel = t(timeBasis === 'updated' ? 'memos.card.updated_at' : 'memos.card.created_at', {
@@ -221,9 +231,9 @@ export function MemoCard({
             onToggleTask={onToggleTask}
             className="mt-2"
           />
-          {memo.tags.length > 0 ? (
+          {rowTags.length > 0 ? (
             <div className="mt-2 flex flex-wrap items-center gap-1">
-              {memo.tags.map((tag) => (
+              {rowTags.map((tag) => (
                 <TagChip
                   key={tag}
                   label={tag}

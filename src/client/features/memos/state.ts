@@ -18,6 +18,7 @@ import { t } from '../../lib/i18n'
 import { randomLocalId } from '../../lib/random-id'
 import { memosApi } from './api'
 import { bump, isMemoDomain, type MemoDomain } from './events'
+import { taggedMemoFilter } from './url-state'
 export {
   MEMO_DISPLAY_STORAGE_KEY,
   MEMO_DRAFT_STORAGE_PREFIX,
@@ -34,6 +35,8 @@ export {
 
 const MEMO_LIST_WRITE_DOMAINS: readonly MemoDomain[] = ['list', 'detail', 'stats']
 const MEMO_DELETE_WRITE_DOMAINS: readonly MemoDomain[] = ['list', 'detail', 'stats', 'attachments']
+const MEMO_CONTENT_WRITE_DOMAINS: readonly MemoDomain[] = ['stats']
+const MEMO_ORDER_FIELDS = ['pinned', 'state', 'visibility', 'spaceId', 'createdAt', 'updatedAt'] as const
 const MEMO_FOCUS_DOMAINS: readonly MemoDomain[] = ['list', 'detail', 'stats']
 const MEMO_CHANNEL_NAME = 'inkstone.memos'
 const MEMO_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'
@@ -99,11 +102,7 @@ function newMemoId(): string {
 }
 
 function combinedFilter(query: MemoQuery): string | undefined {
-  const filter = query.filter.trim()
-  const tag = query.tag?.trim()
-  if (!tag) return filter || undefined
-  const tagClause = `tag == ${JSON.stringify(tag)}`
-  return filter ? `(${filter}) && ${tagClause}` : tagClause
+  return taggedMemoFilter(query.filter, query.tag)
 }
 
 function toListQuery(query: MemoQuery, cursor: string | null): MemoListQuery {
@@ -257,9 +256,18 @@ function publishMemoMutation(domains: readonly MemoDomain[]): void {
   }
 }
 
-function afterMutation(domains: readonly MemoDomain[]): void {
-  for (const domain of domains) bump(domain)
-  publishMemoMutation(domains)
+function afterMutation(local: readonly MemoDomain[], broadcast: readonly MemoDomain[] = local): void {
+  for (const domain of local) bump(domain)
+  publishMemoMutation(broadcast)
+}
+
+/**
+ * A patch that only rewrites the body keeps the memo where it is. Bumping `list` for it would make
+ * the feed refetch its first page, discarding every page already loaded and scrolling the reader
+ * back — so the local bump is limited to the statistics, while other tabs still hear about `list`.
+ */
+function patchChangesMembership(input: MemoPatchInput): boolean {
+  return MEMO_ORDER_FIELDS.some((field) => input[field] !== undefined)
 }
 
 export const useMemos = create<MemosState>()((set, get) => {
@@ -423,9 +431,11 @@ export const useMemos = create<MemosState>()((set, get) => {
           detail: state.detail?.id === id ? saved : state.detail,
           conflict: state.conflict?.memoId === id ? null : state.conflict,
         }))
-        afterMutation(input.attachmentIds
+        const domains: readonly MemoDomain[] = input.attachmentIds
           ? [...MEMO_LIST_WRITE_DOMAINS, 'attachments']
-          : MEMO_LIST_WRITE_DOMAINS)
+          : MEMO_LIST_WRITE_DOMAINS
+        if (patchChangesMembership(input)) afterMutation(domains)
+        else afterMutation(MEMO_CONTENT_WRITE_DOMAINS, domains)
         return saved
       } catch (error) {
         const message = t('api.error.conflict')

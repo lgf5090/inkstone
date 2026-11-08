@@ -732,6 +732,7 @@ export function MemoComposer({
               {t('memos.composer.cancel')}
             </Button>
           ) : null}
+          <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]" />
           <Button
             type="submit"
             size="sm"

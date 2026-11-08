@@ -1,8 +1,9 @@
-import { useMemo, type MouseEvent, type ReactElement } from 'react'
-import { CalendarDays } from 'lucide-react'
+import { useId, useMemo, useState, type MouseEvent, type ReactElement } from 'react'
+import { CalendarDays, ChevronDown, ChevronRight } from 'lucide-react'
 import { heatCell } from '../../../components/activity-calendar/heat-cell'
 import { Skeleton } from '../../../components/feedback'
 import { Button, SectionLabel } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { usePathname } from '../../../lib/app-history'
 import { cn } from '../../../lib/cn'
 import { t, useLocale } from '../../../lib/i18n'
@@ -52,6 +53,8 @@ export function StatsSection(): ReactElement {
   const pathname = usePathname()
   const locale = useLocale()
   const route = useMemo(() => parseMemoPath(pathname), [pathname])
+  const [expanded, setExpanded] = useState(true)
+  const detailsId = useId()
   const spaceId = routeSpaceId(route)
   const revision = useRevision('stats')
   const timeZone = useMemo(memoTimeZone, [])
@@ -111,7 +114,21 @@ export function StatsSection(): ReactElement {
 
   return (
     <div className="pt-2">
-      <SectionLabel>{t('memos.nav.stats')}</SectionLabel>
+      <div className="flex items-center gap-0.5 pr-1">
+        <SectionLabel className="flex-1">{t('memos.nav.stats')}</SectionLabel>
+        {data !== null ? (
+          <TooltipIconButton
+            label={t(expanded ? 'memos.stats.collapse' : 'memos.stats.expand')}
+            tooltipSide="left"
+            size="xs"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          </TooltipIconButton>
+        ) : null}
+      </div>
       {pending ? (
         <>
           <p role="status" aria-live="polite" className="sr-only">
@@ -157,62 +174,70 @@ export function StatsSection(): ReactElement {
             <TypeCount label={t('memos.stats.tasks')} value={data.typeCounts.todo} />
             <TypeCount label={t('memos.stats.open_tasks')} value={data.typeCounts.undo} />
           </dl>
-          <div className="mt-1.5 border-t border-[var(--border-subtle)] pt-1.5">
-            <p className="flex items-baseline justify-between gap-2">
-              <span className="min-w-0 truncate text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
-                {monthLabel}
-              </span>
-              <span className="shrink-0 text-[length:var(--text-9-5)] tabular text-[var(--text-quaternary)]">
-                {t(monthTotal === 1 ? 'memos.stats.month_total_one' : 'memos.stats.month_total', {
-                  count: monthTotal,
-                })}
-              </span>
-            </p>
-            <div
-              role="img"
-              aria-label={t('memos.stats.month_heat', { month: monthLabel })}
-              className="mt-1 space-y-[var(--sp-0-5)]"
-            >
-              {rows.map((row) => (
-                <div
-                  key={row[0]?.key ?? ''}
-                  className="grid grid-cols-7 gap-[var(--sp-0-5)]"
-                >
-                  {row.map((cell) => {
-                    if (!cell.inMonth) {
-                      return <span key={cell.key} aria-hidden="true" className="aspect-square w-full" />
-                    }
-                    const level = levels.get(cell.key) ?? 0
-                    const count = data.dayCounts[cell.key] ?? 0
-                    return (
-                      <span
-                        key={cell.key}
-                        data-memo-stats-day={cell.key}
-                        title={t('memos.stats.day_count', {
-                          date: formatDateKey(cell.key),
-                          count,
-                        })}
-                        className={cn(
-                          'aspect-square w-full rounded-[var(--r-2)]',
-                          level === 0 && 'bg-[var(--bg-inset)]',
-                          cell.today && 'ring-1 ring-inset ring-[var(--accent)]',
-                        )}
-                        style={level > 0 ? heatCell(level) : undefined}
-                      />
-                    )
+          {expanded ? (
+            <div id={detailsId} className="mt-1.5 border-t border-[var(--border-subtle)] pt-1.5">
+              <p className="flex items-baseline justify-between gap-2">
+                <span className="min-w-0 truncate text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
+                  {monthLabel}
+                </span>
+                <span className="shrink-0 text-[length:var(--text-9-5)] tabular text-[var(--text-quaternary)]">
+                  {t(monthTotal === 1 ? 'memos.stats.month_total_one' : 'memos.stats.month_total', {
+                    count: monthTotal,
                   })}
+                </span>
+              </p>
+              {monthTotal > 0 ? (
+                <div
+                  role="img"
+                  aria-label={t('memos.stats.month_heat', { month: monthLabel })}
+                  className="mt-1 space-y-[var(--sp-0-5)]"
+                >
+                  {rows.map((row) => (
+                    <div
+                      key={row[0]?.key ?? ''}
+                      className="grid grid-cols-7 gap-[var(--sp-0-5)]"
+                    >
+                      {row.map((cell) => {
+                        if (!cell.inMonth) {
+                          return <span key={cell.key} aria-hidden="true" className="aspect-square w-full" />
+                        }
+                        const level = levels.get(cell.key) ?? 0
+                        const count = data.dayCounts[cell.key] ?? 0
+                        return (
+                          <span
+                            key={cell.key}
+                            data-memo-stats-day={cell.key}
+                            title={t('memos.stats.day_count', {
+                              date: formatDateKey(cell.key),
+                              count,
+                            })}
+                            className={cn(
+                              'aspect-square w-full rounded-[var(--r-2)]',
+                              level === 0 && 'bg-[var(--bg-inset)]',
+                              cell.today && 'ring-1 ring-inset ring-[var(--accent)]',
+                            )}
+                            style={level > 0 ? heatCell(level) : undefined}
+                          />
+                        )
+                      })}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <p className="mt-1 text-[length:var(--text-10-5)] leading-relaxed text-[var(--text-quaternary)]">
+                  {t('memos.stats.month_empty')}
+                </p>
+              )}
+              <a
+                href={calendarPath}
+                onClick={openCalendar}
+                className="mt-1 flex min-h-8 items-center gap-1 rounded-[var(--r-sm)] px-1 text-[length:var(--text-10-5)] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:min-h-0 md:h-6"
+              >
+                <CalendarDays size={11} aria-hidden="true" className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{t('memos.stats.open_calendar')}</span>
+              </a>
             </div>
-            <a
-              href={calendarPath}
-              onClick={openCalendar}
-              className="mt-1.5 flex min-h-10 items-center gap-1.5 rounded-[var(--r-sm)] px-1 text-[length:var(--text-11-5)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:min-h-0 md:h-7"
-            >
-              <CalendarDays size={12} aria-hidden="true" className="shrink-0" />
-              <span className="min-w-0 flex-1 truncate">{t('memos.stats.open_calendar')}</span>
-            </a>
-          </div>
+          ) : null}
         </div>
       ) : null}
     </div>

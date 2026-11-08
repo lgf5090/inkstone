@@ -93,6 +93,14 @@ afterEach(() => {
 })
 
 describe('the saved views page', () => {
+  it('opens the editor with a filter carried in the address', async () => {
+    window.history.replaceState(null, '', '/memos/views?filter=has_task_list')
+    render()
+    await flush()
+    const filter = document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')
+    expect(filter?.value).toBe('has_task_list')
+  })
+
   it('lists saved views and shows the empty state', async () => {
     api.views.list.mockResolvedValue({ views: [view()] })
     const host = render()

@@ -206,3 +206,19 @@ export function memoFilterExpression(
   if (expression) clauses.push(`(${expression})`)
   return clauses.join(' && ')
 }
+
+/** A filter expression and the sidebar's tag chip, joined the way the list endpoint expects. */
+export function taggedMemoFilter(filter: string, tag: string | null): string | undefined {
+  const expression = filter.trim()
+  const trimmedTag = tag?.trim()
+  if (!trimmedTag) return expression || undefined
+  const tagClause = `${JSON.stringify(trimmedTag)} in tags`
+  return expression ? `(${expression}) && ${tagClause}` : tagClause
+}
+
+/** The feed's whole filter, including the tag chip, in the one expression a saved view stores. */
+export function memoQueryFilter(
+  query: Pick<MemoUrlState, 'q' | 'tag' | 'filter' | 'quick'>,
+): string | undefined {
+  return taggedMemoFilter(memoFilterExpression(query.q, query.filter, query.quick), query.tag)
+}
