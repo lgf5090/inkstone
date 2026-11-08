@@ -6,6 +6,7 @@ import {
   appendEvent,
   claimJobForOrder,
   claimJobs,
+  enqueueJob,
   finishJob,
   listDomains,
   listDueRenewals,
@@ -21,6 +22,14 @@ async function runJob(env: Env, db: D1Database, job: JobRow): Promise<void> {
   try {
     const result = await advanceOrder(env, db, job.user_id, job.order_id, 'system')
     if (result.retryAfterMs > 0) {
+      // Waiting for DNS is not a failed attempt. Counting it against `max_attempts` used to kill the
+      // job after eight wakes — about forty minutes — which is the moment a waiting order froze for
+      // good. A fresh job carries the next wake, so polling continues without a failure budget.
+      if (result.blocked === 'dns_provider_missing' || result.order.status === 'awaiting_dns') {
+        await finishJob(db, job, { ok: true })
+        await enqueueJob(db, { userId: job.user_id, orderId: job.order_id, kind: 'advance', runAfter: Date.now() + result.retryAfterMs })
+        return
+      }
       await finishJob(db, job, { ok: false, errorCode: 'retry_later', errorMessage: 'The order is not ready yet', retryAfterMs: result.retryAfterMs })
       return
     }

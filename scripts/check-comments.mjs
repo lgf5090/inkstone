@@ -40354,6 +40354,9 @@ const allowed = new Map([
   ["src/worker/development/certhub/worker.ts", [
     "// DELETE ... LIMIT is an SQLite extension this deployment cannot rely on, so the cap lives on a",
     "// SELECT subquery: the oldest finished jobs go first and the batch stays bounded per tick.",
+    "// Waiting for DNS is not a failed attempt. Counting it against `max_attempts` used to kill the",
+    "// job after eight wakes — about forty minutes — which is the moment a waiting order froze for",
+    "// good. A fresh job carries the next wake, so polling continues without a failure budget.",
   ]],
   ["src/worker/development/icons/bulk-import.ts", [
     "/** Names this job will walk (the missing subset for a fill-missing job). */",
