@@ -3,7 +3,7 @@ import type { Env } from '../../../env'
 import type { CerthubCa, CerthubKeyAlgorithm } from '@shared/development/certhub/types'
 import { directoryFor, eabFor } from './directories'
 import { parseAcmeFailure } from './errors'
-import './transport'
+import { allowInsecureLoopbackAcme } from './transport'
 
 export interface AcmeBundle {
   client: acme.Client
@@ -21,7 +21,8 @@ export function buildAcmeClient(
   environment: 'production' | 'staging',
   accountUrl: string,
 ): AcmeBundle {
-  const directoryUrl = directoryFor(ca, environment, keyAlgorithm)
+  const directoryUrl = directoryFor(ca, environment, keyAlgorithm, env.CERTHUB_ACME_DIRECTORY)
+  if (env.CERTHUB_ALLOW_INSECURE_ACME === '1' && /^https?:\/\/127\.0\.0\.1:/.test(directoryUrl)) allowInsecureLoopbackAcme()
   const client = new acme.Client({
     directoryUrl,
     accountKey,
@@ -75,7 +76,7 @@ export async function respondToChallenge(
   authorization: acme.Authorization,
   challenge: AcmeChallenge,
 ): Promise<void> {
-  await bundle.client.verifyChallenge(authorization, challenge)
+  void authorization
   await bundle.client.completeChallenge(challenge)
 }
 

@@ -88,6 +88,12 @@ export interface Env {
 
   CERTHUB_SSLCOM_EAB_HMAC?: string
 
+  CERTHUB_ACME_DIRECTORY?: string
+
+  CERTHUB_ALLOW_INSECURE_ACME?: string
+
+  CERTHUB_DOH_ENDPOINT?: string
+
   CERTHUB_TURNSTILE_SECRET?: string
 
   CERTHUB_TURNSTILE_SITE_KEY?: string

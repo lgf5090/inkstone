@@ -7,12 +7,15 @@ import {
   claimJobForOrder,
   claimJobs,
   finishJob,
+  listDomains,
   listDueRenewals,
+  listExpiring,
   pruneEvents,
   readConfig,
   updateOrder,
   type JobRow,
 } from './store'
+import { notifyCerthub } from './notify'
 
 async function runJob(env: Env, db: D1Database, job: JobRow): Promise<void> {
   try {
@@ -77,6 +80,17 @@ async function expireCertificates(db: D1Database): Promise<void> {
 }
 
 async function renewCertificates(env: Env, db: D1Database): Promise<void> {
+  for (const order of await listExpiring(db, CERTHUB_LIMITS.renewScanPerTick)) {
+    const domains = await listDomains(db, order.user_id, order.id)
+    await notifyCerthub(env, db, {
+      userId: order.user_id,
+      orderId: order.id,
+      event: 'expiring',
+      ca: order.ca,
+      domains: domains.map((domain) => (domain.wildcard === 1 ? `*.${domain.name}` : domain.name)),
+      notAfter: order.cert_not_after,
+    })
+  }
   const due = await listDueRenewals(db, CERTHUB_LIMITS.renewScanPerTick)
   for (const order of due) {
     try {
@@ -97,6 +111,15 @@ async function renewCertificates(env: Env, db: D1Database): Promise<void> {
         level: 'error',
         messageCode: 'renew.failed',
         detail: { message: message.slice(0, 160) },
+      })
+      const domains = await listDomains(db, order.user_id, order.id)
+      await notifyCerthub(env, db, {
+        userId: order.user_id,
+        orderId: order.id,
+        event: 'renew_failed',
+        ca: order.ca,
+        domains: domains.map((domain) => (domain.wildcard === 1 ? `*.${domain.name}` : domain.name)),
+        notAfter: order.cert_not_after,
       })
     }
   }

@@ -11,8 +11,9 @@ export interface DohAnswer {
   data: string
 }
 
-export async function queryDns(name: string, type: 'TXT' | 'CNAME'): Promise<string[]> {
-  for (const endpoint of DOH_ENDPOINTS) {
+export async function queryDns(name: string, type: 'TXT' | 'CNAME', override?: string): Promise<string[]> {
+  const endpoints = override ? [override] : DOH_ENDPOINTS
+  for (const endpoint of endpoints) {
     try {
       const url = new URL(endpoint)
       url.searchParams.set('name', name)

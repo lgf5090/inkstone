@@ -818,16 +818,22 @@ export async function enqueueJob(
     created_at: now,
     updated_at: now,
   }
-  await db.prepare(`INSERT INTO development_certhub_jobs (
+  const row = await db.prepare(`INSERT INTO development_certhub_jobs (
     user_id, id, order_id, kind, status, priority, run_after, attempts, max_attempts, lock_owner,
     locked_until, last_error_code, last_error_message, created_at, updated_at
-  ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`)
+  ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
+  ON CONFLICT(user_id, order_id, kind) WHERE status IN ('queued','running')
+  DO UPDATE SET
+    run_after = MIN(development_certhub_jobs.run_after, excluded.run_after),
+    priority = MAX(development_certhub_jobs.priority, excluded.priority),
+    updated_at = excluded.updated_at
+  RETURNING id`)
     .bind(
       job.user_id, job.id, job.order_id, job.kind, job.status, job.priority, job.run_after,
       job.attempts, job.max_attempts, job.lock_owner, job.locked_until, job.last_error_code,
       job.last_error_message, job.created_at, job.updated_at,
-    ).run()
-  return job
+    ).first<{ id: string }>()
+  return row ? { ...job, id: row.id } : job
 }
 
 export async function claimJobs(db: D1Database, owner: string, limit: number): Promise<JobRow[]> {
@@ -891,6 +897,19 @@ export async function cancelJobsForOrder(db: D1Database, userId: string, orderId
   await db.prepare(`UPDATE development_certhub_jobs SET status = 'canceled', lock_owner = NULL,
     locked_until = NULL, updated_at = ?1 WHERE user_id = ?2 AND order_id = ?3 AND status IN ('queued','running')`)
     .bind(Date.now(), userId, orderId).run()
+}
+
+export async function listExpiring(db: D1Database, limit: number): Promise<OrderRow[]> {
+  const { results } = await db.prepare(`SELECT ${ORDER_SELECT} FROM development_certhub_orders o
+    WHERE o.deleted_at IS NULL AND o.status IN ('issued','expired')
+      AND o.renew_at IS NOT NULL AND o.renew_at <= ?1
+      AND NOT EXISTS (
+        SELECT 1 FROM development_certhub_events e
+        WHERE e.user_id = o.user_id AND e.order_id = o.id AND e.kind = 'notify.expiring'
+      )
+    ORDER BY o.renew_at ASC LIMIT ?2`)
+    .bind(Date.now(), limit).all<OrderRow>()
+  return results
 }
 
 export async function listDueRenewals(db: D1Database, limit: number): Promise<OrderRow[]> {

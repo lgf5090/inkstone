@@ -9,6 +9,7 @@ import { CERTHUB_LIMITS } from '@shared/development/certhub/limits'
 import { actionSchema, createOrderSchema } from '@shared/development/certhub/validation'
 import { createOrderForUser } from '../development/certhub/orders'
 import { handleOrderAction } from '../development/certhub/state-machine'
+import { kickOrder } from '../development/certhub/worker'
 import { decryptCerthubOrderKey } from '../lib/crypto'
 import { pemToPfx } from '../development/certhub/crypto/pfx'
 import { buildCerthubZip } from '../development/certhub/export/zip'
@@ -84,6 +85,7 @@ developmentCerthubOpenRoutes.post('/v1/orders', async (c) => {
     (c.req.header('Idempotency-Key') ?? '').trim().slice(0, 128),
     'production',
   )
+  if (!result.reused) c.executionCtx.waitUntil(kickOrder(c.env, c.env.DB, auth.userId, result.order.id))
   return c.json({ ok: true, data: { order: result.order, reused: result.reused } }, result.reused ? 200 : 202)
 })
 

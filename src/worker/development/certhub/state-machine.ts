@@ -17,11 +17,12 @@ import {
   revokeAcmeCertificate,
   type AcmeBundle,
 } from './acme/client'
-import { parseAcmeFailure } from './acme/errors'
+import { AcmeFailure, parseAcmeFailure } from './acme/errors'
 import { ensureAccount, accountBundle, keyFingerprint } from './accounts'
 import { createCsr, generateKey, parseCertificate } from './crypto/keys'
 import { splitCertificateChain } from './crypto/pem'
 import { queryDns } from './dns/doh'
+import { notifyFromOrder } from './notify'
 import { createDelegatedTxt, deleteDelegatedTxt } from './dns/dcv'
 import { createTxtRecord, deleteDnsRecord } from './dns/cloudflare'
 import { http01Instruction } from './dns/http01'
@@ -182,20 +183,22 @@ async function providerToken(env: Env, provider: { id: string; credential_cipher
   return credential.token
 }
 
-async function dnsReady(domain: DomainRow): Promise<boolean> {
+async function dnsReady(env: Env, domain: DomainRow): Promise<boolean> {
+  const override = env.CERTHUB_ALLOW_INSECURE_ACME === '1' ? env.CERTHUB_DOH_ENDPOINT : undefined
   if (domain.status === 'valid') return true
   if (domain.challenge_mode === 'http-01') return true
   if (domain.dns_record_type === 'CNAME') {
-    const cname = await queryDns(domain.dns_record_name, 'CNAME')
+    const cname = await queryDns(domain.dns_record_name, 'CNAME', override)
     if (!cname.some((value) => value.replace(/\.$/, '') === domain.dns_record_value.replace(/\.$/, ''))) return false
-    const txt = await queryDns(domain.dns_record_value, 'TXT')
+    const txt = await queryDns(domain.dns_record_value, 'TXT', override)
     return txt.some((value) => value === domain.key_authorization)
   }
-  const txt = await queryDns(domain.dns_record_name, 'TXT')
+  const txt = await queryDns(domain.dns_record_name, 'TXT', override)
   return txt.some((value) => value === domain.key_authorization)
 }
 
 async function verifyChallenges(
+  env: Env,
   db: D1Database,
   userId: string,
   order: OrderRow,
@@ -203,11 +206,29 @@ async function verifyChallenges(
   bundle: AcmeBundle,
 ): Promise<'awaiting_dns' | 'validating' | 'ready'> {
   let allValid = true
+  let waitingForDns = false
   for (const domain of domains) {
     if (domain.status === 'valid') continue
-    const ready = await dnsReady(domain)
+    const ready = await dnsReady(env, domain)
     if (!ready) {
+      waitingForDns = true
       allValid = false
+      if (domain.status !== 'prepared') {
+        await record(db, userId, order.id, 'system', 'challenge.pending_dns', 'challenge.pending_dns', 'warn', domain.id, {
+          name: domain.dns_record_name,
+          type: domain.dns_record_type,
+        })
+      } else {
+        const seen = await db.prepare(`SELECT 1 AS seen FROM development_certhub_events
+          WHERE user_id = ?1 AND order_id = ?2 AND domain_id = ?3 AND kind = 'challenge.pending_dns' LIMIT 1`)
+          .bind(userId, order.id, domain.id).first<{ seen: number }>()
+        if (!seen) {
+          await record(db, userId, order.id, 'system', 'challenge.pending_dns', 'challenge.pending_dns', 'warn', domain.id, {
+            name: domain.dns_record_name,
+            type: domain.dns_record_type,
+          })
+        }
+      }
       await updateDomain(db, userId, order.id, domain.id, {
         status: 'prepared',
         updated_at: now(),
@@ -224,6 +245,7 @@ async function verifyChallenges(
         validated_at: now(),
         updated_at: now(),
       })
+      allValid = true
       continue
     }
     if (authz.status === 'invalid') {
@@ -233,7 +255,7 @@ async function verifyChallenges(
         error_message: 'The certificate authority marked this challenge invalid',
         updated_at: now(),
       })
-      throw ApiError.badRequest(`The certificate authority rejected ${domain.name}`)
+      throw new AcmeFailure('invalid', false, 0, `The certificate authority rejected ${domain.name}`, 0)
     }
     const challenge = authz.challenges.find((entry) => entry.url === domain.challenge_url)
     if (!challenge) throw new ApiError(422, 'acme_error', 'The challenge is no longer available')
@@ -254,6 +276,7 @@ async function verifyChallenges(
       })
     }
   }
+  if (waitingForDns) return 'awaiting_dns'
   if (allValid) return 'ready'
   const pending = domains.some((domain) => domain.status !== 'valid')
   return pending ? 'validating' : 'ready'
@@ -277,7 +300,8 @@ async function issueCertificate(
   if (chainKey) await putCerthubText(env, chainKey, chain, 'application/x-pem-file', { orderId: order.id, kind: 'chain' })
   const facts = await parseCertificate(fullchain)
   const settings = await readSettings(db, order.user_id)
-  const renewAt = facts.notAfter - settings.renewDaysBefore * 86_400_000
+  const lifetime = facts.notAfter - facts.notBefore
+  const renewAt = Math.max(facts.notBefore + Math.floor(lifetime / 2), facts.notAfter - settings.renewDaysBefore * 86_400_000)
   const changed = await updateOrder(db, order.user_id, order.id, {
     status: 'issued',
     cert_object_key: certKey,
@@ -300,6 +324,8 @@ async function issueCertificate(
   })
   const latest = await findOrder(db, order.user_id, order.id)
   if (!latest) throw ApiError.notFound('The order disappeared after issuance')
+  const domains = await listDomains(db, order.user_id, order.id)
+  await notifyFromOrder(env, db, latest, domains.map((domain) => (domain.wildcard === 1 ? `*.${domain.name}` : domain.name)))
   return latest
 }
 
@@ -396,11 +422,26 @@ export async function advanceOrder(
 
     if (order.status === 'awaiting_dns' || order.status === 'awaiting_http' || order.status === 'validating') {
       const freshDomains = await listDomains(db, userId, order.id)
-      const next = await verifyChallenges(db, userId, order, freshDomains, bundle)
+      const next = await verifyChallenges(env, db, userId, order, freshDomains, bundle)
       if (next === 'awaiting_dns') {
-        return { order, retryAfterMs: 5 * 60_000 }
+        if (order.status === 'awaiting_dns') return { order, retryAfterMs: 5 * 60_000 }
+        const changed = await updateOrder(db, userId, order.id, {
+          status: 'awaiting_dns',
+          updated_at: now(),
+          version: order.version + 1,
+        }, order.version)
+        if (!changed) throw ApiError.conflict('The order changed while it was waiting for DNS')
+        return { order: (await findOrder(db, userId, order.id))!, retryAfterMs: 5 * 60_000 }
       }
-      if (next === 'validating') {
+      if (next === 'ready') {
+        const changed = await updateOrder(db, userId, order.id, {
+          status: 'ready',
+          updated_at: now(),
+          version: order.version + 1,
+        }, order.version)
+        if (!changed) throw ApiError.conflict('The order changed while its challenges were being verified')
+        order = (await findOrder(db, userId, order.id))!
+      } else {
         const changed = await updateOrder(db, userId, order.id, {
           status: 'validating',
           updated_at: now(),
@@ -409,7 +450,6 @@ export async function advanceOrder(
         if (!changed) throw ApiError.conflict('The order changed while its challenges were being verified')
         return { order: (await findOrder(db, userId, order.id))!, retryAfterMs: 3 * 60_000 }
       }
-      order = (await findOrder(db, userId, order.id))!
     }
 
     if (order.status === 'ready') {
@@ -422,7 +462,7 @@ export async function advanceOrder(
         return { order: await issueCertificate(env, db, order, bundle), retryAfterMs: 0 }
       }
       if (acmeOrder.status === 'invalid') {
-        await failOrder(db, userId, order, 'order_invalid', 'The certificate authority marked the order invalid')
+        await failOrder(env, db, userId, order, 'order_invalid', 'The certificate authority marked the order invalid')
         return { order: (await findOrder(db, userId, order.id))!, retryAfterMs: 0 }
       }
       return { order, retryAfterMs: 3 * 60_000 }
@@ -436,14 +476,14 @@ export async function advanceOrder(
       detail: failure.detail,
     })
     if (!failure.retryable) {
-      await failOrder(db, userId, order, failure.kind, failure.detail)
+      await failOrder(env, db, userId, order, failure.kind, failure.detail)
       return { order: (await findOrder(db, userId, order.id))!, retryAfterMs: 0 }
     }
     return { order, retryAfterMs: failure.retryAfterMs || 60_000 }
   }
 }
 
-async function failOrder(db: D1Database, userId: string, order: OrderRow, code: string, message: string): Promise<void> {
+async function failOrder(env: Env, db: D1Database, userId: string, order: OrderRow, code: string, message: string): Promise<void> {
   await updateOrder(db, userId, order.id, {
     status: 'failed',
     failure_code: code,
@@ -451,6 +491,14 @@ async function failOrder(db: D1Database, userId: string, order: OrderRow, code: 
     updated_at: now(),
     version: order.version + 1,
   }, order.version)
+  const domains = await listDomains(db, userId, order.id)
+  await notifyFromOrder(
+    env,
+    db,
+    order,
+    domains.map((domain) => (domain.wildcard === 1 ? `*.${domain.name}` : domain.name)),
+    order.renew_from_order_id ? 'renew_failed' : 'failed',
+  )
 }
 
 export async function renewOrder(
@@ -556,6 +604,14 @@ export async function revokeOrder(
   }, order.version)
   if (!changed) throw ApiError.conflict('The order changed while it was being revoked')
   await record(db, userId, order.id, actor, 'cert.revoked', 'cert.revoked', 'warn', undefined, { reason })
+  const domains = await listDomains(db, userId, order.id)
+  await notifyFromOrder(
+    env,
+    db,
+    order,
+    domains.map((domain) => (domain.wildcard === 1 ? `*.${domain.name}` : domain.name)),
+    'revoked',
+  )
   return (await findOrder(db, userId, order.id))!
 }
 

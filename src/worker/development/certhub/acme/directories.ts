@@ -28,7 +28,9 @@ export function directoryFor(
   ca: CerthubCa,
   environment: 'production' | 'staging',
   keyAlgorithm: CerthubKeyAlgorithm,
+  override?: string,
 ): string {
+  if (override) return override
   if (ca === 'sslcom') {
     return `https://acme.ssl.com/sslcom-dv-${keyAlgorithm === 'rsa2048' ? 'rsa' : 'ecc'}`
   }

@@ -326,7 +326,7 @@ export function createApp() {
   app.route('/api/development/xget', developmentXgetRoutes)
   app.route('/api/development/api-tester', developmentApiTesterRoutes)
   app.route('/api/development/github', developmentGithubRoutes)
-  app.route('/api/development/certhub/v1', developmentCerthubOpenRoutes)
+  app.route('/api/development/certhub', developmentCerthubOpenRoutes)
   app.route('/api/development/certhub', developmentCerthubRoutes)
   app.route('/api/webssh', websshRoutes)
   app.route('/api/imgbed', imgbedUploadRoutes)

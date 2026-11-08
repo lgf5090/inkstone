@@ -66,6 +66,7 @@ export function sanitizeAcmeDetail(value: string): string {
 }
 
 export function parseAcmeFailure(error: unknown): AcmeFailure {
+  if (error instanceof AcmeFailure) return error
   const record = asRecord(error)
   const response = asRecord(record?.response)
   const status = typeof response?.status === 'number' ? response.status : 0
@@ -86,6 +87,9 @@ export function parseAcmeFailure(error: unknown): AcmeFailure {
   }
   if (suffix === 'orderNotReady') return new AcmeFailure('order_not_ready', true, retryAfter, base.detail, status)
   if (suffix === 'dns' || suffix === 'connection') return new AcmeFailure('dns', true, retryAfter, base.detail, status)
+  if (/forbidden by policy|rejected|not permitted|not allowed/.test(detail.toLowerCase())) {
+    return new AcmeFailure('rejected_identifier', false, retryAfter, base.detail, status)
+  }
   if (status >= 500) return new AcmeFailure('server', true, retryAfter || 30_000, base.detail, status)
   if (status > 0) return new AcmeFailure('invalid', false, retryAfter, base.detail, status)
   return new AcmeFailure('unknown', true, retryAfter || 30_000, base.detail, status)

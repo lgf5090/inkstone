@@ -62,7 +62,10 @@ import { buildCerthubZip } from '../development/certhub/export/zip'
 
 export const developmentCerthubRoutes = new Hono<AppBindings>()
 
-developmentCerthubRoutes.use('*', requireAuth)
+developmentCerthubRoutes.use('*', async (c, next) => {
+  if (c.req.path.startsWith('/api/development/certhub/v1/')) return next()
+  return requireAuth(c, next)
+})
 
 function userIdOf(c: Context<AppBindings>): string {
   return c.get('userId')

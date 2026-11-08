@@ -1,5 +1,11 @@
 import * as acme from 'acme-client'
 
+let allowLoopbackHttp = false
+
+export function allowInsecureLoopbackAcme(): void {
+  allowLoopbackHttp = true
+}
+
 interface FetchAdapterConfig {
   url?: string
   method?: string
@@ -17,9 +23,18 @@ interface FetchAdapterResponse {
   request: Record<string, never>
 }
 
+const LOOPBACK_HTTPS = /^https:\/\/127\.0\.0\.1:(\d+)(\/.*)$/
+
 async function workerdFetchAdapter(config: FetchAdapterConfig): Promise<FetchAdapterResponse> {
   const url = config.url ?? ''
-  if (!/^https:\/\//.test(url)) throw new Error('acme_transport_requires_https')
+  let target = url
+  if (allowLoopbackHttp) {
+    const loopback = LOOPBACK_HTTPS.exec(url)
+    if (loopback) target = `http://127.0.0.1:${loopback[1]}${loopback[2]}`
+  }
+  if (!/^https:\/\//.test(url) && !(allowLoopbackHttp && /^http:\/\/127\.0\.0\.1:\d+\//.test(url))) {
+    throw new Error('acme_transport_requires_https')
+  }
   const headers = config.headers?.toJSON
     ? config.headers.toJSON()
     : { ...(config.headers ?? {}) } as Record<string, string>
@@ -28,7 +43,7 @@ async function workerdFetchAdapter(config: FetchAdapterConfig): Promise<FetchAda
     : typeof config.data === 'string'
       ? config.data
       : JSON.stringify(config.data)
-  const response = await fetch(url, {
+  const response = await fetch(target, {
     method: (config.method ?? 'GET').toUpperCase(),
     headers,
     body,
