@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import { CheckSquare, Minus, Paperclip, Plus, Trash2, Type } from 'lucide-react'
+import { CheckSquare, Copy, Link2, Minus, MoreHorizontal, Paperclip, Plus, Trash2, Type } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input, Select, Textarea } from '../../components/form'
 import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
-import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteProjectFile, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
+import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
+import { useUi } from '../../store/ui'
 
 interface CardDialogProps {
   card: ProjectCard
@@ -18,9 +19,10 @@ interface CardDialogProps {
   onClose: () => void
   onUpdated: (card: ProjectCard) => void
   onRefresh: () => void
+  onDelete: (id: string) => void
 }
 
-export function CardDialog({ card, properties, members, contents, siblings, canEdit, onClose, onUpdated, onRefresh }: CardDialogProps): ReactElement {
+export function CardDialog({ card, properties, members, contents, siblings, canEdit, onClose, onUpdated, onRefresh, onDelete }: CardDialogProps): ReactElement {
   const [title, setTitle] = useState(card.title)
   const [comments, setComments] = useState<ProjectComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
@@ -32,6 +34,27 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
   const [blocker, setBlocker] = useState('')
   const addAnchor = useRef<HTMLButtonElement>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const menuAnchor = useRef<HTMLButtonElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const toast = useUi((state) => state.toast)
+
+  const duplicateCard = async () => {
+    try {
+      await duplicateProjectCard(card.id)
+      onRefresh()
+    } catch (reason) {
+      toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
+    }
+  }
+  const copyLink = async () => {
+    const url = `${window.location.origin}/project/boards/${encodeURIComponent(card.boardId)}?card=${encodeURIComponent(card.id)}`
+    try {
+      await navigator.clipboard.writeText(url)
+      toast({ title: t('common.copied') })
+    } catch {
+      toast({ title: t('project.card.copy_link_failed'), tone: 'danger' })
+    }
+  }
 
   useEffect(() => {
     fetchCardLinks(card.id).then(setLinks).catch(() => setLinks([]))
@@ -133,9 +156,25 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           onBlur={commitTitle}
           onKeyDown={(event) => commitOnEnter(event, commitTitle)}
         />
-        {canEdit && (
-          <Button size="sm" variant="ghost" onClick={() => { void saveCardAsTemplate(card.id).then(onRefresh) }}>{t('project.card.save_as_template')}</Button>
-        )}
+        <div className="flex items-center gap-1">
+          {canEdit && (
+            <Button size="sm" variant="ghost" onClick={() => { void saveCardAsTemplate(card.id).then(onRefresh) }}>{t('project.card.save_as_template')}</Button>
+          )}
+          <IconButton ref={menuAnchor} label={t('project.card.menu')} size="sm" onClick={() => setMenuOpen(true)}>
+            <MoreHorizontal size={15} />
+          </IconButton>
+          <Menu
+            anchor={menuAnchor}
+            open={menuOpen}
+            onClose={() => setMenuOpen(false)}
+            label={t('project.card.menu')}
+            items={[
+              ...(canEdit ? [{ id: 'duplicate', label: t('project.card.duplicate'), icon: <Copy size={15} />, onSelect: () => { void duplicateCard() } }] : []),
+              { id: 'copy-link', label: t('project.card.copy_link'), icon: <Link2 size={15} />, onSelect: () => { void copyLink() } },
+              ...(canEdit ? [{ id: 'delete', label: t('project.board.delete_card'), icon: <Trash2 size={15} />, tone: 'danger' as const, separatorBefore: true, onSelect: () => { onClose(); onDelete(card.id) } }] : []),
+            ] as MenuItem[]}
+          />
+        </div>
         <section aria-label={t('project.card.properties')} className="space-y-2">
           <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.properties')}</h3>
           {properties.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</p>}

@@ -64,6 +64,11 @@ export async function patchProjectCard(id: string, patch: Record<string, unknown
   return body.card
 }
 
+export async function duplicateProjectCard(id: string): Promise<ProjectCard> {
+  const body = await request<{ card: ProjectCard }>(`/api/project/cards/${encodeURIComponent(id)}/duplicate`, { method: 'POST', body: {} })
+  return body.card
+}
+
 export async function createProjectView(boardId: string, viewType: ProjectViewType): Promise<ProjectView> {
   const body = await request<{ view: ProjectView }>(`/api/project/boards/${encodeURIComponent(boardId)}/views`, { method: 'POST', body: { viewType } })
   return body.view

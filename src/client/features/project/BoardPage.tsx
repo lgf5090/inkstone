@@ -30,6 +30,11 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [showActivity, setShowActivity] = useState(false)
   const [activity, setActivity] = useState<ProjectActivityEntry[]>([])
 
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('card')
+    if (id) setOpenCardId(id)
+  }, [])
+
   const openActivity = () => {
     setShowActivity(true)
     fetchBoardActivity(boardId).then(setActivity).catch(() => setActivity([]))
@@ -224,6 +229,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           siblings={bundle.cards}
           canEdit={canEdit}
           onClose={() => setOpenCardId(null)}
+          onDelete={(id) => void removeCard(id)}
           onUpdated={(updated) => setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current))}
           onRefresh={() => { void fetchProjectBoardBundle(boardId).then(setBundle).catch(() => { /* best-effort: dialog stays usable if the refetch fails */ return undefined }) }}
         />
