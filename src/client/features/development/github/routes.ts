@@ -9,6 +9,14 @@ export interface GithubRoute {
   gistId: string | null
 }
 
+function decodeSegment(value: string): string | null {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return null
+  }
+}
+
 export function parseGithubRoute(pathname: string): GithubRoute {
   const rest = pathname.startsWith('/development/github')
     ? pathname.slice('/development/github'.length)
@@ -19,9 +27,9 @@ export function parseGithubRoute(pathname: string): GithubRoute {
     return { tab: 'gists', repoFullName: null, gistId: id }
   }
   if (segments[0] === 'repos' && segments.length >= 3) {
-    const owner = decodeURIComponent(segments[1]!)
-    const name = decodeURIComponent(segments[2]!)
-    if (REPO_SEGMENT.test(owner) && REPO_SEGMENT.test(name)) {
+    const owner = decodeSegment(segments[1]!)
+    const name = decodeSegment(segments[2]!)
+    if (owner && name && REPO_SEGMENT.test(owner) && REPO_SEGMENT.test(name)) {
       return { tab: 'repos', repoFullName: `${owner}/${name}`, gistId: null }
     }
   }

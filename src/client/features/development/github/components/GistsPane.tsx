@@ -67,6 +67,9 @@ export function GistsPane({
   const upsertGistTag = useGithubStore((state) => state.upsertGistTag)
   const deleteGistTag = useGithubStore((state) => state.deleteGistTag)
   const refresh = useGithubStore((state) => state.refresh)
+  const loadAllGists = useGithubStore((state) => state.loadAllGists)
+  const gistTotal = useGithubStore((state) => state.gistTotal)
+  const truncatedGists = useGithubStore((state) => state.truncatedGists)
   const toast = useUi((state) => state.toast)
   const [prefs, setPrefs] = useState(loadGistPrefs)
   const [refreshing, setRefreshing] = useState(false)
@@ -378,6 +381,9 @@ export function GistsPane({
             onQueryChange={setQuery}
             onClear={() => setQuery('')}
             totalCount={items.length}
+            savedTotal={gistTotal}
+            savedTruncated={!remote && truncatedGists}
+            onLoadAllSaved={() => void loadAllGists()}
             viewMode={viewMode}
             onViewModeChange={changeViewMode}
             prefs={prefs}

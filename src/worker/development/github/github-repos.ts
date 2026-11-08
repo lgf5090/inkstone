@@ -218,19 +218,33 @@ function normalizeAsset(value: unknown): GithubReleaseAsset {
   }
 }
 
-function normalizeRelease(value: unknown, index: number): GithubRelease {
+function normalizeRelease(value: unknown, isLatest: boolean): GithubRelease {
   const raw = isRecord(value) ? value : {}
   return {
     id: readInteger(raw.id),
     tagName: readString(raw.tag_name, 200),
     name: readNullableString(raw.name, 200),
     isPrerelease: raw.prerelease === true,
-    isLatest: index === 0,
+    isLatest,
     publishedAt: readString(raw.published_at ?? raw.created_at, 64),
     htmlUrl: readHttpUrl(raw.html_url, 2048),
     body: readNullableString(raw.body, 40000),
     assets: Array.isArray(raw.assets) ? raw.assets.map((asset) => normalizeAsset(asset)) : [],
   }
+}
+
+function latestReleaseId(values: readonly unknown[]): string | null {
+  let latest: { id: string; publishedAt: number } | null = null
+  for (const value of values) {
+    const raw = isRecord(value) ? value : {}
+    if (raw.prerelease === true) continue
+    const id = String(readInteger(raw.id))
+    if (id === '0') continue
+    const publishedAt = Date.parse(String(raw.published_at ?? raw.created_at ?? ''))
+    if (!Number.isFinite(publishedAt)) continue
+    if (!latest || publishedAt > latest.publishedAt) latest = { id, publishedAt }
+  }
+  return latest?.id ?? null
 }
 
 function normalizeLanguages(value: unknown): GithubRepoDetail['languages'] {
@@ -341,11 +355,13 @@ export async function fetchRepoDetail(
     throw tokenFailures[0]![1].error!
   }
   const warnings = outcomes
-    .filter(([, outcome]) => outcome.error !== null)
+    .filter(([source, outcome]) => outcome.error !== null
+      && !(source === 'readme' && outcome.error.code === 'github_not_found'))
     .map(([source, outcome]) => warningFor(source, outcome.error!))
   const branchList = Array.isArray(branches.data) ? branches.data : []
   const tagList = Array.isArray(tags.data) ? tags.data : []
   const releaseList = Array.isArray(releases.data) ? releases.data : []
+  const latestId = latestReleaseId(releaseList)
   const detail: GithubRepoDetail = {
     fullName: `${parsed.owner}/${parsed.name}`,
     branchesCount: branchList.length,
@@ -354,7 +370,10 @@ export async function fetchRepoDetail(
     tagsCount: tagList.length,
     tagsTruncated: tagList.length >= 100,
     languages: normalizeLanguages(languages.data),
-    releases: releaseList.map((release, index) => normalizeRelease(release, index)),
+    releases: releaseList.map((release) => {
+      const raw = isRecord(release) ? release : {}
+      return normalizeRelease(release, latestId !== null && String(readInteger(raw.id)) === latestId)
+    }),
     releasesTruncated: releaseList.length >= 30,
     readme: typeof readme.data === 'string' ? readme.data : null,
     readmeHtmlUrl: `https://github.com/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.name)}#readme`,

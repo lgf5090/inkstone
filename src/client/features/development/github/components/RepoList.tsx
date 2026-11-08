@@ -55,6 +55,9 @@ export function RepoList({
   onRefresh,
   items,
   totalCount,
+  savedTotal,
+  savedTruncated,
+  onLoadAllSaved,
   page,
   onPageChange,
   repoMap,
@@ -100,6 +103,9 @@ export function RepoList({
   onRefresh: () => void
   items: GithubRepo[]
   totalCount: number
+  savedTotal: number
+  savedTruncated: boolean
+  onLoadAllSaved: () => void
   page: number
   onPageChange: (page: number) => void
   repoMap: Map<string, SavedGithubRepo>
@@ -235,6 +241,10 @@ export function RepoList({
         ) : (
           <div className="flex flex-wrap items-center gap-2 px-2 pb-2 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
             <span>{t('development.github.repos.repo_count', { count: totalCount })}</span>
+            {savedTruncated && <>
+              <span className="text-[var(--warning)]">{t('development.github.repos.partial_saved', { shown: totalCount, total: savedTotal })}</span>
+              <Button variant="ghost" size="sm" onClick={onLoadAllSaved}><RefreshCw size={11} />{t('development.github.repos.load_all')}</Button>
+            </>}
             {collection && <>
               {collection.description && <span className="min-w-0 flex-1 truncate" title={collection.description}>{collection.description}</span>}
               <Button ref={memberAnchor} variant="ghost" size="sm" onClick={() => setMemberOpen(true)}><ListChecks size={11} />{t('development.github.collections.members')}</Button>

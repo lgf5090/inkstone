@@ -11,6 +11,7 @@ import { useGithubSearch } from '../cache'
 import { useGithubStore } from '../store'
 import { loadRepoPrefs, loadSearchHistory, saveRepoPrefs, saveSearchHistory } from '../prefs'
 import { sortSavedRepos, filterRepos } from '../lib/filters'
+import { syncStarredRepositories } from '../lib/star-sync'
 import { GithubPanes } from '../GithubPanes'
 import { ModuleTabs, type GithubTab } from './ModuleTabs'
 import { RepoSidebar } from './RepoSidebar'
@@ -56,6 +57,9 @@ export function ReposPane({
   const deleteCollection = useGithubStore((state) => state.deleteCollection)
   const toast = useUi((state) => state.toast)
   const refresh = useGithubStore((state) => state.refresh)
+  const loadAllRepos = useGithubStore((state) => state.loadAllRepos)
+  const repoTotal = useGithubStore((state) => state.repoTotal)
+  const truncatedRepos = useGithubStore((state) => state.truncatedRepos)
   const [prefs, setPrefs] = useState(loadRepoPrefs)
   const [refreshing, setRefreshing] = useState(false)
   const [selectedView, setSelectedView] = useState<GithubViewId>(GITHUB_EXPLORE_VIEW)
@@ -309,18 +313,18 @@ export function ReposPane({
     }
   }, [refresh])
 
-  const syncStars = useCallback(async () => {    if (syncingStars) return
+  const syncStars = useCallback(async () => {
+    if (syncingStars) return
     setSyncingStars(true)
     try {
-      const result = await githubApi.starred(1, 100)
       const existing = new Set(useGithubStore.getState().repos.map((repo) => repo.id))
-      let added = 0
-      for (const repo of result.items) {
-        if (existing.has(String(repo.id))) continue
-        saveRepo(repo, {})
-        added += 1
-      }
-      toast({ title: t('development.github.repos.stars_synced', { added, total: result.items.length }), tone: 'success' })
+      const result = await syncStarredRepositories(existing, (repo) => saveRepo(repo, {}))
+      toast({
+        title: result.truncated
+          ? t('development.github.repos.stars_synced_partial', { added: result.added, total: result.scanned, pages: result.pages })
+          : t('development.github.repos.stars_synced', { added: result.added, total: result.scanned }),
+        tone: result.truncated ? 'warning' : 'success',
+      })
     } catch (error) {
       toast({ title: t('development.github.repos.stars_sync_failed'), description: error instanceof Error ? error.message : undefined, tone: 'danger' })
     } finally {
@@ -411,6 +415,9 @@ export function ReposPane({
             onRefresh={() => { if (isExplore) void search.refetch(); else void refreshLocal() }}
             items={listItems}
             totalCount={totalCount}
+            savedTotal={repoTotal}
+            savedTruncated={truncatedRepos}
+            onLoadAllSaved={() => void loadAllRepos()}
             page={page}
             onPageChange={setPage}
             repoMap={repoMap}

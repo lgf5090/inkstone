@@ -241,9 +241,9 @@ describe('development github repository proxy', () => {
       expect.arrayContaining([
         expect.objectContaining({ source: 'branches', code: 'rate_limited' }),
         expect.objectContaining({ source: 'releases', code: 'upstream' }),
-        expect.objectContaining({ source: 'readme', code: 'not_found' }),
       ]),
     )
+    expect(detail.warnings.some((warning) => warning.source === 'readme')).toBe(false)
     expect(detail.branchesCount).toBe(0)
     expect(detail.languages).toEqual([{ name: 'Go', bytes: 100, percentage: 100 }])
     expect(detail.readme).toBeNull()
@@ -477,8 +477,8 @@ describe('development github http errors', () => {
       jsonResponse({ message: 'forbidden' }, 403, { 'x-ratelimit-remaining': '10' }),
     )
     await expect(githubJson('/user')).rejects.toMatchObject({
-      status: 502,
-      code: 'github_upstream',
+      status: 403,
+      code: 'github_forbidden',
     })
 
     stubFetch(() => jsonResponse({ message: 'boom' }, 500))
@@ -587,5 +587,60 @@ describe('development github starred repositories', () => {
     const result = await fetchStarredRepos(1, 100, 'tok')
     expect(result.items[0]?.fullName).toBe('octo/demo')
     expect(result.hasNext).toBe(true)
+  })
+})
+
+describe('development github upstream error classification', () => {
+  it('reports a bare 403 as a permission problem', async () => {
+    stubFetch(() => jsonResponse({ message: 'Resource not accessible' }, 403))
+    await expect(githubJson('/user')).rejects.toMatchObject({
+      status: 403,
+      code: 'github_forbidden',
+    })
+  })
+
+  it('reports a 403 that carries Retry-After as a rate limit with the wait', async () => {
+    stubFetch(() => jsonResponse({ message: 'You have exceeded a secondary rate limit' }, 403, { 'retry-after': '60' }))
+    await expect(githubJson('/user')).rejects.toMatchObject({
+      status: 429,
+      code: 'github_rate_limited',
+      details: { retryAfterSeconds: 60 },
+    })
+  })
+
+  it('reports an exhausted rate limit and its reset time', async () => {
+    stubFetch(() => jsonResponse({ message: 'API rate limit exceeded' }, 403, {
+      'x-ratelimit-limit': '60',
+      'x-ratelimit-remaining': '0',
+      'x-ratelimit-reset': '1794129600',
+    }))
+    await expect(githubJson('/user')).rejects.toMatchObject({
+      status: 429,
+      code: 'github_rate_limited',
+      details: { remaining: 0 },
+    })
+  })
+})
+
+describe('development github repository detail edges', () => {
+  it('treats a missing README as an empty README instead of a warning', async () => {
+    stubFetch((url) => {
+      if (url.endsWith('/readme')) return jsonResponse({ message: 'Not Found' }, 404)
+      if (url.endsWith('/languages')) return jsonResponse({ TypeScript: 10 })
+      return jsonResponse([], 200)
+    })
+    const detail = await fetchRepoDetail('no-readme/demo', 'main', undefined, ['readme'])
+    expect(detail.readme).toBeNull()
+    expect(detail.warnings).toEqual([])
+  })
+
+  it('marks the newest published release as latest regardless of list order', async () => {
+    stubFetch(() => jsonResponse([
+      { id: 1, tag_name: 'v1.0.0', published_at: '2025-01-01T00:00:00Z', prerelease: false, assets: [] },
+      { id: 2, tag_name: 'v2.0.0', published_at: '2025-06-01T00:00:00Z', prerelease: false, assets: [] },
+      { id: 3, tag_name: 'v3.0.0-beta', published_at: '2025-09-01T00:00:00Z', prerelease: true, assets: [] },
+    ], 200))
+    const detail = await fetchRepoDetail('releases/demo', 'main', undefined, ['releases'])
+    expect(detail.releases.map((release) => release.isLatest)).toEqual([false, true, false])
   })
 })

@@ -224,6 +224,20 @@ describe('development github routes authentication and bootstrap', () => {
     const envelope = await bodyOf<{ capabilities: { exports: boolean } }>(response)
     expect(envelope.data?.capabilities.exports).toBe(false)
   })
+
+  it('caps the bootstrap collections and reports the real totals', async () => {
+    expect((await call('PUT', '/repos/1', { body: repoBody(1) })).status).toBe(200)
+    expect((await call('PUT', '/repos/2', { body: repoBody(2) })).status).toBe(200)
+    const response = await call('GET', '/bootstrap?limit=1')
+    const envelope = await bodyOf<{
+      repos: unknown[]
+      counts: { repos: number; gists: number }
+      truncated: { repos: boolean; gists: boolean }
+    }>(response)
+    expect(envelope.data?.repos).toHaveLength(1)
+    expect(envelope.data?.counts).toEqual({ repos: 2, gists: 0 })
+    expect(envelope.data?.truncated).toEqual({ repos: true, gists: false })
+  })
 })
 
 describe('development github tags and repositories', () => {

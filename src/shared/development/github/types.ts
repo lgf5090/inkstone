@@ -301,6 +301,16 @@ export interface GithubCapabilities {
   exports: boolean
 }
 
+export interface GithubBootstrapCounts {
+  repos: number
+  gists: number
+}
+
+export interface GithubBootstrapTruncation {
+  repos: boolean
+  gists: boolean
+}
+
 export interface GithubBootstrap {
   tags: GithubTag[]
   repos: SavedGithubRepo[]
@@ -310,4 +320,6 @@ export interface GithubBootstrap {
   mirrors: GithubMirrorSource[]
   accounts: GithubAccountView[]
   capabilities: GithubCapabilities
+  counts?: GithubBootstrapCounts
+  truncated?: GithubBootstrapTruncation
 }
