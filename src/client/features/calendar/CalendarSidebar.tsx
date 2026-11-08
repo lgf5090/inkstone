@@ -584,10 +584,6 @@ export function CalendarSidebar({
           />
         )}
 
-        {countdowns}
-
-        {activity}
-
         <div role="group" aria-label={t('calendar.a11y.calendar_list')} className="px-2">
           <SectionLabel>{t('calendar.sidebar.calendars')}</SectionLabel>
 
@@ -741,8 +737,13 @@ export function CalendarSidebar({
               </ul>
             </>
           )}
-          {tasks}
         </div>
+
+        {/* The calendar list is the screen's primary navigation and stays above the side panels;
+            the per-range task list, countdowns and the yearly aggregate read as secondary. */}
+        {tasks}
+        {countdowns}
+        {activity}
       </div>
 
       {extras}
