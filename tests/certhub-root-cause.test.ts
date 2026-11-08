@@ -13,6 +13,7 @@ import { validateDomainRows } from '../src/shared/development/certhub/validation
 import { decodeCursor, encodeCursor } from '../src/worker/development/certhub/store'
 import { orderSortFromSearch, parseOrderSort } from '../src/shared/development/certhub/sorting'
 import { dnsConnectionErrorKeys, dnsLabelErrorKey } from '../src/client/features/development/certhub/rules'
+import { exportPassword } from '../src/worker/development/certhub/export-password'
 import { ApiError } from '../src/worker/lib/errors'
 
 describe('acme contact for account registration', () => {
@@ -81,6 +82,20 @@ describe('order sorting contract', () => {
       id: 'order-2',
     })
     expect(decodeCursor(undefined)).toBeNull()
+  })
+})
+
+describe('PFX export password', () => {
+  it('is random rather than derived from the order', () => {
+    const samples = new Set<string>()
+    for (let index = 0; index < 20; index += 1) {
+      const password = exportPassword()
+      expect(password).toHaveLength(12)
+      expect(password).toMatch(/^[A-Za-z0-9]+$/)
+      samples.add(password)
+    }
+    // An order-derived password repeated itself; a random one does not.
+    expect(samples.size).toBe(20)
   })
 })
 

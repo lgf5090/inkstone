@@ -60,6 +60,7 @@ import {
 } from '../development/certhub/storage'
 import { verifyCloudflareConnection, verifyCloudflareToken } from '../development/certhub/dns/cloudflare'
 import { pemToPfx } from '../development/certhub/crypto/pfx'
+import { exportPassword } from '../development/certhub/export-password'
 import { buildCerthubZip } from '../development/certhub/export/zip'
 
 export const developmentCerthubRoutes = new Hono<AppBindings>()
@@ -321,7 +322,7 @@ developmentCerthubRoutes.get('/orders/:id/export', async (c) => {
     detail: { kind },
   })
   if (kind === 'pfx') {
-    const password = `${newId().slice(0, 8)}${usageDay().replace(/-/g, '').slice(0, 4)}`
+    const password = exportPassword()
     const bytes = pemToPfx(privateKey, fullchain, password, primaryName)
     return new Response(bytes, {
       headers: {

@@ -47057,6 +47057,7 @@ const allowed = new Map([
   ]],
   ["tests/certhub-root-cause.test.ts", [
     "/**\n * The two production 500s, reproduced at the layer that caused them.\n *\n * Account registration failed for a login that is not an email: the old code built `mailto:lgf5090`,\n * which the CA rejects with \"unable to parse email address\". Domain validation threw a plain `Error`\n * that no route mapped, so the same bad input answered 500 instead of a 400 with a reason.\n */",
+    "// An order-derived password repeated itself; a random one does not.",
   ]],
   ["tests/chat-commands.test.ts", [
     "/** Where the palette hands the reader off to, so a case can name it without repeating the address. */",

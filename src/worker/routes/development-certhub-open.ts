@@ -11,6 +11,7 @@ import { createOrderForUser } from '../development/certhub/orders'
 import { handleOrderAction } from '../development/certhub/state-machine'
 import { kickOrder } from '../development/certhub/worker'
 import { decryptCerthubOrderKey } from '../lib/crypto'
+import { exportPassword } from '../development/certhub/export-password'
 import { pemToPfx } from '../development/certhub/crypto/pfx'
 import { buildCerthubZip } from '../development/certhub/export/zip'
 import {
@@ -117,6 +118,7 @@ developmentCerthubOpenRoutes.get('/v1/orders/:id/download', async (c) => {
   const order = await findOrder(c.env.DB, auth.userId, c.req.param('id'))
   if (!order) throw ApiError.notFound('The certificate order was not found')
   const kind = c.req.query('kind') ?? 'fullchain'
+  if (!(DOWNLOAD_KINDS as readonly string[]).includes(kind)) throw ApiError.badRequest('Unknown download kind')
   if (kind === 'key') requireScope(auth, 'read-key')
   else requireScope(auth, 'read')
   if (!order.cert_object_key && kind !== 'csr' && kind !== 'key') throw ApiError.notFound('The certificate is not ready')
@@ -136,9 +138,18 @@ developmentCerthubOpenRoutes.get('/v1/orders/:id/download', async (c) => {
       },
     })
   }
-  const content = kind === 'csr'
-    ? await readCerthubText(c.env, order.csr_object_key)
-    : (await readCerthubText(c.env, order.cert_object_key))?.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/)?.[0]
+  let content: string
+  if (kind === 'csr') {
+    content = await readCerthubText(c.env, order.csr_object_key) ?? ''
+  } else {
+    const fullchain = await readCerthubText(c.env, order.cert_object_key) ?? ''
+    const blocks = certificateBlocks(fullchain)
+    content = kind === 'chain'
+      ? blocks.slice(1).map((block) => `${block}\n`).join('')
+      : kind === 'cert'
+        ? (blocks[0] ? `${blocks[0]}\n` : '')
+        : fullchain
+  }
   if (!content) throw ApiError.notFound('The requested certificate file is missing')
   return new Response(content, {
     headers: {
@@ -148,6 +159,12 @@ developmentCerthubOpenRoutes.get('/v1/orders/:id/download', async (c) => {
     },
   })
 })
+
+const DOWNLOAD_KINDS = ['fullchain', 'cert', 'chain', 'key', 'csr'] as const
+
+function certificateBlocks(fullchain: string): string[] {
+  return fullchain.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? []
+}
 
 developmentCerthubOpenRoutes.get('/v1/orders/:id/export', async (c) => {
   const auth = await authenticate(c)
@@ -165,13 +182,15 @@ developmentCerthubOpenRoutes.get('/v1/orders/:id/export', async (c) => {
     detail: { kind },
   })
   if (kind === 'pfx') {
-    const password = `${order.id.slice(0, 8)}${fullchain.length.toString(36).slice(0, 4)}`
+    const password = exportPassword()
     return new Response(pemToPfx(privateKey, fullchain, password, order.id), {
       headers: {
         'Content-Type': 'application/x-pkcs12',
         'Content-Disposition': `attachment; filename="${order.id}.pfx"`,
         'Cache-Control': 'no-store',
         'X-Certhub-Pfx-Password': password,
+        'X-PFX-Password': password,
+        'Access-Control-Expose-Headers': 'Content-Disposition, X-Certhub-Pfx-Password, X-PFX-Password',
       },
     })
   }
@@ -187,6 +206,7 @@ developmentCerthubOpenRoutes.get('/v1/orders/:id/export', async (c) => {
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename="${order.id}.zip"`,
       'Cache-Control': 'no-store',
+      'Access-Control-Expose-Headers': 'Content-Disposition',
     },
   })
 })
