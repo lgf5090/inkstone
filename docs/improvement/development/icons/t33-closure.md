@@ -119,3 +119,69 @@ development/icons/exports/{format}/u{shard}/{exportId}.{ext}  # private
 6. owner 修改硬上限后，用户有效值按 `min()` 收敛。
 7. `curl -I` 同一图标对象两次，确认 `cf-cache-status: HIT` 且 `cache-control` 为 immutable。
 8. Iconify 导入后检查集合许可证/来源字段与 UI 展示。
+
+## 8. 整库导入、体量与压测数据清理（2026-11-08）
+
+> 第 7 节的 9,802 条是整库导入前的基线；以下是本轮最终数字。
+
+### 8.1 整库导入
+
+- 数据来源：jsDelivr `@iconify-json/<prefix>/icons.json` + `info.json`，只取 canonical `icons` 名（不取 aliases，避免同内容多名重复落库）。
+- 机制：创建导入时下载整包 → 写入 R2 暂存 `development/icons/imports/<shard>/<id>/manifest.json` + `chunk-N.json`（每片 50 枚）→ 每个 step 读一片、清洗 SVG、并行写 R2、批量写 D1；`processed_items` 作为续传游标。支持取消、失败项列出（`error` 字段 + `GET /imports/:id/items?status=failed`）。
+- 去重：`collection:name` 唯一 + SHA-256 内容去重；同内容不同名的记录标 `duplicate`，不计入“缺失”。集合详情展示 total / imported / missing / duplicates / 最后导入时间，并提供「补齐缺失」。
+- 九集合实际入库（本地 D1）：
+
+| 集合 | 源总数 | 已导入 | 缺失 |
+|---|---:|---:|---:|
+| Material Symbols | 16,491 | 16,381 | 0 |
+| Phosphor | 9,161 | 9,158 | 0 |
+| Tabler Icons | 6,305 | 6,280 | 0 |
+| Simple Icons | 3,740 | 3,739 | 0 |
+| Remix Icon | 3,229 | 3,153 | 0 |
+| Lucide | 2,109 | 2,108 | 0 |
+| Bootstrap Icons | 2,084 | 2,082 | 0 |
+| HeroIcons | 1,288 | 1,281 | 0 |
+| Feather Icon | 255 | 254 | 0 |
+| **合计** | **44,662** | **44,436** | **0** |
+
+- 源总数与导入数的差额来自内容重复（同名内容或不同名同图），按 `duplicate` 记录；九集合 `missing` 均为 0。
+- 整库导入总耗时 304.8 s（44,436 枚，后台任务，不阻塞首屏）。补缺测试：Feather 补齐 1 枚重复内容后 `imported` 仍为 254、`duplicates=1`、`missing=0`，集合总数不变。
+
+### 8.2 体量与存储
+
+- D1：44,436 行资产；单表 + 现有索引容量充裕，**不需要分表**。
+- 原始资源 26.9 MB；账号用量 56.9 MB / 512 MB；D1 文件 121 MB。
+- 缩略图：每枚 96px + 192px WebP，列表只加载 `-w96.webp`。
+- R2：清理压测数据后本地 bucket 509 MB（含其他历史产物），其中图标资产对象 117,007 个。
+- 迁移：实际最大号 328（320/321/327/328）；329 归密码管家分支；本轮未新增 ≥330 迁移。
+
+### 8.3 清理后复测（44,436 条，有头 Chromium，1440×900）
+
+| 指标 | 清理后 | 清理前（54,239 条） |
+|---|---:|---:|
+| bootstrap | 265 ms | 317 ms |
+| 首页数据 | 54 ms | 68 ms |
+| 搜索（`zig`） | 81 ms | 235 ms |
+| 搜索（`%`） | 90 ms | 100 ms |
+| 首屏载荷 | 109 KB | 109 KB |
+| 滚动加载 | 13,320 条 / DOM 80 | 13,320 条 / DOM 80 |
+| 帧率 | 61 FPS（2,007 ms / 122 帧） | 60 FPS |
+
+### 8.4 卡片与布局
+
+- 卡片最小 **96×160**；1440 下 8 列、1024 下 6 列、390 下 3 列。
+- 名称固定两行（`line-clamp-2`），长名 `arrow-down-a-z` 不再半截；完整名挂 `title`。
+- 复制/下载/收藏/更多位于卡片底部固定操作区，悬浮时不再被 `overflow` 裁切；选中复选框覆盖在图标角。
+- 密度滑杆 0–2 与 80/96/128 三档双向联动；工具栏、筛选分组、排序、视图切换均为图标 + 文字，纯图标按钮带 Tooltip 与 `aria-label`。
+
+### 8.5 压测数据清理记录
+
+- 目标：`collection_id IS NULL` 的 9,803 条资产（非九集合资产）。
+- 留档清单：`docs/improvement/development/icons/stress-orphan-cleanup-2026-11-08.csv`（9,803 行 + 表头，2.7 MB，sha256 `a0a3039e42ca4435cbafc5f1adab44a915c718b71ab4f43f974c91dbb0acd0ce`），字段 `id,name,format,bytes,r2_key,thumb_key,created_at`。
+- 构成判断：9,800 条 `seed-*` SVG（压测播种，`seed-0`–`seed-9799`，创建于 2026-11-08 01 时）+ 3 条 `upload-svg/upload-png/upload-jpg` 测试夹具（02 时）；无标签、无集合、`source_url` 为空。未发现真实用户上传，按压测遗留处理。
+- 删除方式：复用 `POST /api/development/icons/assets/batch`（`action=delete`），每批 100 条，共 99 批（含 1 次单条验证），耗时 182 s，0 失败；每轮重新查询 `collection_id IS NULL`，天然可重入。R2 同时删除原图、`-w96.webp`、`-w192.webp`。
+- 清理结果：
+  - D1 资产 54,239 → **44,436**；`collection_id IS NULL` = 0；九集合计数不变。
+  - R2 对象 146,416 → 117,007（-29,409 = 9,803 × 3）；目标对象残留 0；blob 目录 623 MB → 509 MB。
+  - 九集合 stats 复核：`missing` 全部为 0，`status=done`。
+  - 转换任务历史 `job_items` 仍有 4,502 行指向已删资产；该表仅作任务台账，列表读路径为 INNER JOIN，不会显示或报错，本轮未删。
