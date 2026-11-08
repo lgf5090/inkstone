@@ -23,6 +23,7 @@ import {
   toTemporalValue,
   type CalendarEventDto,
   type CalendarEventInput,
+  type CalendarPreferences,
   type CalendarSearchResultDto,
   type CalendarTaskDto,
   type CalendarDto,
@@ -38,6 +39,24 @@ export const RANGE_PADDING_DAYS = 30
 export const MONTH_EVENT_HEIGHT = 18
 /** The three density choices the settings panel offers. */
 export const DAY_HOUR_HEIGHTS = [48, 72, 96] as const
+
+/**
+ * The hour window the timed views should crop to, or null for the whole day.
+ *
+ * Cropping is a convenience rather than a rule: when the account's working hours cannot fill the
+ * viewport at the chosen density, honouring them would leave wide bands of empty grid above and
+ * below (and leave scroll-to-now with nothing to scroll to). The whole day wins in that case.
+ */
+export function hourWindow(
+  preferences: Pick<CalendarPreferences, 'workingHours' | 'dayHourHeight'>,
+  viewportHeight: number,
+): { firstHour: number; lastHour: number } | null {
+  const { enabled, startHour, endHour } = preferences.workingHours
+  if (!enabled || endHour <= startHour) return null
+  const span = endHour - startHour
+  if (span * preferences.dayHourHeight < Math.max(0, viewportHeight - 140)) return null
+  return { firstHour: startHour, lastHour: endHour }
+}
 
 /** Preset calendar colours. These are calendar data, not design tokens; the API stores the hex. */
 export const CALENDAR_COLOR_PRESETS = [

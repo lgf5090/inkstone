@@ -15,6 +15,7 @@ import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
 import { Checkbox, Field, Input, Segmented, Select, Textarea } from '../../components/form'
 import { DatePicker } from '../../components/date-picker'
+import { addWallMinutes, wallClockInZone } from './timezone'
 
 export interface NewCalendarEvent {
   title: string
@@ -42,25 +43,6 @@ interface CalendarEventDialogProps {
   template?: CalendarTemplateDto | null
   onClose: () => void
   onCreate: (event: NewCalendarEvent) => void
-}
-
-function pad(value: number): string {
-  return String(value).padStart(2, '0')
-}
-
-function wall(instant: Date): { date: string; time: string } {
-  const date = new Date(instant)
-  return {
-    date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
-    time: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
-  }
-}
-
-function addMinutes(date: string, time: string, minutes: number): string {
-  const [year, month, day] = date.split('-').map(Number)
-  const [hour, minute] = time.split(':').map(Number)
-  const value = new Date(year!, month! - 1, day!, hour!, minute! + minutes)
-  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`
 }
 
 function wallDate(date: string, time: string, timeZone: string): Temporal.ZonedDateTime {
@@ -105,11 +87,11 @@ export function CalendarEventDialog({
   useEffect(() => {
     if (!open) return
     const available = calendars.filter(calendar => !calendar.readOnly)
-    const parts = wall(initialStart)
+    const parts = wallClockInZone(initialStart, timeZone)
     const startClock = template ? '09:00' : parts.time === '00:00' ? '09:00' : parts.time
     const end = template?.allDay
       ? `${parts.date}T09:00`
-      : addMinutes(parts.date, startClock, Math.max(5, template?.durationMinutes ?? 60))
+      : addWallMinutes(parts.date, startClock, Math.max(5, template?.durationMinutes ?? 60), timeZone)
     const [endDay, endClock] = end.split('T')
     setTitle(template?.title ?? '')
     setBlock('event')

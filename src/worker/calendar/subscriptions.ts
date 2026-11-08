@@ -1,4 +1,5 @@
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
+import { resolvePublicHost } from '../lib/host-guard'
 import {
   MAX_ICS_BYTES,
   MAX_ICS_EVENTS,
@@ -445,6 +446,12 @@ async function fetchFeed(
 ): Promise<FeedResult> {
   let current = url
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    // The literal check above cannot see a hostname that resolves to a private address. Resolving it
+    // first (DoH, cached for five minutes) closes that gap; a resolver outage is not an answer about
+    // the name, so only a conclusive block or an empty answer stops the fetch.
+    const verdict = await resolvePublicHost(current.hostname)
+    if (verdict === 'blocked') throw ApiError.badRequest('That address is not reachable from this deployment')
+    if (verdict === 'unresolved') throw ApiError.badRequest('The calendar address does not resolve')
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
     let response: Response

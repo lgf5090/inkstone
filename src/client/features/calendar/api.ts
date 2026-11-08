@@ -191,11 +191,6 @@ export async function getEventExtras(id: string): Promise<EventExtrasResponse | 
   }
 }
 
-export async function getEventReminders(id: string): Promise<number[]> {
-  const data = await request<{ minutes: number[] }>(`/api/calendar/events/${entity(id)}/reminders`)
-  return Array.isArray(data.minutes) ? data.minutes : []
-}
-
 export async function setEventReminders(
   id: string,
   minutes: readonly number[],
@@ -207,11 +202,6 @@ export async function setEventReminders(
   )
 }
 
-export async function getEventAttendees(id: string): Promise<CalendarAttendeeDto[]> {
-  const data = await request<{ attendees: CalendarAttendeeDto[] }>(`/api/calendar/events/${entity(id)}/attendees`)
-  return Array.isArray(data.attendees) ? data.attendees : []
-}
-
 export async function setEventAttendees(
   id: string,
   attendees: readonly CalendarAttendeeDto[],
@@ -221,11 +211,6 @@ export async function setEventAttendees(
     `/api/calendar/events/${entity(id)}/attendees`,
     { method: 'PUT', body: { attendees, rev } },
   )
-}
-
-export async function getEventAttachments(id: string): Promise<CalendarAttachmentDto[]> {
-  const data = await request<{ attachments: CalendarAttachmentDto[] }>(`/api/calendar/events/${entity(id)}/attachments`)
-  return Array.isArray(data.attachments) ? data.attachments : []
 }
 
 /** One multipart field named `file`; every limit and every check is the route's to decide. */
@@ -401,8 +386,14 @@ export function importCsv(input: {
 }
 
 /** The export is a calendar document, not JSON; `request` hands back the body as text. */
-export function exportIcs(calendarId: string): Promise<string> {
-  return request<string>(`/api/calendar/ics/export?calendarId=${entity(calendarId)}`)
+export function exportIcs(calendarId: string, eventId?: string): Promise<string> {
+  const query = new URLSearchParams({ calendarId })
+  if (eventId) query.set('eventId', eventId)
+  return request<string>(`/api/calendar/ics/export?${query.toString()}`)
+}
+
+export function exportCsv(calendarId: string): Promise<string> {
+  return request<string>(`/api/calendar/csv/export?calendarId=${entity(calendarId)}`)
 }
 
 /** The calendar's public link, or null while it has never been shared. */
@@ -620,10 +611,6 @@ export async function getResources(): Promise<CalendarResourceDto[]> {
 
 export async function createResource(input: { name: string, capacity?: number | null, color?: string }): Promise<CalendarResourceDto> {
   return (await request<{ resource: CalendarResourceDto }>('/api/calendar/resources', { method: 'POST', body: input })).resource
-}
-
-export async function updateResource(id: string, patch: { name?: string, capacity?: number | null }): Promise<CalendarResourceDto> {
-  return (await request<{ resource: CalendarResourceDto }>(`/api/calendar/resources/${entity(id)}`, { method: 'PATCH', body: patch })).resource
 }
 
 export function deleteResource(id: string): Promise<void> {

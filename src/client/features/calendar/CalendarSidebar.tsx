@@ -25,6 +25,7 @@ import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Menu, Tooltip, confirm, type MenuItem, submenuFor } from '../../components/overlay'
 import { Checkbox } from '../../components/form'
 import { MiniMonth } from './MiniMonth'
+import { downloadCalendarText } from './calendar-download'
 import {
   CalendarFormDialog,
   CalendarShareDialog,
@@ -93,23 +94,6 @@ function toastFailure(title: string, error: unknown): void {
     description: error instanceof Error && error.message ? error.message : undefined,
     tone: 'danger',
   })
-}
-
-function safeFileName(name: string): string {
-  const cleaned = name.replaceAll(/[\\/?%*:|"<>\u0000-\u001f]/g, '_').trim().slice(0, 120)
-  return cleaned || 'calendar'
-}
-
-function downloadIcs(name: string, content: string): void {
-  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `${safeFileName(name)}.ics`
-  document.body.append(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
 }
 
 function AddMenu({ onPick, compact }: { onPick: (kind: 'calendar' | 'group' | 'import' | 'subscribe' | 'quick' | 'templates' | 'contacts' | 'holidays' | 'free-busy' | 'resources' | 'scheduling') => void; compact?: boolean }) {
@@ -356,7 +340,17 @@ export function CalendarSidebar({
   const exportCalendar = async (calendar: CalendarType): Promise<void> => {
     try {
       const content = await api.exportIcs(calendar.id)
-      downloadIcs(calendar.name, content)
+      downloadCalendarText(calendar.name, content, 'ics')
+      useUi.getState().toast({ title: t('calendar.calendar.exported', { name: calendar.name }), tone: 'success' })
+    } catch (error) {
+      toastFailure(t('calendar.calendar.export_failed'), error)
+    }
+  }
+
+  const exportCsv = async (calendar: CalendarType): Promise<void> => {
+    try {
+      const content = await api.exportCsv(calendar.id)
+      downloadCalendarText(calendar.name, content, 'csv')
       useUi.getState().toast({ title: t('calendar.calendar.exported', { name: calendar.name }), tone: 'success' })
     } catch (error) {
       toastFailure(t('calendar.calendar.export_failed'), error)
@@ -487,6 +481,7 @@ export function CalendarSidebar({
         onSelect: () => { if (dto) setDialog({ kind: 'share', calendar: dto }) },
       },
       { id: 'export', label: t('calendar.calendar.export'), onSelect: () => { void exportCalendar(calendar) } },
+      { id: 'export-csv', label: t('calendar.calendar.export_csv'), onSelect: () => { void exportCsv(calendar) } },
       {
         id: 'delete',
         label: t('calendar.calendar.delete'),
@@ -583,10 +578,6 @@ export function CalendarSidebar({
             onRequestRange={onRequestRange}
           />
         )}
-
-        {countdowns}
-
-        {activity}
 
         <div role="group" aria-label={t('calendar.a11y.calendar_list')} className="px-2">
           <SectionLabel>{t('calendar.sidebar.calendars')}</SectionLabel>
@@ -741,8 +732,13 @@ export function CalendarSidebar({
               </ul>
             </>
           )}
-          {tasks}
         </div>
+
+        {/* The calendar list is the screen's primary navigation and stays above the side panels;
+            the per-range task list, countdowns and the yearly aggregate read as secondary. */}
+        {tasks}
+        {countdowns}
+        {activity}
       </div>
 
       {extras}

@@ -97,6 +97,7 @@ import {
   MONTH_EVENT_HEIGHT,
   RANGE_PADDING_DAYS,
   eventCalendarIds,
+  hourWindow,
   isRecurrenceOccurrence,
   missingRangeEventIds,
   toCalendarType,
@@ -168,9 +169,8 @@ function toViews(
   const secondary = preferences.secondaryTimeZone ?? undefined
   const weekStart = preferences.weekStart
   // Working hours are the ruler the timed views open with; off means the whole day stays on show.
-  const hours = preferences.workingHours.enabled
-    ? { firstHour: preferences.workingHours.startHour, lastHour: preferences.workingHours.endHour }
-    : {}
+  // A crop that cannot fill the viewport is dropped for the whole day instead of leaving empty bands.
+  const hours = hourWindow(preferences, typeof window === 'undefined' ? 0 : window.innerHeight) ?? {}
   return [
     createDayView({
       hourHeight: preferences.dayHourHeight,
@@ -1360,6 +1360,29 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       eventDetailTrigger: meta.preferences.eventDetailTrigger,
     })
   }, [app, meta.preferences, preferencesSignature])
+
+  /**
+   * Crossing a viewport height can change whether working hours fill the grid, and the view list
+   * carries that decision. Only a meaningful height change rebuilds it, debounced so a window drag
+   * does not reinstall five views on every pixel.
+   */
+  useEffect(() => {
+    let timer: number | undefined
+    let lastHeight = window.innerHeight
+    const onResize = (): void => {
+      if (Math.abs(window.innerHeight - lastHeight) < 80) return
+      lastHeight = window.innerHeight
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        app.updateConfig({ views: toViews(preferencesRef.current, date => actions.current.onGridDoubleClick?.(date)) })
+      }, 180)
+    }
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [app])
 
   useEffect(() => app.subscribe(() => {
     const view = app.getCurrentView().type

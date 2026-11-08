@@ -1487,6 +1487,7 @@ const allowed = new Map([
     "/**\n   * Files go up one at a time: a hand of them fired together would race the account's hourly budget\n   * and report a failure count nobody could tie to a file. The size and the count are checked here only\n   * as a courtesy — the route decides both for real.\n   */",
     "/** True when any member calendar is read-only; the server would refuse every write anyway. */",
     "/* The address book is a suggestion, not a requirement. */",
+    "/**\n   * A copy is created a day later than the row it came from: duplicating onto the same slot would\n   * only stack two identical blocks and hide the one the reader just made.\n   */",
   ]],
   ["src/client/features/calendar/CalendarEventTransferDialog.tsx", [
     "/**\n * Copy or move one event to another calendar.\n *\n * Copy creates a new row and carries the guest list and reminders; files stay with the original\n * because their bytes are account files, not event data. Move reuses the existing multi-calendar\n * membership write, so revisions and the server's write checks stay in one place.\n */",
@@ -1510,6 +1511,7 @@ const allowed = new Map([
     "/** The sidebar entry: one line, the year's total, and the gesture that opens the grid. */",
     "// The card still opens the dialog, which reports its own failure; a missing badge is not an",
     "// error worth a toast on a screen the reader did not ask about yet.",
+    "/**\n * The same yearly grid the dialog draws, at sidebar scale.\n *\n * It is one SVG of 365 rectangles rather than 365 buttons: the card is a summary and a single\n * tap target, so keyboard and pointer both land on the card, not on a day.\n */",
   ]],
   ["src/client/features/calendar/CalendarPrintSheet.tsx", [
     "/**\n * The paper the print dialogue gets.\n *\n * Rendered into `document.body` and hidden on screen, so the app's own layout never has to be fought\n * with: the print rules hide every other body child and show this one. The sheet is built from a range\n * read rather than from what is on screen, so printing from the year view still lists the appointments\n * the reader has, in the calendars they have visible.\n */",
@@ -1546,6 +1548,7 @@ const allowed = new Map([
     "/** Opens or closes the assistant dock; absent on a phone, where chat has a tab of its own. */",
     "/** The countdown card; its own table and its own read, so it is handed in rather than derived here. */",
     "/** The yearly activity grid, handed in for the same reason: it reads a server aggregate. */",
+    "/* The calendar list is the screen's primary navigation and stays above the side panels;\n            the per-range task list, countdowns and the yearly aggregate read as secondary. */",
   ]],
   ["src/client/features/calendar/CalendarSurface.tsx", [
     "/**\n * The live calendar surface: DayFlow, the plugins, the native sidebar and the write queue.\n *\n * Configuration is created once, because `useCalendarApp` builds its app from the first config. Later\n * preference changes go through `app.updateConfig`, which re-installs views without rebuilding the\n * app or losing the current selection. Range loading and persistence both apply server state with\n * `source: 'remote'` and a skip set, so a refresh never echoes back as a write.\n */",
@@ -1605,6 +1608,8 @@ const allowed = new Map([
     "/**\n   * The almanac line inside the month cells.\n   *\n   * The month map is resolved once per render pass and cached for the months a reader actually\n   * visited, so the library's re-renders cost a lookup rather than forty-two lunar conversions.\n   * `auto` follows the language: a Han interface expects an almanac, others do not.\n   */",
     "// The library's own week number is drawn inside the first cell of every row, where it collides",
     "// with the lunar line; the reader's switch now draws a gutter column instead, in our chrome.",
+    "// A crop that cannot fill the viewport is dropped for the whole day instead of leaving empty bands.",
+    "/**\n   * Crossing a viewport height can change whether working hours fill the grid, and the view list\n   * carries that decision. Only a meaningful height change rebuilds it, debounced so a window drag\n   * does not reinstall five views on every pixel.\n   */",
   ]],
   ["src/client/features/calendar/CalendarTasksPanel.tsx", [
     "/**\n * The task events for the range the calendar has loaded, as a checklist.\n *\n * Tasks are ordinary events with `kind: 'task'`; this panel is a second view over the same rows, not\n * a second store. A checkbox writes the task field and asks the surface to refresh the range.\n */",
@@ -1637,10 +1642,11 @@ const allowed = new Map([
     "// scrolling draws ten rows, so the length comes from the cells rather than a constant.",
     "// The date number is wider than two digits on the first of a month (\"1 October\"), and its",
     "// width is the only thing that decides where the label has to stop. Measured here and handed",
-    "// to CSS as a custom property, so no cell's label can run under its own number.",
-    "// The reserve is the whole right-hand box, padding included, measured from the container's",
-    "// edge to the number's left side: a fixed pixel guess was what cut the label to one",
-    "// character on a phone and pushed it under the number on the first of a month.",
+    "/** One month grid is redrawn many times per view; rebuilding its lunar map each pass is wasted work. */",
+    "/** Bumped on resize: a cell only has to measure its number again when the column width changed. */",
+    "// to CSS as a custom property, so no cell's label can run under its own number. A cell keeps",
+    "// its measurement until a resize changes the column width; re-reading it every pass forced",
+    "// forty layouts per repaint.",
   ]],
   ["src/client/features/calendar/almanac.test.ts", [
     "// 2023-03-22 is the first day of the leap second month, which is not the second month itself.",
@@ -1660,7 +1666,6 @@ const allowed = new Map([
     "// Past 21 December the cycle wraps back to the sign that opened the list.",
     "/** One day's almanac, from a Date the grid already holds. */",
     "/** The cells a month grid draws: six weeks from the weekday the grid opens on. */",
-    "/** The almanac of one day of a month already resolved; null outside the window a grid draws. */",
     "/**\n * The days a grid actually draws, resolved once.\n *\n * The grid opens on a day in the *previous* month whenever the first of the month is not the\n * reader's week start, so the window has to be counted from the cell the grid opens with rather\n * than from the month's first day. Deriving it from the month is what left the tail of a six-week\n * grid without almanac labels: the last week belonged to the next month and was never computed.\n *\n * `days` is the number of rendered cells rather than a fixed forty-two: continuous month scrolling\n * draws the neighbouring weeks too, and every cell on screen has to carry its own date.\n */",
     "/**\n * All forty-two cells of a month in the reader's week layout.\n *\n * The cache key carries the week start because that is what decides which six weeks the grid is\n * showing: the same month drawn from a Sunday opens two days earlier than from a Monday.\n */",
     "/**\n * What a month cell prints under its number.\n *\n * A feast outranks a term, and a term outranks the lunar day, because a reader scanning the month is\n * looking for the named days; the lunar day is what a cell falls back to, and it is never blank —\n * every one of the forty-two cells has a lunar date to show, including the cells of the months on\n * either side of the one being drawn.\n */",
@@ -1692,6 +1697,20 @@ const allowed = new Map([
     "/** The reader pointed at this event; the surface owns the extras card and its dismissed state. */",
     "/** The name a screen reader gets for a grid event; the visual title/time are its only source. */",
     "// A provider may carry a colour this build cannot parse; the calendar colour stays.",
+    "/**\n   * The mobile week header is its own compressed grid, while the timed body moves a wide canvas under\n   * a fixed time column. On a phone the canvas holds one column fewer than a week, centred on the\n   * selected day, so the header has to follow both the body's column width and its day set — a fixed\n   * seven-column strip put the first weekday label over a Wednesday column.\n   */",
+    "// A six-column canvas is anchored two days before the selected one; the extra header cell is",
+    "// clipped and every remaining cell is re-labelled to the day its column actually draws.",
+    "// One map per pass: looking each event up in the app array made a dense month quadratic.",
+    "// The library paints the block's own colour inline. On the first pass there is nothing of ours",
+    "// to replace, so an event with no per-event colour must keep that inline paint untouched; only a",
+    "// colour this bridge applied earlier is removed when the reader clears it.",
+    "// A re-labelled compact header cell has to navigate to the day it now shows; the library bound its",
+    "// handler to the date the cell had before the header was mirrored onto the body's rolling window.",
+    "// The timed canvas announces its horizontal position by rewriting its own transform, so a header",
+    "// that follows it has to hear that one attribute instead of every event repaint.",
+  ]],
+  ["src/client/features/calendar/calendar-download.ts", [
+    "/**\n * Turn a calendar export into the file the browser saves.\n *\n * ICS and CSV are both plain text documents the route already built; the only job here is the\n * anchor download, so the same name sanitiser and object-URL lifetime cover both.\n */",
   ]],
   ["src/client/features/calendar/calendar.css", [
     "/*\n * DayFlow component styles arrive from the library; this file only maps its `--df-*` variables onto\n * Inkstone's semantic tokens and gives the calendar the height its flex parent promises.\n *\n * The mapping lives on `:root` because DayFlow portals menus and dialogs to the body, outside the\n * calendar element but still inside the document that reads these variables.\n */",
@@ -1710,6 +1729,8 @@ const allowed = new Map([
     "/* A phone cell is about 45px: the number gives back its generous padding and the label shrinks\n     to the characters that matter. */",
     "/* The holiday word becomes a dot: four pixels carry the same distinction, and the word itself\n     stays in the cell's accessible name and in the day panel. */",
     "/* No gutter on the narrowest phones: the day cells need the width more than the number does. */",
+    "/*\n * The view switcher is the screen's primary mode control, so the current view has to read as\n * selected at a glance rather than as a slightly lighter pill. `:nth-child(4)` is the Year button:\n * a divider separates the three working views from the two overview views without moving any\n * control out of the library's own keyboard order.\n */",
+    "/*\n * The mobile header is a compressed seven-column strip while the timed canvas translates a wide\n * seven-day surface under a fixed time column. calendar-chrome mirrors the body's column width and\n * offset onto it; the header only has to clip what falls outside the phone.\n */",
   ]],
   ["src/client/features/calendar/conflict.ts", [
     "/**\n * Comparing the two versions of an event a write conflict landed between.\n *\n * A refused PATCH means somebody else — another tab, a phone, a provider sync — wrote the same event\n * first, and the queue used to answer that by reloading and losing whatever was just typed. This module\n * turns the two shapes into one comparable list of the parts a person can actually decide about, and\n * then builds the patched event from those decisions. Everything else on the row, including the\n * metadata a provider needs to keep recognising it, comes from the server copy.\n */",
@@ -1782,6 +1803,7 @@ const allowed = new Map([
     "/** A search hit gets DayFlow's result colour, which is the owning calendar's line colour. */",
     "/** The plain date an event falls on in the account's display timezone. */",
     "/** A stored rule temporarily taken off a series that has exceptions; put back before any write. */",
+    "/**\n * The hour window the timed views should crop to, or null for the whole day.\n *\n * Cropping is a convenience rather than a rule: when the account's working hours cannot fill the\n * viewport at the chosen density, honouring them would leave wide bands of empty grid above and\n * below (and leave scroll-to-now with nothing to scroll to). The whole day wins in that case.\n */",
   ]],
   ["src/client/features/calendar/offline-outbox.ts", [
     "/**\n * Writes made while the network was gone.\n *\n * The queue lives in localStorage so a reload does not lose the edit, keyed by account so one\n * profile cannot replay another's rows. Saves replay as an upsert because the first attempt may\n * have reached the server before the connection dropped; deletes keep the revision they read.\n */",
@@ -1870,12 +1892,16 @@ const allowed = new Map([
   ["src/client/features/calendar/timezone.test.ts", [
     "// 2026-03-08 02:30 does not exist in New York; the value has to come back valid, not throw.",
     "// Temporal shifts a skipped wall clock forward by the gap: 02:30 becomes 03:30 EDT.",
+    "// 01:30 EST plus 60 minutes lands on 03:30 EDT, the wall clock New York actually shows.",
   ]],
   ["src/client/features/calendar/timezone.ts", [
     "/**\n * Per-event time zones.\n *\n * A stored value already carries its own zone (`…+08:00[Asia/Shanghai]`), and the server keeps it on\n * the row, so what an event needs is a way to *move* it: the reader picks the zone the appointment\n * actually happens in and the wall clock they typed stays put while the instant moves. Whole days have\n * no zone to speak of, so they are left alone.\n */",
     "// Older engines without `supportedValuesOf` still get the zone the account is already using.",
     "/** The zone an event happens in, or null when it is a whole day. */",
     "/** Keep the wall clock, change the zone it is read in. */",
+    "/**\n * The wall clock a grid instant shows in the account's zone.\n *\n * A click on the grid hands React a browser-local `Date`; reading it with `getHours()` puts a\n * Shanghai calendar an hour or two off for a reader sitting in Berlin. Every date and time field in\n * the editor is wall clock in the account's zone, so the conversion belongs here.\n */",
+    "/** A wall-clock minute count added in the account's zone; DST gaps and overlaps follow Temporal. */",
+    "/** Move a stored value by whole days, keeping the wall clock in the zone it already names. */",
   ]],
   ["src/client/features/calendar/view-state.ts", [
     "/** Keep a calendar's view and day in the address bar without turning every edit into a history entry. */",
@@ -38182,6 +38208,9 @@ const allowed = new Map([
     "/** The first `<href>` inside the named element, which is how every CalDAV property carries a URL. */",
     "/** `current-user-privilege-set`, or null when the server omitted it (Radicale does). */",
   ]],
+  ["src/worker/calendar/filename.ts", [
+    "/**\n * A calendar name that can travel in a `Content-Disposition` header.\n *\n * Provider and reader names may carry separators, control characters or a trailing dot; the\n * file is downloaded, not resolved, so the only job here is to keep the header one safe token.\n */",
+  ]],
   ["src/worker/calendar/ics.ts", [
     "/** A stable per-calendar external id; flattened occurrences need their recurrence id in the key. */",
     "/**\n * Expand a stored RRULE for one request range.\n *\n * The client renders non-month views from these rows; month keeps DayFlow's own expansion so a\n * series can still be edited there. Occurrence ids carry `::repeat-`, are never accepted by the API\n * as entity ids, and are skipped by the persistence queue.\n */",
@@ -38344,6 +38373,9 @@ const allowed = new Map([
   ]],
   ["src/worker/calendar/subscriptions.ts", [
     "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of\n * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
+    "// The literal check above cannot see a hostname that resolves to a private address. Resolving it",
+    "// first (DoH, cached for five minutes) closes that gap; a resolver outage is not an answer about",
+    "// the name, so only a conclusive block or an empty answer stops the fetch.",
   ]],
   ["src/worker/calendar/templates.ts", [
     "/** Reusable event drafts; the palette stores fields, not dates. */",
@@ -42527,11 +42559,14 @@ const allowed = new Map([
   ["src/worker/routes/calendar-csv.ts", [
     "/** A deliberately small CSV importer: one row per event, ISO-like start/end values. */",
     "/* The import error is the one that explains the request. */",
+    "/** A round-trippable cell: the importer reads an offset but not a bracketed zone name. */",
   ]],
   ["src/worker/routes/calendar-ics.ts", [
     "// The events are idempotent by (source, external id), so a retry of the same file is safe.",
     "// An imported file without a usable zone is placed in the account's zone, not refused: the",
     "// calendar's own default is the meaningful answer for a missing or unrecognised `defaultTimeZone`.",
+    "// A single event can be forwarded or imported elsewhere without handing over the whole",
+    "// calendar; the row still has to belong to the calendar the session named.",
   ]],
   ["src/worker/routes/calendar-members.ts", [
     "/**\n * Account-to-account calendar sharing.\n *\n * A share row is both the invitation and the permission: pending rows appear in the member's sidebar,\n * accepted rows appear as synthetic read-only calendars, and declining keeps the history without\n * granting access. The owner is the only account allowed to change the guest list.\n */",

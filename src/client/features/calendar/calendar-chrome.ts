@@ -65,13 +65,99 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
   let frame = 0
   let disposed = false
 
+  const paintEvent = (element: HTMLElement, hex: string): void => {
+    if (hex) {
+      try {
+        const palette = getCalendarColorsForHex(hex)
+        element.style.backgroundColor = palette.colors.eventColor
+        element.style.color = palette.colors.textColor
+        element.style.borderColor = palette.colors.lineColor
+      } catch {
+        // A provider may carry a colour this build cannot parse; the calendar colour stays.
+      }
+      return
+    }
+    element.style.removeProperty('background-color')
+    element.style.removeProperty('color')
+    element.style.removeProperty('border-color')
+  }
+
+  /**
+   * The mobile week header is its own compressed grid, while the timed body moves a wide canvas under
+   * a fixed time column. On a phone the canvas holds one column fewer than a week, centred on the
+   * selected day, so the header has to follow both the body's column width and its day set — a fixed
+   * seven-column strip put the first weekday label over a Wednesday column.
+   */
+  const syncCompactHeader = (): void => {
+    const header = options.root.querySelector<HTMLElement>('.df-compact-header')
+    const labels = options.root.querySelector<HTMLElement>('.df-compact-header-labels')
+    const dates = options.root.querySelector<HTMLElement>('.df-compact-header-dates')
+    const content = options.root.querySelector<HTMLElement>('.df-week-time-grid-content')
+    const timeColumn = options.root.querySelector<HTMLElement>('.df-week-time-grid-time-column')
+    const firstRow = options.root.querySelector<HTMLElement>('.df-time-grid-row')
+    if (!header || !labels || !dates || !content || !timeColumn || !firstRow) return
+    const columns = firstRow.querySelectorAll('.df-week-time-grid-cell').length
+    if (columns < 1) return
+    const headerRect = header.getBoundingClientRect()
+    const contentRect = content.getBoundingClientRect()
+    const column = contentRect.width / columns
+    if (column <= 0) return
+    const timeWidth = timeColumn.getBoundingClientRect().width
+    const shift = contentRect.left - headerRect.left - timeWidth
+    const selected = options.app.getCurrentDate()
+    const key = `${columns}:${Math.round(column)}:${Math.round(shift)}:${Math.round(timeWidth)}:${selected.toDateString()}`
+    header.dataset.inkstoneHeader = key
+    for (const grid of [labels, dates]) {
+      grid.style.gridTemplateColumns = `repeat(${columns}, ${column}px)`
+      grid.style.width = `${column * columns}px`
+      grid.style.marginLeft = `${Math.round(timeWidth)}px`
+      grid.style.transform = `translateX(${Math.round(shift)}px)`
+    }
+    const rolling = columns < 7
+    header.querySelector<HTMLElement>('.df-compact-header-capsule')?.style.setProperty('display', 'none')
+    header.dataset.inkstoneRolling = rolling ? '1' : '0'
+    const labelCells = [...labels.querySelectorAll<HTMLElement>('.df-compact-header-label-cell')]
+    const dateButtons = [...dates.querySelectorAll<HTMLElement>('.df-compact-header-date-button')]
+    // A six-column canvas is anchored two days before the selected one; the extra header cell is
+    // clipped and every remaining cell is re-labelled to the day its column actually draws.
+    const start = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate() - 2)
+    const weekday = new Intl.DateTimeFormat(options.locale, { weekday: 'narrow' })
+    const full = new Intl.DateTimeFormat(options.locale, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
+    labelCells.forEach((cell, index) => {
+      const visible = index < columns
+      cell.style.display = visible ? '' : 'none'
+      const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index)
+      const text = rolling ? weekday.format(day) : narrowWeekdayLabels(options.locale, options.weekStart as WeekStartDay)[index] ?? ''
+      const label = cell.querySelector<HTMLElement>('.df-compact-header-label')
+      if (label && label.textContent !== text) label.textContent = text
+    })
+    dateButtons.forEach((button, index) => {
+      const visible = index < columns
+      button.style.display = visible ? '' : 'none'
+      const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index)
+      if (rolling) {
+        button.dataset.inkstoneDay = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
+        const pill = button.querySelector<HTMLElement>('.df-compact-header-date-pill')
+        if (pill && pill.textContent !== String(day.getDate())) pill.textContent = String(day.getDate())
+        const name = full.format(day)
+        if (button.getAttribute('aria-label') !== name) button.setAttribute('aria-label', name)
+      } else {
+        delete button.dataset.inkstoneDay
+      }
+    })
+  }
+
   const decorate = (): void => {
     if (disposed) return
-    const labels = narrowWeekdayLabels(options.locale, options.weekStart as WeekStartDay)
-    options.root.querySelectorAll<HTMLElement>(COMPACT_LABELS).forEach((node, index) => {
-      const next = labels[index]
-      if (next && node.textContent !== next) node.textContent = next
-    })
+    syncCompactHeader()
+    const header = options.root.querySelector<HTMLElement>('.df-compact-header')
+    if (header?.dataset.inkstoneRolling !== '1') {
+      const labels = narrowWeekdayLabels(options.locale, options.weekStart as WeekStartDay)
+      options.root.querySelectorAll<HTMLElement>(COMPACT_LABELS).forEach((node, index) => {
+        const next = labels[index]
+        if (next && node.textContent !== next) node.textContent = next
+      })
+    }
 
     const add = options.root.querySelector<HTMLButtonElement>(ADD_BUTTON)
     if (add) {
@@ -79,32 +165,26 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
       if (add.getAttribute('aria-label') !== options.addLabel) add.setAttribute('aria-label', options.addLabel)
     }
 
+    // One map per pass: looking each event up in the app array made a dense month quadratic.
+    const byId = new Map(options.app.getEvents().map(event => [event.id, event]))
     options.root.querySelectorAll<HTMLElement>(EVENT_SELECTOR).forEach((element) => {
       if (element.tabIndex !== 0) element.tabIndex = 0
       if (element.getAttribute('role') !== 'button') element.setAttribute('role', 'button')
       const name = eventAccessibleName(element, options.untitledLabel, options.allDayLabel)
       if (name && element.getAttribute('aria-label') !== name) element.setAttribute('aria-label', name)
       const id = element.getAttribute('data-event-id')
-      const color = id
-        ? options.app.getEvents().find(candidate => candidate.id === id)?.meta?.color
-        : undefined
+      const color = id ? byId.get(id)?.meta?.color : undefined
       const hex = typeof color === 'string' ? color : ''
-      if (element.dataset.inkstoneColor !== hex) {
+      const applied = element.dataset.inkstoneColor
+      // The library paints the block's own colour inline. On the first pass there is nothing of ours
+      // to replace, so an event with no per-event colour must keep that inline paint untouched; only a
+      // colour this bridge applied earlier is removed when the reader clears it.
+      if (applied === undefined) {
         element.dataset.inkstoneColor = hex
-        if (hex) {
-          try {
-            const palette = getCalendarColorsForHex(hex)
-            element.style.backgroundColor = palette.colors.eventColor
-            element.style.color = palette.colors.textColor
-            element.style.borderColor = palette.colors.lineColor
-          } catch {
-            // A provider may carry a colour this build cannot parse; the calendar colour stays.
-          }
-        } else {
-          element.style.removeProperty('background-color')
-          element.style.removeProperty('color')
-          element.style.removeProperty('border-color')
-        }
+        if (hex) paintEvent(element, hex)
+      } else if (applied !== hex) {
+        element.dataset.inkstoneColor = hex
+        paintEvent(element, hex)
       }
     })
   }
@@ -123,6 +203,16 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
       nativeEvent.preventDefault()
       nativeEvent.stopImmediatePropagation()
       options.onAdd()
+      return
+    }
+    // A re-labelled compact header cell has to navigate to the day it now shows; the library bound its
+    // handler to the date the cell had before the header was mirrored onto the body's rolling window.
+    const headerDay = elementOf(target)?.closest<HTMLElement>('.df-compact-header-date-button')?.dataset.inkstoneDay
+    if (headerDay) {
+      nativeEvent.preventDefault()
+      nativeEvent.stopImmediatePropagation()
+      const [year, month, day] = headerDay.split('-').map(Number) as [number, number, number]
+      options.app.setCurrentDate(new Date(year, month - 1, day))
       return
     }
     if (!options.interceptEvents) return
@@ -192,6 +282,21 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
     attributes: true,
     attributeFilter: ['data-event-id', 'data-all-day'],
   })
+  // The timed canvas announces its horizontal position by rewriting its own transform, so a header
+  // that follows it has to hear that one attribute instead of every event repaint.
+  const layoutObserver = new MutationObserver((records) => {
+    const moved = records.some(record => record.type === 'attributes'
+      && (record.target instanceof Element)
+      && record.target.classList.contains('df-week-time-grid-content'))
+    if (moved) schedule()
+  })
+  layoutObserver.observe(options.root, { attributes: true, subtree: true, attributeFilter: ['style'] })
+  const onResize = (): void => {
+    const header = options.root.querySelector<HTMLElement>('.df-compact-header')
+    if (header) delete header.dataset.inkstoneHeader
+    schedule()
+  }
+  window.addEventListener('resize', onResize)
   options.root.addEventListener('click', onClick, true)
   options.root.addEventListener('dblclick', onDoubleClick, true)
   options.root.addEventListener('keydown', onKeyDown, true)
@@ -200,6 +305,8 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
   return () => {
     disposed = true
     observer.disconnect()
+    layoutObserver.disconnect()
+    window.removeEventListener('resize', onResize)
     options.root.removeEventListener('click', onClick, true)
     options.root.removeEventListener('dblclick', onDoubleClick, true)
     options.root.removeEventListener('keydown', onKeyDown, true)

@@ -6,14 +6,17 @@ import { createMinuteBudget } from '../lib/rate-limit'
 import { readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { CalendarStore, type CalendarEventWriteInput } from '../calendar/store'
+import { safeFilename } from '../calendar/filename'
 import { parseCalendarInput, parseEventInput } from '../calendar/validation'
 import { CSV_HEADER_ALIASES } from '@shared/locales/zh-CN-calendar-csv'
-import type { TemporalValue } from '@shared/calendar/model'
+import { utf8ByteLength } from '@shared/text-utils'
+import { isCalendarEntityId, type TemporalValue } from '@shared/calendar/model'
 
 const MAX_CSV_BYTES = 5 * 1024 * 1024
 const BODY_LIMIT = MAX_CSV_BYTES + 64 * 1024
 const IMPORT_CHUNK = 200
 const importBudget = createMinuteBudget(10, 'Too many calendar imports. Try again in a minute.')
+const exportBudget = createMinuteBudget(30, 'Too many calendar exports. Try again in a minute.')
 
 export const calendarCsvRoutes = new Hono<AppBindings>()
 calendarCsvRoutes.use('*', requireAuth)
@@ -146,4 +149,42 @@ calendarCsvRoutes.post('/csv/import', async (c) => {
     throw error
   }
   return c.json({ calendarId: calendar.id, imported, warnings })
+})
+
+function csvCell(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
+}
+
+/** A round-trippable cell: the importer reads an offset but not a bracketed zone name. */
+function csvValue(value: TemporalValue): string {
+  return value.value.replace(/\[[^\]]*\]$/, '')
+}
+
+calendarCsvRoutes.get('/csv/export', async (c) => {
+  exportBudget(c.get('userId'))
+  const calendarId = c.req.query('calendarId')
+  if (!isCalendarEntityId(calendarId)) throw ApiError.notFound('Calendar not found')
+  const store = new CalendarStore(c.env.DB, c.get('userId'))
+  const calendar = (await store.listCalendars()).find(entry => entry.id === calendarId)
+  if (!calendar) throw ApiError.notFound('Calendar not found')
+  const range = await store.listEvents(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, [calendarId])
+  if (range.truncated) throw ApiError.tooLarge('That calendar has too many events to export as one file')
+  const lines = ['title,start,end,all_day,description']
+  for (const event of range.events) {
+    lines.push([
+      csvCell(event.title),
+      csvValue(event.start),
+      csvValue(event.end),
+      event.allDay ? '1' : '0',
+      csvCell(event.description),
+    ].join(','))
+  }
+  const body = `${lines.join('\r\n')}\r\n`
+  if (utf8ByteLength(body) > MAX_CSV_BYTES) throw ApiError.tooLarge('That calendar is too large to export as one file')
+  const filename = `${safeFilename(calendar.name, 'calendar')}.csv`
+  return c.body(body, 200, {
+    'Content-Type': 'text/csv; charset=utf-8',
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    'Cache-Control': 'no-store',
+  })
 })

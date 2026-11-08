@@ -35,6 +35,17 @@ const WEEK_SHELL_CLASS = 'cal-week-shell'
 const WEEK_NUMBER_CLASS = 'cal-week-number'
 const WEEK_HEAD_CLASS = 'cal-week-head-pad'
 
+/** One month grid is redrawn many times per view; rebuilding its lunar map each pass is wasted work. */
+let cachedWindow: { key: string; map: ReadonlyMap<string, CalendarDayAlmanac> } | null = null
+
+function windowAlmanac(firstKey: string, weekStart: number, span: number): ReadonlyMap<string, CalendarDayAlmanac> {
+  const key = `${firstKey}:${weekStart}:${span}`
+  if (cachedWindow?.key === key) return cachedWindow.map
+  const map = gridAlmanac(Temporal.PlainDate.from(firstKey), weekStart, span)
+  cachedWindow = { key, map }
+  return map
+}
+
 export interface AlmanacChromeOptions {
   root: HTMLElement
   weekStart: number
@@ -77,6 +88,8 @@ function removeWeekColumn(root: HTMLElement): void {
 export function attachAlmanacChrome(options: AlmanacChromeOptions): () => void {
   let frame = 0
   let disposed = false
+  /** Bumped on resize: a cell only has to measure its number again when the column width changed. */
+  let layoutEpoch = 0
 
   const ensureWeekNumber = (shell: HTMLElement, week: number, year: number): void => {
     let number = shell.querySelector<HTMLElement>(`.${WEEK_NUMBER_CLASS}`)
@@ -138,7 +151,8 @@ export function attachAlmanacChrome(options: AlmanacChromeOptions): () => void {
     // the month instead left the trailing week of a six-week grid unresolved, and continuous
     // scrolling draws ten rows, so the length comes from the cells rather than a constant.
     const span = Math.round((Date.parse(`${lastKey}T00:00:00Z`) - Date.parse(`${firstKey}T00:00:00Z`)) / 86_400_000) + 1
-    const map = gridAlmanac(Temporal.PlainDate.from(firstKey), options.weekStart, Math.max(42, span))
+    const map = windowAlmanac(firstKey, options.weekStart, Math.max(42, span))
+    const epoch = String(layoutEpoch)
 
     for (const cell of cells) {
       const key = dayKey(cell)
@@ -156,14 +170,16 @@ export function attachAlmanacChrome(options: AlmanacChromeOptions): () => void {
       const mark = ensureMark(container, key)
       // The date number is wider than two digits on the first of a month ("1 October"), and its
       // width is the only thing that decides where the label has to stop. Measured here and handed
-      // to CSS as a custom property, so no cell's label can run under its own number.
-      const number = container.querySelector<HTMLElement>('.df-month-date-number')
-      if (number) {
-        // The reserve is the whole right-hand box, padding included, measured from the container's
-        // edge to the number's left side: a fixed pixel guess was what cut the label to one
-        // character on a phone and pushed it under the number on the first of a month.
-        const reserve = Math.ceil(container.getBoundingClientRect().right - number.getBoundingClientRect().left)
-        container.style.setProperty('--cal-number-width', `${reserve}px`)
+      // to CSS as a custom property, so no cell's label can run under its own number. A cell keeps
+      // its measurement until a resize changes the column width; re-reading it every pass forced
+      // forty layouts per repaint.
+      if (container.dataset.inkstoneMeasured !== epoch) {
+        const number = container.querySelector<HTMLElement>('.df-month-date-number')
+        if (number) {
+          const reserve = Math.ceil(container.getBoundingClientRect().right - number.getBoundingClientRect().left)
+          container.style.setProperty('--cal-number-width', `${reserve}px`)
+        }
+        container.dataset.inkstoneMeasured = epoch
       }
       const text = mark.querySelector<HTMLElement>('.cal-almanac-text')
       const badge = mark.querySelector<HTMLElement>('.cal-almanac-badge')
@@ -210,12 +226,18 @@ export function attachAlmanacChrome(options: AlmanacChromeOptions): () => void {
 
   const observer = new MutationObserver(schedule)
   observer.observe(options.root, { childList: true, subtree: true })
+  const onResize = (): void => {
+    layoutEpoch += 1
+    schedule()
+  }
+  window.addEventListener('resize', onResize)
   options.root.addEventListener('click', onClick, true)
   decorate()
 
   return () => {
     disposed = true
     observer.disconnect()
+    window.removeEventListener('resize', onResize)
     options.root.removeEventListener('click', onClick, true)
     if (frame !== 0) window.cancelAnimationFrame(frame)
     options.root.querySelectorAll(MARK_SELECTOR).forEach(node => node.remove())

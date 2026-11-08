@@ -6,6 +6,7 @@ import {
   deriveDarkColor,
   eventCalendarIds,
   eventDateInZone,
+  hourWindow,
   isRecurrenceOccurrence,
   missingRangeEventIds,
   toCalendarType,
@@ -220,5 +221,25 @@ describe('calendar DTO mapping', () => {
       timeZone: 'Asia/Shanghai',
       hasPending: id => id === 'evt_pending',
     })).toEqual(['evt_within'])
+  })
+})
+
+describe('hourWindow', () => {
+  const working = {
+    workingHours: { enabled: true, startHour: 9, endHour: 18 },
+    dayHourHeight: 48,
+  }
+
+  it('uses the whole day when working hours cannot fill the viewport', () => {
+    expect(hourWindow(working, 900)).toBeNull()
+  })
+
+  it('crops to working hours when they fill the viewport', () => {
+    expect(hourWindow({ ...working, dayHourHeight: 96 }, 900)).toEqual({ firstHour: 9, lastHour: 18 })
+  })
+
+  it('never crops a disabled or inverted window', () => {
+    expect(hourWindow({ ...working, workingHours: { enabled: false, startHour: 9, endHour: 18 } }, 400)).toBeNull()
+    expect(hourWindow({ ...working, workingHours: { enabled: true, startHour: 18, endHour: 9 } }, 400)).toBeNull()
   })
 })

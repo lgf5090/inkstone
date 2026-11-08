@@ -12,6 +12,7 @@ import {
   icsExternalId,
   parseIcsCalendar,
 } from '../calendar/ics'
+import { safeFilename } from '../calendar/filename'
 import {
   MAX_ICS_BYTES,
   MAX_ICS_EVENTS,
@@ -20,7 +21,7 @@ import {
   isCalendarEntityId,
 } from '@shared/calendar/model'
 import { isValidTimeZone } from '@shared/assistant-schedule'
-import type { CalendarAttendeeDto } from '@shared/calendar/model'
+import type { CalendarAttendeeDto, CalendarEventDto } from '@shared/calendar/model'
 
 const IMPORT_BODY_LIMIT = MAX_ICS_BYTES * 2 + 64 * 1024
 const IMPORT_CHUNK = 200
@@ -167,24 +168,36 @@ calendarIcsRoutes.get('/export', async (c) => {
   const store = new CalendarStore(c.env.DB, c.get('userId'))
   const calendar = (await store.listCalendars()).find((entry) => entry.id === calendarId)
   if (!calendar) throw ApiError.notFound('Calendar not found')
-  const size = await store.exportSizeFor(calendarId)
-  if (size.storedBytes > MAX_ICS_EXPORT_BYTES) {
-    throw ApiError.tooLarge('That calendar holds more text than one file can carry')
-  }
   const preferences = await store.preferences()
-  const range = await store.listEvents(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, [calendarId])
-  if (range.truncated) {
-    throw ApiError.tooLarge('That calendar has too many events to export as one file')
+  const eventId = c.req.query('eventId')
+  let events: CalendarEventDto[]
+  if (eventId !== undefined) {
+    // A single event can be forwarded or imported elsewhere without handing over the whole
+    // calendar; the row still has to belong to the calendar the session named.
+    if (!isCalendarEntityId(eventId)) throw ApiError.notFound('Event not found')
+    const event = await store.getEvent(eventId)
+    if (!event || !event.calendarIds.includes(calendarId)) throw ApiError.notFound('Event not found')
+    events = [event]
+  } else {
+    const size = await store.exportSizeFor(calendarId)
+    if (size.storedBytes > MAX_ICS_EXPORT_BYTES) {
+      throw ApiError.tooLarge('That calendar holds more text than one file can carry')
+    }
+    const range = await store.listEvents(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, [calendarId])
+    if (range.truncated) {
+      throw ApiError.tooLarge('That calendar has too many events to export as one file')
+    }
+    events = range.events
   }
-  const guests = await store.eventAttendeesFor(range.events.map(event => event.id))
+  const guests = await store.eventAttendeesFor(events.map(event => event.id))
   const chunks = encodeIcsChunks({
     name: calendar.name,
-    events: range.events.map(event => ({ ...event, attendees: guests.get(event.id) })),
+    events: events.map(event => ({ ...event, attendees: guests.get(event.id) })),
     timeZone: preferences.timeZone,
     organizerEmail: preferences.organizerEmail,
   }, MAX_ICS_EXPORT_BYTES)
   if (!chunks) throw ApiError.tooLarge('That calendar is too large to export as one file')
-  const filename = `${safeFilename(calendar.name)}.ics`
+  const filename = `${safeFilename(eventId ? events[0]!.title : calendar.name, 'calendar')}.ics`
   return c.body(new ReadableStream<Uint8Array>({
     start(controller) {
       for (const chunk of chunks) controller.enqueue(chunk)
@@ -196,11 +209,6 @@ calendarIcsRoutes.get('/export', async (c) => {
     'Cache-Control': 'no-store',
   })
 })
-
-function safeFilename(value: string): string {
-  const cleaned = value.replaceAll(/[\\/:*?"<>|\u0000-\u001f]/g, '-').trim().slice(0, 120)
-  return cleaned || 'calendar'
-}
 
 function recurrenceIdOf(value: unknown): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null

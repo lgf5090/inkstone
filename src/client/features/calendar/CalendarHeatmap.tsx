@@ -84,7 +84,8 @@ function dayTotal(response: HeatmapResponse | null, date: string, kinds: Activit
 /** The sidebar entry: one line, the year's total, and the gesture that opens the grid. */
 export function CalendarHeatmapCard({ today }: { today: Date }) {
   const [open, setOpen] = useState(false)
-  const [total, setTotal] = useState<number | null>(null)
+  const [response, setResponse] = useState<HeatmapResponse | null>(null)
+  const [kinds] = useState<ActivityKind[]>(readKinds)
   const year = today.getFullYear()
 
   useEffect(() => {
@@ -92,21 +93,26 @@ export function CalendarHeatmapCard({ today }: { today: Date }) {
     const params = new URLSearchParams({
       from: `${year}-01-01`,
       to: `${year}-12-31`,
-      kinds: readKinds().join(','),
+      kinds: kinds.join(','),
     })
     void request<HeatmapResponse>(`/api/activity/heatmap?${params.toString()}`, { signal: controller.signal })
       .then((answer) => {
         if (controller.signal.aborted) return
-        setTotal(Object.values(answer.totals).reduce((sum, value) => sum + (value ?? 0), 0))
+        setResponse(answer)
       })
       .catch(() => {
         // The card still opens the dialog, which reports its own failure; a missing badge is not an
         // error worth a toast on a screen the reader did not ask about yet.
-        if (!controller.signal.aborted) setTotal(null)
+        if (!controller.signal.aborted) setResponse(null)
       })
     return () => controller.abort()
-  }, [year])
+  }, [year, kinds])
 
+  const total = useMemo(
+    () => (response ? kinds.reduce((sum, kind) => sum + (response.totals[kind] ?? 0), 0) : 0),
+    [response, kinds],
+  )
+  const summary = useMemo(() => buildMiniGrid(response, year, kinds), [response, year, kinds])
   return (
     <section aria-label={t('calendar.heatmap.title')} className="px-3 py-2">
       <SectionLabel className="flex items-center gap-1">
@@ -115,15 +121,87 @@ export function CalendarHeatmapCard({ today }: { today: Date }) {
       </SectionLabel>
       <button
         type="button"
+        aria-label={`${t('calendar.heatmap.title')} · ${t('calendar.heatmap.total', { count: total })}`}
         onClick={() => setOpen(true)}
-        className="mt-1 flex w-full items-center justify-between gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-1 text-left text-[length:var(--text-11-5)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
+        className="mt-1 block w-full rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1.5 text-left transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
       >
-        <span className="tabular">{t('calendar.heatmap.total', { count: total ?? 0 })}</span>
-        <span className="shrink-0 text-[var(--accent)]">{t('calendar.heatmap.open')}</span>
+        <svg
+          aria-hidden="true"
+          className="block w-full"
+          viewBox={`0 0 ${summary.width} ${summary.height}`}
+          preserveAspectRatio="none"
+        >
+          {summary.cells.map((cell) => (
+            <rect
+              key={cell.key}
+              x={cell.x}
+              y={cell.y}
+              width={summary.cell}
+              height={summary.cell}
+              rx={1}
+              style={{ fill: cell.fill }}
+            />
+          ))}
+        </svg>
+        <div className="mt-1 flex items-center justify-between gap-1 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+          <span className="tabular">{t('calendar.heatmap.total', { count: total })}</span>
+          <span className="shrink-0 text-[var(--accent)]">{t('calendar.heatmap.open')}</span>
+        </div>
       </button>
       {open && <HeatmapDialog year={year} today={today} onClose={() => setOpen(false)} />}
     </section>
   )
+}
+
+interface MiniGridCell {
+  key: string
+  x: number
+  y: number
+  fill: string
+}
+
+/**
+ * The same yearly grid the dialog draws, at sidebar scale.
+ *
+ * It is one SVG of 365 rectangles rather than 365 buttons: the card is a summary and a single
+ * tap target, so keyboard and pointer both land on the card, not on a day.
+ */
+function buildMiniGrid(
+  response: HeatmapResponse | null,
+  year: number,
+  kinds: ActivityKind[],
+): { width: number; height: number; cell: number; cells: MiniGridCell[] } {
+  const cellSize = 4
+  const grid = yearGrid(year)
+  let highest = 0
+  if (response) {
+    for (const day of response.days) {
+      const value = kinds.reduce((sum, kind) => sum + (day.counts[kind] ?? 0), 0)
+      if (value > highest) highest = value
+    }
+  }
+  const cells: MiniGridCell[] = []
+  grid.forEach((column, columnIndex) => {
+    column.forEach((cell, rowIndex) => {
+      if (!cell.date) return
+      const count = dayTotal(response, cell.date, kinds)
+      const level = heatLevel(count, highest)
+      cells.push({
+        key: cell.date,
+        x: columnIndex * cellSize,
+        y: rowIndex * cellSize,
+        fill: level === 0
+          ? 'color-mix(in oklab, var(--text-quaternary) 14%, var(--bg-base))'
+          : `color-mix(in oklab, var(--accent) ${[0, 18, 34, 52, 70, 88][level]}%, var(--bg-base))`,
+      })
+    })
+  })
+  return {
+    width: Math.max(1, grid.length * cellSize - 1),
+    height: ROWS * cellSize - 1,
+    cell: cellSize - 1,
+    cells,
+  }
 }
 
 function HeatmapDialog({ year: initialYear, today, onClose }: { year: number; today: Date; onClose: () => void }) {
