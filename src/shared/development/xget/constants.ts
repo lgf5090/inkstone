@@ -29,6 +29,9 @@ export const XGET_TOKEN_MIN_LENGTH = 8
 export const XGET_TOKEN_MAX_LENGTH = 128
 export const XGET_TOKEN_PATTERN = /^[A-Za-z0-9._-]+$/
 
+export const XGET_UPSTREAM_USER_AGENT = 'Wget/1.21.3'
+export const XGET_CRATES_USER_AGENT = 'Xget/1.0'
+
 export const XGET_MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024
 export const XGET_MAX_BUFFERED_BODY_BYTES = 8 * 1024 * 1024
 export const XGET_MAX_REWRITE_BYTES = 8 * 1024 * 1024

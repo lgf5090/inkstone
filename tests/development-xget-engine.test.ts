@@ -829,3 +829,68 @@ describe('the Homebrew bottle registry path', () => {
     expect(tokenUrl).toContain('scope=repository%3Ahomebrew%2Fcore%2Fgit%3Apull')
   })
 })
+
+describe('the upstream content negotiation', () => {
+  it('forwards the client Accept header on a cacheable GET', async () => {
+    let sent: Headers | null = null
+    stubFetch(async (_input, init) => {
+      sent = new Headers(init?.headers as Headers)
+      return new Response('package', { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+
+    await call('/npm/react', { headers: { Accept: 'application/vnd.npm.install-v1+json' } })
+
+    expect((sent as unknown as Headers).get('accept')).toBe('application/vnd.npm.install-v1+json')
+  })
+
+  it('uses a user agent crates.io accepts while other platforms keep the downloader agent', async () => {
+    const agents: string[] = []
+    stubFetch(async (_input, init) => {
+      agents.push(new Headers(init?.headers as Headers).get('user-agent') ?? '')
+      return new Response('ok', { status: 200 })
+    })
+
+    await call('/crates/serde')
+    await call('/npm/react')
+
+    expect(agents).toEqual(['Xget/1.0', 'Wget/1.21.3'])
+  })
+
+  it('wraps a streamed request body in FixedLengthStream so workerd keeps Content-Length', async () => {
+    const size = 8 * 1024 * 1024 + 1
+    const lengths: number[] = []
+    vi.stubGlobal(
+      'FixedLengthStream',
+      class extends TransformStream<Uint8Array, Uint8Array> {
+        constructor(length: number) {
+          super()
+          lengths.push(length)
+        }
+      },
+    )
+    let sent: Headers | null = null
+    let received = 0
+    stubFetch(async (_input, init) => {
+      sent = new Headers(init?.headers as Headers)
+      if (init?.body) {
+        received = (await new Response(init.body as ReadableStream).arrayBuffer()).byteLength
+      }
+      return new Response('ok', { status: 200 })
+    })
+
+    const body = new Uint8Array(size)
+    const response = await call('/gh/owner/repo/git-receive-pack', {
+      method: 'POST',
+      headers: {
+        'Content-Length': String(size),
+        'Content-Type': 'application/x-git-receive-pack-request',
+      },
+      body,
+    })
+
+    expect(response.status).toBe(200)
+    expect(lengths).toEqual([size])
+    expect(received).toBe(size)
+    expect((sent as unknown as Headers).get('content-length')).toBeNull()
+  })
+})
