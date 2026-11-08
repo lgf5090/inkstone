@@ -6867,12 +6867,21 @@ const allowed = new Map([
     "/** The filtered tree the row is drawn from. */",
     "/** The complete tree, used for moves and reordering that must see hidden siblings. */",
   ]],
+  ["src/client/features/development/api-tester/components/CollectionsPanel.tsx", [
+    "/**\n * The sidebar's callbacks only close/open panes; the panel's real data arrives through its own\n * store subscriptions. A parent re-render from typing in the request editor therefore must not\n * re-render the whole collection tree.\n */",
+  ]],
   ["src/client/features/development/api-tester/components/EnvironmentDialog.tsx", [
     "// Opening the dialog starts on the active environment; later environment edits must not steal",
     "// the selection back from a newly created one.",
   ]],
   ["src/client/features/development/api-tester/components/HistoryDialog.tsx", [
     "// History no longer rides along with the workspace state: it is read when the dialog needs it.",
+  ]],
+  ["src/client/features/development/api-tester/components/KvEditor.tsx", [
+    "/** form-data fields may point at an uploaded file instead of a text value. */",
+  ]],
+  ["src/client/features/development/api-tester/components/OAuth2Editor.tsx", [
+    "// Providers commonly omit refresh_token on a refresh response; keep the one we already have.",
   ]],
   ["src/client/features/development/api-tester/components/RawViewer.tsx", [
     "/** One rendered line is exactly one 20px row, which is what makes windowing possible. */",
@@ -6953,6 +6962,11 @@ const allowed = new Map([
     "// 20. Clojure - clj-http",
     "// Generate code for a language id. Unknown ids return an empty string.",
   ]],
+  ["src/client/features/development/api-tester/lib/cookies.ts", [
+    "/** RFC 6265 domain matching, with the leading dot treated as optional. */",
+    "/** The `Cookie` header value for a request, longest path first as browsers do. */",
+    "/** Applies a response's Set-Cookie list to the jar, keeping one row per name/domain/path. */",
+  ]],
   ["src/client/features/development/api-tester/lib/curl-parser.ts", [
     "/**\n * Warnings are returned as stable codes instead of localized text: the UI owns the translation.\n *\n * - `missing_flag_arg`: a flag that needs a value sits at the end of the command.\n * - `unknown_flag`: a dash-prefixed token is not one of the flags handled below.\n */",
     "/**\n * Small shell tokenizer: single quotes, double quotes, backslash escapes and `\\` line\n * continuations. It is not a complete POSIX shell parser, but it covers the commands produced by\n * browser developer tools and the common `curl` flags.\n */",
@@ -6968,10 +6982,16 @@ const allowed = new Map([
     "// Form fields always imply form-data, even if a flag combination skipped the branch above.",
     "// An empty raw body is not a body.",
   ]],
+  ["src/client/features/development/api-tester/lib/files.ts", [
+    "/** Every uploaded file a request points at, across its body and multipart fields. */",
+  ]],
   ["src/client/features/development/api-tester/lib/inflight.ts", [
     "/** One in-flight controller per tab, so a send in one tab cannot abort a send in another. */",
     "/** Starts a request for a tab, aborting only that tab's earlier request. */",
     "/** Unregisters `controller` if it is still the one this tab owns. */",
+    "/** Aborts every tab's request, for a workspace switch or module teardown. */",
+    "/** Whether this controller is still the request the tab should publish results for. */",
+    "/** Drops a tab's request entirely: abort it and forget it, so a late result is not published. */",
   ]],
   ["src/client/features/development/api-tester/lib/mock-generator.ts", [
     "/** Reference-compatible alias; the shared keyword module owns the actual union. */",
@@ -6992,8 +7012,25 @@ const allowed = new Map([
     "// Unquoted placeholder: a string value gets quotes, everything else stays a bare value.",
     "/** Example template shown by the mock generator dialog. */",
   ]],
+  ["src/client/features/development/api-tester/lib/relay-client.ts", [
+    "// Invalid JSON is a visible UI error; never send a string where GraphQL expects an object.",
+    "// fetch writes the multipart boundary; forwarding a user Content-Type would break it.",
+    "// Only an absolute URL is a relay target. A relative path must not silently become a call to",
+    "// the Inkstone origin the user is reading this module on.",
+    "// Leave the text untouched; executeRequest turns a non-http(s) value into a visible error.",
+    "// The URL check in executeRequest reports the malformed target.",
+  ]],
   ["src/client/features/development/api-tester/lib/shortcut.ts", [
     "/**\n * Cmd/Ctrl+Enter sends the active request from anywhere in the module.\n *\n * The URL field's own Enter handler answers the bare key only, so the two paths cannot both fire\n * for one keystroke. An IME frame is excluded the same way every other bare-key handler here is.\n */",
+  ]],
+  ["src/client/features/development/api-tester/lib/tag-colors.ts", [
+    "/** Tag/workspace swatches resolve to theme tokens, never to literal colour values. */",
+  ]],
+  ["src/client/features/development/api-tester/lib/tree.ts", [
+    "/**\n * The subset of node state the collection sidebar draws.\n *\n * Typing in a request body replaces the node object and the nodes array, but nothing the tree shows\n * changes. Returning the previous array keeps Zustand from re-rendering the whole sidebar on every\n * keystroke; structural edits still produce a new array.\n */",
+  ]],
+  ["src/client/features/development/api-tester/lib/uploads.ts", [
+    "/**\n * Deletes a server-side upload only when no remaining request still points at it.\n *\n * Duplicating a binary/multipart request copies the file id, so deleting the file from one copy\n * would otherwise break the other.\n */",
   ]],
   ["src/client/features/development/api-tester/persistence.ts", [
     "/** The page is going away: one last keepalive write, under the browser's 64 KiB limit. */",
@@ -7002,9 +7039,15 @@ const allowed = new Map([
     "/**\n   * A failed save keeps `dirty`, so the next edit already retries; this covers the case where the\n   * user stops editing after the failure and would otherwise never learn the state is unsaved.\n   */",
     "// The keepalive budget is 64 KiB of *bytes*; counting characters lets a CJK-heavy state through",
     "// an API that then refuses the whole request.",
+    "// The in-flight save already carries an older snapshot. Remember that another pass is owed",
+    "// instead of dropping the edit when that save finishes.",
+    "// An edit made while this PUT was in flight is newer than the snapshot we sent. Keeping the",
+    "// dirty flag guarantees the next close/flush still writes it instead of silently dropping it.",
   ]],
   ["src/client/features/development/api-tester/send.ts", [
     "/** One toast per outage, not one per request: a failing history endpoint would otherwise shout every send. */",
+    "/** Refreshes an expired OAuth2 access token before the request; failure keeps the old token. */",
+    "// A send replaces whatever that tab was doing, including a request still in its pre-script phase.",
   ]],
   ["src/client/features/development/api-tester/store.ts", [
     "// The workspace may have been switched while the request was in flight.",
@@ -7013,6 +7056,7 @@ const allowed = new Map([
     "/**\n * Socket sessions outlive the panel that shows them.\n *\n * A tab switch unmounts the panel but must not drop the connection or the transcript: the node id\n * owns both, so coming back shows the same conversation and the socket is closed only on an explicit\n * disconnect, a deleted node, or leaving the module.\n */",
     "// The peer may already be gone; the session state below is what the user sees either way.",
     "/** A deleted request takes its conversation with it. */",
+    "// A second connect/disconnect while the ticket was in flight owns the session now.",
   ]],
   ["src/client/features/development/certhub/CerthubApp.tsx", [
     "/**\n * One domain line of the request form. The label lives on the `Checkbox` itself: an earlier version\n * wrapped the control in a `<label>` that also printed the same string, so every checkbox read twice.\n */",
@@ -32209,6 +32253,14 @@ const allowed = new Map([
   ["src/shared/development/api-tester/mock-data.ts", [
     "// The zh/en data pools are data, not interface copy: they stay out of the client i18n gate.",
   ]],
+  ["src/shared/development/api-tester/state.ts", [
+    "/**\n * Breaks parent cycles and over-deep chains in imported or older data.\n *\n * The renderers walk these edges recursively, so one cycle would otherwise hang the sidebar and\n * one very long chain would overflow the stack.\n */",
+    "/** Every uploaded file a saved workspace still points at, so deletion can clean the objects too. */",
+  ]],
+  ["src/shared/development/api-tester/types.ts", [
+    "/** One multipart/form-data field after variable resolution. File fields carry an owned file id. */",
+    "/** A cookie the relay learned from a response and may send to the same domain/path later. */",
+  ]],
   ["src/shared/development/database/assistant-context.ts", [
     "/** Absent for a local SQLite file, which only exists in the browser. */",
   ]],
@@ -40264,6 +40316,9 @@ const allowed = new Map([
     "// The rows still go: an expired file is unreachable either way, and an object R2 refuses to",
     "// delete now is a lifecycle-rule problem rather than a reason to keep serving it.",
     "/** The bytes of a file the caller owns, for a relay request body. */",
+    "/** Removes uploaded objects and rows for a workspace that is being deleted. Best effort by design. */",
+    "// One conditional INSERT is the quota decision: checking the count and the sum in the same",
+    "// statement keeps two concurrent uploads from both passing the old read-then-write check.",
   ]],
   ["src/worker/development/api-tester/oauth.ts", [
     "/** OAuth token endpoints answer quickly; a hung one must not hold the Worker open. */",
@@ -40279,7 +40334,6 @@ const allowed = new Map([
   ]],
   ["src/worker/development/api-tester/relay.ts", [
     "/**\n * The headers a relay must never forward.\n *\n * `host` and `content-length` describe the request this worker is making, not the one the user\n * composed, and the rest belong to the connection between two hops rather than to the call itself.\n */",
-    "/** Credentials that belong to one origin, so a cross-origin redirect must not carry them along. */",
     "/** C0 controls other than horizontal tab, and DEL: a header value carrying one is a header injection. */",
     "/**\n * The URL a relay may call: an absolute http(s) address, without embedded credentials, whose host\n * is not a literal private or internal address.\n *\n * Redirect targets go through the same check on every hop, which is why this takes an already\n * parsed URL as well as text.\n */",
     "// Header names are case-insensitive, so a repeated user header keeps the last value.",
@@ -40287,6 +40341,11 @@ const allowed = new Map([
     "// The redirect's own payload is never read; a cancel that itself rejects changes nothing here.",
     "// Every hop is judged again: a public host may redirect into the network this worker",
     "// can see but the caller cannot.",
+    "/**\n * Redirects are followed automatically only while they stay on the origin the user named.\n *\n * A cross-origin hop is a new destination chosen by the upstream, so the relay stops there and\n * returns the 30x response (with `Location`) instead of forwarding the user's headers, credentials\n * or body to a target they did not configure. The caller can then decide to request that URL\n * explicitly.\n */",
+    "/** The charset parameter of a media type, if it names one. */",
+    "/**\n * Decodes text with the charset the response declares, falling back to UTF-8 when the label is\n * absent or unknown. The previous fixed UTF-8 decoder turned every GBK/Shift_JIS response into\n * mojibake even though the upstream had said what it was.\n */",
+    "/**\n * The 30x response itself, kept intact for the user: status, headers (including `Location`) and the\n * body the upstream sent. The `error` field tells the client why automatic following stopped.\n */",
+    "// A FormData body owns its boundary; a user-supplied Content-Type would make it unreadable.",
   ]],
   ["src/worker/development/api-tester/schema.ts", [
     "/**\n * One row per live relay socket.\n *\n * The row is inserted when the upgrade is accepted and deleted when the pair closes; `expires_at`\n * is the crash safety net (the same idle window the socket itself honours). Counting these rows is\n * how a single account is kept from parking dozens of long-lived Worker connections.\n */",
@@ -42529,6 +42588,10 @@ const allowed = new Map([
     "/**\n * Publishing counts against a per-account hourly budget so one account cannot\n * flood the shared directory. Updating your own template spends the same\n * budget, which is the point: an edit is another write.\n */",
     "/**\n * Resolves the row an update targets and enforces both ceilings. A supplied id\n * is only honoured when it is new or already belongs to this account, so one\n * author can neither overwrite nor squat another author's id.\n */",
     "/**\n * One account adopting a template into its own library is the only signal worth\n * counting, so the author's own copy never adds to it. The budget is per account\n * and generous: it stops a script, not a person browsing the directory.\n */",
+  ]],
+  ["src/worker/routes/development-api-tester.ts", [
+    "// A state that cannot be opened is still deletable; its objects will expire on their own.",
+    "// Decrypt in small batches: opening a hundred rows at once would burst the credential vault.",
   ]],
   ["src/worker/routes/development-icons.ts", [
     "/** A brake on a client that spams the conversion endpoint; it is per isolate, like the other budgets. */",
@@ -48029,10 +48092,6 @@ const allowed = new Map([
     "// The Cloudflare app's rows are named by `newId()` (lib/id.ts) and every query filters on",
     "// `user_id`; a 26-character random id is not a name another reader can offer, so the key cannot",
     "// collide across accounts and the read paths never rely on it alone.",
-  ]],
-  ["tests/development-apitester-relay.test.ts", [
-    "// The relay reuses one Headers object while following, so the mock snapshots each hop when the",
-    "// fetch is made; inspecting it later would show the mutations the next hop caused.",
   ]],
   ["tests/development-apitester-ws.test.ts", [
     "// 524,289 characters but 1,048,578 bytes: a character-count check would forward this.",
