@@ -7016,9 +7016,40 @@ const allowed = new Map([
   ]],
   ["src/client/features/development/icons/IconsApp.tsx", [
     "// A failed poll leaves the last known list on screen.",
+    "// The tuple below is the exact filter surface; the browse object also carries view settings that",
+    "// must not refetch the list.",
+    "// eslint-disable-next-line react-hooks/exhaustive-deps",
+  ]],
+  ["src/client/features/development/icons/components/DetailDrawer.tsx", [
+    "/**\n * The drawer is a workbench: the glyph is the subject, size/stroke/colour repaint it live, and the\n * code and download controls sit under it. Copy and download stay pinned to the bottom so a long\n * metadata list never pushes the primary verbs out of reach.\n */",
+    "// Brand sets are recorded as one colour by the importer; only a body that genuinely carries several",
+    "// painted colours keeps its palette, so a Simple Icons mark stays recolourable.",
+  ]],
+  ["src/client/features/development/icons/components/FilterPanel.tsx", [
+    "/**\n * One place for every facet, with the count each choice would leave behind. Chips toggle in place;\n * the grid refetches while the panel stays open, so a reader can see the effect before closing it.\n */",
+  ]],
+  ["src/client/features/development/icons/components/IconCard.tsx", [
+    "/**\n * A dense square tile: the glyph is the subject, the name is one ellipsised line, and the hover tray\n * puts the four verbs a reader reaches for on top of the tile instead of behind a details click.\n */",
+    "/** The compact list keeps one line per icon; it is the mode for scanning names, not for browsing art. */",
+    "/** The table mode is the audit view: every fact a row carries is a column, not a tooltip. */",
+  ]],
+  ["src/client/features/development/icons/components/Sidebar.tsx", [
+    "/**\n * The rail is a tree of filters, not a list of links: every row toggles a facet, carries the number\n * of icons behind it, and remembers which groups the reader folded away.\n */",
+    "// Ignored: folding state is a convenience.",
+    "/** The mobile drawer already prints the title and the close button, so the rail drops its own. */",
+  ]],
+  ["src/client/features/development/icons/components/Toolbar.tsx", [
+    "/**\n * Two rows, like a file browser: the first is how you find things, the second is what you do with\n * them. Keeping the verbs off the search row is what stops the toolbar from becoming a strip of\n * unlabeled glyphs at 1440px.\n */",
+  ]],
+  ["src/client/features/development/icons/lib/browse.ts", [
+    "// Private modes can refuse storage; the URL still carries the same selection.",
+    "/** The API names a comma list for every multi-select and keeps the single-value keys for old links. */",
   ]],
   ["src/client/features/development/icons/lib/convert.ts", [
     "/**\n * Browser-side conversion.\n *\n * This is the fallback when no Queues binding is deployed: the client rasterizes with Canvas,\n * packs ICO/sprite containers itself, and uploads the real bytes to the job. The server re-checks\n * every file before it records an output, so the job cannot reach `done` on a status change alone.\n */",
+  ]],
+  ["src/client/features/development/icons/lib/preview.ts", [
+    "/**\n * Stroke libraries paint through the wrapper, fill libraries through their own paths, and brand sets\n * keep their own colours. The body is already sanitized on the way in, so the only rewrite here is\n * the colour a reader is previewing.\n */",
   ]],
   ["src/client/features/email/ComposePanel.tsx", [
     "/** The other device's copy of this draft, as a save refused it. */",
@@ -32062,6 +32093,11 @@ const allowed = new Map([
   ["src/shared/development/database/assistant-context.ts", [
     "/** Absent for a local SQLite file, which only exists in the browser. */",
   ]],
+  ["src/shared/development/icons/builtins.ts", [
+    "/**\n * The collections a fresh personal library starts with.\n *\n * They are imported by the worker into the reader's own R2/D1 space the first time the library is\n * opened, so the grid shows real icons instead of an empty state. The list is shared with the client\n * so the import dialog can describe every library before a single request goes out.\n */",
+    "/** How many icons the automatic first-run import takes from this library. */",
+    "/** The first-run import is deliberately bounded so it finishes in the background in a few minutes. */",
+  ]],
   ["src/shared/development/icons/formats.ts", [
     "/**\n * The upload MIME whitelist.\n *\n * Anything else — including a ZIP — has no storage path in this module: v1 accepts one icon per\n * request, so there is no archive to unpack and no place for a ZIP bomb to enter.\n */",
   ]],
@@ -32070,6 +32106,8 @@ const allowed = new Map([
     "/** Records whether a job is meant to run in a queue consumer or in the browser. */",
     "/** The base cell of a PNG sheet; the padding is added on each side. */",
     "/** A per-user ceiling on conversion jobs created in one minute. */",
+    "/** How long a failed first-run seed is allowed to wait before another visit may retry it. */",
+    "/** Material Symbols ships one 8.5 MB `icons.json`; the ceiling has to clear the largest built-in set. */",
   ]],
   ["src/shared/development/icons/types.ts", [
     "/** `queue` when a consumer will run it; `browser` when the client converts and uploads the outputs. */",
@@ -40112,6 +40150,9 @@ const allowed = new Map([
     "/** The canonical token used in object keys: sizes sorted ascending and joined with dashes. */",
     "/** Parse and validate an ICO's directory. Used by tests and by the upload guard. */",
   ]],
+  ["src/worker/development/icons/import.ts", [
+    "/**\n * Brands and duotone collections paint several colours; monochrome sets paint one. The filter panel\n * offers this as a facet, so it is recorded once at import time rather than guessed per request.\n */",
+  ]],
   ["src/worker/development/icons/png.ts", [
     "/**\n * A minimal PNG encoder.\n *\n * Rasterization hands back RGBA pixels, and the outputs are written to R2 as PNG. The repository\n * already ships `fflate` for ZIP work, so the only pieces missing are the chunk framing and the\n * CRC table — both are defined by the PNG specification and do not need a dependency of their own.\n */",
     "/** Encode straight (unfiltered) RGBA bytes as a PNG. A zero-length image is refused. */",
@@ -40126,8 +40167,17 @@ const allowed = new Map([
     "/**\n * Rasterization for conversion jobs.\n *\n * `resvg` is compiled at deploy time and initialized once per isolate. Raster sources already carry\n * pixels, so they go through the Images binding instead; when that binding is absent the original\n * bytes are only usable at their own size, which is the same \"do not upscale\" rule the UI states.\n */",
     "/**\n * Produce a PNG at `width` from an uploaded raster.\n *\n * `sourceWidth` lets the caller apply the \"never upscale\" rule without decoding the raster twice.\n */",
   ]],
+  ["src/worker/development/icons/seed.ts", [
+    "/**\n * The first-run seed runs behind `waitUntil`, never inside the request that asked for it, so a cold\n * library still answers `bootstrap` immediately and the UI can draw its skeleton. The ledger row is\n * the lock: a second tab sees a recent running seed and leaves it alone.\n */",
+    "/** Collections that already hold most of their seed are left alone, so a retry resumes instead of duplicating. */",
+  ]],
   ["src/worker/development/icons/sprite.ts", [
     "/** The children of an outer `<svg>` element, with declarations, comments and the wrapper removed. */",
+  ]],
+  ["src/worker/development/icons/store.ts", [
+    "// The total is measured over the filters, before the cursor narrows the page, so the toolbar can",
+    "// say how many icons the current selection holds even while the grid streams in later pages.",
+    "// A percent or underscore a reader types is a character in the name, not a wildcard.",
   ]],
   ["src/worker/development/xget/lib/app/handle-request.ts", [
     "// Derived from Xget (AGPL-3.0-only) src/app/handle-request.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
@@ -42303,6 +42353,7 @@ const allowed = new Map([
   ["src/worker/routes/development-icons.ts", [
     "/** A brake on a client that spams the conversion endpoint; it is per isolate, like the other budgets. */",
     "/**\n * The browser fallback's upload door.\n *\n * The client rasterizes with Canvas, then posts the produced files here. The bytes are re-checked\n * (PNG signature, ICO directory) and stored under content-addressed keys, so a job only reaches\n * `done` when a real artifact exists — never merely because a status column changed.\n */",
+    "/**\n * The first visit asks for this once. It answers before a single icon is written, and the import\n * itself runs in the background so the grid can paint its skeleton immediately.\n */",
   ]],
   ["src/worker/routes/email.ts", [
     "// The reader's other tab (or another device) wrote this draft after the copy this save was",

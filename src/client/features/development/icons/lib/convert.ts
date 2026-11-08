@@ -40,16 +40,28 @@ function viewBoxRatio(svg: string): number {
   return parts[3] / parts[2]
 }
 
+async function decodeSource(source: Blob): Promise<ImageBitmap | HTMLImageElement> {
+  if (source.type === 'image/svg+xml') {
+    const url = URL.createObjectURL(source)
+    const image = new Image()
+    image.src = url
+    await image.decode()
+    URL.revokeObjectURL(url)
+    return image
+  }
+  return createImageBitmap(source)
+}
+
 async function drawToBlob(source: Blob, width: number, height: number): Promise<Blob> {
-  const bitmap = await createImageBitmap(source)
+  const bitmap = await decodeSource(source)
   const canvas = typeof OffscreenCanvas !== 'undefined'
     ? new OffscreenCanvas(width, height)
     : Object.assign(document.createElement('canvas'), { width, height })
   const context = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null
   if (!context) throw new Error('Canvas is not available')
   context.clearRect(0, 0, width, height)
-  context.drawImage(bitmap, 0, 0, width, height)
-  bitmap.close?.()
+  context.drawImage(bitmap as CanvasImageSource, 0, 0, width, height)
+  if ('close' in bitmap) bitmap.close()
   if (canvas instanceof OffscreenCanvas) return canvas.convertToBlob({ type: 'image/png' })
   return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('PNG encoding failed')), 'image/png'))
 }
@@ -208,60 +220,75 @@ async function buildSheet(loaded: readonly LoadedAsset[], padding: number, scale
 export interface BrowserConversionProgress {
   done: number
   total: number
+  lastMs?: number
 }
 
 const CONCURRENCY = Math.max(1, Math.min(4, navigator.hardwareConcurrency || 2))
 
-async function mapLimit<T>(items: readonly T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+function aborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DOMException('The conversion was canceled', 'AbortError')
+}
+
+async function mapLimit<T>(items: readonly T[], limit: number, worker: (item: T) => Promise<void>, signal?: AbortSignal): Promise<void> {
   let cursor = 0
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (cursor < items.length) {
+      aborted(signal)
       const index = cursor
       cursor += 1
       await worker(items[index]!)
     }
   })
   await Promise.all(runners)
+  aborted(signal)
 }
 
 export async function runBrowserConversion(
   job: IconJob,
   assets: readonly IconAssetSummary[],
   onProgress?: (progress: BrowserConversionProgress) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
-  const loaded = await Promise.all(assets.map(loadAsset))
   let done = 0
-  const step = (): void => {
+  const step = (startedAt: number): void => {
     done += 1
-    onProgress?.({ done, total: assets.length })
+    onProgress?.({ done, total: assets.length, lastMs: performance.now() - startedAt })
   }
 
   if (job.options.kind === 'png') {
     const options = job.options
-    await mapLimit(loaded, CONCURRENCY, async (entry) => {
-      const blobs = await Promise.all(options.sizes.map((size) => renderPng(entry, size)))
-      await uploadJobItemOutputs(job.id, entry.asset.id, 'png', options.sizes, blobs)
-      step()
-    })
+    await mapLimit(assets, CONCURRENCY, async (asset) => {
+      const startedAt = performance.now()
+      const loaded = await loadAsset(asset)
+      const blobs = await Promise.all(options.sizes.map((size) => renderPng(loaded, size)))
+      await uploadJobItemOutputs(job.id, asset.id, 'png', options.sizes, blobs)
+      step(startedAt)
+    }, signal)
     return
   }
   if (job.options.kind === 'ico') {
     const options = job.options
-    await mapLimit(loaded, CONCURRENCY, async (entry) => {
+    await mapLimit(assets, CONCURRENCY, async (asset) => {
+      const startedAt = performance.now()
+      const loaded = await loadAsset(asset)
       const sizes = options.sizes
-      const pngs = await Promise.all(sizes.map(async (size) => ({ size, blob: await renderPng(entry, size) })))
-      await uploadJobItemOutputs(job.id, entry.asset.id, 'ico', sizes, [await buildIco(pngs)])
-      step()
-    })
+      const pngs = await Promise.all(sizes.map(async (size) => ({ size, blob: await renderPng(loaded, size) })))
+      await uploadJobItemOutputs(job.id, asset.id, 'ico', sizes, [await buildIco(pngs)])
+      step(startedAt)
+    }, signal)
     return
   }
+  const loaded = await Promise.all(assets.map(loadAsset))
+  aborted(signal)
   if (job.options.kind === 'sprite_svg') {
     const sprite = await buildSvgSprite(loaded)
+    aborted(signal)
     await uploadJobSprite(job.id, sprite.setHash, sprite.files)
     onProgress?.({ done: assets.length, total: assets.length })
     return
   }
   const sprite = await buildPngSprite(loaded, job.options.padding, job.options.scales, job.options.scss)
+  aborted(signal)
   await uploadJobSprite(job.id, sprite.setHash, sprite.files)
   onProgress?.({ done: assets.length, total: assets.length })
 }

@@ -1,37 +1,25 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  AlertCircle,
-  Copy,
-  Download,
-  Image as ImageIcon,
-  Loader2,
-  Pin,
-  Plus,
-  Settings2,
-  Star,
-  Tag as TagIcon,
-  Trash2,
-  Upload,
-} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertCircle, Download, Images, Loader2, Trash2, Upload } from 'lucide-react'
 import type {
   IconAssetDetail,
   IconAssetSummary,
   IconBootstrap,
   IconCollection,
-  IconFormat,
+  IconImport,
   IconJob,
   IconLimits,
   IconSettings,
   IconTag,
   IconUsageSummary,
 } from '@shared/development/icons/types'
-import { ICON_PNG_PRESETS, ICON_ICO_PRESETS } from '@shared/development/icons/limits'
+import { ICON_ICO_PRESETS, ICON_PNG_PRESETS } from '@shared/development/icons/limits'
+import { ICON_BUILTIN_LIBRARIES } from '@shared/development/icons/builtins'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { useBreakpoint, useDebounced } from '../../../lib/hooks'
 import { copyText } from '../../../lib/clipboard'
 import { Button, IconButton } from '../../../components/primitives'
-import { Checkbox, Input, Segmented, Slider } from '../../../components/form'
+import { Checkbox, Input, Slider } from '../../../components/form'
 import { SelectMenu } from '../../../components/select-menu'
 import { Drawer, Modal, confirm } from '../../../components/overlay'
 import { Empty, LoadingBlock, Skeleton } from '../../../components/feedback'
@@ -47,11 +35,14 @@ import {
   deleteAsset,
   deleteCollection,
   deleteTag,
+  fetchAsset,
   fetchAssets,
   fetchBootstrap,
   fetchJobs,
   finishJob,
   retryJob,
+  seedBuiltinCollections,
+  updateAsset,
   updateCollection,
   updateGlobalLimits,
   updateSettings,
@@ -59,14 +50,26 @@ import {
   uploadAsset,
 } from './api'
 import { runBrowserConversion } from './lib/convert'
+import {
+  activeFilterCount,
+  browseQuery,
+  clearFilters,
+  readBrowseState,
+  writeBrowseState,
+  type BrowseState,
+  type IconDensity,
+} from './lib/browse'
+import { Sidebar } from './components/Sidebar'
+import { Toolbar } from './components/Toolbar'
+import { FilterPanel } from './components/FilterPanel'
+import { DetailDrawer } from './components/DetailDrawer'
+import { IconCard, IconRow, IconTableRow } from './components/IconCard'
 
-type Density = 'compact' | 'comfortable' | 'large'
-
-const DENSITY: Record<Density, { height: number; label: string }> = {
-  compact: { height: 96, label: 'development.icons.toolbar.density.compact' },
-  comfortable: { height: 124, label: 'development.icons.toolbar.density.comfortable' },
-  large: { height: 156, label: 'development.icons.toolbar.density.large' },
-}
+const GAP = 8
+const CARD_CAPTION = 40
+const DENSITY_MIN: Record<IconDensity, number> = { small: 56, medium: 72, large: 104 }
+const LIST_ROW = 52
+const TABLE_ROW = 40
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : t('development.icons.grid.error')
@@ -81,6 +84,7 @@ function formatBytes(bytes: number): string {
 export function IconsApp() {
   const breakpoint = useBreakpoint()
   const toast = useUi((state) => state.toast)
+  const [browse, setBrowse] = useState<BrowseState>(readBrowseState)
   const [bootstrap, setBootstrap] = useState<IconBootstrap | null>(null)
   const [settings, setSettings] = useState<IconSettings | null>(null)
   const [limits, setLimits] = useState<IconLimits | null>(null)
@@ -89,21 +93,16 @@ export function IconsApp() {
   const [converting, setConverting] = useState(false)
   const [convertProgress, setConvertProgress] = useState('')
   const [items, setItems] = useState<IconAssetSummary[]>([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
-  const [query, setQuery] = useState('')
-  const debounced = useDebounced(query, 260)
-  const [view, setView] = useState<'grid' | 'list'>('grid')
-  const [density, setDensity] = useState<Density>('comfortable')
-  const [format, setFormat] = useState<IconFormat | ''>('')
-  const [sort, setSort] = useState<'created' | 'updated' | 'name' | 'used'>('created')
-  const [stateView, setStateView] = useState<'all' | 'favorites' | 'pinned' | 'recent' | 'uncategorized'>('all')
-  const [collectionId, setCollectionId] = useState('')
-  const [tagId, setTagId] = useState('')
+  const [seeding, setSeeding] = useState(false)
   const [cursor, setCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
   const [detail, setDetail] = useState<IconAssetDetail | null>(null)
+  const [detailSource, setDetailSource] = useState<{ body: string; viewBox: string } | null>(null)
+  const [detailBusy, setDetailBusy] = useState('')
   const [selection, setSelection] = useState<Set<string>>(new Set())
   const [uploadOpen, setUploadOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -112,20 +111,34 @@ export function IconsApp() {
   const [convertOpen, setConvertOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const requestId = useRef(0)
+  const browserAbort = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const scrollFrame = useRef(0)
   const scrollTopRef = useRef(0)
+  const seededReload = useRef(false)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(600)
+  const [contentWidth, setContentWidth] = useState(960)
+  const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
+  const [marqueeActive, setMarqueeActive] = useState(false)
+  const marqueeStart = useRef<{ x: number; y: number; moved: boolean } | null>(null)
 
+  const debouncedQuery = useDebounced(browse.q, 260)
   const applyBootstrap = useCallback((next: IconBootstrap) => {
     setBootstrap(next)
     setSettings(next.settings)
     setLimits(next.limits)
     setUsage(next.usage)
   }, [])
+
+  useEffect(() => {
+    writeBrowseState(browse)
+  }, [browse])
 
   const load = useCallback(async (reset: boolean) => {
     const id = ++requestId.current
@@ -134,22 +147,17 @@ export function IconsApp() {
     setError('')
     try {
       const page = await fetchAssets({
-        limit: 60,
+        ...browseQuery({ ...browse, q: debouncedQuery }),
         cursor: reset ? undefined : cursor ?? undefined,
-        q: debounced || undefined,
-        collectionId: collectionId || undefined,
-        tagId: tagId || undefined,
-        format: format || undefined,
-        state: stateView,
-        sort,
       })
       if (id !== requestId.current) return
       setItems((current) => {
-        const base = reset ? [] : current
-        const byId = new Map(base.map((item) => [item.id, item]))
+        if (reset) return page.items
+        const byId = new Map(current.map((item) => [item.id, item]))
         for (const item of page.items) byId.set(item.id, item)
         return [...byId.values()]
       })
+      setTotal(page.total ?? page.items.length)
       setCursor(page.nextCursor)
       setHasMore(page.hasMore)
     } catch (cause) {
@@ -160,19 +168,89 @@ export function IconsApp() {
         setLoadingMore(false)
       }
     }
-  }, [collectionId, cursor, debounced, format, sort, stateView, tagId])
+  }, [browse, cursor, debouncedQuery])
+
+  const refresh = useCallback(async () => {
+    const [next, page] = await Promise.all([
+      fetchBootstrap(),
+      fetchAssets(browseQuery({ ...browse, q: debouncedQuery })),
+    ])
+    applyBootstrap(next)
+    setItems(page.items)
+    setTotal(page.total ?? page.items.length)
+    setCursor(page.nextCursor)
+    setHasMore(page.hasMore)
+  }, [applyBootstrap, browse, debouncedQuery])
 
   useEffect(() => {
     let cancelled = false
-    fetchBootstrap()
-      .then((next) => { if (!cancelled) applyBootstrap(next) })
-      .catch((cause) => { if (!cancelled) setError(message(cause)) })
+    ;(async () => {
+      try {
+        const next = await fetchBootstrap()
+        if (cancelled) return
+        applyBootstrap(next)
+        if (next.counts.all === 0 && next.collections.length === 0) {
+          setSeeding(true)
+          await seedBuiltinCollections().catch(() => undefined)
+        }
+      } catch (cause) {
+        if (!cancelled) setError(message(cause))
+      }
+    })()
     return () => { cancelled = true }
   }, [applyBootstrap])
 
   useEffect(() => {
+    if (!seeding) return
+    const timer = window.setInterval(() => {
+      void fetchBootstrap().then((next) => {
+        applyBootstrap(next)
+        if (next.counts.all > 0) {
+          setSeeding(false)
+          if (!seededReload.current) {
+            seededReload.current = true
+            void load(true)
+          }
+        }
+      }).catch(() => undefined)
+    }, 2500)
+    return () => window.clearInterval(timer)
+  }, [applyBootstrap, load, seeding])
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 })
     void load(true)
-  }, [debounced, collectionId, format, sort, stateView, tagId])
+    // The tuple below is the exact filter surface; the browse object also carries view settings that
+    // must not refetch the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    debouncedQuery,
+    browse.state,
+    browse.sort,
+    browse.pageSize,
+    browse.style,
+    browse.colorMode,
+    browse.sizeMin,
+    browse.sizeMax,
+    browse.from,
+    browse.to,
+    browse.collections,
+    browse.formats,
+    browse.tags,
+  ])
+
+  useEffect(() => {
+    const element = scrollRef.current
+    if (!element) return
+    const observer = new ResizeObserver(() => {
+      setViewportHeight(element.clientHeight)
+      setContentWidth(Math.max(240, element.clientWidth - 24))
+    })
+    observer.observe(element)
+    setViewportHeight(element.clientHeight)
+    setContentWidth(Math.max(240, element.clientWidth - 24))
+    return () => observer.disconnect()
+  }, [loading, browse.view])
 
   const refreshJobs = useCallback(async () => {
     try {
@@ -194,15 +272,6 @@ export function IconsApp() {
   }, [activeJob, refreshJobs])
 
   useEffect(() => {
-    const element = scrollRef.current
-    if (!element) return
-    const observer = new ResizeObserver(() => setViewportHeight(element.clientHeight))
-    observer.observe(element)
-    setViewportHeight(element.clientHeight)
-    return () => observer.disconnect()
-  }, [loading])
-
-  useEffect(() => {
     const element = sentinelRef.current
     if (!element || !hasMore || loadingMore || loading) return
     const observer = new IntersectionObserver((entries) => {
@@ -212,20 +281,10 @@ export function IconsApp() {
     return () => observer.disconnect()
   }, [hasMore, load, loading, loadingMore])
 
-  const refresh = useCallback(async () => {
-    const [next, page] = await Promise.all([
-      fetchBootstrap(),
-      fetchAssets({ limit: 60, q: debounced || undefined, collectionId: collectionId || undefined, tagId: tagId || undefined, format: format || undefined, state: stateView, sort }),
-    ])
-    applyBootstrap(next)
-    setItems(page.items)
-    setCursor(page.nextCursor)
-    setHasMore(page.hasMore)
-  }, [applyBootstrap, collectionId, debounced, format, sort, stateView, tagId])
-
-  const currentCollection = bootstrap?.collections.find((item) => item.id === collectionId)
-  const tagTree = useMemo(() => bootstrap?.tags ?? [], [bootstrap])
-  const showSidebar = breakpoint !== 'mobile'
+  const collectionNames = useMemo(
+    () => new Map((bootstrap?.collections ?? []).map((collection) => [collection.id, collection.name])),
+    [bootstrap],
+  )
 
   const toggleFavorite = useCallback(async (item: IconAssetSummary) => {
     await batchAssets(item.favorited ? 'unfavorite' : 'favorite', [item.id])
@@ -243,6 +302,7 @@ export function IconsApp() {
     if (!(await confirm({ title: t('development.icons.common.delete_title'), description: t('development.icons.common.delete_description'), tone: 'danger' }))) return
     await deleteAsset(item.id)
     setItems((current) => current.filter((entry) => entry.id !== item.id))
+    setTotal((current) => Math.max(0, current - 1))
     setSelection((current) => { const next = new Set(current); next.delete(item.id); return next })
     setDetail((current) => current?.id === item.id ? null : current)
     toast({ title: t('development.icons.common.delete'), tone: 'success' })
@@ -257,45 +317,48 @@ export function IconsApp() {
     })
   }, [])
 
-  const copySvg = useCallback(async (item: IconAssetSummary) => {
-    const response = await fetch(item.rawUrl)
-    if (!response.ok) throw new Error(t('development.icons.grid.error'))
-    await copyText(await response.text())
-    toast({ title: t('development.icons.card.copy'), tone: 'success' })
+  const copyIcon = useCallback(async (item: IconAssetSummary) => {
+    try {
+      if (item.format === 'svg') {
+        const response = await fetch(item.rawUrl)
+        if (!response.ok) throw new Error(t('development.icons.grid.error'))
+        await copyText(await response.text())
+      } else {
+        await copyText(item.rawUrl)
+      }
+      toast({ title: t('development.icons.card.copied'), tone: 'success' })
+    } catch (cause) {
+      toast({ title: message(cause), tone: 'danger' })
+    }
   }, [toast])
 
   const openDetail = useCallback(async (item: IconAssetSummary) => {
+    setDetailBusy(item.id)
     try {
-      const response = await fetch(item.rawUrl)
-      const body = response.ok ? await response.text() : ''
-      setDetail({
-        ...item,
-        mime: item.format === 'svg' ? 'image/svg+xml' : `image/${item.format}`,
-        viewBox: null,
-        keywords: '',
-        license: '',
-        sourceUrl: '',
-        sanitized: item.format === 'svg',
-        createdAt: item.updatedAt,
-        useCount: 0,
-        lastUsedAt: null,
-        ...(body ? {} : {}),
-      })
-    } catch {
-      setDetail({
-        ...item,
-        mime: item.format === 'svg' ? 'image/svg+xml' : `image/${item.format}`,
-        viewBox: null,
-        keywords: '',
-        license: '',
-        sourceUrl: '',
-        sanitized: false,
-        createdAt: item.updatedAt,
-        useCount: 0,
-        lastUsedAt: null,
-      })
+      const full = await fetchAsset(item.id)
+      setDetail(full)
+      if (full.format === 'svg') {
+        const response = await fetch(full.rawUrl)
+        const body = response.ok ? await response.text() : ''
+        const viewBox = /viewBox\s*=\s*["']([^"']+)["']/i.exec(body)?.[1] ?? full.viewBox ?? '0 0 24 24'
+        const inner = body.replace(/^[\s\S]*?<svg\b[^>]*>/i, '').replace(/<\/svg>[\s\S]*$/i, '').trim()
+        setDetailSource(inner ? { body: inner, viewBox } : null)
+      } else {
+        setDetailSource(null)
+      }
+    } catch (cause) {
+      toast({ title: message(cause), tone: 'danger' })
+    } finally {
+      setDetailBusy('')
     }
-  }, [])
+  }, [toast])
+
+  const updateTags = useCallback(async (item: IconAssetDetail, tagIds: string[]) => {
+    await updateAsset(item.id, { tagIds })
+    const tags = (bootstrap?.tags ?? []).filter((tag) => tagIds.includes(tag.id)).map((tag) => ({ id: tag.id, name: tag.name, color: tag.color }))
+    setDetail((current) => current?.id === item.id ? { ...current, tags } : current)
+    setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, tags } : entry))
+  }, [bootstrap])
 
   const uploadFiles = useCallback(async (files: FileList | File[]) => {
     const list = Array.from(files)
@@ -303,7 +366,7 @@ export function IconsApp() {
     let failed = 0
     for (const file of list) {
       try {
-        const result = await uploadAsset(file, collectionId || undefined)
+        const result = await uploadAsset(file, browse.collections[0])
         done += 1
         if (result.deduped) toast({ title: t('development.icons.upload.deduped'), tone: 'default' })
       } catch (cause) {
@@ -314,7 +377,7 @@ export function IconsApp() {
     setUploadOpen(false)
     await refresh()
     toast({ title: failed ? `${done} / ${list.length}` : t('development.icons.upload.complete'), tone: failed ? 'warning' : 'success' })
-  }, [collectionId, refresh, toast])
+  }, [browse.collections, refresh, toast])
 
   const startConvert = useCallback(async (kind: 'png' | 'ico' | 'sprite_svg' | 'sprite_png', sizes: number[], padding = 2, scales: number[] = [1], scss = false) => {
     const ids = [...(selection.size ? selection : new Set(items.slice(0, 20).map((item) => item.id)))]
@@ -333,14 +396,18 @@ export function IconsApp() {
     if (job.mode === 'browser') {
       setConverting(true)
       setConvertProgress(`0/${ids.length}`)
+      const controller = new AbortController()
+      browserAbort.current = controller
       try {
         const chosen = items.filter((item) => ids.includes(item.id))
-        await runBrowserConversion(job, chosen, (progress) => setConvertProgress(`${progress.done}/${progress.total}`))
-        await finishJob(job.id)
+        await runBrowserConversion(job, chosen, (progress) => setConvertProgress(`${progress.done}/${progress.total}`), controller.signal)
+        if (!controller.signal.aborted) await finishJob(job.id)
         toast({ title: t('development.icons.job.done'), tone: 'success' })
       } catch (cause) {
-        toast({ title: message(cause), tone: 'danger' })
+        if (controller.signal.aborted) toast({ title: t('development.icons.job.canceled'), tone: 'default' })
+        else toast({ title: message(cause), tone: 'danger' })
       } finally {
+        browserAbort.current = null
         setConverting(false)
         setConvertProgress('')
         await refreshJobs()
@@ -349,134 +416,146 @@ export function IconsApp() {
     }
   }, [items, refresh, refreshJobs, selection, toast])
 
-  const copyWithToast = useCallback((item: IconAssetSummary) => {
-    void copySvg(item).catch((cause) => toast({ title: message(cause), tone: 'danger' }))
-  }, [copySvg, toast])
+  const batch = useCallback(async (action: 'delete' | 'favorite' | 'pin') => {
+    const ids = [...selection]
+    if (!ids.length) return
+    if (action === 'delete' && !(await confirm({ title: t('development.icons.common.delete_title'), description: t('development.icons.common.delete_description'), tone: 'danger' }))) return
+    await batchAssets(action, ids)
+    setSelection(new Set())
+    await refresh()
+    toast({ title: t('development.icons.toolbar.batch_done'), tone: 'success' })
+  }, [refresh, selection, toast])
 
-  const counts = bootstrap?.counts
+  const showSidebar = breakpoint !== 'mobile'
   const overQuota = Boolean(usage?.overQuota)
-  const columnCount = view === 'list' ? 1 : breakpoint === 'mobile' ? 3 : breakpoint === 'tablet' ? 6 : 8
-  const rowHeight = view === 'list' ? 44 : DENSITY[density].height + 8
-  const totalRows = Math.ceil(items.length / columnCount)
-  const startRow = Math.max(0, Math.floor(scrollTop / rowHeight) - 2)
-  const endRow = Math.min(totalRows, Math.ceil((scrollTop + viewportHeight) / rowHeight) + 2)
-  const visibleItems = items.slice(startRow * columnCount, endRow * columnCount)
-  const padTop = startRow * rowHeight
-  const totalHeight = totalRows * rowHeight
-  const title = stateView === 'all' && !collectionId && !tagId
-    ? t('development.icons.sidebar.all')
-    : stateView === 'favorites'
-      ? t('development.icons.sidebar.favorites')
-      : stateView === 'pinned'
-        ? t('development.icons.sidebar.pinned')
-        : stateView === 'recent'
-          ? t('development.icons.sidebar.recent')
-          : stateView === 'uncategorized'
-            ? t('development.icons.sidebar.uncategorized')
-            : currentCollection?.name ?? tagTree.find((tag) => tag.id === tagId)?.name ?? t('development.icons.sidebar.all')
+  const counts = bootstrap?.counts
+
+  const cols = browse.view !== 'grid'
+    ? 1
+    : Math.max(2, Math.floor((contentWidth + GAP) / (DENSITY_MIN[browse.density] + GAP)))
+  const cardWidth = browse.view === 'grid' ? Math.max(60, (contentWidth - GAP * (cols - 1)) / cols) : contentWidth
+  const cardHeight = cardWidth + CARD_CAPTION
+  const rowStride = browse.view === 'grid' ? cardHeight + GAP : browse.view === 'list' ? LIST_ROW : TABLE_ROW
+  const totalRows = browse.view === 'grid' ? Math.ceil(items.length / cols) : items.length
+  const startRow = Math.max(0, Math.floor(scrollTop / rowStride) - 2)
+  const endRow = Math.min(totalRows, Math.ceil((scrollTop + viewportHeight) / rowStride) + 2)
+  const gridStart = startRow * cols
+  const visibleItems = browse.view === 'grid'
+    ? items.slice(gridStart, endRow * cols)
+    : items.slice(startRow, endRow)
+  const padTop = startRow * rowStride
+  const tailHeight = Math.max(0, (totalRows - endRow) * rowStride)
+  const imageSize = Math.max(20, Math.min(56, Math.round(cardWidth * 0.5)))
+  const filtersActive = activeFilterCount(browse) > 0 || Boolean(browse.q)
+  const title = browse.collections.length
+    ? browse.collections.map((id) => collectionNames.get(id) ?? id).join(', ')
+    : browse.tags.length
+      ? browse.tags.map((id) => bootstrap?.tags.find((tag) => tag.id === id)?.name ?? id).join(', ')
+      : browse.state === 'all'
+        ? t('development.icons.sidebar.all')
+        : browse.state === 'favorites'
+          ? t('development.icons.sidebar.favorites')
+          : browse.state === 'pinned'
+            ? t('development.icons.sidebar.pinned')
+            : browse.state === 'recent'
+              ? t('development.icons.sidebar.recent')
+              : t('development.icons.sidebar.uncategorized')
+
+  const startMarquee = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0 || event.target !== event.currentTarget || browse.view !== 'grid') return
+    const rect = gridRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+    marqueeStart.current = { x, y, moved: false }
+    setMarquee({ x1: x, y1: y, x2: x, y2: y })
+    setMarqueeActive(true)
+    event.preventDefault()
+  }
+
+  useEffect(() => {
+    if (!marqueeActive) return
+    const onMove = (event: PointerEvent): void => {
+      const start = marqueeStart.current
+      const rect = gridRef.current?.getBoundingClientRect()
+      if (!start || !rect) return
+      const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left))
+      const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top))
+      if (Math.abs(x - start.x) > 4 || Math.abs(y - start.y) > 4) start.moved = true
+      setMarquee({ x1: start.x, y1: start.y, x2: x, y2: y })
+      if (!start.moved) return
+      const minX = Math.min(start.x, x)
+      const maxX = Math.max(start.x, x)
+      const minY = Math.min(start.y, y)
+      const maxY = Math.max(start.y, y)
+      const firstRow = Math.max(0, Math.floor(minY / rowStride))
+      const lastRow = Math.min(totalRows - 1, Math.floor(maxY / rowStride))
+      const next = new Set<string>()
+      for (let row = firstRow; row <= lastRow; row += 1) {
+        const top = row * rowStride
+        if (top + cardHeight < minY || top > maxY) continue
+        for (let col = 0; col < cols; col += 1) {
+          const left = col * (cardWidth + GAP)
+          if (left + cardWidth < minX || left > maxX) continue
+          const item = items[row * cols + col]
+          if (item) next.add(item.id)
+        }
+      }
+      setSelection(next)
+    }
+    const onUp = (): void => {
+      if (!marqueeStart.current?.moved) setSelection(new Set())
+      marqueeStart.current = null
+      setMarquee(null)
+      setMarqueeActive(false)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [cardHeight, cardWidth, cols, items, marqueeActive, rowStride, totalRows])
 
   if (!bootstrap && loading) return <LoadingBlock label={t('development.icons.grid.loading')} />
 
+  const sidebar = bootstrap && (
+    <Sidebar
+      bootstrap={bootstrap}
+      state={browse}
+      onChange={setBrowse}
+      onManageCollections={() => setCollectionOpen(true)}
+      onManageTags={() => setTagOpen(true)}
+    />
+  )
+
   return (
     <div data-testid="icons-app-root" className="flex h-full min-h-0 w-full overflow-hidden bg-[var(--bg-base)]">
-      {showSidebar && (
-        <aside className="flex w-64 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
-          <div className="flex h-11 items-center gap-2 border-b border-[var(--border-subtle)] px-3">
-            <ImageIcon size={16} className="text-[var(--text-secondary)]" />
-            <h2 className="truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{t('development.icons.sidebar.title')}</h2>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
-            {[
-              ['all', t('development.icons.sidebar.all'), counts?.all],
-              ['favorites', t('development.icons.sidebar.favorites'), counts?.favorites],
-              ['pinned', t('development.icons.sidebar.pinned'), counts?.pinned],
-              ['recent', t('development.icons.sidebar.recent'), counts?.recent],
-              ['uncategorized', t('development.icons.sidebar.uncategorized'), counts?.uncategorized],
-            ].map(([id, label, count]) => (
-              <button
-                key={String(id)}
-                type="button"
-                onClick={() => { setStateView(id as typeof stateView); setCollectionId(''); setTagId('') }}
-                className={cn('flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-left text-[length:var(--text-12)]', stateView === id && !collectionId && !tagId ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}
-              >
-                <span className="truncate">{String(label)}</span>
-                <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">{count ?? 0}</span>
-              </button>
-            ))}
-            <div className="my-2 border-t border-[var(--border-subtle)]" />
-            <div className="flex items-center gap-1 px-2 pb-1">
-              <span className="text-[length:var(--text-10)] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">{t('development.icons.sidebar.collections')}</span>
-              <IconButton label={t('development.icons.sidebar.new_collection')} size="sm" className="ml-auto h-6 w-6" onClick={() => setCollectionOpen(true)}><Plus size={12} /></IconButton>
-            </div>
-            {(bootstrap?.collections ?? []).map((collection) => (
-              <button
-                key={collection.id}
-                type="button"
-                onClick={() => { setCollectionId(collection.id); setStateView('all'); setTagId('') }}
-                className={cn('flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-left text-[length:var(--text-12)]', collectionId === collection.id ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}
-              >
-                <span className="truncate">{collection.name}</span>
-                <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">{counts?.collections[collection.id] ?? 0}</span>
-              </button>
-            ))}
-            <div className="my-2 border-t border-[var(--border-subtle)]" />
-            <div className="flex items-center gap-1 px-2 pb-1">
-              <TagIcon size={12} className="text-[var(--text-tertiary)]" />
-              <span className="text-[length:var(--text-10)] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">{t('development.icons.sidebar.tags')}</span>
-              <IconButton label={t('development.icons.sidebar.manage_tags')} size="sm" className="ml-auto h-6 w-6" onClick={() => setTagOpen(true)}><Settings2 size={12} /></IconButton>
-            </div>
-            {tagTree.map((tag) => (
-              <button
-                key={tag.id}
-                type="button"
-                onClick={() => { setTagId(tag.id); setStateView('all'); setCollectionId('') }}
-                className={cn('flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-left text-[length:var(--text-12)]', tagId === tag.id ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}
-              >
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: tag.color }} />
-                <span className="truncate">{tag.name}</span>
-                <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">{counts?.tags[tag.id] ?? 0}</span>
-              </button>
-            ))}
-          </div>
-        </aside>
-      )}
+      {showSidebar && sidebar}
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex min-h-11 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5">
-          <div className="min-w-[160px] flex-1"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('development.icons.search.placeholder')} aria-label={t('development.icons.search.placeholder')} className="h-9" /></div>
-          <SelectMenu
-            label={t('development.icons.toolbar.format')}
-            value={format}
-            onChange={(value) => setFormat(value as IconFormat | '')}
-            options={[{ value: '', label: t('development.icons.toolbar.all_formats') }, { value: 'svg', label: 'SVG' }, { value: 'png', label: 'PNG' }, { value: 'jpg', label: 'JPG' }, { value: 'webp', label: 'WebP' }]}
-            size="sm"
-          />
-          <SelectMenu
-            label={t('development.icons.toolbar.sort')}
-            value={sort}
-            onChange={(value) => setSort(value as typeof sort)}
-            options={[
-              { value: 'created', label: t('development.icons.toolbar.sort.created') },
-              { value: 'updated', label: t('development.icons.toolbar.sort.updated') },
-              { value: 'name', label: t('development.icons.toolbar.sort.name') },
-              { value: 'used', label: t('development.icons.toolbar.sort.used') },
-            ]}
-            size="sm"
-          />
-          <Segmented value={view} onChange={setView} options={[{ value: 'grid', label: t('development.icons.toolbar.view.grid') }, { value: 'list', label: t('development.icons.toolbar.view.list') }]} size="sm" />
-          <SelectMenu
-            label={t('development.icons.toolbar.density')}
-            value={density}
-            onChange={(value) => setDensity(value as Density)}
-            options={(Object.keys(DENSITY) as Density[]).map((id) => ({ value: id, label: t(DENSITY[id].label as never) }))}
-            size="sm"
-          />
-          <Button size="sm" variant="secondary" onClick={() => setUploadOpen(true)} disabled={overQuota}><Upload size={14} />{t('development.icons.toolbar.upload')}</Button>
-          <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)} disabled={overQuota}>{t('development.icons.toolbar.import')}</Button>
-          <Button size="sm" variant="secondary" onClick={() => setExportOpen(true)} disabled={!items.length}>{t('development.icons.toolbar.export')}</Button>
-          <Button size="sm" variant="secondary" onClick={() => setConvertOpen(true)} disabled={!items.length || overQuota || converting}>{t('development.icons.toolbar.convert')}</Button>
-          <IconButton label={t('development.icons.toolbar.settings')} size="sm" onClick={() => setSettingsOpen(true)}><Settings2 size={14} /></IconButton>
-        </header>
+        <Toolbar
+          bootstrap={bootstrap}
+          state={browse}
+          total={total}
+          loading={loading}
+          converting={converting}
+          overQuota={overQuota}
+          selectionCount={selection.size}
+          onChange={setBrowse}
+          onOpenFilters={() => setFilterOpen(true)}
+          onOpenSidebar={() => setSidebarOpen(true)}
+          onUpload={() => setUploadOpen(true)}
+          onImport={() => setImportOpen(true)}
+          onExport={() => setExportOpen(true)}
+          onConvert={() => setConvertOpen(true)}
+          onSettings={() => setSettingsOpen(true)}
+          onRefresh={() => void refresh()}
+          onClearSelection={() => setSelection(new Set())}
+          onBatchDelete={() => void batch('delete')}
+          onBatchFavorite={() => void batch('favorite')}
+          onBatchPin={() => void batch('pin')}
+        />
 
         {overQuota && usage && (
           <div data-testid="icons-over-quota" className="flex flex-wrap items-center gap-2 bg-[var(--danger-soft)] px-4 py-2 text-[length:var(--text-12)] text-[var(--danger)]">
@@ -485,6 +564,15 @@ export function IconsApp() {
             <Button size="sm" variant="ghost" onClick={() => setSettingsOpen(true)}>{t('development.icons.settings.title')}</Button>
           </div>
         )}
+
+        {seeding && (
+          <div data-testid="icons-seeding" className="flex flex-wrap items-center gap-2 bg-[var(--accent-soft)] px-4 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+            <Loader2 size={14} className="animate-spin" />
+            <span>{t('development.icons.seed.running')}</span>
+            <span className="tabular-nums text-[var(--text-tertiary)]">{t('development.icons.seed.count')} {counts?.all ?? 0}</span>
+          </div>
+        )}
+
         {converting && (
           <div data-testid="icons-converting" className="flex items-center gap-2 bg-[var(--accent-soft)] px-4 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">
             <Loader2 size={14} className="animate-spin" />
@@ -492,22 +580,17 @@ export function IconsApp() {
           </div>
         )}
 
-        <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-4 py-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-          <span className="truncate">{title}</span>
-          <span>{items.length}{hasMore ? '+' : ''}</span>
-          {selection.size > 0 && (
-            <span className="ml-auto flex items-center gap-2 text-[var(--text-secondary)]">
-              <span>{selection.size}</span>
-              <Button size="sm" variant="secondary" onClick={() => void batchAssets('delete', [...selection]).then(() => refresh())}>{t('development.icons.common.delete')}</Button>
-              <Button size="sm" variant="ghost" onClick={() => setSelection(new Set())}>{t('development.icons.common.cancel')}</Button>
-            </span>
-          )}
+        <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-4 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          <span className="truncate font-medium text-[var(--text-secondary)]">{title}</span>
+          <span className="tabular-nums">{total.toLocaleString()}</span>
+          {filtersActive && <span className="rounded-[var(--r-full)] bg-[var(--accent-soft)] px-1.5 text-[length:var(--text-10)] text-[var(--accent)]">{t('development.icons.filter.active')}</span>}
+          {detailBusy && <Loader2 size={12} className="ml-auto animate-spin" />}
         </div>
 
         {error && (
           <div className="flex items-center gap-2 bg-[var(--danger-soft)] px-4 py-2 text-[length:var(--text-12)] text-[var(--danger)]">
             <AlertCircle size={14} />
-            <span>{error}</span>
+            <span className="min-w-0 flex-1 truncate">{error}</span>
             <Button size="sm" variant="ghost" onClick={() => void load(true)}>{t('development.icons.grid.retry')}</Button>
           </div>
         )}
@@ -525,83 +608,156 @@ export function IconsApp() {
           className="min-h-0 flex-1 overflow-auto p-3"
         >
           {loading ? (
-            <div className={cn('grid gap-2', view === 'list' ? 'grid-cols-1' : 'grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8')}>
-              {Array.from({ length: 18 }).map((_, index) => <Skeleton key={index} className="h-28 rounded-[var(--r-md)]" />)}
-            </div>
+            <GridSkeleton view={browse.view} cols={cols} cardHeight={cardHeight} />
           ) : items.length === 0 ? (
-            <Empty art="notes" title={t('development.icons.grid.empty.title')} description={t('development.icons.grid.empty.description')} action={<Button size="sm" onClick={() => setUploadOpen(true)}><Upload size={14} />{t('development.icons.toolbar.upload')}</Button>} />
-          ) : view === 'grid' ? (
-            <div style={{ height: totalHeight, position: 'relative' }}>
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8" style={{ position: 'absolute', top: 0, left: 0, right: 0, transform: `translateY(${padTop}px)` }}>
+            <Empty
+              art="notes"
+              title={seeding ? t('development.icons.grid.empty.seed_title') : filtersActive ? t('development.icons.grid.empty.matches_title') : t('development.icons.grid.empty.title')}
+              description={seeding ? t('development.icons.grid.empty.seed_description') : filtersActive ? t('development.icons.grid.empty.matches_description') : t('development.icons.grid.empty.description')}
+              action={(
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {filtersActive && <Button size="sm" onClick={() => setBrowse(clearFilters({ ...browse, q: '' }))}>{t('development.icons.filter.clear')}</Button>}
+                  {!filtersActive && <Button size="sm" onClick={() => { setSeeding(true); void seedBuiltinCollections().then(() => setSeeding(true)).catch((cause) => { setSeeding(false); toast({ title: message(cause), tone: 'danger' }) }) }}><Images size={14} />{t('development.icons.grid.empty.builtin')}</Button>}
+                  {!filtersActive && <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}><Download size={14} />{t('development.icons.grid.empty.iconify')}</Button>}
+                  {!filtersActive && <Button size="sm" variant="secondary" disabled={overQuota} onClick={() => setUploadOpen(true)}><Upload size={14} />{t('development.icons.toolbar.upload')}</Button>}
+                </div>
+              )}
+            />
+          ) : browse.view === 'grid' ? (
+            <div
+              ref={gridRef}
+              className="relative select-none"
+              style={{ height: totalRows * rowStride }}
+              onPointerDown={startMarquee}
+            >
+              <div
+                className="pointer-events-none absolute inset-x-0 top-0 grid will-change-transform"
+                style={{ transform: `translateY(${padTop}px)`, gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: GAP }}
+              >
                 {visibleItems.map((item) => (
-                  <IconCard
+                  <div key={item.id} className="pointer-events-auto">
+                    <IconCard
+                      item={item}
+                      height={cardHeight}
+                      imageSize={imageSize}
+                      selected={selection.has(item.id)}
+                      onOpen={openDetail}
+                      onFavorite={toggleFavorite}
+                      onPin={togglePinned}
+                      onCopy={copyIcon}
+                      onSelect={toggleSelect}
+                    />
+                  </div>
+                ))}
+              </div>
+              {marquee && (
+                <div
+                  className="pointer-events-none absolute rounded-[var(--r-sm)] border border-[var(--accent)] bg-[var(--accent-soft)] opacity-60"
+                  style={{
+                    left: Math.min(marquee.x1, marquee.x2),
+                    top: Math.min(marquee.y1, marquee.y2),
+                    width: Math.abs(marquee.x2 - marquee.x1),
+                    height: Math.abs(marquee.y2 - marquee.y1),
+                  }}
+                />
+              )}
+            </div>
+          ) : browse.view === 'list' ? (
+            <div className="relative" style={{ height: items.length * LIST_ROW }}>
+              <div className="absolute inset-x-0 top-0 flex flex-col gap-1 will-change-transform" style={{ transform: `translateY(${padTop}px)` }}>
+                {visibleItems.map((item) => (
+                  <IconRow
                     key={item.id}
                     item={item}
-                    height={DENSITY[density].height}
                     selected={selection.has(item.id)}
+                    collectionName={item.collectionId ? collectionNames.get(item.collectionId) ?? '' : ''}
                     onOpen={openDetail}
                     onFavorite={toggleFavorite}
                     onPin={togglePinned}
-                    onCopy={copyWithToast}
+                    onCopy={copyIcon}
                     onSelect={toggleSelect}
                   />
                 ))}
               </div>
             </div>
           ) : (
-            <div style={{ height: totalHeight, position: 'relative' }}>
-              <div className="flex flex-col gap-1" style={{ position: 'absolute', top: 0, left: 0, right: 0, transform: `translateY(${padTop}px)` }}>
-                {visibleItems.map((item) => (
-                  <IconRow key={item.id} item={item} onOpen={openDetail} onFavorite={toggleFavorite} onPin={togglePinned} onCopy={copySvg} onDelete={remove} />
-                ))}
-              </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] table-fixed border-collapse text-[length:var(--text-12)]">
+                <thead className="sticky top-0 z-10 bg-[var(--bg-surface)] text-[length:var(--text-10)] uppercase tracking-wide text-[var(--text-tertiary)]">
+                  <tr className="border-b border-[var(--border-subtle)]">
+                    <th className="w-8 px-2 py-2" aria-label={t('development.icons.table.select')} />
+                    <th className="w-10 px-1 py-2" aria-label={t('development.icons.table.icon')} />
+                    <th className="px-2 py-2 text-left font-medium">{t('development.icons.table.name')}</th>
+                    <th className="w-36 px-2 py-2 text-left font-medium">{t('development.icons.table.collection')}</th>
+                    <th className="w-16 px-2 py-2 text-left font-medium">{t('development.icons.table.format')}</th>
+                    <th className="w-20 px-2 py-2 text-left font-medium">{t('development.icons.table.size')}</th>
+                    <th className="w-48 px-2 py-2 text-left font-medium">{t('development.icons.table.tags')}</th>
+                    <th className="w-16 px-2 py-2 text-left font-medium">{t('development.icons.table.status')}</th>
+                    <th className="w-24 px-2 py-2 text-right font-medium">{t('development.icons.table.actions')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr aria-hidden="true" style={{ height: padTop }}><td colSpan={9} /></tr>
+                  {visibleItems.map((item) => (
+                    <IconTableRow
+                      key={item.id}
+                      item={item}
+                      selected={selection.has(item.id)}
+                      collectionName={item.collectionId ? collectionNames.get(item.collectionId) ?? '' : ''}
+                      onOpen={openDetail}
+                      onFavorite={toggleFavorite}
+                      onPin={togglePinned}
+                      onCopy={copyIcon}
+                      onSelect={toggleSelect}
+                    />
+                  ))}
+                  <tr aria-hidden="true" style={{ height: tailHeight }}><td colSpan={9} /></tr>
+                </tbody>
+              </table>
             </div>
           )}
           <div ref={sentinelRef} className="h-px w-full" aria-hidden="true" />
           {hasMore && (
-            <div className="flex justify-center py-3">
-              <Button size="sm" variant="secondary" disabled={loadingMore} onClick={() => void load(false)}>{loadingMore ? <Loader2 size={14} className="animate-spin" /> : null}{t('development.icons.grid.load_more')}</Button>
+            <div className="flex items-center justify-center gap-2 py-3 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+              <span>{t('development.icons.grid.loaded')} {items.length} / {total}</span>
+              <Button size="sm" variant="secondary" disabled={loadingMore} onClick={() => void load(false)}>
+                {loadingMore ? <Loader2 size={13} className="animate-spin" /> : null}
+                {t('development.icons.grid.load_more')}
+              </Button>
             </div>
           )}
         </div>
       </div>
 
-      <Drawer open={Boolean(detail)} onClose={() => setDetail(null)} side="right" width={420} title={t('development.icons.detail.title')} ariaLabel={t('development.icons.detail.title')}>
-        {detail && (
-          <div className="space-y-4 p-4">
-            <div className="flex h-40 items-center justify-center rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
-              <img src={detail.rawUrl} alt={detail.name} loading="lazy" decoding="async" className="max-h-32 max-w-full object-contain" />
-            </div>
-            <div>
-              <div className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{detail.name}</div>
-              <div className="mt-1 grid grid-cols-2 gap-1 text-[length:var(--text-11)] text-[var(--text-secondary)]">
-                <span>{t('development.icons.detail.format')}: {detail.format.toUpperCase()}</span>
-                <span>{t('development.icons.detail.size')}: {detail.width ?? '-'} × {detail.height ?? '-'}</span>
-                <span>{t('development.icons.detail.bytes')}: {formatBytes(detail.bytes)}</span>
-                <span className="truncate" title={detail.sha256}>{t('development.icons.detail.hash')}: {detail.sha256.slice(0, 12)}</span>
-                <span>{t('development.icons.detail.collection')}: {bootstrap?.collections.find((item) => item.id === detail.collectionId)?.name ?? '-'}</span>
-                <span>{t('development.icons.detail.license')}: {detail.license || '-'}</span>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="secondary" onClick={() => void copySvg(detail).catch((cause) => toast({ title: message(cause), tone: 'danger' }))}><Copy size={14} />{t('development.icons.detail.copy.svg')}</Button>
-              <a href={detail.rawUrl} download={`${detail.name}.${detail.format}`} className="inline-flex h-8 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 text-[length:var(--text-12)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Download size={14} />{t('development.icons.detail.download.svg')}</a>
-              <Button size="sm" variant={detail.favorited ? 'primary' : 'secondary'} onClick={() => void toggleFavorite(detail)}><Star size={14} />{detail.favorited ? t('development.icons.card.unfavorite') : t('development.icons.card.favorite')}</Button>
-              <Button size="sm" variant={detail.pinned ? 'primary' : 'secondary'} onClick={() => void togglePinned(detail)}><Pin size={14} />{detail.pinned ? t('development.icons.card.unpin') : t('development.icons.card.pin')}</Button>
-              <Button size="sm" variant="secondary" onClick={() => void remove(detail)}><Trash2 size={14} />{t('development.icons.common.delete')}</Button>
-            </div>
-            <div className="space-y-1">
-              <div className="text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('development.icons.detail.tags')}</div>
-              <div className="flex flex-wrap gap-1">
-                {detail.tags.length === 0 && <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">-</span>}
-                {detail.tags.map((tag) => <span key={tag.id} className="rounded-[var(--r-full)] border border-[var(--border-subtle)] px-2 py-0.5 text-[length:var(--text-10)]" style={{ borderColor: tag.color }}>{tag.name}</span>)}
-              </div>
-            </div>
-          </div>
-        )}
-      </Drawer>
+      {bootstrap && (
+        <Drawer open={!showSidebar && sidebarOpen} onClose={() => setSidebarOpen(false)} side="left" width={288} title={t('development.icons.sidebar.title')}>
+          <Sidebar
+            bootstrap={bootstrap}
+            state={browse}
+            onChange={setBrowse}
+            onManageCollections={() => setCollectionOpen(true)}
+            onManageTags={() => setTagOpen(true)}
+            embedded
+          />
+        </Drawer>
+      )}
 
-      <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} onFiles={uploadFiles} collections={bootstrap?.collections ?? []} collectionId={collectionId} onCollection={setCollectionId} />
+      <FilterPanel open={filterOpen} onClose={() => setFilterOpen(false)} bootstrap={bootstrap ?? EMPTY_BOOTSTRAP} state={browse} onChange={setBrowse} />
+
+      <DetailDrawer
+        detail={detail}
+        source={detailSource}
+        collections={bootstrap?.collections ?? []}
+        tags={bootstrap?.tags ?? []}
+        onClose={() => { setDetail(null); setDetailSource(null) }}
+        onFavorite={(entry) => void toggleFavorite(entry)}
+        onPin={(entry) => void togglePinned(entry)}
+        onDelete={(entry) => void remove(entry)}
+        onTags={updateTags}
+        notify={toast}
+      />
+
+      <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} onFiles={uploadFiles} collections={bootstrap?.collections ?? []} collectionId={browse.collections[0] ?? ''} onCollection={(id) => setBrowse({ ...browse, collections: id ? [id] : [] })} />
       <SettingsDialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -615,80 +771,64 @@ export function IconsApp() {
       <CollectionManager open={collectionOpen} onClose={() => setCollectionOpen(false)} collections={bootstrap?.collections ?? []} onChanged={refresh} notify={toast} />
       <TagManager open={tagOpen} onClose={() => setTagOpen(false)} tags={bootstrap?.tags ?? []} onChanged={refresh} notify={toast} />
       <ConvertDialog open={convertOpen} onClose={() => setConvertOpen(false)} onStart={startConvert} />
-      <IconImportDialog open={importOpen} onClose={() => setImportOpen(false)} onDone={async (result) => { setImportOpen(false); await refresh(); toast({ title: `${result.processedItems}/${result.totalItems}`, tone: result.failedItems ? 'warning' : 'success' }) }} />
+      <IconImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onDone={async (result) => { setImportOpen(false); await refresh(); toast({ title: `${result.processedItems}/${result.totalItems}`, tone: result.failedItems ? 'warning' : 'success' }) }}
+        onSeedAll={async () => { setImportOpen(false); setSeeding(true); await seedBuiltinCollections(); }}
+      />
       <IconExportDialog
         open={exportOpen}
         onClose={() => setExportOpen(false)}
         onDone={async (exported) => { setExportOpen(false); toast({ title: t('development.icons.export.done'), tone: 'success' }); window.location.href = exported.downloadUrl }}
         assetIds={selection.size ? [...selection] : items.slice(0, 20).map((item) => item.id)}
       />
-      <JobStrip jobs={jobs} onCancel={async (id) => { await cancelJob(id); await refreshJobs() }} onRetry={async (id) => { await retryJob(id); await refreshJobs() }} />
+      <JobStrip jobs={jobs} onCancel={async (id) => { browserAbort.current?.abort(); await cancelJob(id); await refreshJobs() }} onRetry={async (id) => { await retryJob(id); await refreshJobs() }} />
     </div>
   )
 }
 
-interface IconCardProps {
-  item: IconAssetSummary
-  height: number
-  selected: boolean
-  onOpen: (item: IconAssetSummary) => Promise<void>
-  onFavorite: (item: IconAssetSummary) => Promise<void>
-  onPin: (item: IconAssetSummary) => Promise<void>
-  onCopy: (item: IconAssetSummary) => void
-  onSelect: (id: string, checked: boolean) => void
+const EMPTY_BOOTSTRAP: IconBootstrap = {
+  collections: [],
+  tags: [],
+  counts: { all: 0, favorites: 0, pinned: 0, recent: 0, uncategorized: 0, collections: {}, tags: {}, formats: {}, styles: {}, colorModes: {} },
+  settings: { quotaBytes: 0, maxSvgBytes: 0, maxRasterBytes: 0, maxDimension: 0, batchLimit: 0, zipLimitBytes: 0, zipLimitEntries: 0 },
+  limits: { hardQuotaBytes: 0, hardMaxSvgBytes: 0, hardMaxRasterBytes: 0, hardMaxDimension: 0, hardBatchLimit: 0, hardZipLimitBytes: 0, hardZipLimitEntries: 0 },
+  usage: { usedBytes: 0, quotaBytes: 0, assetsBytes: 0, outputsBytes: 0, exportsBytes: 0, overQuota: false },
+  isOwner: false,
+  schemaVersions: [320, 321, 327, 328],
 }
 
-const IconCard = memo(function IconCard({ item, height, selected, onOpen, onFavorite, onPin, onCopy, onSelect }: IconCardProps) {
+function GridSkeleton({ view, cols, cardHeight }: { view: BrowseState['view']; cols: number; cardHeight: number }) {
+  if (view === 'table') {
+    return <div className="space-y-1">{Array.from({ length: 14 }).map((_, index) => <Skeleton key={index} className="h-9 rounded-[var(--r-sm)]" />)}</div>
+  }
+  if (view === 'list') {
+    return <div className="space-y-1">{Array.from({ length: 12 }).map((_, index) => <Skeleton key={index} className="h-11 rounded-[var(--r-sm)]" />)}</div>
+  }
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] transition-colors hover:border-[var(--border-default)]" style={{ minHeight: height }}>
-      <button type="button" className="flex flex-1 items-center justify-center p-2" onClick={() => void onOpen(item)} aria-label={`${t('development.icons.card.open')} ${item.name}`}>
-        <img src={item.thumbUrl} srcSet={`${item.thumbUrl} 1x, ${item.thumb2xUrl} 2x`} alt={item.name} loading="lazy" decoding="async" className="max-h-16 max-w-full object-contain" />
-      </button>
-      <div className="flex items-center gap-1 border-t border-[var(--border-subtle)] px-2 py-1">
-        <span className="truncate text-[length:var(--text-11)] text-[var(--text-secondary)]">{item.name}</span>
-        <span className="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-          <IconButton label={item.favorited ? t('development.icons.card.unfavorite') : t('development.icons.card.favorite')} size="sm" className="h-6 w-6" onClick={() => void onFavorite(item)}><Star size={12} className={item.favorited ? 'fill-current text-[var(--warning)]' : ''} /></IconButton>
-          <IconButton label={item.pinned ? t('development.icons.card.unpin') : t('development.icons.card.pin')} size="sm" className="h-6 w-6" onClick={() => void onPin(item)}><Pin size={12} /></IconButton>
-          <IconButton label={t('development.icons.card.copy')} size="sm" className="h-6 w-6" onClick={() => onCopy(item)}><Copy size={12} /></IconButton>
-        </span>
-      </div>
-      <Checkbox checked={selected} onChange={(checked) => onSelect(item.id, checked)} className="absolute left-1 top-1" label="" />
+    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      {Array.from({ length: Math.max(12, cols * 3) }).map((_, index) => <Skeleton key={index} className="rounded-[var(--r-md)]" style={{ height: cardHeight }} />)}
     </div>
   )
-})
-
-interface IconRowProps {
-  item: IconAssetSummary
-  onOpen: (item: IconAssetSummary) => Promise<void>
-  onFavorite: (item: IconAssetSummary) => Promise<void>
-  onPin: (item: IconAssetSummary) => Promise<void>
-  onCopy: (item: IconAssetSummary) => Promise<void> | void
-  onDelete: (item: IconAssetSummary) => Promise<void>
 }
 
-const IconRow = memo(function IconRow({ item, onOpen, onFavorite, onPin, onCopy, onDelete }: IconRowProps) {
-  return (
-    <div className="group flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5" style={{ minHeight: 40 }}>
-      <img src={item.thumbUrl} srcSet={`${item.thumbUrl} 1x, ${item.thumb2xUrl} 2x`} alt="" className="h-8 w-8 object-contain" loading="lazy" />
-      <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-12)] text-[var(--text-primary)]" onClick={() => void onOpen(item)}>{item.name}</button>
-      <span className="text-[length:var(--text-10)] uppercase text-[var(--text-tertiary)]">{item.format}</span>
-      <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{formatBytes(item.bytes)}</span>
-      <IconButton label={t('development.icons.card.favorite')} size="sm" onClick={() => void onFavorite(item)}><Star size={12} className={item.favorited ? 'fill-current text-[var(--warning)]' : ''} /></IconButton>
-      <IconButton label={t('development.icons.card.pin')} size="sm" onClick={() => void onPin(item)}><Pin size={12} /></IconButton>
-      <IconButton label={t('development.icons.card.copy')} size="sm" onClick={() => void onCopy(item)}><Copy size={12} /></IconButton>
-      <a href={item.rawUrl} download={`${item.name}.${item.format}`} aria-label={t('development.icons.card.download')} className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Download size={12} /></a>
-      <IconButton label={t('development.icons.common.delete')} size="sm" onClick={() => void onDelete(item)}><Trash2 size={12} /></IconButton>
-    </div>
-  )
-})
+interface UploadDialogProps {
+  open: boolean
+  onClose: () => void
+  onFiles: (files: FileList | File[]) => Promise<void>
+  collections: IconCollection[]
+  collectionId: string
+  onCollection: (id: string) => void
+}
 
-function UploadDialog({ open, onClose, onFiles, collections, collectionId, onCollection }: { open: boolean; onClose: () => void; onFiles: (files: FileList | File[]) => Promise<void>; collections: IconCollection[]; collectionId: string; onCollection: (id: string) => void }) {
+function UploadDialog({ open, onClose, onFiles, collections, collectionId, onCollection }: UploadDialogProps) {
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   return (
     <Modal open={open} onClose={onClose} title={t('development.icons.upload.title')} width={520}>
       <div className="space-y-3">
-        <label className="flex min-h-24 cursor-pointer flex-col items-center justify-center rounded-[var(--r-md)] border border-dashed border-[var(--border-default)] p-4 text-center text-[length:var(--text-12)] text-[var(--text-secondary)]">
+        <label className="flex min-h-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border-default)] p-4 text-center text-[length:var(--text-12)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]">
           <Upload size={20} />
           <span>{t('development.icons.upload.drop')}</span>
           <input type="file" multiple accept=".svg,.png,.jpg,.jpeg,.webp" className="sr-only" onChange={(event) => setFiles(Array.from(event.target.files ?? []))} />
@@ -913,7 +1053,10 @@ function JobStrip({ jobs, onCancel, onRetry }: {
   onCancel: (id: string) => Promise<void>
   onRetry: (id: string) => Promise<void>
 }) {
-  const visible = jobs.slice(0, 3)
+  const cutoff = Date.now() - 10 * 60 * 1000
+  const visible = jobs
+    .filter((job) => job.status === 'queued' || job.status === 'running' || ((job.status === 'failed' || job.status === 'partial') && job.updatedAt >= cutoff))
+    .slice(0, 3)
   if (!visible.length) return null
   return (
     <div data-testid="icons-jobs" className="pointer-events-none fixed bottom-3 right-3 z-30 flex w-72 flex-col gap-1">
@@ -941,40 +1084,54 @@ function JobStrip({ jobs, onCancel, onRetry }: {
   )
 }
 
-function IconImportDialog({ open, onClose, onDone }: {
+function IconImportDialog({ open, onClose, onDone, onSeedAll }: {
   open: boolean
   onClose: () => void
-  onDone: (result: { processedItems: number; totalItems: number; failedItems: number }) => Promise<void>
+  onDone: (result: IconImport) => Promise<void>
+  onSeedAll: () => Promise<void>
 }) {
-  const [prefix, setPrefix] = useState('lucide')
-  const [limit, setLimit] = useState(200)
-  const [busy, setBusy] = useState(false)
-  const start = async (): Promise<void> => {
-    setBusy(true)
+  const [busy, setBusy] = useState('')
+  const [limit, setLimit] = useState('120')
+  const start = async (prefix: string): Promise<void> => {
+    setBusy(prefix)
     try {
-      const result = await createImport(prefix, limit)
+      const result = await createImport(prefix, Number(limit))
       await onDone(result)
     } finally {
-      setBusy(false)
+      setBusy('')
     }
   }
   return (
-    <Modal open={open} onClose={onClose} title={t('development.icons.import.title')} width={440}>
+    <Modal open={open} onClose={onClose} title={t('development.icons.import.title')} description={t('development.icons.import.description')} width={720}>
       <div className="space-y-3">
-        <SelectMenu label={t('development.icons.import.prefix')} value={prefix} onChange={setPrefix} options={[
-          { value: 'lucide', label: 'Lucide' },
-          { value: 'tabler', label: 'Tabler' },
-          { value: 'ph', label: 'Phosphor' },
-          { value: 'heroicons', label: 'Heroicons' },
-        ]} />
-        <label className="flex items-center justify-between gap-3 text-[length:var(--text-12)]">
-          <span className="text-[var(--text-secondary)]">{t('development.icons.import.limit')}</span>
-          <Input value={String(limit)} onChange={(event) => setLimit(Math.max(1, Math.min(500, Number(event.target.value) || 1)))} type="number" aria-label={t('development.icons.import.limit')} className="w-28" />
-        </label>
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>{t('development.icons.common.cancel')}</Button>
-          <Button disabled={busy} onClick={() => void start()}>{busy ? <Loader2 size={14} className="animate-spin" /> : null}{t('development.icons.import.start')}</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('development.icons.import.limit')}</span>
+          <SelectMenu
+            label={t('development.icons.import.limit')}
+            value={limit}
+            onChange={setLimit}
+            options={[{ value: '60', label: '60' }, { value: '120', label: '120' }, { value: '300', label: '300' }, { value: '500', label: '500' }]}
+            size="sm"
+            className="w-24"
+          />
+          <Button size="sm" className="ml-auto" onClick={() => void onSeedAll()}>
+            <Images size={13} />{t('development.icons.import.all')}
+          </Button>
         </div>
+        <div className="grid max-h-[52vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+          {ICON_BUILTIN_LIBRARIES.map((library) => (
+            <article key={library.prefix} className="flex flex-col gap-1 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">{library.name}</span>
+                <span className="rounded-[var(--r-full)] bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{library.license}</span>
+                <Button size="sm" variant="secondary" className="ml-auto" loading={busy === library.prefix} onClick={() => void start(library.prefix)}>{t('development.icons.import.one')}</Button>
+              </div>
+              <p className="text-[length:var(--text-11)] leading-snug text-[var(--text-tertiary)]">{library.description}</p>
+              <div className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{library.totalIcons} {t('development.icons.import.icons')}</div>
+            </article>
+          ))}
+        </div>
+        <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.icons.import.builtin_hint')}</p>
       </div>
     </Modal>
   )
