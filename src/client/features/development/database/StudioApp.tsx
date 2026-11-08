@@ -422,17 +422,6 @@ export function StudioApp() {
     }
   }, [selection, localFile, activeSaved?.type, notifyError, reloadSchema, initialLayout])
 
-  // beforeunload is the forced browser API a Dialog cannot replace; it is scoped to an unsaved local SQLite file.
-  useEffect(() => {
-    if (!localDirty || selection?.kind !== 'local') return
-    const handler = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ''
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [localDirty, selection?.kind])
-
   const confirmDiscardLocal = async (): Promise<boolean> => {
     if (selection?.kind !== 'local' || !localDirty) return true
     return await confirm({
