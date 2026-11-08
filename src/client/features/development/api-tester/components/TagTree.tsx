@@ -84,6 +84,7 @@ function TagTreeRow({
             type="button"
             aria-label={open ? t('development.apitester.collapse') : t('development.apitester.expand')}
             aria-expanded={open}
+            aria-controls={open ? `apitester-tag-children-${node.id}` : undefined}
             data-action="toggle-tag"
             onClick={() => onToggle(node.id)}
             className="flex size-4 shrink-0 items-center justify-center rounded-[var(--r-xs)] text-[var(--text-quaternary)] hover:text-[var(--text-primary)]"
@@ -115,7 +116,7 @@ function TagTreeRow({
         )}
       </div>
       {open && node.children.length > 0 && (
-        <div>
+        <div id={`apitester-tag-children-${node.id}`}>
           {node.children.map((child) => (
             <TagTreeRow
               key={child.id}

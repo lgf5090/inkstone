@@ -1,11 +1,8 @@
 import { t } from '../../../../lib/i18n'
 import type { ResponseTiming } from '@shared/development/api-tester/types'
 
-const ROW_LABEL = ['DNS', 'Connect', 'TLS', 'TTFB', 'Download'] as const
+const ROW_LABEL = ['TTFB', 'Download'] as const
 const ROW_COLOR = [
-  'bg-[var(--chart-1)]',
-  'bg-[var(--chart-2)]',
-  'bg-[var(--chart-3)]',
   'bg-[var(--chart-4)]',
   'bg-[var(--chart-5)]',
 ] as const
@@ -26,13 +23,10 @@ export function TimingView({
   }
 
   const values = [
-    timing.dnsMs,
-    timing.connectMs,
-    timing.tlsMs,
     timing.ttfbMs,
     timing.downloadMs,
   ]
-  const offsets = [0, 0, 0, 0, timing.ttfbMs ?? 0]
+  const offsets = [0, timing.ttfbMs ?? 0]
   const total = timing.totalMs || totalMs
 
   return (

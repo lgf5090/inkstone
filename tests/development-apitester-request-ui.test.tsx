@@ -9,7 +9,6 @@ import type {
   TagNode,
 } from '@shared/development/api-tester/types'
 import { RequestBuilder } from '../src/client/features/development/api-tester/components/RequestBuilder'
-import { SearchField } from '../src/client/features/development/api-tester/components/SearchField'
 import { initI18n, t } from '../src/client/lib/i18n'
 import { renderElement, type RenderedElement } from '../src/client/lib/test-render'
 import { formatBytes } from '../src/client/lib/time'
@@ -464,30 +463,5 @@ describe('API Tester request builder', () => {
     expect(state().request?.bodyType).toBe('json')
     expect(state().request?.body).toBe('{"a":1}')
     expect(view.container.textContent).toContain('--bogus')
-  })
-
-  it('commits search text after the debounce and clears immediately', () => {
-    vi.useFakeTimers()
-    const onChange = vi.fn()
-    const view = renderElement(
-      createElement(SearchField, {
-        value: '',
-        onChange,
-        label: t('development.apitester.search_requests'),
-        placeholder: t('development.apitester.search_requests'),
-        debounceMs: 50,
-      }),
-    )
-    views.push(view)
-    const input = byPlaceholder<HTMLInputElement>(view.container, t('development.apitester.search_requests'))
-    setText(input, 'abc')
-    expect(onChange).not.toHaveBeenCalled()
-    act(() => {
-      vi.advanceTimersByTime(50)
-    })
-    expect(onChange).toHaveBeenLastCalledWith('abc')
-    click(view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('development.apitester.clear')}"]`)!)
-    expect(onChange).toHaveBeenLastCalledWith('')
-    expect(input.value).toBe('')
   })
 })

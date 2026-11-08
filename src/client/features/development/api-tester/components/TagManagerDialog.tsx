@@ -9,18 +9,8 @@ import { Input, commitOnEnter } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { isImeComposing } from '../../../../lib/ime'
+import { tagPath } from '../lib/variables'
 import { CHART_COLOR_NAMES, tagColorValue } from '../lib/tag-colors'
-
-function tagPath(tags: readonly TagNode[], id: string): string {
-  const byId = new Map(tags.map((tag) => [tag.id, tag]))
-  const parts: string[] = []
-  let current = byId.get(id)
-  while (current) {
-    parts.unshift(current.name)
-    current = current.parentId ? byId.get(current.parentId) : undefined
-  }
-  return parts.join(' / ')
-}
 
 /** Descendant count from one children map, so a deep tag tree is walked once per delete. */
 function descendantCount(tags: readonly TagNode[], id: string): number {

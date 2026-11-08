@@ -270,29 +270,23 @@ describe('ResponsePanel', () => {
     expect(container.textContent).toContain(t('development.apitester.preview_unsupported'))
   })
 
-  it('draws the timing waterfall with a dash for missing phases', () => {
+  it('draws the proxy timing waterfall for the phases it can measure', () => {
     const container = renderPanel(
       response({
         durationMs: 52,
         timing: {
-          dnsMs: 5,
-          connectMs: 10,
           ttfbMs: 30,
-          downloadMs: 7,
+          downloadMs: 22,
           totalMs: 52,
         },
       }),
     )
 
     click(tab(container, 3))
-    expect(container.textContent).toContain('DNS')
-    expect(container.textContent).toContain('Connect')
-    expect(container.textContent).toContain('TLS')
     expect(container.textContent).toContain('TTFB')
     expect(container.textContent).toContain('Download')
-    expect(container.textContent).toContain('5 ms')
-    expect(container.textContent).toContain('7 ms')
-    expect(container.textContent).toContain('—')
+    expect(container.textContent).toContain('30 ms')
+    expect(container.textContent).toContain('22 ms')
     expect(container.textContent).toContain(t('development.apitester.total_time', { ms: 52 }))
   })
 

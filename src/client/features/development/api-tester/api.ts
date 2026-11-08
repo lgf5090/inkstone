@@ -12,7 +12,7 @@ import type {
   Workspace,
   WsTicketResponse,
 } from '@shared/development/api-tester/types'
-import { ApiError, request, routeApiError, type RequestOptions } from '../../../lib/api'
+import { request, routeApiError, type RequestOptions } from '../../../lib/api'
 import { getLocale } from '../../../lib/i18n'
 
 const BASE = '/api/development/api-tester'
@@ -118,10 +118,6 @@ export async function fetchFileText(id: string): Promise<string> {
     throw routeApiError(response.status, body)
   }
   return response.text()
-}
-
-export function errorStatus(error: unknown): number | null {
-  return error instanceof ApiError ? error.status : null
 }
 
 export function errorMessage(error: unknown): string {

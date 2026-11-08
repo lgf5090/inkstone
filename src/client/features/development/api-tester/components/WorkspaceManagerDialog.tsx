@@ -4,9 +4,10 @@ import { WORKSPACE_COLORS } from '@shared/development/api-tester/keywords'
 import type { Workspace } from '@shared/development/api-tester/types'
 import { Modal, confirm } from '../../../../components/overlay'
 import { Button, IconButton } from '../../../../components/primitives'
-import { Input } from '../../../../components/form'
+import { Input, Select } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
+import { useUi } from '../../../../store/ui'
 import { isImeComposing } from '../../../../lib/ime'
 import { tagColorValue } from '../lib/tag-colors'
 import { useApiTesterStore } from '../store'
@@ -31,11 +32,22 @@ export function WorkspaceManagerDialog({ open, onClose }: { open: boolean; onClo
     setEditingId(null)
   }, [open])
 
-  const create = () => {
+  const fail = (error: unknown) => {
+    useUi.getState().toast({
+      title: t('development.apitester.workspace_action_failed', { msg: error instanceof Error ? error.message : String(error) }),
+      tone: 'danger',
+    })
+  }
+
+  const create = async () => {
     if (!name.trim()) return
-    void createWorkspace(name.trim(), color)
-    setName('')
-    setColor('blue')
+    try {
+      await createWorkspace(name.trim(), color)
+      setName('')
+      setColor('blue')
+    } catch (error) {
+      fail(error)
+    }
   }
 
   const remove = async (workspace: Workspace) => {
@@ -46,7 +58,7 @@ export function WorkspaceManagerDialog({ open, onClose }: { open: boolean; onClo
       confirmLabel: t('common.delete'),
       cancelLabel: t('common.cancel'),
     })
-    if (ok) void deleteWorkspace(workspace.id)
+    if (ok) void deleteWorkspace(workspace.id).catch(fail)
   }
 
   return (
@@ -93,8 +105,7 @@ export function WorkspaceManagerDialog({ open, onClose }: { open: boolean; onClo
                   onKeyDown={(event) => {
                     if (isImeComposing(event)) return
                     if (event.key === 'Enter' && editName.trim()) {
-                      void renameWorkspace(workspace.id, editName.trim())
-                      setEditingId(null)
+                      void renameWorkspace(workspace.id, editName.trim()).then(() => setEditingId(null)).catch(fail)
                     }
                     if (event.key === 'Escape') setEditingId(null)
                   }}
@@ -105,7 +116,7 @@ export function WorkspaceManagerDialog({ open, onClose }: { open: boolean; onClo
               ) : (
                 <button
                   type="button"
-                  onClick={() => void switchWorkspace(workspace.id)}
+                  onClick={() => void switchWorkspace(workspace.id).catch(fail)}
                   className="min-w-0 flex-1 truncate text-left text-[length:var(--text-12)] text-[var(--text-primary)]"
                   title={t('development.apitester.switch_workspace')}
                 >
@@ -113,14 +124,14 @@ export function WorkspaceManagerDialog({ open, onClose }: { open: boolean; onClo
                 </button>
               )}
               {workspace.id === activeId && <span className="shrink-0 text-[length:var(--text-10)] text-[var(--accent)]"><Check size={12} /></span>}
-              <select
+              <Select
                 aria-label={t('development.apitester.workspace_color')}
                 value={workspace.color}
-                onChange={(event) => void setWorkspaceColor(workspace.id, event.target.value)}
-                className="h-6 max-w-[72px] shrink-0 rounded border border-[var(--border-subtle)] bg-transparent text-[length:var(--text-10)] text-[var(--text-secondary)]"
+                onChange={(event) => void setWorkspaceColor(workspace.id, event.target.value).catch(fail)}
+                className="h-6 max-w-[72px] shrink-0 text-[length:var(--text-10)] text-[var(--text-secondary)]"
               >
                 {WORKSPACE_COLORS.map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
+              </Select>
               <IconButton
                 label={t('development.apitester.rename')}
                 size="sm"
