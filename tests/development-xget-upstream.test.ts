@@ -252,6 +252,14 @@ describe('the Xget upstream retries', () => {
   })
 
   it('does not retry a streamed body', async () => {
+    vi.stubGlobal(
+      'FixedLengthStream',
+      class extends TransformStream<Uint8Array, Uint8Array> {
+        constructor(_length: number) {
+          super()
+        }
+      },
+    )
     const fetchMock = stubFetch(async (_input, init) => {
       expect(init?.body).toBeInstanceOf(ReadableStream)
       return new Response('fail', { status: 500 })

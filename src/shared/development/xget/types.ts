@@ -21,6 +21,7 @@ export interface XgetConfigOverrides {
   RETRY_DELAY_MS?: number
   CACHE_DURATION?: number
   ALLOW_ANONYMOUS?: boolean
+  RATE_LIMIT_PER_MINUTE?: number
   SECURITY?: XgetSecurityOverrides
 }
 
@@ -30,6 +31,7 @@ export interface XgetSettingsConfig {
   retry_delay_ms: number
   cache_duration: number
   allow_anonymous: boolean
+  rate_limit_per_minute: number
   allowed_methods: string[]
   allowed_origins: string[]
   max_path_length: number

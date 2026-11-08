@@ -32286,6 +32286,9 @@ const allowed = new Map([
     "/** Rows actually present in D1 for this account and collection. */",
     "/** Names skipped because their body matched another name in the set (aliases). */",
   ]],
+  ["src/shared/development/xget/path-transforms.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/routing/platform-transformers.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
   ["src/shared/email/model.ts", [
     "/** The row's write time, the token a draft save compares before it overwrites another device. */",
     "/**\n   * The `updatedAt` this save was written against.\n   *\n   * Present, the save refuses to overwrite a draft another device wrote since; absent, it is the\n   * unconditional write the agent and import paths have always made.\n   */",

@@ -1,5 +1,5 @@
 // Derived from Xget (AGPL-3.0-only) src/protocols/docker.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.
-import { xgetPathPrefix } from '@shared/development/xget/catalog'
+import { xgetPathPrefix, xgetRegistryPlatformForAuthPath } from '@shared/development/xget/catalog'
 import type { XgetConfig } from '../config'
 import { SORTED_PLATFORMS } from '../routing/platform-index'
 import { createErrorResponse } from '../utils/security'
@@ -140,9 +140,9 @@ function resolveDockerAuthTarget(
   platforms: Record<string, string>,
 ): { platformKey: string; upstreamScope: string } {
   const scope = url.searchParams.get('scope') || ''
-  const pathMatch = url.pathname.match(/^\/cr\/([^/]+)\/v2\/auth\/?$/)
+  const authPlatform = xgetRegistryPlatformForAuthPath(url.pathname)
 
-  let platformKey = pathMatch ? `cr-${pathMatch[1]}` : ''
+  let platformKey = authPlatform ?? ''
   let repoPath = ''
   let upstreamScope = scope
 
@@ -178,9 +178,7 @@ function resolveDockerAuthTarget(
 }
 
 export function responseUnauthorized(platform: string, proxyBaseUrl: string): Response {
-  const realmPath = platform.startsWith('cr-')
-    ? `/cr/${platform.slice(3)}/v2/auth`
-    : '/v2/auth'
+  const realmPath = platform ? `/${xgetPathPrefix(platform)}/v2/auth` : '/v2/auth'
   const headers = new Headers()
   headers.set('Content-Type', 'application/json')
   headers.set('WWW-Authenticate', `Bearer realm="${proxyBaseUrl}${realmPath}",service="Xget"`)

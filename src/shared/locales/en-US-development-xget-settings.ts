@@ -33,6 +33,8 @@ export const EN_US_DEVELOPMENT_XGET_SETTINGS = {
   "development.xget.settings.retry_delay_ms": "Retry delay (ms)",
   "development.xget.settings.cache_duration": "Cache duration (seconds)",
   "development.xget.settings.cache_duration_desc": "Fallback TTL for mutable resources; immutable artifacts use 86400 s",
+  "development.xget.settings.rate_limit_per_minute": "Requests per minute per client",
+  "development.xget.settings.rate_limit_per_minute_desc": "Per-client ceiling on proxy requests; 0 disables the limit",
   "development.xget.settings.allowed_methods": "Allowed methods",
   "development.xget.settings.allowed_methods_desc": "Comma-separated; Git, Docker and AI protocol requests allow every method",
   "development.xget.settings.allowed_origins": "CORS allowed origins",

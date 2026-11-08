@@ -5,7 +5,7 @@ import { t } from '../../../../lib/i18n'
 import { copyText } from '../../../../lib/clipboard'
 import { Button } from '../../../../components/primitives'
 import { useUiStore } from '../../../../lib/ui-store'
-import { buildProxyUrl } from '../utils/commands'
+import { buildProxyUrl, upstreamUrlForPlatformPath } from '../utils/commands'
 import { PLATFORM_DESCRIPTION_KEYS } from '../utils/platform-meta'
 import { PlatformBadge } from './PlatformBadge'
 import { PlatformIcon } from './PlatformIcon'
@@ -58,7 +58,7 @@ export function PlatformCard({
         </span>
       </button>
       <div className="flex items-center justify-between gap-2 border-t border-[var(--border-subtle)] px-3.5 py-2">
-        <code className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-11)] text-[var(--text-tertiary)]" title={`${platform.hosts[0]}${platform.example}`}>
+        <code className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-11)] text-[var(--text-tertiary)]" title={upstreamUrlForPlatformPath(platform, platform.example)}>
           {platform.example}
         </code>
         <Button

@@ -1,5 +1,9 @@
 // Derived from Xget (AGPL-3.0-only) src/utils/validation.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.
 import { XGET_KNOWN_METHODS } from '@shared/development/xget/constants'
+import {
+  xgetRegistryPlatformForPath,
+  xgetRegistryPlatformForV2Path,
+} from '@shared/development/xget/catalog'
 import type { XgetConfig } from '../config'
 import { isAIInferenceRequest } from '../protocols/ai'
 import { isGitLFSRequest, isGitRequest } from '../protocols/git'
@@ -27,36 +31,33 @@ export function isProtocolRequest(traits: RequestTraits): boolean {
   return traits.isGit || traits.isGitLFS || traits.isDocker || traits.isAI || traits.isHF
 }
 
-export function isDockerRequest(request: Request, url: URL): boolean {
+function isDockerRequest(request: Request, url: URL): boolean {
   const { pathname } = url
 
   if (pathname === '/v2' || pathname === '/v2/' || pathname.startsWith('/v2/')) return true
 
-  if (pathname.startsWith('/cr/')) {
-    if (/^\/cr\/[^/]+\/v2(?:\/|$)/.test(pathname)) return true
+  const registryPlatform = xgetRegistryPlatformForPath(pathname)
+  if (!registryPlatform) return false
 
-    const userAgent = request.headers.get('User-Agent') || ''
-    if (userAgent.toLowerCase().includes('docker/')) return true
+  if (xgetRegistryPlatformForV2Path(pathname)) return true
 
-    const accept = request.headers.get('Accept') || ''
-    if (
-      accept.includes('application/vnd.docker.distribution.manifest') ||
-      accept.includes('application/vnd.oci.image.manifest') ||
-      accept.includes('application/vnd.docker.image.rootfs.diff.tar.gzip')
-    ) {
-      return true
-    }
+  const userAgent = request.headers.get('User-Agent') || ''
+  if (userAgent.toLowerCase().includes('docker/')) return true
 
-    const contentType = request.headers.get('Content-Type') || ''
-    if (
-      contentType.includes('application/vnd.docker.distribution.manifest') ||
-      contentType.includes('application/vnd.oci.image.manifest')
-    ) {
-      return true
-    }
+  const accept = request.headers.get('Accept') || ''
+  if (
+    accept.includes('application/vnd.docker.distribution.manifest') ||
+    accept.includes('application/vnd.oci.image.manifest') ||
+    accept.includes('application/vnd.docker.image.rootfs.diff.tar.gzip')
+  ) {
+    return true
   }
 
-  return false
+  const contentType = request.headers.get('Content-Type') || ''
+  return (
+    contentType.includes('application/vnd.docker.distribution.manifest') ||
+    contentType.includes('application/vnd.oci.image.manifest')
+  )
 }
 
 function decodePathnameForValidation(pathname: string): { ok: true; value: string } | { ok: false } {

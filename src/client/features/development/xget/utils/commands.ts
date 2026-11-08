@@ -1,4 +1,8 @@
 import { XGET_PLATFORMS, xgetPathPrefix, type XgetPlatform } from '@shared/development/xget/catalog'
+import {
+  applyXgetPathTransform,
+  stripXgetPathTransform,
+} from '@shared/development/xget/path-transforms'
 
 export interface DetectedUrl {
   platform: XgetPlatform
@@ -74,6 +78,24 @@ export function detectPlatform(input: string): DetectedUrl | null {
 
 export function buildProxyUrl(proxyBase: string, key: string, pathname: string, search = ''): string {
   return `${proxyBase.replace(/\/+$/, '')}/${xgetPathPrefix(key)}${pathname}${search}`
+}
+
+export function proxyPathFromUpstreamUrl(platform: XgetPlatform, pathname: string): string {
+  const basePath = new URL(platform.upstreamBase).pathname.replace(/\/+$/, '')
+  let path = pathname
+  if (
+    basePath &&
+    path.slice(0, basePath.length).toLowerCase() === basePath.toLowerCase() &&
+    (path.length === basePath.length || path[basePath.length] === '/')
+  ) {
+    path = path.slice(basePath.length) || '/'
+  }
+  path = stripXgetPathTransform(path, platform.key)
+  return path.startsWith('/') ? path : `/${path}`
+}
+
+export function upstreamUrlForPlatformPath(platform: XgetPlatform, proxyPath: string): string {
+  return `${platform.upstreamBase}${applyXgetPathTransform(proxyPath, platform.key)}`
 }
 
 function pathSegments(acceleratedUrl: string, platformKey: string): string[] | null {

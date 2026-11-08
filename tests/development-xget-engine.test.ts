@@ -752,3 +752,145 @@ describe('the site cookie and the shared cache', () => {
     expect(cache.put).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('the Homebrew bottle registry path', () => {
+  it('keeps Accept and retries with an anonymous token like the /cr/ghcr prefix', async () => {
+    const calls: { url: string; accept: string | null; authorization: string | null }[] = []
+    stubFetch(async (input, init) => {
+      const url = readUrl(input)
+      const headers = new Headers(init?.headers as Headers)
+      calls.push({
+        url,
+        accept: headers.get('accept'),
+        authorization: headers.get('authorization'),
+      })
+      if (url.startsWith('https://ghcr.io/token?')) {
+        return new Response(JSON.stringify({ token: 'bottle-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (headers.get('authorization') === 'Bearer bottle-token') {
+        return new Response('manifest', { status: 200 })
+      }
+      return new Response('{}', {
+        status: 401,
+        headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+      })
+    })
+
+    const response = await call('/homebrew/bottles/v2/homebrew/core/git/manifests/2.39.0', {
+      headers: { Accept: 'application/vnd.oci.image.manifest.v1+json' },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe('manifest')
+    expect(calls[0]?.accept).toBe('application/vnd.oci.image.manifest.v1+json')
+    expect(calls.some((entry) => entry.url.startsWith('https://ghcr.io/token?'))).toBe(true)
+    expect(calls.some((entry) => entry.authorization === 'Bearer bottle-token')).toBe(true)
+  })
+
+  it('challenges through the bottle auth path when no token is issued', async () => {
+    stubFetch(async (input) => {
+      if (readUrl(input).startsWith('https://ghcr.io/token?')) return new Response('no', { status: 401 })
+      return new Response('{}', {
+        status: 401,
+        headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+      })
+    })
+
+    const response = await call('/homebrew/bottles/v2/homebrew/core/git/manifests/2.39.0')
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get('www-authenticate')).toContain('/homebrew/bottles/v2/auth')
+  })
+
+  it('proxies the bottle auth path to the registry token service', async () => {
+    let tokenUrl = ''
+    stubFetch(async (input) => {
+      const url = readUrl(input)
+      if (url === 'https://ghcr.io/v2/') {
+        return new Response('{}', {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+        })
+      }
+      tokenUrl = url
+      return new Response(JSON.stringify({ token: 'bottle-token' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+
+    const response = await call('/homebrew/bottles/v2/auth?scope=repository:homebrew/core/git:pull')
+
+    expect(response.status).toBe(200)
+    expect(tokenUrl).toContain('service=ghcr.io')
+    expect(tokenUrl).toContain('scope=repository%3Ahomebrew%2Fcore%2Fgit%3Apull')
+  })
+})
+
+describe('the upstream content negotiation', () => {
+  it('forwards the client Accept header on a cacheable GET', async () => {
+    let sent: Headers | null = null
+    stubFetch(async (_input, init) => {
+      sent = new Headers(init?.headers as Headers)
+      return new Response('package', { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+
+    await call('/npm/react', { headers: { Accept: 'application/vnd.npm.install-v1+json' } })
+
+    expect((sent as unknown as Headers).get('accept')).toBe('application/vnd.npm.install-v1+json')
+  })
+
+  it('uses a user agent crates.io accepts while other platforms keep the downloader agent', async () => {
+    const agents: string[] = []
+    stubFetch(async (_input, init) => {
+      agents.push(new Headers(init?.headers as Headers).get('user-agent') ?? '')
+      return new Response('ok', { status: 200 })
+    })
+
+    await call('/crates/serde')
+    await call('/npm/react')
+
+    expect(agents).toEqual(['Xget/1.0', 'Wget/1.21.3'])
+  })
+
+  it('wraps a streamed request body in FixedLengthStream so workerd keeps Content-Length', async () => {
+    const size = 8 * 1024 * 1024 + 1
+    const lengths: number[] = []
+    vi.stubGlobal(
+      'FixedLengthStream',
+      class extends TransformStream<Uint8Array, Uint8Array> {
+        constructor(length: number) {
+          super()
+          lengths.push(length)
+        }
+      },
+    )
+    let sent: Headers | null = null
+    let received = 0
+    stubFetch(async (_input, init) => {
+      sent = new Headers(init?.headers as Headers)
+      if (init?.body) {
+        received = (await new Response(init.body as ReadableStream).arrayBuffer()).byteLength
+      }
+      return new Response('ok', { status: 200 })
+    })
+
+    const body = new Uint8Array(size)
+    const response = await call('/gh/owner/repo/git-receive-pack', {
+      method: 'POST',
+      headers: {
+        'Content-Length': String(size),
+        'Content-Type': 'application/x-git-receive-pack-request',
+      },
+      body,
+    })
+
+    expect(response.status).toBe(200)
+    expect(lengths).toEqual([size])
+    expect(received).toBe(size)
+    expect((sent as unknown as Headers).get('content-length')).toBeNull()
+  })
+})

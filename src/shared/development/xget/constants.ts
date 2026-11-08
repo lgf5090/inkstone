@@ -7,7 +7,8 @@ export const XGET_CONFIG_DEFAULTS: XgetSettingsConfig = {
   max_retries: 3,
   retry_delay_ms: 1000,
   cache_duration: 300,
-  allow_anonymous: true,
+  allow_anonymous: false,
+  rate_limit_per_minute: 600,
   allowed_methods: ['GET', 'HEAD'],
   allowed_origins: ['*'],
   max_path_length: 2048,
@@ -18,6 +19,7 @@ export const XGET_CONFIG_LIMITS = {
   maxRetries: { min: 1, max: 10 },
   retryDelayMs: { min: 0, max: 30_000 },
   cacheDuration: { min: 1, max: 86_400 },
+  rateLimitPerMinute: { min: 0, max: 3600 },
   maxPathLength: { min: 1, max: 8192 },
 } as const
 
@@ -26,6 +28,9 @@ export const XGET_KNOWN_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELET
 export const XGET_TOKEN_MIN_LENGTH = 8
 export const XGET_TOKEN_MAX_LENGTH = 128
 export const XGET_TOKEN_PATTERN = /^[A-Za-z0-9._-]+$/
+
+export const XGET_UPSTREAM_USER_AGENT = 'Wget/1.21.3'
+export const XGET_CRATES_USER_AGENT = 'Xget/1.0'
 
 export const XGET_MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024
 export const XGET_MAX_BUFFERED_BODY_BYTES = 8 * 1024 * 1024

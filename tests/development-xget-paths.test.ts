@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { isXgetProxyPath } from '../src/worker/development/xget/paths'
 import { SCHEMA_MIGRATIONS, REQUIRED_TABLES } from '../src/worker/db/schema'
 import {
+  DEVELOPMENT_XGET_AUDIT_SCHEMA_STATEMENTS,
   DEVELOPMENT_XGET_REQUIRED_COLUMNS,
   DEVELOPMENT_XGET_REQUIRED_TABLES,
   DEVELOPMENT_XGET_SCHEMA_STATEMENTS,
@@ -29,15 +30,18 @@ describe('the Xget proxy path boundary', () => {
 })
 
 describe('the Xget tables', () => {
-  it('are registered as migration 188 and required by the final schema', () => {
+  it('are registered as migrations 188 and 350 and required by the final schema', () => {
     const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 188)
     expect(migration?.statements).toEqual(DEVELOPMENT_XGET_SCHEMA_STATEMENTS)
+    const auditMigration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 350)
+    expect(auditMigration?.statements).toEqual(DEVELOPMENT_XGET_AUDIT_SCHEMA_STATEMENTS)
     for (const table of DEVELOPMENT_XGET_REQUIRED_TABLES) expect(REQUIRED_TABLES).toContain(table)
   })
 
   it('are created by their own statements with the required columns', () => {
     const db = new DatabaseSync(':memory:')
     for (const statement of DEVELOPMENT_XGET_SCHEMA_STATEMENTS) db.exec(statement)
+    for (const statement of DEVELOPMENT_XGET_AUDIT_SCHEMA_STATEMENTS) db.exec(statement)
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]
     const names = new Set(tables.map((table) => table.name))
     for (const table of DEVELOPMENT_XGET_REQUIRED_TABLES) {

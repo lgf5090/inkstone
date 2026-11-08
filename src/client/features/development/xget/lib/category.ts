@@ -24,14 +24,6 @@ export const CATEGORY_ICONS: Record<XgetCategory, ComponentType<{ size?: number;
   registry: Container,
 }
 
-const FALLBACK_COLORS = [
-  'var(--accent)',
-  'var(--success)',
-  'var(--warning)',
-  'var(--danger)',
-  'var(--text-secondary)',
-  'var(--text-tertiary)',
-]
 const paletteCache = new Map<string, string[]>()
 
 function categoryPalette(dark: boolean): string[] {
@@ -45,8 +37,7 @@ function categoryPalette(dark: boolean): string[] {
 
 export function categoryColor(category: XgetCategory, dark: boolean): string {
   const index = CATEGORY_ORDER.indexOf(category)
-  const palette = categoryPalette(dark)
-  return palette[index] ?? FALLBACK_COLORS[index] ?? FALLBACK_COLORS[0]!
+  return categoryPalette(dark)[index] ?? 'var(--accent)'
 }
 
 export function categoryTint(color: string, percent: number): string {

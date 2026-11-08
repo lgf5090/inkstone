@@ -6,7 +6,7 @@ import { copyText } from '../../../../lib/clipboard'
 import { Button, Divider, IconButton } from '../../../../components/primitives'
 import { Drawer } from '../../../../components/overlay'
 import { useUiStore } from '../../../../lib/ui-store'
-import { buildProxyUrl } from '../utils/commands'
+import { buildProxyUrl, upstreamUrlForPlatformPath } from '../utils/commands'
 import { getPlatformGuide, renderGuideCommand } from '../utils/platform-guides'
 import { PlatformBadge } from './PlatformBadge'
 import { PlatformIcon } from './PlatformIcon'
@@ -26,7 +26,7 @@ export function PlatformDetail({
   if (!platform) return null
 
   const guide = getPlatformGuide(platform.key, platform.name)
-  const originalExample = `${platform.hosts[0]}${platform.example}`
+  const originalExample = upstreamUrlForPlatformPath(platform, platform.example)
   const acceleratedExample = buildProxyUrl(proxyBase, platform.key, platform.example)
   const renderCmd = (value: string) => renderGuideCommand(value, proxyBase)
 

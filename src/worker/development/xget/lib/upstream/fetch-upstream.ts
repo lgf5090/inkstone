@@ -1,7 +1,9 @@
 // Derived from Xget (AGPL-3.0-only) src/upstream/fetch-upstream.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.
 import {
+  XGET_CRATES_USER_AGENT,
   XGET_MAX_BUFFERED_BODY_BYTES,
   XGET_MAX_REQUEST_BODY_BYTES,
+  XGET_UPSTREAM_USER_AGENT,
 } from '@shared/development/xget/constants'
 import type { XgetConfig } from '../config'
 import { configureAIHeaders } from '../protocols/ai'
@@ -275,6 +277,7 @@ function createFetchOptions({
   authorization,
   cachePolicy,
   config,
+  platform,
   request,
   requestContext,
   shouldPassthroughRequest,
@@ -283,6 +286,7 @@ function createFetchOptions({
   authorization: string | null
   cachePolicy?: Pick<CachePolicy, 'allowFetchCache' | 'edgeTtl'>
   config: XgetConfig
+  platform: string
   request: Request
   requestContext: RequestTraits & { url: URL }
   shouldPassthroughRequest: boolean
@@ -319,7 +323,13 @@ function createFetchOptions({
   }
 
   requestHeaders.set('Accept-Encoding', 'gzip, deflate, br')
-  requestHeaders.set('User-Agent', 'Wget/1.21.3')
+  requestHeaders.set(
+    'User-Agent',
+    platform === 'crates' ? XGET_CRATES_USER_AGENT : XGET_UPSTREAM_USER_AGENT,
+  )
+
+  const acceptHeader = request.headers.get('Accept')
+  if (acceptHeader) requestHeaders.set('Accept', acceptHeader)
 
   const origin = request.headers.get('Origin')
   if (origin) requestHeaders.set('Origin', origin)
@@ -534,11 +544,31 @@ export async function fetchUpstreamResponse({
     authorization,
     cachePolicy,
     config,
+    platform,
     request,
     requestContext,
     shouldPassthroughRequest,
     targetUrl,
   })
+
+  let fetchBody: Uint8Array | ReadableStream<Uint8Array> | null =
+    bufferedBody ?? streamingBody ?? null
+  if (streamingBody) {
+    const declared = request.headers.get('Content-Length')
+    const parsed = declared === null ? null : Number(declared)
+    if (parsed !== null && Number.isSafeInteger(parsed) && parsed > 0) {
+      const fixed = new FixedLengthStream(parsed)
+      streamingBody
+        .pipeTo(fixed.writable)
+        .catch((error) =>
+          console.warn(
+            '[xget] Streamed request body failed:',
+            error instanceof Error ? error.name : 'unknown error',
+          ),
+        )
+      fetchBody = fixed.readable
+    }
+  }
 
   let attempts = 0
   while (attempts < config.MAX_RETRIES) {
@@ -553,7 +583,7 @@ export async function fetchUpstreamResponse({
       const attemptOptions: RequestInit = {
         ...fetchOptions,
         signal: controller.signal,
-        body: bufferedBody ?? streamingBody ?? fetchOptions.body,
+        body: fetchBody ?? fetchOptions.body,
       }
 
       response = await executeFetch({
