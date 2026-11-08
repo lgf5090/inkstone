@@ -93,7 +93,7 @@ function isVersionedPyPIFilePath(pathname: string): boolean {
   return hasVersionLikeToken(stem)
 }
 
-export function isImmutableArtifactRequest(
+function isImmutableArtifactRequest(
   platform: string,
   effectivePath: string,
   targetUrl: string,

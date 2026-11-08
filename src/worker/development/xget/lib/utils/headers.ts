@@ -25,13 +25,13 @@ const SITE_PRIVATE_HEADERS = new Set([
 
 const STRIPPED_RESPONSE_HEADERS = new Set(['set-cookie', 'set-cookie2', 'clear-site-data'])
 
-export function isStrippedOutboundRequestHeader(name: string): boolean {
+function isStrippedOutboundRequestHeader(name: string): boolean {
   const lower = name.toLowerCase()
   if (HOP_BY_HOP_HEADERS.has(lower) || SITE_PRIVATE_HEADERS.has(lower)) return true
   return lower.startsWith('cf-') || lower.startsWith('x-forwarded-')
 }
 
-export function isStrippedUpstreamResponseHeader(name: string): boolean {
+function isStrippedUpstreamResponseHeader(name: string): boolean {
   const lower = name.toLowerCase()
   if (STRIPPED_RESPONSE_HEADERS.has(lower)) return true
   return lower.startsWith('access-control-')

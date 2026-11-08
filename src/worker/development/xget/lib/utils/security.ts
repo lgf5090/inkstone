@@ -1,7 +1,7 @@
 // Derived from Xget (AGPL-3.0-only) src/utils/security.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.
 import type { XgetConfig } from '../config'
 
-export function resolveAllowedOrigin(request: Request, config: XgetConfig): string | null {
+function resolveAllowedOrigin(request: Request, config: XgetConfig): string | null {
   const origin = request.headers.get('Origin')
   if (!origin) return null
 

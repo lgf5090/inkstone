@@ -24,5 +24,3 @@ export const XgetTokenSchema = z.object({
 export const XgetTestPathSchema = z.object({
   path: z.string().min(1).max(8192),
 })
-
-export type XgetSettingsPatch = z.infer<typeof XgetSettingsPatchSchema>

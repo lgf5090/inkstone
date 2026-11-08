@@ -1,9 +1,9 @@
 // Derived from Xget (AGPL-3.0-only) src/config/index.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.
 import { XGET_PLATFORMS } from '@shared/development/xget/catalog'
+import { readMethods, readOrigins } from '@shared/development/xget/config-values'
 import {
   XGET_CONFIG_DEFAULTS,
   XGET_CONFIG_LIMITS,
-  XGET_KNOWN_METHODS,
 } from '@shared/development/xget/constants'
 import type { XgetConfigOverrides } from '@shared/development/xget/types'
 
@@ -47,55 +47,15 @@ function parseBoundedInteger(
 }
 
 function normalizeMethods(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [...XGET_CONFIG_DEFAULTS.allowed_methods]
-  }
-
-  const methods: string[] = []
-  for (const entry of value) {
-    if (typeof entry !== 'string') continue
-    const method = entry.trim().toUpperCase()
-    if (!(XGET_KNOWN_METHODS as readonly string[]).includes(method)) continue
-    if (methods.includes(method)) continue
-    methods.push(method)
-  }
-
+  const methods = readMethods(value).methods
   return methods.length ? methods : [...XGET_CONFIG_DEFAULTS.allowed_methods]
-}
-
-function normalizeOrigin(value: string): string | null {
-  if (value === '*') return '*'
-
-  let parsed: URL
-  try {
-    parsed = new URL(value)
-  } catch {
-    return null
-  }
-
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null
-  if (parsed.username || parsed.password) return null
-  if (parsed.pathname !== '/' || parsed.search || parsed.hash) return null
-
-  return parsed.origin
 }
 
 function normalizeOrigins(value: unknown): string[] {
   if (value === undefined) {
     return [...XGET_CONFIG_DEFAULTS.allowed_origins]
   }
-  if (!Array.isArray(value)) return []
-
-  const origins: string[] = []
-  for (const entry of value) {
-    if (typeof entry !== 'string') continue
-    const origin = normalizeOrigin(entry.trim())
-    if (!origin || origins.includes(origin)) continue
-    origins.push(origin)
-  }
-
-  if (origins.includes('*')) return ['*']
-  return origins
+  return readOrigins(value).origins
 }
 
 export function createConfig(overrides: XgetConfigOverrides = {}): XgetConfig {
