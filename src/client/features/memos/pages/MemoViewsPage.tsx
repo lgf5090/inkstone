@@ -70,6 +70,12 @@ type ValidationState =
   | { kind: 'valid' }
   | { kind: 'error'; message: string; position: number | null }
 
+function editorFromAddress(): { view: MemoView | null; filter: string } | null {
+  if (typeof window === 'undefined') return null
+  const filter = new URLSearchParams(window.location.search).get('filter')?.trim() ?? ''
+  return filter ? { view: null, filter } : null
+}
+
 function caretPreview(expression: string, position: number | null): string {
   if (position === null) return expression
   const column = Math.max(0, Math.min(position, expression.length))
@@ -86,7 +92,7 @@ export function MemoViewsPage(): ReactElement {
     (signal) => memosApi.views.list(signal).then((page) => page.views),
     [revision],
   )
-  const [editor, setEditor] = useState<{ view: MemoView | null; filter: string } | null>(null)
+  const [editor, setEditor] = useState<{ view: MemoView | null; filter: string } | null>(editorFromAddress)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const listId = useId()
   const items = useMemo(() => views.data ?? [], [views.data])

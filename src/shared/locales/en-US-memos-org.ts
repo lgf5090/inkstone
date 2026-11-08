@@ -110,12 +110,15 @@ export const EN_US_MEMOS_ORG = {
   "memos.stats.comments": "Comments",
   "memos.stats.links": "Links",
   "memos.stats.code": "Code",
-  "memos.stats.tasks": "Tasks",
-  "memos.stats.open_tasks": "Open tasks",
+  "memos.stats.tasks": "With tasks",
+  "memos.stats.open_tasks": "With open tasks",
   "memos.stats.month_heat": "Memo activity in {month}",
   "memos.stats.day_count": "{date}: {count}",
   "memos.stats.month_total_one": "1 memo",
   "memos.stats.month_total": "{count} memos",
   "memos.stats.open_calendar": "Open calendar",
+  "memos.stats.expand": "Expand statistics",
+  "memos.stats.collapse": "Collapse statistics",
+  "memos.stats.month_empty": "No memos this month yet.",
   "memos.stats.error": "Statistics could not be loaded."
 } as const

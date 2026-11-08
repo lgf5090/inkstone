@@ -105,6 +105,29 @@ describe('sidebar stats section', () => {
     expect(container.textContent).not.toContain(t('memos.sidebar.stats_placeholder'))
   })
 
+  it('collapses the month detail while keeping the totals readable', async () => {
+    const container = renderStats()
+    await flush()
+    const collapse = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t('memos.stats.collapse')}"]`,
+    )
+    expect(collapse?.getAttribute('aria-expanded')).toBe('true')
+    act(() => { collapse!.click() })
+    expect(container.querySelector('[data-memo-stats-day="2026-03-05"]')).toBeNull()
+    expect(container.querySelector('a[href="/memos/spaces/team/calendar/2026/3"]')).toBeNull()
+    expect(valueOf(container, t('memos.stats.total'))).toBe('12')
+    expect(container.querySelector(`button[aria-label="${t('memos.stats.expand')}"]`)).not.toBeNull()
+  })
+
+  it('says the month is empty instead of drawing a blank heat grid', async () => {
+    api.stats.get.mockResolvedValueOnce({ ...STATS, dayCounts: {} })
+    const container = renderStats()
+    await flush()
+    expect(container.querySelector('[data-memo-stats-day]')).toBeNull()
+    expect(container.textContent).toContain(t('memos.stats.month_empty'))
+    expect(container.textContent).toContain(t('memos.stats.month_total', { count: 0 }))
+  })
+
   it('links to the calendar of the space and month it is describing', async () => {
     const container = renderStats()
     await flush()
