@@ -11,7 +11,7 @@
  * attributes and text it does not read, so the mirror cannot fight its render.
  */
 import { getCalendarColorsForHex, type ICalendarApp } from '@dayflow/react'
-import { narrowWeekdayLabels, type WeekStartDay } from '../../lib/time'
+import { narrowWeekdayLabel, narrowWeekdayLabels, type WeekStartDay } from '../../lib/time'
 
 const EVENT_SELECTOR = '.df-event'
 const REPEAT_MARKER = '::repeat-'
@@ -121,13 +121,12 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
     // A six-column canvas is anchored two days before the selected one; the extra header cell is
     // clipped and every remaining cell is re-labelled to the day its column actually draws.
     const start = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate() - 2)
-    const weekday = new Intl.DateTimeFormat(options.locale, { weekday: 'narrow' })
     const full = new Intl.DateTimeFormat(options.locale, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
     labelCells.forEach((cell, index) => {
       const visible = index < columns
       cell.style.display = visible ? '' : 'none'
       const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index)
-      const text = rolling ? weekday.format(day) : narrowWeekdayLabels(options.locale, options.weekStart as WeekStartDay)[index] ?? ''
+      const text = rolling ? narrowWeekdayLabel(options.locale, day.getDay()) : narrowWeekdayLabels(options.locale, options.weekStart as WeekStartDay)[index] ?? ''
       const label = cell.querySelector<HTMLElement>('.df-compact-header-label')
       if (label && label.textContent !== text) label.textContent = text
     })
