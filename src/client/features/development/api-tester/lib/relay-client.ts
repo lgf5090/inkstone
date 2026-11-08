@@ -1,11 +1,14 @@
 import type {
   AuthConfig,
+  CookieRecord,
   HttpRequestConfig,
+  MultipartField,
   ProxyResponse,
   RequestKind,
   ResponseResult,
 } from '@shared/development/api-tester/types'
 import { sendProxy } from '../api'
+import { cookieHeaderFor } from './cookies'
 import { resolveVariable, type Variable } from './variables'
 
 export interface ExecuteOptions {
@@ -13,6 +16,7 @@ export interface ExecuteOptions {
   followRedirects: boolean
   timeoutMs: number
   kind: RequestKind
+  cookies?: CookieRecord[]
   signal?: AbortSignal
 }
 
@@ -22,6 +26,7 @@ export interface ResolvedRequest {
   headers: Array<{ key: string; value: string }>
   body: string | null
   bodyFileId?: string
+  multipart?: MultipartField[]
 }
 
 export class RelayClientError extends Error {
@@ -29,6 +34,13 @@ export class RelayClientError extends Error {
     super(message)
     this.name = 'RelayClientError'
   }
+}
+
+function utf8Base64(text: string): string {
+  const bytes = new TextEncoder().encode(text)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
 }
 
 function resolveAuth(auth: AuthConfig, variables: readonly Variable[]): AuthConfig {
@@ -49,6 +61,7 @@ export function buildResolvedRequest(
   config: HttpRequestConfig,
   variables: readonly Variable[],
   kind: RequestKind,
+  cookies: readonly CookieRecord[] = [],
 ): ResolvedRequest {
   const headers: Array<{ key: string; value: string }> = []
   const seen = new Set<string>()
@@ -80,11 +93,7 @@ export function buildResolvedRequest(
     pushHeader('Authorization', `Bearer ${auth.token}`)
   } else if (auth.type === 'basic') {
     const raw = `${auth.username}:${auth.password}`
-    try {
-      pushHeader('Authorization', `Basic ${btoa(raw)}`)
-    } catch {
-      pushHeader('Authorization', `Basic ${raw}`)
-    }
+    pushHeader('Authorization', `Basic ${utf8Base64(raw)}`)
   } else if (auth.type === 'apikey-header' && auth.keyName) {
     pushHeader(auth.keyName, auth.keyValue)
   } else if (auth.type === 'oauth2' && auth.oauth2?.accessToken) {
@@ -93,6 +102,7 @@ export function buildResolvedRequest(
 
   let body: string | null = null
   let bodyFileId: string | undefined
+  let multipart: MultipartField[] | undefined
   let method = config.method
 
   if (kind === 'graphql') {
@@ -100,7 +110,8 @@ export function buildResolvedRequest(
     try {
       graphqlVariables = config.graphqlVariables ? JSON.parse(resolveVariable(config.graphqlVariables, variables)) : null
     } catch {
-      graphqlVariables = config.graphqlVariables || null
+      // Invalid JSON is a visible UI error; never send a string where GraphQL expects an object.
+      graphqlVariables = null
     }
     body = JSON.stringify({ query: resolveVariable(config.graphqlQuery, variables), variables: graphqlVariables }, null, 2)
     method = 'POST'
@@ -126,14 +137,25 @@ export function buildResolvedRequest(
         break
       }
       case 'form-data': {
-        const parts: string[] = []
+        multipart = []
         for (const field of config.formFields) {
-          if (field.enabled && field.key) {
-            parts.push(`${encodeURIComponent(resolveVariable(field.key, variables))}=${encodeURIComponent(resolveVariable(field.value, variables))}`)
+          if (!field.enabled || !field.key) continue
+          const key = resolveVariable(field.key, variables)
+          if (field.isFile && field.fileId) {
+            multipart.push({
+              key,
+              value: '',
+              isFile: true,
+              fileId: field.fileId,
+              fileName: field.fileName ?? 'file',
+              contentType: field.fileType || 'application/octet-stream',
+            })
+          } else {
+            multipart.push({ key, value: resolveVariable(field.value, variables) })
           }
         }
-        body = parts.join('&')
-        if (!seen.has('content-type')) pushHeader('Content-Type', 'application/x-www-form-urlencoded')
+        // fetch writes the multipart boundary; forwarding a user Content-Type would break it.
+        headers.splice(0, headers.length, ...headers.filter((header) => header.key.toLowerCase() !== 'content-type'))
         break
       }
       case 'binary':
@@ -148,13 +170,29 @@ export function buildResolvedRequest(
 
   let url = resolveVariable(config.url, variables)
   if (params.length > 0 || auth.type === 'apikey-query') {
-    const parsed = new URL(url, window.location.origin)
-    for (const [key, value] of params) parsed.searchParams.set(key, value)
-    if (auth.type === 'apikey-query' && auth.keyName) parsed.searchParams.set(auth.keyName, auth.keyValue)
-    url = parsed.toString()
+    try {
+      // Only an absolute URL is a relay target. A relative path must not silently become a call to
+      // the Inkstone origin the user is reading this module on.
+      const parsed = new URL(url)
+      for (const [key, value] of params) parsed.searchParams.append(key, value)
+      if (auth.type === 'apikey-query' && auth.keyName) parsed.searchParams.set(auth.keyName, auth.keyValue)
+      url = parsed.toString()
+    } catch {
+      // Leave the text untouched; executeRequest turns a non-http(s) value into a visible error.
+    }
   }
 
-  return { method: method.toUpperCase(), url, headers, body, bodyFileId }
+  if (!seen.has('cookie') && cookies.length > 0) {
+    try {
+      const parsed = new URL(url)
+      const header = cookieHeaderFor(parsed, cookies)
+      if (header) pushHeader('Cookie', header)
+    } catch {
+      // The URL check in executeRequest reports the malformed target.
+    }
+  }
+
+  return { method: method.toUpperCase(), url, headers, body, bodyFileId, multipart }
 }
 
 function toResponse(data: ProxyResponse): ResponseResult {
@@ -176,7 +214,7 @@ function toResponse(data: ProxyResponse): ResponseResult {
 }
 
 export async function executeRequest(config: HttpRequestConfig, options: ExecuteOptions): Promise<ResponseResult> {
-  const resolved = buildResolvedRequest(config, options.variables, options.kind)
+  const resolved = buildResolvedRequest(config, options.variables, options.kind, options.cookies)
   if (!resolved.url) throw new RelayClientError('url_required', 'The request URL is empty')
   if (!/^https?:\/\//i.test(resolved.url)) throw new RelayClientError('url_protocol', 'The request URL must start with http:// or https://')
   try {
@@ -187,6 +225,7 @@ export async function executeRequest(config: HttpRequestConfig, options: Execute
         headers: resolved.headers,
         body: resolved.body ?? undefined,
         bodyFileId: resolved.bodyFileId,
+        multipart: resolved.multipart,
         redirect: options.followRedirects ? 'follow' : 'manual',
         timeoutMs: options.timeoutMs,
       },
@@ -196,21 +235,6 @@ export async function executeRequest(config: HttpRequestConfig, options: Execute
   } catch (error) {
     if (options.signal?.aborted) throw new RelayClientError('cancelled', 'The request was cancelled')
     throw error
-  }
-}
-
-export function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
-}
-
-export function tryPrettifyJson(text: string): { ok: boolean; result: string } {
-  if (!text) return { ok: false, result: text }
-  try {
-    return { ok: true, result: JSON.stringify(JSON.parse(text), null, 2) }
-  } catch {
-    return { ok: false, result: text }
   }
 }
 

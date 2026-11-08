@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { buildResolvedRequest, formatSize, tryParseJson } from '../src/client/features/development/api-tester/lib/relay-client'
+import { buildResolvedRequest, tryParseJson } from '../src/client/features/development/api-tester/lib/relay-client'
+import { formatBytes } from '../src/client/lib/time'
 import { defaultRequest } from '../src/shared/development/api-tester/state'
 import type { HttpRequestConfig } from '../src/shared/development/api-tester/types'
 
@@ -42,7 +43,7 @@ describe('API Tester relay request builder', () => {
     expect(JSON.parse(resolved.body ?? '{}')).toEqual({ query: 'query { me }', variables: { id: 1 } })
   })
 
-  it('encodes form bodies and carries binary file ids', () => {
+  it('encodes urlencoded bodies, builds multipart fields and carries binary file ids', () => {
     const form = buildResolvedRequest(
       config({
         bodyType: 'form-urlencoded',
@@ -54,6 +55,24 @@ describe('API Tester relay request builder', () => {
     expect(form.body).toBe('a%20b=c%26d')
     expect(form.headers).toContainEqual({ key: 'Content-Type', value: 'application/x-www-form-urlencoded' })
 
+    const multipart = buildResolvedRequest(
+      config({
+        bodyType: 'form-data',
+        formFields: [
+          { id: '2', key: 'name', value: '{{user}}', enabled: true },
+          { id: '3', key: 'avatar', value: '', enabled: true, isFile: true, fileId: 'file-2', fileName: 'a.png', fileType: 'image/png' },
+        ],
+      }),
+      [{ key: 'user', value: 'ink' }],
+      'rest',
+    )
+    expect(multipart.multipart).toEqual([
+      { key: 'name', value: 'ink' },
+      { key: 'avatar', value: '', isFile: true, fileId: 'file-2', fileName: 'a.png', contentType: 'image/png' },
+    ])
+    expect(multipart.body).toBeNull()
+    expect(multipart.headers.some((header) => header.key.toLowerCase() === 'content-type')).toBe(false)
+
     const binary = buildResolvedRequest(
       config({ bodyType: 'binary', bodyFileId: 'file-1', bodyFileName: 'a.bin' }),
       [],
@@ -64,9 +83,9 @@ describe('API Tester relay request builder', () => {
   })
 
   it('formats sizes and parses JSON safely', () => {
-    expect(formatSize(512)).toBe('512 B')
-    expect(formatSize(2048)).toBe('2.0 KB')
-    expect(formatSize(2 * 1024 * 1024)).toBe('2.00 MB')
+    expect(formatBytes(512)).toBe('512 B')
+    expect(formatBytes(2048)).toBe('2.0 KB')
+    expect(formatBytes(2 * 1024 * 1024)).toBe('2.0 MB')
     expect(tryParseJson('{"a":1}')).toEqual({ a: 1 })
     expect(tryParseJson('no')).toBeNull()
   })

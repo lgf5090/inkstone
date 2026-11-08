@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useDeferredValue, useId, useMemo, useRef, useState } from 'react'
 import { ChevronDown, File as FileIcon, Loader2, Play, Tag as TagIcon, Upload, Variable as VariableIcon, X } from 'lucide-react'
 import { MAX_FILE_BYTES } from '@shared/development/api-tester/limits'
 import { defaultRequest } from '@shared/development/api-tester/state'
@@ -21,7 +21,8 @@ import { formatBytes } from '../../../../lib/time'
 import { parseCurl } from '../lib/curl-parser'
 import { tagColorValue } from '../lib/tag-colors'
 import { collectVarNames, tagPath, type Variable } from '../lib/variables'
-import { deleteFile, errorMessage, uploadFile } from '../api'
+import { errorMessage, uploadFile } from '../api'
+import { deleteUploadedFile } from '../lib/uploads'
 import { AuthEditor } from './AuthEditor'
 import { KvEditor } from './KvEditor'
 import { VariableAutocomplete } from './VariableAutocomplete'
@@ -129,14 +130,18 @@ export function RequestBuilder({
 
   const update = (patch: Partial<HttpRequestConfig>) => onChange({ request: { ...request, ...patch } })
 
+  const deferredBody = useDeferredValue(request.body)
+  const deferredGraphqlQuery = useDeferredValue(request.graphqlQuery)
+  const deferredGraphqlVariables = useDeferredValue(request.graphqlVariables)
+
   const missingVars = useMemo(() => {
     const defined = new Set(variables.map((variable) => variable.key))
     const names = new Set<string>()
     const texts = [
       request.url,
-      request.body,
-      request.graphqlQuery,
-      request.graphqlVariables,
+      deferredBody,
+      deferredGraphqlQuery,
+      deferredGraphqlVariables,
       ...request.headers.map((header) => header.key + header.value),
       ...request.params.map((param) => param.key + param.value),
       ...request.formFields.map((field) => field.key + field.value),
@@ -147,7 +152,7 @@ export function RequestBuilder({
       }
     }
     return [...names]
-  }, [request, variables])
+  }, [request.url, request.headers, request.params, request.formFields, deferredBody, deferredGraphqlQuery, deferredGraphqlVariables, variables])
 
   const changeUrl = (url: string) => {
     if (curlWarnings.length > 0) setCurlWarnings([])
@@ -197,11 +202,7 @@ export function RequestBuilder({
     const previousId = request.bodyFileId
     setUploadError(null)
     update({ bodyFileId: undefined, bodyFileName: undefined, bodyFileSize: undefined })
-    if (previousId) {
-      void deleteFile(previousId).catch((error) => {
-        console.warn('[inkstone] API Tester body file could not be deleted', error)
-      })
-    }
+    if (previousId) deleteUploadedFile(previousId, node.id)
   }
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -220,9 +221,7 @@ export function RequestBuilder({
     try {
       const uploaded = await uploadFile(file, file.type.startsWith('image/') ? 'image' : 'bin', file.name)
       if (nodeRef.current.id !== nodeId) {
-        void deleteFile(uploaded.id).catch((error) => {
-          console.warn('[inkstone] API Tester orphaned body file could not be deleted', error)
-        })
+        deleteUploadedFile(uploaded.id, nodeId)
         return
       }
       const current = nodeRef.current.request ?? defaultRequest()
@@ -236,9 +235,7 @@ export function RequestBuilder({
         },
       })
       if (previousId && previousId !== uploaded.id) {
-        void deleteFile(previousId).catch((error) => {
-          console.warn('[inkstone] API Tester previous body file could not be deleted', error)
-        })
+        deleteUploadedFile(previousId, nodeId)
       }
     } catch (error) {
       setUploadError(errorMessage(error))
@@ -274,6 +271,16 @@ export function RequestBuilder({
   })
 
   const hasFile = Boolean(request.bodyFileId || request.bodyFileName)
+  const bodyIgnored = request.method === 'GET' || request.method === 'HEAD'
+  const graphqlVariablesInvalid = useMemo(() => {
+    if (!isGraphql || !request.graphqlVariables.trim()) return false
+    try {
+      JSON.parse(request.graphqlVariables)
+      return false
+    } catch {
+      return true
+    }
+  }, [isGraphql, request.graphqlVariables])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -459,19 +466,31 @@ export function RequestBuilder({
         )}
 
         {activeTab === 'variables' && (
-          <VariableAutocomplete
-            multiline
-            value={request.graphqlVariables}
-            variables={variables}
-            placeholder={t('development.apitester.variables_placeholder')}
-            ariaLabel={t('development.apitester.variables')}
-            className="min-h-[260px] resize-y font-mono text-[length:var(--text-12)]"
-            onValueChange={(graphqlVariables) => update({ graphqlVariables })}
-          />
+          <div className="space-y-1">
+            <VariableAutocomplete
+              multiline
+              value={request.graphqlVariables}
+              variables={variables}
+              placeholder={t('development.apitester.variables_placeholder')}
+              ariaLabel={t('development.apitester.variables')}
+              className="min-h-[260px] resize-y font-mono text-[length:var(--text-12)]"
+              onValueChange={(graphqlVariables) => update({ graphqlVariables })}
+            />
+            {graphqlVariablesInvalid && (
+              <p role="alert" className="text-[length:var(--text-11)] text-[var(--danger)]">
+                {t('development.apitester.invalid_graphql_variables')}
+              </p>
+            )}
+          </div>
         )}
 
         {activeTab === 'body' && (
           <div className="space-y-2">
+            {bodyIgnored && request.bodyType !== 'none' && (
+              <p role="alert" className="text-[length:var(--text-11)] text-[var(--warning)]">
+                {t('development.apitester.body_ignored_get')}
+              </p>
+            )}
             <Select
               aria-label={t('development.apitester.body')}
               value={request.bodyType}
@@ -517,6 +536,8 @@ export function RequestBuilder({
                 variables={variables}
                 keyPlaceholder={t('development.apitester.field_name')}
                 valuePlaceholder={t('development.apitester.field_value')}
+                allowFile={request.bodyType === 'form-data'}
+                onFileRemoved={(fileId) => deleteUploadedFile(fileId, node.id)}
                 onChange={(formFields) => update({ formFields })}
               />
             )}
