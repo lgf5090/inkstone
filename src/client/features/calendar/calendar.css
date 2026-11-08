@@ -389,3 +389,13 @@
 .df-year-day-cell-date {
   white-space: nowrap;
 }
+
+/*
+ * The mobile header is a compressed seven-column strip while the timed canvas translates a wide
+ * seven-day surface under a fixed time column. calendar-chrome mirrors the body's column width and
+ * offset onto it; the header only has to clip what falls outside the phone.
+ */
+.inkstone-calendar .df-compact-header,
+.inkstone-calendar .df-compact-header-labels {
+  overflow: hidden;
+}
