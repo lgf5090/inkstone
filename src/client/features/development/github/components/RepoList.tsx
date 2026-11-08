@@ -220,14 +220,14 @@ export function RepoList({
         </div>
         {isExplore ? (
           <div className="flex items-center gap-1.5 px-2 pb-2">
-            <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex">
+            <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto xl:flex">
               {GITHUB_RANGE_OPTIONS.map((option) => {
                 const active = prefs.range === option.value
                 return <button key={option.value} type="button" onClick={() => onUpdatePrefs({ range: option.value }, draft)} data-active={active || undefined} className={cn('shrink-0 rounded-full px-2.5 py-1 text-[length:var(--text-11)] font-medium transition-colors', active ? 'bg-[var(--accent)] text-[var(--accent-contrast)]' : 'bg-[var(--bg-raised)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]')}>{t(option.labelKey)}</button>
               })}
               <LanguageMenu value={prefs.language} onChange={(language) => onUpdatePrefs({ language }, draft)} />
             </div>
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 md:hidden">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 xl:hidden">
               <SelectMenu
                 value={prefs.range}
                 options={GITHUB_RANGE_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
