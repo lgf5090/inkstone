@@ -32,7 +32,16 @@ export type IconExportFormat = 'svg' | 'png' | 'ico' | 'zip' | 'sprite_svg' | 's
 
 export type IconBatchAction = 'delete' | 'move' | 'tag' | 'favorite' | 'unfavorite' | 'pin' | 'unpin'
 
-export type IconCodegenTab = 'svg' | 'data-url' | 'jsx' | 'react' | 'vue' | 'svelte' | 'component' | 'ts-import'
+export type IconCodegenTab =
+  | 'svg'
+  | 'data-url'
+  | 'jsx'
+  | 'react'
+  | 'vue'
+  | 'svelte'
+  | 'angular'
+  | 'component'
+  | 'ts-import'
 
 export interface IconCollection {
   id: string
@@ -107,6 +116,9 @@ export interface IconCounts {
   uncategorized: number
   collections: Record<string, number>
   tags: Record<string, number>
+  formats: Record<string, number>
+  styles: Record<string, number>
+  colorModes: Record<string, number>
 }
 
 export interface IconSettings {

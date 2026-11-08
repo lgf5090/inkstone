@@ -30,6 +30,10 @@ export function fetchBootstrap(): Promise<IconBootstrap> {
   return readData('/bootstrap')
 }
 
+export function seedBuiltinCollections(): Promise<{ started: boolean; running: boolean }> {
+  return request<Envelope<{ started: boolean; running: boolean }>>(`${BASE}/bootstrap/seed`, { method: 'POST' }).then((response) => response.data)
+}
+
 export function fetchAssets(query: Record<string, string | number | undefined>): Promise<IconPage<IconAssetSummary>> {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(query)) {

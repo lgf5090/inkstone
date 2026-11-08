@@ -110,6 +110,11 @@ export function buildSvelteCode(context: IconCodegenContext): string {
   return `<script lang="ts">\n  export let size = ${value.size}\n</script>\n\n${buildSvgString({ ...value, size: value.size }).replace(`width="${value.size}" height="${value.size}"`, 'width={size} height={size}')}`
 }
 
+export function buildAngularCode(context: IconCodegenContext): string {
+  const value = normalizedContext(context)
+  return `import { Component, Input } from "@angular/core"\n\n@Component({\n  selector: "app-icon",\n  template: \`${buildSvgString(value).replace(/`/g, '\\`')}\`,\n})\nexport class IconComponent {\n  @Input() size = ${value.size}\n}`
+}
+
 export function buildTsImport(context: IconCodegenContext): string {
   const name = buildComponentName(context.slug)
   return `import { ${name} } from "./icons/${name}"`
@@ -122,6 +127,7 @@ export function buildCodegen(tab: IconCodegenTab, context: IconCodegenContext): 
   if (tab === 'react') return buildReactCode(context)
   if (tab === 'vue') return buildVueCode(context)
   if (tab === 'svelte') return buildSvelteCode(context)
+  if (tab === 'angular') return buildAngularCode(context)
   if (tab === 'component') return buildComponentName(context.slug)
   return buildTsImport(context)
 }

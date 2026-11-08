@@ -24,14 +24,49 @@ function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'iconify'
 }
 
-async function fetchCollection(prefix: string): Promise<IconifyCollection> {
-  const response = await fetch(`${ICON_ICONIFY_SOURCE}/${prefix}/icons.json`, {
-    signal: AbortSignal.timeout(ICON_ICONIFY_TIMEOUT_MS),
-  })
+/**
+ * Brands and duotone collections paint several colours; monochrome sets paint one. The filter panel
+ * offers this as a facet, so it is recorded once at import time rather than guessed per request.
+ */
+export function detectColorMode(body: string): 'mono' | 'multi' {
+  const colors = new Set<string>()
+  for (const match of body.matchAll(/(?:fill|stroke)=["']([^"']+)["']/gi)) {
+    const value = match[1]!.trim().toLowerCase()
+    if (!value || value === 'none' || value === 'currentcolor' || value === 'transparent') continue
+    if (value.startsWith('url(')) return 'multi'
+    colors.add(value)
+    if (colors.size > 1) return 'multi'
+  }
+  return colors.size > 1 ? 'multi' : 'mono'
+}
+
+interface IconifyMeta {
+  name?: string
+  license?: { title?: string; spdx?: string; url?: string }
+  author?: { name?: string; url?: string }
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(ICON_ICONIFY_TIMEOUT_MS) })
   if (!response.ok) throw new Error(`The Iconify collection returned ${response.status}`)
   const text = await response.text()
   if (text.length > ICON_ICONIFY_MAX_BYTES) throw new Error('The Iconify collection is too large')
-  return JSON.parse(text) as IconifyCollection
+  return JSON.parse(text) as T
+}
+
+async function fetchCollection(prefix: string): Promise<IconifyCollection> {
+  const [collection, info] = await Promise.all([
+    fetchJson<IconifyCollection>(`${ICON_ICONIFY_SOURCE}/${prefix}/icons.json`),
+    fetchJson<IconifyMeta>(`${ICON_ICONIFY_SOURCE}/${prefix}/info.json`).catch(() => ({} as IconifyMeta)),
+  ])
+  return {
+    ...collection,
+    info: {
+      name: info.name ?? collection.info?.name,
+      license: info.license ?? collection.info?.license,
+      author: info.author ?? collection.info?.author,
+    },
+  }
 }
 
 export async function importIconifyCollection(env: Env, userId: string, prefix: string, limit: number): Promise<IconImport> {
@@ -108,10 +143,11 @@ export async function importIconifyCollection(env: Env, userId: string, prefix: 
       await env.DB.prepare(
         `INSERT INTO development_icons_assets
            (user_id, id, collection_id, name, name_key, format, mime, bytes, width, height, view_box, sha256, r2_key, thumb_key, keywords, color_mode, license, source_url, sanitized, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'svg', 'image/svg+xml', ?6, ?7, ?8, ?9, ?10, ?11, ?12, '', 'mono', ?13, ?14, 1, ?15, ?15)`,
+         VALUES (?1, ?2, ?3, ?4, ?5, 'svg', 'image/svg+xml', ?6, ?7, ?8, ?9, ?10, ?11, ?12, '', ?13, ?14, ?15, 1, ?16, ?16)`,
       ).bind(
         userId, assetId, collectionId, iconName, iconName.toLowerCase(), bytes.byteLength,
-        width, height, `0 0 ${width} ${height}`, sha256, key, thumbKey, license, `${prefix}/${iconName}`, now,
+        width, height, `0 0 ${width} ${height}`, sha256, key, thumbKey, detectColorMode(icon.body),
+        license, `${prefix}/${iconName}`, now,
       ).run()
       await env.DB.prepare(
         `INSERT OR REPLACE INTO development_icons_import_items (user_id, import_id, item_key, filename, status, asset_id, error, created_at, updated_at)

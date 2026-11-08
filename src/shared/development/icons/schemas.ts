@@ -105,13 +105,34 @@ export const IconBatchSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('unpin'), ...IconBatchBase }),
 ])
 
+const IdCsv = z
+  .string()
+  .max(2400)
+  .transform((value) => value.split(',').map((part) => part.trim()).filter(Boolean))
+  .refine((values) => values.length <= 20 && values.every((value) => Id.safeParse(value).success), 'Invalid id list')
+
+const FormatCsv = z
+  .string()
+  .max(64)
+  .transform((value) => value.split(',').map((part) => part.trim()).filter(Boolean))
+  .refine((values) => values.length <= ICON_FORMATS.length && values.every((value) => (ICON_FORMATS as readonly string[]).includes(value)), 'Invalid format list')
+
 export const IconListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(ICON_PAGE_SIZE_MAX).default(ICON_PAGE_SIZE_DEFAULT),
   cursor: z.string().max(ICON_CURSOR_MAX_LENGTH).optional(),
   q: z.string().max(ICON_SEARCH_MAX_LENGTH).optional(),
   collectionId: Id.optional(),
+  collections: IdCsv.optional(),
   tagId: Id.optional(),
+  tags: IdCsv.optional(),
   format: z.enum(ICON_FORMATS).optional(),
+  formats: FormatCsv.optional(),
+  style: z.enum(['line', 'fill', 'duotone', 'brand']).optional(),
+  colorMode: z.enum(['mono', 'multi']).optional(),
+  sizeMin: z.coerce.number().int().min(0).max(8192).optional(),
+  sizeMax: z.coerce.number().int().min(0).max(8192).optional(),
+  from: z.coerce.number().int().min(0).optional(),
+  to: z.coerce.number().int().min(0).optional(),
   state: z.enum(ICON_SMART_VIEWS).default('all'),
   sort: z.enum(ICON_SORTS).default('created'),
 })

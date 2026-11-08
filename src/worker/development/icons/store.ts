@@ -35,6 +35,11 @@ import {
   ICON_SPRITE_MAX_ASSETS,
 } from '@shared/development/icons/limits'
 import { decodeIconCursor, encodeIconCursor } from '@shared/development/icons/cursor'
+import {
+  ICON_BRAND_PREFIXES,
+  ICON_FILL_PREFIXES,
+  ICON_LINE_PREFIXES,
+} from '@shared/development/icons/builtins'
 import { ApiError } from '../../lib/errors'
 import { newId } from '../../lib/id'
 import { iconObjectUrl, iconPublicUrl, userShard } from './r2'
@@ -236,7 +241,7 @@ export async function bootstrap(db: D1Database, userId: string, isOwner = false)
 
 export async function countsFor(db: D1Database, userId: string, _shard: string): Promise<IconCounts> {
   const cutoff = Date.now() - ICON_RECENT_DAYS * 24 * 60 * 60 * 1000
-  const [all, favorites, pinned, recent, uncategorized, collections, tags] = await Promise.all([
+  const [all, favorites, pinned, recent, uncategorized, collections, tags, formats, colorModes, styles] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS n FROM development_icons_assets WHERE user_id = ?1`).bind(userId).first<{ n: number }>(),
     db.prepare(
       `SELECT COUNT(*) AS n FROM development_icons_user_state s
@@ -261,6 +266,28 @@ export async function countsFor(db: D1Database, userId: string, _shard: string):
     db.prepare(
       `SELECT tag_id AS id, COUNT(*) AS n FROM development_icons_tag_links WHERE user_id = ?1 GROUP BY tag_id`,
     ).bind(userId).all<{ id: string; n: number }>(),
+    db.prepare(
+      `SELECT format AS id, COUNT(*) AS n FROM development_icons_assets WHERE user_id = ?1 GROUP BY format`,
+    ).bind(userId).all<{ id: string; n: number }>(),
+    db.prepare(
+      `SELECT color_mode AS id, COUNT(*) AS n FROM development_icons_assets WHERE user_id = ?1 GROUP BY color_mode`,
+    ).bind(userId).all<{ id: string; n: number }>(),
+    db.prepare(
+      `SELECT CASE
+                WHEN a.name_key LIKE '%-duotone%' THEN 'duotone'
+                WHEN c.slug IN (${sqlList(ICON_BRAND_PREFIXES)}) THEN 'brand'
+                WHEN c.slug IN (${sqlList(ICON_FILL_PREFIXES)})
+                  OR a.name_key LIKE '%-fill%'
+                  OR a.name_key LIKE '%-solid%' THEN 'fill'
+                WHEN c.slug IN (${sqlList(ICON_LINE_PREFIXES)}) THEN 'line'
+                ELSE 'unknown'
+              END AS style_key,
+              COUNT(*) AS n
+         FROM development_icons_assets a
+         LEFT JOIN development_icons_collections c ON c.user_id = a.user_id AND c.id = a.collection_id
+        WHERE a.user_id = ?1
+        GROUP BY style_key`,
+    ).bind(userId).all<{ style_key: string; n: number }>(),
   ])
   return {
     all: number(all?.n),
@@ -270,6 +297,9 @@ export async function countsFor(db: D1Database, userId: string, _shard: string):
     uncategorized: number(uncategorized?.n),
     collections: Object.fromEntries((collections.results ?? []).map((row) => [row.id, row.n])),
     tags: Object.fromEntries((tags.results ?? []).map((row) => [row.id, row.n])),
+    formats: Object.fromEntries((formats.results ?? []).map((row) => [row.id, row.n])),
+    colorModes: Object.fromEntries((colorModes.results ?? []).map((row) => [row.id, row.n])),
+    styles: Object.fromEntries((styles.results ?? []).map((row) => [row.style_key, row.n])),
   }
 }
 
@@ -278,10 +308,35 @@ interface ListInput {
   cursor?: string
   q?: string
   collectionId?: string
+  collections?: string[]
   tagId?: string
+  tags?: string[]
   format?: string
+  formats?: string[]
+  style?: 'line' | 'fill' | 'duotone' | 'brand'
+  colorMode?: 'mono' | 'multi'
+  sizeMin?: number
+  sizeMax?: number
+  from?: number
+  to?: number
   state: string
   sort: string
+}
+
+function sqlList(values: readonly string[]): string {
+  return values.map((value) => `'${value.replace(/'/g, "''")}'`).join(', ')
+}
+
+function styleCondition(style: NonNullable<ListInput['style']>): string {
+  const line = sqlList(ICON_LINE_PREFIXES)
+  const fill = sqlList(ICON_FILL_PREFIXES)
+  const brand = sqlList(ICON_BRAND_PREFIXES)
+  if (style === 'duotone') return `(a.name_key LIKE '%-duotone%')`
+  if (style === 'brand') return `(c.slug IN (${brand}))`
+  if (style === 'line') {
+    return `(c.slug IN (${line}) AND a.name_key NOT LIKE '%-fill%' AND a.name_key NOT LIKE '%-solid%' AND a.name_key NOT LIKE '%-duotone%')`
+  }
+  return `((c.slug IN (${fill}) OR a.name_key LIKE '%-fill%' OR a.name_key LIKE '%-solid%') AND a.name_key NOT LIKE '%-duotone%')`
 }
 
 function cursorCondition(sort: string, cursor: { key: string | number; id: string }, direction: 'asc' | 'desc'): { sql: string; values: unknown[] } {
@@ -301,6 +356,13 @@ export async function listAssets(db: D1Database, userId: string, input: ListInpu
     values.push(value)
     where.push(sql.replace('?', `?${values.length}`))
   }
+  const addIn = (column: string, ids: readonly string[]): void => {
+    const marks = ids.map((id) => {
+      values.push(id)
+      return `?${values.length}`
+    })
+    where.push(`${column} IN (${marks.join(', ')})`)
+  }
   let searchRowIds: number[] | null = null
   if (input.q && input.q.trim().length >= 3) {
     const query = `"${input.q.trim().replace(/"/g, '""')}"`
@@ -308,11 +370,26 @@ export async function listAssets(db: D1Database, userId: string, input: ListInpu
       `SELECT rowid FROM development_icons_fts WHERE development_icons_fts MATCH ?1 AND user_id = ?2 LIMIT 80`,
     ).bind(query, userId).all<{ rowid: number }>()
     searchRowIds = (matches.results ?? []).map((row) => row.rowid)
-    if (!searchRowIds.length) return { items: [], nextCursor: null, hasMore: false }
+    if (!searchRowIds.length) return { items: [], nextCursor: null, hasMore: false, total: 0 }
   }
   if (input.collectionId) add('a.collection_id = ?', input.collectionId)
+  if (input.collections?.length) addIn('a.collection_id', input.collections)
   if (input.format) add('a.format = ?', input.format)
+  if (input.formats?.length) addIn('a.format', input.formats)
   if (input.tagId) add('EXISTS (SELECT 1 FROM development_icons_tag_links l WHERE l.user_id = a.user_id AND l.asset_id = a.id AND l.tag_id = ?)', input.tagId)
+  if (input.tags?.length) {
+    const marks = input.tags.map((tagId) => {
+      values.push(tagId)
+      return `?${values.length}`
+    })
+    where.push(`EXISTS (SELECT 1 FROM development_icons_tag_links l WHERE l.user_id = a.user_id AND l.asset_id = a.id AND l.tag_id IN (${marks.join(', ')}))`)
+  }
+  if (input.style) where.push(styleCondition(input.style))
+  if (input.colorMode) add('a.color_mode = ?', input.colorMode)
+  if (input.sizeMin !== undefined) add('COALESCE(a.width, 0) >= ?', input.sizeMin)
+  if (input.sizeMax !== undefined) add('COALESCE(a.width, 0) <= ?', input.sizeMax)
+  if (input.from !== undefined) add('a.created_at >= ?', input.from)
+  if (input.to !== undefined) add('a.created_at <= ?', input.to)
   if (input.state === 'favorites') where.push('COALESCE(s.favorited, 0) = 1')
   if (input.state === 'pinned') where.push('COALESCE(s.pinned, 0) = 1')
   if (input.state === 'recent') where.push('s.last_used_at IS NOT NULL')
@@ -326,9 +403,23 @@ export async function listAssets(db: D1Database, userId: string, input: ListInpu
       })
       where.push(`a.rowid IN (${marks.join(', ')})`)
     } else if (query.length < 3) {
-      add('a.name_key LIKE ?', `${query.toLowerCase()}%`)
+      // A percent or underscore a reader types is a character in the name, not a wildcard.
+      const escaped = query.toLowerCase().replace(/[\\%_]/g, '\\$&')
+      add("a.name_key LIKE ? ESCAPE '\\'", `${escaped}%`)
     }
   }
+  // The total is measured over the filters, before the cursor narrows the page, so the toolbar can
+  // say how many icons the current selection holds even while the grid streams in later pages.
+  const filterWhere = [...where]
+  const filterValues = [...values]
+  const totalRow = await db.prepare(
+    `SELECT COUNT(*) AS n
+       FROM development_icons_assets a
+       LEFT JOIN development_icons_collections c ON c.user_id = a.user_id AND c.id = a.collection_id
+       LEFT JOIN development_icons_user_state s ON s.user_id = a.user_id AND s.asset_id = a.id
+      WHERE ${filterWhere.join(' AND ')}`,
+  ).bind(...filterValues).first<{ n: number }>()
+  const total = number(totalRow?.n)
   const cursor = input.cursor ? decodeIconCursor(input.cursor) : null
   if (input.cursor && !cursor) throw ApiError.badRequest('The cursor is not valid')
   const direction = input.sort === 'name' ? 'asc' : 'desc'
@@ -351,6 +442,7 @@ export async function listAssets(db: D1Database, userId: string, input: ListInpu
   const rows = await db.prepare(
     `SELECT ${ASSET_COLUMNS}, COALESCE(s.favorited, 0) AS favorited, COALESCE(s.pinned, 0) AS pinned
        FROM development_icons_assets a
+       LEFT JOIN development_icons_collections c ON c.user_id = a.user_id AND c.id = a.collection_id
        LEFT JOIN development_icons_user_state s ON s.user_id = a.user_id AND s.asset_id = a.id
       WHERE ${where.join(' AND ')}
       ORDER BY ${order}
@@ -374,7 +466,7 @@ export async function listAssets(db: D1Database, userId: string, input: ListInpu
         id: text(last.id),
       })
     : null
-  return { items: mapped, nextCursor, hasMore: results.length > limit }
+  return { items: mapped, nextCursor, hasMore: results.length > limit, total }
 }
 
 async function tagsForAssets(db: D1Database, userId: string, ids: string[]): Promise<Map<string, IconTagSummary[]>> {
@@ -843,7 +935,7 @@ export async function setJobItemOutcome(
   await db.prepare(
     `UPDATE development_icons_job_items
         SET status=?4, outputs_json=?5, error=?6, attempts=attempts+1, updated_at=?7
-      WHERE user_id=?1 AND job_id=?2 AND asset_id=?3`,
+      WHERE user_id=?1 AND job_id=?2 AND asset_id=?3 AND (?4='skipped' OR status<>'skipped')`,
   ).bind(userId, jobId, assetId, status, JSON.stringify(outputs), error, now).run()
 }
 
@@ -921,7 +1013,7 @@ export async function requestJobCancel(db: D1Database, userId: string, id: strin
     ).bind(userId, id, now),
     db.prepare(
       `UPDATE development_icons_jobs SET status=CASE WHEN status IN ('queued','running') THEN 'canceled' ELSE status END,
-         finished_at=CASE WHEN status IN ('queued','running') THEN ?3 ELSE finished_at END, updated_at=?3
+         manifest_key='', finished_at=CASE WHEN status IN ('queued','running') THEN ?3 ELSE finished_at END, updated_at=?3
         WHERE user_id=?1 AND id=?2`,
     ).bind(userId, id, now),
   ])

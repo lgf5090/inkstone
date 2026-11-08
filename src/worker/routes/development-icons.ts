@@ -78,7 +78,8 @@ import { inspectIco, icoSizesToken } from '../development/icons/ico'
 import { webpThumbnail } from '../development/icons/raster'
 import { buildExportArtifacts, finalizeBrowserJob } from '../development/icons/convert'
 import { enqueueIconJob, iconQueueAvailable } from '../development/icons/queue'
-import { importIconifyCollection } from '../development/icons/import'
+import { detectColorMode, importIconifyCollection } from '../development/icons/import'
+import { seedBuiltins, seedRunning } from '../development/icons/seed'
 
 export const developmentIconsRoutes = new Hono<AppBindings>()
 
@@ -136,6 +137,18 @@ function isOwner(c: { get: (key: 'user') => { role: string } }): boolean {
 }
 
 developmentIconsRoutes.get('/bootstrap', async (c) => c.json({ ok: true, data: await bootstrap(c.env.DB, userId(c), isOwner(c)) }))
+
+/**
+ * The first visit asks for this once. It answers before a single icon is written, and the import
+ * itself runs in the background so the grid can paint its skeleton immediately.
+ */
+developmentIconsRoutes.post('/bootstrap/seed', async (c) => {
+  if (await seedRunning(c.env.DB, userId(c))) {
+    return c.json({ ok: true, data: { started: false, running: true } }, 202)
+  }
+  c.executionCtx.waitUntil(seedBuiltins(c.env, userId(c)))
+  return c.json({ ok: true, data: { started: true, running: true } }, 202)
+})
 
 developmentIconsRoutes.get('/assets', async (c) => {
   const url = new URL(c.req.url)
@@ -207,7 +220,7 @@ developmentIconsRoutes.post('/assets', async (c) => {
   ).bind(
     userId(c), id, collectionId, name, name.toLowerCase(), format, mime, content.byteLength,
     dimensions?.width ?? null, dimensions?.height ?? null, sha256, key, thumbKey,
-    format === 'svg' ? 'mono' : 'multi', format === 'svg' ? 1 : 0, now,
+    format === 'svg' ? detectColorMode(new TextDecoder().decode(content)) : 'multi', format === 'svg' ? 1 : 0, now,
   ).run()
   return c.json({ ok: true, data: { asset: await getAsset(c.env.DB, userId(c), id), deduped: false } satisfies IconUploadResult }, 201)
 })
@@ -373,6 +386,7 @@ developmentIconsRoutes.post('/jobs/:id/finish', async (c) => {
  */
 developmentIconsRoutes.post('/jobs/:id/items/:assetId/outputs', async (c) => {
   const job = await getJob(c.env.DB, userId(c), c.req.param('id'))
+  if (job.status === 'canceled') throw new ApiError(409, 'icons_job_canceled', 'The conversion task was canceled')
   const assetId = c.req.param('assetId')
   const form = await c.req.formData()
   const kind = String(form.get('kind') ?? '')
@@ -426,6 +440,7 @@ developmentIconsRoutes.post('/jobs/:id/items/:assetId/outputs', async (c) => {
 
 developmentIconsRoutes.post('/jobs/:id/sprite', async (c) => {
   const job = await getJob(c.env.DB, userId(c), c.req.param('id'))
+  if (job.status === 'canceled') throw new ApiError(409, 'icons_job_canceled', 'The conversion task was canceled')
   const form = await c.req.formData()
   const setHash = String(form.get('setHash') ?? '')
   if (!/^[0-9a-f]{64}$/.test(setHash)) throw ApiError.badRequest('The sprite set hash is not valid')

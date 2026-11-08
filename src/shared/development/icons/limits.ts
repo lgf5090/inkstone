@@ -84,9 +84,23 @@ export const ICON_EXPORT_TTL_MS = 24 * 60 * 60 * 1000
 export const ICON_USAGE_RETENTION_DAYS = 400
 export const ICON_IMPORT_MAX_ITEMS = 10_000
 
-export const ICON_ICONIFY_PREFIXES = ['lucide', 'tabler', 'ph', 'heroicons'] as const
+export const ICON_ICONIFY_PREFIXES = [
+  'lucide',
+  'tabler',
+  'material-symbols',
+  'ph',
+  'heroicons',
+  'bi',
+  'fe',
+  'ri',
+  'simple-icons',
+] as const
+/** How long a failed first-run seed is allowed to wait before another visit may retry it. */
+export const ICON_SEED_RETRY_MS = 10 * 60 * 1000
+export const ICON_SEED_IMPORT_LIMIT = 500
 export const ICON_ICONIFY_SOURCE = 'https://cdn.jsdelivr.net/npm/@iconify-json'
 export const ICON_ICONIFY_API = 'https://api.iconify.design'
-export const ICON_ICONIFY_MAX_BYTES = 8 * 1024 * 1024
+/** Material Symbols ships one 8.5 MB `icons.json`; the ceiling has to clear the largest built-in set. */
+export const ICON_ICONIFY_MAX_BYTES = 16 * 1024 * 1024
 export const ICON_ICONIFY_TIMEOUT_MS = 10_000
 export const ICON_ICONIFY_BATCH_ITEMS = 50

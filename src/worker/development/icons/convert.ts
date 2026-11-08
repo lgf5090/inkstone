@@ -266,6 +266,8 @@ export async function processJob(env: Env, userId: string, jobId: string): Promi
   }
 
   const counts = await syncJobProgress(env.DB, userId, jobId)
+  const latest = await getJob(env.DB, userId, jobId)
+  if (latest.status === 'canceled') return { status: 'canceled', pending: 0 }
   if (counts.pending === 0) {
     const all = await getJobAssets(env.DB, userId, jobId, false)
     const key = await writeManifest(env, userId, job, all)
@@ -278,6 +280,7 @@ export async function processJob(env: Env, userId: string, jobId: string): Promi
 /** Finalize a job whose outputs the browser has already uploaded. */
 export async function finalizeBrowserJob(env: Env, userId: string, jobId: string): Promise<IconJob['status']> {
   const job = await getJob(env.DB, userId, jobId)
+  if (job.status === 'canceled') return 'canceled'
   const counts = await syncJobProgress(env.DB, userId, jobId)
   if (counts.pending > 0) {
     await markJobRunning(env.DB, userId, jobId)
