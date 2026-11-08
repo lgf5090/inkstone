@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { checkRateLimit, clearRateLimit } from '../src/worker/imgbed/rate-limit'
+import { checkRateLimit, clearRateLimit } from '../src/worker/lib/rate-limit'
 
 describe('imgbed rate limit', () => {
   beforeEach(() => clearRateLimit())

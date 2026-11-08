@@ -4,7 +4,7 @@ import type { ImgbedFile } from '@shared/imgbed/model'
 import { parseSecuritySettings } from '@shared/imgbed/settings'
 import { getSettingsGroup, listFiles, randomFile } from './store'
 import { requestClientIp } from '../lib/request'
-import { checkRateLimit } from './rate-limit'
+import { checkRateLimit } from '../lib/rate-limit'
 import { imgbedMetric } from './metrics'
 import { publicDirectoryAllowed } from './access'
 

@@ -5,8 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppBindings, Env } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
 import { hashToken } from '../src/worker/lib/session-store'
+import { clearRateLimit } from '../src/worker/lib/rate-limit'
 import { requireClientHeader } from '../src/worker/middleware/auth'
-import { DEVELOPMENT_XGET_SCHEMA_STATEMENTS } from '../src/worker/development/xget/schema'
+import {
+  DEVELOPMENT_XGET_AUDIT_SCHEMA_STATEMENTS,
+  DEVELOPMENT_XGET_SCHEMA_STATEMENTS,
+} from '../src/worker/development/xget/schema'
 import { developmentXgetRoutes } from '../src/worker/routes/development-xget'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
@@ -77,9 +81,11 @@ async function readJson<T>(response: Response): Promise<T> {
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of DEVELOPMENT_XGET_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  for (const statement of DEVELOPMENT_XGET_AUDIT_SCHEMA_STATEMENTS) sqlite.exec(statement)
   db = makeD1(sqlite)
   env = testBindings(db)
   app = buildApp()
+  clearRateLimit()
 })
 
 afterEach(() => {
@@ -91,9 +97,11 @@ describe('Xget settings API', () => {
   it('returns defaults and lets the owner save a bounded config', async () => {
     const initial = await call('GET', '/settings')
     expect(initial.status).toBe(200)
-    const initialBody = await readJson<{ data: { platform_count: number; config: { timeout_seconds: number }; can_manage: boolean } }>(initial)
+    const initialBody = await readJson<{ data: { platform_count: number; config: { timeout_seconds: number; allow_anonymous: boolean; rate_limit_per_minute: number }; can_manage: boolean } }>(initial)
     expect(initialBody.data.platform_count).toBe(84)
     expect(initialBody.data.config.timeout_seconds).toBe(30)
+    expect(initialBody.data.config.allow_anonymous).toBe(false)
+    expect(initialBody.data.config.rate_limit_per_minute).toBe(600)
     expect(initialBody.data.can_manage).toBe(true)
 
     const saved = await call('PUT', '/settings', {
@@ -102,6 +110,7 @@ describe('Xget settings API', () => {
         max_retries: 2,
         retry_delay_ms: 250,
         cache_duration: 120,
+        rate_limit_per_minute: 90,
         allowed_methods: ['get', 'post', 'get'],
         allowed_origins: ['https://Example.com', 'javascript:alert(1)', '*'],
         max_path_length: 4096,
@@ -110,6 +119,7 @@ describe('Xget settings API', () => {
     expect(saved.status).toBe(200)
     const savedBody = await readJson<{ data: { config: Record<string, unknown> } }>(saved)
     expect(savedBody.data.config.timeout_seconds).toBe(5)
+    expect(savedBody.data.config.rate_limit_per_minute).toBe(90)
     expect(savedBody.data.config.allowed_methods).toEqual(['GET', 'POST'])
     expect(savedBody.data.config.allowed_origins).toEqual(['*'])
     expect(savedBody.data.config.max_path_length).toBe(4096)
@@ -208,7 +218,8 @@ describe('Xget settings API', () => {
 })
 
 describe('Xget proxy API', () => {
-  it('proxies an anonymous request, records one stat and keeps the engine headers', async () => {
+  it('proxies an anonymous request once the owner enables it, records one stat and keeps the engine headers', async () => {
+    await call('PUT', '/settings', { body: { allow_anonymous: true } })
     const fetchMock = vi.fn(async () =>
       new Response('hello', {
         status: 200,
@@ -235,6 +246,10 @@ describe('Xget proxy API', () => {
     await call('PUT', '/settings/token', { body: { token: 'token-12345678' } })
     const missing = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', { user: null })
     expect(missing.status).toBe(401)
+    const deniedAudit = sqlite
+      .prepare("SELECT action, detail FROM development_xget_audit WHERE action = 'proxy.denied'")
+      .get() as { action: string; detail: string } | undefined
+    expect(deniedAudit?.detail).toBe('invalid-token')
 
     const fetchMock = vi.fn(async () => new Response('ok', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
@@ -285,7 +300,7 @@ describe('Xget proxy API', () => {
     } as unknown as ExecutionContext
 
     const response = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', {
-      user: null,
+      user: OWNER,
       executionCtx,
     })
     expect(response.status).toBe(200)
@@ -299,23 +314,61 @@ describe('Xget proxy API', () => {
     expect(stat.count).toBe(1)
   })
 
-  it('can close anonymous access without a token', async () => {
+  it('keeps anonymous access closed by default and lets the owner opt in', async () => {
     const fetchMock = vi.fn(async () => new Response('ok', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
-
-    const open = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', { user: null })
-    expect(open.status).toBe(200)
-
-    const saved = await call('PUT', '/settings', { body: { allow_anonymous: false } })
-    expect(saved.status).toBe(200)
-    const savedBody = await readJson<{ data: { config: { allow_anonymous: boolean } } }>(saved)
-    expect(savedBody.data.config.allow_anonymous).toBe(false)
 
     const closed = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', { user: null })
     expect(closed.status).toBe(401)
 
+    const saved = await call('PUT', '/settings', { body: { allow_anonymous: true } })
+    expect(saved.status).toBe(200)
+    const savedBody = await readJson<{ data: { config: { allow_anonymous: boolean } } }>(saved)
+    expect(savedBody.data.config.allow_anonymous).toBe(true)
+
+    const open = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', { user: null })
+    expect(open.status).toBe(200)
+
     const session = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', { user: OWNER })
     expect(session.status).toBe(200)
+  })
+
+  it('rate-limits anonymous clients and audits the first block', async () => {
+    await call('PUT', '/settings', {
+      body: { allow_anonymous: true, rate_limit_per_minute: 1 },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })))
+
+    const first = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', { user: null })
+    expect(first.status).toBe(200)
+
+    const second = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', { user: null })
+    expect(second.status).toBe(429)
+    expect(second.headers.get('retry-after')).toBeTruthy()
+    expect((await readJson<{ error: { code: string } }>(second)).error.code).toBe('xget_rate_limited')
+
+    const audit = sqlite
+      .prepare("SELECT actor, detail FROM development_xget_audit WHERE action = 'proxy.rate_limited'")
+      .get() as { actor: string; detail: string } | undefined
+    expect(audit?.detail).toBe('gh')
+    expect(audit?.actor).toBe('anonymous')
+  })
+
+  it('audits settings and token changes without storing the token', async () => {
+    await call('PUT', '/settings', { body: { timeout_seconds: 12 } })
+    await call('PUT', '/settings/token', { body: { token: 'token-12345678' } })
+    await call('PUT', '/settings/token', { body: { token: '' } })
+
+    const rows = sqlite
+      .prepare('SELECT action, actor, detail FROM development_xget_audit ORDER BY id')
+      .all() as { action: string; actor: string; detail: string }[]
+    expect(rows.map((row) => row.action)).toEqual([
+      'settings.update',
+      'token.set',
+      'token.clear',
+    ])
+    expect(rows.every((row) => row.actor === `user:${OWNER}`)).toBe(true)
+    expect(JSON.stringify(rows)).not.toContain('token-12345678')
   })
 
   it('does not accept an Authorization bearer as the proxy token', async () => {
@@ -404,6 +457,7 @@ describe('Xget stats API', () => {
   })
 
   it('records legacy /v2/cr Docker requests under the registry platform', async () => {
+    await call('PUT', '/settings', { body: { allow_anonymous: true } })
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })))
     const response = await call(
       'GET',

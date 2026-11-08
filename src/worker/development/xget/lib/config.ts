@@ -21,6 +21,7 @@ export interface XgetConfig {
   RETRY_DELAY_MS: number
   CACHE_DURATION: number
   ALLOW_ANONYMOUS: boolean
+  RATE_LIMIT_PER_MINUTE: number
   SECURITY: SecurityConfig
   PLATFORMS: Record<string, string>
 }
@@ -129,6 +130,12 @@ export function createConfig(overrides: XgetConfigOverrides = {}): XgetConfig {
       typeof overrides.ALLOW_ANONYMOUS === 'boolean'
         ? overrides.ALLOW_ANONYMOUS
         : defaults.allow_anonymous,
+    RATE_LIMIT_PER_MINUTE: parseBoundedInteger(
+      overrides.RATE_LIMIT_PER_MINUTE,
+      defaults.rate_limit_per_minute,
+      XGET_CONFIG_LIMITS.rateLimitPerMinute.min,
+      XGET_CONFIG_LIMITS.rateLimitPerMinute.max,
+    ),
     SECURITY: {
       ALLOWED_METHODS: normalizeMethods(overrides.SECURITY?.ALLOWED_METHODS),
       ALLOWED_ORIGINS: normalizeOrigins(overrides.SECURITY?.ALLOWED_ORIGINS),

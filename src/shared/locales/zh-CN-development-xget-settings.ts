@@ -33,6 +33,8 @@ export const ZH_CN_DEVELOPMENT_XGET_SETTINGS = {
   "development.xget.settings.retry_delay_ms": "重试间隔（毫秒）",
   "development.xget.settings.cache_duration": "缓存时长（秒）",
   "development.xget.settings.cache_duration_desc": "可变资源的兜底 TTL；不可变构件自动使用 86400 秒",
+  "development.xget.settings.rate_limit_per_minute": "每客户端每分钟请求上限",
+  "development.xget.settings.rate_limit_per_minute_desc": "按客户端统计的代理请求上限；0 表示不限制",
   "development.xget.settings.allowed_methods": "允许的方法",
   "development.xget.settings.allowed_methods_desc": "逗号分隔；Git、Docker、AI 协议请求自动放行全部方法",
   "development.xget.settings.allowed_origins": "CORS 允许来源",

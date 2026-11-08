@@ -28,6 +28,7 @@ interface EngineForm {
   max_retries: string
   retry_delay_ms: string
   cache_duration: string
+  rate_limit_per_minute: string
   max_path_length: string
   allowAnonymous: boolean
   methodsText: string
@@ -40,6 +41,7 @@ function formFrom(settings: XgetSettings): EngineForm {
     max_retries: String(settings.config.max_retries),
     retry_delay_ms: String(settings.config.retry_delay_ms),
     cache_duration: String(settings.config.cache_duration),
+    rate_limit_per_minute: String(settings.config.rate_limit_per_minute),
     max_path_length: String(settings.config.max_path_length),
     allowAnonymous: settings.config.allow_anonymous,
     methodsText: settings.config.allowed_methods.join(', '),
@@ -55,13 +57,14 @@ function parseOrigins(value: string): string[] {
   return value.split(',').map((entry) => entry.trim()).filter(Boolean)
 }
 
-type NumericField = 'timeout_seconds' | 'max_retries' | 'retry_delay_ms' | 'cache_duration' | 'max_path_length'
+type NumericField = 'timeout_seconds' | 'max_retries' | 'retry_delay_ms' | 'cache_duration' | 'rate_limit_per_minute' | 'max_path_length'
 
 const NUMERIC_FIELDS: readonly { key: NumericField; range: { readonly min: number; readonly max: number } }[] = [
   { key: 'timeout_seconds', range: XGET_CONFIG_LIMITS.timeoutSeconds },
   { key: 'max_retries', range: XGET_CONFIG_LIMITS.maxRetries },
   { key: 'retry_delay_ms', range: XGET_CONFIG_LIMITS.retryDelayMs },
   { key: 'cache_duration', range: XGET_CONFIG_LIMITS.cacheDuration },
+  { key: 'rate_limit_per_minute', range: XGET_CONFIG_LIMITS.rateLimitPerMinute },
   { key: 'max_path_length', range: XGET_CONFIG_LIMITS.maxPathLength },
 ]
 
@@ -219,6 +222,7 @@ export function SettingsPanel({
         max_retries: numbers.max_retries,
         retry_delay_ms: numbers.retry_delay_ms,
         cache_duration: numbers.cache_duration,
+        rate_limit_per_minute: numbers.rate_limit_per_minute,
         max_path_length: numbers.max_path_length,
         allow_anonymous: config.allowAnonymous,
         allowed_methods: methods,
@@ -241,6 +245,7 @@ export function SettingsPanel({
       max_retries: String(XGET_CONFIG_DEFAULTS.max_retries),
       retry_delay_ms: String(XGET_CONFIG_DEFAULTS.retry_delay_ms),
       cache_duration: String(XGET_CONFIG_DEFAULTS.cache_duration),
+      rate_limit_per_minute: String(XGET_CONFIG_DEFAULTS.rate_limit_per_minute),
       max_path_length: String(XGET_CONFIG_DEFAULTS.max_path_length),
       allowAnonymous: XGET_CONFIG_DEFAULTS.allow_anonymous,
       methodsText: XGET_CONFIG_DEFAULTS.allowed_methods.join(', '),
@@ -340,6 +345,9 @@ export function SettingsPanel({
           </Field>
           <Field label={t('development.xget.settings.cache_duration')} hint={errorHint('cache_duration') ?? t('development.xget.settings.cache_duration_desc')}>
             <Input type="number" min={1} max={86400} value={form.cache_duration} disabled={disabled} invalid={Boolean(errors.cache_duration)} onChange={(event) => setNumber('cache_duration', event.target.value)} />
+          </Field>
+          <Field label={t('development.xget.settings.rate_limit_per_minute')} hint={errorHint('rate_limit_per_minute') ?? t('development.xget.settings.rate_limit_per_minute_desc')}>
+            <Input type="number" min={0} max={3600} value={form.rate_limit_per_minute} disabled={disabled} invalid={Boolean(errors.rate_limit_per_minute)} onChange={(event) => setNumber('rate_limit_per_minute', event.target.value)} />
           </Field>
           <Field label={t('development.xget.settings.allowed_methods')} hint={errorHint('methodsText') ?? t('development.xget.settings.allowed_methods_desc')}>
             <Input

@@ -27,3 +27,48 @@ export function createMinuteBudget(limit: number, message: string): (userId: str
     }
   }
 }
+
+interface FixedBucket {
+  start: number
+  count: number
+}
+
+const fixedBuckets = new Map<string, FixedBucket>()
+const MAX_FIXED_BUCKETS = 5000
+
+export interface RateLimitResult {
+  ok: boolean
+  retryAfterSec: number
+  firstBlock: boolean
+}
+
+export function checkRateLimit(
+  key: string,
+  max: number,
+  windowMs: number,
+  now = Date.now(),
+): RateLimitResult {
+  if (fixedBuckets.size > MAX_FIXED_BUCKETS) {
+    for (const [bucketKey, bucket] of fixedBuckets) {
+      if (now - bucket.start >= windowMs) fixedBuckets.delete(bucketKey)
+    }
+  }
+  const current = fixedBuckets.get(key)
+  if (!current || now - current.start >= windowMs) {
+    fixedBuckets.set(key, { start: now, count: 1 })
+    return { ok: true, retryAfterSec: 0, firstBlock: false }
+  }
+  current.count += 1
+  if (current.count > max) {
+    return {
+      ok: false,
+      retryAfterSec: Math.max(1, Math.ceil((current.start + windowMs - now) / 1000)),
+      firstBlock: current.count === max + 1,
+    }
+  }
+  return { ok: true, retryAfterSec: 0, firstBlock: false }
+}
+
+export function clearRateLimit(): void {
+  fixedBuckets.clear()
+}

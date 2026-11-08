@@ -19,11 +19,13 @@ import type {
 } from '@shared/development/xget/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { JSON_BODY_LIMITS, readJson } from '../lib/request'
+import { JSON_BODY_LIMITS, readJson, requestClientIp } from '../lib/request'
+import { checkRateLimit } from '../lib/rate-limit'
 import { hashToken } from '../lib/session-store'
 import { requireAuth } from '../middleware/auth'
 import { handleXgetRequest, resolveProxyTarget } from '../development/xget/lib/app/handle-request'
 import { createConfig, type XgetConfig } from '../development/xget/lib/config'
+import { pruneXgetAudit, recordXgetAudit } from '../development/xget/audit'
 import {
   readXgetOverrides,
   readXgetSettingsRow,
@@ -51,6 +53,7 @@ function overridesFromConfig(config: XgetConfig): XgetConfigOverrides {
     RETRY_DELAY_MS: config.RETRY_DELAY_MS,
     CACHE_DURATION: config.CACHE_DURATION,
     ALLOW_ANONYMOUS: config.ALLOW_ANONYMOUS,
+    RATE_LIMIT_PER_MINUTE: config.RATE_LIMIT_PER_MINUTE,
     SECURITY: {
       ALLOWED_METHODS: config.SECURITY.ALLOWED_METHODS,
       ALLOWED_ORIGINS: config.SECURITY.ALLOWED_ORIGINS,
@@ -66,6 +69,7 @@ function configView(config: XgetConfig): XgetSettingsConfig {
     retry_delay_ms: config.RETRY_DELAY_MS,
     cache_duration: config.CACHE_DURATION,
     allow_anonymous: config.ALLOW_ANONYMOUS,
+    rate_limit_per_minute: config.RATE_LIMIT_PER_MINUTE,
     allowed_methods: config.SECURITY.ALLOWED_METHODS,
     allowed_origins: config.SECURITY.ALLOWED_ORIGINS,
     max_path_length: config.SECURITY.MAX_PATH_LENGTH,
@@ -79,6 +83,7 @@ function patchToOverrides(
     retry_delay_ms?: number
     cache_duration?: number
     allow_anonymous?: boolean
+    rate_limit_per_minute?: number
     allowed_methods?: string[]
     allowed_origins?: string[]
     max_path_length?: number
@@ -94,6 +99,9 @@ function patchToOverrides(
   if (body.retry_delay_ms !== undefined) next.RETRY_DELAY_MS = body.retry_delay_ms
   if (body.cache_duration !== undefined) next.CACHE_DURATION = body.cache_duration
   if (body.allow_anonymous !== undefined) next.ALLOW_ANONYMOUS = body.allow_anonymous
+  if (body.rate_limit_per_minute !== undefined) {
+    next.RATE_LIMIT_PER_MINUTE = body.rate_limit_per_minute
+  }
   if (body.max_path_length !== undefined) next.SECURITY!.MAX_PATH_LENGTH = body.max_path_length
   if (body.allowed_methods !== undefined) {
     next.SECURITY!.ALLOWED_METHODS = normalizeMethods(body.allowed_methods)
@@ -197,7 +205,15 @@ settingsRoutes.put('/', async (c) => {
   const existing = await readXgetOverrides(c.env.DB)
   const next = patchToOverrides(body, existing)
   const config = configFromOverrides(next)
-  await writeXgetOverrides(c.env.DB, overridesFromConfig(config), Date.now())
+  const now = Date.now()
+  await writeXgetOverrides(c.env.DB, overridesFromConfig(config), now)
+  await recordXgetAudit(c.env.DB, {
+    at: now,
+    actor: `user:${c.get('userId')}`,
+    action: 'settings.update',
+    detail: Object.keys(body).sort().join(','),
+  })
+  await pruneXgetAudit(c.env.DB, now - 365 * 86_400_000)
   return c.json({ ok: true, data: { config: configView(config) } })
 })
 
@@ -221,7 +237,13 @@ settingsRoutes.put('/token', async (c) => {
     )
   }
   const tokenHash = token ? await hashToken(token) : ''
-  await writeXgetTokenHash(c.env.DB, tokenHash, Date.now())
+  const now = Date.now()
+  await writeXgetTokenHash(c.env.DB, tokenHash, now)
+  await recordXgetAudit(c.env.DB, {
+    at: now,
+    actor: `user:${c.get('userId')}`,
+    action: token ? 'token.set' : 'token.clear',
+  })
   return c.json({ ok: true, data: { has_proxy_token: Boolean(token) } })
 })
 
@@ -269,13 +291,67 @@ developmentXgetRoutes.use('*', async (c, next) => {
   if (!isXgetProxyPath(c.req.path)) return next()
 
   const settings = await readXgetSettingsRow(c.env.DB)
+  const config = createConfig(settings.overrides)
   const storedHash = settings.tokenHash
-  const allowAnonymous = createConfig(settings.overrides).ALLOW_ANONYMOUS
+  const url = new URL(c.req.url)
+  const pathname = url.pathname.slice(XGET_PROXY_PREFIX.length) || '/'
+  const waitUntil = executionWaitUntil(c)
+  const actorKey = c.get('userId')
+    ? `user:${c.get('userId')}`
+    : `ip:${requestClientIp(c)}`
+  const auditActor = c.get('userId') ? `user:${c.get('userId')}` : 'anonymous'
+
+  if (!isCorsPreflight(c) && config.RATE_LIMIT_PER_MINUTE > 0) {
+    const limit = checkRateLimit(
+      `xget:${actorKey}`,
+      config.RATE_LIMIT_PER_MINUTE,
+      60_000,
+    )
+    if (!limit.ok) {
+      if (limit.firstBlock) {
+        const audit = recordXgetAudit(c.env.DB, {
+          at: Date.now(),
+          actor: auditActor,
+          action: 'proxy.rate_limited',
+          detail: platformFromPath(pathname) ?? 'unknown',
+        })
+        if (waitUntil) {
+          waitUntil(audit)
+        } else {
+          await audit
+        }
+      }
+      return c.json(
+        {
+          success: false,
+          error: { code: 'xget_rate_limited', message: 'too many requests to the Xget proxy' },
+        },
+        429,
+        { 'Retry-After': String(limit.retryAfterSec) },
+      )
+    }
+  }
+
   let provided: ProxyToken | null = null
-  if ((storedHash !== '' || !allowAnonymous) && !c.get('userId') && !isCorsPreflight(c)) {
+  if (
+    (storedHash !== '' || !config.ALLOW_ANONYMOUS) &&
+    !c.get('userId') &&
+    !isCorsPreflight(c)
+  ) {
     provided = proxyTokenFrom(c)
     const providedHash = provided ? await hashToken(provided.value) : ''
     if (!storedHash || !providedHash || !sameHash(providedHash, storedHash)) {
+      const audit = recordXgetAudit(c.env.DB, {
+        at: Date.now(),
+        actor: auditActor,
+        action: 'proxy.denied',
+        detail: storedHash ? 'invalid-token' : 'anonymous-disabled',
+      })
+      if (waitUntil) {
+        waitUntil(audit)
+      } else {
+        await audit
+      }
       return c.json(
         {
           success: false,
@@ -289,13 +365,10 @@ developmentXgetRoutes.use('*', async (c, next) => {
     }
   }
 
-  const url = new URL(c.req.url)
-  const pathname = url.pathname.slice(XGET_PROXY_PREFIX.length) || '/'
   const search = provided?.source === 'query' ? withoutAccessToken(url.search) : url.search
   const engineUrl = new URL(`${pathname}${search}`, url.origin)
   const overrides = settings.overrides
   const request = new Request(engineUrl.toString(), c.req.raw)
-  const waitUntil = executionWaitUntil(c)
   const response = await handleXgetRequest(
     request,
     overrides,

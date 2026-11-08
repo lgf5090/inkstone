@@ -38,6 +38,7 @@ const SETTINGS: XgetSettings = {
     retry_delay_ms: 1000,
     cache_duration: 300,
     allow_anonymous: true,
+    rate_limit_per_minute: 600,
     allowed_methods: ['GET', 'HEAD'],
     allowed_origins: ['*'],
     max_path_length: 2048,
@@ -254,6 +255,19 @@ describe('the Xget settings panel', () => {
     act(() => button(rendered!.container, t('development.xget.settings.save')).click())
     await act(async () => {})
     expect(apiMocks.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ allow_anonymous: false }))
+  })
+
+  it('saves the edited rate limit', async () => {
+    rendered = renderElement(
+      <SettingsPanel settings={SETTINGS} loading={false} error={null} onReload={vi.fn(async () => undefined)} />,
+    )
+    const inputs = rendered.container.querySelectorAll<HTMLInputElement>('input[type="number"]')
+    setInput(inputs[4]!, '30')
+    act(() => button(rendered!.container, t('development.xget.settings.save')).click())
+    await act(async () => {})
+    expect(apiMocks.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ rate_limit_per_minute: 30 }),
+    )
   })
 
   it('does not let a member save', () => {

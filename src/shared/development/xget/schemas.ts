@@ -11,6 +11,7 @@ export const XgetSettingsPatchSchema = z.object({
   retry_delay_ms: boundedInteger(XGET_CONFIG_LIMITS.retryDelayMs).optional(),
   cache_duration: boundedInteger(XGET_CONFIG_LIMITS.cacheDuration).optional(),
   allow_anonymous: z.boolean().optional(),
+  rate_limit_per_minute: boundedInteger(XGET_CONFIG_LIMITS.rateLimitPerMinute).optional(),
   allowed_methods: z.array(z.string()).max(16).optional(),
   allowed_origins: z.array(z.string()).max(64).optional(),
   max_path_length: boundedInteger(XGET_CONFIG_LIMITS.maxPathLength).optional(),
