@@ -32,17 +32,22 @@ import {
   decodeEventCursor,
   deleteOrderRows,
   deleteProvider,
+  expiringOrderCount,
+  failedOrderCountSince,
   findOrder,
   findProvider,
   insertProvider,
   insertToken,
   listAccountsForUser,
+  listAdminOrders,
   listDomains,
   listEvents,
   listOrders,
   listProviders,
   listRecentEvents,
   listTokens,
+  orderOwnerId,
+  orderStatusCounts,
   orderWithDomains,
   providerReferenced,
   readConfig,
@@ -111,20 +116,16 @@ developmentCerthubRoutes.get('/overview', async (c) => {
   const [quota, recent, counts, expiringSoon, recentEvents] = await Promise.all([
     quotaContext(c.env.DB, userId),
     listOrders(c.env.DB, userId, { limit: 6 }),
-    c.env.DB.prepare(`SELECT status, COUNT(*) AS c FROM development_certhub_orders
-      WHERE user_id = ?1 AND deleted_at IS NULL GROUP BY status`).bind(userId).all<{ status: string; c: number }>(),
-    c.env.DB.prepare(`SELECT COUNT(*) AS c FROM development_certhub_orders
-      WHERE user_id = ?1 AND deleted_at IS NULL AND status IN ('issued','expired')
-        AND cert_not_after IS NOT NULL AND cert_not_after <= ?2`)
-      .bind(userId, Date.now() + 30 * 86_400_000).first<{ c: number }>(),
+    orderStatusCounts(c.env.DB, userId),
+    expiringOrderCount(c.env.DB, userId, Date.now() + 30 * 86_400_000),
     listRecentEvents(c.env.DB, userId, 10),
   ])
   const statusCounts: Record<string, number> = {}
-  for (const row of counts.results) statusCounts[row.status] = Number(row.c)
+  for (const row of counts) statusCounts[row.status] = Number(row.c)
   return c.json({
     ok: true,
     data: {
-      counts: { ...statusCounts, expiringSoon: Number(expiringSoon?.c ?? 0) },
+      counts: { ...statusCounts, expiringSoon },
       recentOrders: recent.items,
       recentEvents,
       quota: quota.quota,
@@ -621,11 +622,9 @@ developmentCerthubRoutes.get('/config', async (c) => {
 
 developmentCerthubRoutes.get('/admin/overview', async (c) => {
   if (c.get('user')?.role !== 'owner') throw ApiError.forbidden('Owner access required')
-  const counts = await c.env.DB.prepare(`SELECT status, COUNT(*) AS c FROM development_certhub_orders
-    WHERE deleted_at IS NULL GROUP BY status`).all<{ status: string; c: number }>()
-  const failed = await c.env.DB.prepare(`SELECT COUNT(*) AS c FROM development_certhub_orders
-    WHERE status = 'failed' AND updated_at > ?1`).bind(Date.now() - 86_400_000).first<{ c: number }>()
-  return c.json({ ok: true, data: { counts: counts.results, failures24h: Number(failed?.c ?? 0), queue: await readConfig(c.env.DB) } })
+  const counts = await orderStatusCounts(c.env.DB)
+  const failed = await failedOrderCountSince(c.env.DB, Date.now() - 86_400_000)
+  return c.json({ ok: true, data: { counts, failures24h: failed, queue: await readConfig(c.env.DB) } })
 })
 
 developmentCerthubRoutes.get('/admin/config', async (c) => {
@@ -656,58 +655,54 @@ developmentCerthubRoutes.put('/admin/config', async (c) => {
 developmentCerthubRoutes.get('/admin/orders', async (c) => {
   if (c.get('user')?.role !== 'owner') throw ApiError.forbidden('Owner access required')
   const limit = Math.min(100, Math.max(1, Number(c.req.query('limit') ?? 30)))
-  const rows = await c.env.DB.prepare(`SELECT id, user_id, status, ca, created_at, updated_at, cert_not_after
-    FROM development_certhub_orders WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT ?1`)
-    .bind(limit).all()
-  return c.json({ ok: true, data: { items: rows.results } })
+  const rows = await listAdminOrders(c.env.DB, limit)
+  return c.json({ ok: true, data: { items: rows } })
 })
 
 developmentCerthubRoutes.get('/admin/orders/:id', async (c) => {
   if (c.get('user')?.role !== 'owner') throw ApiError.forbidden('Owner access required')
-  const row = await c.env.DB.prepare(`SELECT user_id FROM development_certhub_orders WHERE id = ?1 AND deleted_at IS NULL`)
-    .bind(c.req.param('id')).first<{ user_id: string }>()
-  if (!row) throw ApiError.notFound('The certificate order was not found')
-  const order = await findOrder(c.env.DB, row.user_id, c.req.param('id'))
+  const owner = await orderOwnerId(c.env.DB, c.req.param('id'))
+  if (!owner) throw ApiError.notFound('The certificate order was not found')
+  const order = await findOrder(c.env.DB, owner, c.req.param('id'))
   if (!order) throw ApiError.notFound('The certificate order was not found')
-  const domains = await listDomains(c.env.DB, row.user_id, order.id)
-  const events = await listEvents(c.env.DB, row.user_id, order.id, null, 20)
-  return c.json({ ok: true, data: { userId: row.user_id, order: orderWithDomains(order, domains), events: events.items } })
+  const domains = await listDomains(c.env.DB, owner, order.id)
+  const events = await listEvents(c.env.DB, owner, order.id, null, 20)
+  return c.json({ ok: true, data: { userId: owner, order: orderWithDomains(order, domains), events: events.items } })
 })
 
 developmentCerthubRoutes.post('/admin/orders/:id/actions', async (c) => {
   if (c.get('user')?.role !== 'owner') throw ApiError.forbidden('Owner access required')
   const body = await parseBody(c, actionSchema)
-  const row = await c.env.DB.prepare(`SELECT user_id FROM development_certhub_orders WHERE id = ?1 AND deleted_at IS NULL`)
-    .bind(c.req.param('id')).first<{ user_id: string }>()
-  if (!row) throw ApiError.notFound('The certificate order was not found')
-  const order = await findOrder(c.env.DB, row.user_id, c.req.param('id'))
+  const owner = await orderOwnerId(c.env.DB, c.req.param('id'))
+  if (!owner) throw ApiError.notFound('The certificate order was not found')
+  const order = await findOrder(c.env.DB, owner, c.req.param('id'))
   if (!order) throw ApiError.notFound('The certificate order was not found')
   if (body.action === 'delete') {
     if (!['failed', 'canceled', 'revoked', 'expired'].includes(order.status)) {
       throw new ApiError(409, 'order_state_conflict', 'Only a finished order can be deleted')
     }
     if (body.confirm !== order.id) throw ApiError.badRequest('Type the order id to confirm deletion')
-    await cancelJobsForOrder(c.env.DB, row.user_id, order.id)
+    await cancelJobsForOrder(c.env.DB, owner, order.id)
     const { orderObjectKeys, keyReferencedElsewhere } = await import('../development/certhub/store')
-    const keys = await orderObjectKeys(c.env.DB, row.user_id, order.id)
+    const keys = await orderObjectKeys(c.env.DB, owner, order.id)
     const orphans: string[] = []
     for (const key of keys) {
-      if (!(await keyReferencedElsewhere(c.env.DB, row.user_id, order.id, key))) orphans.push(key)
+      if (!(await keyReferencedElsewhere(c.env.DB, owner, order.id, key))) orphans.push(key)
     }
-    await deleteOrderRows(c.env.DB, row.user_id, order.id)
+    await deleteOrderRows(c.env.DB, owner, order.id)
     await deleteCerthubObjects(c.env, orphans)
     await appendEvent(c.env.DB, {
-      userId: row.user_id, orderId: order.id, actor: 'owner', kind: 'order.deleted', level: 'warn', messageCode: 'order.deleted',
+      userId: owner, orderId: order.id, actor: 'owner', kind: 'order.deleted', level: 'warn', messageCode: 'order.deleted',
     })
     return c.json({ ok: true, data: { deleted: true } })
   }
   if (body.action === 'renew' || body.action === 'cancel') {
     throw ApiError.forbidden('Owner may retry, revoke, purge or delete only')
   }
-  const result = await handleOrderAction(c.env, c.env.DB, row.user_id, order.id, body.action, 'owner', {
+  const result = await handleOrderAction(c.env, c.env.DB, owner, order.id, body.action, 'owner', {
     revokeReason: body.revokeReason,
   })
-  const domains = await listDomains(c.env.DB, row.user_id, order.id)
+  const domains = await listDomains(c.env.DB, owner, order.id)
   return c.json({ ok: true, data: { order: orderWithDomains(result.order, domains) } })
 })
 

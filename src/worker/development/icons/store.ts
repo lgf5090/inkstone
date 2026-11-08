@@ -1103,3 +1103,77 @@ export async function listImports(db: D1Database, userId: string): Promise<IconI
     finishedAt: nullableNumber(row.finished_at),
   }))
 }
+
+/** The asset a repeated upload would duplicate, matched on its content hash. */
+export async function findAssetBySha(db: D1Database, userId: string, format: string, sha256: string): Promise<string | null> {
+  const row = await db.prepare(
+    `SELECT id FROM development_icons_assets WHERE user_id = ?1 AND format = ?2 AND sha256 = ?3`,
+  ).bind(userId, format, sha256).first<{ id: string }>()
+  return row?.id ?? null
+}
+
+export interface NewAssetRow {
+  id: string
+  collectionId: string | null
+  name: string
+  format: string
+  mime: string
+  bytes: number
+  width: number | null
+  height: number | null
+  sha256: string
+  r2Key: string
+  thumbKey: string | null
+  colorMode: string
+  sanitized: number
+  createdAt: number
+}
+
+/** Records one uploaded asset after its bytes and thumbnails are already in R2. */
+export async function insertAsset(db: D1Database, userId: string, asset: NewAssetRow): Promise<void> {
+  await db.prepare(
+    `INSERT INTO development_icons_assets
+       (user_id, id, collection_id, name, name_key, format, mime, bytes, width, height, view_box, sha256, r2_key, thumb_key, keywords, color_mode, license, source_url, sanitized, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12, ?13, '', ?14, '', '', ?15, ?16, ?16)`,
+  ).bind(
+    userId, asset.id, asset.collectionId, asset.name, asset.name.toLowerCase(), asset.format, asset.mime,
+    asset.bytes, asset.width, asset.height, asset.sha256, asset.r2Key, asset.thumbKey, asset.colorMode,
+    asset.sanitized, asset.createdAt,
+  ).run()
+}
+
+export interface ExportDownloadRow {
+  filename: string
+  r2_key: string
+  format: string
+  expires_at: number
+}
+
+/** The export record behind a download link, before its expiration is judged. */
+export async function findExportDownload(db: D1Database, userId: string, id: string): Promise<ExportDownloadRow | null> {
+  const row = await db.prepare(
+    `SELECT filename, r2_key, format, expires_at FROM development_icons_exports WHERE user_id = ?1 AND id = ?2`,
+  ).bind(userId, id).first<ExportDownloadRow>()
+  return row ?? null
+}
+
+export interface ThumbBackfillRow {
+  id: string
+  format: string
+  mime: string
+  sha256: string
+  r2_key: string
+}
+
+/** Assets still missing a thumbnail, newest first, for the owner's background backfill. */
+export async function listAssetsMissingThumb(db: D1Database, userId: string, limit: number): Promise<ThumbBackfillRow[]> {
+  const rows = await db.prepare(
+    `SELECT id, format, mime, sha256, r2_key FROM development_icons_assets
+      WHERE user_id=?1 AND (thumb_key IS NULL OR thumb_key='') ORDER BY created_at DESC LIMIT ?2`,
+  ).bind(userId, limit).all<ThumbBackfillRow>()
+  return rows.results ?? []
+}
+
+export async function setAssetThumbKey(db: D1Database, userId: string, id: string, key: string): Promise<void> {
+  await db.prepare(`UPDATE development_icons_assets SET thumb_key=?3 WHERE user_id=?1 AND id=?2`).bind(userId, id, key).run()
+}

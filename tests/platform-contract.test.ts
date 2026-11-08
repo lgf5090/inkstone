@@ -147,7 +147,7 @@ it('lets the page itself ask for camera and microphone, and keeps location shut'
 it('relaxes script-src for the wasm interpreter and for nothing else at runtime', () => {
   const strict = securityHeaders('https://note.test/')['Content-Security-Policy']
   const dev = securityHeaders('https://note.test/', { allowDevInlineScripts: true })['Content-Security-Policy']
-  const scriptSrc = "script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com"
+  const scriptSrc = "script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com https://challenges.cloudflare.com"
 
   expect(strict).toContain(`${scriptSrc};`)
   const strictScriptSrc = /script-src([^;]*)/.exec(strict)?.[1] ?? ''

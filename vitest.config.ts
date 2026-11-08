@@ -36,8 +36,12 @@ const wasmAsModule = (): Plugin => ({
     if (source.includes(MARKER)) return null
     const specifier = source.split('?')[0] ?? ''
     const isPackageSubpath = /^[^./\\][^:]*\/wasm$/.test(specifier)
+    // A package may also name the file itself (`@resvg/resvg-wasm/index_bg.wasm`); its `exports`
+    // map decides the real path, and Node's own wasm loader would otherwise try to resolve the
+    // module's imports as packages (`wbg`) instead of handing back a module.
+    const isPackageWasmFile = /^[^./\\][^:]*\.wasm$/.test(specifier)
     const isRelative = specifier.startsWith('.') && specifier.endsWith('.wasm')
-    if (!isRelative && !isPackageSubpath) return null
+    if (!isRelative && !isPackageSubpath && !isPackageWasmFile) return null
     const path = isRelative && importer
       ? resolvePath(dirname(importer.startsWith('file:') ? fileURLToPath(importer) : importer), specifier)
       : require.resolve(specifier)
@@ -93,7 +97,7 @@ export default defineConfig({
             deps: {
               // Both halves of the interpreter, so the `.wasm` import inside the variant reaches this
               // config's own loader instead of Node's, which cannot read a WebAssembly file as a module.
-              inline: ['@cloudflare/workers-oauth-provider', 'quickjs-emscripten-core', '@jitl/quickjs-wasmfile-release-sync'],
+              inline: ['@cloudflare/workers-oauth-provider', 'quickjs-emscripten-core', '@jitl/quickjs-wasmfile-release-sync', '@resvg/resvg-wasm'],
             },
           },
         },

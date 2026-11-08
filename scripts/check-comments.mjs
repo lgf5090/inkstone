@@ -40368,6 +40368,17 @@ const allowed = new Map([
     "// The row expires with the idle window regardless; a failed cleanup must not fail the socket.",
     "// Checked before the ticket is consumed so a refused upgrade can be retried with the same ticket.",
   ]],
+  ["src/worker/development/certhub/store.ts", [
+    "/** Grouped order counts, scoped to one reader or to the whole deployment for the admin overview. */",
+    "/** Orders that expire inside the window the overview counts. */",
+    "/** Failed orders touched inside the admin's rolling window. */",
+    "/** The admin order list, newest first. */",
+    "/** The account an order belongs to, for admin routes that then read it through that account. */",
+  ]],
+  ["src/worker/development/certhub/worker.ts", [
+    "// DELETE ... LIMIT is an SQLite extension this deployment cannot rely on, so the cap lives on a",
+    "// SELECT subquery: the oldest finished jobs go first and the batch stays bounded per tick.",
+  ]],
   ["src/worker/development/icons/bulk-import.ts", [
     "/** Names this job will walk (the missing subset for a fill-missing job). */",
     "/** Names in the whole collection, so the drill-down can report the true set size. */",
@@ -40417,6 +40428,10 @@ const allowed = new Map([
     "// A percent or underscore a reader types is a character in the name, not a wildcard.",
     "// The total is measured over the filters, before the cursor narrows the page, so the toolbar can",
     "// say how many icons the current selection holds even while the grid streams in later pages.",
+    "/** The asset a repeated upload would duplicate, matched on its content hash. */",
+    "/** Records one uploaded asset after its bytes and thumbnails are already in R2. */",
+    "/** The export record behind a download link, before its expiration is judged. */",
+    "/** Assets still missing a thumbnail, newest first, for the owner's background backfill. */",
   ]],
   ["src/worker/development/xget/lib/app/handle-request.ts", [
     "// Derived from Xget (AGPL-3.0-only) src/app/handle-request.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
@@ -44746,6 +44761,7 @@ const allowed = new Map([
     "// Offline, timed out, DNS failure, or a body that never finished: the caller draws a letter.",
     "// The cap is applied while reading: reading the whole body first let a host answer with an",
     "// arbitrarily large image and only then be rejected, which is a memory exhaustion primitive.",
+    "// The body is already over the cap and is being discarded; a failed cancel cannot change this answer.",
   ]],
   ["src/worker/tools/password/r2.ts", [
     "/**\n * R2 storage helpers for Password Manager backups.\n *\n * Backups are ciphertext snapshots. Plaintext exports never reach the server: the client already\n * holds the decrypted rows and downloads the file itself, so there is no export object to retain or\n * sweep.\n *\n * Path invariant: `tools/password/backup/${userId}/${backupId}.json`\n */",
@@ -51713,6 +51729,9 @@ const allowed = new Map([
     "// `.tsx` joins `.ts` here because the organizer's icon picker is a component and its test",
     "// spoke the component suffix — under the old pair of globs that file was collected by no",
     "// project at all and never ran once. The scratch-probe marker (`*.tmp.*`) stays excluded.",
+    "// A package may also name the file itself (`@resvg/resvg-wasm/index_bg.wasm`); its `exports`",
+    "// map decides the real path, and Node's own wasm loader would otherwise try to resolve the",
+    "// module's imports as packages (`wbg`) instead of handing back a module.",
   ]],
 ])
 const found = new Map()

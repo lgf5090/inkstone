@@ -1052,6 +1052,8 @@ const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/client/features/imgbed/api.ts', { sites: 1, reason: 'Deleting an upload session after the part that failed is already reported to the caller; a refused cleanup leaves only an expired row for the cron sweep.' }],
   ['src/client/features/imgbed/upload/UploadPage.tsx', { sites: 1, reason: 'Reading saved upload history for the history panel; an unreadable history is shown as empty and never blocks an upload.' }],
   ['src/client/features/webssh/use-sftp-transfers.ts', { sites: 2, reason: 'Both are cleanup after a transfer that already reported its own outcome: a cancel of the staged upload when the upload has failed, and a mkdir whose failure leaves the directory listing and the chunk PUT to report the missing folder on the next step.' }],
+  ['src/client/features/development/certhub/CerthubApp.tsx', { sites: 1, reason: 'Remembering that the intro card was dismissed is a convenience: a storage refusal in a private window leaves the card on screen for this visit, which is exactly what the reader saw before dismissing it.' }],
+  ['src/client/features/development/icons/IconsApp.tsx', { sites: 2, reason: 'Both are background seeding and refreshes: a refused seed leaves the built-in collections absent until the reader asks again, and a failed refresh keeps the last known list on screen, which the toolbar already states.' }],
 ])
 
 /**
