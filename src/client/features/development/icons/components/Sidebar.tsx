@@ -288,7 +288,7 @@ export function Sidebar({ bootstrap, state, onChange, onManageCollections, onMan
               count={counts.collections[collection.id] ?? 0}
               onClick={() => toggleCollection(collection.id)}
               trailing={onStats ? (
-                <IconButton label={t('development.icons.collection.stats')} size="sm" className="h-6 w-6 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100" onClick={() => onStats(collection)}><Info size={11} /></IconButton>
+                <IconButton label={t('development.icons.collection.stats')} size="sm" className="h-6 w-6 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" onClick={() => onStats(collection)}><Info size={11} /></IconButton>
               ) : undefined}
             />
           ))}

@@ -281,9 +281,15 @@ export function IconsApp() {
       const rows = await fetchImports()
       // Several collections can be queued at once during a first-run seed; each is resumed in turn so a
       // closed tab never leaves a collection half-imported without anyone noticing.
+      let resumed = false
       for (const row of rows.filter((entry) => entry.status === 'running' && entry.kind === 'iconify')) {
+        resumed = true
         await driveImport(row)
       }
+      // A failed import from an earlier visit must not be invisible just because nobody is driving it:
+      // the banner carries the failure count and the Retry entry that runs the fill-missing pass.
+      const failed = rows.find((entry) => entry.status === 'failed' && entry.kind === 'iconify')
+      if (!resumed && failed) setActiveImport(failed)
     } catch {
       // A failed look-up leaves the page usable; the banner appears on the next visit.
     }
