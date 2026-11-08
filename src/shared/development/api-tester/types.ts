@@ -18,6 +18,20 @@ export interface KeyValue {
   value: string
   enabled: boolean
   isFile?: boolean
+  fileId?: string
+  fileName?: string
+  fileSize?: number
+  fileType?: string
+}
+
+/** One multipart/form-data field after variable resolution. File fields carry an owned file id. */
+export interface MultipartField {
+  key: string
+  value: string
+  isFile?: boolean
+  fileId?: string
+  fileName?: string
+  contentType?: string
 }
 
 export interface OAuth2Config {
@@ -128,6 +142,18 @@ export interface Environment {
   color?: string
 }
 
+/** A cookie the relay learned from a response and may send to the same domain/path later. */
+export interface CookieRecord {
+  id: string
+  name: string
+  value: string
+  domain: string
+  path: string
+  expiresAt?: number
+  secure?: boolean
+  httpOnly?: boolean
+}
+
 export interface TagNode {
   id: string
   name: string
@@ -173,6 +199,7 @@ export interface ApiTesterStateData {
   environments: Environment[]
   globalVariables: EnvVariable[]
   tags: TagNode[]
+  cookies: CookieRecord[]
   settings: ToolsSettings
   activeEnvId: string | null
 }
@@ -183,9 +210,6 @@ export interface ApiTesterState extends ApiTesterStateData {
 }
 
 export interface ResponseTiming {
-  dnsMs?: number
-  connectMs?: number
-  tlsMs?: number
   ttfbMs?: number
   downloadMs?: number
   totalMs: number
@@ -203,7 +227,15 @@ export interface ResponseResult {
   redirected: boolean
   url: string
   error?: string
-  cookies?: Array<{ name: string; value: string; domain?: string; path?: string }>
+  cookies?: Array<{
+    name: string
+    value: string
+    domain?: string
+    path?: string
+    expiresAt?: number
+    secure?: boolean
+    httpOnly?: boolean
+  }>
   timing?: ResponseTiming
 }
 
@@ -224,6 +256,7 @@ export interface ProxyRequest {
   headers: Array<{ key: string; value: string }>
   body?: string
   bodyFileId?: string
+  multipart?: MultipartField[]
   redirect: 'follow' | 'manual'
   timeoutMs: number
 }
@@ -239,7 +272,15 @@ export interface ProxyResponse {
   bodyB64: string | null
   redirected: boolean
   url: string
-  cookies: Array<{ name: string; value: string; domain?: string; path?: string }>
+  cookies: Array<{
+    name: string
+    value: string
+    domain?: string
+    path?: string
+    expiresAt?: number
+    secure?: boolean
+    httpOnly?: boolean
+  }>
   timing: ResponseTiming
   error?: string
 }

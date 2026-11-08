@@ -26,6 +26,9 @@ export class StateSaver {
   private dirty = false
   private blocked = false
   private saving = false
+  private pending = false
+  private editEpoch = 0
+  private activeSave: Promise<void> | null = null
 
   constructor(private readonly options: StateSaverOptions) {}
 
@@ -36,18 +39,22 @@ export class StateSaver {
 
   markDirty(): void {
     this.dirty = true
+    this.editEpoch += 1
     this.clearRetry()
     this.retryAttempts = 0
     if (this.blocked) return
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = setTimeout(() => {
-      this.timer = null
-      void this.save()
-    }, SAVE_DEBOUNCE_MS)
+    if (this.saving) {
+      // The in-flight save already carries an older snapshot. Remember that another pass is owed
+      // instead of dropping the edit when that save finishes.
+      this.pending = true
+      return
+    }
+    this.scheduleSave(SAVE_DEBOUNCE_MS)
   }
 
   block(): void {
     this.blocked = true
+    this.pending = false
     this.clearRetry()
     if (this.timer) {
       clearTimeout(this.timer)
@@ -60,27 +67,31 @@ export class StateSaver {
     this.clearRetry()
     this.retryAttempts = 0
     this.dirty = true
-    if (!this.saving) void this.save()
+    if (this.saving) {
+      this.pending = true
+      return
+    }
+    void this.save()
   }
 
   async flush(): Promise<void> {
-    if (this.timer) {
-      clearTimeout(this.timer)
-      this.timer = null
+    let attempts = 0
+    while (attempts < 3 && !this.blocked) {
+      if (this.timer) {
+        clearTimeout(this.timer)
+        this.timer = null
+      }
+      this.clearRetry()
+      if (this.saving && this.activeSave) {
+        await this.activeSave
+        attempts += 1
+        continue
+      }
+      if (!this.dirty) return
+      this.pending = false
+      await this.save()
+      attempts += 1
     }
-    this.clearRetry()
-    if (!this.dirty || this.blocked || this.saving) return
-    await this.save()
-  }
-
-  dispose(): void {
-    if (this.timer) {
-      clearTimeout(this.timer)
-      this.timer = null
-    }
-    this.clearRetry()
-    this.blocked = true
-    this.dirty = false
   }
 
   private clearRetry(): void {
@@ -88,6 +99,14 @@ export class StateSaver {
       clearTimeout(this.retryTimer)
       this.retryTimer = null
     }
+  }
+
+  private scheduleSave(delay: number): void {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => {
+      this.timer = null
+      void this.save()
+    }, delay)
   }
 
   /**
@@ -105,7 +124,17 @@ export class StateSaver {
     }, delay)
   }
 
-  private async save(): Promise<void> {
+  private save(): Promise<void> {
+    if (this.saving) {
+      this.pending = true
+      return Promise.resolve()
+    }
+    const task = this.performSave()
+    this.activeSave = task
+    return task
+  }
+
+  private async performSave(): Promise<void> {
     const snapshot = this.options.read()
     if (!snapshot) return
     const data = stateDataOf(snapshot.state)
@@ -116,18 +145,22 @@ export class StateSaver {
       this.options.onError(t('development.apitester.app.save_too_large'))
       return
     }
+    const snapshotEpoch = this.editEpoch
     this.saving = true
     this.options.onSaving()
     try {
       const response = await putState(snapshot.workspaceId, this.rev, data)
       this.rev = response.rev
-      this.dirty = false
+      // An edit made while this PUT was in flight is newer than the snapshot we sent. Keeping the
+      // dirty flag guarantees the next close/flush still writes it instead of silently dropping it.
+      this.dirty = snapshotEpoch !== this.editEpoch
       this.clearRetry()
       this.retryAttempts = 0
       this.options.onSaved(response.rev)
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         this.dirty = false
+        this.pending = false
         this.block()
         this.options.onConflict()
       } else {
@@ -136,13 +169,19 @@ export class StateSaver {
       }
     } finally {
       this.saving = false
+      this.activeSave = null
+      if (this.pending) {
+        this.pending = false
+        this.dirty = true
+        this.scheduleSave(SAVE_DEBOUNCE_MS)
+      }
     }
   }
 
   /** The page is going away: one last keepalive write, under the browser's 64 KiB limit. */
   flushOnHide(): void {
     const snapshot = this.options.read()
-    if (!snapshot || !this.dirty || this.blocked) return
+    if (!snapshot || (!this.dirty && !this.saving) || this.blocked) return
     const json = JSON.stringify({
       workspaceId: snapshot.workspaceId,
       rev: this.rev,

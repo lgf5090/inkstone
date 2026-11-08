@@ -156,4 +156,42 @@ describe('API Tester state saver', () => {
     expect(put).toHaveBeenCalledTimes(2)
     expect(events.saved).toEqual([5])
   })
+
+  it('keeps a newer edit dirty when it arrives while a save is in flight', async () => {
+    let current = defaultState('ws-1')
+    let resolveFirst: (value: { rev: number }) => void = () => {}
+    put.mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+    const saver = new StateSaver({
+      read: () => ({ state: current, workspaceId: 'ws-1' }),
+      onSaving: () => {},
+      onSaved: () => {},
+      onConflict: () => {},
+      onError: () => {},
+    })
+    saver.setRev(1)
+    saver.markDirty()
+    await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS)
+    expect(put).toHaveBeenCalledTimes(1)
+
+    current = {
+      ...current,
+      nodes: [{
+        id: 'n1',
+        type: 'request',
+        name: 'Later edit',
+        parentId: null,
+        order: 1,
+        tags: [],
+        updatedAt: 1,
+      }],
+    }
+    saver.markDirty()
+    put.mockResolvedValueOnce({ rev: 3 })
+    resolveFirst({ rev: 2 })
+    await vi.advanceTimersByTimeAsync(0)
+
+    await saver.flush()
+    expect(put).toHaveBeenCalledTimes(2)
+    expect(put.mock.calls[1]?.[2]).toMatchObject({ nodes: [expect.objectContaining({ id: 'n1' })] })
+  })
 })

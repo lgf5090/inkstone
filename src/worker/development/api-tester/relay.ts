@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import {
+  MAX_MULTIPART_BYTES,
   MAX_PROXY_REDIRECTS,
   MAX_PROXY_RESPONSE_BYTES,
   MAX_TIMEOUT_MS,
@@ -39,13 +40,42 @@ const HOP_BY_HOP_HEADERS = new Set([
   'content-length',
 ])
 
-/** Credentials that belong to one origin, so a cross-origin redirect must not carry them along. */
-const CROSS_ORIGIN_HEADERS = ['authorization', 'cookie', 'proxy-authorization'] as const
+/**
+ * Redirects are followed automatically only while they stay on the origin the user named.
+ *
+ * A cross-origin hop is a new destination chosen by the upstream, so the relay stops there and
+ * returns the 30x response (with `Location`) instead of forwarding the user's headers, credentials
+ * or body to a target they did not configure. The caller can then decide to request that URL
+ * explicitly.
+ */
 
 /** C0 controls other than horizontal tab, and DEL: a header value carrying one is a header injection. */
 const HEADER_CONTROL_CHARS = /[\u0000-\u0008\u000a-\u001f\u007f]/
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+
+/** The charset parameter of a media type, if it names one. */
+function charsetOf(contentType: string): string | null {
+  const match = /;\s*charset\s*=\s*"?([^";\s]+)"?/i.exec(contentType)
+  return match?.[1]?.trim() || null
+}
+
+/**
+ * Decodes text with the charset the response declares, falling back to UTF-8 when the label is
+ * absent or unknown. The previous fixed UTF-8 decoder turned every GBK/Shift_JIS response into
+ * mojibake even though the upstream had said what it was.
+ */
+function decodeBody(bytes: Uint8Array, contentType: string): string {
+  const charset = charsetOf(contentType)
+  if (charset) {
+    try {
+      return new TextDecoder(charset).decode(bytes)
+    } catch {
+      console.warn('[inkstone] API tester response used an unsupported charset:', charset)
+    }
+  }
+  return new TextDecoder().decode(bytes)
+}
 
 function parseProxyRequest(raw: unknown): ProxyRequest {
   const result = ProxyRequestSchema.safeParse(raw)
@@ -102,11 +132,37 @@ function buildRequestHeaders(input: ProxyRequest['headers']): Headers {
   return headers
 }
 
-async function resolveRequestBody(env: Env, userId: string, input: ProxyRequest): Promise<string | Uint8Array | undefined> {
+async function resolveRequestBody(
+  env: Env,
+  userId: string,
+  input: ProxyRequest,
+): Promise<string | Uint8Array | FormData | undefined> {
   if (input.bodyFileId && input.body !== undefined) {
     throw ApiError.badRequest('body and bodyFileId are mutually exclusive')
   }
   if (input.method === 'GET' || input.method === 'HEAD') return undefined
+  if (input.multipart) {
+    const form = new FormData()
+    let total = 0
+    for (const field of input.multipart) {
+      if (field.isFile) {
+        if (!field.fileId) throw ApiError.badRequest('A multipart file field is missing its file id')
+        const bytes = await readOwnedFileBytes(env, userId, field.fileId)
+        total += bytes.byteLength
+        if (total > MAX_MULTIPART_BYTES) {
+          throw new ApiError(413, 'payload_too_large', `Multipart bodies are limited to ${MAX_MULTIPART_BYTES} bytes`)
+        }
+        form.append(
+          field.key,
+          new Blob([bytes], { type: field.contentType || 'application/octet-stream' }),
+          field.fileName || 'file',
+        )
+      } else {
+        form.append(field.key, field.value)
+      }
+    }
+    return form
+  }
   if (input.bodyFileId) return readOwnedFileBytes(env, userId, input.bodyFileId)
   return input.body
 }
@@ -120,14 +176,28 @@ function parseSetCookie(value: string): ProxyResponse['cookies'][number] | null 
     name: pair.slice(0, separator).trim(),
     value: pair.slice(separator + 1).trim(),
   }
+  const now = Date.now()
   for (const attribute of parts.slice(1)) {
     const trimmed = attribute.trim()
     const index = trimmed.indexOf('=')
-    if (index <= 0) continue
+    if (index <= 0) {
+      const name = trimmed.toLowerCase()
+      if (name === 'secure') cookie.secure = true
+      if (name === 'httponly') cookie.httpOnly = true
+      continue
+    }
     const name = trimmed.slice(0, index).trim().toLowerCase()
     const attributeValue = trimmed.slice(index + 1).trim()
     if (name === 'domain') cookie.domain = attributeValue
     if (name === 'path') cookie.path = attributeValue
+    if (name === 'max-age') {
+      const seconds = Number(attributeValue)
+      if (Number.isFinite(seconds)) cookie.expiresAt = now + seconds * 1_000
+    }
+    if (name === 'expires') {
+      const parsed = Date.parse(attributeValue)
+      if (Number.isFinite(parsed)) cookie.expiresAt = parsed
+    }
   }
   return cookie
 }
@@ -183,6 +253,42 @@ async function discardBody(response: Response): Promise<void> {
   }
 }
 
+/**
+ * The 30x response itself, kept intact for the user: status, headers (including `Location`) and the
+ * body the upstream sent. The `error` field tells the client why automatic following stopped.
+ */
+async function redirectEnvelope(input: {
+  response: Response
+  url: URL
+  redirected: boolean
+  startedAt: number
+  ttfbAt: number
+}): Promise<ProxyResponse> {
+  const headersOut = responseHeaders(input.response.headers)
+  const contentType = input.response.headers.get('content-type') ?? ''
+  const cookies = readCookies(input.response.headers)
+  const read = await readCappedBody(input.response, MAX_PROXY_RESPONSE_BYTES)
+  const finishedAt = performance.now()
+  const totalMs = Math.max(0, Math.round(finishedAt - input.startedAt))
+  const downloadMs = Math.max(0, Math.round(finishedAt - input.ttfbAt))
+  const text = isTextContentType(contentType)
+  return {
+    status: input.response.status,
+    statusText: input.response.statusText,
+    headers: headersOut,
+    contentType,
+    sizeBytes: read.size,
+    durationMs: totalMs,
+    body: read.bytes && text ? decodeBody(read.bytes, contentType) : null,
+    bodyB64: read.bytes && !text ? toBase64(read.bytes) : null,
+    redirected: input.redirected,
+    url: input.url.toString(),
+    cookies,
+    timing: { ttfbMs: Math.max(0, Math.round(input.ttfbAt - input.startedAt)), downloadMs, totalMs },
+    error: 'cross_origin_redirect',
+  }
+}
+
 function errorEnvelope(input: {
   error: string
   url: string
@@ -214,15 +320,20 @@ function errorEnvelope(input: {
   }
 }
 
-async function runProxy(input: ProxyRequest, body: string | Uint8Array | undefined): Promise<ProxyResponse> {
+async function runProxy(
+  input: ProxyRequest,
+  body: string | Uint8Array | FormData | undefined,
+): Promise<ProxyResponse> {
   const startedAt = performance.now()
   const signal = AbortSignal.timeout(clampTimeout(input.timeoutMs))
   let current = assertTargetUrl(input.url)
   let method: HttpMethod = input.method
-  let currentBody = body
+  let currentBody: string | Uint8Array | FormData | undefined = body
   let redirected = false
   let hops = 0
   const headers = buildRequestHeaders(input.headers)
+  // A FormData body owns its boundary; a user-supplied Content-Type would make it unreadable.
+  if (body instanceof FormData) headers.delete('content-type')
 
   try {
     for (;;) {
@@ -281,12 +392,19 @@ async function runProxy(input: ProxyRequest, body: string | Uint8Array | undefin
             throw error
           }
 
+          if (next.origin !== current.origin) {
+            return redirectEnvelope({
+              response,
+              url: current,
+              redirected,
+              startedAt,
+              ttfbAt,
+            })
+          }
+
           if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === 'POST')) {
             method = 'GET'
             currentBody = undefined
-          }
-          if (next.origin !== current.origin) {
-            for (const name of CROSS_ORIGIN_HEADERS) headers.delete(name)
           }
 
           hops += 1
@@ -331,7 +449,7 @@ async function runProxy(input: ProxyRequest, body: string | Uint8Array | undefin
         contentType,
         sizeBytes: read.size,
         durationMs: totalMs,
-        body: text ? new TextDecoder().decode(read.bytes) : null,
+        body: text ? decodeBody(read.bytes, contentType) : null,
         bodyB64: text ? null : toBase64(read.bytes),
         redirected,
         url: current.toString(),

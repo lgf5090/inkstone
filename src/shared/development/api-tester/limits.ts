@@ -24,6 +24,8 @@ export const MAX_GLOBAL_VARIABLES = 200
 export const MAX_KV_ITEMS = 100
 export const MAX_KV_KEY_CHARS = 200
 export const MAX_KV_VALUE_CHARS = 8 * 1024
+export const MAX_MULTIPART_FIELDS = 100
+export const MAX_MULTIPART_BYTES = 16 * 1024 * 1024
 export const MAX_SCRIPT_CHARS = 64 * 1024
 export const MAX_TEXT_BODY_BYTES = 5 * 1024 * 1024
 
@@ -73,6 +75,8 @@ export const PROXY_RATE_LIMIT = { maxAttempts: 120, windowMs: 60_000, lockMs: 60
 export const OAUTH_RATE_LIMIT = { maxAttempts: 20, windowMs: 60_000, lockMs: 60_000 } as const
 export const WS_TICKET_RATE_LIMIT = { maxAttempts: 30, windowMs: 60_000, lockMs: 60_000 } as const
 export const FILE_RATE_LIMIT = { maxAttempts: 30, windowMs: 60_000, lockMs: 60_000 } as const
+export const STATE_RATE_LIMIT = { maxAttempts: 240, windowMs: 60_000, lockMs: 60_000 } as const
+export const HISTORY_RATE_LIMIT = { maxAttempts: 120, windowMs: 60_000, lockMs: 60_000 } as const
 
 export const IMAGE_EXTENSIONS: Record<string, string> = {
   'image/png': 'png',

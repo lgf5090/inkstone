@@ -265,6 +265,38 @@ describe('relay request shaping', () => {
     expect(response.status).toBe(400)
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  it('builds a real multipart body with text and file fields', async () => {
+    const fileId = newApiTesterId()
+    const key = `development/apitester/bin/${USER}/${fileId}.bin`
+    await bucket.put(key, new Uint8Array([4, 5, 6]))
+    const now = Date.now()
+    db.prepare(
+      `INSERT INTO development_apitester_files
+         (id, user_id, kind, name, content_type, size, r2_key, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(fileId, USER, 'bin', 'avatar.png', 'image/png', 3, key, now, now + FILE_TTL_MS)
+      .run()
+    fetchMock.mockResolvedValue(textResponse('ok'))
+
+    const response = await postProxy({
+      method: 'POST',
+      multipart: [
+        { key: 'name', value: 'ink' },
+        { key: 'avatar', value: '', isFile: true, fileId, fileName: 'avatar.png', contentType: 'image/png' },
+      ],
+    })
+    expect(response.status).toBe(200)
+    const body = fetchMock.mock.calls[0]![1]!.body as FormData
+    expect(body).toBeInstanceOf(FormData)
+    expect(body.get('name')).toBe('ink')
+    const file = body.get('avatar') as File
+    expect(file.name).toBe('avatar.png')
+    expect(Array.from(new Uint8Array(await file.arrayBuffer()))).toEqual([4, 5, 6])
+    const headers = new Headers(fetchMock.mock.calls[0]![1]!.headers)
+    expect(headers.get('content-type')).toBeNull()
+  })
 })
 
 describe('relay redirects', () => {
@@ -311,29 +343,31 @@ describe('relay redirects', () => {
     expect(fetchMock.mock.calls[1]![1]!.body).toBe('payload')
   })
 
-  it('drops authorization and cookie headers on a cross-origin redirect', async () => {
-    // The relay reuses one Headers object while following, so the mock snapshots each hop when the
-    // fetch is made; inspecting it later would show the mutations the next hop caused.
+  it('stops at a cross-origin redirect instead of forwarding credentials or the body', async () => {
     const seen: Headers[] = []
     fetchMock.mockImplementation(async (_input, init) => {
       seen.push(new Headers(init?.headers))
-      return seen.length === 1
-        ? redirectResponse(302, 'https://other.example/next')
-        : textResponse('done')
+      return redirectResponse(307, 'https://other.example/next', 'moved')
     })
 
-    await postProxy({
+    const response = await postProxy({
+      method: 'POST',
+      body: 'payload',
       headers: [
         { key: 'Authorization', value: 'Bearer token' },
+        { key: 'X-Api-Key', value: 'secret-key' },
         { key: 'Cookie', value: 'session=secret' },
       ],
     })
+    const body = await proxyJson(response)
 
-    expect(seen).toHaveLength(2)
-    expect(seen[0]!.get('authorization')).toBe('Bearer token')
-    expect(seen[0]!.get('cookie')).toBe('session=secret')
-    expect(seen[1]!.get('authorization')).toBeNull()
-    expect(seen[1]!.get('cookie')).toBeNull()
+    expect(response.status).toBe(200)
+    expect(body.status).toBe(307)
+    expect(body.error).toBe('cross_origin_redirect')
+    expect(body.body).toBe('moved')
+    expect(body.url).toBe('https://api.example.com/items')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(seen[0]!.get('x-api-key')).toBe('secret-key')
   })
 
   it('keeps credentials on a same-origin redirect', async () => {
