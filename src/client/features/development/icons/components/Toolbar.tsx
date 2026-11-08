@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import {
+  ArrowUpDown,
   Download,
   Grid3x3,
   Images,
@@ -7,6 +8,7 @@ import {
   Menu,
   Pin,
   RefreshCw,
+  Rows3,
   Search,
   Settings2,
   SlidersHorizontal,
@@ -20,8 +22,9 @@ import type { IconBootstrap } from '@shared/development/icons/types'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { Button, IconButton } from '../../../../components/primitives'
-import { Input, Segmented } from '../../../../components/form'
+import { Input, Segmented, Slider } from '../../../../components/form'
 import { SelectMenu } from '../../../../components/select-menu'
+import { Tooltip } from '../../../../components/overlay'
 import {
   activeFilterCount,
   clearFilters,
@@ -35,6 +38,8 @@ const DENSITY_LABELS: Record<IconDensity, string> = {
   medium: 'development.icons.toolbar.density.medium',
   large: 'development.icons.toolbar.density.large',
 }
+
+const DENSITY_ORDER: readonly IconDensity[] = ['small', 'medium', 'large']
 
 export interface ToolbarProps {
   bootstrap: IconBootstrap | null
@@ -135,7 +140,9 @@ export function Toolbar({
   return (
     <header className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-        <IconButton label={t('development.icons.toolbar.sidebar')} size="sm" variant="secondary" className="h-8 w-8 shrink-0 lg:hidden" onClick={onOpenSidebar}><Menu size={15} /></IconButton>
+        <Tooltip label={t('development.icons.toolbar.sidebar')}>
+          <IconButton label={t('development.icons.toolbar.sidebar')} size="sm" variant="secondary" className="h-8 w-8 shrink-0 lg:hidden" onClick={onOpenSidebar}><Menu size={15} /></IconButton>
+        </Tooltip>
 
         <div className="min-w-[180px] flex-1 sm:max-w-md">
           <Input
@@ -165,10 +172,10 @@ export function Toolbar({
           value={state.sort}
           onChange={(value) => onChange({ ...state, sort: value as BrowseState['sort'] })}
           options={[
-            { value: 'created', label: t('development.icons.toolbar.sort.created') },
-            { value: 'updated', label: t('development.icons.toolbar.sort.updated') },
-            { value: 'name', label: t('development.icons.toolbar.sort.name') },
-            { value: 'used', label: t('development.icons.toolbar.sort.used') },
+            { value: 'created', label: t('development.icons.toolbar.sort.created'), icon: <ArrowUpDown size={12} /> },
+            { value: 'updated', label: t('development.icons.toolbar.sort.updated'), icon: <ArrowUpDown size={12} /> },
+            { value: 'name', label: t('development.icons.toolbar.sort.name'), icon: <ArrowUpDown size={12} /> },
+            { value: 'used', label: t('development.icons.toolbar.sort.used'), icon: <ArrowUpDown size={12} /> },
           ]}
           size="sm"
           className="w-32"
@@ -187,29 +194,40 @@ export function Toolbar({
         />
 
         {state.view === 'grid' && (
-          <SelectMenu
-            label={t('development.icons.toolbar.density')}
-            value={state.density}
-            onChange={(value) => onChange({ ...state, density: value as IconDensity })}
-            options={(Object.keys(DENSITY_LABELS) as IconDensity[]).map((id) => ({ value: id, label: t(DENSITY_LABELS[id] as never) }))}
-            size="sm"
-            className="w-28"
-          />
+          <div className="flex items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 py-1">
+            <Grid3x3 size={12} className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
+            <Slider
+              value={DENSITY_ORDER.indexOf(state.density)}
+              min={0}
+              max={2}
+              onChange={(value) => onChange({ ...state, density: DENSITY_ORDER[value] ?? 'medium' })}
+              label={t('development.icons.toolbar.density')}
+              className="w-20"
+            />
+            <span className="w-14 shrink-0 text-[length:var(--text-10)] text-[var(--text-secondary)]">{t(DENSITY_LABELS[state.density] as never)}</span>
+          </div>
         )}
 
         <SelectMenu
           label={t('development.icons.toolbar.page_size')}
           value={String(state.pageSize)}
           onChange={(value) => onChange({ ...state, pageSize: Number(value) })}
-          options={[{ value: '60', label: t('development.icons.toolbar.page_60') }, { value: '120', label: t('development.icons.toolbar.page_120') }]}
+          options={[
+            { value: '60', label: t('development.icons.toolbar.page_60'), icon: <Rows3 size={12} /> },
+            { value: '120', label: t('development.icons.toolbar.page_120'), icon: <Rows3 size={12} /> },
+          ]}
           size="sm"
           className="w-24"
         />
 
-        <IconButton label={t('development.icons.toolbar.refresh')} size="sm" className="h-8 w-8" onClick={onRefresh}>
-          <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
-        </IconButton>
-        <IconButton label={t('development.icons.toolbar.settings')} size="sm" className="h-8 w-8" onClick={onSettings}><Settings2 size={14} /></IconButton>
+        <Tooltip label={t('development.icons.toolbar.refresh')}>
+          <IconButton label={t('development.icons.toolbar.refresh')} size="sm" className="h-8 w-8" onClick={onRefresh}>
+            <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={t('development.icons.toolbar.settings')}>
+          <IconButton label={t('development.icons.toolbar.settings')} size="sm" className="h-8 w-8" onClick={onSettings}><Settings2 size={14} /></IconButton>
+        </Tooltip>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 border-t border-[var(--border-subtle)] px-3 py-1.5">
@@ -234,7 +252,7 @@ export function Toolbar({
                 <X size={10} />
               </button>
             ))}
-            <Button size="sm" variant="ghost" onClick={() => onChange(clearFilters(state))}>{t('development.icons.filter.clear')}</Button>
+            <Button size="sm" variant="ghost" onClick={() => onChange(clearFilters(state))}><X size={12} />{t('development.icons.filter.clear')}</Button>
           </div>
         ) : (
           <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.icons.toolbar.hint')}</span>

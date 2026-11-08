@@ -1,3 +1,15 @@
+import {
+  CalendarDays,
+  Check,
+  FileType,
+  Layers,
+  Palette,
+  RotateCcw,
+  Ruler,
+  Shapes,
+  Star,
+  Tag as TagIcon,
+} from 'lucide-react'
 import type { IconBootstrap, IconFormat } from '@shared/development/icons/types'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
@@ -26,10 +38,11 @@ const COLORS: { id: Exclude<IconColorFilter, ''>; label: string }[] = [
   { id: 'multi', label: 'development.icons.filter.multi' },
 ]
 
-function Section({ title, children, hint }: { title: string; children: React.ReactNode; hint?: string }) {
+function Section({ title, children, hint, icon }: { title: string; children: React.ReactNode; hint?: string; icon: React.ReactNode }) {
   return (
     <section className="space-y-1.5">
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-baseline gap-1.5">
+        <span className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true">{icon}</span>
         <h3 className="text-[length:var(--text-11)] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">{title}</h3>
         {hint && <span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{hint}</span>}
       </div>
@@ -84,13 +97,13 @@ export function FilterPanel({ open, onClose, bootstrap, state, onChange }: Filte
       footer={(
         <div className="flex w-full items-center gap-2">
           <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.icons.filter.active')}: {active}</span>
-          <Button size="sm" variant="ghost" onClick={() => onChange(clearFilters(state))} disabled={!active}>{t('development.icons.filter.reset')}</Button>
-          <Button size="sm" className="ml-auto" onClick={onClose}>{t('development.icons.filter.done')}</Button>
+          <Button size="sm" variant="ghost" onClick={() => onChange(clearFilters(state))} disabled={!active}><RotateCcw size={12} />{t('development.icons.filter.reset')}</Button>
+          <Button size="sm" className="ml-auto" onClick={onClose}><Check size={12} />{t('development.icons.filter.done')}</Button>
         </div>
       )}
     >
       <div className="max-h-[65vh] space-y-5 overflow-y-auto pr-1">
-        <Section title={t('development.icons.filter.collections')}>
+        <Section title={t('development.icons.filter.collections')} icon={<Layers size={12} />}>
           <div className="flex flex-wrap gap-1.5">
             {bootstrap.collections.map((collection) => (
               <Chip
@@ -106,7 +119,7 @@ export function FilterPanel({ open, onClose, bootstrap, state, onChange }: Filte
           </div>
         </Section>
 
-        <Section title={t('development.icons.filter.style')}>
+        <Section title={t('development.icons.filter.style')} icon={<Shapes size={12} />}>
           <div className="flex flex-wrap gap-1.5">
             {STYLES.map((style) => (
               <Chip
@@ -121,7 +134,7 @@ export function FilterPanel({ open, onClose, bootstrap, state, onChange }: Filte
           </div>
         </Section>
 
-        <Section title={t('development.icons.filter.format')}>
+        <Section title={t('development.icons.filter.format')} icon={<FileType size={12} />}>
           <div className="flex flex-wrap gap-1.5">
             {FORMATS.map((format) => (
               <Chip
@@ -136,7 +149,7 @@ export function FilterPanel({ open, onClose, bootstrap, state, onChange }: Filte
           </div>
         </Section>
 
-        <Section title={t('development.icons.filter.tags')}>
+        <Section title={t('development.icons.filter.tags')} icon={<TagIcon size={12} />}>
           <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
             {bootstrap.tags.map((tag) => (
               <Chip
@@ -153,7 +166,7 @@ export function FilterPanel({ open, onClose, bootstrap, state, onChange }: Filte
           </div>
         </Section>
 
-        <Section title={t('development.icons.filter.color')}>
+        <Section title={t('development.icons.filter.color')} icon={<Palette size={12} />}>
           <div className="flex flex-wrap gap-1.5">
             {COLORS.map((color) => (
               <Chip
@@ -168,7 +181,7 @@ export function FilterPanel({ open, onClose, bootstrap, state, onChange }: Filte
           </div>
         </Section>
 
-        <Section title={t('development.icons.filter.size')} hint={t('development.icons.filter.size_hint')}>
+        <Section title={t('development.icons.filter.size')} hint={t('development.icons.filter.size_hint')} icon={<Ruler size={12} />}>
           <div className="flex items-center gap-2">
             <Input
               type="number"
@@ -195,7 +208,7 @@ export function FilterPanel({ open, onClose, bootstrap, state, onChange }: Filte
           </div>
         </Section>
 
-        <Section title={t('development.icons.filter.created')}>
+        <Section title={t('development.icons.filter.created')} icon={<CalendarDays size={12} />}>
           <div className="flex flex-wrap items-center gap-2">
             <DatePicker label={t('development.icons.filter.from')} value={state.from} placeholder={t('development.icons.filter.from')} onChange={(value) => onChange({ ...state, from: value })} className="w-40" />
             <span className="text-[var(--text-tertiary)]">—</span>
@@ -203,7 +216,7 @@ export function FilterPanel({ open, onClose, bootstrap, state, onChange }: Filte
           </div>
         </Section>
 
-        <Section title={t('development.icons.filter.views')}>
+        <Section title={t('development.icons.filter.views')} icon={<Star size={12} />}>
           <div className="flex flex-wrap gap-3">
             <Checkbox
               checked={state.state === 'favorites'}

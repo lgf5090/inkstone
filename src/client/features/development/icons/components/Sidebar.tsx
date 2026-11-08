@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Info,
   Layers,
   Pin,
   Plus,
@@ -81,7 +82,7 @@ function Group({
         id={`icons-group-${id}`}
         onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full items-center gap-1.5 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-10)] font-semibold uppercase tracking-wide text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+        className="flex w-full items-center gap-1.5 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-10)] font-semibold uppercase tracking-wide text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] focus-visible:shadow-[var(--shadow-ring-focus)] focus-visible:outline-none"
       >
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <span className="truncate">{label}</span>
@@ -124,7 +125,7 @@ function Row({
       style={{ paddingLeft: treeIndent(depth) }}
     >
       {onCheck && <Checkbox checked={Boolean(checked)} onChange={onCheck} ariaLabel={label} />}
-      <button type="button" onClick={onClick} className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left text-[length:var(--text-12)]">
+      <button type="button" onClick={onClick} title={label} className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] py-1.5 text-left text-[length:var(--text-12)] focus-visible:shadow-[var(--shadow-ring-focus)] focus-visible:outline-none">
         {icon}
         {dot && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot }} aria-hidden="true" />}
         <span className="truncate">{label}</span>
@@ -141,6 +142,7 @@ export interface SidebarProps {
   onChange: (state: BrowseState) => void
   onManageCollections: () => void
   onManageTags: () => void
+  onStats?: (collection: IconCollection) => void
   /** The mobile drawer already prints the title and the close button, so the rail drops its own. */
   embedded?: boolean
 }
@@ -149,7 +151,7 @@ export interface SidebarProps {
  * The rail is a tree of filters, not a list of links: every row toggles a facet, carries the number
  * of icons behind it, and remembers which groups the reader folded away.
  */
-export function Sidebar({ bootstrap, state, onChange, onManageCollections, onManageTags, embedded }: SidebarProps) {
+export function Sidebar({ bootstrap, state, onChange, onManageCollections, onManageTags, onStats, embedded }: SidebarProps) {
   const [groups, setGroups] = useState<GroupState>(readGroups)
   const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set())
 
@@ -285,6 +287,9 @@ export function Sidebar({ bootstrap, state, onChange, onManageCollections, onMan
               label={collection.name}
               count={counts.collections[collection.id] ?? 0}
               onClick={() => toggleCollection(collection.id)}
+              trailing={onStats ? (
+                <IconButton label={t('development.icons.collection.stats')} size="sm" className="h-6 w-6 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100" onClick={() => onStats(collection)}><Info size={11} /></IconButton>
+              ) : undefined}
             />
           ))}
         </Group>

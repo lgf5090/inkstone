@@ -26,8 +26,8 @@ function shortSize(item: IconAssetSummary): string {
 }
 
 /**
- * A dense square tile: the glyph is the subject, the name is one ellipsised line, and the hover tray
- * puts the four verbs a reader reaches for on top of the tile instead of behind a details click.
+ * A square tile with a two-line name and a fixed caption. Hover swaps the caption for four equal
+ * action cells, so the verbs are always inside the card and never clipped by its rounded overflow.
  */
 export const IconCard = memo(function IconCard({ item, selected, height, imageSize, onOpen, onFavorite, onCopy, onSelect }: IconCardProps) {
   return (
@@ -45,13 +45,12 @@ export const IconCard = memo(function IconCard({ item, selected, height, imageSi
       <button
         type="button"
         onClick={() => onOpen(item)}
-        className="flex min-h-0 flex-1 items-center justify-center p-3"
+        className="flex min-h-0 flex-1 items-center justify-center p-3 focus-visible:rounded-[var(--r-sm)] focus-visible:shadow-[var(--shadow-ring-focus)] focus-visible:outline-none"
         aria-label={`${t('development.icons.card.open')}: ${item.name}`}
         title={`${item.name} · ${item.format.toUpperCase()} · ${shortSize(item)}`}
       >
         <img
           src={item.thumbUrl}
-          srcSet={`${item.thumbUrl} 1x, ${item.thumb2xUrl} 2x`}
           alt=""
           loading="eager"
           decoding="sync"
@@ -61,47 +60,43 @@ export const IconCard = memo(function IconCard({ item, selected, height, imageSi
         />
       </button>
 
-      <div className="h-10 shrink-0 px-2 pb-1.5">
-        <div className="truncate text-[length:var(--text-11)] font-medium text-[var(--text-primary)]" title={item.name}>{item.name}</div>
-        <div className="mt-0.5 flex items-center gap-1 truncate text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+      <div className="relative h-16 shrink-0 border-t border-[var(--border-subtle)] px-2 py-1">
+        <div className="line-clamp-2 text-[length:var(--text-11)] font-medium leading-[13px] text-[var(--text-primary)]" title={item.name}>{item.name}</div>
+        <div className="mt-0.5 flex items-center gap-1 truncate text-[length:var(--text-10)] text-[var(--text-tertiary)] group-hover:invisible">
           <span className="uppercase">{item.format}</span>
           <span aria-hidden="true">·</span>
           <span>{shortSize(item)}</span>
           {item.pinned && <Pin size={9} aria-hidden="true" className="ml-auto shrink-0 text-[var(--warning)]" />}
           {item.favorited && <Star size={9} aria-hidden="true" className={cn('shrink-0 text-[var(--warning)]', item.pinned ? '' : 'ml-auto', 'fill-current')} />}
         </div>
-      </div>
-
-      <div className="invisible absolute left-1 top-1 group-hover:visible group-focus-within:visible">
-        <Checkbox checked={selected} onChange={(checked) => onSelect(item.id, checked)} ariaLabel={`${t('development.icons.card.select')} ${item.name}`} />
-      </div>
-
-      <div
-        className={cn(
-          'invisible absolute inset-x-1 bottom-10 flex items-center justify-center',
-          'group-hover:visible group-focus-within:visible',
-        )}
-      >
-        <div className="flex items-center gap-px rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-overlay)] p-px shadow-sm">
-          <IconButton label={t('development.icons.card.copy')} size="sm" className="size-4" onClick={() => onCopy(item)}><Copy size={10} /></IconButton>
+        <div className="invisible absolute inset-x-1 bottom-1 flex items-center gap-0.5 bg-[var(--bg-surface)] group-hover:visible group-focus-within:visible">
+          <button type="button" aria-label={t('development.icons.card.copy')} title={t('development.icons.card.copy')} onClick={() => onCopy(item)} className="inline-flex h-7 min-w-0 flex-1 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"><Copy size={13} /></button>
           <a
             href={item.rawUrl}
             download={`${item.name}.${item.format}`}
             aria-label={t('development.icons.card.download')}
-            className="inline-flex size-4 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            title={t('development.icons.card.download')}
+            className="inline-flex h-7 min-w-0 flex-1 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
           >
-            <Download size={10} />
+            <Download size={13} />
           </a>
-          <IconButton
-            label={item.favorited ? t('development.icons.card.unfavorite') : t('development.icons.card.favorite')}
-            size="sm"
-            className="size-4"
+          <button
+            type="button"
+            aria-label={item.favorited ? t('development.icons.card.unfavorite') : t('development.icons.card.favorite')}
+            title={item.favorited ? t('development.icons.card.unfavorite') : t('development.icons.card.favorite')}
             onClick={() => onFavorite(item)}
+            className="inline-flex h-7 min-w-0 flex-1 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
           >
-            <Star size={10} className={item.favorited ? 'fill-current text-[var(--warning)]' : ''} />
-          </IconButton>
-          <IconButton label={t('development.icons.card.more')} size="sm" className="size-4" onClick={() => onOpen(item)}><MoreHorizontal size={10} /></IconButton>
+            <Star size={13} className={item.favorited ? 'fill-current text-[var(--warning)]' : ''} />
+          </button>
+          <button type="button" aria-label={t('development.icons.card.more')} title={t('development.icons.card.more')} onClick={() => onOpen(item)} className="inline-flex h-7 min-w-0 flex-1 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"><MoreHorizontal size={13} /></button>
         </div>
+      </div>
+
+      <div className="invisible absolute left-1 top-1 group-hover:visible group-focus-within:visible">
+        <span className="flex rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-overlay)] p-0.5 shadow-sm">
+          <Checkbox checked={selected} onChange={(checked) => onSelect(item.id, checked)} ariaLabel={`${t('development.icons.card.select')} ${item.name}`} />
+        </span>
       </div>
     </div>
   )
@@ -124,7 +119,7 @@ export const IconRow = memo(function IconRow({ item, selected, collectionName, o
       )}
     >
       <Checkbox checked={selected} onChange={(checked) => onSelect(item.id, checked)} ariaLabel={`${t('development.icons.card.select')} ${item.name}`} />
-      <img src={item.thumbUrl} srcSet={`${item.thumbUrl} 1x, ${item.thumb2xUrl} 2x`} alt="" loading="eager" className="h-8 w-8 shrink-0 object-contain" />
+      <img src={item.thumbUrl} alt="" loading="eager" className="h-8 w-8 shrink-0 object-contain" />
       <button type="button" className="min-w-0 flex-1 truncate text-left text-[var(--text-primary)]" onClick={() => onOpen(item)}>{item.name}</button>
       <span className="hidden w-28 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)] sm:block">{collectionName}</span>
       <span className="w-10 uppercase text-[length:var(--text-10)] text-[var(--text-tertiary)]">{item.format}</span>

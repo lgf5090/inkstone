@@ -7019,6 +7019,9 @@ const allowed = new Map([
     "// The tuple below is the exact filter surface; the browse object also carries view settings that",
     "// must not refetch the list.",
     "// eslint-disable-next-line react-hooks/exhaustive-deps",
+    "// A failed look-up leaves the page usable; the banner appears on the next visit.",
+    "// Resume once per mount; the import id guard inside driveImport prevents a second loop.",
+    "// The library's declared total remains the fallback.",
   ]],
   ["src/client/features/development/icons/components/DetailDrawer.tsx", [
     "/**\n * The drawer is a workbench: the glyph is the subject, size/stroke/colour repaint it live, and the\n * code and download controls sit under it. Copy and download stay pinned to the bottom so a long\n * metadata list never pushes the primary verbs out of reach.\n */",
@@ -7029,9 +7032,9 @@ const allowed = new Map([
     "/**\n * One place for every facet, with the count each choice would leave behind. Chips toggle in place;\n * the grid refetches while the panel stays open, so a reader can see the effect before closing it.\n */",
   ]],
   ["src/client/features/development/icons/components/IconCard.tsx", [
-    "/**\n * A dense square tile: the glyph is the subject, the name is one ellipsised line, and the hover tray\n * puts the four verbs a reader reaches for on top of the tile instead of behind a details click.\n */",
     "/** The compact list keeps one line per icon; it is the mode for scanning names, not for browsing art. */",
     "/** The table mode is the audit view: every fact a row carries is a column, not a tooltip. */",
+    "/**\n * A square tile with a two-line name and a fixed caption. Hover swaps the caption for four equal\n * action cells, so the verbs are always inside the card and never clipped by its rounded overflow.\n */",
   ]],
   ["src/client/features/development/icons/components/Sidebar.tsx", [
     "/**\n * The rail is a tree of filters, not a list of links: every row toggles a facet, carries the number\n * of icons behind it, and remembers which groups the reader folded away.\n */",
@@ -32111,6 +32114,9 @@ const allowed = new Map([
   ]],
   ["src/shared/development/icons/types.ts", [
     "/** `queue` when a consumer will run it; `browser` when the client converts and uploads the outputs. */",
+    "/** Iconify's own count for the whole set. */",
+    "/** Rows actually present in D1 for this account and collection. */",
+    "/** Names skipped because their body matched another name in the set (aliases). */",
   ]],
   ["src/shared/email/model.ts", [
     "/** The row's write time, the token a draft save compares before it overwrites another device. */",
@@ -40139,6 +40145,17 @@ const allowed = new Map([
     "// Workers fetch a WebSocket as an HTTP upgrade, not as a ws(s):// URL.",
     "// The row expires with the idle window regardless; a failed cleanup must not fail the socket.",
     "// Checked before the ticket is consumed so a refused upgrade can be retried with the same ticket.",
+  ]],
+  ["src/worker/development/icons/bulk-import.ts", [
+    "/** Names this job will walk (the missing subset for a fill-missing job). */",
+    "/** Names in the whole collection, so the drill-down can report the true set size. */",
+    "/**\n * Fetching one collection archive once and splitting it into 50-icon chunks turns a paginated import\n * into a sequence of small R2 reads: the expensive 8 MB download happens at creation, and a resumed\n * step never touches the network or re-downloads the name list.\n */",
+    "// Aliases are alternate names for the same glyph, not additional icons. Importing them would make",
+    "// the planned total exceed the rows the grid can show (they collide on the content hash).",
+    "/**\n * One chunk per call. `processed_items` is the cursor: closing the tab pauses the import and the\n * next visit resumes at the same chunk. Names already in the collection are skipped before any byte\n * is written, so a repeated import and \"fill missing\" are both idempotent.\n */",
+    "/**\n * The collection drill-down: the full total the import planned, the rows actually in D1, and the\n * latest attempt. The imported number is the count the sidebar shows, so a short count is visible.\n */",
+    "// The staged bodies are only needed while the cursor is moving; the manifest stays for the",
+    "// drill-down's source total.",
   ]],
   ["src/worker/development/icons/convert.ts", [
     "/**\n * Advance a job by one bounded chunk.\n *\n * A queue message calls this once; a browser fallback calls it only to finalize the manifest. The\n * expensive conversion itself never runs inside the request that created the job.\n */",

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Download, Images, Loader2, Trash2, Upload } from 'lucide-react'
+import { AlertCircle, Download, Images, Loader2, Trash2, Upload, X } from 'lucide-react'
 import type {
   IconAssetDetail,
   IconAssetSummary,
   IconBootstrap,
   IconCollection,
+  IconCollectionStats,
   IconImport,
+  IconImportItem,
   IconJob,
   IconLimits,
   IconSettings,
@@ -29,19 +31,24 @@ import {
   cancelJob,
   createCollection,
   createExport,
-  createImport,
   createJob,
   createTag,
   deleteAsset,
   deleteCollection,
   deleteTag,
+  cancelBulkImport,
   fetchAsset,
   fetchAssets,
   fetchBootstrap,
+  fetchCollectionStats,
+  fetchImportFailures,
+  fetchImports,
   fetchJobs,
   finishJob,
   retryJob,
   seedBuiltinCollections,
+  startBulkImport,
+  stepBulkImport,
   updateAsset,
   updateCollection,
   updateGlobalLimits,
@@ -66,8 +73,8 @@ import { DetailDrawer } from './components/DetailDrawer'
 import { IconCard, IconRow, IconTableRow } from './components/IconCard'
 
 const GAP = 8
-const CARD_CAPTION = 40
-const DENSITY_MIN: Record<IconDensity, number> = { small: 56, medium: 72, large: 104 }
+const CARD_CAPTION = 64
+const DENSITY_MIN: Record<IconDensity, number> = { small: 80, medium: 96, large: 128 }
 const LIST_ROW = 52
 const TABLE_ROW = 40
 
@@ -110,6 +117,13 @@ export function IconsApp() {
   const [collectionOpen, setCollectionOpen] = useState(false)
   const [convertOpen, setConvertOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [activeImport, setActiveImport] = useState<IconImport | null>(null)
+  const [importFailures, setImportFailures] = useState<IconImportItem[]>([])
+  const [failuresOpen, setFailuresOpen] = useState(false)
+  const [statsCollection, setStatsCollection] = useState<IconCollection | null>(null)
+  const [collectionStats, setCollectionStats] = useState<IconCollectionStats | null>(null)
+  const [statsBusy, setStatsBusy] = useState(false)
+  const importRun = useRef<string | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -270,6 +284,95 @@ export function IconsApp() {
     const timer = window.setInterval(() => { void refreshJobs() }, 2000)
     return () => window.clearInterval(timer)
   }, [activeJob, refreshJobs])
+
+  const driveImport = useCallback(async (job: IconImport) => {
+    if (importRun.current === job.id) return
+    importRun.current = job.id
+    setActiveImport(job)
+    try {
+      let current = job
+      while (current.status === 'running') {
+        const result = await stepBulkImport(current.id)
+        current = result.import
+        setActiveImport(current)
+        setImportFailures(result.failures)
+        if (current.status !== 'running') break
+      }
+      await refresh()
+      toast({
+        title: current.failedItems
+          ? `${t('development.icons.import.finished')} ${current.processedItems - current.failedItems} / ${current.totalItems}`
+          : t('development.icons.import.finished'),
+        tone: current.failedItems ? 'warning' : 'success',
+      })
+    } catch (cause) {
+      toast({ title: message(cause), tone: 'danger' })
+    } finally {
+      importRun.current = null
+    }
+  }, [refresh, toast])
+
+  const resumeImport = useCallback(async () => {
+    try {
+      const rows = await fetchImports()
+      const running = rows.find((row) => row.status === 'running' && row.kind === 'iconify')
+      if (running) void driveImport(running)
+    } catch {
+      // A failed look-up leaves the page usable; the banner appears on the next visit.
+    }
+  }, [driveImport])
+
+  useEffect(() => {
+    void resumeImport()
+    // Resume once per mount; the import id guard inside driveImport prevents a second loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const startImport = useCallback(async (prefix: string, mode: 'full' | 'missing') => {
+    try {
+      const job = await startBulkImport(prefix, mode)
+      setImportOpen(false)
+      setStatsCollection(null)
+      await driveImport(job)
+    } catch (cause) {
+      toast({ title: message(cause), tone: 'danger' })
+    }
+  }, [driveImport, toast])
+
+  const startAllImports = useCallback(async () => {
+    setImportOpen(false)
+    for (const library of ICON_BUILTIN_LIBRARIES) {
+      try {
+        const job = await startBulkImport(library.prefix, 'full')
+        await driveImport(job)
+      } catch (cause) {
+        toast({ title: `${library.name}: ${message(cause)}`, tone: 'danger' })
+      }
+    }
+  }, [driveImport, toast])
+
+  const openStats = useCallback(async (collection: IconCollection) => {
+    setStatsCollection(collection)
+    setCollectionStats(null)
+    setStatsBusy(true)
+    try {
+      setCollectionStats(await fetchCollectionStats(collection.id))
+    } catch (cause) {
+      toast({ title: message(cause), tone: 'danger' })
+    } finally {
+      setStatsBusy(false)
+    }
+  }, [toast])
+
+  const openFailures = useCallback(async () => {
+    if (!activeImport) return
+    try {
+      setImportFailures(await fetchImportFailures(activeImport.id))
+      setFailuresOpen(true)
+    } catch (cause) {
+      toast({ title: message(cause), tone: 'danger' })
+    }
+  }, [activeImport, toast])
 
   useEffect(() => {
     const element = sentinelRef.current
@@ -445,7 +548,7 @@ export function IconsApp() {
     : items.slice(startRow, endRow)
   const padTop = startRow * rowStride
   const tailHeight = Math.max(0, (totalRows - endRow) * rowStride)
-  const imageSize = Math.max(20, Math.min(56, Math.round(cardWidth * 0.5)))
+  const imageSize = Math.max(24, Math.min(64, Math.round(cardWidth * 0.46)))
   const filtersActive = activeFilterCount(browse) > 0 || Boolean(browse.q)
   const title = browse.collections.length
     ? browse.collections.map((id) => collectionNames.get(id) ?? id).join(', ')
@@ -526,6 +629,7 @@ export function IconsApp() {
       onChange={setBrowse}
       onManageCollections={() => setCollectionOpen(true)}
       onManageTags={() => setTagOpen(true)}
+      onStats={(collection) => void openStats(collection)}
     />
   )
 
@@ -577,6 +681,26 @@ export function IconsApp() {
           <div data-testid="icons-converting" className="flex items-center gap-2 bg-[var(--accent-soft)] px-4 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">
             <Loader2 size={14} className="animate-spin" />
             <span>{t('development.icons.convert.browser')} {convertProgress}</span>
+          </div>
+        )}
+
+        {activeImport && (activeImport.status === 'running' || activeImport.failedItems > 0) && (
+          <div data-testid="icons-import-banner" className="flex flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-raised)] px-4 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+            {activeImport.status === 'running' ? <Loader2 size={14} className="animate-spin" /> : <AlertCircle size={14} className="text-[var(--warning)]" />}
+            <span className="font-medium text-[var(--text-primary)]">{activeImport.prefix}</span>
+            <span className="tabular-nums">{activeImport.processedItems} / {activeImport.totalItems}</span>
+            <div className="h-1.5 w-32 overflow-hidden rounded-full bg-[var(--bg-hover)]">
+              <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${activeImport.totalItems ? Math.round((activeImport.processedItems / activeImport.totalItems) * 100) : 0}%` }} />
+            </div>
+            {activeImport.failedItems > 0 && (
+              <Button size="sm" variant="ghost" onClick={() => void openFailures()}>{t('development.icons.import.failures')} {activeImport.failedItems}</Button>
+            )}
+            {activeImport.status === 'running' && (
+              <Button size="sm" variant="ghost" onClick={() => void cancelBulkImport(activeImport.id).then(() => setActiveImport(null))}>{t('development.icons.common.cancel')}</Button>
+            )}
+            {activeImport.status !== 'running' && (
+              <button type="button" aria-label={t('development.icons.import.dismiss')} title={t('development.icons.import.dismiss')} onClick={() => setActiveImport(null)} className="ml-auto rounded p-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"><X size={13} /></button>
+            )}
           </div>
         )}
 
@@ -737,6 +861,7 @@ export function IconsApp() {
             onChange={setBrowse}
             onManageCollections={() => setCollectionOpen(true)}
             onManageTags={() => setTagOpen(true)}
+            onStats={(collection) => void openStats(collection)}
             embedded
           />
         </Drawer>
@@ -774,9 +899,19 @@ export function IconsApp() {
       <IconImportDialog
         open={importOpen}
         onClose={() => setImportOpen(false)}
-        onDone={async (result) => { setImportOpen(false); await refresh(); toast({ title: `${result.processedItems}/${result.totalItems}`, tone: result.failedItems ? 'warning' : 'success' }) }}
-        onSeedAll={async () => { setImportOpen(false); setSeeding(true); await seedBuiltinCollections(); }}
+        bootstrap={bootstrap}
+        onStart={(prefix) => void startImport(prefix, 'full')}
+        onStartAll={() => void startAllImports()}
       />
+      <CollectionStatsDialog
+        collection={statsCollection}
+        stats={collectionStats}
+        busy={statsBusy}
+        onClose={() => setStatsCollection(null)}
+        onFull={() => { if (statsCollection) void startImport(statsCollection.slug, 'full') }}
+        onMissing={() => { if (statsCollection) void startImport(statsCollection.slug, 'missing') }}
+      />
+      <FailuresDialog open={failuresOpen} onClose={() => setFailuresOpen(false)} failures={importFailures} />
       <IconExportDialog
         open={exportOpen}
         onClose={() => setExportOpen(false)}
@@ -1084,54 +1219,144 @@ function JobStrip({ jobs, onCancel, onRetry }: {
   )
 }
 
-function IconImportDialog({ open, onClose, onDone, onSeedAll }: {
+function IconImportDialog({ open, onClose, bootstrap, onStart, onStartAll }: {
   open: boolean
   onClose: () => void
-  onDone: (result: IconImport) => Promise<void>
-  onSeedAll: () => Promise<void>
+  bootstrap: IconBootstrap | null
+  onStart: (prefix: string) => void
+  onStartAll: () => void
 }) {
-  const [busy, setBusy] = useState('')
-  const [limit, setLimit] = useState('120')
-  const start = async (prefix: string): Promise<void> => {
-    setBusy(prefix)
-    try {
-      const result = await createImport(prefix, Number(limit))
-      await onDone(result)
-    } finally {
-      setBusy('')
+  const [totals, setTotals] = useState<Record<string, number>>({})
+  useEffect(() => {
+    if (!open) return
+    let alive = true
+    const load = async (): Promise<void> => {
+      const next: Record<string, number> = {}
+      await Promise.all((bootstrap?.collections ?? []).map(async (collection) => {
+        try {
+          next[collection.slug] = (await fetchCollectionStats(collection.id)).total
+        } catch {
+          // The library's declared total remains the fallback.
+        }
+      }))
+      if (alive) setTotals(next)
     }
-  }
+    void load()
+    return () => { alive = false }
+  }, [open, bootstrap])
   return (
     <Modal open={open} onClose={onClose} title={t('development.icons.import.title')} description={t('development.icons.import.description')} width={720}>
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('development.icons.import.limit')}</span>
-          <SelectMenu
-            label={t('development.icons.import.limit')}
-            value={limit}
-            onChange={setLimit}
-            options={[{ value: '60', label: '60' }, { value: '120', label: '120' }, { value: '300', label: '300' }, { value: '500', label: '500' }]}
-            size="sm"
-            className="w-24"
-          />
-          <Button size="sm" className="ml-auto" onClick={() => void onSeedAll()}>
+          <span className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('development.icons.import.bulk_hint')}</span>
+          <Button size="sm" className="ml-auto" onClick={onStartAll}>
             <Images size={13} />{t('development.icons.import.all')}
           </Button>
         </div>
         <div className="grid max-h-[52vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
-          {ICON_BUILTIN_LIBRARIES.map((library) => (
-            <article key={library.prefix} className="flex flex-col gap-1 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5">
-              <div className="flex items-center gap-2">
-                <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">{library.name}</span>
-                <span className="rounded-[var(--r-full)] bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{library.license}</span>
-                <Button size="sm" variant="secondary" className="ml-auto" loading={busy === library.prefix} onClick={() => void start(library.prefix)}>{t('development.icons.import.one')}</Button>
-              </div>
-              <p className="text-[length:var(--text-11)] leading-snug text-[var(--text-tertiary)]">{library.description}</p>
-              <div className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{library.totalIcons} {t('development.icons.import.icons')}</div>
-            </article>
-          ))}
+          {ICON_BUILTIN_LIBRARIES.map((library) => {
+            const imported = bootstrap?.collections.find((collection) => collection.slug === library.prefix)?.count ?? 0
+            const total = totals[library.prefix] ?? library.totalIcons
+            return (
+              <article key={library.prefix} className="flex flex-col gap-1 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">{library.name}</span>
+                  <span className="rounded-[var(--r-full)] bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{library.license}</span>
+                  <Button size="sm" variant="secondary" className="ml-auto" onClick={() => onStart(library.prefix)}>{t('development.icons.import.bulk_one')}</Button>
+                </div>
+                <p className="text-[length:var(--text-11)] leading-snug text-[var(--text-tertiary)]">{library.description}</p>
+                <div className="flex items-center justify-between text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+                  <span>{total} {t('development.icons.import.icons')}</span>
+                  <span className="tabular-nums">{t('development.icons.import.imported')} {imported}</span>
+                </div>
+              </article>
+            )
+          })}
         </div>
         <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.icons.import.builtin_hint')}</p>
+      </div>
+    </Modal>
+  )
+}
+
+function CollectionStatsDialog({ collection, stats, busy, onClose, onFull, onMissing }: {
+  collection: IconCollection | null
+  stats: IconCollectionStats | null
+  busy: boolean
+  onClose: () => void
+  onFull: () => void
+  onMissing: () => void
+}) {
+  return (
+    <Modal open={Boolean(collection)} onClose={onClose} title={t('development.icons.collection.stats')} width={480}>
+      {collection && (
+        <div className="space-y-3 text-[length:var(--text-12)]">
+          <div className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{collection.name}</div>
+          {busy || !stats ? (
+            <div className="flex items-center gap-2 py-6 text-[var(--text-tertiary)]"><Loader2 size={16} className="animate-spin" />{t('development.icons.grid.loading')}</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
+                  <div className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.icons.stats.total')}</div>
+                  <div className="tabular-nums text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">{stats.total}</div>
+                </div>
+                <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
+                  <div className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.icons.stats.imported')}</div>
+                  <div className="tabular-nums text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">{stats.imported}</div>
+                </div>
+                <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
+                  <div className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.icons.stats.missing')}</div>
+                  <div className="tabular-nums text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">{stats.missing}</div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-[var(--text-secondary)]">
+                <span>{t('development.icons.stats.last')}</span>
+                <span className="text-[var(--text-tertiary)]">{stats.lastImportedAt ? new Date(stats.lastImportedAt).toLocaleString() : t('development.icons.stats.never')}</span>
+              </div>
+              <div className="flex items-center justify-between text-[var(--text-secondary)]">
+                <span>{t('development.icons.stats.status')}</span>
+                <span className="text-[var(--text-tertiary)]">{stats.status}{stats.failedItems ? ` · ${stats.failedItems} ${t('development.icons.import.failures')}` : ''}</span>
+              </div>
+              {stats.duplicates > 0 && (
+                <div className="flex items-center justify-between text-[var(--text-secondary)]">
+                  <span>{t('development.icons.stats.duplicates')}</span>
+                  <span className="tabular-nums text-[var(--text-tertiary)]">{stats.duplicates}</span>
+                </div>
+              )}
+              {stats.total > 0 && (
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-hover)]">
+                  <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${Math.min(100, Math.round((stats.imported / stats.total) * 100))}%` }} />
+                </div>
+              )}
+            </>
+          )}
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <Button size="sm" variant="secondary" onClick={onClose}>{t('development.icons.common.cancel')}</Button>
+            <Button size="sm" variant="secondary" onClick={onMissing} disabled={busy || (stats?.missing ?? 0) === 0}><Download size={13} />{t('development.icons.stats.fill_missing')}</Button>
+            <Button size="sm" onClick={onFull} disabled={busy}><Images size={13} />{t('development.icons.stats.import_all')}</Button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+function FailuresDialog({ open, onClose, failures }: {
+  open: boolean
+  onClose: () => void
+  failures: IconImportItem[]
+}) {
+  return (
+    <Modal open={open} onClose={onClose} title={t('development.icons.import.failures_title')} width={560}>
+      <div className="max-h-[55vh] space-y-1 overflow-y-auto">
+        {failures.length === 0 && <p className="py-4 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('development.icons.import.no_failures')}</p>}
+        {failures.map((item) => (
+          <div key={item.itemKey} className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1">
+            <div className="font-mono text-[length:var(--text-11)] text-[var(--text-primary)]">{item.itemKey}</div>
+            <div className="text-[length:var(--text-10)] text-[var(--danger)]">{item.error}</div>
+          </div>
+        ))}
       </div>
     </Modal>
   )
