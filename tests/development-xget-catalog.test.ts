@@ -179,7 +179,7 @@ describe('the Xget URL detection', () => {
       ['https://github.com/Homebrew/homebrew-core/raw/HEAD/Formula/g/git.rb', 'homebrew'],
       ['https://formulae.brew.sh/api/formula/git.json', 'homebrew-api'],
       ['https://ghcr.io/v2/homebrew/core/git/manifests/2.39.0', 'homebrew-bottles'],
-      ['https://formulae.brew.sh/formula/git', 'homebrew'],
+      ['https://formulae.brew.sh/formula/git', 'homebrew-api'],
       ['https://registry-1.docker.io/v2/library/nginx/manifests/latest', 'cr-docker'],
       ['https://api.openai.com/v1/chat/completions', 'ip-openai'],
       ['http://github.com/facebook/react', 'gh'],
@@ -256,7 +256,7 @@ describe('the Xget download commands', () => {
     expect(raw.map((entry) => entry.name)).not.toContain('git clone')
 
     const crates = buildCommands(
-      'https://proxy.example/api/xget/crates/api/v1/crates/serde/1.0.0/download',
+      'https://proxy.example/api/xget/crates/serde/1.0.0/download',
       'crates',
     )
     expect(crates.map((entry) => entry.name)).toEqual(['wget', 'curl', 'aria2'])

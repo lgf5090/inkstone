@@ -398,13 +398,13 @@ const SPECIFIC: Record<string, PlatformGuide> = {
       {
         titleKey: 'development.xget.guide.crates.s0.title',
         commands: [
-          { cmd: "curl -L -O \"{proxy}/crates/api/v1/crates/serde/1.0.0/download\"" },
+          { cmd: "curl -L -O \"{proxy}/crates/serde/1.0.0/download\"" },
         ],
       },
       {
         titleKey: 'development.xget.guide.crates.s1.title',
         commands: [
-          { cmd: "curl -s \"{proxy}/crates/api/v1/crates/serde\"" },
+          { cmd: "curl -s \"{proxy}/crates/serde\"" },
         ],
       },
     ],
@@ -496,7 +496,7 @@ const SPECIFIC: Record<string, PlatformGuide> = {
       {
         titleKey: 'development.xget.guide.fedora.s0.title',
         commands: [
-          { cmd: "wget -c \"{proxy}/fedora/releases/39/Everything/x86_64/os/Packages/n/nginx-1.24.0-1.fc39.x86_64.rpm\"" },
+          { cmd: "wget -c \"{proxy}/fedora/releases/43/Everything/x86_64/os/Packages/n/nginx-1.28.0-3.fc43.x86_64.rpm\"" },
         ],
       },
       {

@@ -8,7 +8,12 @@ import { Button } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { useUiStore } from '../../../../lib/ui-store'
 import { xgetApi, describeXgetError } from '../api'
-import { buildCommands, detectPlatform, type DetectedUrl } from '../utils/commands'
+import {
+  buildCommands,
+  detectPlatform,
+  proxyPathFromUpstreamUrl,
+  type DetectedUrl,
+} from '../utils/commands'
 import { PlatformBadge } from './PlatformBadge'
 import { PlatformIcon } from './PlatformIcon'
 import type { XgetHistoryItem } from '../lib/history'
@@ -42,7 +47,7 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
     const nextDetected = detectPlatform(value)
     const nextConverted =
       nextDetected && proxyBase
-        ? `${proxyBase.replace(/\/+$/, '')}/${xgetPathPrefix(nextDetected.platform.key)}${nextDetected.url.pathname}${nextDetected.url.search}`
+        ? `${proxyBase.replace(/\/+$/, '')}/${xgetPathPrefix(nextDetected.platform.key)}${proxyPathFromUpstreamUrl(nextDetected.platform, nextDetected.url.pathname)}${nextDetected.url.search}`
         : ''
     setDetected(nextDetected)
     setConverted(nextConverted)
@@ -74,7 +79,7 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
       setDetected(nextDetected)
       setConverted(
         nextDetected && proxyBase
-          ? `${proxyBase.replace(/\/+$/, '')}/${xgetPathPrefix(nextDetected.platform.key)}${nextDetected.url.pathname}${nextDetected.url.search}`
+          ? `${proxyBase.replace(/\/+$/, '')}/${xgetPathPrefix(nextDetected.platform.key)}${proxyPathFromUpstreamUrl(nextDetected.platform, nextDetected.url.pathname)}${nextDetected.url.search}`
           : '',
       )
     }, 250)
@@ -123,7 +128,7 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
     setTestResult(null)
     try {
       const result = await xgetApi.testTarget(
-        `/${xgetPathPrefix(detected.platform.key)}${detected.url.pathname}`,
+        `/${xgetPathPrefix(detected.platform.key)}${proxyPathFromUpstreamUrl(detected.platform, detected.url.pathname)}`,
       )
       if (requestId !== testRequestRef.current) return
       const okText = t('development.xget.converter.test_ok', { url: result.target_url })

@@ -151,7 +151,7 @@ export const XGET_PLATFORMS: readonly XgetPlatform[] = [
     name: 'Homebrew',
     upstreamBase: 'https://github.com/Homebrew',
     category: 'package',
-    hosts: ['github.com/Homebrew', 'formulae.brew.sh', 'ghcr.io/v2/homebrew'],
+    hosts: ['github.com/Homebrew'],
     example: '/homebrew-core/raw/HEAD/Formula/g/git.rb',
   },
   {
@@ -159,7 +159,7 @@ export const XGET_PLATFORMS: readonly XgetPlatform[] = [
     name: 'Homebrew API',
     upstreamBase: 'https://formulae.brew.sh/api',
     category: 'package',
-    hosts: ['formulae.brew.sh/api'],
+    hosts: ['formulae.brew.sh/api', 'formulae.brew.sh'],
     example: '/formula/git.json',
   },
   {
@@ -168,7 +168,7 @@ export const XGET_PLATFORMS: readonly XgetPlatform[] = [
     upstreamBase: 'https://ghcr.io',
     category: 'package',
     hosts: ['ghcr.io/v2/homebrew'],
-    example: '/core/git/manifests/2.39.0',
+    example: '/v2/homebrew/core/git/manifests/2.39.0',
   },
   {
     key: 'rubygems',
@@ -224,7 +224,7 @@ export const XGET_PLATFORMS: readonly XgetPlatform[] = [
     upstreamBase: 'https://crates.io',
     category: 'package',
     hosts: ['crates.io'],
-    example: '/api/v1/crates/serde/1.0.0/download',
+    example: '/serde/1.0.0/download',
   },
   {
     key: 'packagist',
@@ -264,7 +264,7 @@ export const XGET_PLATFORMS: readonly XgetPlatform[] = [
     upstreamBase: 'https://mirrors.kernel.org/fedora',
     category: 'linux',
     hosts: ['mirrors.kernel.org'],
-    example: '/fedora/releases/39/Everything/x86_64/os/Packages/n/nginx-1.24.0-1.fc39.x86_64.rpm',
+    example: '/releases/43/Everything/x86_64/os/Packages/n/nginx-1.28.0-3.fc43.x86_64.rpm',
   },
   {
     key: 'rocky',

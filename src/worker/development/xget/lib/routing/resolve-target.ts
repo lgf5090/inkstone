@@ -64,7 +64,10 @@ export function resolveTarget(
   }
 
   const platformPath = `/${xgetPathPrefix(platform)}`
-  if (effectivePath === platformPath || effectivePath === `${platformPath}/`) {
+  if (
+    platform !== 'crates' &&
+    (effectivePath === platformPath || effectivePath === `${platformPath}/`)
+  ) {
     return { response: createErrorResponse('Missing resource path', 400, true) }
   }
 
