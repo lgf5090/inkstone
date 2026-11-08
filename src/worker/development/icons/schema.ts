@@ -175,6 +175,7 @@ export const DEVELOPMENT_ICONS_CORE_SCHEMA_STATEMENTS: readonly string[] = [
     id               TEXT NOT NULL,
     kind             TEXT NOT NULL,
     status           TEXT NOT NULL,
+    execution        TEXT NOT NULL DEFAULT 'browser',
     options_json     TEXT NOT NULL DEFAULT '{}',
     total_items      INTEGER NOT NULL DEFAULT 0,
     processed_items  INTEGER NOT NULL DEFAULT 0,
@@ -286,6 +287,26 @@ export const DEVELOPMENT_ICONS_SETTINGS_STATEMENTS: readonly string[] = [
   )`,
 ]
 
+export const DEVELOPMENT_ICONS_OUTPUTS_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS development_icons_job_outputs (
+    user_id    TEXT NOT NULL,
+    job_id     TEXT NOT NULL,
+    asset_id   TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    r2_key     TEXT NOT NULL,
+    bytes      INTEGER NOT NULL DEFAULT 0,
+    sha256     TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, job_id, asset_id, name)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_development_icons_job_outputs_job
+     ON development_icons_job_outputs(user_id, job_id)`,
+]
+
+export const DEVELOPMENT_ICONS_JOB_EXECUTION_STATEMENTS: readonly string[] = [
+  `ALTER TABLE development_icons_jobs ADD COLUMN execution TEXT NOT NULL DEFAULT 'browser'`,
+]
+
 export const DEVELOPMENT_ICONS_REQUIRED_TABLES: readonly string[] = [
   'development_icons_collections',
   'development_icons_assets',
@@ -298,6 +319,7 @@ export const DEVELOPMENT_ICONS_REQUIRED_TABLES: readonly string[] = [
   'development_icons_exports',
   'development_icons_jobs',
   'development_icons_job_items',
+  'development_icons_job_outputs',
   'development_icons_settings',
   'development_icons_limits',
 ]
@@ -327,6 +349,7 @@ export const DEVELOPMENT_ICONS_REQUIRED_INDEXES: readonly string[] = [
   'idx_development_icons_jobs_recent',
   'idx_development_icons_jobs_status',
   'idx_development_icons_job_items_status',
+  'idx_development_icons_job_outputs_job',
 ]
 
 export const DEVELOPMENT_ICONS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -339,8 +362,9 @@ export const DEVELOPMENT_ICONS_REQUIRED_COLUMNS: Readonly<Record<string, readonl
   development_icons_imports: ['user_id', 'id', 'kind', 'status', 'prefix', 'total_items', 'processed_items', 'failed_items', 'skipped_items', 'bytes_total', 'error', 'created_at', 'updated_at', 'finished_at'],
   development_icons_import_items: ['user_id', 'import_id', 'item_key', 'filename', 'status', 'asset_id', 'error', 'created_at', 'updated_at'],
   development_icons_exports: ['user_id', 'id', 'format', 'filename', 'r2_key', 'bytes', 'asset_count', 'status', 'error', 'created_at', 'expires_at'],
-  development_icons_jobs: ['user_id', 'id', 'kind', 'status', 'options_json', 'total_items', 'processed_items', 'failed_items', 'output_prefix', 'manifest_key', 'cancel_requested', 'error', 'created_at', 'updated_at', 'started_at', 'finished_at'],
+  development_icons_jobs: ['user_id', 'id', 'kind', 'status', 'execution', 'options_json', 'total_items', 'processed_items', 'failed_items', 'output_prefix', 'manifest_key', 'cancel_requested', 'error', 'created_at', 'updated_at', 'started_at', 'finished_at'],
   development_icons_job_items: ['user_id', 'job_id', 'asset_id', 'status', 'outputs_json', 'attempts', 'error', 'updated_at'],
+  development_icons_job_outputs: ['user_id', 'job_id', 'asset_id', 'name', 'r2_key', 'bytes', 'sha256', 'created_at'],
   development_icons_settings: ['user_id', 'quota_bytes', 'max_svg_bytes', 'max_raster_bytes', 'max_dimension', 'batch_limit', 'zip_limit_bytes', 'zip_limit_entries', 'updated_at'],
   development_icons_limits: ['id', 'hard_quota_bytes', 'hard_max_svg_bytes', 'hard_max_raster_bytes', 'hard_max_dimension', 'hard_batch_limit', 'hard_zip_limit_bytes', 'hard_zip_limit_entries', 'updated_at'],
 }

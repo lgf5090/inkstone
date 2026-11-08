@@ -76,8 +76,24 @@ export function createCollection(input: Record<string, unknown>): Promise<IconCo
   return request<Envelope<IconCollection>>(`${BASE}/collections`, { method: 'POST', body: input }).then((response) => response.data)
 }
 
+export function updateCollection(id: string, input: Record<string, unknown>): Promise<void> {
+  return request(`${BASE}/collections/${id}`, { method: 'PATCH', body: input }).then(() => undefined)
+}
+
+export function deleteCollection(id: string): Promise<void> {
+  return request(`${BASE}/collections/${id}`, { method: 'DELETE' }).then(() => undefined)
+}
+
 export function createTag(input: Record<string, unknown>): Promise<IconTag> {
   return request<Envelope<IconTag>>(`${BASE}/tags`, { method: 'POST', body: input }).then((response) => response.data)
+}
+
+export function updateTag(id: string, input: Record<string, unknown>): Promise<void> {
+  return request(`${BASE}/tags/${id}`, { method: 'PATCH', body: input }).then(() => undefined)
+}
+
+export function deleteTag(id: string): Promise<void> {
+  return request(`${BASE}/tags/${id}`, { method: 'DELETE' }).then(() => undefined)
 }
 
 export function fetchSettings(): Promise<{ settings: IconSettings; limits: IconLimits }> {
@@ -86,6 +102,14 @@ export function fetchSettings(): Promise<{ settings: IconSettings; limits: IconL
 
 export function updateSettings(patch: Record<string, number>): Promise<IconSettings> {
   return request<Envelope<IconSettings>>(`${BASE}/settings`, { method: 'PATCH', body: patch }).then((response) => response.data)
+}
+
+export function updateGlobalLimits(patch: Record<string, number>): Promise<IconLimits> {
+  return request<Envelope<IconLimits>>(`${BASE}/settings/global`, { method: 'PATCH', body: patch }).then((response) => response.data)
+}
+
+export function fetchJobs(): Promise<IconJob[]> {
+  return readData('/jobs')
 }
 
 export function createJob(assetIds: string[], options: Record<string, unknown>): Promise<IconJob> {
@@ -104,10 +128,47 @@ export function cancelJob(id: string): Promise<void> {
   return request(`${BASE}/jobs/${id}/cancel`, { method: 'POST' }).then(() => undefined)
 }
 
-export function createExport(format: string, assetIds: string[]): Promise<IconExport> {
-  return request<Envelope<IconExport>>(`${BASE}/exports`, { method: 'POST', body: { format, assetIds } }).then((response) => response.data)
+export function retryJob(id: string): Promise<void> {
+  return request(`${BASE}/jobs/${id}/retry`, { method: 'POST' }).then(() => undefined)
+}
+
+export function uploadJobItemOutputs(
+  jobId: string,
+  assetId: string,
+  kind: 'png' | 'ico',
+  sizes: number[],
+  files: Blob[],
+): Promise<{ outputs: Record<string, string>; status: string }> {
+  const form = new FormData()
+  form.set('kind', kind)
+  form.set('sizes', JSON.stringify(sizes))
+  if (kind === 'ico') {
+    form.set('file', files[0]!, 'icon.ico')
+  } else {
+    files.forEach((file, index) => form.append('f', file, `${sizes[index] ?? index}.png`))
+  }
+  return request<Envelope<{ outputs: Record<string, string>; status: string }>>(`${BASE}/jobs/${jobId}/items/${assetId}/outputs`, { method: 'POST', formData: form }).then((response) => response.data)
+}
+
+export function uploadJobSprite(jobId: string, setHash: string, files: Record<string, Blob>): Promise<{ outputs: Record<string, string>; status: string }> {
+  const form = new FormData()
+  form.set('setHash', setHash)
+  for (const [field, blob] of Object.entries(files)) form.set(field, blob, `${field}.bin`)
+  return request<Envelope<{ outputs: Record<string, string>; status: string }>>(`${BASE}/jobs/${jobId}/sprite`, { method: 'POST', formData: form }).then((response) => response.data)
+}
+
+export function finishJob(id: string): Promise<{ status: string; job: IconJob }> {
+  return request<Envelope<{ status: string; job: IconJob }>>(`${BASE}/jobs/${id}/finish`, { method: 'POST' }).then((response) => response.data)
+}
+
+export function createExport(format: string, assetIds: string[], options?: Record<string, unknown>): Promise<IconExport> {
+  return request<Envelope<IconExport>>(`${BASE}/exports`, { method: 'POST', body: { format, assetIds, options } }).then((response) => response.data)
 }
 
 export function fetchImports(): Promise<IconImport[]> {
   return readData('/imports')
+}
+
+export function createImport(prefix: string, limit = 200): Promise<IconImport> {
+  return request<Envelope<IconImport>>(`${BASE}/imports`, { method: 'POST', body: { kind: 'iconify', prefix, limit } }).then((response) => response.data)
 }

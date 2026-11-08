@@ -32,30 +32,30 @@ async function installed(): Promise<DatabaseSync> {
 }
 
 describe('development icons schema', () => {
-  it('declares 320 and 321 exactly once and keeps 321 as the maximum', () => {
+  it('declares 320, 321, 325 and 326 exactly once and keeps 326 as the maximum', () => {
     const versions = SCHEMA_MIGRATIONS.map((migration) => migration.version)
-    expect(versions.filter((version) => version === 320)).toHaveLength(1)
-    expect(versions.filter((version) => version === 321)).toHaveLength(1)
+    for (const version of [320, 321, 325, 326]) {
+      expect(versions.filter((entry) => entry === version)).toHaveLength(1)
+    }
     expect(new Set(versions).size).toBe(versions.length)
-    expect(Math.max(...versions)).toBe(321)
+    expect(Math.max(...versions)).toBe(326)
   })
 
-  it('keeps every development_icons_ statement inside 320 and 321', () => {
+  it('keeps every development_icons_ statement inside the icon migrations', () => {
     const owners = SCHEMA_MIGRATIONS
       .filter((migration) => migration.statements.some((statement) => statement.includes('development_icons_')))
       .map((migration) => migration.version)
-    expect(owners).toEqual([320, 321])
+    expect(owners).toEqual([320, 321, 325, 326])
   })
 
-  it('creates every required table and index and records both migrations', async () => {
+  it('creates every required table and index and records every migration', async () => {
     const sqlite = await installed()
     const tables = tablesOf(sqlite)
     const indexes = indexesOf(sqlite)
     for (const table of DEVELOPMENT_ICONS_REQUIRED_TABLES) expect(tables).toContain(table)
     for (const index of DEVELOPMENT_ICONS_REQUIRED_INDEXES) expect(indexes).toContain(index)
     expect(tables).toContain('development_icons_fts')
-    expect(versionsOf(sqlite)).toContain(320)
-    expect(versionsOf(sqlite)).toContain(321)
+    for (const version of [320, 321, 325, 326]) expect(versionsOf(sqlite)).toContain(version)
   })
 
   it('boots twice without changing the shape', async () => {
@@ -65,12 +65,14 @@ describe('development icons schema', () => {
     const before = tablesOf(sqlite).sort()
     await initializeDatabase({ DB: makeD1(sqlite) } as never)
     expect(tablesOf(sqlite).sort()).toEqual(before)
-    expect(versionsOf(sqlite).filter((version) => version === 320)).toHaveLength(1)
-    expect(versionsOf(sqlite).filter((version) => version === 321)).toHaveLength(1)
+    for (const version of [320, 321, 325, 326]) {
+      expect(versionsOf(sqlite).filter((entry) => entry === version)).toHaveLength(1)
+    }
   })
 
   it('refuses duplicate migration versions', () => {
     expect(() => assertUniqueSchemaMigrations([{ version: 320 }, { version: 320 }])).toThrow('Duplicate schema migration version 320')
     expect(() => assertUniqueSchemaMigrations([{ version: 321 }, { version: 321 }])).toThrow('Duplicate schema migration version 321')
+    expect(() => assertUniqueSchemaMigrations([{ version: 325 }, { version: 325 }])).toThrow('Duplicate schema migration version 325')
   })
 })

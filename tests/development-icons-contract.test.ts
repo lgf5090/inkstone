@@ -44,7 +44,7 @@ describe('development icons contract', () => {
   it('keeps the agreed schema versions and presets', () => {
     expect(DEVELOPMENT_ICONS_CORE_SCHEMA_VERSION).toBe(320)
     expect(DEVELOPMENT_ICONS_SETTINGS_SCHEMA_VERSION).toBe(321)
-    expect(DEVELOPMENT_ICONS_SCHEMA_VERSIONS).toEqual([320, 321])
+    expect(DEVELOPMENT_ICONS_SCHEMA_VERSIONS).toEqual([320, 321, 325, 326])
     expect(ICON_PNG_PRESETS).toEqual([24, 48, 96, 192, 512])
     expect(ICON_ICO_PRESETS).toEqual([16, 32, 48, 256])
     expect(ICON_PAGE_SIZE_DEFAULT).toBe(60)

@@ -40,6 +40,7 @@ import { runDueCloudDriveJobs } from './clouddrive/routes-jobs'
 import { resumeCloudDriveIndexTasks } from './clouddrive/routes-admin'
 import { resumeCloudDriveRemoteTasks } from './clouddrive/remote'
 import { runWebsshRetention } from './webssh/retention'
+import { handleIconQueue, type IconQueueMessage } from './development/icons/queue'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -209,6 +210,15 @@ export default {
    */
   async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
     await dispatchInboundEmail(message, env, ctx)
+  },
+
+  /**
+   * Icon conversion. The message only names the job; the consumer loads the rows itself so a
+   * redelivery after a crash picks up exactly the items that are still queued.
+   */
+  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+    await initializeDatabase(env)
+    await handleIconQueue(batch as unknown as MessageBatch<IconQueueMessage>, env)
   },
 } satisfies ExportedHandler<Env>
 

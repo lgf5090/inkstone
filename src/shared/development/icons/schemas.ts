@@ -130,7 +130,15 @@ export const IconSettingsPatchSchema = z.object({
   zipLimitEntries: z.number().int().min(1).optional(),
 }).refine((value) => Object.keys(value).length > 0, 'At least one field is required')
 
-export const IconLimitsPatchSchema = IconSettingsPatchSchema
+export const IconLimitsPatchSchema = z.object({
+  hardQuotaBytes: z.number().int().min(1).optional(),
+  hardMaxSvgBytes: z.number().int().min(1).optional(),
+  hardMaxRasterBytes: z.number().int().min(1).optional(),
+  hardMaxDimension: z.number().int().min(1).optional(),
+  hardBatchLimit: z.number().int().min(1).optional(),
+  hardZipLimitBytes: z.number().int().min(1).optional(),
+  hardZipLimitEntries: z.number().int().min(1).optional(),
+}).refine((value) => Object.keys(value).length > 0, 'At least one field is required')
 
 const IconJobOptionsSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -174,6 +182,7 @@ export const IconExportCreateSchema = z.object({
 export const IconImportCreateSchema = z.object({
   kind: z.enum(ICON_IMPORT_KINDS),
   prefix: z.string().max(80).optional(),
+  limit: z.number().int().min(1).max(500).default(200),
 }).superRefine((value, context) => {
   if (value.kind === 'iconify' && !ICON_ICONIFY_PREFIXES.includes(value.prefix as never)) {
     context.addIssue({ code: 'custom', path: ['prefix'], message: 'Unsupported Iconify prefix' })

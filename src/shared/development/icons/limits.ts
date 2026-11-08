@@ -1,8 +1,14 @@
 export const DEVELOPMENT_ICONS_CORE_SCHEMA_VERSION = 320
 export const DEVELOPMENT_ICONS_SETTINGS_SCHEMA_VERSION = 321
+/** Conversion outputs are their own ledger so quotas and cleanup can account for them. */
+export const DEVELOPMENT_ICONS_OUTPUTS_SCHEMA_VERSION = 325
+/** Records whether a job is meant to run in a queue consumer or in the browser. */
+export const DEVELOPMENT_ICONS_JOB_EXECUTION_SCHEMA_VERSION = 326
 export const DEVELOPMENT_ICONS_SCHEMA_VERSIONS = [
   DEVELOPMENT_ICONS_CORE_SCHEMA_VERSION,
   DEVELOPMENT_ICONS_SETTINGS_SCHEMA_VERSION,
+  DEVELOPMENT_ICONS_OUTPUTS_SCHEMA_VERSION,
+  DEVELOPMENT_ICONS_JOB_EXECUTION_SCHEMA_VERSION,
 ] as const
 
 export const ICON_FORMATS = ['svg', 'png', 'jpg', 'webp'] as const
@@ -34,6 +40,11 @@ export const ICON_SPRITE_PADDING_MAX = 32
 export const ICON_SPRITE_MAX_ASSETS = 500
 export const ICON_SPRITE_MAX_CELL = 512
 export const ICON_SPRITE_MAX_CANVAS = 4096
+
+/** The base cell of a PNG sheet; the padding is added on each side. */
+export const ICON_SPRITE_CELL = 24
+/** A per-user ceiling on conversion jobs created in one minute. */
+export const ICON_JOB_RATE_LIMIT = 12
 
 export const ICON_PAGE_SIZE_DEFAULT = 60
 export const ICON_PAGE_SIZE_MAX = 120

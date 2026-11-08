@@ -7014,6 +7014,12 @@ const allowed = new Map([
     "// The peer may already be gone; the session state below is what the user sees either way.",
     "/** A deleted request takes its conversation with it. */",
   ]],
+  ["src/client/features/development/icons/IconsApp.tsx", [
+    "// A failed poll leaves the last known list on screen.",
+  ]],
+  ["src/client/features/development/icons/lib/convert.ts", [
+    "/**\n * Browser-side conversion.\n *\n * This is the fallback when no Queues binding is deployed: the client rasterizes with Canvas,\n * packs ICO/sprite containers itself, and uploads the real bytes to the job. The server re-checks\n * every file before it records an output, so the job cannot reach `done` on a status change alone.\n */",
+  ]],
   ["src/client/features/email/ComposePanel.tsx", [
     "/** The other device's copy of this draft, as a save refused it. */",
     "/** The draft write this save is typed on; a mismatch means another device saved after it. */",
@@ -32056,6 +32062,15 @@ const allowed = new Map([
   ["src/shared/development/database/assistant-context.ts", [
     "/** Absent for a local SQLite file, which only exists in the browser. */",
   ]],
+  ["src/shared/development/icons/limits.ts", [
+    "/** Conversion outputs are their own ledger so quotas and cleanup can account for them. */",
+    "/** Records whether a job is meant to run in a queue consumer or in the browser. */",
+    "/** The base cell of a PNG sheet; the padding is added on each side. */",
+    "/** A per-user ceiling on conversion jobs created in one minute. */",
+  ]],
+  ["src/shared/development/icons/types.ts", [
+    "/** `queue` when a consumer will run it; `browser` when the client converts and uploads the outputs. */",
+  ]],
   ["src/shared/email/model.ts", [
     "/** The row's write time, the token a draft save compares before it overwrites another device. */",
     "/**\n   * The `updatedAt` this save was written against.\n   *\n   * Present, the save refuses to overwrite a draft another device wrote since; absent, it is the\n   * unconditional write the agent and import paths have always made.\n   */",
@@ -40084,6 +40099,33 @@ const allowed = new Map([
     "// The row expires with the idle window regardless; a failed cleanup must not fail the socket.",
     "// Checked before the ticket is consumed so a refused upgrade can be retried with the same ticket.",
   ]],
+  ["src/worker/development/icons/convert.ts", [
+    "/**\n * Advance a job by one bounded chunk.\n *\n * A queue message calls this once; a browser fallback calls it only to finalize the manifest. The\n * expensive conversion itself never runs inside the request that created the job.\n */",
+    "/** Finalize a job whose outputs the browser has already uploaded. */",
+    "/** Build artifacts for an export without touching the job tables. */",
+  ]],
+  ["src/worker/development/icons/ico.ts", [
+    "/**\n * ICO packing.\n *\n * Every entry is a PNG payload: the format allows PNG-compressed images and that is the only\n * encoder this worker already has. The directory is validated on both sides so a corrupt upstream\n * artifact cannot be served as if it were an icon.\n */",
+    "/** The canonical token used in object keys: sizes sorted ascending and joined with dashes. */",
+    "/** Parse and validate an ICO's directory. Used by tests and by the upload guard. */",
+  ]],
+  ["src/worker/development/icons/png.ts", [
+    "/**\n * A minimal PNG encoder.\n *\n * Rasterization hands back RGBA pixels, and the outputs are written to R2 as PNG. The repository\n * already ships `fflate` for ZIP work, so the only pieces missing are the chunk framing and the\n * CRC table — both are defined by the PNG specification and do not need a dependency of their own.\n */",
+    "/** Encode straight (unfiltered) RGBA bytes as a PNG. A zero-length image is refused. */",
+  ]],
+  ["src/worker/development/icons/queue.ts", [
+    "/**\n * The queue consumer.\n *\n * Each message advances one bounded chunk. When items remain the consumer enqueues the next message\n * instead of looping inside one invocation, so a 500-item job never risks the consumer's wall clock.\n */",
+  ]],
+  ["src/worker/development/icons/r2.ts", [
+    "/** Turn an internal object key into the public, immutable URL that serves it. */",
+  ]],
+  ["src/worker/development/icons/raster.ts", [
+    "/**\n * Rasterization for conversion jobs.\n *\n * `resvg` is compiled at deploy time and initialized once per isolate. Raster sources already carry\n * pixels, so they go through the Images binding instead; when that binding is absent the original\n * bytes are only usable at their own size, which is the same \"do not upscale\" rule the UI states.\n */",
+    "/**\n * Produce a PNG at `width` from an uploaded raster.\n *\n * `sourceWidth` lets the caller apply the \"never upscale\" rule without decoding the raster twice.\n */",
+  ]],
+  ["src/worker/development/icons/sprite.ts", [
+    "/** The children of an outer `<svg>` element, with declarations, comments and the wrapper removed. */",
+  ]],
   ["src/worker/development/xget/lib/app/handle-request.ts", [
     "// Derived from Xget (AGPL-3.0-only) src/app/handle-request.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
     "// The site's session cookie is stripped before the upstream request; it must not",
@@ -40244,6 +40286,7 @@ const allowed = new Map([
     "/** TTL for gateway-generated images, in hours. Default 168 (7 days); 0 keeps them forever. */",
     "/**\n   * Development-only escape hatch for the WebSSH outbound gate. Setting it to `1` lets a local\n   * `wrangler dev` connect to a Docker sshd on a private or loopback address; production must leave\n   * it unset, and port 25 and Cloudflare's own ranges stay blocked either way.\n   */",
     "/** Optional DNS-over-HTTPS endpoint for the WebSSH target resolver; must be https. */",
+    "/** Icon conversion queue; optional so a deployment without Queues falls back to browser conversion. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -40322,6 +40365,7 @@ const allowed = new Map([
     "// holds R2 bytes that nothing else can release until its session row is closed.",
     "// An upload the compare tool never saved into a project is an R2 object with no row pointing at",
     "// it. The sweep rides the top of the hour with the other bounded cleanups, not every minute.",
+    "/**\n   * Icon conversion. The message only names the job; the consumer loads the rows itself so a\n   * redelivery after a crash picks up exactly the items that are still queued.\n   */",
   ]],
   ["src/worker/inknote/assets.ts", [
     "/**\n * Inknote's binary assets: object keys, upload validation, reference scans and the cleanup queue.\n *\n * Page JSON stays in D1; only bytes live in R2/KV. Every object key is generated here from an id the\n * server made, and every row query binds `user_id`, because a filename or note id supplied by a\n * client must never be able to name another account's object.\n */",
@@ -42252,6 +42296,10 @@ const allowed = new Map([
     "/**\n * Publishing counts against a per-account hourly budget so one account cannot\n * flood the shared directory. Updating your own template spends the same\n * budget, which is the point: an edit is another write.\n */",
     "/**\n * Resolves the row an update targets and enforces both ceilings. A supplied id\n * is only honoured when it is new or already belongs to this account, so one\n * author can neither overwrite nor squat another author's id.\n */",
     "/**\n * One account adopting a template into its own library is the only signal worth\n * counting, so the author's own copy never adds to it. The budget is per account\n * and generous: it stops a script, not a person browsing the directory.\n */",
+  ]],
+  ["src/worker/routes/development-icons.ts", [
+    "/** A brake on a client that spams the conversion endpoint; it is per isolate, like the other budgets. */",
+    "/**\n * The browser fallback's upload door.\n *\n * The client rasterizes with Canvas, then posts the produced files here. The bytes are re-checked\n * (PNG signature, ICO directory) and stored under content-addressed keys, so a job only reaches\n * `done` when a real artifact exists — never merely because a status column changed.\n */",
   ]],
   ["src/worker/routes/email.ts", [
     "// The reader's other tab (or another device) wrote this draft after the copy this save was",

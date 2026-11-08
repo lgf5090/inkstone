@@ -70,6 +70,7 @@ export interface IconAssetSummary {
   bytes: number
   sha256: string
   thumbUrl: string
+  thumb2xUrl: string
   rawUrl: string
   tags: IconTagSummary[]
   favorited: boolean
@@ -128,12 +129,23 @@ export interface IconLimits {
   hardZipLimitEntries: number
 }
 
+export interface IconUsageSummary {
+  usedBytes: number
+  quotaBytes: number
+  assetsBytes: number
+  outputsBytes: number
+  exportsBytes: number
+  overQuota: boolean
+}
+
 export interface IconBootstrap {
   collections: IconCollection[]
   tags: IconTag[]
   counts: IconCounts
   settings: IconSettings
   limits: IconLimits
+  usage: IconUsageSummary
+  isOwner: boolean
   schemaVersions: readonly number[]
 }
 
@@ -183,6 +195,8 @@ export interface IconJob {
   id: string
   kind: IconJobKind
   status: IconJobStatus
+  /** `queue` when a consumer will run it; `browser` when the client converts and uploads the outputs. */
+  mode: 'queue' | 'browser'
   options: IconJobOptions
   totalItems: number
   processedItems: number

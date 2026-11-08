@@ -29,14 +29,26 @@ export function iconThumbUrl(shard: string, sha256: string, width = 96): string 
   return `/api/development/icons/objects/webp/u${shard}/${sha256.slice(0, 2)}/${sha256.slice(2, 4)}/${sha256}-w${width}.webp`
 }
 
+/** Turn an internal object key into the public, immutable URL that serves it. */
+export function iconPublicUrl(key: string): string {
+  const prefix = 'development/icons/'
+  return key.startsWith(prefix)
+    ? `/api/development/icons/objects/${key.slice(prefix.length)}`
+    : `/api/development/icons/artifacts/${key.split('/').map(encodeURIComponent).join('/')}`
+}
+
+export function spriteObjectUrl(shard: string, setHash: string, file: string): string {
+  return `/api/development/icons/sprite/u${shard}/${setHash}/${encodeURIComponent(file)}`
+}
+
 export function stageObjectKey(format: IconFormat, shard: string, sha256: string): string {
   return iconObjectKey(format, shard, sha256)
 }
 
-export async function putIconObject(env: Env, key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+export async function putIconObject(env: Env, key: string, bytes: Uint8Array, contentType: string, cacheControl = 'public, max-age=31536000, immutable'): Promise<void> {
   if (!env.FILES) throw new Error('File storage is not configured')
   await env.FILES.put(key, bytes, {
-    httpMetadata: { contentType, cacheControl: 'public, max-age=31536000, immutable' },
+    httpMetadata: { contentType, cacheControl },
   })
 }
 

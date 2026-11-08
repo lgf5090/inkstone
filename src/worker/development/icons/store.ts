@@ -13,6 +13,7 @@ import type {
   IconSettings,
   IconTag,
   IconTagSummary,
+  IconUsageSummary,
 } from '@shared/development/icons/types'
 import {
   ICON_DEFAULT_BATCH_LIMIT,
@@ -29,12 +30,14 @@ import {
   ICON_HARD_QUOTA_BYTES,
   ICON_HARD_ZIP_LIMIT_BYTES,
   ICON_HARD_ZIP_LIMIT_ENTRIES,
+  ICON_JOB_MAX_ITEMS,
   ICON_RECENT_DAYS,
+  ICON_SPRITE_MAX_ASSETS,
 } from '@shared/development/icons/limits'
 import { decodeIconCursor, encodeIconCursor } from '@shared/development/icons/cursor'
 import { ApiError } from '../../lib/errors'
 import { newId } from '../../lib/id'
-import { iconObjectUrl, userShard } from './r2'
+import { iconObjectUrl, iconPublicUrl, userShard } from './r2'
 
 type Row = Record<string, unknown>
 
@@ -89,6 +92,10 @@ function tagSummary(row: Row): IconTagSummary {
 function assetSummary(row: Row, shard: string, tags: IconTagSummary[], favorited: boolean, pinned: boolean): IconAssetSummary {
   const format = text(row.format, 'svg') as IconAssetSummary['format']
   const sha256 = text(row.sha256)
+  const rawUrl = iconObjectUrl(format, shard, sha256)
+  const thumbKey = typeof row.thumb_key === 'string' ? row.thumb_key : ''
+  const thumbUrl = thumbKey ? iconPublicUrl(thumbKey) : rawUrl
+  const thumb2xKey = thumbKey.replace(/-w96\.webp$/, '-w192.webp')
   return {
     id: text(row.id),
     name: text(row.name),
@@ -98,8 +105,9 @@ function assetSummary(row: Row, shard: string, tags: IconTagSummary[], favorited
     height: nullableNumber(row.height),
     bytes: number(row.bytes),
     sha256,
-    thumbUrl: iconObjectUrl(format, shard, sha256),
-    rawUrl: iconObjectUrl(format, shard, sha256),
+    thumbUrl,
+    thumb2xUrl: thumbKey ? iconPublicUrl(thumb2xKey) : thumbUrl,
+    rawUrl,
     tags,
     favorited,
     pinned,
@@ -180,8 +188,29 @@ export async function ensureLimits(db: D1Database, now = Date.now()): Promise<Ic
   }
 }
 
-export async function bootstrap(db: D1Database, userId: string): Promise<IconBootstrap> {
-  const [collectionsResult, tagsResult, settings, limits, shard] = await Promise.all([
+export async function usageFor(db: D1Database, userId: string): Promise<IconUsageSummary> {
+  const [settings, assets, outputs, exports] = await Promise.all([
+    ensureSettings(db, userId),
+    db.prepare(`SELECT COALESCE(SUM(bytes), 0) AS bytes FROM development_icons_assets WHERE user_id = ?1`).bind(userId).first<{ bytes: number }>(),
+    db.prepare(`SELECT COALESCE(SUM(bytes), 0) AS bytes FROM development_icons_job_outputs WHERE user_id = ?1`).bind(userId).first<{ bytes: number }>(),
+    db.prepare(`SELECT COALESCE(SUM(bytes), 0) AS bytes FROM development_icons_exports WHERE user_id = ?1 AND expires_at > ?2`).bind(userId, Date.now()).first<{ bytes: number }>(),
+  ])
+  const assetsBytes = number(assets?.bytes)
+  const outputsBytes = number(outputs?.bytes)
+  const exportsBytes = number(exports?.bytes)
+  const usedBytes = assetsBytes + outputsBytes + exportsBytes
+  return {
+    usedBytes,
+    quotaBytes: settings.quotaBytes,
+    assetsBytes,
+    outputsBytes,
+    exportsBytes,
+    overQuota: usedBytes > settings.quotaBytes,
+  }
+}
+
+export async function bootstrap(db: D1Database, userId: string, isOwner = false): Promise<IconBootstrap> {
+  const [collectionsResult, tagsResult, settings, limits, shard, usage] = await Promise.all([
     db.prepare(
       `SELECT c.*, (SELECT COUNT(*) FROM development_icons_assets a WHERE a.user_id = c.user_id AND a.collection_id = c.id) AS count
          FROM development_icons_collections c WHERE c.user_id = ?1 ORDER BY c.sort_order, c.name`,
@@ -190,6 +219,7 @@ export async function bootstrap(db: D1Database, userId: string): Promise<IconBoo
     ensureSettings(db, userId),
     ensureLimits(db),
     userShard(userId),
+    usageFor(db, userId),
   ])
   const counts = await countsFor(db, userId, shard)
   return {
@@ -198,7 +228,9 @@ export async function bootstrap(db: D1Database, userId: string): Promise<IconBoo
     counts,
     settings,
     limits,
-    schemaVersions: [320, 321],
+    usage,
+    isOwner,
+    schemaVersions: [320, 321, 325, 326],
   }
 }
 
@@ -627,6 +659,7 @@ export function jobRow(row: Row): IconJob {
     id: text(row.id),
     kind: text(row.kind, 'png') as IconJob['kind'],
     status: text(row.status, 'queued') as IconJob['status'],
+    mode: text(row.execution, 'browser') === 'queue' ? 'queue' : 'browser',
     options: JSON.parse(text(row.options_json, '{}')) as IconJob['options'],
     totalItems: number(row.total_items),
     processedItems: number(row.processed_items),
@@ -640,29 +673,127 @@ export function jobRow(row: Row): IconJob {
   }
 }
 
-export async function createJob(db: D1Database, userId: string, assetIds: string[], options: IconJob['options']): Promise<IconJob> {
+export async function createJob(
+  db: D1Database,
+  userId: string,
+  assetIds: string[],
+  options: IconJob['options'],
+  execution: 'queue' | 'browser',
+): Promise<IconJob> {
   const settings = await ensureSettings(db, userId)
-  if (assetIds.length > settings.batchLimit) throw ApiError.badRequest('The batch limit was exceeded')
+  if (assetIds.length > settings.batchLimit || assetIds.length > ICON_JOB_MAX_ITEMS) throw ApiError.badRequest('The batch limit was exceeded')
+  const uniqueIds = [...new Set(assetIds)]
+  if (uniqueIds.length !== assetIds.length) throw ApiError.badRequest('The batch repeats an icon')
+  const marks = uniqueIds.map((_, index) => `?${index + 2}`).join(', ')
+  const owned = await db.prepare(
+    `SELECT COUNT(*) AS n FROM development_icons_assets WHERE user_id=?1 AND id IN (${marks})`,
+  ).bind(userId, ...uniqueIds).first<{ n: number }>()
+  if (Number(owned?.n ?? 0) !== uniqueIds.length) throw ApiError.notFound('An icon in this task was not found')
+  if (options.kind === 'sprite_svg' || options.kind === 'sprite_png') {
+    if (assetIds.length > ICON_SPRITE_MAX_ASSETS) throw ApiError.badRequest('The sprite asset limit was exceeded')
+  }
+  const usage = await usageFor(db, userId)
+  if (usage.overQuota) throw new ApiError(413, 'icons_quota_exceeded', 'The icon storage quota is exceeded')
+  const running = await db.prepare(
+    `SELECT id FROM development_icons_jobs WHERE user_id = ?1 AND status IN ('queued','running') LIMIT 1`,
+  ).bind(userId).first<{ id: string }>()
+  if (running) throw new ApiError(409, 'icons_job_conflict', 'Another conversion task is still running')
   const id = newId()
   const now = Date.now()
   const statements = [
     db.prepare(
-      `INSERT INTO development_icons_jobs (user_id, id, kind, status, options_json, total_items, created_at, updated_at)
-       VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?6)`,
-    ).bind(userId, id, options.kind, JSON.stringify(options), assetIds.length, now),
+      `INSERT INTO development_icons_jobs (user_id, id, kind, status, execution, options_json, total_items, created_at, updated_at)
+       VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?7, ?7)`,
+    ).bind(userId, id, options.kind, execution, JSON.stringify(options), assetIds.length, now),
     ...assetIds.map((assetId) => db.prepare(
       `INSERT OR IGNORE INTO development_icons_job_items (user_id, job_id, asset_id, status, updated_at)
        VALUES (?1, ?2, ?3, 'queued', ?4)`,
     ).bind(userId, id, assetId, now)),
   ]
   await db.batch(statements)
-  return jobRow({ id, kind: options.kind, status: 'queued', options_json: JSON.stringify(options), total_items: assetIds.length, created_at: now, updated_at: now })
+  return jobRow({
+    id,
+    kind: options.kind,
+    status: 'queued',
+    execution,
+    options_json: JSON.stringify(options),
+    total_items: assetIds.length,
+    created_at: now,
+    updated_at: now,
+  })
+}
+
+export async function listJobs(db: D1Database, userId: string): Promise<IconJob[]> {
+  const rows = await db.prepare(
+    `SELECT * FROM development_icons_jobs WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 20`,
+  ).bind(userId).all<Row>()
+  return (rows.results ?? []).map(jobRow)
 }
 
 export async function getJob(db: D1Database, userId: string, id: string): Promise<IconJob> {
   const row = await db.prepare(`SELECT * FROM development_icons_jobs WHERE user_id = ?1 AND id = ?2`).bind(userId, id).first<Row>()
   if (!row) throw ApiError.notFound('The conversion task was not found')
   return jobRow(row)
+}
+
+export interface JobAssetRow {
+  id: string
+  name: string
+  format: string
+  mime: string
+  r2Key: string
+  sha256: string
+  width: number | null
+  height: number | null
+  collectionId: string | null
+  license: string
+  sourceUrl: string
+}
+
+export async function getJobAssets(db: D1Database, userId: string, jobId: string, onlyPending = true): Promise<JobAssetRow[]> {
+  const rows = await db.prepare(
+    `SELECT a.id, a.name, a.format, a.mime, a.r2_key, a.sha256, a.width, a.height,
+            a.collection_id, a.license, a.source_url, i.status
+       FROM development_icons_job_items i
+       JOIN development_icons_assets a ON a.user_id = i.user_id AND a.id = i.asset_id
+      WHERE i.user_id = ?1 AND i.job_id = ?2${onlyPending ? ` AND i.status IN ('queued','running')` : ''}
+      ORDER BY a.name_key, a.id`,
+  ).bind(userId, jobId).all<Row>()
+  return (rows.results ?? []).map((row) => ({
+    id: text(row.id),
+    name: text(row.name),
+    format: text(row.format, 'svg'),
+    mime: text(row.mime),
+    r2Key: text(row.r2_key),
+    sha256: text(row.sha256),
+    width: nullableNumber(row.width),
+    height: nullableNumber(row.height),
+    collectionId: typeof row.collection_id === 'string' ? row.collection_id : null,
+    license: text(row.license),
+    sourceUrl: text(row.source_url),
+  }))
+}
+
+export async function getAssetsByIds(db: D1Database, userId: string, ids: readonly string[]): Promise<JobAssetRow[]> {
+  if (!ids.length) return []
+  const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
+  const rows = await db.prepare(
+    `SELECT id, name, format, mime, r2_key, sha256, width, height, collection_id, license, source_url
+       FROM development_icons_assets WHERE user_id = ?1 AND id IN (${marks}) ORDER BY name_key, id`,
+  ).bind(userId, ...ids).all<Row>()
+  return (rows.results ?? []).map((row) => ({
+    id: text(row.id),
+    name: text(row.name),
+    format: text(row.format, 'svg'),
+    mime: text(row.mime),
+    r2Key: text(row.r2_key),
+    sha256: text(row.sha256),
+    width: nullableNumber(row.width),
+    height: nullableNumber(row.height),
+    collectionId: typeof row.collection_id === 'string' ? row.collection_id : null,
+    license: text(row.license),
+    sourceUrl: text(row.source_url),
+  }))
 }
 
 export async function getJobItems(db: D1Database, userId: string, id: string): Promise<IconJobItem[]> {
@@ -675,6 +806,139 @@ export async function getJobItems(db: D1Database, userId: string, id: string): P
     outputs: JSON.parse(text(row.outputs_json, '{}')) as Record<string, string>,
     attempts: number(row.attempts),
     error: text(row.error),
+  }))
+}
+
+export async function markJobRunning(db: D1Database, userId: string, id: string): Promise<void> {
+  const now = Date.now()
+  await db.prepare(
+    `UPDATE development_icons_jobs SET status='running', started_at=COALESCE(started_at, ?3), updated_at=?3
+      WHERE user_id=?1 AND id=?2 AND status='queued'`,
+  ).bind(userId, id, now).run()
+}
+
+export async function setJobItemOutcome(
+  db: D1Database,
+  userId: string,
+  jobId: string,
+  assetId: string,
+  status: IconJobItem['status'],
+  outputs: Record<string, string>,
+  error = '',
+): Promise<void> {
+  const now = Date.now()
+  await db.prepare(
+    `UPDATE development_icons_job_items
+        SET status=?4, outputs_json=?5, error=?6, attempts=attempts+1, updated_at=?7
+      WHERE user_id=?1 AND job_id=?2 AND asset_id=?3`,
+  ).bind(userId, jobId, assetId, status, JSON.stringify(outputs), error, now).run()
+}
+
+export async function recordJobOutput(
+  db: D1Database,
+  userId: string,
+  jobId: string,
+  assetId: string,
+  name: string,
+  r2Key: string,
+  bytes: number,
+  sha256: string,
+): Promise<void> {
+  await db.prepare(
+    `INSERT INTO development_icons_job_outputs (user_id, job_id, asset_id, name, r2_key, bytes, sha256, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+     ON CONFLICT(user_id, job_id, asset_id, name) DO UPDATE SET
+       r2_key=excluded.r2_key, bytes=excluded.bytes, sha256=excluded.sha256, created_at=excluded.created_at`,
+  ).bind(userId, jobId, assetId, name, r2Key, bytes, sha256, Date.now()).run()
+}
+
+export async function syncJobProgress(db: D1Database, userId: string, id: string): Promise<{ done: number; failed: number; skipped: number; pending: number }> {
+  const row = await db.prepare(
+    `SELECT
+       SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done,
+       SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,
+       SUM(CASE WHEN status='skipped' THEN 1 ELSE 0 END) AS skipped,
+       SUM(CASE WHEN status IN ('queued','running') THEN 1 ELSE 0 END) AS pending
+     FROM development_icons_job_items WHERE user_id=?1 AND job_id=?2`,
+  ).bind(userId, id).first<Row>()
+  const counts = {
+    done: number(row?.done),
+    failed: number(row?.failed),
+    skipped: number(row?.skipped),
+    pending: number(row?.pending),
+  }
+  await db.prepare(
+    `UPDATE development_icons_jobs SET processed_items=?3, failed_items=?4, updated_at=?5 WHERE user_id=?1 AND id=?2`,
+  ).bind(userId, id, counts.done, counts.failed, Date.now()).run()
+  return counts
+}
+
+export async function finishJobIfComplete(
+  db: D1Database,
+  userId: string,
+  id: string,
+  manifestKey: string,
+): Promise<IconJob['status'] | null> {
+  const counts = await syncJobProgress(db, userId, id)
+  if (counts.pending > 0) return null
+  const job = await getJob(db, userId, id)
+  const status: IconJob['status'] = job.status === 'canceled'
+    ? 'canceled'
+    : counts.done > 0 && counts.failed > 0
+      ? 'partial'
+      : counts.done > 0
+        ? 'done'
+        : counts.failed > 0
+          ? 'failed'
+          : 'canceled'
+  const now = Date.now()
+  await db.prepare(
+    `UPDATE development_icons_jobs SET status=?3, manifest_key=?4, updated_at=?5, finished_at=?5 WHERE user_id=?1 AND id=?2`,
+  ).bind(userId, id, status, manifestKey, now).run()
+  return status
+}
+
+export async function requestJobCancel(db: D1Database, userId: string, id: string): Promise<void> {
+  const now = Date.now()
+  await db.batch([
+    db.prepare(`UPDATE development_icons_jobs SET cancel_requested=1, updated_at=?3 WHERE user_id=?1 AND id=?2`).bind(userId, id, now),
+    db.prepare(
+      `UPDATE development_icons_job_items SET status='skipped', updated_at=?3
+        WHERE user_id=?1 AND job_id=?2 AND status IN ('queued','running')`,
+    ).bind(userId, id, now),
+    db.prepare(
+      `UPDATE development_icons_jobs SET status=CASE WHEN status IN ('queued','running') THEN 'canceled' ELSE status END,
+         finished_at=CASE WHEN status IN ('queued','running') THEN ?3 ELSE finished_at END, updated_at=?3
+        WHERE user_id=?1 AND id=?2`,
+    ).bind(userId, id, now),
+  ])
+  await syncJobProgress(db, userId, id)
+}
+
+export async function resetJobForRetry(db: D1Database, userId: string, id: string): Promise<void> {
+  const now = Date.now()
+  await db.batch([
+    db.prepare(
+      `UPDATE development_icons_job_items SET status='queued', error='', updated_at=?3
+        WHERE user_id=?1 AND job_id=?2 AND status IN ('failed','skipped')`,
+    ).bind(userId, id, now),
+    db.prepare(
+      `UPDATE development_icons_jobs SET status='queued', cancel_requested=0, error='', finished_at=NULL, updated_at=?3
+        WHERE user_id=?1 AND id=?2`,
+    ).bind(userId, id, now),
+  ])
+  await syncJobProgress(db, userId, id)
+}
+
+export async function jobOutputRows(db: D1Database, userId: string, jobId: string): Promise<{ assetId: string; name: string; r2Key: string; bytes: number }[]> {
+  const rows = await db.prepare(
+    `SELECT asset_id, name, r2_key, bytes FROM development_icons_job_outputs WHERE user_id=?1 AND job_id=?2 ORDER BY asset_id, name`,
+  ).bind(userId, jobId).all<Row>()
+  return (rows.results ?? []).map((row) => ({
+    assetId: text(row.asset_id),
+    name: text(row.name),
+    r2Key: text(row.r2_key),
+    bytes: number(row.bytes),
   }))
 }
 
