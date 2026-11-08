@@ -28,6 +28,7 @@ interface Props {
   previousPage: InknotePage | null
   nextPage: InknotePage | null
   settings: InknoteSettings
+  activeLayerId: string | null
   onSelectPage: (id: string) => void
   onPrevPage: () => void
   onNextPage: () => void
@@ -78,10 +79,11 @@ function PagePreview({ page, note, settings, label, onSelect }: { page: InknoteP
   )
 }
 
-export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, nextPage, settings, onPrevPage, onNextPage, onEngine, tool }: Props) {
+export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, nextPage, settings, activeLayerId, onPrevPage, onNextPage, onEngine, tool }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const engineRef = useRef<InknoteEngineApi | null>(null)
   const [zoom, setZoom] = useState(1)
   const [selection, setSelection] = useState<string[]>([])
@@ -89,8 +91,8 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
   const [cropImageId, setCropImageId] = useState<string | null>(null)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [ttsCue, setTtsCue] = useState<{ pageId: string; textId: string } | null>(null)
-  const latest = useRef({ note, page, settings, tool })
-  latest.current = { note, page, settings, tool }
+  const latest = useRef({ note, page, settings, tool, activeLayerId })
+  latest.current = { note, page, settings, tool, activeLayerId }
   const toast = useUi((state) => state.toast)
   const touchPage = useInknoteStore((state) => state.touchPage)
   const savePage = useInknoteStore((state) => state.savePage)
@@ -121,6 +123,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
       ...inknoteTextDefaults(),
       x: Math.max(0.02, Math.min(0.82, world.x / current.note.pageWidth)),
       y: Math.max(0.02, Math.min(0.9, world.y / current.note.pageHeight)),
+      ...(current.activeLayerId ? { layer: current.activeLayerId } : {}),
     }
     const before = serializePageContent(current.page.content)
     if (!existing) {
@@ -185,6 +188,15 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
         const state = useInknoteStore.getState()
         if (state.activePageIndex < state.pages.length - 1) setActivePage(state.pages[state.activePageIndex + 1]!.id)
         else void createPage()
+      },
+      ownsHistory: true,
+      getActiveLayerId: () => latest.current.activeLayerId,
+      onScroll: (dy: number) => {
+        const scroller = scrollRef.current
+        if (!scroller) return false
+        const before = scroller.scrollTop
+        scroller.scrollTop += dy
+        return scroller.scrollTop !== before
       },
       onViewportChange: (nextZoom) => setZoom(nextZoom),
       getSettings: () => ({
@@ -401,7 +413,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
 
   return (
     <div className="inknote-canvas-area relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg-sunken)]" ref={hostRef}>
-      <div className="inknote-page-scroll flex min-h-0 flex-1 flex-col items-center gap-3 overflow-auto p-3 md:p-6" tabIndex={0} aria-label={t('inknote.canvas.scroll')}>
+      <div className="inknote-page-scroll flex min-h-0 flex-1 flex-col items-center gap-3 overflow-auto p-3 md:p-6" ref={scrollRef} tabIndex={0} aria-label={t('inknote.canvas.scroll')}>
         {previousPage && (
           <div style={{ aspectRatio: `${note.pageWidth} / ${note.pageHeight}`, width: 'min(100%, 860px)' }} className="shrink-0">
             <PagePreview page={previousPage} note={note} settings={settings} label={`${t('inknote.page.prev')} ${pageIndex}`} onSelect={onPrevPage}/>

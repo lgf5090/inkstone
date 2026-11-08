@@ -79,6 +79,7 @@ export const INKNOTE_LIMITS = {
   pointsPerPage: 500_000,
   textsPerPage: 5_000,
   imagesPerPage: 500,
+  layersPerPage: 20,
   textLength: 20_000,
   searchQueryMaxLength: 200,
   searchResultsMax: 100,

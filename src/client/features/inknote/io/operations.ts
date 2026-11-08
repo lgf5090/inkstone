@@ -25,9 +25,9 @@ async function assetDataUrl(url: string): Promise<string> {
   })
 }
 
-export async function insertImage(file: File, note: InknoteNoteMeta, page: InknotePage): Promise<void> {
+export async function insertImage(file: File, note: InknoteNoteMeta, page: InknotePage, layerId?: string | null): Promise<void> {
   const asset = await inknoteApi.uploadAsset(file, 'image', note.id)
-  const item = { id: crypto.randomUUID().replace(/-/g, ''), x: 0.28, y: 0.25, w: 0.44, h: 0.3, assetId: asset.id, url: asset.url, rot: 0 as const }
+  const item = { id: crypto.randomUUID().replace(/-/g, ''), x: 0.28, y: 0.25, w: 0.44, h: 0.3, assetId: asset.id, url: asset.url, rot: 0 as const, ...(layerId ? { layer: layerId } : {}) }
   page.content.images.push(item)
   useInknoteStore.getState().touchPage()
   window.dispatchEvent(new Event('inknote:invalidate'))
