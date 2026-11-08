@@ -45,6 +45,7 @@ import {
   fetchImports,
   fetchJobs,
   finishJob,
+  recordUsage,
   retryJob,
   startBulkImport,
   stepBulkImport,
@@ -411,6 +412,19 @@ export function IconsApp() {
     }
   }, [applyBootstrap])
 
+  /**
+   * Copy, download and detail are what "recently used" means. The route existed but no caller used it,
+   * so the rail's recent count could never leave zero; recording here also refreshes that count at once.
+   */
+  const markUsed = useCallback(async (id: string, action: 'copy' | 'download' | 'view') => {
+    try {
+      await recordUsage(id, action)
+      await refreshCounts()
+    } catch {
+      // A usage counter is advisory: a failed write must not interrupt copying or opening.
+    }
+  }, [refreshCounts])
+
   const toggleFavorite = useCallback(async (item: IconAssetSummary) => {
     await batchAssets(item.favorited ? 'unfavorite' : 'favorite', [item.id])
     const favorited = !item.favorited
@@ -465,16 +479,18 @@ export function IconsApp() {
         await copyText(item.rawUrl)
       }
       toast({ title: t('development.icons.card.copied'), tone: 'success' })
+      void markUsed(item.id, 'copy')
     } catch (cause) {
       toast({ title: message(cause), tone: 'danger' })
     }
-  }, [toast])
+  }, [markUsed, toast])
 
   const openDetail = useCallback(async (item: IconAssetSummary) => {
     setDetailBusy(item.id)
     try {
       const full = await fetchAsset(item.id)
       setDetail(full)
+      void markUsed(full.id, 'view')
       if (full.format === 'svg') {
         const response = await fetch(full.rawUrl)
         const body = response.ok ? await response.text() : ''
@@ -489,7 +505,7 @@ export function IconsApp() {
     } finally {
       setDetailBusy('')
     }
-  }, [toast])
+  }, [markUsed, toast])
 
   const updateTags = useCallback(async (item: IconAssetDetail, tagIds: string[]) => {
     await updateAsset(item.id, { tagIds })
@@ -720,7 +736,7 @@ export function IconsApp() {
           </div>
         )}
 
-        {activeImport && (activeImport.status === 'running' || activeImport.failedItems > 0) && (
+        {activeImport && (activeImport.status === 'running' || activeImport.status === 'failed' || activeImport.failedItems > 0) && (
           <div data-testid="icons-import-banner" className="flex flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-raised)] px-4 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">
             {activeImport.status === 'running' ? <Loader2 size={14} className="animate-spin" /> : <AlertCircle size={14} className="text-[var(--warning)]" />}
             <span className="font-medium text-[var(--text-primary)]">{activeImport.prefix}</span>
@@ -810,6 +826,7 @@ export function IconsApp() {
                       onFavorite={toggleFavorite}
                       onPin={togglePinned}
                       onCopy={copyIcon}
+                      onDownload={(entry) => void markUsed(entry.id, 'download')}
                       onSelect={toggleSelect}
                     />
                   </div>
@@ -840,6 +857,7 @@ export function IconsApp() {
                     onFavorite={toggleFavorite}
                     onPin={togglePinned}
                     onCopy={copyIcon}
+                    onDownload={(entry) => void markUsed(entry.id, 'download')}
                     onSelect={toggleSelect}
                   />
                 ))}
@@ -873,6 +891,7 @@ export function IconsApp() {
                       onFavorite={toggleFavorite}
                       onPin={togglePinned}
                       onCopy={copyIcon}
+                      onDownload={(entry) => void markUsed(entry.id, 'download')}
                       onSelect={toggleSelect}
                     />
                   ))}

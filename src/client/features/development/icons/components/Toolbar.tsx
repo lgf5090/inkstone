@@ -202,9 +202,11 @@ export function Toolbar({
               max={2}
               onChange={(value) => onChange({ ...state, density: DENSITY_ORDER[value] ?? 'medium' })}
               label={t('development.icons.toolbar.density')}
-              className="w-20"
+              valueText={t(DENSITY_LABELS[state.density] as never)}
+              showValue={false}
+              className="w-24"
             />
-            <span className="w-14 shrink-0 text-[length:var(--text-10)] text-[var(--text-secondary)]">{t(DENSITY_LABELS[state.density] as never)}</span>
+            <span aria-hidden="true" className="w-12 shrink-0 text-[length:var(--text-10)] text-[var(--text-secondary)]">{t(DENSITY_LABELS[state.density] as never)}</span>
           </div>
         )}
 
@@ -220,14 +222,16 @@ export function Toolbar({
           className="w-24"
         />
 
-        <Tooltip label={t('development.icons.toolbar.refresh')}>
-          <IconButton label={t('development.icons.toolbar.refresh')} size="sm" className="h-8 w-8" onClick={onRefresh}>
-            <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
-          </IconButton>
-        </Tooltip>
-        <Tooltip label={t('development.icons.toolbar.settings')}>
-          <IconButton label={t('development.icons.toolbar.settings')} size="sm" className="h-8 w-8" onClick={onSettings}><Settings2 size={14} /></IconButton>
-        </Tooltip>
+        <div className="ml-auto flex items-center gap-1">
+          <Tooltip label={t('development.icons.toolbar.refresh')}>
+            <IconButton label={t('development.icons.toolbar.refresh')} size="sm" className="h-8 w-8" onClick={onRefresh}>
+              <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('development.icons.toolbar.settings')}>
+            <IconButton label={t('development.icons.toolbar.settings')} size="sm" className="h-8 w-8" onClick={onSettings}><Settings2 size={14} /></IconButton>
+          </Tooltip>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 border-t border-[var(--border-subtle)] px-3 py-1.5">

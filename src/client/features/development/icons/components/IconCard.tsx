@@ -11,6 +11,7 @@ export interface IconCardActions {
   onFavorite: (item: IconAssetSummary) => void
   onPin: (item: IconAssetSummary) => void
   onCopy: (item: IconAssetSummary) => void
+  onDownload: (item: IconAssetSummary) => void
   onSelect: (id: string, checked: boolean) => void
 }
 
@@ -29,7 +30,7 @@ function shortSize(item: IconAssetSummary): string {
  * A square tile with a two-line name and a fixed caption. Hover swaps the caption for four equal
  * action cells, so the verbs are always inside the card and never clipped by its rounded overflow.
  */
-export const IconCard = memo(function IconCard({ item, selected, height, imageSize, onOpen, onFavorite, onCopy, onSelect }: IconCardProps) {
+export const IconCard = memo(function IconCard({ item, selected, height, imageSize, onOpen, onFavorite, onCopy, onDownload, onSelect }: IconCardProps) {
   return (
     <div
       data-icon-card={item.id}
@@ -76,6 +77,7 @@ export const IconCard = memo(function IconCard({ item, selected, height, imageSi
             download={`${item.name}.${item.format}`}
             aria-label={t('development.icons.card.download')}
             title={t('development.icons.card.download')}
+            onClick={() => onDownload(item)}
             className="inline-flex h-7 min-w-0 flex-1 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
           >
             <Download size={13} />
@@ -109,7 +111,7 @@ interface IconRowProps extends IconCardActions {
 }
 
 /** The compact list keeps one line per icon; it is the mode for scanning names, not for browsing art. */
-export const IconRow = memo(function IconRow({ item, selected, collectionName, onOpen, onFavorite, onPin, onCopy, onSelect }: IconRowProps) {
+export const IconRow = memo(function IconRow({ item, selected, collectionName, onOpen, onFavorite, onPin, onCopy, onDownload, onSelect }: IconRowProps) {
   return (
     <div
       data-icon-row={item.id}
@@ -128,7 +130,7 @@ export const IconRow = memo(function IconRow({ item, selected, collectionName, o
         <IconButton label={t('development.icons.card.copy')} size="sm" className="h-7 w-7" onClick={() => onCopy(item)}><Copy size={12} /></IconButton>
         <IconButton label={t('development.icons.card.favorite')} size="sm" className="h-7 w-7" onClick={() => onFavorite(item)}><Star size={12} className={item.favorited ? 'fill-current text-[var(--warning)]' : ''} /></IconButton>
         <IconButton label={t('development.icons.card.pin')} size="sm" className="h-7 w-7" onClick={() => onPin(item)}><Pin size={12} className={item.pinned ? 'text-[var(--warning)]' : ''} /></IconButton>
-        <a href={item.rawUrl} download={`${item.name}.${item.format}`} aria-label={t('development.icons.card.download')} className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Download size={12} /></a>
+        <a href={item.rawUrl} download={`${item.name}.${item.format}`} aria-label={t('development.icons.card.download')} onClick={() => onDownload(item)} className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Download size={12} /></a>
       </div>
     </div>
   )
@@ -141,7 +143,7 @@ interface IconTableRowProps extends IconCardActions {
 }
 
 /** The table mode is the audit view: every fact a row carries is a column, not a tooltip. */
-export const IconTableRow = memo(function IconTableRow({ item, selected, collectionName, onOpen, onFavorite, onPin, onCopy, onSelect }: IconTableRowProps) {
+export const IconTableRow = memo(function IconTableRow({ item, selected, collectionName, onOpen, onFavorite, onPin, onCopy, onDownload, onSelect }: IconTableRowProps) {
   return (
     <tr data-icon-row={item.id} className={cn('group border-b border-[var(--border-subtle)]', selected ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]')}>
       <td className="w-8 px-2 py-1.5"><Checkbox checked={selected} onChange={(checked) => onSelect(item.id, checked)} ariaLabel={`${t('development.icons.card.select')} ${item.name}`} /></td>
@@ -176,7 +178,7 @@ export const IconTableRow = memo(function IconTableRow({ item, selected, collect
           <IconButton label={t('development.icons.card.copy')} size="sm" className="h-6 w-6" onClick={() => onCopy(item)}><Copy size={11} /></IconButton>
           <IconButton label={t('development.icons.card.favorite')} size="sm" className="h-6 w-6" onClick={() => onFavorite(item)}><Star size={11} /></IconButton>
           <IconButton label={t('development.icons.card.pin')} size="sm" className="h-6 w-6" onClick={() => onPin(item)}><Pin size={11} /></IconButton>
-          <a href={item.rawUrl} download={`${item.name}.${item.format}`} aria-label={t('development.icons.card.download')} className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Download size={11} /></a>
+          <a href={item.rawUrl} download={`${item.name}.${item.format}`} aria-label={t('development.icons.card.download')} onClick={() => onDownload(item)} className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Download size={11} /></a>
         </div>
       </td>
     </tr>
