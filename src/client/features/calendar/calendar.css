@@ -391,6 +391,52 @@
 }
 
 /*
+ * The view switcher is the screen's primary mode control, so the current view has to read as
+ * selected at a glance rather than as a slightly lighter pill. `:nth-child(4)` is the Year button:
+ * a divider separates the three working views from the two overview views without moving any
+ * control out of the library's own keyboard order.
+ */
+.inkstone-calendar .df-view-switcher {
+  align-items: center;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.inkstone-calendar .df-view-switcher-btn {
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--r-md) - 2px);
+  color: var(--text-tertiary);
+  font-weight: 500;
+  height: 26px;
+  padding-inline: var(--sp-2-5);
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+
+.inkstone-calendar .df-view-switcher-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.inkstone-calendar .df-view-switcher-btn[data-active="true"] {
+  background: var(--accent);
+  box-shadow: var(--shadow-sm);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.inkstone-calendar .df-view-switcher-btn:nth-child(4) {
+  border-left: 1px solid var(--border-subtle);
+  border-radius: 0 calc(var(--r-md) - 2px) calc(var(--r-md) - 2px) 0;
+  margin-left: var(--sp-1);
+  padding-left: var(--sp-3);
+}
+
+/*
  * The mobile header is a compressed seven-column strip while the timed canvas translates a wide
  * seven-day surface under a fixed time column. calendar-chrome mirrors the body's column width and
  * offset onto it; the header only has to clip what falls outside the phone.
@@ -399,3 +445,4 @@
 .inkstone-calendar .df-compact-header-labels {
   overflow: hidden;
 }
+
