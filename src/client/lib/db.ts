@@ -661,6 +661,27 @@ export const localDb = {
     )
   },
 
+  /**
+   * Turn the queued first write of a note that was created offline into a patch.
+   *
+   * Once the server has the note, any later content queued under the same note must be applied
+   * against the revision the create produced; leaving `create` on it would make the next replay
+   * ask the idempotent create endpoint for the note it already has, which answers with the row
+   * it created and discards the newer text.
+   */
+  settleOfflineCreate(entityId: string, rev: number): Promise<void> {
+    return update<OutboxItem[]>(
+      userScopedKey(KEY.outbox),
+      (current) => normalizeOutbox(current).map((item) => {
+        if (item.entity !== 'note' || item.entityId !== entityId || item.payload.create !== true)
+          return item
+        const { create: _create, ...payload } = item.payload
+        return { ...item, dependsOnWriteId: undefined, payload: { ...payload, rev } }
+      }),
+      store,
+    )
+  },
+
   markOutboxFailure(id: string, writeId: string, message: string): Promise<void> {
     return update<OutboxItem[]>(
       userScopedKey(KEY.outbox),

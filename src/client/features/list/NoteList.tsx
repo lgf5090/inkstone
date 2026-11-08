@@ -757,6 +757,9 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
       {moveOpen && <FolderPicker open title={t("notes.move_to_folder")} folders={folders} currentId={note.folderId} rootLabel={t("notes.remove_from_folder")} onSelect={(folderId) => void patchNote(note.id, { folderId })} onClose={() => setMoveOpen(false)}/>}
     </>);
 });
+/** How many notes a bulk action writes at once: enough to hide the per-request latency, small enough
+ *  that the worker's per-note batches do not all collide on the same account cursor. */
+const BULK_CONCURRENCY = 4;
 function BulkBar() {
     const selectedIds = useUi((s) => s.selectedIds);
     const setSelected = useUi((s) => s.setSelected);
@@ -779,8 +782,10 @@ function BulkBar() {
         setSelected(currentActiveId ? [currentActiveId] : []);
     };
     const performAll = async (fn: (id: string) => Promise<void>, label: string) => {
-        for (const id of ids)
-            await fn(id);
+        // A hundred selected notes used to be a hundred serial round trips. Four at a time keeps
+        // the editor responsive and still finishes in a quarter of the wall time.
+        for (let offset = 0; offset < ids.length; offset += BULK_CONCURRENCY)
+            await Promise.all(ids.slice(offset, offset + BULK_CONCURRENCY).map(fn));
         toast({ title: t("notes.value0_value1_notes", { value0: label, value1: ids.length }), tone: 'success' });
         clear();
     };

@@ -24,6 +24,13 @@ vi.mock('../lib/db', () => ({
       mocks.queue = mocks.queue.map((q) => q.id === id && q.writeId === writeId
         ? { ...q, payload: { ...q.payload, recoveryId } } : q)
     },
+    settleOfflineCreate: async (entityId: string, rev: number) => {
+      mocks.queue = mocks.queue.map((item: any) => {
+        if (item.entity !== 'note' || item.entityId !== entityId || item.payload.create !== true) return item
+        const { create: _create, ...payload } = item.payload
+        return { ...item, dependsOnWriteId: undefined, payload: { ...payload, rev } }
+      })
+    },
     advanceOutboxDependents: vi.fn(async () => {}), markOutboxFailure: vi.fn(async () => {}),
     withOutboxReplayLock: async (_owner: string, task: () => Promise<void>) => { await task(); return true },
   }, publishBroadcast: vi.fn(),
@@ -32,7 +39,7 @@ vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<any>('../lib/api')
   return { ...actual, api: { ...actual.api, notes: { get: mocks.get, patch: mocks.patch, create: mocks.create, linkMention: mocks.linkMention } } }
 })
-import { findNoteByTitle, useNotes } from './notes'
+import { findNoteByTitle, flushLocalDbWrites, useNotes } from './notes'
 import { api } from '../lib/api'
 import { getInboxFolderId, setInboxFolderId } from '../lib/folder-prefs'
 import { ApiError } from '../lib/api'
@@ -118,6 +125,33 @@ it('saves conflicting local edits as a copy without retrying over the server not
   expect(useNotes.getState().contents[note.id]).toBe('remote important edit')
   expect(useNotes.getState().notes[note.id].rev).toBe(3)
   expect(mocks.queue).toHaveLength(0)
+})
+
+it('keeps a note created while offline and uploads it once the network returns', async () => {
+  useNotes.setState({ online: false })
+  mocks.create.mockRejectedValueOnce(new ApiError(0, 'offline', 'offline'))
+  const id = await useNotes.getState().createNote({ title: 'Offline draft', content: 'body', open: false })
+  expect(id).not.toBeNull()
+  expect(useNotes.getState().notes[id!].title).toBe('Offline draft')
+  expect(useNotes.getState().contents[id!]).toBe('body')
+  await flushLocalDbWrites()
+  const createItem = mocks.queue.find((item) => item.entityId === id)
+  expect(createItem?.payload.create).toBe(true)
+
+  // Typing before the connection returns merges into the same create item instead of replacing
+  // it with a patch against a note the server has never seen.
+  useNotes.getState().editContent(id!, 'body plus')
+  await flushLocalDbWrites()
+  expect(mocks.queue.find((item) => item.entityId === id)?.payload.create).toBe(true)
+  expect(mocks.queue.find((item) => item.entityId === id)?.payload.content).toBe('body plus')
+
+  const created: Note = { ...note, id: id!, title: 'Offline draft', content: 'body plus', rev: 1 }
+  mocks.create.mockResolvedValueOnce(created)
+  useNotes.setState({ online: true })
+  await useNotes.getState().flush({ immediate: true })
+  expect(useNotes.getState().notes[id!].rev).toBe(1)
+  expect(useNotes.getState().contents[id!]).toBe('body plus')
+  await vi.waitFor(() => expect(mocks.queue).toHaveLength(0))
 })
 
 it('keeps a refused 413 body in the outbox instead of calling it saved', async () => {
