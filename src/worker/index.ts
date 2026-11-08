@@ -106,7 +106,12 @@ export default {
       // Task reminders ride the same every-fire cadence, for the same reason: the claim on the row is
       // what deduplicates them, so a second fire in the same minute finds nothing left to deliver.
       const reminderTick = sweepTaskReminders(env, event.scheduledTime, (task) => { ctx.waitUntil(task) })
-      const certhubTick = runCerthubTick(env, event.scheduledTime)
+      // One certificate order that throws must not take the whole scheduled round with it: the other
+      // ticks, and every order behind this one, still have work to do in the same fire.
+      const certhubTick = runCerthubTick(env, event.scheduledTime).catch((error) => {
+        console.warn('[inkstone] certificate hub tick failed:', (error as Error).message)
+        return null
+      })
       const emailDraftTick = runEmailAutoDraftJobs(env, event.scheduledTime, 2)
       const emailSnoozeTick = runEmailSnoozeWake(env, event.scheduledTime)
       const emailFollowUpTick = runEmailFollowUpSweep(env, event.scheduledTime)

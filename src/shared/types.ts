@@ -1507,6 +1507,7 @@ export type ApiErrorCode =
   | 'forward_blocked'
   | 'forward_expired'
   | 'forward_error'
+  | 'dns_provider_missing'
   | 'forward_open_failed'
   | 'forward_bad_response'
   | 'forward_method_blocked'

@@ -23,8 +23,8 @@ import { createCsr, generateKey, parseCertificate } from './crypto/keys'
 import { splitCertificateChain } from './crypto/pem'
 import { queryDns } from './dns/doh'
 import { notifyFromOrder } from './notify'
-import { createDelegatedTxt, deleteDelegatedTxt } from './dns/dcv'
-import { createTxtRecord, deleteDnsRecord } from './dns/cloudflare'
+import { createDelegatedTxt, deleteDelegatedTxt, dcvAvailable } from './dns/dcv'
+import { deleteDnsRecord, ensureTxtRecord } from './dns/cloudflare'
 import { http01Instruction } from './dns/http01'
 import {
   appendEvent,
@@ -46,9 +46,19 @@ import { certhubObjectKey, deleteCerthubObjects, putCerthubText, readCerthubText
 export interface AdvanceResult {
   order: OrderRow
   retryAfterMs: number
+  /**
+   * Why the order did not move. A blocked result is a finished answer, not an error: the queue treats
+   * it as "ask again later" while the interactive action surfaces it as a refusal the reader can act on.
+   */
+  blocked?: 'dns_provider_missing'
 }
 
 const TERMINAL = new Set(['issued', 'revoked', 'expired', 'canceled', 'deleting'])
+
+/** A waiting order may be re-checked often; its `updated_at` moves at most this slowly. */
+const PENDING_HEARTBEAT_MS = 10 * 60_000
+/** The missing-provider event repeats at most this slowly, so a stuck order cannot flood the log. */
+const PROVIDER_MISSING_EVENT_MS = 60 * 60_000
 
 export function isTerminal(status: string): boolean {
   return TERMINAL.has(status)
@@ -74,6 +84,46 @@ async function record(
 
 function identifierFor(domain: ValidatedDomain): { type: 'dns' | 'ip'; value: string } {
   return { type: domain.isIp ? 'ip' : 'dns', value: certificateName(domain) }
+}
+
+/** The DNS-01 domains that still have no provider to write their TXT record. */
+export function domainsWithoutProvider(domains: Array<{ challenge_mode: string; dns_provider_id: string; status: string }>): typeof domains {
+  return domains.filter((domain) => domain.challenge_mode === 'dns-01' && !domain.dns_provider_id && domain.status !== 'valid')
+}
+
+/**
+ * Moves `updated_at` so a waiting order does not look frozen in the list, without touching `version`.
+ *
+ * The heartbeat is throttled: the poller wakes every few minutes, and rewriting the row on every wake
+ * would turn an idle order into constant D1 writes. No event is written here — the pending-DNS event
+ * already explains the wait, and one such row per tick would bury the rest of the history.
+ */
+async function touchWaitingOrder(db: D1Database, userId: string, order: OrderRow, at: number): Promise<OrderRow> {
+  if (at - order.updated_at < PENDING_HEARTBEAT_MS) return order
+  await updateOrder(db, userId, order.id, { updated_at: at })
+  return (await findOrder(db, userId, order.id)) ?? order
+}
+
+/**
+ * Records that this order cannot be written automatically, at most once an hour.
+ *
+ * The queue touches the same condition every five minutes; an event per wake would fill the ten-row
+ * detail view with the same line and force older events out of the retention window.
+ */
+async function recordProviderMissing(
+  db: D1Database,
+  userId: string,
+  order: OrderRow,
+  domains: DomainRow[],
+): Promise<void> {
+  const since = Date.now() - PROVIDER_MISSING_EVENT_MS
+  const seen = await db.prepare(`SELECT 1 AS seen FROM development_certhub_events
+    WHERE user_id = ?1 AND order_id = ?2 AND kind = 'order.dns_provider_missing' AND created_at >= ?3
+    LIMIT 1`).bind(userId, order.id, since).first<{ seen: number }>()
+  if (seen) return
+  await record(db, userId, order.id, 'system', 'order.dns_provider_missing', 'order.dns_provider_missing', 'warn', domains[0]?.id, {
+    domains: domains.filter((domain) => domain.challenge_mode === 'dns-01' && !domain.dns_provider_id).map((domain) => domain.name),
+  })
 }
 
 async function ensureKeyAndCsr(
@@ -149,7 +199,7 @@ async function prepareChallenges(
           patch.dns_record_value = delegated.cnameTarget
           patch.dns_record_id = delegated.recordId
         } else {
-          const recordId = await createTxtRecord(
+          const recordId = await ensureTxtRecord(
             await providerToken(env, provider),
             provider.zone_id,
             fqdn,
@@ -424,7 +474,18 @@ export async function advanceOrder(
       const freshDomains = await listDomains(db, userId, order.id)
       const next = await verifyChallenges(env, db, userId, order, freshDomains, bundle)
       if (next === 'awaiting_dns') {
-        if (order.status === 'awaiting_dns') return { order, retryAfterMs: 5 * 60_000 }
+        const at = now()
+        if (domainsWithoutProvider(freshDomains).length > 0) {
+          // The names are resolved but nothing can write the TXT record: the reader has to bind a
+          // provider, or add the record by hand before this order can move. The queue still retries,
+          // because the manual path becomes valid the moment the record appears in DNS.
+          const touched = await touchWaitingOrder(db, userId, order, at)
+          await recordProviderMissing(db, userId, order, freshDomains)
+          return { order: touched, retryAfterMs: 5 * 60_000, blocked: 'dns_provider_missing' }
+        }
+        if (order.status === 'awaiting_dns') {
+          return { order: await touchWaitingOrder(db, userId, order, at), retryAfterMs: 5 * 60_000 }
+        }
         const changed = await updateOrder(db, userId, order.id, {
           status: 'awaiting_dns',
           updated_at: now(),
@@ -671,7 +732,18 @@ export async function handleOrderAction(
       const domain = await findDomain(db, userId, orderId, options.domainId)
       if (!domain) throw ApiError.notFound('The domain was not found')
     }
-    return advanceOrder(env, db, userId, orderId, actor)
+    const result = await advanceOrder(env, db, userId, orderId, actor)
+    if (result.blocked === 'dns_provider_missing') {
+      // The retry job keeps the manual path alive: a record added by hand is noticed on the next tick
+      // even when the reader never presses the button again.
+      await enqueueJob(db, { userId, orderId, kind: 'advance', runAfter: Date.now() + result.retryAfterMs })
+      throw new ApiError(
+        409,
+        'dns_provider_missing',
+        'This DNS-01 order has no DNS provider bound, so its TXT record cannot be written automatically',
+      )
+    }
+    return result
   }
   if (action === 'renew') {
     const order = await renewOrder(env, db, userId, orderId)
@@ -724,6 +796,87 @@ export async function handleOrderAction(
     return advanceOrder(env, db, userId, orderId, actor)
   }
   throw ApiError.badRequest('Unknown certificate action')
+}
+
+/** The order states in which a domain may still change its provider: everything before the CA decides. */
+const PROVIDER_BINDABLE = new Set(['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating'])
+
+/**
+ * Binds (or changes, or clears) the DNS provider of one domain, then re-queues the order.
+ *
+ * The order goes back to `queued` so the next advance re-reads the authorizations and writes the
+ * record through the newly bound provider; the domain's own record fields are cleared because the
+ * record that was attached to the previous provider no longer describes where the value lives.
+ *
+ * Only the stored `dns_record_id` is deleted on the way out. Two orders for `example.com` and
+ * `*.example.com` share `_acme-challenge.example.com` but hold different values, and deleting by id
+ * removes this domain's value while leaving the other order's TXT in place.
+ */
+export async function bindOrderDomainProvider(
+  env: Env,
+  db: D1Database,
+  userId: string,
+  orderId: string,
+  domainId: string,
+  providerId: string,
+  actor: CerthubActor,
+): Promise<OrderRow> {
+  const order = await findOrder(db, userId, orderId)
+  if (!order) throw ApiError.notFound('The certificate order was not found')
+  if (!PROVIDER_BINDABLE.has(order.status)) {
+    throw new ApiError(409, 'order_state_conflict', 'This order has reached a state where its DNS provider cannot change')
+  }
+  const domain = await findDomain(db, userId, orderId, domainId)
+  if (!domain) throw ApiError.notFound('The domain was not found')
+  if (domain.challenge_mode !== 'dns-01') {
+    throw new ApiError(409, 'order_state_conflict', 'Only a DNS-01 domain uses a DNS provider')
+  }
+  const next = providerId ? await findProvider(db, userId, providerId) : null
+  if (providerId && !next) throw ApiError.notFound('The DNS provider was not found')
+  if (next) {
+    if (next.status === 'disabled') throw new ApiError(409, 'order_state_conflict', 'The DNS provider is disabled')
+    if (next.kind === 'dcv-delegate' && !dcvAvailable(env)) {
+      throw new ApiError(503, 'config_unavailable', 'The deployment has no DCV delegation credentials')
+    }
+    if (next.kind === 'cloudflare' && !next.credential_ciphertext) {
+      throw ApiError.badRequest('The DNS provider has no API token')
+    }
+  }
+  if (domain.dns_provider_id === (next?.id ?? '')) return order
+
+  if (domain.dns_record_id && domain.dns_provider_id) {
+    const previous = await findProvider(db, userId, domain.dns_provider_id)
+    if (previous?.kind === 'cloudflare') {
+      await deleteDnsRecord(await providerToken(env, previous), previous.zone_id, domain.dns_record_id)
+    } else if (previous?.kind === 'dcv-delegate') {
+      await deleteDelegatedTxt(env, domain.dns_record_id)
+    }
+  }
+
+  await updateDomain(db, userId, orderId, domainId, {
+    dns_provider_id: next?.id ?? '',
+    dns_record_id: '',
+    dns_record_name: '',
+    dns_record_type: '',
+    dns_record_value: '',
+    status: 'pending',
+    error_code: null,
+    error_message: null,
+    updated_at: now(),
+  })
+  const at = now()
+  const changed = await updateOrder(db, userId, orderId, {
+    status: 'queued',
+    updated_at: at,
+    version: order.version + 1,
+  }, order.version)
+  if (!changed) throw ApiError.conflict('The order changed while its DNS provider was being bound')
+  await record(db, userId, orderId, actor, 'order.provider_bound', 'order.provider_bound', 'info', domainId, {
+    domain: domain.name,
+    provider: next?.label ?? '',
+  })
+  await enqueueJob(db, { userId, orderId, kind: 'advance', runAfter: at })
+  return (await findOrder(db, userId, orderId))!
 }
 
 export function orderRetryAfter(result: AdvanceResult): number {

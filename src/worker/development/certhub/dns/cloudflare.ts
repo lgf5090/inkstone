@@ -8,6 +8,7 @@ export interface CloudflareRecord {
   name: string
   type: string
   content: string
+  comment?: string
 }
 
 interface CloudflareResponse<T> {
@@ -85,6 +86,28 @@ export async function createTxtRecord(
     body: JSON.stringify({ type: 'TXT', name, content, ttl: 60, comment }),
   })
   return created.id
+}
+
+/**
+ * Writes the TXT record this order owns, or returns the id of the one it already owns.
+ *
+ * Two orders for the same name (`example.com` and `*.example.com`) need two values at
+ * `_acme-challenge.example.com`, so the write must never replace an existing record. An interrupted
+ * attempt, though, can leave the record already there, and retrying would stack a duplicate value.
+ * The comment carries the order id: a record with this name, value and comment is this order's own
+ * record, while another order's value at the same name is left untouched.
+ */
+export async function ensureTxtRecord(
+  token: string,
+  zoneId: string,
+  name: string,
+  content: string,
+  comment: string,
+): Promise<string> {
+  const existing = await listDnsRecords(token, zoneId, name)
+  const owned = existing.find((record) => record.type === 'TXT' && record.content === content && record.comment === comment)
+  if (owned) return owned.id
+  return createTxtRecord(token, zoneId, name, content, comment)
 }
 
 export async function deleteDnsRecord(token: string, zoneId: string, recordId: string): Promise<void> {

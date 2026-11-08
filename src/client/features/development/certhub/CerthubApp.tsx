@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BadgeCheck, CalendarClock, CircleAlert, CircleCheck, CircleHelp, Clock3, Download, FileKey2, History, Plus, RefreshCw, ShieldCheck, Trash2, type LucideIcon } from 'lucide-react'
-import { request } from '../../../lib/api'
+import { ApiError, request } from '../../../lib/api'
 import { navigateToPath, replaceAddress, usePathname, useSearch } from '../../../lib/app-history'
 import { orderSortFromSearch } from '../../../../shared/development/certhub/sorting'
 import { t } from '../../../lib/i18n'
@@ -15,7 +15,7 @@ import { Modal, confirm, prompt } from '../../../components/overlay'
 import { Tabs } from '../../../components/tabs'
 import { CopyButton } from '../../../components/copy-button'
 import { TagPill } from '../../../components/TagChip'
-import { applyChallengeOptions, applyDomainErrorKey, dnsConnectionErrorKeys, dnsLabelErrorKey } from './rules'
+import { applyChallengeOptions, applyDomainErrorKey, dnsConnectionErrorKeys, dnsLabelErrorKey, matchProviderForDomain } from './rules'
 import { eventLabel, eventStyle, eventToneText } from './events'
 import { HelpButton } from './help'
 import { relativeTime } from '../../../lib/time'
@@ -68,6 +68,13 @@ const STATUS_TONES: Record<string, 'neutral' | 'accent' | 'success' | 'warning' 
   invalid: 'danger',
 }
 
+const PROVIDER_BINDABLE_STATUSES = ['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating']
+
+function providerName(providers: CerthubDnsProviderView[], id: string): string {
+  if (!id) return t('development.certhub.apply.provider_none')
+  return providers.find((provider) => provider.id === id)?.label ?? id
+}
+
 function statusKey(status: string): string {
   return `development.certhub.status.${status}`
 }
@@ -77,6 +84,18 @@ function toastError(error: unknown): void {
     title: error instanceof Error ? error.message : t('development.certhub.error.generic'),
     tone: 'danger',
   })
+}
+
+/**
+ * An order action answers with a code the reader can act on. A missing provider is not a generic
+ * failure — it names the one step left — so it gets its own sentence instead of the route's English.
+ */
+function toastActionError(error: unknown): void {
+  if (error instanceof ApiError && error.code === 'dns_provider_missing') {
+    useUi.getState().toast({ title: t('development.certhub.error.dns_provider_missing'), tone: 'danger' })
+    return
+  }
+  toastError(error)
 }
 
 async function api<T>(path: string, options: Parameters<typeof request>[1] = {}): Promise<T> {
@@ -391,6 +410,8 @@ function CertificatesPage({ compact }: { compact: boolean }) {
 function DetailPage({ id, compact }: { id: string; compact: boolean }) {
   const [order, setOrder] = useState<CerthubOrderView | null>(null)
   const [events, setEvents] = useState<CerthubEventView[]>([])
+  const [providers, setProviders] = useState<CerthubDnsProviderView[]>([])
+  const [providerDraft, setProviderDraft] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [pfxPassword, setPfxPassword] = useState('')
@@ -402,6 +423,9 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
   }
   useEffect(load, [id])
   useEffect(() => {
+    api<{ items: CerthubDnsProviderView[] }>('/dns-providers').then((data) => setProviders(data.items)).catch(toastError)
+  }, [])
+  useEffect(() => {
     if (!order) return
     const active = ['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating', 'ready', 'finalizing'].includes(order.status)
     if (!active) return
@@ -412,10 +436,32 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
     if (!order) return
     setBusy(true)
     try {
-      await api(`/orders/${id}/actions`, { method: 'POST', body: { action, ...extra } })
+      const result = await api<{ order: CerthubOrderView; retryAfterMs?: number }>(`/orders/${id}/actions`, { method: 'POST', body: { action, ...extra } })
+      load()
+      // A 200 that only re-queues a retry is still an answer the reader should see: without this the
+      // button looks inert while the order silently waits for DNS propagation.
+      if (result.retryAfterMs && result.retryAfterMs > 0) {
+        useUi.getState().toast({ title: t('development.certhub.detail.pending_refresh'), tone: 'warning' })
+      }
+    } catch (reason) {
+      toastActionError(reason)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const bindProvider = async (domainId: string, providerId: string) => {
+    setBusy(true)
+    try {
+      await api(`/orders/${id}/domains/${domainId}/provider`, { method: 'POST', body: { dnsProviderId: providerId } })
+      setProviderDraft((current) => {
+        const next = { ...current }
+        delete next[domainId]
+        return next
+      })
+      useUi.getState().toast({ title: t('development.certhub.detail.provider_bound'), tone: 'success' })
       load()
     } catch (reason) {
-      toastError(reason)
+      toastActionError(reason)
     } finally {
       setBusy(false)
     }
@@ -494,6 +540,7 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
           <Info label={t('development.certhub.cert.expires')} value={formatDate(order.certNotAfter)} />
           <Info label={t('development.certhub.accounts.fingerprint')} value={order.keyFingerprint || '-'} />
           <Info label={t('development.certhub.detail.progress')} value={t('development.certhub.detail.domain_count').replace('{count}', String(order.domains.length))} />
+          <Info label={t('development.certhub.detail.last_checked')} value={relativeTime(order.updatedAt)} />
         </div>
         <div className="mt-4">
           <SectionLabel>{t('development.certhub.detail.download')}</SectionLabel>
@@ -514,6 +561,31 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
               <div className="mt-2 grid gap-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
                 <div className="break-all">{t('development.certhub.detail.record')}: {domain.recordName || '-'} · {domain.recordType}</div>
                 <div className="flex min-w-0 items-center gap-1"><span className="truncate">{t('development.certhub.detail.record_value')}: {domain.recordValue || '-'}</span><CopyButton text={domain.recordValue} label={t('development.certhub.detail.copy')} /></div>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
+                  {t('development.certhub.detail.provider')}: {providerName(providers, domain.dnsProviderId)}
+                </span>
+                {domain.challengeMode === 'dns-01' && PROVIDER_BINDABLE_STATUSES.includes(order.status) ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <SelectMenu
+                      label={t('development.certhub.detail.bind_provider')}
+                      value={providerDraft[domain.id] ?? domain.dnsProviderId}
+                      options={[{ value: '', label: t('development.certhub.apply.provider_none') }, ...providers.map((provider) => ({ value: provider.id, label: provider.label }))]}
+                      onChange={(value) => setProviderDraft((current) => ({ ...current, [domain.id]: value }))}
+                      size="sm"
+                      width={200}
+                    />
+                    <Button
+                      size="sm"
+                      loading={busy}
+                      disabled={(providerDraft[domain.id] ?? domain.dnsProviderId) === domain.dnsProviderId}
+                      onClick={() => bindProvider(domain.id, providerDraft[domain.id] ?? domain.dnsProviderId)}
+                    >
+                      {t('development.certhub.detail.bind_provider')}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
               <div className="mt-2"><Button size="sm" onClick={() => runAction('verify_domain', { domainId: domain.id })}>{t('development.certhub.detail.verify')}</Button></div>
             </div>
@@ -576,7 +648,7 @@ function failureHint(code: string | null): string {
   return text === key ? t('development.certhub.failure.unknown' as never) : text
 }
 
-interface DomainForm { id: string; name: string; wildcard: boolean; primary: boolean; challengeMode: 'dns-01' | 'http-01'; dnsProviderId: string }
+interface DomainForm { id: string; name: string; wildcard: boolean; primary: boolean; challengeMode: 'dns-01' | 'http-01'; dnsProviderId: string; providerPinned?: boolean }
 
 /**
  * One domain line of the request form. The label lives on the `Checkbox` itself: an earlier version
@@ -621,6 +693,17 @@ function ApplyPage({ compact }: { compact: boolean }) {
   const captchaRef = useRef<HTMLDivElement>(null)
   useEffect(() => { api<{ items: CerthubDnsProviderView[] }>('/dns-providers').then((data) => setProviders(data.items)).catch(() => setProviders([])) }, [])
   useEffect(() => { api<CerthubOverview>('/overview').then((data) => setQuota(data.quota)).catch(() => setQuota(null)) }, [])
+  // A provider that covers the typed domain is the one the automatic path can actually write to.
+  // The fill only touches rows the reader has not pinned: choosing the manual option explicitly is a
+  // decision, and a later keystroke in the name must not silently undo it.
+  useEffect(() => {
+    if (providers.length === 0) return
+    setDomains((current) => current.map((row) => {
+      if (row.providerPinned) return row
+      const matched = matchProviderForDomain(row.name, providers)
+      return matched && matched !== row.dnsProviderId ? { ...row, dnsProviderId: matched } : row
+    }))
+  }, [providers])
   const quotaReached = Boolean(quota && ((quota.maxActiveCerts > 0 && quota.activeCerts >= quota.maxActiveCerts) || (quota.dailyLimit > 0 && quota.dailyUsed >= quota.dailyLimit)))
   useEffect(() => {
     api<{ captcha: { enabled: boolean; siteKey: string } }>('/health')
@@ -647,7 +730,13 @@ function ApplyPage({ compact }: { compact: boolean }) {
       if (widgetId && scope.turnstile) scope.turnstile.remove(widgetId)
     }
   }, [captcha.enabled, captcha.siteKey])
-  const update = (id: string, patch: Partial<DomainForm>) => setDomains((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row))
+  const update = (id: string, patch: Partial<DomainForm>) => setDomains((current) => current.map((row) => {
+    if (row.id !== id) return row
+    const next = { ...row, ...patch }
+    if (patch.dnsProviderId !== undefined) next.providerPinned = true
+    else if (patch.name !== undefined && !row.providerPinned) next.dnsProviderId = matchProviderForDomain(patch.name, providers)
+    return next
+  }))
   const submit = async () => {
     // Reject a bad domain here rather than travelling to the server for the same answer: the server still
     // validates (a crafted request must not get past it), this is only the first gate.

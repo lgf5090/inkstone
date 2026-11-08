@@ -15,6 +15,7 @@ import {
   configPatchSchema,
   createOrderSchema,
   dnsProviderSchema,
+  providerBindSchema,
   settingsSchema,
   tokenCreateSchema,
 } from '@shared/development/certhub/validation'
@@ -23,7 +24,7 @@ import { parseOrderSort } from '@shared/development/certhub/sorting'
 import { accountRegistrationApiError, ensureAccount, importAccountKey, rotateAccountKey } from '../development/certhub/accounts'
 import { quotaContext, verifyTurnstile } from '../development/certhub/quota'
 import { createOrderForUser } from '../development/certhub/orders'
-import { handleOrderAction } from '../development/certhub/state-machine'
+import { bindOrderDomainProvider, handleOrderAction } from '../development/certhub/state-machine'
 import { kickOrder } from '../development/certhub/worker'
 import {
   appendEvent,
@@ -245,7 +246,27 @@ developmentCerthubRoutes.post('/orders/:id/actions', async (c) => {
     await enqueueJob(c.env.DB, { userId, orderId, kind: 'advance', runAfter: Date.now() + result.retryAfterMs })
   }
   const domains = await listDomains(c.env.DB, userId, orderId)
-  return c.json({ ok: true, data: { order: orderWithDomains(result.order, domains) } })
+  return c.json({ ok: true, data: { order: orderWithDomains(result.order, domains), retryAfterMs: result.retryAfterMs } })
+})
+
+developmentCerthubRoutes.post('/orders/:id/domains/:domainId/provider', async (c) => {
+  const userId = userIdOf(c)
+  const orderId = c.req.param('id')
+  const body = await parseBody(c, providerBindSchema)
+  const order = await findOrder(c.env.DB, userId, orderId)
+  if (!order) throw ApiError.notFound('The certificate order was not found')
+  const updated = await bindOrderDomainProvider(
+    c.env,
+    c.env.DB,
+    userId,
+    orderId,
+    c.req.param('domainId'),
+    body.dnsProviderId,
+    actionActor(c),
+  )
+  c.executionCtx.waitUntil(kickOrder(c.env, c.env.DB, userId, orderId))
+  const domains = await listDomains(c.env.DB, userId, orderId)
+  return c.json({ ok: true, data: { order: orderWithDomains(updated, domains) } })
 })
 
 developmentCerthubRoutes.get('/orders/:id/download', async (c) => {
