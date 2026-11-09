@@ -2,6 +2,7 @@ import { useState, type ReactElement } from 'react'
 import { ChevronLeft, ChevronRight, SquareKanban } from 'lucide-react'
 import type { ProjectCard, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
 import { projectCardBadges } from '@shared/project/badges'
+import { projectDayToStamp } from '@shared/project/date'
 import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
 import { CardBadges } from './CardBadges'
@@ -43,11 +44,13 @@ export function GalleryView({ cards, contents, comments, onOpenCard }: { cards: 
   )
 }
 
-export function CalendarView({ cards, properties, datePropertyId, onOpenCard }: {
+export function CalendarView({ cards, properties, datePropertyId, canEdit, onOpenCard, onPatchCard }: {
   cards: ProjectCard[]
   properties: ProjectProperty[]
   datePropertyId?: string
+  canEdit: boolean
   onOpenCard: (id: string) => void
+  onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
 }): ReactElement {
   const [month, setMonth] = useState(() => {
     const now = new Date()
@@ -91,7 +94,17 @@ export function CalendarView({ cards, properties, datePropertyId, onOpenCard }: 
       <div className="grid min-h-0 flex-1 grid-cols-7 gap-1 overflow-y-auto">
         {weekdays.map((day, i) => <div key={i} className="pb-1 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{day}</div>)}
         {cells.map((day, i) => (
-          <div key={i} className={`min-h-16 rounded-[var(--r-sm)] border border-[var(--border-subtle)] p-1 ${day === null ? 'opacity-40' : ''}`}>
+          <div
+            key={i}
+            className={`min-h-16 rounded-[var(--r-sm)] border border-[var(--border-subtle)] p-1 ${day === null ? 'opacity-40' : ''}`}
+            onDragOver={(event) => { if (day !== null && canEdit && propertyId) event.preventDefault() }}
+            onDrop={(event) => {
+              if (day === null || !canEdit || !propertyId) return
+              event.preventDefault()
+              const cardId = event.dataTransfer.getData('text/plain')
+              if (cardId) void onPatchCard(cardId, { values: { [propertyId]: JSON.stringify({ from: projectDayToStamp(new Date(year, monthIndex, day)) }) } })
+            }}
+          >
             {day !== null && (
               <>
                 <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{day}</span>
@@ -101,6 +114,8 @@ export function CalendarView({ cards, properties, datePropertyId, onOpenCard }: 
                       key={card.id}
                       type="button"
                       data-project-card={card.id}
+                      draggable={canEdit}
+                      onDragStart={(event) => { event.dataTransfer.setData('text/plain', card.id) }}
                       className="block w-full truncate rounded-[var(--r-sm)] bg-[var(--accent-soft)] px-1 py-0.5 text-left text-[length:var(--text-11)] text-[var(--accent-on-soft)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                       onClick={() => onOpenCard(card.id)}
                     >

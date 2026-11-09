@@ -2,6 +2,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { initI18n, t } from '../../lib/i18n'
+import { projectDayToStamp } from '@shared/project/date'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { CalendarView, GalleryView } from './GalleryCalendar'
 
@@ -41,10 +42,23 @@ describe('calendar view', () => {
   it('places a card on its due day and navigates months', async () => {
     const now = new Date()
     const due = new Date(now.getFullYear(), now.getMonth(), 15).getTime()
-    await act(async () => { view = renderElement(createElement(CalendarView, { cards: [card('c1', 'Due card', due)], properties, onOpenCard: vi.fn() })) })
+    await act(async () => { view = renderElement(createElement(CalendarView, { cards: [card('c1', 'Due card', due)], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
     expect(view.container.textContent).toContain('Due card')
     const next = [...view.container.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === t('project.view.next_month'))
     await act(async () => { next?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
     expect(view.container.textContent).not.toContain('Due card')
+  })
+
+  it('dropping a card on a day reschedules its date property (C-5)', async () => {
+    const now = new Date()
+    const due = new Date(now.getFullYear(), now.getMonth(), 15).getTime()
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    await act(async () => { view = renderElement(createElement(CalendarView, { cards: [card('c1', 'Due card', due)], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard })) })
+    const cells = [...view.container.querySelectorAll('div.min-h-16')]
+    const target = cells.find((cell) => cell.firstElementChild?.textContent === '20')!
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { getData: () => 'c1' } })
+    await act(async () => { target.dispatchEvent(event) })
+    expect(onPatchCard).toHaveBeenCalledWith('c1', { values: { pd: JSON.stringify({ from: projectDayToStamp(new Date(now.getFullYear(), now.getMonth(), 20)) }) } })
   })
 })
