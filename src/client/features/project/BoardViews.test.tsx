@@ -1,6 +1,6 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectBoardBundle, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
+import type { ProjectBoardBundle, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_VIEW_TYPES } from '@shared/project/model'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
@@ -112,6 +112,58 @@ describe('board column hide and cross-column drag (C-2)', () => {
     Object.defineProperty(event, 'dataTransfer', { value: { getData: () => 'c1' } })
     await act(async () => { column.dispatchEvent(event) })
     expect(onPatchCard).toHaveBeenCalledWith('c1', { values: { ps: 'o2' } })
+  })
+})
+
+describe('table group rows, collapse, inline edit, column reorder (C-3/C-22)', () => {
+  async function mountTable(fields: Partial<ProjectViewFields>, onPatchView: (id: string, patch: ProjectViewPatch) => Promise<void>, onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>) {
+    const base = bundle()
+    base.views = [{ ...base.views[0]!, fields: { ...emptyProjectViewFields(), ...fields } }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined) }))
+    })
+  }
+
+  it('group header collapse persists collapsedOptionIds and hides rows', async () => {
+    const onPatchView = vi.fn().mockResolvedValue(undefined)
+    await mountTable({ groupById: 'ps' }, onPatchView, vi.fn().mockResolvedValue(undefined))
+    const toggle = view.container.querySelector('tbody button[aria-expanded="true"]') as HTMLButtonElement
+    expect(toggle).not.toBeNull()
+    await act(async () => { toggle.click() })
+    expect(onPatchView).toHaveBeenCalledWith('v1', { fields: { collapsedOptionIds: ['o1'] } })
+  })
+
+  it('a collapsed group renders no card rows', async () => {
+    await mountTable({ groupById: 'ps', collapsedOptionIds: ['o1'] }, vi.fn().mockResolvedValue(undefined), vi.fn().mockResolvedValue(undefined))
+    expect(view.container.querySelector('[data-project-card="c1"]')).toBeNull()
+    expect(view.container.querySelector('[data-project-card="c2"]')).not.toBeNull()
+  })
+
+  it('the no-value group can be collapsed with the empty-string key', async () => {
+    await mountTable({ groupById: 'ps', collapsedOptionIds: [''] }, vi.fn().mockResolvedValue(undefined), vi.fn().mockResolvedValue(undefined))
+    expect(view.container.querySelector('[data-project-card="c3"]')).toBeNull()
+    expect(view.container.querySelector('[data-project-card="c1"]')).not.toBeNull()
+  })
+
+  it('clicking a cell opens the inline editor and commits via onPatchCard', async () => {
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    await mountTable({}, vi.fn().mockResolvedValue(undefined), onPatchCard)
+    const cell = view.container.querySelector('[data-project-card="c1"] td:nth-child(2) button') as HTMLButtonElement
+    await act(async () => { cell.click() })
+    const select = view.container.querySelector('[data-project-card="c1"] select') as HTMLSelectElement
+    expect(select).not.toBeNull()
+    await act(async () => { select.value = 'o2'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(onPatchCard).toHaveBeenCalledWith('c1', { values: { ps: 'o2' } })
+  })
+
+  it('dropping a header reorders visiblePropertyIds', async () => {
+    const onPatchView = vi.fn().mockResolvedValue(undefined)
+    await mountTable({}, onPatchView, vi.fn().mockResolvedValue(undefined))
+    const headers = [...view.container.querySelectorAll('thead th[draggable="true"]')]
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { getData: () => 'pt' } })
+    await act(async () => { headers[0]!.dispatchEvent(event) })
+    expect(onPatchView).toHaveBeenCalledWith('v1', { fields: { visiblePropertyIds: ['pt', 'ps'] } })
   })
 })
 

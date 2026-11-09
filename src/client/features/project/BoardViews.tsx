@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, type KeyboardEvent, type PointerEvent, type ReactElement } from 'react'
-import { ArrowUpDown, Copy, Download, Eye, EyeOff, Filter, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowUpDown, ChevronDown, ChevronRight, Copy, Download, Eye, EyeOff, Filter, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { projectCardBadges } from '@shared/project/badges'
@@ -12,6 +12,7 @@ import { Menu, prompt, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { PropertiesModal, SortModal } from './ViewSettingsModals'
 import { FilterModal } from './FilterEditor'
+import { PropertyValueEditor } from './PropertyValueEditor'
 import { CalendarView, GalleryView } from './GalleryCalendar'
 import { CardBadges } from './CardBadges'
 import { ChartView, ListView, TimelineView } from './ExtraViews'
@@ -111,6 +112,22 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     if (drag && resizing) commitWidth(drag.id, resizing.width)
     dragRef.current = null
     setResizing(null)
+  }
+  const [editingCell, setEditingCell] = useState<{ cardId: string, propertyId: string } | null>(null)
+  const tableGroups: [string, ProjectCard[]][] = fields.groupById
+    ? [...groupProjectCards(sorted, fields.groupById, bundle.properties).entries()]
+    : [['', sorted]]
+  const toggleGroup = (key: string) => {
+    if (!active) return
+    const collapsed = fields.collapsedOptionIds.includes(key)
+    void onPatchView(active.id, { fields: { collapsedOptionIds: collapsed ? fields.collapsedOptionIds.filter((entry) => entry !== key) : [...fields.collapsedOptionIds, key] } })
+  }
+  const reorderColumn = (sourceId: string, targetId: string) => {
+    if (!active || sourceId === targetId) return
+    const ids = columns.map((property) => property.id)
+    const without = ids.filter((id) => id !== sourceId)
+    const at = without.indexOf(targetId)
+    void onPatchView(active.id, { fields: { visiblePropertyIds: [...without.slice(0, at), sourceId, ...without.slice(at)] } })
   }
   const density = fields.cardSize ?? 'comfortable'
   const rowPad = density === 'compact' ? 'py-0.5' : density === 'spacious' ? 'py-3' : 'py-2'
@@ -268,7 +285,21 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                     <tr className="border-b border-[var(--border-subtle)] text-left text-[length:var(--text-12)] text-[var(--text-secondary)]">
                       <th scope="col" className="px-3 py-2 font-medium">{t('project.board.title_column')}</th>
                       {columns.map((property) => (
-                        <th key={property.id} scope="col" className="relative px-3 py-2 font-medium" style={{ width: resizing?.id === property.id ? resizing.width : fields.columnWidths[property.id] }}>
+                        <th
+                          key={property.id}
+                          scope="col"
+                          className="relative px-3 py-2 font-medium"
+                          style={{ width: resizing?.id === property.id ? resizing.width : fields.columnWidths[property.id] }}
+                          draggable={canEdit}
+                          onDragStart={(event) => { event.dataTransfer.setData('text/plain', property.id) }}
+                          onDragOver={(event) => { if (canEdit) event.preventDefault() }}
+                          onDrop={(event) => {
+                            if (!canEdit) return
+                            event.preventDefault()
+                            const source = event.dataTransfer.getData('text/plain')
+                            if (source) reorderColumn(source, property.id)
+                          }}
+                        >
                           {property.name}
                           {canEdit && (
                             <button
@@ -291,25 +322,63 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                       {canEdit && <th scope="col" className="w-10 px-2 py-2"><span className="sr-only">{t('project.board.delete_card')}</span></th>}
                     </tr>
                   </thead>
-                  <tbody>
-                    {sorted.map((card) => (
-                      <tr key={card.id} className={`border-b border-[var(--border-subtle)] ${rowPad}`} data-project-card={card.id}>
-                        <td className="px-3 py-2 text-[var(--text-primary)]">
-                          <button type="button" className="min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
-                            {card.title || t('project.board.untitled_card')}
-                          </button>
-                        </td>
-                        {columns.map((property) => <td key={property.id} className="px-3 py-2 text-[var(--text-secondary)]">{projectPropertyDisplayText(card, property)}</td>)}
-                        {canEdit && (
-                          <td className="px-2 py-1">
-                            <IconButton label={t('project.board.delete_card')} size="sm" onClick={() => onDeleteCard(card.id)}>
-                              <Trash2 size={15} />
-                            </IconButton>
+                  {tableGroups.map(([groupKey, groupCards]) => (
+                    <tbody key={groupKey || 'all'}>
+                      {fields.groupById && (
+                        <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
+                          <td colSpan={columns.length + 1 + (canEdit ? 1 : 0)} className="px-3 py-1">
+                            <button
+                              type="button"
+                              className="flex items-center gap-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                              aria-expanded={!fields.collapsedOptionIds.includes(groupKey)}
+                              onClick={() => toggleGroup(groupKey)}
+                            >
+                              {fields.collapsedOptionIds.includes(groupKey) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                              {groupKey === '' ? t('project.view.no_value') : projectOptionLabel(bundle.properties.find((property) => property.id === fields.groupById)!, groupKey)}
+                              <span className="text-[var(--text-tertiary)]">{groupCards.length}</span>
+                            </button>
                           </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
+                        </tr>
+                      )}
+                      {!fields.collapsedOptionIds.includes(groupKey) && groupCards.map((card) => (
+                        <tr key={card.id} className={`border-b border-[var(--border-subtle)] ${rowPad}`} data-project-card={card.id}>
+                          <td className="px-3 py-2 text-[var(--text-primary)]">
+                            <button type="button" className="min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
+                              {card.title || t('project.board.untitled_card')}
+                            </button>
+                          </td>
+                          {columns.map((property) => (
+                            <td key={property.id} className="px-3 py-2 text-[var(--text-secondary)]">
+                              {editingCell?.cardId === card.id && editingCell.propertyId === property.id
+                                ? (
+                                  <PropertyValueEditor
+                                    property={property}
+                                    value={card.values[property.id] ?? ''}
+                                    members={bundle.members}
+                                    disabled={false}
+                                    onChange={(value) => { void onPatchCard(card.id, { values: { [property.id]: value } }); setEditingCell(null) }}
+                                  />
+                                )
+                                : canEdit
+                                  ? (
+                                    <button type="button" className="w-full truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => setEditingCell({ cardId: card.id, propertyId: property.id })}>
+                                      {projectPropertyDisplayText(card, property) || '—'}
+                                    </button>
+                                  )
+                                  : projectPropertyDisplayText(card, property)}
+                            </td>
+                          ))}
+                          {canEdit && (
+                            <td className="px-2 py-1">
+                              <IconButton label={t('project.board.delete_card')} size="sm" onClick={() => onDeleteCard(card.id)}>
+                                <Trash2 size={15} />
+                              </IconButton>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  ))}
                   {active && (
                     <tfoot>
                       <tr className="border-t border-[var(--border-subtle)] text-[length:var(--text-12)] text-[var(--text-secondary)]">

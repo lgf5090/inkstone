@@ -84,7 +84,7 @@ export const ProjectViewFieldsSchema = z.object({
   visiblePropertyIds: idList,
   visibleOptionIds: idList,
   hiddenOptionIds: idList,
-  collapsedOptionIds: idList,
+  collapsedOptionIds: z.array(z.string().max(64)).max(PROJECT_LIMITS.cardsPerBoard),
   filter: ProjectFilterGroupSchema,
   cardOrder: idList,
   columnWidths: z.record(z.string().max(64), z.number().int().min(0).max(4096)),
