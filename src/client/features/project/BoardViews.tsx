@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, type ReactElement } from 'react'
+import { useRef, useState, useEffect, type KeyboardEvent, type PointerEvent, type ReactElement } from 'react'
 import { ArrowUpDown, Copy, Download, Eye, Filter, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
@@ -85,6 +85,31 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const filtered = bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, search, bundle.properties))
   const sorted = sortProjectCards(filtered, fields.sortOptions, bundle.properties)
   const hiddenCount = bundle.cards.length - filtered.length
+  const [resizing, setResizing] = useState<{ id: string, width: number } | null>(null)
+  const dragRef = useRef<{ id: string, startX: number, startWidth: number } | null>(null)
+  const commitWidth = (id: string, width: number) => {
+    if (active) void onPatchView(active.id, { fields: { columnWidths: { ...fields.columnWidths, [id]: Math.max(80, Math.round(width)) } } })
+  }
+  const onGripKey = (event: KeyboardEvent, id: string) => {
+    const current = fields.columnWidths[id] ?? 160
+    if (event.key === 'ArrowLeft') { event.preventDefault(); commitWidth(id, current - 16) }
+    else if (event.key === 'ArrowRight') { event.preventDefault(); commitWidth(id, current + 16) }
+  }
+  const onGripDown = (event: PointerEvent<HTMLButtonElement>, id: string) => {
+    dragRef.current = { id, startX: event.clientX, startWidth: fields.columnWidths[id] ?? 160 }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  const onGripMove = (event: PointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current
+    if (!drag) return
+    setResizing({ id: drag.id, width: Math.max(80, drag.startWidth + (event.clientX - drag.startX)) })
+  }
+  const onGripUp = () => {
+    const drag = dragRef.current
+    if (drag && resizing) commitWidth(drag.id, resizing.width)
+    dragRef.current = null
+    setResizing(null)
+  }
   const density = fields.cardSize ?? 'comfortable'
   const rowPad = density === 'compact' ? 'py-0.5' : density === 'spacious' ? 'py-3' : 'py-2'
   const columns = fields.visiblePropertyIds.length
@@ -240,7 +265,27 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                   <thead>
                     <tr className="border-b border-[var(--border-subtle)] text-left text-[length:var(--text-12)] text-[var(--text-secondary)]">
                       <th scope="col" className="px-3 py-2 font-medium">{t('project.board.title_column')}</th>
-                      {columns.map((property) => <th key={property.id} scope="col" className="px-3 py-2 font-medium">{property.name}</th>)}
+                      {columns.map((property) => (
+                        <th key={property.id} scope="col" className="relative px-3 py-2 font-medium" style={{ width: resizing?.id === property.id ? resizing.width : fields.columnWidths[property.id] }}>
+                          {property.name}
+                          {canEdit && (
+                            <button
+                              type="button"
+                              role="separator"
+                              aria-orientation="vertical"
+                              aria-valuenow={resizing?.id === property.id ? resizing.width : (fields.columnWidths[property.id] ?? 160)}
+                              aria-valuemin={80}
+                              aria-valuemax={640}
+                              aria-label={t('project.view.resize_column')}
+                              className="absolute right-0 top-0 h-full w-1 cursor-col-resize focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                              onKeyDown={(event) => onGripKey(event, property.id)}
+                              onPointerDown={(event) => onGripDown(event, property.id)}
+                              onPointerMove={onGripMove}
+                              onPointerUp={onGripUp}
+                            />
+                          )}
+                        </th>
+                      ))}
                       {canEdit && <th scope="col" className="w-10 px-2 py-2"><span className="sr-only">{t('project.board.delete_card')}</span></th>}
                     </tr>
                   </thead>

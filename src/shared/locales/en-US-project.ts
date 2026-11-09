@@ -128,6 +128,7 @@ export const EN_US_PROJECT = {
     "project.view.chart": "Chart",
     "project.view.no_dates": "No dated cards",
     "project.view.hidden_count": "{count} cards hidden by filters",
+    "project.view.resize_column": "Resize column",
     "project.view.filter_operation": "Match",
     "project.view.filter_and": "All (AND)",
     "project.view.filter_or": "Any (OR)",

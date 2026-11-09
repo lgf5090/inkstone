@@ -86,6 +86,20 @@ describe('view tab labels', () => {
   })
 })
 
+describe('column resize grip (C-17)', () => {
+  it('ArrowRight on the grip persists a wider columnWidth', async () => {
+    localStorage.clear()
+    const onPatchView = vi.fn().mockResolvedValue(undefined)
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
+    })
+    const grip = view.container.querySelector(`[role="separator"][aria-label="${t('project.view.resize_column')}"]`) as HTMLButtonElement
+    expect(grip).not.toBeNull()
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) })
+    expect(onPatchView).toHaveBeenCalledWith('v1', { fields: { columnWidths: { ps: 176 } } })
+  })
+})
+
 describe('hidden card count (C-18)', () => {
   it('reports how many cards the active filter hides', async () => {
     const base = bundle()

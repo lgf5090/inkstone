@@ -128,6 +128,7 @@ export const ZH_CN_PROJECT = {
     "project.view.chart": "图表",
     "project.view.no_dates": "暂无带日期的卡片",
     "project.view.hidden_count": "过滤隐藏了 {count} 张卡片",
+    "project.view.resize_column": "调整列宽",
     "project.view.filter_operation": "匹配",
     "project.view.filter_and": "全部（AND）",
     "project.view.filter_or": "任一（OR）",
