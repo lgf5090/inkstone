@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState, type ReactElement } from 'react'
-import { ArrowLeft, FileDown, History, Plus, Settings2, Share2, SquareKanban } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { ArrowLeft, FileDown, History, PanelLeft, Plus, Settings2, Share2, Sparkles, SquareKanban } from 'lucide-react'
 import type { ProjectActivityEntry, ProjectBoardBundle, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { projectRoleAtLeast, emptyProjectViewFields } from '@shared/project/model'
 import { projectFilterPrefill } from '@shared/project/view-eval'
 import { buildProjectAssistantFacts } from '@shared/project/assistant-context'
+import type { AssistantPageContext } from '@shared/assistant'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { useAssistant } from '../chat/assistant-store'
+import { AssistantDock } from '../chat/AssistantDock'
 import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
@@ -18,6 +20,9 @@ import { newProjectId } from '@shared/project/limits'
 import type { SkinTone } from '@shared/types'
 import { EmojiPicker } from '../emoji/EmojiPicker'
 import { randomProjectIcon, readRandomIconPref } from './project-icon'
+import { useProjectStore } from './store'
+import { ProjectSidebar } from './ProjectSidebar'
+import { ImportDialog } from './ImportDialog'
 import { BoardViews } from './BoardViews'
 import { BoardPropertiesDialog } from './BoardPropertiesDialog'
 import { CardDialog } from './CardDialog'
@@ -43,7 +48,31 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [showProps, setShowProps] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
+  const [showImport, setShowImport] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activity, setActivity] = useState<ProjectActivityEntry[]>([])
+
+  const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const boards = useProjectStore((state) => state.boards)
+  const ensureBoards = useProjectStore((state) => state.ensureBoards)
+  useEffect(() => { void ensureBoards() }, [ensureBoards])
+
+  const activeView = bundle?.views.find((v) => v.id === activeViewId) ?? bundle?.views[0]
+  const assistantContext = useMemo<AssistantPageContext | null>(() => {
+    if (!bundle) return null
+    return {
+      surface: 'project',
+      label: bundle.board.title || t('project.board.untitled_card'),
+      facts: buildProjectAssistantFacts(bundle, activeView?.fields ?? emptyProjectViewFields()),
+    }
+  }, [bundle, activeView])
+
+  useEffect(() => {
+    useAssistant.getState().setProjectContext(assistantContext)
+    return () => {
+      useAssistant.getState().setProjectContext(null)
+    }
+  }, [assistantContext])
 
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get('card')
@@ -237,33 +266,51 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const openCard = bundle.cards.find((card) => card.id === openCardId) ?? null
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]" data-project-board-page={boardId}>
-      <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
-        <IconButton label={t('project.board.back')} size="sm" onClick={() => navigateToPath('/project')}>
-          <ArrowLeft size={16} />
-        </IconButton>
-        <button type="button" aria-label={t('project.board.change_icon')} className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[length:var(--text-14)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => setIconOpen(true)}>
-          {bundle.board.icon || <SquareKanban size={16} className="text-[var(--accent-on-soft)]" />}
-        </button>
-        <h1 className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-          {bundle.board.title || t('project.boards.untitled')}
-        </h1>
-        <span className="ml-auto shrink-0 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
-          {t('project.board.cards_count', { count: bundle.cards.length })}
-        </span>
-        {canEdit && (
-          <IconButton label={t('project.props.title')} size="sm" onClick={() => setShowProps(true)}>
-            <Settings2 size={16} />
+    <div className="flex h-full w-full min-w-0 bg-[var(--bg-base)]" data-project-board-page={boardId}>
+      {sidebarOpen && <ProjectSidebar boards={boards} onImport={() => setShowImport(true)} />}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
+          <IconButton label={t('project.board.back')} size="sm" onClick={() => navigateToPath('/project')}>
+            <ArrowLeft size={16} />
           </IconButton>
-        )}
-        {bundle.role === 'admin' && (
-          <IconButton label={t('project.share.title')} size="sm" onClick={() => setShowShare(true)}>
-            <Share2 size={16} />
+          <IconButton
+            label={t('project.board.toggle_sidebar')}
+            size="sm"
+            active={sidebarOpen}
+            onClick={() => setSidebarOpen((v) => !v)}
+          >
+            <PanelLeft size={16} />
           </IconButton>
-        )}
-        <IconButton label={t('project.board.activity')} size="sm" onClick={openActivity}><History size={16} /></IconButton>
-        <IconButton label={t('project.board.export_md')} size="sm" onClick={exportMarkdown}><FileDown size={16} /></IconButton>
-      </header>
+          <button type="button" aria-label={t('project.board.change_icon')} className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[length:var(--text-14)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => setIconOpen(true)}>
+            {bundle.board.icon || <SquareKanban size={16} className="text-[var(--accent-on-soft)]" />}
+          </button>
+          <h1 className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
+            {bundle.board.title || t('project.boards.untitled')}
+          </h1>
+          <span className="ml-auto shrink-0 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+            {t('project.board.cards_count', { count: bundle.cards.length })}
+          </span>
+          {canEdit && (
+            <IconButton label={t('project.props.title')} size="sm" onClick={() => setShowProps(true)}>
+              <Settings2 size={16} />
+            </IconButton>
+          )}
+          {bundle.role === 'admin' && (
+            <IconButton label={t('project.share.title')} size="sm" onClick={() => setShowShare(true)}>
+              <Share2 size={16} />
+            </IconButton>
+          )}
+          <IconButton label={t('project.board.activity')} size="sm" onClick={openActivity}><History size={16} /></IconButton>
+          <IconButton label={t('project.board.export_md')} size="sm" onClick={exportMarkdown}><FileDown size={16} /></IconButton>
+          <IconButton
+            label={t('assistant.dock.toggle')}
+            size="sm"
+            active={assistantDockOpen}
+            onClick={() => useUi.getState().toggleAssistantDock()}
+          >
+            <Sparkles size={16} />
+          </IconButton>
+        </header>
       {canEdit && (
         <form
           className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2"
@@ -313,6 +360,11 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         onAddGroupOption={addGroupOption}
         onRefresh={refresh}
       />
+      </div>
+      {assistantDockOpen && (
+        <AssistantDock surface="project" pageContext={assistantContext} />
+      )}
+      {showImport && <ImportDialog onClose={() => setShowImport(false)} />}
       {showProps && (
         <BoardPropertiesDialog
           boardId={boardId}

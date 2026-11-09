@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
-import { Archive, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, SlidersHorizontal, Trash2, Type, type LucideIcon } from 'lucide-react'
+import { Archive, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
 import { moveContentOrder } from '@shared/project/content-order'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input, Select, Textarea } from '../../components/form'
 import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
+import { sendForAnswerDetailed } from '../chat/editor-ai'
 import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
 import { useUi } from '../../store/ui'
@@ -75,6 +76,52 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
       toast({ title: t('common.copied') })
     } catch {
       toast({ title: t('project.card.copy_link_failed'), tone: 'danger' })
+    }
+  }
+
+  const [aiSplitting, setAiSplitting] = useState(false)
+  const splitSubtasksWithAi = async () => {
+    if (aiSplitting || !card.title.trim()) return
+    setAiSplitting(true)
+    try {
+      const promptText = `Break down the following project task into 3 to 5 concise actionable subtask titles. Return ONLY the subtask titles, one per line, without numbering, bullets, asterisks or markdown prefixes:\nTask: ${card.title}`
+      const res = await sendForAnswerDetailed(promptText)
+      if (res.status === 'ok') {
+        const lines = res.text
+          .split('\n')
+          .map((l) => l.replace(/^[-*•0-9.)\s]+/, '').trim())
+          .filter(Boolean)
+        for (const subTitle of lines) {
+          await createProjectCard(card.boardId, { title: subTitle, parentId: card.id })
+        }
+        onRefresh()
+      } else {
+        toast({ title: t('project.card.ai_split_failed'), tone: 'danger' })
+      }
+    } catch {
+      toast({ title: t('project.card.ai_split_failed'), tone: 'danger' })
+    } finally {
+      setAiSplitting(false)
+    }
+  }
+
+  const summarizeCardWithAi = async () => {
+    try {
+      const parts = [
+        `Card title: ${card.title}`,
+        blocks.length ? `Content:\n${blocks.map((b) => `- ${b.title}`).join('\n')}` : '',
+        comments.length ? `Comments:\n${comments.map((c) => `- ${c.body}`).join('\n')}` : '',
+      ].filter(Boolean).join('\n\n')
+      const promptText = `Summarize the following card and its discussion into a concise 2-3 sentence overview:\n${parts}`
+      const res = await sendForAnswerDetailed(promptText)
+      if (res.status === 'ok') {
+        const comment = await createCardComment(card.id, `🤖 **AI Summary**\n${res.text}`)
+        setComments((current) => [...current, comment])
+      } else {
+        toast({ title: t('project.card.ai_summarize_failed'), tone: 'danger' })
+      }
+    } catch {
+      toast({ title: t('project.card.ai_summarize_failed'), tone: 'danger' })
     }
   }
 
@@ -259,7 +306,10 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
             onClose={() => setMenuOpen(false)}
             label={t('project.card.menu')}
             items={[
-              ...(canEdit ? [{ id: 'duplicate', label: t('project.card.duplicate'), icon: <Copy size={15} />, onSelect: () => { void duplicateCard() } }] : []),
+              ...(canEdit ? [
+                { id: 'duplicate', label: t('project.card.duplicate'), icon: <Copy size={15} />, onSelect: () => { void duplicateCard() } },
+                { id: 'ai-summarize', label: t('project.card.ai_summarize'), icon: <Sparkles size={15} />, onSelect: () => { void summarizeCardWithAi() } },
+              ] : []),
               { id: 'copy-link', label: t('project.card.copy_link'), icon: <Link2 size={15} />, onSelect: () => { void copyLink() } },
               ...(canEdit ? [{ id: 'delete', label: t('project.board.delete_card'), icon: <Trash2 size={15} />, tone: 'danger' as const, separatorBefore: true, onSelect: () => { onClose(); onDelete(card.id) } }] : []),
             ] as MenuItem[]}
@@ -339,7 +389,20 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
         <section aria-label={t('project.card.subtasks')} className="space-y-2">
           <div className="flex items-center gap-2">
             <SectionHeading icon={ListTodo} label={t('project.card.subtasks')} />
-            {canEdit && <Button size="sm" icon={<Plus size={14} />} onClick={() => void addSubtask()}>{t('project.card.add_subtask')}</Button>}
+            {canEdit && (
+              <>
+                <Button size="sm" icon={<Plus size={14} />} onClick={() => void addSubtask()}>{t('project.card.add_subtask')}</Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Sparkles size={14} />}
+                  disabled={aiSplitting || !card.title.trim()}
+                  onClick={() => void splitSubtasksWithAi()}
+                >
+                  {aiSplitting ? t('project.card.ai_split_loading') : t('project.card.ai_split')}
+                </Button>
+              </>
+            )}
           </div>
           {subtasks.length > 0 && (
             <div className="flex items-center gap-2">

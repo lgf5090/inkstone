@@ -31,6 +31,10 @@ vi.mock('../../store/session', () => ({
   useSession: (selector: (state: { user: { id: string } | null }) => unknown) => selector({ user: { id: 'u1' } }),
 }))
 
+vi.mock('../chat/editor-ai', () => ({
+  sendForAnswerDetailed: vi.fn(),
+}))
+
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 const card: ProjectCard = { id: 'c1', boardId: 'b1', parentId: '', title: 'Card', icon: '', isTemplate: false, contentOrder: [], values: { pt: 'old' }, ...stamps }
 const properties: ProjectProperty[] = [
@@ -253,6 +257,39 @@ describe('subtask progress (UI-2)', () => {
     expect(checkbox).not.toBeNull()
     await act(async () => { checkbox.click() })
     expect(api.patchProjectCard).toHaveBeenCalledWith('s2', { values: { ps: 'o2' } })
+    expect(onRefresh).toHaveBeenCalled()
+  })
+})
+
+describe('AI card capabilities', () => {
+  it('renders AI split button and generates subtasks via sendForAnswerDetailed', async () => {
+    const { sendForAnswerDetailed } = await import('../chat/editor-ai')
+    vi.mocked(sendForAnswerDetailed).mockResolvedValue({
+      status: 'ok',
+      text: '- Task 1\n- Task 2\n- Task 3',
+      provider: 'workers-ai',
+      model: 'test-model',
+      durationMs: 120,
+    } as never)
+    vi.mocked(api.createProjectCard).mockResolvedValue({ ...card, id: 's-new', parentId: 'c1' })
+    const onRefresh = vi.fn()
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card: { ...card, title: 'Build Landing Page' }, properties, members: [], contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh, onDelete: vi.fn() }))
+    })
+
+    const splitBtn = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.includes(t('project.card.ai_split'))
+    )
+    expect(splitBtn).toBeDefined()
+    await act(async () => {
+      splitBtn?.click()
+    })
+
+    expect(sendForAnswerDetailed).toHaveBeenCalled()
+    expect(api.createProjectCard).toHaveBeenCalledWith('b1', expect.objectContaining({
+      parentId: 'c1',
+      title: 'Task 1',
+    }))
     expect(onRefresh).toHaveBeenCalled()
   })
 })

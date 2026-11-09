@@ -162,17 +162,14 @@ describe('deleting and restoring a card', () => {
     const card1 = await createCard('alice', board1.id, { title: 'Parent' })
     const card2 = await createCard('alice', board2.id, { title: 'Other Board Card' })
 
-    // Refuses parent from another board
     const crossBoard = await req('alice', 'POST', `/boards/${board1.id}/cards`, { title: 'Child', parentId: card2.id })
     expect(crossBoard.status).toBe(400)
 
-    // Accepts valid parent on same board
     const validChild = await req('alice', 'POST', `/boards/${board1.id}/cards`, { title: 'Child', parentId: card1.id })
     expect(validChild.status).toBe(201)
     const childCard = ((await validChild.json()) as { card: ProjectCard }).card
     expect(childCard.parentId).toBe(card1.id)
 
-    // Refuses self-parenting via patch
     const selfParent = await req('alice', 'PATCH', `/cards/${card1.id}`, { parentId: card1.id })
     expect(selfParent.status).toBe(400)
   })
