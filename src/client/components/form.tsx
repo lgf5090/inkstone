@@ -94,6 +94,7 @@ export function Input({
   return (
     <input
       {...rest}
+      type={type}
       aria-invalid={accessibleInvalid}
       className={cn(FIELD_BASE, 'h-11 md:h-[34px]', invalid && 'border-[var(--danger)]', className)}
     />
