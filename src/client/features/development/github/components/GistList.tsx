@@ -218,16 +218,16 @@ export function GistList({
     <div className="flex h-full min-w-0 flex-col border-r border-[var(--border-subtle)]" data-slot="gist-list">
       <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
         <div className="flex items-center gap-1.5 px-2 py-2">
-          <IconButton label={t('development.github.common.toggle_sidebar')} size="sm" onClick={toggleSidebar}><PanelLeft size={15} /></IconButton>
+          <IconButton label={t('development.github.common.toggle_sidebar')} size="sm" className="size-8 md:size-8" onClick={toggleSidebar}><PanelLeft size={15} /></IconButton>
           {!remote && <Checkbox checked={allSelected} onChange={onSelectAll} ariaLabel={t('development.github.gists.select_all')} className="hidden shrink-0 sm:inline-flex" />}
           <div className="min-w-0 flex-1"><Input ref={searchRef} type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (query) onClear(); else event.currentTarget.blur() } }} placeholder={t('development.github.gists.search_placeholder')} aria-label={t('development.github.gists.search_placeholder')} title={remote ? t('development.github.gists.page_search_hint') : undefined} className="h-8 pr-7 text-[length:var(--text-12)]" trailing={query ? <IconButton label={t('common.clear')} size="sm" onClick={onClear}><X size={12} /></IconButton> : undefined} /></div>
           <div className="hidden shrink-0 items-center rounded-[var(--r-sm)] border border-[var(--border-default)] sm:flex">
-            <IconButton label={t('development.github.gists.list_view')} size="sm" variant={viewMode === 'list' ? 'subtle' : 'ghost'} onClick={() => onViewModeChange('list')}><List size={13} /></IconButton>
-            <IconButton label={t('development.github.gists.card_view')} size="sm" variant={viewMode === 'card' ? 'subtle' : 'ghost'} onClick={() => onViewModeChange('card')}><LayoutGrid size={13} /></IconButton>
+            <IconButton label={t('development.github.gists.list_view')} size="sm" className="size-8 md:size-8" variant={viewMode === 'list' ? 'subtle' : 'ghost'} onClick={() => onViewModeChange('list')}><List size={13} /></IconButton>
+            <IconButton label={t('development.github.gists.card_view')} size="sm" className="size-8 md:size-8" variant={viewMode === 'card' ? 'subtle' : 'ghost'} onClick={() => onViewModeChange('card')}><LayoutGrid size={13} /></IconButton>
           </div>
           <IconButton ref={sortAnchor} variant="secondary" size="sm" className="size-8 md:size-8" label={t('development.github.gists.sort_by')} onClick={() => setSortOpen(true)}><Settings2 size={14} /></IconButton>
-          <Button variant="primary" size="sm" className="shrink-0" onClick={onCreate}><Plus size={13} />{t('development.github.gists.create')}</Button>
-          <IconButton label={t('development.github.common.toggle_detail')} size="sm" onClick={toggleDetail} disabled={detailDisabled}><PanelRight size={15} /></IconButton>
+          <Button variant="primary" size="sm" className="h-8 shrink-0 md:h-8" onClick={onCreate}><Plus size={13} />{t('development.github.gists.create')}</Button>
+          <IconButton label={t('development.github.common.toggle_detail')} size="sm" className="size-8 md:size-8" onClick={toggleDetail} disabled={detailDisabled}><PanelRight size={15} /></IconButton>
         </div>
         <div className="flex flex-wrap items-center gap-2 px-2 pb-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
           <span>{t('development.github.gists.count', { count: totalCount })}</span>

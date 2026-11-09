@@ -197,7 +197,7 @@ export function RepoList({
     <div className="flex h-full min-w-0 flex-col border-r border-[var(--border-subtle)]" data-slot="repo-list">
       <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
         <div className="flex items-center gap-1.5 px-2 py-2">
-          <IconButton label={t('development.github.common.toggle_sidebar')} size="sm" onClick={toggleSidebar}><PanelLeft size={15} /></IconButton>
+          <IconButton label={t('development.github.common.toggle_sidebar')} size="sm" className="size-8 md:size-8" onClick={toggleSidebar}><PanelLeft size={15} /></IconButton>
           {!isExplore && <Checkbox checked={allSelected} onChange={onSelectAllRepos} ariaLabel={t('development.github.repos.select_all')} className="shrink-0" />}
           <div className="min-w-0 flex-1">
             <Input
@@ -236,7 +236,7 @@ export function RepoList({
           <IconButton ref={historyAnchor} variant="secondary" size="sm" className="hidden size-8 md:size-8 sm:inline-flex" label={t('development.github.repos.search_history')} onClick={() => setHistoryOpen(true)}><History size={14} /></IconButton>
           <IconButton ref={mirrorAnchor} variant="secondary" size="sm" className="size-8 md:size-8" label={t('development.github.mirrors.section')} onClick={() => setMirrorOpen(true)}><Globe size={14} /></IconButton>
           <IconButton ref={settingsAnchor} variant="secondary" size="sm" className="size-8 md:size-8" label={t('development.github.repos.more_settings')} onClick={() => setSettingsOpen(true)}><Settings2 size={14} /></IconButton>
-          <IconButton label={t('development.github.common.toggle_detail')} size="sm" onClick={toggleDetail} disabled={detailDisabled}><PanelRight size={15} /></IconButton>
+          <IconButton label={t('development.github.common.toggle_detail')} size="sm" className="size-8 md:size-8" onClick={toggleDetail} disabled={detailDisabled}><PanelRight size={15} /></IconButton>
         </div>
         {isExplore ? (
           <div className="flex items-center gap-1.5 px-2 pb-2">
