@@ -147,6 +147,8 @@ export const ZH_CN_PROJECT = {
     "project.view.clear_selection": "清除选择",
     "project.view.gallery_title": "显示标题",
     "project.view.gallery_badges": "显示徽章",
+    "project.card.subtask_progress": "子任务进度",
+    "project.card.done_label": "完成",
     "project.view.filter_operation": "匹配",
     "project.view.filter_and": "全部（AND）",
     "project.view.filter_or": "任一（OR）",

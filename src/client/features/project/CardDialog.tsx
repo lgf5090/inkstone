@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
-import { Archive, CheckSquare, ChevronDown, ChevronUp, Copy, Link2, Minus, MoreHorizontal, Paperclip, Pencil, Plus, Trash2, Type } from 'lucide-react'
+import { Archive, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, SlidersHorizontal, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
 import { moveContentOrder } from '@shared/project/content-order'
 import { t } from '../../lib/i18n'
@@ -22,6 +22,14 @@ interface CardDialogProps {
   onUpdated: (card: ProjectCard) => void
   onRefresh: () => void
   onDelete: (id: string) => void
+}
+
+function SectionHeading({ icon: Icon, label }: { icon: LucideIcon, label: string }): ReactElement {
+  return (
+    <h3 className="flex items-center gap-1.5 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
+      <Icon size={13} aria-hidden="true" />{label}
+    </h3>
+  )
 }
 
 function ArchivedFile(): ReactElement {
@@ -175,6 +183,15 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
   ]
 
   const subtasks = siblings.filter((sibling) => sibling.parentId === card.id)
+  const statusProperty = properties.find((property) => property.type === 'select')
+  const doneLabel = t('project.card.done_label').toLowerCase()
+  const isSubtaskDone = (sibling: ProjectCard): boolean => {
+    const option = statusProperty?.options.find((entry) => entry.id === sibling.values[statusProperty.id])
+    if (!option) return false
+    const value = option.value.toLowerCase()
+    return value === doneLabel || /done|complete/.test(value)
+  }
+  const subtaskDone = subtasks.filter(isSubtaskDone).length
   const blockers = links.filter((link) => link.toCardId === card.id && link.kind === 'blocks')
 
   const addSubtask = async () => {
@@ -226,7 +243,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           />
         </div>
         <section aria-label={t('project.card.properties')} className="space-y-2">
-          <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.properties')}</h3>
+          <SectionHeading icon={SlidersHorizontal} label={t('project.card.properties')} />
           {properties.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</p>}
           {properties.map((property) => (
             <div key={property.id} className="flex items-start gap-3">
@@ -245,7 +262,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
         </section>
         <section aria-label={t('project.card.content')} className="space-y-2" onPaste={(event) => void pasteImage(event)}>
           <div className="flex items-center gap-2">
-            <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.content')}</h3>
+            <SectionHeading icon={FileText} label={t('project.card.content')} />
             {canEdit && (
               <>
                 <IconButton ref={addAnchor} label={t('project.card.add_content')} size="sm" onClick={() => setAddOpen(true)}><Plus size={14} /></IconButton>
@@ -298,17 +315,28 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
         </section>
         <section aria-label={t('project.card.subtasks')} className="space-y-2">
           <div className="flex items-center gap-2">
-            <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.subtasks')}</h3>
+            <SectionHeading icon={ListTodo} label={t('project.card.subtasks')} />
             {canEdit && <Button size="sm" icon={<Plus size={14} />} onClick={() => void addSubtask()}>{t('project.card.add_subtask')}</Button>}
           </div>
+          {subtasks.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div role="progressbar" aria-valuenow={subtaskDone} aria-valuemin={0} aria-valuemax={subtasks.length} aria-valuetext={`${subtaskDone}/${subtasks.length}`} aria-label={t('project.card.subtask_progress')} className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--bg-sunken)]">
+                <div className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-200" style={{ width: `${Math.round((subtaskDone / subtasks.length) * 100)}%` }} />
+              </div>
+              <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{subtaskDone}/{subtasks.length}</span>
+            </div>
+          )}
           <ul className="space-y-1">
             {subtasks.map((subtask) => (
-              <li key={subtask.id} className="text-[length:var(--text-13)] text-[var(--text-primary)]">{subtask.title || t('project.board.untitled_card')}</li>
+              <li key={subtask.id} className="flex items-center gap-1.5 text-[length:var(--text-13)] text-[var(--text-primary)]">
+                <CheckSquare size={13} aria-hidden="true" className={isSubtaskDone(subtask) ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]'} />
+                {subtask.title || t('project.board.untitled_card')}
+              </li>
             ))}
           </ul>
         </section>
         <section aria-label={t('project.card.dependencies')} className="space-y-2">
-          <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.dependencies')}</h3>
+          <SectionHeading icon={Link2} label={t('project.card.dependencies')} />
           <ul className="space-y-1">
             {blockers.map((link) => (
               <li key={link.fromCardId} className="flex items-center gap-2">
@@ -329,7 +357,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
         </section>
         <section aria-label={t('project.card.attachments')} className="space-y-2">
           <div className="flex items-center gap-2">
-            <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.attachments')}</h3>
+            <SectionHeading icon={Paperclip} label={t('project.card.attachments')} />
             {canEdit && (
               <>
                 <input ref={fileInput} type="file" className="hidden" onChange={(event) => { const f = event.target.files?.[0]; if (f) void attachFile(f); event.target.value = '' }} />
@@ -347,7 +375,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           </ul>
         </section>
         <section aria-label={t('project.card.comments')} className="space-y-2">
-          <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.comments')}</h3>
+          <SectionHeading icon={MessageSquare} label={t('project.card.comments')} />
           <ul className="space-y-2">
             {comments.map((comment) => (
               <li key={comment.id} className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2">

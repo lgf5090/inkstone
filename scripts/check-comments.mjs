@@ -12508,6 +12508,8 @@ const allowed = new Map([
     "/* storage unavailable (private mode): fall back to the first view */",
     "/* best-effort: remembering the last view is optional */",
     "// C-23: tabs read alphabetically; the default view stays the board's first by position.",
+    "// Templates ship canonical English titles; treat them as defaults so a zh UI localizes them",
+    "// instead of mixing languages. A title the user actually typed is kept verbatim.",
   ]],
   ["src/client/features/project/ExtraViews.tsx", [
     "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",

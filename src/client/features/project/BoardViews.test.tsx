@@ -2,7 +2,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectBoardBundle, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_VIEW_TYPES } from '@shared/project/model'
-import { initI18n, t } from '../../lib/i18n'
+import { initI18n, initI18nForReading, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { BoardViews } from './BoardViews'
 import * as api from './api'
@@ -67,6 +67,7 @@ describe('the board view', () => {
 })
 
 describe('view tab labels', () => {
+  afterEach(async () => { await initI18nForReading('en-US') })
   it('labels every untitled view tab with its own type, not the table fallback', async () => {
     const base = bundle()
     base.views = PROJECT_VIEW_TYPES.map((viewType: ProjectViewType, index) => ({
@@ -84,6 +85,25 @@ describe('view tab labels', () => {
       expect(tab.className).toContain('shrink-0')
     }
     expect(view.container.querySelector('[role="tablist"]')!.className).toContain('overflow-x-auto')
+  })
+
+  it('localizes a canonical English template title instead of mixing languages', async () => {
+    await initI18nForReading('zh-CN')
+    const base = bundle()
+    base.views = [{ ...base.views[0]!, title: 'Table' }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+    expect(view.container.querySelector('[role="tab"]')!.textContent).toBe(t('project.view.table'))
+  })
+
+  it('keeps a user-typed view title verbatim', async () => {
+    const base = bundle()
+    base.views = [{ ...base.views[0]!, title: '我的视图' }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+    expect(view.container.querySelector('[role="tab"]')!.textContent).toBe('我的视图')
   })
 })
 

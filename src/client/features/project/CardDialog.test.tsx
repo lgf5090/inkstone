@@ -228,3 +228,17 @@ describe('content block reorder (D-1)', () => {
     expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { contentOrder: ['a2', 'a1'] })
   })
 })
+
+describe('subtask progress (UI-2)', () => {
+  it('shows a progress bar with done/total for subtasks', async () => {
+    const subtask = { ...card, id: 's1', parentId: 'c1', values: { ps: 'o2' } }
+    const open = { ...card, id: 's2', parentId: 'c1', values: { ps: 'o1' } }
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], contents: [], siblings: [subtask, open], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+    })
+    const bar = document.body.querySelector('[role="progressbar"]')!
+    expect(bar.getAttribute('aria-valuenow')).toBe('1')
+    expect(bar.getAttribute('aria-valuemax')).toBe('2')
+    expect(document.body.textContent).toContain('1/2')
+  })
+})

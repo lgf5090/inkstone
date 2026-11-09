@@ -147,6 +147,8 @@ export const EN_US_PROJECT = {
     "project.view.clear_selection": "Clear selection",
     "project.view.gallery_title": "Show titles",
     "project.view.gallery_badges": "Show badges",
+    "project.card.subtask_progress": "Subtask progress",
+    "project.card.done_label": "Done",
     "project.view.filter_operation": "Match",
     "project.view.filter_and": "All (AND)",
     "project.view.filter_or": "Any (OR)",

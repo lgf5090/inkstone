@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactElement } from 'react'
-import { ArrowUpDown, ChevronDown, ChevronRight, Copy, Download, Eye, EyeOff, Filter, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowUpDown, BarChart3, Calendar, CalendarRange, ChevronDown, ChevronRight, Clock, Copy, Download, Eye, EyeOff, Filter, LayoutGrid, List, MoreHorizontal, Pencil, Plus, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { projectCardBadges } from '@shared/project/badges'
@@ -27,6 +27,35 @@ const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   timeline: 'project.view.timeline',
   gantt: 'project.view.gantt',
   chart: 'project.view.chart',
+}
+
+const VIEW_ICON: Record<string, LucideIcon> = {
+  board: SquareKanban,
+  table: Table,
+  gallery: LayoutGrid,
+  calendar: Calendar,
+  list: List,
+  timeline: Clock,
+  gantt: CalendarRange,
+  chart: BarChart3,
+}
+
+// Templates ship canonical English titles; treat them as defaults so a zh UI localizes them
+// instead of mixing languages. A title the user actually typed is kept verbatim.
+const VIEW_DEFAULT_TITLE: Record<string, string> = {
+  board: 'Board',
+  table: 'Table',
+  gallery: 'Gallery',
+  calendar: 'Calendar',
+  list: 'List',
+  timeline: 'Timeline',
+  gantt: 'Gantt',
+  chart: 'Chart',
+}
+
+function viewTabLabel(view: { title: string, viewType: string }): string {
+  const localized = t(VIEW_LABEL[view.viewType] ?? 'project.view.table')
+  return !view.title || view.title === VIEW_DEFAULT_TITLE[view.viewType] ? localized : view.title
 }
 
 const LAST_VIEW_KEY = 'inkstone.project.lastView.'
@@ -190,7 +219,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] px-3 py-1.5" role="tablist" aria-label={t('project.view.add')}>
-        {orderedViews.map((view) => (
+        {orderedViews.map((view) => {
+          const TabIcon = VIEW_ICON[view.viewType] ?? Table
+          return (
           <button
             key={view.id}
             type="button"
@@ -199,9 +230,13 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             className={`shrink-0 whitespace-nowrap rounded-[var(--r-sm)] px-2 py-1 text-[length:var(--text-12)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active?.id === view.id ? 'bg-[var(--bg-hover)] font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}
             onClick={() => selectView(view.id)}
           >
-            {view.title || t(VIEW_LABEL[view.viewType] ?? 'project.view.table')}
+            <span className="flex items-center gap-1.5">
+              <TabIcon size={14} aria-hidden="true" />
+              {viewTabLabel(view)}
+            </span>
           </button>
-        ))}
+          )
+        })}
         {canEdit && (
           <>
             <IconButton ref={addAnchor} label={t('project.view.add')} size="sm" onClick={() => setAddOpen(true)}>
