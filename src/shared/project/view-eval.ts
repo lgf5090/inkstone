@@ -12,36 +12,9 @@ import type {
   ProjectSortOption,
 } from './model'
 import { isProjectFilterGroup, PROJECT_TITLE_PROPERTY_ID } from './model'
+import { parseProjectDateValue, projectStampToDay } from './date'
 
 const HALF_DAY_MS = 12 * 60 * 60 * 1000
-
-interface DateValue {
-  from?: number
-  to?: number
-}
-
-/** The reference stores a date as an object or a bare millisecond string; readers take both. */
-function parseDateValue(raw: string): DateValue | null {
-  if (!raw) return null
-  const trimmed = raw.trim()
-  if (trimmed.startsWith('{')) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed)
-      if (parsed !== null && typeof parsed === 'object') {
-        const record = parsed as { from?: unknown, to?: unknown }
-        const from = typeof record.from === 'number' ? record.from : undefined
-        const to = typeof record.to === 'number' ? record.to : undefined
-        if (from === undefined && to === undefined) return null
-        return { from, to }
-      }
-      return null
-    } catch {
-      return null
-    }
-  }
-  const stamp = Number(trimmed)
-  return Number.isFinite(stamp) ? { from: stamp } : null
-}
 
 /** The value a clause compares against, with the server-stamped fallbacks the reference uses. */
 export function projectCardDisplayValue(
@@ -86,10 +59,11 @@ export function projectPropertyDisplayText(card: ProjectCard, property: ProjectP
     case 'multiSelect': return raw ? asArray(raw).map((id) => projectOptionLabel(property, id)).join(', ') : ''
     case 'checkbox': return raw === 'true' ? '✓' : ''
     case 'date': {
-      const range = parseDateValue(raw)
+      const range = parseProjectDateValue(raw)
       if (range?.from === undefined) return ''
-      const from = new Date(range.from).toLocaleDateString()
-      return range.to !== undefined && range.to !== range.from ? `${from} – ${new Date(range.to).toLocaleDateString()}` : from
+      const includeTime = range.includeTime === true
+      const from = projectStampToDay(range.from, includeTime).toLocaleDateString()
+      return range.to !== undefined && range.to !== range.from ? `${from} – ${projectStampToDay(range.to, includeTime).toLocaleDateString()}` : from
     }
     case 'createdBy': return card.createdBy
     case 'updatedBy': return card.modifiedBy
@@ -121,9 +95,9 @@ function matchClause(card: ProjectCard, clause: ProjectFilterClause, properties:
     case 'isNotSet': return !value
     case 'is': {
       if (empty) return true
-      const date = parseDateValue(value)
+      const date = parseProjectDateValue(value)
       if (date && (property?.type === 'date' || stampType)) {
-        const target = parseDateValue(needles[0]!)
+        const target = parseProjectDateValue(needles[0]!)
         if (!target || target.from === undefined) return false
         const f = target.from
         if (stampType) return date.from !== undefined && date.from > f - HALF_DAY_MS && date.from < f + HALF_DAY_MS
@@ -140,15 +114,15 @@ function matchClause(card: ProjectCard, clause: ProjectFilterClause, properties:
     case 'notEndsWith': return empty || !value.toLowerCase().endsWith(needles[0]!)
     case 'isBefore': {
       if (empty) return true
-      const date = parseDateValue(value)
-      const target = parseDateValue(needles[0]!)
+      const date = parseProjectDateValue(value)
+      const target = parseProjectDateValue(needles[0]!)
       if (!date || date.from === undefined || !target || target.from === undefined) return false
       return stampType ? date.from < target.from - HALF_DAY_MS : date.from < target.from
     }
     case 'isAfter': {
       if (empty) return true
-      const date = parseDateValue(value)
-      const target = parseDateValue(needles[0]!)
+      const date = parseProjectDateValue(value)
+      const target = parseProjectDateValue(needles[0]!)
       if (!date || !target || target.from === undefined) return false
       if (stampType) return date.from !== undefined && date.from > target.from + HALF_DAY_MS
       const edge = date.to ?? date.from
@@ -233,4 +207,32 @@ export function groupProjectCards(
     }
   }
   return groups
+}
+
+/**
+ * C-23: strip the leading emoji cluster before comparing, so "🗺️ Roadmap" sorts under R rather than
+ * under the emoji's code point. The reference's `\p{Emoji}` also matches digits and leaves the
+ * variation selector behind, which put "🗺️ Zebra" ahead of "Apple"; Extended_Pictographic plus the
+ * joiner/modifier code points strips the whole cluster and leaves ordinary titles alone.
+ */
+export function sortProjectViewsAlphabetically<T extends { title: string }>(views: readonly T[]): T[] {
+  return views
+    .map((view) => ({ view, title: view.title.replace(/^[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}\s]+/u, '') }))
+    .sort((a, b) => a.title.localeCompare(b.title))
+    .map((entry) => entry.view)
+}
+
+/**
+ * C-12: the view's own search box, which the reference runs over the title and every property's
+ * display text. Both sides are lowercased, matching this port's filter correction (Q-10).
+ */
+export function matchProjectViewSearch(
+  card: ProjectCard,
+  query: string,
+  properties: readonly ProjectProperty[],
+): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  if (card.title.toLowerCase().includes(needle)) return true
+  return properties.some((property) => projectPropertyDisplayText(card, property).toLowerCase().includes(needle))
 }

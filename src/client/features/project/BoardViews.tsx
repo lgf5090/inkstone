@@ -1,18 +1,21 @@
 import { useRef, useState, useEffect, type ReactElement } from 'react'
-import { ArrowUpDown, Eye, Filter, Plus, Trash2 } from 'lucide-react'
-import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
-import { emptyProjectViewFields } from '@shared/project/model'
-import { groupProjectCards, matchProjectFilterGroup, projectOptionLabel, projectPropertyDisplayText, sortProjectCards } from '@shared/project/view-eval'
+import { ArrowUpDown, Copy, Download, Eye, Filter, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
+import { emptyProjectViewFields, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
+import { projectCardBadges } from '@shared/project/badges'
+import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, projectOptionLabel, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
-import { Menu, type MenuItem } from '../../components/overlay'
+import { Menu, prompt, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
-import { FilterModal, PropertiesModal, SortModal } from './ViewSettingsModals'
+import { PropertiesModal, SortModal } from './ViewSettingsModals'
+import { FilterModal } from './FilterEditor'
 import { CalendarView, GalleryView } from './GalleryCalendar'
+import { CardBadges } from './CardBadges'
 import { ChartView, ListView, TimelineView } from './ExtraViews'
-import { fetchBoardLinks } from './api'
+import { fetchBoardLinks, projectBoardExportUrl } from './api'
 
 const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   board: 'project.view.board',
@@ -49,9 +52,11 @@ interface BoardViewsProps {
   onCreateView: (type: ProjectViewType) => void
   onOpenCard: (id: string) => void
   onPatchView: (viewId: string, patch: ProjectViewPatch) => Promise<void>
+  onDeleteView: (id: string) => void
+  onDuplicateView: (id: string) => void
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
   useEffect(() => { setActiveId(readLastViewId(bundle.board.id)) }, [bundle.board.id])
   const selectView = (id: string): void => {
@@ -60,17 +65,22 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   }
   const addAnchor = useRef<HTMLButtonElement>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const viewAnchor = useRef<HTMLButtonElement>(null)
+  const [viewMenuOpen, setViewMenuOpen] = useState(false)
   const [settings, setSettings] = useState<'sort' | 'filter' | 'properties' | null>(null)
+  const [search, setSearch] = useState('')
   const [links, setLinks] = useState<ProjectCardLink[]>([])
   useEffect(() => {
     const controller = new AbortController()
     fetchBoardLinks(bundle.board.id, controller.signal).then(setLinks).catch(() => { if (!controller.signal.aborted) setLinks([]) })
     return () => controller.abort()
   }, [bundle.board.id])
-  const active = bundle.views.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
+  // C-23: tabs read alphabetically; the default view stays the board's first by position.
+  const orderedViews = sortProjectViewsAlphabetically(bundle.views)
+  const active = orderedViews.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
   const fields = active?.fields ?? emptyProjectViewFields()
   const viewType = active?.viewType ?? 'table'
-  const filtered = bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties))
+  const filtered = bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, search, bundle.properties))
   const sorted = sortProjectCards(filtered, fields.sortOptions, bundle.properties)
   const hiddenCount = bundle.cards.length - filtered.length
   const density = fields.cardSize ?? 'comfortable'
@@ -78,11 +88,28 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const columns = fields.visiblePropertyIds.length
     ? fields.visiblePropertyIds.map((id) => bundle.properties.find((p) => p.id === id)).filter((p): p is ProjectProperty => Boolean(p))
     : bundle.properties
+  const groupable = bundle.properties.filter((property) => PROJECT_PROPERTY_CAPABILITIES[property.type].canGroup)
+  const dateProperties = bundle.properties.filter((property) => property.type === 'date')
+  const showsDateDisplay = viewType === 'calendar' || viewType === 'timeline' || viewType === 'gantt'
+
+  const renameView = () => {
+    if (!active) return
+    void prompt({ title: t('project.view.rename'), defaultValue: active.title, confirmLabel: t('common.save') }).then((name) => {
+      if (name !== null) void onPatchView(active.id, { title: name.trim() })
+    })
+  }
+  const viewMenu: MenuItem[] = active ? [
+    { id: 'rename', label: t('project.view.rename'), icon: <Pencil size={15} />, disabled: !canEdit, onSelect: renameView },
+    { id: 'duplicate', label: t('project.view.duplicate'), icon: <Copy size={15} />, disabled: !canEdit, onSelect: () => onDuplicateView(active.id) },
+    { id: 'delete', label: t('project.view.delete'), icon: <Trash2 size={15} />, tone: 'danger', disabled: !canEdit || bundle.views.length <= 1, onSelect: () => onDeleteView(active.id) },
+    { id: 'export-csv', label: t('project.view.export_csv'), icon: <Download size={15} />, separatorBefore: true, onSelect: () => { window.open(projectBoardExportUrl(bundle.board.id, 'csv'), '_blank') } },
+    { id: 'export-archive', label: t('project.view.export_archive'), icon: <Download size={15} />, onSelect: () => { window.open(projectBoardExportUrl(bundle.board.id, 'archive'), '_blank') } },
+  ] : []
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] px-3 py-1.5" role="tablist" aria-label={t('project.view.add')}>
-        {bundle.views.map((view) => (
+        {orderedViews.map((view) => (
           <button
             key={view.id}
             type="button"
@@ -112,36 +139,61 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             />
           </>
         )}
-        {active && viewType === 'board' && (
-          <Select
-            className="ml-auto w-40"
-            value={fields.groupById ?? ''}
-            aria-label={t('project.view.group_by')}
-            disabled={!canEdit}
-            onChange={(event) => onPatchView(active.id, { fields: { groupById: event.target.value || undefined } })}
-          >
-            <option value="">{t('project.view.group_by')}</option>
-            {bundle.properties.filter((property) => property.type === 'select' || property.type === 'person').map((property) => (
-              <option key={property.id} value={property.id}>{property.name}</option>
-            ))}
-          </Select>
-        )}
-        {active && viewType === 'board' && (
-          <Select
-            className="w-36"
-            value={fields.swimlaneBy ?? ''}
-            aria-label={t('project.view.swimlane')}
-            disabled={!canEdit}
-            onChange={(event) => onPatchView(active.id, { fields: { swimlaneBy: event.target.value || undefined } })}
-          >
-            <option value="">{t('project.view.swimlane')}</option>
-            {bundle.properties.filter((property) => property.type === 'select' || property.type === 'person').map((property) => (
-              <option key={property.id} value={property.id}>{property.name}</option>
-            ))}
-          </Select>
-        )}
         {active && (
-          <span className={`flex items-center gap-1 ${viewType === 'board' ? '' : 'ml-auto'}`}>
+          <>
+            <IconButton ref={viewAnchor} label={t('project.view.menu')} size="sm" onClick={() => setViewMenuOpen(true)}>
+              <MoreHorizontal size={15} />
+            </IconButton>
+            <Menu anchor={viewAnchor} open={viewMenuOpen} onClose={() => setViewMenuOpen(false)} items={viewMenu} align="end" label={t('project.view.menu')} />
+          </>
+        )}
+      </div>
+      {active && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5">
+          <Input
+            className="w-44 min-w-0"
+            value={search}
+            placeholder={t('project.view.search')}
+            aria-label={t('project.view.search')}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          {showsDateDisplay && (
+            <Select
+              className="w-36"
+              value={fields.dateDisplayPropertyId ?? ''}
+              aria-label={t('project.view.display_by')}
+              disabled={!canEdit}
+              onChange={(event) => onPatchView(active.id, { fields: { dateDisplayPropertyId: event.target.value || undefined } })}
+            >
+              <option value="">{t('project.view.display_by')}</option>
+              {dateProperties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+            </Select>
+          )}
+          {(viewType === 'board' || viewType === 'table') && (
+            <Select
+              className="w-36"
+              value={fields.groupById ?? ''}
+              aria-label={t('project.view.group_by')}
+              disabled={!canEdit}
+              onChange={(event) => onPatchView(active.id, { fields: { groupById: event.target.value || undefined } })}
+            >
+              <option value="">{t('project.view.group_by')}</option>
+              {groupable.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+            </Select>
+          )}
+          {viewType === 'board' && (
+            <Select
+              className="w-32"
+              value={fields.swimlaneBy ?? ''}
+              aria-label={t('project.view.swimlane')}
+              disabled={!canEdit}
+              onChange={(event) => onPatchView(active.id, { fields: { swimlaneBy: event.target.value || undefined } })}
+            >
+              <option value="">{t('project.view.swimlane')}</option>
+              {groupable.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+            </Select>
+          )}
+          <span className="ml-auto flex items-center gap-1">
             <Select
               className="w-28"
               value={density}
@@ -157,8 +209,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             <IconButton label={t('project.view.filter')} size="sm" onClick={() => setSettings('filter')}><Filter size={15} /></IconButton>
             <IconButton label={t('project.view.properties')} size="sm" onClick={() => setSettings('properties')}><Eye size={15} /></IconButton>
           </span>
-        )}
-      </div>
+        </div>
+      )}
       {hiddenCount > 0 && (
         <p className="shrink-0 px-3 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]" role="status">
           {t('project.view.hidden_count', { count: hiddenCount })}
@@ -170,10 +222,10 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           ? <Empty art="folder" title={t('project.board.empty_cards')} />
           : viewType === 'board'
             ? (fields.swimlaneBy
-              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />
-              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />)
+              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />
+              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />)
             : viewType === 'gallery'
-              ? <GalleryView cards={sorted} onOpenCard={onOpenCard} />
+              ? <GalleryView cards={sorted} contents={bundle.contents} comments={bundle.comments} onOpenCard={onOpenCard} />
               : viewType === 'list'
                 ? <ListView cards={sorted} properties={bundle.properties} onOpenCard={onOpenCard} />
                 : viewType === 'timeline' || viewType === 'gantt'
@@ -238,16 +290,18 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               </div>
             )}
       {active && settings === 'sort' && <SortModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(fields) => onPatchView(active.id, { fields })} />}
-      {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(fields) => onPatchView(active.id, { fields })} />}
+      {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} members={bundle.members} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(fields) => onPatchView(active.id, { fields })} />}
       {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(fields) => onPatchView(active.id, { fields })} />}
     </div>
   )
 }
 
-function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onOpenCard, fields, density, onPatch }: {
+function BoardColumns({ cards, groupById, properties, contents, comments, canEdit, onDeleteCard, onOpenCard, fields, density, onPatch }: {
   cards: ProjectCard[]
   groupById?: string
   properties: ProjectProperty[]
+  contents: ProjectContent[]
+  comments: ProjectComment[]
   canEdit: boolean
   onDeleteCard: (id: string) => void
   onOpenCard: (id: string) => void
@@ -308,6 +362,7 @@ function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onO
                   <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
                     {card.title || t('project.board.untitled_card')}
                   </button>
+                  <CardBadges badges={projectCardBadges(contents.filter((block) => block.cardId === card.id), comments.filter((comment) => comment.cardId === card.id))} />
                   {canEdit && (
                     <IconButton label={t('project.board.delete_card')} size="sm" onClick={() => onDeleteCard(card.id)}>
                       <Trash2 size={14} />
@@ -323,10 +378,12 @@ function BoardColumns({ cards, groupById, properties, canEdit, onDeleteCard, onO
   )
 }
 
-function Swimlanes({ cards, fields, properties, canEdit, onDeleteCard, onOpenCard, density, onPatch }: {
+function Swimlanes({ cards, fields, properties, contents, comments, canEdit, onDeleteCard, onOpenCard, density, onPatch }: {
   cards: ProjectCard[]
   fields: ProjectViewFields
   properties: ProjectProperty[]
+  contents: ProjectContent[]
+  comments: ProjectComment[]
   canEdit: boolean
   onDeleteCard: (id: string) => void
   onOpenCard: (id: string) => void
@@ -342,7 +399,7 @@ function Swimlanes({ cards, fields, properties, canEdit, onDeleteCard, onOpenCar
           <h3 className="mb-1 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {key === '' ? t('project.view.no_value') : laneProperty?.options.find((o) => o.id === key)?.value ?? key}
           </h3>
-          <BoardColumns cards={laneCards} groupById={fields.groupById} properties={properties} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={onPatch} />
+          <BoardColumns cards={laneCards} groupById={fields.groupById} properties={properties} contents={contents} comments={comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={onPatch} />
         </section>
       ))}
     </div>

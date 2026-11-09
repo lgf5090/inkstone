@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectCard, ProjectFilterClause, ProjectFilterGroup, ProjectProperty } from './model'
 import { emptyProjectFilterGroup } from './model'
-import { groupProjectCards, matchProjectFilterGroup, projectPropertyDisplayText, sortProjectCards } from './view-eval'
+import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from './view-eval'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u2', createAt: 1_000_000, updateAt: 2_000_000, deleteAt: 0 }
 
@@ -141,5 +141,34 @@ describe('property display text', () => {
     const check: ProjectProperty = { id: 'pk', name: 'Done', type: 'checkbox', options: [] }
     expect(projectPropertyDisplayText(card('a', { pk: 'true' }), check)).toBe('✓')
     expect(projectPropertyDisplayText(card('a', { pk: 'false' }), check)).toBe('')
+  })
+})
+
+describe('view tab order (C-23)', () => {
+  it('strips the whole leading emoji cluster, including joiners and variation selectors', () => {
+    const views = [{ title: '🗺️ Zebra' }, { title: 'Apple' }, { title: '👨‍👩‍👧 Family' }]
+    expect(sortProjectViewsAlphabetically(views).map((view) => view.title)).toEqual(['Apple', '👨‍👩‍👧 Family', '🗺️ Zebra'])
+  })
+
+  it('leaves digit-led and empty titles alone and keeps the sort stable', () => {
+    const views = [{ title: '123 numbers' }, { title: '' }, { title: '2 apples' }]
+    expect(sortProjectViewsAlphabetically(views).map((view) => view.title)).toEqual(['', '123 numbers', '2 apples'])
+    const same = [{ title: 'b' }, { title: 'b' }]
+    expect(sortProjectViewsAlphabetically(same)[0]).toBe(same[0])
+  })
+})
+
+describe('view search (C-12)', () => {
+  it('matches the title and any property display text, case-insensitively', () => {
+    expect(matchProjectViewSearch(card('a', {}, 'Alpha'), 'ALP', props)).toBe(true)
+    expect(matchProjectViewSearch(card('a', { pt: 'Hello World' }), 'world', props)).toBe(true)
+    expect(matchProjectViewSearch(card('a', { ps: 'o1' }), 'open', props)).toBe(true)
+    expect(matchProjectViewSearch(card('a', { ps: 'o1' }), 'o1', props)).toBe(false)
+  })
+
+  it('treats an empty or whitespace query as no filter', () => {
+    expect(matchProjectViewSearch(card('a'), '', props)).toBe(true)
+    expect(matchProjectViewSearch(card('a'), '   ', props)).toBe(true)
+    expect(matchProjectViewSearch(card('a'), 'nothing', props)).toBe(false)
   })
 })

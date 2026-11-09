@@ -31,7 +31,7 @@ function bundle(): ProjectBoardBundle {
 let view: RenderedElement
 async function mount(): Promise<void> {
   await act(async () => {
-    view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn() }))
+    view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
   })
 }
 beforeEach(async () => { await initI18n() })
@@ -72,7 +72,7 @@ describe('view tab labels', () => {
       id: `v${index}`, boardId: 'b1', title: '', viewType, fields: emptyProjectViewFields(), position: index, ...stamps,
     }))
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
     })
     const labels = [...view.container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)
     expect(labels).toEqual(PROJECT_VIEW_TYPES.map((viewType) => t(`project.view.${viewType}` as Parameters<typeof t>[0])))
@@ -91,7 +91,7 @@ describe('hidden card count (C-18)', () => {
     const base = bundle()
     base.views = [{ ...base.views[0]!, fields: { ...emptyProjectViewFields(), filter: { operation: 'and', filters: [{ propertyId: 'pt', condition: 'contains', values: ['hello'] }] } } }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
     })
     const status = view.container.querySelector('[role="status"]')
     expect(status?.textContent).toBe(t('project.view.hidden_count', { count: 2 }))
@@ -114,5 +114,107 @@ describe('last opened view memory (E-13)', () => {
     const tableTab = tabs.find((tab) => tab.textContent === 'Table')!
     await act(async () => { tableTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
     expect(localStorage.getItem('inkstone.project.lastView.b1')).toBe('v1')
+  })
+})
+
+describe('view tab order (C-23)', () => {
+  it('sorts tabs alphabetically with leading emoji stripped', async () => {
+    const base = bundle()
+    base.views = [
+      { ...base.views[0]!, id: 'vz', title: '🗺️ Zebra' },
+      { ...base.views[1]!, id: 'va', title: 'Apple' },
+    ]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
+    })
+    const labels = [...view.container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)
+    expect(labels).toEqual(['Apple', '🗺️ Zebra'])
+  })
+})
+
+describe('view search (C-12)', () => {
+  it('narrows rows by title and by property display text', async () => {
+    await mount()
+    const input = view.container.querySelector(`input[aria-label="${t('project.view.search')}"]`) as HTMLInputElement
+    expect(input).not.toBeNull()
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      setter.call(input, 'open')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const rows = [...view.container.querySelectorAll('tbody tr')]
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.textContent).toContain('Alpha')
+    expect(view.container.querySelector('[role="status"]')?.textContent).toBe(t('project.view.hidden_count', { count: 2 }))
+  })
+})
+
+describe('view actions menu (C-1/C-15)', () => {
+  async function openMenu(): Promise<void> {
+    const anchor = view.container.querySelector(`button[aria-label="${t('project.view.menu')}"]`) as HTMLButtonElement
+    expect(anchor).not.toBeNull()
+    await act(async () => { anchor.click() })
+  }
+  function item(label: string): HTMLButtonElement {
+    const entry = [...document.body.querySelectorAll('[role="menuitem"]')].find((node) => node.textContent === label) as HTMLButtonElement
+    expect(entry).not.toBeNull()
+    return entry
+  }
+
+  it('duplicates and deletes the active view through the host', async () => {
+    const onDeleteView = vi.fn()
+    const onDuplicateView = vi.fn()
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView, onDuplicateView }))
+    })
+    await openMenu()
+    await act(async () => { item(t('project.view.duplicate')).click() })
+    expect(onDuplicateView).toHaveBeenCalledWith('v1')
+    await openMenu()
+    await act(async () => { item(t('project.view.delete')).click() })
+    expect(onDeleteView).toHaveBeenCalledWith('v1')
+  })
+
+  it('offers CSV and archive exports', async () => {
+    await mount()
+    await openMenu()
+    const labels = [...document.body.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent)
+    expect(labels).toContain(t('project.view.export_csv'))
+    expect(labels).toContain(t('project.view.export_archive'))
+  })
+
+  it('keeps the last view undeletable', async () => {
+    const base = bundle()
+    base.views = [base.views[0]!]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
+    })
+    await openMenu()
+    expect(item(t('project.view.delete')).disabled).toBe(true)
+  })
+})
+
+describe('display by and group by (C-13/C-6)', () => {
+  it('offers the date property picker on a calendar view', async () => {
+    const base = bundle()
+    base.properties = [...base.properties, { id: 'pd', name: 'Due', type: 'date', options: [] }]
+    base.views = [{ ...base.views[0]!, id: 'vc', viewType: 'calendar' }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
+    })
+    const select = view.container.querySelector(`select[aria-label="${t('project.view.display_by')}"]`) as HTMLSelectElement
+    expect(select).not.toBeNull()
+    expect([...select.options].map((option) => option.textContent)).toContain('Due')
+  })
+
+  it('groups by every groupable type, not only select and person', async () => {
+    const base = bundle()
+    base.properties = [...base.properties, { id: 'pn', name: 'Estimate', type: 'number', options: [] }]
+    base.views = [{ ...base.views[1]!, id: 'vb' }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
+    })
+    const select = view.container.querySelector(`select[aria-label="${t('project.view.group_by')}"]`) as HTMLSelectElement
+    expect([...select.options].map((option) => option.textContent)).toContain('Estimate')
   })
 })

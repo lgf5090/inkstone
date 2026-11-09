@@ -6,6 +6,7 @@ import type {
   ProjectAttachment,
   ProjectBoard,
   ProjectBoardBundle,
+  ProjectBoardMetadata,
   ProjectBoardPatch,
   ProjectBoardSummary,
   ProjectCard,
@@ -81,6 +82,23 @@ export async function patchProjectBoard(id: string, patch: ProjectBoardPatch): P
 export async function patchProjectView(id: string, patch: ProjectViewPatch): Promise<ProjectView> {
   const body = await request<{ view: ProjectView }>(`/api/project/views/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
   return body.view
+}
+
+export async function deleteProjectView(id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/views/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function duplicateProjectView(id: string): Promise<ProjectView> {
+  const body = await request<{ view: ProjectView }>(`/api/project/views/${encodeURIComponent(id)}/duplicate`, { method: 'POST', body: {} })
+  return body.view
+}
+
+export async function fetchBoardMetadata(id: string): Promise<ProjectBoardMetadata> {
+  return request<ProjectBoardMetadata>(`/api/project/boards/${encodeURIComponent(id)}/metadata`)
+}
+
+export function projectBoardExportUrl(id: string, kind: 'csv' | 'archive' | 'markdown'): string {
+  return `/api/project/boards/${encodeURIComponent(id)}/${kind}`
 }
 
 export async function fetchCardComments(cardId: string, signal?: AbortSignal): Promise<ProjectComment[]> {

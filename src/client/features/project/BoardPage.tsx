@@ -6,11 +6,12 @@ import { buildProjectAssistantFacts } from '@shared/project/assistant-context'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { useAssistant } from '../chat/assistant-store'
+import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Modal } from '../../components/overlay'
-import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectView } from './api'
+import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectView, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectView } from './api'
 import { BoardViews } from './BoardViews'
 import { BoardPropertiesDialog } from './BoardPropertiesDialog'
 import { CardDialog } from './CardDialog'
@@ -120,6 +121,24 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     setBundle((current) => (current ? { ...current, views: current.views.map((entry) => (entry.id === viewId ? view : entry)) } : current))
   }, [])
 
+  const removeView = useCallback(async (viewId: string) => {
+    const ok = await confirm({ title: t('project.view.delete'), tone: 'danger', confirmLabel: t('common.delete') })
+    if (!ok) return
+    await deleteProjectView(viewId)
+    setBundle((current) => (current ? { ...current, views: current.views.filter((entry) => entry.id !== viewId) } : current))
+  }, [])
+
+  const copyView = useCallback(async (viewId: string) => {
+    const view = await duplicateProjectView(viewId)
+    setBundle((current) => (current ? { ...current, views: [...current.views, view] } : current))
+  }, [])
+
+  const guard = useCallback((action: () => Promise<void>): Promise<void> => {
+    return action().catch((reason: unknown) => {
+      useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
+    })
+  }, [])
+
   if (status === 'loading') return <LoadingBlock />
   if (status === 'notfound') return <Empty art="select" title={t('project.board.not_found')} action={<Button onClick={() => navigateToPath('/project')}>{t('project.board.back')}</Button>} />
   if (status === 'error' || !bundle) {
@@ -195,9 +214,11 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         bundle={bundle}
         canEdit={canEdit}
         onDeleteCard={(id) => void removeCard(id)}
-        onCreateView={(type) => void addView(type)}
+        onCreateView={(type) => guard(() => addView(type))}
         onOpenCard={setOpenCardId}
-        onPatchView={(id, patch) => patchView(id, patch)}
+        onPatchView={(id, patch) => guard(() => patchView(id, patch))}
+        onDeleteView={(id) => guard(() => removeView(id))}
+        onDuplicateView={(id) => guard(() => copyView(id))}
       />
       {showProps && (
         <BoardPropertiesDialog

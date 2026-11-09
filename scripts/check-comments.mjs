@@ -12506,10 +12506,14 @@ const allowed = new Map([
   ["src/client/features/project/BoardViews.tsx", [
     "/* storage unavailable (private mode): fall back to the first view */",
     "/* best-effort: remembering the last view is optional */",
+    "// C-23: tabs read alphabetically; the default view stays the board's first by position.",
   ]],
   ["src/client/features/project/ExtraViews.tsx", [
     "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
     "/* bare stamp */",
+  ]],
+  ["src/client/features/project/FilterEditor.tsx", [
+    "/** The value editor the reference dispatches on `filterValueType`, one branch per kind of clause. */",
   ]],
   ["src/client/features/project/ProjectSidebar.tsx", [
     "/* best-effort: an unreadable category list leaves the board list usable */",
@@ -32345,6 +32349,9 @@ const allowed = new Map([
   ["src/shared/project/assistant-context.ts", [
     "/**\n * Board context for the assistant (X-6): bounded, countable facts about the open board — never\n * instructions — mirroring the todo context's discipline. The dock sends these as page facts so the\n * model can answer \"what's due this week\" or \"split this card\" against real data.\n */",
   ]],
+  ["src/shared/project/badges.ts", [
+    "/**\n * B-6: the three badges a card carries in every view. The checkbox count includes the GFM task items\n * written inside a text block's Markdown, which is what the reference counts by rendering the block;\n * fenced code is stripped first so a `- [ ]` inside an example is not counted as a real task.\n */",
+  ]],
   ["src/shared/project/calculations.ts", [
     "/**\n * The 21 column summaries (§3.3.1), ported from the reference's calculations.ts. Values come from the\n * card's value bag (or its stamps for the server-written time fields); numeric results round to two\n * decimals and timestamps normalize to whole minutes, matching the reference's display precision.\n */",
     "/* bare stamp */",
@@ -32362,6 +32369,19 @@ const allowed = new Map([
   ["src/shared/project/csv.ts", [
     "/**\n * CSV export of a board's cards (§6.5). Columns are the visible properties in board order (not view\n * column order); a calendar view appends its date property if it is not already shown. Two deliberate\n * deviations from the reference are registered in the plan: a UTF-8 BOM so Excel reads Chinese, and\n * header cells escaped like data cells (the reference left them raw, so a comma in a property name\n * broke the file). The reference's `#`→token dance existed only for its data-URI transport; raw CSV\n * keeps `#` literal, which removes that whole class of bug rather than patching it.\n */",
     "// A scalar masquerading as a multi-value falls through to ordinary text.",
+  ]],
+  ["src/shared/project/date.test.ts", [
+    "// 2026-03-08 is the US spring-forward day; local noon minus the offset must still read back as the 8th.",
+  ]],
+  ["src/shared/project/date.ts", [
+    "/**\n * The three date conversions §6.6 requires, in one place so the picker, the calendar grid, the table\n * cell and the date filter all agree on which day a stored stamp means.\n *\n * A date value is stored at UTC noon: the writer takes the picked day at LOCAL noon (so a DST switch\n * cannot move it to the previous day) and subtracts the zone offset; the reader adds the offset back\n * and floors to local midnight. `includeTime` values keep their instant and skip both shifts.\n */",
+    "/** Writer: a picked calendar day becomes the stored stamp. */",
+    "/** Reader: a stored stamp becomes the local calendar day it was picked on. */",
+    "/** The reference also accepts a bare millisecond string, so every reader takes both shapes. */",
+    "/** `yyyy-mm-dd` for a native date input, read back through the same local-day conversion. */",
+    "// V8 normalises an impossible day (2026-02-30) into March instead of failing, so compare back.",
+    "/**\n * Calendar writer: the grid's end is exclusive, so it loses a day on the way back into storage, and a\n * single-day drag stores no `to` at all (§6.6, `createDatePropertyFromCalendarDates`).\n */",
+    "/** Calendar reader: no `to` means the range covers exactly the `from` day. */",
   ]],
   ["src/shared/project/importers.ts", [
     "/**\n * The six external importers (G-1…G-6) as pure converters: each parses its system's export into the\n * same archive lines the server importer reads, so there is exactly one trust boundary. Lists /\n * sections / columns become a single select property; rows become cards carrying that property, and\n * free text becomes a text content block. G-7's packing is the shared archive envelope itself.\n */",
@@ -32421,12 +32441,13 @@ const allowed = new Map([
   ]],
   ["src/shared/project/view-eval.ts", [
     "/**\n * Evaluating a view over a board's cards: filter, sort, group. These are pure so the client can\n * re-run them on every keystroke and the tests can pin the reference's exact truth table (§6.4),\n * including the one place this port deliberately differs: text comparisons lowercase BOTH sides\n * (the reference only lowercased the filter value, so `contains \"ABC\"` never matched `ABC`).\n */",
-    "/** The reference stores a date as an object or a bare millisecond string; readers take both. */",
     "/** The value a clause compares against, with the server-stamped fallbacks the reference uses. */",
     "// fall through to scalar",
     "/** Multi-key sort; an empty value sorts last regardless of direction, as the reference does. */",
     "/** Group cards by one property's value; the empty key collects cards with no value. */",
     "/** Human-readable cell text shared by the table cells and the compact list rows. */",
+    "/**\n * C-23: strip the leading emoji cluster before comparing, so \"🗺️ Roadmap\" sorts under R rather than\n * under the emoji's code point. The reference's `\\p{Emoji}` also matches digits and leaves the\n * variation selector behind, which put \"🗺️ Zebra\" ahead of \"Apple\"; Extended_Pictographic plus the\n * joiner/modifier code points strips the whole cluster and leaves ordinary titles alone.\n */",
+    "/**\n * C-12: the view's own search box, which the reference runs over the title and every property's\n * display text. Both sides are lowercased, matching this port's filter correction (Q-10).\n */",
   ]],
   ["src/shared/provider-balance.ts", [
     "/**\n * Which providers will say what they are owed, and how to read it out of their own answer.\n *\n * The reader asked for a balance per API key, because a ring of three keys is three wallets and the settings\n * screen showed none of them. What this file holds is the whole of the knowledge about each vendor's billing\n * endpoint: an address, the header the credential goes into, and the field names to read. It is data on\n * purpose — a working implementation of this feature elsewhere in the world runs a user-supplied script per\n * provider, which means the account's own key is handed into code the reader pasted in. That is not being\n * ported here. An adapter is a row, so the only thing a new vendor needs is somebody who has read its answer.\n *\n * Two rules hold this together:\n *  - a balance is only ever asked of the host the provider already sends its keys to. The table is keyed by\n *    host, so a relay at an address of the reader's own never receives a billing request aimed at a vendor,\n *    and a vendor's key never travels somewhere the reader did not already point it;\n *  - nothing here is a secret and nothing here is stored. A reading is fetched, shown, and forgotten: it is\n *    not written into settings, not part of a backup, and not logged.\n *\n * The shapes below were read off a working client of each of these endpoints (cc-switch's Rust balance\n * service, `src-tauri/src/services/balance.rs`), not off the vendors' own references, which were not\n * reachable from the machine this was written on. Where a vendor's documentation disagrees, the vendor wins\n * and the row here is the thing to correct. `amountPaths` is a candidate list for that reason: a field that\n * has moved is worth one line rather than a broken screen.\n */",
