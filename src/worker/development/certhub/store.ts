@@ -972,9 +972,15 @@ export async function listAccountsForUser(db: D1Database, userId: string): Promi
 }
 
 export async function listProviders(db: D1Database, userId: string): Promise<CerthubDnsProviderView[]> {
-  const { results } = await db.prepare(`SELECT user_id, id, kind, label, zone_id, zone_name,
-    account_email, credential_ciphertext, status, last_checked_at, last_error_code, created_at, updated_at
-    FROM development_certhub_dns_providers WHERE user_id = ?1 ORDER BY created_at DESC`)
+  // The pending-reference count travels with the row so the list can say, before the delete dialog,
+  // that an unfinished order still depends on this provider.
+  const { results } = await db.prepare(`SELECT p.user_id, p.id, p.kind, p.label, p.zone_id, p.zone_name,
+    p.account_email, p.credential_ciphertext, p.status, p.last_checked_at, p.last_error_code,
+    p.last_error_message, p.created_at, p.updated_at,
+    (SELECT COUNT(*) FROM development_certhub_order_domains d
+      WHERE d.user_id = p.user_id AND d.dns_provider_id = p.id
+        AND d.status IN ('pending','prepared','validating')) AS pending_references
+    FROM development_certhub_dns_providers p WHERE p.user_id = ?1 ORDER BY p.created_at DESC`)
     .bind(userId).all<{
       user_id: string
       id: string
@@ -987,8 +993,10 @@ export async function listProviders(db: D1Database, userId: string): Promise<Cer
       status: 'active' | 'error' | 'disabled'
       last_checked_at: number | null
       last_error_code: string | null
+      last_error_message: string | null
       created_at: number
       updated_at: number
+      pending_references: number
     }>()
   return results.map((row) => ({
     id: row.id,
@@ -1001,6 +1009,8 @@ export async function listProviders(db: D1Database, userId: string): Promise<Cer
     status: row.status,
     lastCheckedAt: row.last_checked_at,
     lastErrorCode: row.last_error_code,
+    lastErrorMessage: row.last_error_message,
+    pendingReferences: Number(row.pending_references ?? 0),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }))

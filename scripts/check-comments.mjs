@@ -7101,6 +7101,11 @@ const allowed = new Map([
     "/**\n * Downloads the issued chain without asking for a password: the list has no private key to protect,\n * and `/download?kind=fullchain` only requires the session the list already has.\n */",
     "// Only the private key and the bundles that carry it need the re-auth gate; a certificate alone",
     "// is public material and asking for a password made the \"Certificate\" button look broken.",
+    "/**\n * Turns a DNS provider refusal into the category the reader can act on, plus the upstream HTTP\n * status and Cloudflare error code. A bare \"502\" told nobody which of token, zone or network failed.\n */",
+    "// Deletion is refused server-side while an unfinished order still points at this provider; say so",
+    "// here, before asking for the label, instead of letting a typed confirmation end in a bare 409.",
+    "// Replacing the secret is a decision, not a field tweak: say explicitly that the stored token",
+    "// is overwritten before the PATCH runs.",
   ]],
   ["src/client/features/development/certhub/events.ts", [
     "// A kind the catalog does not know yet must not leak its dotted key onto the page: the event list is",
@@ -40551,11 +40556,15 @@ const allowed = new Map([
     "// `status` directly and has no `response`. Reading it as an axios error turned every DNS refusal",
     "// into \"unknown, retry in 30 seconds\", which is what made a permanent token problem repeat every",
     "// cron tick.",
+    "// Anything the DNS layer could not pin to a token/zone verdict is retryable unless its text is",
+    "// one of the permanent refusals, preserving the old behaviour that only auth-like text was final.",
   ]],
   ["src/worker/development/certhub/dns/cloudflare.ts", [
     "/**\n * Writes the TXT record this order owns, or returns the id of the one it already owns.\n *\n * Two orders for the same name (`example.com` and `*.example.com`) need two values at\n * `_acme-challenge.example.com`, so the write must never replace an existing record. An interrupted\n * attempt, though, can leave the record already there, and retrying would stack a duplicate value.\n * The comment carries the order id: a record with this name, value and comment is this order's own\n * record, while another order's value at the same name is left untouched.\n */",
     "/**\n * Resolves the zone id the token can actually write to, by the zone's name.\n *\n * The id a reader pasted is a fact they cannot verify; a token that belongs to another account, or a\n * zone id copied from elsewhere, answers \"Authentication error\" on every record call while\n * `/user/tokens/verify` still succeeds. Asking Cloudflare for the zone by name turns that into either\n * the correct id or a readable \"this token cannot see this zone\" refusal.\n */",
     "/**\n * Proves the token can write DNS records, by creating and removing a temporary TXT record.\n *\n * `/user/tokens/verify` answers for a token with any scope, so a Zone:Read token passes every earlier\n * check and then fails every issuance at the first record write. The probe is the only honest test;\n * its name is unique and it is deleted immediately, so a successful probe leaves nothing behind.\n */",
+    "// The category is the part a reader can act on; the upstream status/code/message ride along in",
+    "// `details` so a blanket 502 never hides which Cloudflare check refused the request.",
   ]],
   ["src/worker/development/certhub/state-machine.ts", [
     "/**\n   * Why the order did not move. A blocked result is a finished answer, not an error: the queue treats\n   * it as \"ask again later\" while the interactive action surfaces it as a refusal the reader can act on.\n   */",
@@ -40595,6 +40604,8 @@ const allowed = new Map([
     "/** Failed orders touched inside the admin's rolling window. */",
     "/** The admin order list, newest first. */",
     "/** The account an order belongs to, for admin routes that then read it through that account. */",
+    "// The pending-reference count travels with the row so the list can say, before the delete dialog,",
+    "// that an unfinished order still depends on this provider.",
   ]],
   ["src/worker/development/certhub/worker.ts", [
     "// DELETE ... LIMIT is an SQLite extension this deployment cannot rely on, so the cap lives on a",
@@ -42872,6 +42883,8 @@ const allowed = new Map([
     "// provider could report success while every issuance failed on its first record call.",
     "// A zone the token cannot see is the answer we need; other failures fall through to the probe,",
     "// whose message is the one the reader can act on.",
+    "// A disabled provider is skipped by auto-binding and refused on explicit binding; enabling it makes",
+    "// it selectable again without claiming the old health result still holds.",
   ]],
   ["src/worker/routes/development-icons.ts", [
     "/** A brake on a client that spams the conversion endpoint; it is per isolate, like the other budgets. */",

@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEVELOPMENT_CERTHUB_SCHEMA_STATEMENTS } from '../src/worker/development/certhub/schema'
 import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
-import { ensureTxtRecord, probeDnsWrite, resolveZoneId } from '../src/worker/development/certhub/dns/cloudflare'
+import { ensureTxtRecord, probeDnsWrite, resolveZoneId, verifyCloudflareToken } from '../src/worker/development/certhub/dns/cloudflare'
 import { autoBindMissingProviders, bindOrderDomainProvider, domainsWithoutProvider } from '../src/worker/development/certhub/state-machine'
 import { parseAcmeFailure } from '../src/worker/development/certhub/acme/errors'
 import { matchProviderForDomain } from '../src/client/features/development/certhub/rules'
@@ -187,7 +187,35 @@ describe('zone resolution and write probe', () => {
 
   it('refuses a zone the token cannot see', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ success: true, result: [] }), { status: 200 })))
-    await expect(resolveZoneId('token', 'example.com')).rejects.toMatchObject({ status: 422, code: 'dns_error' })
+    await expect(resolveZoneId('token', 'example.com')).rejects.toMatchObject({ status: 422, code: 'dns_zone_mismatch' })
+  })
+
+  it('names an invalid token instead of answering a bare 502', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      success: false, result: null, errors: [{ code: 10000, message: 'Authentication error' }],
+    }), { status: 403 })))
+    await expect(verifyCloudflareToken('token')).rejects.toMatchObject({
+      status: 401,
+      code: 'dns_token_invalid',
+      details: { endpoint: '/user/tokens/verify', upstreamStatus: 403, upstreamCodes: [10000], upstreamMessage: 'Authentication error' },
+    })
+  })
+
+  it('names a zone the token cannot write to, with the upstream status and code', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      success: false, result: null, errors: [{ code: 9109, message: 'Unauthorized to access requested resource' }],
+    }), { status: 403 })))
+    await expect(probeDnsWrite('token', 'zone')).rejects.toMatchObject({
+      status: 403,
+      code: 'dns_zone_forbidden',
+      details: { endpoint: '/zones/zone/dns_records', upstreamStatus: 403, upstreamCodes: [9109] },
+    })
+  })
+
+  it('reports an unreachable provider as a retryable network error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('network down') }))
+    await expect(ensureTxtRecord('token', 'zone', '_acme-challenge.example.com', 'value', 'certhub:order-1'))
+      .rejects.toMatchObject({ status: 503, code: 'dns_network' })
   })
 
   it('creates and removes its probe record', async () => {

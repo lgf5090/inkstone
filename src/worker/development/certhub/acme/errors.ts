@@ -74,7 +74,15 @@ export function parseAcmeFailure(error: unknown): AcmeFailure {
   // cron tick.
   if (error instanceof ApiError) {
     const detail = sanitizeAcmeDetail(error.message)
+    if (error.code === 'dns_token_invalid' || error.code === 'dns_zone_forbidden' || error.code === 'dns_zone_mismatch') {
+      return new AcmeFailure('dns_auth', false, 0, detail, error.status)
+    }
+    if (error.code === 'dns_network' || error.code === 'dns_rate_limited') {
+      return new AcmeFailure('dns', true, 0, detail, error.status)
+    }
     if (error.code === 'dns_error') {
+      // Anything the DNS layer could not pin to a token/zone verdict is retryable unless its text is
+      // one of the permanent refusals, preserving the old behaviour that only auth-like text was final.
       const permanent = /authentication error|unauthorized|forbidden|permission|invalid request headers|cannot access/i
         .test(detail)
       return new AcmeFailure(permanent ? 'dns_auth' : 'dns', !permanent, 0, detail, error.status)

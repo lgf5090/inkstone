@@ -100,6 +100,22 @@ function toastActionError(error: unknown): void {
 }
 
 /**
+ * Turns a DNS provider refusal into the category the reader can act on, plus the upstream HTTP
+ * status and Cloudflare error code. A bare "502" told nobody which of token, zone or network failed.
+ */
+function toastDnsFailure(error: unknown): void {
+  if (error instanceof ApiError && error.code.startsWith('dns_')) {
+    const details = error.details as { upstreamStatus?: number; upstreamCodes?: number[] } | undefined
+    const suffix = details?.upstreamStatus
+      ? ` · HTTP ${details.upstreamStatus}${details.upstreamCodes?.length ? ` / ${details.upstreamCodes.join(',')}` : ''}`
+      : ''
+    useUi.getState().toast({ title: `${t(`development.certhub.error.${error.code}` as never)}${suffix}`, tone: 'danger' })
+    return
+  }
+  toastError(error)
+}
+
+/**
  * Reports an action's real outcome, not merely that the request answered 200.
  *
  * `advance` persists a permanent DNS refusal as `status: failed` and still answers 200 (the action
@@ -1100,6 +1116,9 @@ function DnsPage({ compact }: { compact: boolean }) {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [detail, setDetail] = useState<CerthubDnsProviderView | null>(null)
+  const [edit, setEdit] = useState<{ provider: CerthubDnsProviderView; label: string; zoneId: string; zoneName: string; email: string; token: string; saving: boolean } | null>(null)
+  const [testingId, setTestingId] = useState<string | null>(null)
   const load = () => api<{ items: CerthubDnsProviderView[] }>('/dns-providers').then((data) => setItems(data.items)).catch(toastError)
   useEffect(() => { void load() }, [])
   const connectionErrors = (): Record<string, string> => {
@@ -1118,7 +1137,7 @@ function DnsPage({ compact }: { compact: boolean }) {
       await api('/dns-providers', { method: 'POST', body: { kind, label: form.label, zoneId: form.zoneId || '', zoneName: form.zoneName || '', accountEmail: form.email || '', secret: form.token || '' } })
       setForm({ label: '', zoneId: '', zoneName: '', email: '', token: '' })
       load()
-    } catch (reason) { toastError(reason) } finally { setBusy(false) }
+    } catch (reason) { toastDnsFailure(reason) } finally { setBusy(false) }
   }
   const testForm = async () => {
     const next = connectionErrors()
@@ -1134,14 +1153,78 @@ function DnsPage({ compact }: { compact: boolean }) {
         title: result.degraded ? t('development.certhub.dns.test_degraded') : t('development.certhub.dns.test_ok'),
         tone: result.degraded ? 'warning' : 'success',
       })
-    } catch (reason) { toastError(reason) } finally { setTesting(false) }
+    } catch (reason) { toastDnsFailure(reason) } finally { setTesting(false) }
   }
   const remove = async (provider: CerthubDnsProviderView) => {
+    // Deletion is refused server-side while an unfinished order still points at this provider; say so
+    // here, before asking for the label, instead of letting a typed confirmation end in a bare 409.
+    if (provider.pendingReferences > 0) {
+      useUi.getState().toast({
+        title: t('development.certhub.dns.delete_referenced').replace('{count}', String(provider.pendingReferences)),
+        tone: 'warning',
+      })
+      return
+    }
     const value = await prompt({ title: t('development.certhub.dns.delete'), description: t('development.certhub.dns.confirm'), placeholder: provider.label, confirmLabel: t('common.delete') })
     if (value !== provider.label) return
-    try { await api(`/dns-providers/${provider.id}`, { method: 'DELETE', body: { confirm: value } }); load() } catch (reason) { toastError(reason) }
+    try { await api(`/dns-providers/${provider.id}`, { method: 'DELETE', body: { confirm: value } }); load() } catch (reason) { toastDnsFailure(reason) }
   }
-  const test = async (id: string) => { try { await api(`/dns-providers/${id}/test`, { method: 'POST' }); load() } catch (reason) { toastError(reason) } }
+  const toggleEnabled = async (provider: CerthubDnsProviderView) => {
+    const disable = provider.status !== 'disabled'
+    if (disable && !(await confirm({ title: t('development.certhub.dns.disable'), description: t('development.certhub.dns.disable_hint'), tone: 'default' }))) return
+    try {
+      await api(`/dns-providers/${provider.id}`, { method: 'PATCH', body: { disabled: disable } })
+      useUi.getState().toast({ title: t('development.certhub.dns.state_saved'), tone: 'success' })
+      load()
+    } catch (reason) { toastDnsFailure(reason) }
+  }
+  const test = async (id: string) => {
+    setTestingId(id)
+    try {
+      await api(`/dns-providers/${id}/test`, { method: 'POST' })
+      useUi.getState().toast({ title: t('development.certhub.dns.test_ok'), tone: 'success' })
+      load()
+    } catch (reason) {
+      toastDnsFailure(reason)
+      load()
+    } finally {
+      setTestingId(null)
+    }
+  }
+  const openEdit = (provider: CerthubDnsProviderView) => setEdit({
+    provider,
+    label: provider.label,
+    zoneId: provider.zoneId,
+    zoneName: provider.zoneName,
+    email: provider.accountEmail,
+    token: '',
+    saving: false,
+  })
+  const saveEdit = async () => {
+    if (!edit) return
+    // Replacing the secret is a decision, not a field tweak: say explicitly that the stored token
+    // is overwritten before the PATCH runs.
+    if (edit.token.trim() && !(await confirm({ title: t('development.certhub.dns.edit_token'), description: t('development.certhub.dns.edit_token_overwrite'), tone: 'danger' }))) return
+    setEdit({ ...edit, saving: true })
+    try {
+      await api(`/dns-providers/${edit.provider.id}`, {
+        method: 'PATCH',
+        body: {
+          label: edit.label,
+          zoneId: edit.zoneId,
+          zoneName: edit.zoneName,
+          accountEmail: edit.email,
+          ...(edit.token.trim() ? { secret: edit.token } : {}),
+        },
+      })
+      useUi.getState().toast({ title: t('development.certhub.dns.edit_saved'), tone: 'success' })
+      setEdit(null)
+      load()
+    } catch (reason) {
+      toastDnsFailure(reason)
+      setEdit((current) => (current ? { ...current, saving: false } : current))
+    }
+  }
   return (
     <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)]')}>
       <Panel title={t('development.certhub.dns.title')}>
@@ -1149,9 +1232,31 @@ function DnsPage({ compact }: { compact: boolean }) {
           <div className="space-y-2">
             {items.map((provider) => (
               <div key={provider.id} className="rounded-[var(--r-md)] bg-[var(--bg-sunken)] p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{provider.label}</span><Badge tone={provider.configured ? 'success' : 'warning'}>{provider.kind}</Badge></div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">{provider.label}</span>
+                  <div className="flex items-center gap-1.5">
+                    <Badge tone={provider.status === 'active' ? 'success' : provider.status === 'error' ? 'danger' : 'neutral'}>{t(`development.certhub.dns.status_${provider.status}` as never)}</Badge>
+                    <Badge tone={provider.configured ? 'success' : 'warning'}>{provider.kind}</Badge>
+                  </div>
+                </div>
                 <div className="mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{provider.zoneName || provider.zoneId || '-'}</div>
-                <div className="mt-2 flex gap-2"><Button size="sm" onClick={() => test(provider.id)}>{t('development.certhub.dns.test')}</Button><Button size="sm" variant="danger" onClick={() => remove(provider)} icon={<Trash2 size={14} />}>{t('development.certhub.dns.delete')}</Button></div>
+                {provider.pendingReferences > 0 ? (
+                  <p className="mt-1 text-[length:var(--text-11)] text-[var(--warning)]">
+                    {t('development.certhub.dns.pending_references').replace('{count}', String(provider.pendingReferences))}
+                  </p>
+                ) : null}
+                {provider.lastErrorCode ? (
+                  <p className="mt-1 break-all text-[length:var(--text-11)] text-[var(--danger)]" title={provider.lastErrorMessage ?? ''}>
+                    {provider.lastErrorCode}{provider.lastErrorMessage ? `: ${provider.lastErrorMessage}` : ''}
+                  </p>
+                ) : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => setDetail(provider)}>{t('development.certhub.dns.view')}</Button>
+                  <Button size="sm" onClick={() => openEdit(provider)}>{t('development.certhub.dns.edit')}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => toggleEnabled(provider)}>{provider.status === 'disabled' ? t('development.certhub.dns.enable') : t('development.certhub.dns.disable')}</Button>
+                  <Button size="sm" loading={testingId === provider.id} onClick={() => test(provider.id)}>{t('development.certhub.dns.test')}</Button>
+                  <Button size="sm" variant="danger" onClick={() => remove(provider)} icon={<Trash2 size={14} />}>{t('development.certhub.dns.delete')}</Button>
+                </div>
               </div>
             ))}
           </div>
@@ -1174,6 +1279,38 @@ function DnsPage({ compact }: { compact: boolean }) {
           </div>
         </div>
       </Panel>
+      <Modal open={Boolean(detail)} onClose={() => setDetail(null)} title={t('development.certhub.dns.view')} width={440}>
+        {detail ? (
+          <div className="space-y-1.5 text-[length:var(--text-12)]">
+            <Info label={t('development.certhub.dns.label')} value={detail.label} />
+            <Info label={t('development.certhub.dns.kind')} value={detail.kind} />
+            <Info label={t('development.certhub.dns.zone_name')} value={detail.zoneName || '-'} />
+            <Info label={t('development.certhub.dns.zone_id')} value={detail.zoneId || '-'} />
+            <Info label={t('development.certhub.dns.email')} value={detail.accountEmail || '-'} />
+            <Info label={t('development.certhub.dns.status')} value={t(`development.certhub.dns.status_${detail.status}` as never)} />
+            <Info label={t('development.certhub.dns.last_checked')} value={detail.lastCheckedAt ? relativeTime(detail.lastCheckedAt) : '-'} />
+            <Info label={t('development.certhub.dns.references')} value={String(detail.pendingReferences)} />
+            {detail.lastErrorMessage ? <Info label={t('development.certhub.dns.last_error')} value={`${detail.lastErrorCode ?? ''}: ${detail.lastErrorMessage}`} /> : null}
+          </div>
+        ) : null}
+      </Modal>
+      <Modal open={Boolean(edit)} onClose={() => setEdit(null)} title={t('development.certhub.dns.edit')} width={460}>
+        {edit ? (
+          <div className="space-y-2">
+            <FormField label={t('development.certhub.dns.label')}><Input value={edit.label} onChange={(event) => setEdit({ ...edit, label: event.target.value })} /></FormField>
+            <FormField label={t('development.certhub.dns.zone_name')}><Input value={edit.zoneName} onChange={(event) => setEdit({ ...edit, zoneName: event.target.value })} /></FormField>
+            <FormField label={t('development.certhub.dns.zone_id')}><Input value={edit.zoneId} onChange={(event) => setEdit({ ...edit, zoneId: event.target.value })} /></FormField>
+            <FormField label={t('development.certhub.dns.email')}><Input value={edit.email} onChange={(event) => setEdit({ ...edit, email: event.target.value })} /></FormField>
+            <FormField hint={t('development.certhub.dns.edit_token_hint')} label={t('development.certhub.dns.token')}>
+              <Textarea value={edit.token} onChange={(event) => setEdit({ ...edit, token: event.target.value })} rows={3} placeholder={t('development.certhub.dns.edit_token_placeholder')} />
+            </FormField>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setEdit(null)}>{t('development.certhub.detail.cancel')}</Button>
+              <Button size="sm" variant="primary" loading={edit.saving} onClick={saveEdit}>{t('development.certhub.common.confirm')}</Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   )
 }

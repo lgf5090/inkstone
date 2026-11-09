@@ -180,6 +180,7 @@ export const dnsProviderSchema = z
     zoneName: z.string().trim().max(253).optional().or(z.literal('')),
     accountEmail: z.string().trim().max(253).optional().or(z.literal('')),
     secret: z.string().trim().max(4096).optional().or(z.literal('')),
+    disabled: z.boolean().optional(),
   })
   .strict()
 

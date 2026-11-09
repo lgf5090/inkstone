@@ -24,27 +24,65 @@ async function request<T>(
 ): Promise<T> {
   if (!token) throw new ApiError(503, 'config_unavailable', 'The DNS provider token is not configured')
   const url = `${BASE}${path}`
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...(init.headers ?? {}),
-    },
-    redirect: 'manual',
-    signal: AbortSignal.timeout(10_000),
-  })
+  let response: Response
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(init.headers ?? {}),
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch (error) {
+    const name = (error as Error)?.name
+    throw new ApiError(
+      503,
+      'dns_network',
+      name === 'TimeoutError' || name === 'AbortError'
+        ? 'The DNS provider did not answer in time'
+        : 'The DNS provider could not be reached',
+      { endpoint: path, cause: String((error as Error)?.message ?? error).slice(0, 120) },
+    )
+  }
   const text = await response.text()
-  if (text.length > 256 * 1024) throw new ApiError(502, 'dns_error', 'The DNS provider answered with too much data')
+  if (text.length > 256 * 1024) {
+    throw new ApiError(502, 'dns_error', 'The DNS provider answered with too much data', { endpoint: path, upstreamStatus: response.status })
+  }
   let payload: CloudflareResponse<T>
   try {
     payload = JSON.parse(text) as CloudflareResponse<T>
   } catch {
-    throw new ApiError(502, 'dns_error', `The DNS provider answered HTTP ${response.status}`)
+    throw new ApiError(502, 'dns_error', `The DNS provider answered HTTP ${response.status}`, {
+      endpoint: path,
+      upstreamStatus: response.status,
+      upstreamMessage: text.slice(0, 120),
+    })
   }
   if (!response.ok || !payload.success) {
-    const message = payload.errors?.[0]?.message ?? `HTTP ${response.status}`
-    throw new ApiError(response.status === 429 ? 429 : 502, 'dns_error', message.slice(0, 160))
+    // The category is the part a reader can act on; the upstream status/code/message ride along in
+    // `details` so a blanket 502 never hides which Cloudflare check refused the request.
+    const codes = (payload.errors ?? []).map((entry) => entry.code).filter((code): code is number => typeof code === 'number')
+    const messages = (payload.errors ?? []).map((entry) => entry.message).filter((message): message is string => Boolean(message))
+    const upstreamMessage = (messages[0] ?? `HTTP ${response.status}`).slice(0, 160)
+    const details = { endpoint: path, upstreamStatus: response.status, upstreamCodes: codes, upstreamMessage }
+    const authLike = response.status === 401 || response.status === 403 || codes.includes(10000)
+      || /authentication error|invalid request headers|unauthorized|forbidden|permission/i.test(upstreamMessage)
+    let status: 401 | 403 | 422 | 429 | 502 = 502
+    let code: 'dns_token_invalid' | 'dns_zone_forbidden' | 'dns_zone_mismatch' | 'dns_rate_limited' | 'dns_error' = 'dns_error'
+    if (response.status === 429) {
+      status = 429
+      code = 'dns_rate_limited'
+    } else if (authLike && path.startsWith('/user/tokens/verify')) {
+      status = 401
+      code = 'dns_token_invalid'
+    } else if (authLike) {
+      status = 403
+      code = 'dns_zone_forbidden'
+    }
+    throw new ApiError(status, code, upstreamMessage, details)
   }
   return payload.result
 }
@@ -69,7 +107,14 @@ export async function resolveZoneId(token: string, zoneName: string): Promise<st
     token,
   )
   const exact = zones.find((zone) => zone.name.toLowerCase() === name)
-  if (!exact) throw new ApiError(422, 'dns_error', `The API token cannot access the zone ${name}`)
+  if (!exact) {
+    throw new ApiError(422, 'dns_zone_mismatch', `The API token cannot access the zone ${name}`, {
+      endpoint: `/zones?name=${name}`,
+      upstreamStatus: 200,
+      upstreamCodes: [],
+      upstreamMessage: `No zone named ${name} is visible to this token`,
+    })
+  }
   return exact.id
 }
 

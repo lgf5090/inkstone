@@ -167,6 +167,8 @@ export interface CerthubDnsProviderView {
   status: 'active' | 'error' | 'disabled'
   lastCheckedAt: number | null
   lastErrorCode: string | null
+  lastErrorMessage: string | null
+  pendingReferences: number
   createdAt: number
   updatedAt: number
 }

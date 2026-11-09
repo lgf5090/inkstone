@@ -502,10 +502,13 @@ developmentCerthubRoutes.patch('/dns-providers/:id', async (c) => {
       email: body.accountEmail ?? provider.account_email,
     })
   }
+  // A disabled provider is skipped by auto-binding and refused on explicit binding; enabling it makes
+  // it selectable again without claiming the old health result still holds.
+  if (body.disabled !== undefined) patch.status = body.disabled ? 'disabled' : 'active'
   await updateProvider(c.env.DB, userId, provider.id, patch)
   await appendEvent(c.env.DB, {
     userId, actor: actionActor(c), kind: 'provider.updated', messageCode: 'provider.updated',
-    detail: { id: provider.id },
+    detail: { id: provider.id, ...(body.disabled !== undefined ? { disabled: body.disabled } : {}) },
   })
   return c.json({ ok: true, data: { items: await listProviders(c.env.DB, userId) } })
 })
