@@ -35,7 +35,10 @@ async function mount(): Promise<void> {
     view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
   })
 }
-beforeEach(async () => { await initI18n() })
+beforeEach(async () => {
+  localStorage.clear()
+  await initI18n()
+})
 afterEach(() => { view?.unmount() })
 
 describe('the table view', () => {
@@ -418,5 +421,44 @@ describe('subtask hierarchy in views', () => {
       expandBtn.click()
     })
     expect(columns[0]!.textContent).toContain('Subtask Kanban')
+  })
+
+  it('opens context menu on card right-click with action options', async () => {
+    await mount()
+    const cardEl = view.container.querySelector('[data-project-card="c1"]')!
+    const contextEvent = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 150,
+      clientY: 150,
+    })
+    await act(async () => { cardEl.dispatchEvent(contextEvent) })
+    const items = [...document.body.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent ?? '')
+    expect(items.some((item) => item.includes(t('project.card.open')))).toBe(true)
+    expect(items.some((item) => item.includes(t('project.card.mark_done')))).toBe(true)
+    expect(items.some((item) => item.includes(t('project.card.add_subtask')))).toBe(true)
+    expect(items.some((item) => item.includes(t('project.card.duplicate')))).toBe(true)
+    expect(items.some((item) => item.includes(t('project.card.copy_link')))).toBe(true)
+    expect(items.some((item) => item.includes(t('project.board.delete_card')))).toBe(true)
+  })
+
+  it('renders multi-select option tag chips with hierarchical slash support', async () => {
+    const b = bundle()
+    b.properties.push({
+      id: 'ptags',
+      name: 'Tags',
+      type: 'multiSelect',
+      options: [
+        { id: 't1', value: 'feat/auth', color: '#ff0000' },
+        { id: 't2', value: 'bug/critical', color: '#00ff00' },
+      ],
+    })
+    b.views[0]!.fields.visiblePropertyIds.push('ptags')
+    b.cards[0]!.values.ptags = JSON.stringify(['t1', 't2'])
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+    expect(view.container.textContent).toContain('auth')
+    expect(view.container.textContent).toContain('critical')
   })
 })

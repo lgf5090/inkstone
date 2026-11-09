@@ -193,6 +193,17 @@ export const ZH_CN_PROJECT = {
     "project.view.display_by": "按…显示",
     "project.card.attachments": "附件",
     "project.card.add_attachment": "添加附件",
+    "project.sidebar.pinned": "置顶",
+    "project.sidebar.favorites": "收藏",
+    "project.sidebar.pin": "置顶看板",
+    "project.sidebar.unpin": "取消置顶",
+    "project.sidebar.favorite": "加入收藏",
+    "project.sidebar.unfavorite": "取消收藏",
+    "project.sidebar.new_subcategory": "新建子分类",
+    "project.card.open": "打开详情",
+    "project.card.mark_done": "标记为已完成",
+    "project.card.mark_undone": "标记为未完成",
+    "project.card.move_to_column": "移动到分组",
 } as const
 
 /** zh strings for the built-in board templates' demo content, keyed by the English source string. */

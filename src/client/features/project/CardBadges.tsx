@@ -8,9 +8,21 @@ import { t } from '../../lib/i18n'
 export function OptionChip({ property, value }: { property: ProjectProperty, value: string }): ReactElement | null {
   const option = property.options.find((entry) => entry.id === value)
   if (!option) return null
+  const parts = option.value.split('/').map((s) => s.trim()).filter(Boolean)
+  const isHierarchy = parts.length > 1
   return (
-    <span className="inline-flex items-center rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-primary)]" style={option.color ? { backgroundColor: option.color } : undefined}>
-      {option.value}
+    <span
+      className="inline-flex max-w-full items-center gap-1 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium select-none"
+      style={option.color ? { backgroundColor: option.color } : { backgroundColor: 'var(--bg-subtle)' }}
+    >
+      {isHierarchy ? (
+        <>
+          <span className="text-[var(--text-tertiary)]">{parts.slice(0, -1).join(' / ')} /</span>
+          <span className="text-[var(--text-primary)] font-semibold">{parts[parts.length - 1]}</span>
+        </>
+      ) : (
+        <span className="text-[var(--text-primary)]">{option.value}</span>
+      )}
     </span>
   )
 }

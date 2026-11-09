@@ -25,6 +25,7 @@ const boards: ProjectBoardSummary[] = [
 
 let view: RenderedElement
 beforeEach(async () => {
+  localStorage.clear()
   vi.clearAllMocks()
   vi.mocked(api.fetchProjectCategories).mockResolvedValue({
     categories: [{ id: 'cat1', userId: 'u1', name: 'Work', type: 'custom', collapsed: false, sortOrder: 0, createAt: 1, updateAt: 1, deleteAt: 0 }],
@@ -107,5 +108,47 @@ describe('the project sidebar', () => {
     const text = view.container.textContent ?? ''
     expect(text).toContain('Loose board')
     expect(text).not.toContain('Filed board')
+  })
+
+  it('renders pinned and favorites sections when preferences are present', async () => {
+    localStorage.setItem('inkstone.project.pinnedBoards', JSON.stringify(['b1']))
+    localStorage.setItem('inkstone.project.starredBoards', JSON.stringify(['b2']))
+    await mount()
+    const text = view.container.textContent ?? ''
+    expect(text).toContain(t('project.sidebar.pinned'))
+    expect(text).toContain(t('project.sidebar.favorites'))
+  })
+
+  it('builds multi-level categories for slash-separated names', async () => {
+    vi.mocked(api.fetchProjectCategories).mockResolvedValue({
+      categories: [
+        { id: 'cat1', userId: 'u1', name: 'Dev/Frontend', type: 'custom', collapsed: false, sortOrder: 0, createAt: 1, updateAt: 1, deleteAt: 0 },
+        { id: 'cat2', userId: 'u1', name: 'Dev/Backend', type: 'custom', collapsed: false, sortOrder: 1, createAt: 1, updateAt: 1, deleteAt: 0 },
+      ],
+      categoryBoards: [
+        { categoryId: 'cat1', boardId: 'b1', hidden: false, position: 0 },
+        { categoryId: 'cat2', boardId: 'b2', hidden: false, position: 0 },
+      ],
+    })
+    await mount()
+    const text = view.container.textContent ?? ''
+    expect(text).toContain('Dev')
+    expect(text).toContain('Frontend')
+    expect(text).toContain('Backend')
+  })
+
+  it('opens context menu on board right-click with pin and star actions', async () => {
+    await mount()
+    const boardEl = document.body.querySelector('[data-sidebar-board="b1"]')!
+    const contextEvent = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 100,
+      clientY: 100,
+    })
+    await act(async () => { boardEl.dispatchEvent(contextEvent) })
+    const menuItems = [...document.body.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent ?? '')
+    expect(menuItems.some((item) => item.includes(t('project.sidebar.pin')))).toBe(true)
+    expect(menuItems.some((item) => item.includes(t('project.sidebar.favorite')))).toBe(true)
   })
 })
