@@ -68,6 +68,10 @@ export async function listBoardLinks(db: D1Database, boardId: string): Promise<P
 /** Adding a 'blocks' edge that would close a cycle is refused, keeping the dependency graph acyclic. */
 export async function addCardLink(db: D1Database, boardId: string, fromId: string, toId: string, kind: ProjectCardLinkKind, now: number): Promise<void> {
   if (fromId === toId) throw ApiError.badRequest('a card cannot depend on itself')
+  const targetCard = await getProjectCard(db, toId)
+  if (!targetCard || targetCard.boardId !== boardId || targetCard.deleteAt !== 0) {
+    throw ApiError.badRequest('Target card does not exist on this board')
+  }
   if (kind === 'blocks') {
     const { results } = await db.prepare('SELECT from_card_id, to_card_id FROM project_card_links WHERE board_id = ?1 AND kind = ?2').bind(boardId, 'blocks').all<{ from_card_id: string, to_card_id: string }>()
     const edges = new Map<string, string[]>()
@@ -94,6 +98,8 @@ export async function removeCardLink(db: D1Database, fromId: string, toId: strin
 
 /** X-5: a card ↔ /todo task mapping, one task per card. */
 export async function linkCardTodo(db: D1Database, cardId: string, todoId: string, userId: string, now: number): Promise<void> {
+  const todo = await db.prepare('SELECT id FROM todos_tasks WHERE id = ?1 AND user_id = ?2').bind(todoId, userId).first<{ id: string }>()
+  if (!todo) throw ApiError.badRequest('Todo task not found')
   await db.prepare(
     'INSERT INTO project_todo_links (card_id, todo_id, user_id, created_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, todo_id) DO NOTHING',
   ).bind(cardId, todoId, userId, now).run()

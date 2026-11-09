@@ -61,6 +61,12 @@ export async function createProjectCard(
     .bind(board.id)
     .first<{ n: number }>()
   if ((count?.n ?? 0) >= PROJECT_LIMITS.cardsPerBoard) throw ApiError.conflict('PROJECT_MAX_CARDS_PER_BOARD')
+  if (input.parentId) {
+    const parent = await getProjectCardRow(db, input.parentId)
+    if (!parent || parent.board_id !== board.id || parent.delete_at !== 0) {
+      throw ApiError.badRequest('Parent card does not exist on this board')
+    }
+  }
   const id = input.id ?? newProjectId('card')
   await db.batch([
     db.prepare(
@@ -127,6 +133,13 @@ export async function patchProjectCard(
   userId: string,
   now: number,
 ): Promise<ProjectCard> {
+  if (patch.parentId) {
+    if (patch.parentId === card.id) throw ApiError.badRequest('A card cannot be its own parent')
+    const parent = await getProjectCardRow(db, patch.parentId)
+    if (!parent || parent.board_id !== card.boardId || parent.delete_at !== 0) {
+      throw ApiError.badRequest('Parent card does not exist on this board')
+    }
+  }
   await db.batch(cardPatchStatements(db, card, patch, userId, now))
   return (await getProjectCard(db, card.id))!
 }

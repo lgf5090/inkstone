@@ -246,6 +246,12 @@ projectRoutes.post('/boards/:id/files', async (c) => {
   if (!(file instanceof File)) throw ApiError.badRequest('A file field is required')
   const bytes = new Uint8Array(await file.arrayBuffer())
   const cardId = typeof form.get('cardId') === 'string' ? (form.get('cardId') as string) : null
+  if (cardId) {
+    const cardRow = await getProjectCardRow(c.env.DB, cardId)
+    if (!cardRow || cardRow.board_id !== board.id || cardRow.delete_at !== 0) {
+      throw ApiError.badRequest('Card does not belong to this board')
+    }
+  }
   const attachment = await uploadProjectAttachment(c.env.DB, c.env.FILES, { boardId: board.id, cardId, userId, filename: file.name, mime: file.type || 'application/octet-stream', bytes }, Date.now())
   return c.json({ file: attachment }, 201)
 })
@@ -260,10 +266,11 @@ projectRoutes.get('/files/:id', async (c) => {
   // The stored mime is client-controlled; only render a safe allowlist inline. Anything else
   // (html/svg/…) downloads as an opaque blob so it can never execute in this origin (stored XSS).
   const safeInline = PROJECT_INLINE_MIMES.has(attachment.mime)
+  const cleanFilename = attachment.filename.replace(/[\r\n"\\;]/g, '_')
   return new Response(object.body, {
     headers: {
       'Content-Type': safeInline ? attachment.mime : 'application/octet-stream',
-      'Content-Disposition': `${safeInline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(attachment.filename)}"`,
+      'Content-Disposition': `${safeInline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(cleanFilename)}"`,
       'X-Content-Type-Options': 'nosniff',
     },
   })
