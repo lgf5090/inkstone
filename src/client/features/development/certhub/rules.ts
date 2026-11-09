@@ -45,29 +45,9 @@ export function applyChallengeOptions(wildcard: boolean): Array<{ value: 'dns-01
 
 export type DnsKind = 'cloudflare' | 'dcv-delegate'
 
-/**
- * The provider whose zone canonically contains this domain, or `''` when none does.
- *
- * A provider is matched by its configured zone name, not its label: the label is free text, while the
- * zone name is what the token is allowed to write to. The longest matching zone wins, so a provider
- * for `sub.example.com` is preferred over one for `example.com`. The wildcard prefix is dropped before
- * matching because `*.example.com` lives inside the `example.com` zone.
- */
-export function matchProviderForDomain(
-  name: string,
-  providers: Array<{ id: string; zoneName?: string }>,
-): string {
-  const host = name.trim().toLowerCase().replace(/\.$/, '').replace(/^\*\./, '')
-  if (!host) return ''
-  let best: { id: string; length: number } | null = null
-  for (const provider of providers) {
-    const zone = (provider.zoneName ?? '').trim().toLowerCase().replace(/\.$/, '')
-    if (!zone) continue
-    if (host !== zone && !host.endsWith(`.${zone}`)) continue
-    if (!best || zone.length > best.length) best = { id: provider.id, length: zone.length }
-  }
-  return best?.id ?? ''
-}
+// The matching rule lives in the shared layer because the worker repairs stored orders with it too;
+// a client-only copy would let the form and the repair path disagree about a domain's zone.
+export { matchProviderForDomain } from '@shared/development/certhub/provider-match'
 
 const ZONE_ID = /^[a-f0-9]{32}$/i
 

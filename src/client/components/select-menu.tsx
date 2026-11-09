@@ -21,6 +21,8 @@ export interface SelectMenuOption<T extends string = string> {
   /** A leading glyph — a list icon, a priority dot, a colour. */
   icon?: ReactNode
   disabled?: boolean
+  /** Why this row cannot be chosen; shown on hover instead of leaving a silent dead row. */
+  reason?: string
 }
 
 export function SelectMenu<T extends string>({
@@ -60,6 +62,7 @@ export function SelectMenu<T extends string>({
     ...(option.icon ? { icon: option.icon } : {}),
     checked: option.value === value,
     ...(option.disabled ? { disabled: true } : {}),
+    ...(option.reason ? { reason: option.reason } : {}),
     onSelect: () => {
       setOpen(false)
       if (option.value !== value) onChange(option.value)

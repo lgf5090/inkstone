@@ -64,7 +64,7 @@ import {
   deleteCerthubObjects,
   readCerthubText,
 } from '../development/certhub/storage'
-import { verifyCloudflareConnection, verifyCloudflareToken } from '../development/certhub/dns/cloudflare'
+import { probeDnsWrite, resolveZoneId, verifyCloudflareConnection, verifyCloudflareToken } from '../development/certhub/dns/cloudflare'
 import { pemToPfx } from '../development/certhub/crypto/pfx'
 import { exportPassword } from '../development/certhub/export-password'
 import { buildCerthubZip } from '../development/certhub/export/zip'
@@ -536,9 +536,43 @@ developmentCerthubRoutes.post('/dns-providers/:id/test', async (c) => {
   }
   const credential = await decryptCerthubDnsCredential(c.env, provider.id, provider.credential_ciphertext)
   if (!credential) throw new ApiError(503, 'vault_unavailable', 'The DNS provider credential could not be decrypted')
-  await verifyCloudflareToken(credential.token)
-  await updateProvider(c.env.DB, userId, provider.id, { last_checked_at: Date.now(), status: 'active', updated_at: Date.now() })
-  return c.json({ ok: true, data: { ok: true } })
+  try {
+    const token = credential.token
+    await verifyCloudflareToken(token)
+    // The token's own self-check says nothing about the zone or about DNS write scope, which is how a
+    // provider could report success while every issuance failed on its first record call.
+    let zoneId = provider.zone_id
+    if (provider.zone_name) {
+      try {
+        const resolved = await resolveZoneId(token, provider.zone_name)
+        if (resolved) zoneId = resolved
+      } catch (error) {
+        // A zone the token cannot see is the answer we need; other failures fall through to the probe,
+        // whose message is the one the reader can act on.
+        if (error instanceof ApiError && error.status === 422) throw error
+      }
+    }
+    if (!zoneId) throw ApiError.badRequest('A Cloudflare provider needs a zone id or a zone name')
+    await probeDnsWrite(token, zoneId)
+    await updateProvider(c.env.DB, userId, provider.id, {
+      zone_id: zoneId,
+      last_checked_at: Date.now(),
+      status: 'active',
+      last_error_code: null,
+      last_error_message: null,
+      updated_at: Date.now(),
+    })
+    return c.json({ ok: true, data: { ok: true, zoneId } })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'The DNS provider test failed'
+    await updateProvider(c.env.DB, userId, provider.id, {
+      status: 'error',
+      last_error_code: 'dns_test_failed',
+      last_error_message: message.slice(0, 160),
+      updated_at: Date.now(),
+    })
+    throw error
+  }
 })
 
 developmentCerthubRoutes.get('/settings', async (c) => {

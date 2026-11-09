@@ -4173,6 +4173,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON development_certhub_events(user_id, order_id, kind, created_at DESC)`,
     ],
   },
+  {
+    // Auto-binding a stored order walks the account's providers once per waiting order; the zone
+    // name is the column that decides the match, so it gets the index rather than a full table scan.
+    // 340/350/360 belong to the database-studio, xget and earlier certhub lanes, so this starts at 380.
+    version: 380,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_certhub_dns_user_zone
+         ON development_certhub_dns_providers(user_id, zone_name)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

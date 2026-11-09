@@ -4,6 +4,7 @@ import { ApiError } from '../../lib/errors'
 import { newId } from '../../lib/id'
 import { sha256Hex } from '../../lib/encoding'
 import { CERTHUB_LIMITS } from '@shared/development/certhub/limits'
+import { matchProviderForDomain } from '@shared/development/certhub/provider-match'
 import { certificateName, type ValidatedDomain } from '@shared/development/certhub/validation'
 import type { CerthubAction, CerthubActor, CerthubSubject } from '@shared/development/certhub/types'
 import {
@@ -24,7 +25,7 @@ import { splitCertificateChain } from './crypto/pem'
 import { queryDns } from './dns/doh'
 import { notifyFromOrder } from './notify'
 import { createDelegatedTxt, deleteDelegatedTxt, dcvAvailable } from './dns/dcv'
-import { deleteDnsRecord, ensureTxtRecord } from './dns/cloudflare'
+import { deleteDnsRecord, ensureTxtRecord, resolveZoneId } from './dns/cloudflare'
 import { http01Instruction } from './dns/http01'
 import {
   appendEvent,
@@ -35,9 +36,11 @@ import {
   findProvider,
   insertOrder,
   listDomains,
+  listProviders,
   readSettings,
   updateDomain,
   updateOrder,
+  updateProvider,
   type DomainRow,
   type OrderRow,
 } from './store'
@@ -59,6 +62,8 @@ const TERMINAL = new Set(['issued', 'revoked', 'expired', 'canceled', 'deleting'
 const PENDING_HEARTBEAT_MS = 10 * 60_000
 /** The missing-provider event repeats at most this slowly, so a stuck order cannot flood the log. */
 const PROVIDER_MISSING_EVENT_MS = 60 * 60_000
+/** A retryable failure is reported at most this slowly; retries themselves are unaffected. */
+const ORDER_FAILED_EVENT_MS = 30 * 60_000
 
 export function isTerminal(status: string): boolean {
   return TERMINAL.has(status)
@@ -87,7 +92,7 @@ function identifierFor(domain: ValidatedDomain): { type: 'dns' | 'ip'; value: st
 }
 
 /** The DNS-01 domains that still have no provider to write their TXT record. */
-export function domainsWithoutProvider(domains: Array<{ challenge_mode: string; dns_provider_id: string; status: string }>): typeof domains {
+export function domainsWithoutProvider<T extends { challenge_mode: string; dns_provider_id: string; status: string }>(domains: T[]): T[] {
   return domains.filter((domain) => domain.challenge_mode === 'dns-01' && !domain.dns_provider_id && domain.status !== 'valid')
 }
 
@@ -123,6 +128,81 @@ async function recordProviderMissing(
   if (seen) return
   await record(db, userId, order.id, 'system', 'order.dns_provider_missing', 'order.dns_provider_missing', 'warn', domains[0]?.id, {
     domains: domains.filter((domain) => domain.challenge_mode === 'dns-01' && !domain.dns_provider_id).map((domain) => domain.name),
+  })
+}
+
+/**
+ * Binds every waiting DNS-01 domain that a stored provider's zone covers.
+ *
+ * The request form applies this rule to new orders; an order created before that rule existed still
+ * carries an empty provider, and the queue is the only place that revisits it. Binding here also
+ * forces the order back to `queued` so the next step re-reads the authorizations and writes the TXT
+ * record through the provider it just chose. A domain no provider covers is left untouched, which
+ * keeps the explicit "missing provider" block for the cases it describes.
+ */
+export async function autoBindMissingProviders(
+  db: D1Database,
+  userId: string,
+  order: OrderRow,
+  domains: DomainRow[],
+  actor: CerthubActor,
+): Promise<boolean> {
+  const missing = domainsWithoutProvider(domains)
+  if (missing.length === 0) return false
+  const providers = (await listProviders(db, userId)).filter((provider) => provider.status !== 'disabled')
+  let bound = false
+  for (const domain of missing) {
+    const providerId = matchProviderForDomain(domain.name, providers)
+    if (!providerId) continue
+    const provider = providers.find((entry) => entry.id === providerId)
+    if (!provider) continue
+    await updateDomain(db, userId, order.id, domain.id, {
+      dns_provider_id: provider.id,
+      dns_record_id: '',
+      dns_record_name: '',
+      dns_record_type: '',
+      dns_record_value: '',
+      status: 'pending',
+      error_code: null,
+      error_message: null,
+      updated_at: now(),
+    })
+    await record(db, userId, order.id, actor, 'order.provider_bound', 'order.provider_bound', 'info', domain.id, {
+      domain: domain.name,
+      provider: provider.label,
+      auto: true,
+    })
+    bound = true
+  }
+  if (!bound) return false
+  // No version bump: this is a repair of a row the queue owns, and the next step's CAS guard reads
+  // the version it finds here. A second concurrent repair would simply find the providers already set.
+  await updateOrder(db, userId, order.id, { status: 'queued', updated_at: now() })
+  return true
+}
+
+/**
+ * Reports a retryable failure at most twice an hour.
+ *
+ * The queue wakes every minute; writing one row per wake buried the real history under copies of
+ * the same line, which is how "a transient DNS error" came to look like "this has failed forever".
+ */
+async function recordOrderFailed(
+  db: D1Database,
+  userId: string,
+  order: OrderRow,
+  actor: CerthubActor,
+  failure: AcmeFailure,
+): Promise<void> {
+  if (failure.retryable) {
+    const seen = await db.prepare(`SELECT 1 AS seen FROM development_certhub_events
+      WHERE user_id = ?1 AND order_id = ?2 AND kind = 'order.failed' AND created_at >= ?3
+      LIMIT 1`).bind(userId, order.id, Date.now() - ORDER_FAILED_EVENT_MS).first<{ seen: number }>()
+    if (seen) return
+  }
+  await record(db, userId, order.id, actor, 'order.failed', 'order.failed', failure.retryable ? 'warn' : 'error', undefined, {
+    kind: failure.kind,
+    detail: failure.detail,
   })
 }
 
@@ -199,9 +279,30 @@ async function prepareChallenges(
           patch.dns_record_value = delegated.cnameTarget
           patch.dns_record_id = delegated.recordId
         } else {
+          const token = await providerToken(env, provider)
+          // The stored id is a value the reader typed; the zone's own name is the fact. Ask Cloudflare
+          // which id that token can reach, and persist the answer when it differs, so a copied id
+          // stops producing "Authentication error" on every record call.
+          let zoneId = provider.zone_id
+          if (provider.zone_name) {
+            try {
+              const resolved = await resolveZoneId(token, provider.zone_name)
+              if (resolved) {
+                zoneId = resolved
+                if (resolved !== provider.zone_id) {
+                  await updateProvider(db, userId, provider.id, { zone_id: resolved, updated_at: now() })
+                }
+              }
+            } catch (error) {
+              // A zone the token cannot see is the answer we need; other failures fall through to the
+              // record call, whose message is the one the reader can act on.
+              if (error instanceof ApiError && error.status === 422) throw error
+            }
+          }
+          if (!zoneId) throw new ApiError(422, 'dns_error', 'The DNS provider has neither a zone id nor a zone name')
           const recordId = await ensureTxtRecord(
-            await providerToken(env, provider),
-            provider.zone_id,
+            token,
+            zoneId,
             fqdn,
             keyAuthorization,
             `certhub:${order.id}`,
@@ -408,7 +509,26 @@ export async function advanceOrder(
   let order = await findOrder(db, userId, orderId)
   if (!order) throw ApiError.notFound('The certificate order was not found')
   if (isTerminal(order.status)) return { order, retryAfterMs: 0 }
-  const domains = await listDomains(db, userId, order.id)
+  // A DNS failure is recoverable once the token or zone is fixed: the reader's retry puts the order
+  // back in the queue instead of forcing a brand-new application. Other failures stay terminal.
+  if (order.status === 'failed' && (order.failure_code === 'dns_auth' || order.failure_code === 'dns')) {
+    const resumed = await updateOrder(db, userId, order.id, {
+      status: 'queued',
+      failure_code: null,
+      failure_message: null,
+      updated_at: now(),
+      version: order.version + 1,
+    }, order.version)
+    if (resumed) order = (await findOrder(db, userId, orderId))!
+  }
+  let domains = await listDomains(db, userId, order.id)
+  // A stored order can predate the form's default provider, and no surface revisits it. The queue is
+  // the one path every waiting order takes, so the matching provider is bound here before the step
+  // that would otherwise report the provider as missing.
+  if (domainsWithoutProvider(domains).length > 0 && await autoBindMissingProviders(db, userId, order, domains, actor)) {
+    order = (await findOrder(db, userId, orderId))!
+    domains = await listDomains(db, userId, order.id)
+  }
   const validated: ValidatedDomain[] = domains.map((domain) => ({
     name: domain.name,
     wildcard: domain.wildcard === 1,
@@ -532,11 +652,19 @@ export async function advanceOrder(
     return { order, retryAfterMs: 0 }
   } catch (error) {
     const failure = parseAcmeFailure(error)
-    await record(db, userId, order.id, actor, 'order.failed', 'order.failed', failure.retryable ? 'warn' : 'error', undefined, {
-      kind: failure.kind,
-      detail: failure.detail,
-    })
+    await recordOrderFailed(db, userId, order, actor, failure)
     if (!failure.retryable) {
+      // A permanent failure is a state, not a retry: the domains carry the reason too, so the detail
+      // page and the order row cannot disagree about why this stopped.
+      for (const domain of domains) {
+        if (domain.challenge_mode !== 'dns-01' || domain.status === 'valid') continue
+        await updateDomain(db, userId, order.id, domain.id, {
+          status: 'invalid',
+          error_code: failure.kind,
+          error_message: failure.detail.slice(0, 160),
+          updated_at: now(),
+        })
+      }
       await failOrder(env, db, userId, order, failure.kind, failure.detail)
       return { order: (await findOrder(db, userId, order.id))!, retryAfterMs: 0 }
     }

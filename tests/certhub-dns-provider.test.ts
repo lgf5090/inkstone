@@ -10,8 +10,9 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEVELOPMENT_CERTHUB_SCHEMA_STATEMENTS } from '../src/worker/development/certhub/schema'
 import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
-import { ensureTxtRecord } from '../src/worker/development/certhub/dns/cloudflare'
-import { bindOrderDomainProvider, domainsWithoutProvider } from '../src/worker/development/certhub/state-machine'
+import { ensureTxtRecord, probeDnsWrite, resolveZoneId } from '../src/worker/development/certhub/dns/cloudflare'
+import { autoBindMissingProviders, bindOrderDomainProvider, domainsWithoutProvider } from '../src/worker/development/certhub/state-machine'
+import { parseAcmeFailure } from '../src/worker/development/certhub/acme/errors'
 import { matchProviderForDomain } from '../src/client/features/development/certhub/rules'
 import { ApiError } from '../src/worker/lib/errors'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -132,6 +133,76 @@ describe('binding a provider to an existing order', () => {
   })
 })
 
+describe('repairing a stored order', () => {
+  it('binds the provider whose zone covers the domain and re-queues the order', async () => {
+    const sqlite = database()
+    const db = makeD1(sqlite)
+    const order = { id: '01m6x7pbeg5pc4vfgqt1vtzddd' } as never
+    const domains = sqlite.prepare(`SELECT id, name, challenge_mode, dns_provider_id, status FROM development_certhub_order_domains WHERE user_id = 'u1' AND order_id = '01m6x7pbeg5pc4vfgqt1vtzddd'`).all() as never
+    expect(await autoBindMissingProviders(db, 'u1', order, domains, 'system')).toBe(true)
+    const domain = sqlite.prepare(`SELECT dns_provider_id, status FROM development_certhub_order_domains WHERE user_id = 'u1' AND id = '01m6x7pbegytjtsc6acsqktjj6'`).get() as { dns_provider_id: string; status: string }
+    expect(domain).toEqual({ dns_provider_id: '01m6x5h138kwsw8ssz29qhqv5r', status: 'pending' })
+    const row = sqlite.prepare(`SELECT status FROM development_certhub_orders WHERE user_id = 'u1' AND id = '01m6x7pbeg5pc4vfgqt1vtzddd'`).get() as { status: string }
+    expect(row.status).toBe('queued')
+    const event = sqlite.prepare(`SELECT detail_json FROM development_certhub_events WHERE kind = 'order.provider_bound' ORDER BY created_at DESC LIMIT 1`).get() as { detail_json: string }
+    expect(JSON.parse(event.detail_json)).toMatchObject({ provider: 'example.com', auto: true })
+    sqlite.close()
+  })
+
+  it('leaves the order alone when no provider covers the domain', async () => {
+    const sqlite = database()
+    sqlite.exec(`UPDATE development_certhub_dns_providers SET zone_name = 'other.example' WHERE user_id = 'u1'`)
+    const db = makeD1(sqlite)
+    const order = { id: '01m6x7pbeg5pc4vfgqt1vtzddd' } as never
+    const domains = sqlite.prepare(`SELECT id, name, challenge_mode, dns_provider_id, status FROM development_certhub_order_domains WHERE user_id = 'u1' AND order_id = '01m6x7pbeg5pc4vfgqt1vtzddd'`).all() as never
+    expect(await autoBindMissingProviders(db, 'u1', order, domains, 'system')).toBe(false)
+    const row = sqlite.prepare(`SELECT status FROM development_certhub_orders WHERE user_id = 'u1' AND id = '01m6x7pbeg5pc4vfgqt1vtzddd'`).get() as { status: string }
+    expect(row.status).toBe('awaiting_dns')
+    sqlite.close()
+  })
+})
+
+describe('DNS failure classification', () => {
+  it('turns Cloudflare authentication errors into a permanent, readable failure', () => {
+    const failure = parseAcmeFailure(new ApiError(502, 'dns_error', 'Authentication error'))
+    expect(failure).toMatchObject({ kind: 'dns_auth', retryable: false, detail: 'Authentication error' })
+  })
+
+  it('keeps other DNS errors retryable and does not classify a plain Error as DNS', () => {
+    expect(parseAcmeFailure(new ApiError(502, 'dns_error', 'The DNS provider answered HTTP 500')).kind).toBe('dns')
+    expect(parseAcmeFailure(new Error('network down'))).toMatchObject({ kind: 'unknown', retryable: true })
+  })
+})
+
+describe('zone resolution and write probe', () => {
+  it('resolves the zone id by name instead of trusting the stored id', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      success: true,
+      result: [{ id: 'resolved-zone', name: 'example.com' }],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(resolveZoneId('token', 'Example.com.')).resolves.toBe('resolved-zone')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a zone the token cannot see', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ success: true, result: [] }), { status: 200 })))
+    await expect(resolveZoneId('token', 'example.com')).rejects.toMatchObject({ status: 422, code: 'dns_error' })
+  })
+
+  it('creates and removes its probe record', async () => {
+    const calls: Array<{ method: string; url: string }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ method: (init?.method ?? 'GET').toUpperCase(), url: String(url) })
+      const result = (init?.method ?? 'GET').toUpperCase() === 'POST' ? { id: 'probe-id' } : {}
+      return new Response(JSON.stringify({ success: true, result }), { status: 200 })
+    }))
+    await probeDnsWrite('token', 'zone')
+    expect(calls.map((call) => call.method)).toEqual(['POST', 'DELETE'])
+    expect(calls[1].url).toContain('/dns_records/probe-id')
+  })
+})
+
 describe('migration lane', () => {
   it('carries the throttled-event index on version 360 and keeps numbers unique', () => {
     const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 360)
@@ -139,5 +210,10 @@ describe('migration lane', () => {
     expect(migration?.statements.join('\n')).toContain('idx_certhub_events_user_order_kind')
     const versions = SCHEMA_MIGRATIONS.map((entry) => entry.version)
     expect(new Set(versions).size).toBe(versions.length)
+  })
+
+  it('carries the provider zone index on version 380', () => {
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 380)
+    expect(migration?.statements.join('\n')).toContain('idx_certhub_dns_user_zone')
   })
 })
