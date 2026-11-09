@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectCard, ProjectFilterClause, ProjectFilterGroup, ProjectProperty } from './model'
 import { emptyProjectFilterGroup } from './model'
-import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from './view-eval'
+import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, projectFilterPrefill, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from './view-eval'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u2', createAt: 1_000_000, updateAt: 2_000_000, deleteAt: 0 }
 
@@ -170,5 +170,24 @@ describe('view search (C-12)', () => {
     expect(matchProjectViewSearch(card('a'), '', props)).toBe(true)
     expect(matchProjectViewSearch(card('a'), '   ', props)).toBe(true)
     expect(matchProjectViewSearch(card('a'), 'nothing', props)).toBe(false)
+  })
+})
+
+describe('new-card prefill from the active filter (B-11)', () => {
+  it('inherits single-value is/includes clauses including nested groups, ignores contains', () => {
+    const filter: ProjectFilterGroup = {
+      operation: 'and',
+      filters: [
+        { propertyId: 'ps', condition: 'is', values: ['o1'] },
+        { propertyId: 'pt', condition: 'contains', values: ['skip'] },
+        { operation: 'or', filters: [{ propertyId: 'pt', condition: 'includes', values: ['keep'] }] },
+      ],
+    }
+    expect(projectFilterPrefill(filter)).toEqual({ ps: 'o1', pt: 'keep' })
+  })
+
+  it('returns empty for no filter or multi-value clauses', () => {
+    expect(projectFilterPrefill(undefined)).toEqual({})
+    expect(projectFilterPrefill({ operation: 'and', filters: [{ propertyId: 'ps', condition: 'is', values: ['o1', 'o2'] }] })).toEqual({})
   })
 })

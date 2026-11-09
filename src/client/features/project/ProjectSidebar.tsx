@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import { ChevronDown, ChevronRight, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, SquareKanban, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, SquareKanban, Trash2 } from 'lucide-react'
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -7,6 +7,7 @@ import { IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { confirm, Menu, prompt, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
+import { useProjectStore } from './store'
 import {
   addBoardToCategory,
   createProjectCategory,
@@ -16,6 +17,16 @@ import {
   setCategoryBoardHidden,
 } from './api'
 
+const LAST_BOARD_KEY = 'inkstone.project.lastBoard'
+
+function readLastBoard(): string | null {
+  try {
+    return localStorage.getItem(LAST_BOARD_KEY)
+  } catch { /* best-effort: the highlight is optional */
+    return null
+  }
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error && error.message ? error.message : String(error)
 }
@@ -24,6 +35,7 @@ export function ProjectSidebar({ boards }: { boards: ProjectBoardSummary[] }): R
   const [categories, setCategories] = useState<ProjectCategory[]>([])
   const [edges, setEdges] = useState<ProjectCategoryBoard[]>([])
   const [query, setQuery] = useState('')
+  const [lastBoard] = useState(readLastBoard)
   const toast = useUi((state) => state.toast)
 
   const reload = useCallback(async () => {
@@ -64,11 +76,24 @@ export function ProjectSidebar({ boards }: { boards: ProjectBoardSummary[] }): R
         onSelect: () => { void guard(async () => { await addBoardToCategory(category.id, board.id) }) },
       })
     }
+    items.push({
+      id: 'copy', label: t('project.boards.duplicate'), icon: <Copy size={15} />, separatorBefore: items.length > 0,
+      onSelect: () => { void guard(async () => { const copy = await useProjectStore.getState().copyBoard(board.id); navigateToPath(`/project/boards/${copy.id}`) }) },
+    })
+    items.push({
+      id: 'delete', label: t('common.delete'), icon: <Trash2 size={15} />, tone: 'danger',
+      onSelect: () => {
+        void guard(async () => {
+          const ok = await confirm({ title: `${t('common.delete')} ${board.title}?`, tone: 'danger', confirmLabel: t('common.delete') })
+          if (ok) await useProjectStore.getState().removeBoard(board.id)
+        })
+      },
+    })
     return items
   }
 
   const renderBoard = (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => (
-    <BoardEntry key={board.id} board={board} edge={edge} items={boardMenu(board, edge)} />
+    <BoardEntry key={board.id} board={board} edge={edge} items={boardMenu(board, edge)} active={board.id === lastBoard} />
   )
 
   return (
@@ -126,12 +151,12 @@ function CategoryHeader({ category, onRename, onDelete, onToggle }: { category: 
   )
 }
 
-function BoardEntry({ board, edge, items }: { board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined, items: MenuItem[] }): ReactElement {
+function BoardEntry({ board, edge, items, active }: { board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined, items: MenuItem[], active: boolean }): ReactElement {
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   return (
     <li className={`flex items-center gap-1 ${edge?.hidden ? 'opacity-50' : ''}`} data-sidebar-board={board.id}>
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-2 rounded-[var(--r-sm)] px-1 py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => navigateToPath(`/project/boards/${board.id}`)}>
+      <button type="button" aria-current={active ? 'true' : undefined} className={`flex min-w-0 flex-1 items-center gap-2 rounded-[var(--r-sm)] px-1 py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active ? 'bg-[var(--bg-hover)] font-semibold' : ''}`} onClick={() => navigateToPath(`/project/boards/${board.id}`)}>
         <span aria-hidden="true" className="flex size-5 shrink-0 items-center justify-center text-[length:var(--text-12)]">{board.icon || <SquareKanban size={13} className="text-[var(--text-quaternary)]" />}</span>
         <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{board.title || t('project.boards.untitled')}</span>
       </button>

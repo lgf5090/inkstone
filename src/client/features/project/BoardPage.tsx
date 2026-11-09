@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import { ArrowLeft, FileDown, History, Plus, Settings2, Share2, SquareKanban } from 'lucide-react'
 import type { ProjectActivityEntry, ProjectBoardBundle, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { projectRoleAtLeast, emptyProjectViewFields } from '@shared/project/model'
+import { projectFilterPrefill } from '@shared/project/view-eval'
 import { buildProjectAssistantFacts } from '@shared/project/assistant-context'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -26,6 +27,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [openCardId, setOpenCardId] = useState<string | null>(null)
+  const [activeViewId, setActiveViewId] = useState<string | null>(null)
   const [showProps, setShowProps] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
@@ -35,6 +37,13 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     const id = new URLSearchParams(window.location.search).get('card')
     if (id) setOpenCardId(id)
   }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('inkstone.project.lastBoard', boardId)
+    } catch { /* best-effort: remembering the last board is optional */
+    }
+  }, [boardId])
 
   const openActivity = () => {
     setShowActivity(true)
@@ -91,13 +100,14 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     if (!trimmed || busy || !bundle) return
     setBusy(true)
     try {
-      const card = await createProjectCard(boardId, { title: trimmed })
+      const values = projectFilterPrefill(bundle.views.find((view) => view.id === activeViewId)?.fields.filter)
+      const card = await createProjectCard(boardId, { title: trimmed, values })
       setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current))
       setTitle('')
     } finally {
       setBusy(false)
     }
-  }, [title, busy, bundle, boardId])
+  }, [title, busy, bundle, boardId, activeViewId])
 
   const removeCard = useCallback(async (cardId: string) => {
     const ok = await confirm({ title: t('project.board.delete_card'), tone: 'danger', confirmLabel: t('project.boards.delete_confirm') })
@@ -219,6 +229,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         onPatchView={(id, patch) => guard(() => patchView(id, patch))}
         onDeleteView={(id) => guard(() => removeView(id))}
         onDuplicateView={(id) => guard(() => copyView(id))}
+        onActiveViewChange={setActiveViewId}
       />
       {showProps && (
         <BoardPropertiesDialog

@@ -51,6 +51,19 @@ export function projectOptionLabel(property: ProjectProperty, id: string): strin
   return property.options.find((option) => option.id === id)?.value ?? id
 }
 
+/** B-11: a new card inherits the value-pinning clauses (is / includes with one value) of the active filter. */
+export function projectFilterPrefill(filter: ProjectFilterGroup | undefined): Record<string, string> {
+  const values: Record<string, string> = {}
+  const walk = (group: ProjectFilterGroup): void => {
+    for (const entry of group.filters) {
+      if (isProjectFilterGroup(entry)) walk(entry)
+      else if ((entry.condition === 'is' || entry.condition === 'includes') && entry.values.length === 1) values[entry.propertyId] = entry.values[0]!
+    }
+  }
+  if (filter) walk(filter)
+  return values
+}
+
 /** Human-readable cell text shared by the table cells and the compact list rows. */
 export function projectPropertyDisplayText(card: ProjectCard, property: ProjectProperty): string {
   const raw = card.values[property.id] ?? ''

@@ -31,7 +31,7 @@ function bundle(): ProjectBoardBundle {
 let view: RenderedElement
 async function mount(): Promise<void> {
   await act(async () => {
-    view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
+    view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
   })
 }
 beforeEach(async () => { await initI18n() })
@@ -72,7 +72,7 @@ describe('view tab labels', () => {
       id: `v${index}`, boardId: 'b1', title: '', viewType, fields: emptyProjectViewFields(), position: index, ...stamps,
     }))
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
     })
     const labels = [...view.container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)
     expect(labels).toEqual(PROJECT_VIEW_TYPES.map((viewType) => t(`project.view.${viewType}` as Parameters<typeof t>[0])))
@@ -91,7 +91,7 @@ describe('hidden card count (C-18)', () => {
     const base = bundle()
     base.views = [{ ...base.views[0]!, fields: { ...emptyProjectViewFields(), filter: { operation: 'and', filters: [{ propertyId: 'pt', condition: 'contains', values: ['hello'] }] } } }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
     })
     const status = view.container.querySelector('[role="status"]')
     expect(status?.textContent).toBe(t('project.view.hidden_count', { count: 2 }))
@@ -125,7 +125,7 @@ describe('view tab order (C-23)', () => {
       { ...base.views[1]!, id: 'va', title: 'Apple' },
     ]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
     })
     const labels = [...view.container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)
     expect(labels).toEqual(['Apple', '🗺️ Zebra'])
@@ -165,7 +165,7 @@ describe('view actions menu (C-1/C-15)', () => {
     const onDeleteView = vi.fn()
     const onDuplicateView = vi.fn()
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView, onDuplicateView }))
+      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView, onDuplicateView, onActiveViewChange: vi.fn() }))
     })
     await openMenu()
     await act(async () => { item(t('project.view.duplicate')).click() })
@@ -187,7 +187,7 @@ describe('view actions menu (C-1/C-15)', () => {
     const base = bundle()
     base.views = [base.views[0]!]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
     })
     await openMenu()
     expect(item(t('project.view.delete')).disabled).toBe(true)
@@ -200,7 +200,7 @@ describe('display by and group by (C-13/C-6)', () => {
     base.properties = [...base.properties, { id: 'pd', name: 'Due', type: 'date', options: [] }]
     base.views = [{ ...base.views[0]!, id: 'vc', viewType: 'calendar' }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
     })
     const select = view.container.querySelector(`select[aria-label="${t('project.view.display_by')}"]`) as HTMLSelectElement
     expect(select).not.toBeNull()
@@ -212,7 +212,7 @@ describe('display by and group by (C-13/C-6)', () => {
     base.properties = [...base.properties, { id: 'pn', name: 'Estimate', type: 'number', options: [] }]
     base.views = [{ ...base.views[1]!, id: 'vb' }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
     })
     const select = view.container.querySelector(`select[aria-label="${t('project.view.group_by')}"]`) as HTMLSelectElement
     expect([...select.options].map((option) => option.textContent)).toContain('Estimate')

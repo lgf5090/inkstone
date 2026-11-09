@@ -12502,6 +12502,7 @@ const allowed = new Map([
     "// notification (or a deployment without the DO) still converges via a quiet 30s refetch.",
     "/* best-effort convergence poll: a failed refetch keeps the last good bundle */",
     "/* best-effort: dialog stays usable if the refetch fails */",
+    "/* best-effort: remembering the last board is optional */",
   ]],
   ["src/client/features/project/BoardViews.tsx", [
     "/* storage unavailable (private mode): fall back to the first view */",
@@ -12517,6 +12518,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/ProjectSidebar.tsx", [
     "/* best-effort: an unreadable category list leaves the board list usable */",
+    "/* best-effort: the highlight is optional */",
   ]],
   ["src/client/features/project/api.ts", [
     "/** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */",
@@ -32448,6 +32450,7 @@ const allowed = new Map([
     "/** Human-readable cell text shared by the table cells and the compact list rows. */",
     "/**\n * C-23: strip the leading emoji cluster before comparing, so \"🗺️ Roadmap\" sorts under R rather than\n * under the emoji's code point. The reference's `\\p{Emoji}` also matches digits and leaves the\n * variation selector behind, which put \"🗺️ Zebra\" ahead of \"Apple\"; Extended_Pictographic plus the\n * joiner/modifier code points strips the whole cluster and leaves ordinary titles alone.\n */",
     "/**\n * C-12: the view's own search box, which the reference runs over the title and every property's\n * display text. Both sides are lowercased, matching this port's filter correction (Q-10).\n */",
+    "/** B-11: a new card inherits the value-pinning clauses (is / includes with one value) of the active filter. */",
   ]],
   ["src/shared/provider-balance.ts", [
     "/**\n * Which providers will say what they are owed, and how to read it out of their own answer.\n *\n * The reader asked for a balance per API key, because a ring of three keys is three wallets and the settings\n * screen showed none of them. What this file holds is the whole of the knowledge about each vendor's billing\n * endpoint: an address, the header the credential goes into, and the field names to read. It is data on\n * purpose — a working implementation of this feature elsewhere in the world runs a user-supplied script per\n * provider, which means the account's own key is handed into code the reader pasted in. That is not being\n * ported here. An adapter is a row, so the only thing a new vendor needs is somebody who has read its answer.\n *\n * Two rules hold this together:\n *  - a balance is only ever asked of the host the provider already sends its keys to. The table is keyed by\n *    host, so a relay at an address of the reader's own never receives a billing request aimed at a vendor,\n *    and a vendor's key never travels somewhere the reader did not already point it;\n *  - nothing here is a secret and nothing here is stored. A reading is fetched, shown, and forgotten: it is\n *    not written into settings, not part of a backup, and not logged.\n *\n * The shapes below were read off a working client of each of these endpoints (cc-switch's Rust balance\n * service, `src-tauri/src/services/balance.rs`), not off the vendors' own references, which were not\n * reachable from the machine this was written on. Where a vendor's documentation disagrees, the vendor wins\n * and the row here is the thing to correct. `amountPaths` is a candidate list for that reason: a field that\n * has moved is worth one line rather than a broken screen.\n */",

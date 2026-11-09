@@ -54,9 +54,10 @@ interface BoardViewsProps {
   onPatchView: (viewId: string, patch: ProjectViewPatch) => Promise<void>
   onDeleteView: (id: string) => void
   onDuplicateView: (id: string) => void
+  onActiveViewChange: (id: string) => void
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
   useEffect(() => { setActiveId(readLastViewId(bundle.board.id)) }, [bundle.board.id])
   const selectView = (id: string): void => {
@@ -80,6 +81,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const active = orderedViews.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
   const fields = active?.fields ?? emptyProjectViewFields()
   const viewType = active?.viewType ?? 'table'
+  useEffect(() => { onActiveViewChange(active?.id ?? '') }, [active?.id, onActiveViewChange])
   const filtered = bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, search, bundle.properties))
   const sorted = sortProjectCards(filtered, fields.sortOptions, bundle.properties)
   const hiddenCount = bundle.cards.length - filtered.length
