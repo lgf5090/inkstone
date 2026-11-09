@@ -64,7 +64,7 @@ import {
   deleteCerthubObjects,
   readCerthubText,
 } from '../development/certhub/storage'
-import { normalizeCloudflareToken, probeDnsWrite, resolveZoneId, verifyCloudflareConnection, verifyCloudflareToken } from '../development/certhub/dns/cloudflare'
+import { assertCloudflareToken, normalizeCloudflareToken, verifyCloudflareConnection } from '../development/certhub/dns/cloudflare'
 import { pemToPfx } from '../development/certhub/crypto/pfx'
 import { exportPassword } from '../development/certhub/export-password'
 import { buildCerthubZip } from '../development/certhub/export/zip'
@@ -446,7 +446,8 @@ developmentCerthubRoutes.post('/dns-providers/test', async (c) => {
   if (!body.zoneId) throw ApiError.badRequest('A Cloudflare connection needs a zone id', { reason: 'zone_id_required' })
   const token = normalizeCloudflareToken(body.secret ?? '')
   if (!token) throw ApiError.badRequest('A Cloudflare connection needs an API token', { reason: 'token_required' })
-  await verifyCloudflareConnection(token, body.zoneId)
+  assertCloudflareToken(token, '/dns-providers/test')
+  await verifyCloudflareConnection(token, body.zoneId, body.zoneName ?? '')
   return c.json({ ok: true, data: { ok: true } })
 })
 
@@ -457,6 +458,7 @@ developmentCerthubRoutes.post('/dns-providers', async (c) => {
   if (body.kind === 'cloudflare' && (!body.zoneId || !secret)) {
     throw ApiError.badRequest('A Cloudflare provider needs a zone id and an API token')
   }
+  if (secret) assertCloudflareToken(secret, '/dns-providers')
   const id = newId()
   const now = Date.now()
   const ciphertext = body.kind === 'cloudflare' && secret
@@ -501,6 +503,7 @@ developmentCerthubRoutes.patch('/dns-providers/:id', async (c) => {
     if (provider.kind !== 'cloudflare') throw ApiError.badRequest('Only a Cloudflare provider carries a token')
     const secret = normalizeCloudflareToken(body.secret)
     if (!secret) throw ApiError.badRequest('The API token is empty after trimming whitespace and the Bearer prefix')
+    assertCloudflareToken(secret, `/dns-providers/${provider.id}`)
     patch.credential_ciphertext = await encryptCerthubDnsCredential(c.env, provider.id, {
       token: secret,
       email: body.accountEmail ?? provider.account_email,
@@ -545,22 +548,9 @@ developmentCerthubRoutes.post('/dns-providers/:id/test', async (c) => {
   if (!credential) throw new ApiError(503, 'vault_unavailable', 'The DNS provider credential could not be decrypted')
   try {
     const token = credential.token
-    await verifyCloudflareToken(token)
-    // The token's own self-check says nothing about the zone or about DNS write scope, which is how a
-    // provider could report success while every issuance failed on its first record call.
-    let zoneId = provider.zone_id
-    if (provider.zone_name) {
-      try {
-        const resolved = await resolveZoneId(token, provider.zone_name)
-        if (resolved) zoneId = resolved
-      } catch (error) {
-        // A zone the token cannot see is the answer we need; other failures fall through to the probe,
-        // whose message is the one the reader can act on.
-        if (error instanceof ApiError && error.status === 422) throw error
-      }
-    }
-    if (!zoneId) throw ApiError.badRequest('A Cloudflare provider needs a zone id or a zone name')
-    await probeDnsWrite(token, zoneId)
+    // The zone read inside this helper accepts both user tokens and account API tokens (`cfat_`);
+    // `/user/tokens/verify` is only consulted for the former, as an extra diagnostic.
+    const zoneId = await verifyCloudflareConnection(token, provider.zone_id, provider.zone_name)
     await updateProvider(c.env.DB, userId, provider.id, {
       zone_id: zoneId,
       last_checked_at: Date.now(),

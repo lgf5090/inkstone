@@ -13,6 +13,7 @@ import { DEVELOPMENT_CERTHUB_SCHEMA_STATEMENTS } from '../src/worker/development
 import { developmentCerthubRoutes } from '../src/worker/routes/development-certhub'
 import { CredentialVault } from '../src/worker/durable/credential-vault'
 import { decryptCerthubDnsCredential, encryptCerthubDnsCredential } from '../src/worker/lib/crypto'
+import { ApiError } from '../src/worker/lib/errors'
 import { dnsProviderSchema } from '../src/shared/development/certhub/validation'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -20,6 +21,9 @@ import { testBindings, testDurableObjectNamespace } from './doubles/bindings'
 
 const USER = '01m6x7pbeg5pc4vfgqt1vtzd00'
 const PROVIDER = '01m6x5h138kwsw8ssz29qhqv5r'
+// The scannable account-token shape (`cfat_` + 40 characters + checksum) with underscores, long
+// enough that any truncation or per-character rewrite in the save path would show up in the compare.
+const ACCOUNT_TOKEN = `cfat_${'Ab1_'.repeat(16)}`
 
 const vaultStorage = new Map<string, unknown>()
 let sqlite: DatabaseSync
@@ -68,6 +72,12 @@ beforeEach(async () => {
   ) VALUES (?,?,'cloudflare','local-zone','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','example.com','demo@example.com',?,
     'active',NULL,NULL,NULL,1,1)`).run(USER, PROVIDER, ciphertext)
   app = new Hono<AppBindings>()
+  app.onError((error, c) => {
+    if (error instanceof ApiError) {
+      return c.json({ error: { code: error.code, message: error.message, details: error.details } }, error.status as 400)
+    }
+    return c.json({ error: { code: 'internal', message: String(error) } }, 500)
+  })
   app.use('*', async (c, next) => {
     c.set('userId', USER)
     c.set('sessionId', 'session-1')
@@ -105,6 +115,18 @@ describe('provider secret patch', () => {
   it('replaces the stored token with the trimmed, Bearer-stripped value', async () => {
     expect((await patch({ secret: '  Bearer new-token \n' })).status).toBe(200)
     expect(await storedToken(PROVIDER)).toBe('new-token')
+  })
+
+  it('stores a real account-token value byte for byte', async () => {
+    expect((await patch({ secret: ACCOUNT_TOKEN })).status).toBe(200)
+    expect(await storedToken(PROVIDER)).toBe(ACCOUNT_TOKEN)
+  })
+
+  it('refuses a masked preview and leaves the previous ciphertext untouched', async () => {
+    expect((await patch({ secret: 'cfat…4449' })).status).toBe(422)
+    expect(await storedToken(PROVIDER)).toBe('old-token')
+    expect((await patch({ secret: '••••••••' })).status).toBe(422)
+    expect(await storedToken(PROVIDER)).toBe('old-token')
   })
 
   it('stores a normalized token on create', async () => {

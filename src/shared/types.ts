@@ -1510,6 +1510,7 @@ export type ApiErrorCode =
   | 'dns_provider_missing'
   | 'dns_token_invalid'
   | 'dns_global_key'
+  | 'dns_token_format'
   | 'dns_zone_forbidden'
   | 'dns_zone_mismatch'
   | 'dns_network'

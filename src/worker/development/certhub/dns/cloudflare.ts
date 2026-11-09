@@ -16,11 +16,52 @@ export function normalizeCloudflareToken(value: string): string {
 }
 
 /**
- * A Global API Key is 37 hex characters; an API Token is a different shape and is what Bearer auth
- * accepts. Catching the paste here names the mistake instead of forwarding it and reporting 6003.
+ * A Global API Key is the scannable `cfk_` format or a 37-character hex string; an API Token is a
+ * different shape and is what Bearer auth accepts. Catching the paste here names the mistake instead
+ * of forwarding it and reporting 6003.
  */
 export function looksLikeGlobalApiKey(value: string): boolean {
-  return /^[0-9a-f]{37}$/i.test(normalizeCloudflareToken(value))
+  const token = normalizeCloudflareToken(value)
+  return /^cfk_[A-Za-z0-9_-]{40,}$/i.test(token) || /^[0-9a-f]{37}$/i.test(token)
+}
+
+/** Characters a Cloudflare token may contain: both scannable prefixes and pre-2026 opaque strings. */
+const TOKEN_SHAPE = /^[A-Za-z0-9._~+/=_-]+$/
+
+export type CloudflareTokenProblem = 'empty' | 'global_api_key' | 'invalid_characters'
+
+/**
+ * Why a pasted value cannot be a Cloudflare token, before any request is sent.
+ *
+ * Masked previews (`cfat…4449`, `••••••`) and control characters would otherwise reach Cloudflare as
+ * a header and come back as the ambiguous 6003 "Invalid request headers". Naming the shape keeps the
+ * reader on the field that needs fixing; 6003 is also what a revoked token produces.
+ */
+export function cloudflareTokenProblem(value: string): CloudflareTokenProblem | null {
+  const token = normalizeCloudflareToken(value)
+  if (!token) return 'empty'
+  if (looksLikeGlobalApiKey(token)) return 'global_api_key'
+  if (/bearer/i.test(token) || !TOKEN_SHAPE.test(token)) return 'invalid_characters'
+  return null
+}
+
+export function assertCloudflareToken(value: string, endpoint: string): string {
+  const token = normalizeCloudflareToken(value)
+  const problem = cloudflareTokenProblem(token)
+  if (!problem) return token
+  if (problem === 'global_api_key') {
+    throw new ApiError(422, 'dns_global_key', 'A Global API Key was pasted; Cloudflare requires an API Token', {
+      endpoint,
+      reason: problem,
+    })
+  }
+  if (problem === 'empty') {
+    throw new ApiError(422, 'dns_token_invalid', 'The DNS provider token is empty', { endpoint, reason: problem })
+  }
+  throw new ApiError(422, 'dns_token_format', 'The API token contains whitespace, a masked placeholder or invalid characters', {
+    endpoint,
+    reason: problem,
+  })
 }
 
 
@@ -43,14 +84,7 @@ async function request<T>(
   rawToken: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const token = normalizeCloudflareToken(rawToken)
-  if (!token) throw new ApiError(422, 'dns_token_invalid', 'The DNS provider token is empty', { endpoint: path, reason: 'empty_token' })
-  if (looksLikeGlobalApiKey(token)) {
-    throw new ApiError(422, 'dns_global_key', 'A Global API Key was pasted; Cloudflare requires an API Token', {
-      endpoint: path,
-      reason: 'global_api_key',
-    })
-  }
+  const token = assertCloudflareToken(rawToken, path)
   const url = `${BASE}${path}`
   let response: Response
   try {
@@ -98,6 +132,9 @@ async function request<T>(
     const details = { endpoint: path, upstreamStatus: response.status, upstreamCodes: codes, upstreamMessage }
     const authLike = response.status === 401 || response.status === 403 || codes.includes(10000)
       || /authentication error|invalid request headers|unauthorized|forbidden|permission/i.test(upstreamMessage)
+    // 6003 and "Invalid access token" name the credential itself, not a zone verdict, even when the
+    // call that produced them was a zone or record request.
+    const malformedToken = codes.includes(6003) || /invalid request headers|invalid access token/i.test(upstreamMessage)
     // A refused credential is a bad configuration value, not a bad platform session: 422 keeps the
     // reader signed in and leaves 401 to the auth middleware. The category stays machine-readable.
     let status: 401 | 403 | 422 | 429 | 502 = 502
@@ -105,7 +142,7 @@ async function request<T>(
     if (response.status === 429) {
       status = 429
       code = 'dns_rate_limited'
-    } else if (authLike && path.startsWith('/user/tokens/verify')) {
+    } else if (authLike && (malformedToken || path.startsWith('/user/tokens/verify'))) {
       status = 422
       code = 'dns_token_invalid'
     } else if (authLike) {
@@ -125,9 +162,9 @@ export async function verifyCloudflareToken(token: string): Promise<void> {
  * Resolves the zone id the token can actually write to, by the zone's name.
  *
  * The id a reader pasted is a fact they cannot verify; a token that belongs to another account, or a
- * zone id copied from elsewhere, answers "Authentication error" on every record call while
- * `/user/tokens/verify` still succeeds. Asking Cloudflare for the zone by name turns that into either
- * the correct id or a readable "this token cannot see this zone" refusal.
+ * zone id copied from elsewhere, answers "Authentication error" on every record call while token
+ * verification still succeeds. Asking Cloudflare for the zone by name turns that into either the
+ * correct id or a readable "this token cannot see this zone" refusal.
  */
 export async function resolveZoneId(token: string, zoneName: string): Promise<string> {
   const name = zoneName.trim().toLowerCase().replace(/\.$/, '')
@@ -167,10 +204,49 @@ export async function probeDnsWrite(token: string, zoneId: string): Promise<void
   await deleteDnsRecord(token, zoneId, recordId)
 }
 
-export async function verifyCloudflareConnection(token: string, zoneId: string): Promise<void> {
-  await verifyCloudflareToken(token)
-  await request<{ id: string; name: string }>(`/zones/${zoneId}`, token)
-  await probeDnsWrite(token, zoneId)
+export function isAccountApiToken(value: string): boolean {
+  return /^cfat_/i.test(normalizeCloudflareToken(value))
+}
+
+/**
+ * Proves the token can read the zone and write DNS records, and returns the zone it settled on.
+ *
+ * `/user/tokens/verify` only answers user tokens. Account API tokens (`cfat_`) are verified under
+ * `/accounts/{id}/tokens/verify`, so using the user endpoint as the gate rejected a perfectly valid
+ * account token and reported it as invalid. A zone read is the check both kinds share; the user
+ * endpoint stays as an extra diagnostic for non-account tokens whose value never worked anywhere.
+ */
+export async function verifyCloudflareConnection(token: string, zoneId: string, zoneName = ''): Promise<string> {
+  let userVerifyError: ApiError | null = null
+  if (!isAccountApiToken(token)) {
+    try {
+      await verifyCloudflareToken(token)
+    } catch (error) {
+      if (error instanceof ApiError) userVerifyError = error
+      else throw error
+    }
+  }
+  let resolved = zoneId
+  if (zoneName) {
+    try {
+      const byName = await resolveZoneId(token, zoneName)
+      if (byName) resolved = byName
+    } catch (error) {
+      // A zone the token cannot see is the answer we need; other failures fall through to the probe.
+      if (error instanceof ApiError && error.status === 422) throw error
+    }
+  }
+  if (!resolved) throw ApiError.badRequest('A Cloudflare provider needs a zone id or a zone name')
+  try {
+    await request<{ id: string; name: string }>(`/zones/${resolved}`, token)
+  } catch (error) {
+    // If the user-token self-check also refused, the value never worked anywhere; keep that verdict,
+    // which names the token rather than a zone. A valid account token answers the zone read above.
+    if (userVerifyError) throw userVerifyError
+    throw error
+  }
+  await probeDnsWrite(token, resolved)
+  return resolved
 }
 
 export async function listDnsRecords(

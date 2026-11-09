@@ -40563,14 +40563,22 @@ const allowed = new Map([
   ]],
   ["src/worker/development/certhub/dns/cloudflare.ts", [
     "/**\n * Writes the TXT record this order owns, or returns the id of the one it already owns.\n *\n * Two orders for the same name (`example.com` and `*.example.com`) need two values at\n * `_acme-challenge.example.com`, so the write must never replace an existing record. An interrupted\n * attempt, though, can leave the record already there, and retrying would stack a duplicate value.\n * The comment carries the order id: a record with this name, value and comment is this order's own\n * record, while another order's value at the same name is left untouched.\n */",
-    "/**\n * Resolves the zone id the token can actually write to, by the zone's name.\n *\n * The id a reader pasted is a fact they cannot verify; a token that belongs to another account, or a\n * zone id copied from elsewhere, answers \"Authentication error\" on every record call while\n * `/user/tokens/verify` still succeeds. Asking Cloudflare for the zone by name turns that into either\n * the correct id or a readable \"this token cannot see this zone\" refusal.\n */",
     "/**\n * Proves the token can write DNS records, by creating and removing a temporary TXT record.\n *\n * `/user/tokens/verify` answers for a token with any scope, so a Zone:Read token passes every earlier\n * check and then fails every issuance at the first record write. The probe is the only honest test;\n * its name is unique and it is deleted immediately, so a successful probe leaves nothing behind.\n */",
     "// The category is the part a reader can act on; the upstream status/code/message ride along in",
     "// `details` so a blanket 502 never hides which Cloudflare check refused the request.",
     "/**\n * The token as Cloudflare will receive it.\n *\n * Pasting a token is not the same as typing it: it arrives with a trailing newline, a `Bearer ` prefix\n * copied from the docs, or spaces a terminal added around it. Any of those turns into the same\n * `Invalid request headers` (6003) as a revoked token, so the shape is fixed once, at the boundary.\n * Cloudflare tokens never contain whitespace, so removing all of it is safe.\n */",
-    "/**\n * A Global API Key is 37 hex characters; an API Token is a different shape and is what Bearer auth\n * accepts. Catching the paste here names the mistake instead of forwarding it and reporting 6003.\n */",
     "// A refused credential is a bad configuration value, not a bad platform session: 422 keeps the",
     "// reader signed in and leaves 401 to the auth middleware. The category stays machine-readable.",
+    "/**\n * A Global API Key is the scannable `cfk_` format or a 37-character hex string; an API Token is a\n * different shape and is what Bearer auth accepts. Catching the paste here names the mistake instead\n * of forwarding it and reporting 6003.\n */",
+    "/** Characters a Cloudflare token may contain: both scannable prefixes and pre-2026 opaque strings. */",
+    "/**\n * Why a pasted value cannot be a Cloudflare token, before any request is sent.\n *\n * Masked previews (`cfat…4449`, `••••••`) and control characters would otherwise reach Cloudflare as\n * a header and come back as the ambiguous 6003 \"Invalid request headers\". Naming the shape keeps the\n * reader on the field that needs fixing; 6003 is also what a revoked token produces.\n */",
+    "/**\n * Resolves the zone id the token can actually write to, by the zone's name.\n *\n * The id a reader pasted is a fact they cannot verify; a token that belongs to another account, or a\n * zone id copied from elsewhere, answers \"Authentication error\" on every record call while token\n * verification still succeeds. Asking Cloudflare for the zone by name turns that into either the\n * correct id or a readable \"this token cannot see this zone\" refusal.\n */",
+    "/**\n * Proves the token can read the zone and write DNS records, and returns the zone it settled on.\n *\n * `/user/tokens/verify` only answers user tokens. Account API tokens (`cfat_`) are verified under\n * `/accounts/{id}/tokens/verify`, so using the user endpoint as the gate rejected a perfectly valid\n * account token and reported it as invalid. A zone read is the check both kinds share; the user\n * endpoint stays as an extra diagnostic for non-account tokens whose value never worked anywhere.\n */",
+    "// A zone the token cannot see is the answer we need; other failures fall through to the probe.",
+    "// If the user-token self-check also refused, the value never worked anywhere; keep that verdict,",
+    "// which names the token rather than a zone. A valid account token answers the zone read above.",
+    "// 6003 and \"Invalid access token\" name the credential itself, not a zone verdict, even when the",
+    "// call that produced them was a zone or record request.",
   ]],
   ["src/worker/development/certhub/state-machine.ts", [
     "/**\n   * Why the order did not move. A blocked result is a finished answer, not an error: the queue treats\n   * it as \"ask again later\" while the interactive action surfaces it as a refusal the reader can act on.\n   */",
@@ -42885,12 +42893,10 @@ const allowed = new Map([
     "// Decrypt in small batches: opening a hundred rows at once would burst the credential vault.",
   ]],
   ["src/worker/routes/development-certhub.ts", [
-    "// The token's own self-check says nothing about the zone or about DNS write scope, which is how a",
-    "// provider could report success while every issuance failed on its first record call.",
-    "// A zone the token cannot see is the answer we need; other failures fall through to the probe,",
-    "// whose message is the one the reader can act on.",
     "// A disabled provider is skipped by auto-binding and refused on explicit binding; enabling it makes",
     "// it selectable again without claiming the old health result still holds.",
+    "// The zone read inside this helper accepts both user tokens and account API tokens (`cfat_`);",
+    "// `/user/tokens/verify` is only consulted for the former, as an extra diagnostic.",
   ]],
   ["src/worker/routes/development-icons.ts", [
     "/** A brake on a client that spams the conversion endpoint; it is per isolate, like the other budgets. */",
@@ -47772,6 +47778,8 @@ const allowed = new Map([
   ]],
   ["tests/certhub-dns-provider-route.test.ts", [
     "/**\n * What the provider PATCH does with the secret field, and what the token looks like once stored.\n *\n * The form's \"leave empty to keep / fill to replace\" promise is a route-level branch: it is not\n * visible in the schema alone. These cases read the ciphertext back out of the vault after the\n * request, so a change that silently clears or keeps the old token fails here.\n */",
+    "// The scannable account-token shape (`cfat_` + 40 characters + checksum) with underscores, long",
+    "// enough that any truncation or per-character rewrite in the save path would show up in the compare.",
   ]],
   ["tests/certhub-dns-provider.test.ts", [
     "/**\n * The DNS-provider contract of a DNS-01 order.\n *\n * These cases cover the four ways an order could silently sit in \"waiting for DNS\": the request form\n * never picks a provider, the queue has no way to report the missing provider, an existing order\n * cannot gain one, and a retried write stacks a duplicate value beside another order's TXT.\n */",

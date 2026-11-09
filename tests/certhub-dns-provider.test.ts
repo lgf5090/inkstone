@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEVELOPMENT_CERTHUB_SCHEMA_STATEMENTS } from '../src/worker/development/certhub/schema'
 import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
-import { ensureTxtRecord, probeDnsWrite, resolveZoneId, verifyCloudflareToken } from '../src/worker/development/certhub/dns/cloudflare'
+import { cloudflareTokenProblem, ensureTxtRecord, probeDnsWrite, resolveZoneId, verifyCloudflareConnection, verifyCloudflareToken } from '../src/worker/development/certhub/dns/cloudflare'
 import { autoBindMissingProviders, bindOrderDomainProvider, domainsWithoutProvider } from '../src/worker/development/certhub/state-machine'
 import { parseAcmeFailure } from '../src/worker/development/certhub/acme/errors'
 import { matchProviderForDomain } from '../src/client/features/development/certhub/rules'
@@ -212,6 +212,17 @@ describe('zone resolution and write probe', () => {
     })
   })
 
+  it('names an invalid account token even when the zone lookup refuses it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      success: false, result: null, errors: [{ code: 9109, message: 'Invalid access token' }],
+    }), { status: 403 })))
+    await expect(resolveZoneId('cfat_invalid', 'example.com')).rejects.toMatchObject({
+      status: 422,
+      code: 'dns_token_invalid',
+      details: { endpoint: '/zones?name=example.com&per_page=20', upstreamStatus: 403, upstreamCodes: [9109] },
+    })
+  })
+
   it('sends a pasted token without its whitespace or Bearer prefix', async () => {
     const calls: Array<{ url: string; auth?: string }> = []
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -233,6 +244,16 @@ describe('zone resolution and write probe', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('never sends a masked preview or a Global API Key as a header', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(cloudflareTokenProblem('cfat…4449')).toBe('invalid_characters')
+    expect(cloudflareTokenProblem('••••••••')).toBe('invalid_characters')
+    expect(cloudflareTokenProblem('cfk_' + 'A'.repeat(41))).toBe('global_api_key')
+    await expect(probeDnsWrite('cfat…4449', 'zone')).rejects.toMatchObject({ status: 422, code: 'dns_token_format' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('reports an unreachable provider as a retryable network error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('network down') }))
     await expect(ensureTxtRecord('token', 'zone', '_acme-challenge.example.com', 'value', 'certhub:order-1'))
@@ -249,6 +270,59 @@ describe('zone resolution and write probe', () => {
     await probeDnsWrite('token', 'zone')
     expect(calls.map((call) => call.method)).toEqual(['POST', 'DELETE'])
     expect(calls[1].url).toContain('/dns_records/probe-id')
+  })
+})
+
+describe('connection verification across token kinds', () => {
+  const ACCOUNT_TOKEN = `cfat_${'Ab1_'.repeat(14)}`
+
+  function routeAwareFetch() {
+    const calls: Array<{ method: string; url: string }> = []
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = (init?.method ?? 'GET').toUpperCase()
+      calls.push({ method, url: String(url) })
+      if (String(url).includes('/user/tokens/verify')) {
+        return new Response(JSON.stringify({ success: false, errors: [{ code: 6003, message: 'Invalid request headers' }] }), { status: 400 })
+      }
+      if (String(url).match(/^https:\/\/api\.cloudflare\.com\/client\/v4\/zones\/zone$/)) {
+        return new Response(JSON.stringify({ success: true, result: { id: 'zone', name: 'example.com' } }), { status: 200 })
+      }
+      if (method === 'POST') {
+        return new Response(JSON.stringify({ success: true, result: { id: 'probe-id' } }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return calls
+  }
+
+  it('accepts an account API token without calling the user-token verify endpoint', async () => {
+    const calls = routeAwareFetch()
+    await expect(verifyCloudflareConnection(ACCOUNT_TOKEN, 'zone')).resolves.toBe('zone')
+    expect(calls.some((call) => call.url.includes('/user/tokens/verify'))).toBe(false)
+    expect(calls.some((call) => call.url.endsWith('/zones/zone'))).toBe(true)
+  })
+
+  it('falls back to the zone read when an old-format account token fails user verification', async () => {
+    const calls = routeAwareFetch()
+    await expect(verifyCloudflareConnection('a'.repeat(41), 'zone')).resolves.toBe('zone')
+    expect(calls.some((call) => call.url.includes('/user/tokens/verify'))).toBe(true)
+    expect(calls.some((call) => call.url.endsWith('/zones/zone'))).toBe(true)
+  })
+
+  it('reports the token verdict when neither the user check nor the zone read works', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(String(url))
+      if (String(url).includes('/user/tokens/verify')) {
+        return new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: 'Authentication error' }] }), { status: 403 })
+      }
+      return new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: 'Authentication error' }] }), { status: 403 })
+    }))
+    await expect(verifyCloudflareConnection('a'.repeat(41), 'zone')).rejects.toMatchObject({
+      status: 422,
+      code: 'dns_token_invalid',
+    })
   })
 })
 

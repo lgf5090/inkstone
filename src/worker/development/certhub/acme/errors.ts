@@ -74,7 +74,7 @@ export function parseAcmeFailure(error: unknown): AcmeFailure {
   // cron tick.
   if (error instanceof ApiError) {
     const detail = sanitizeAcmeDetail(error.message)
-    if (error.code === 'dns_token_invalid' || error.code === 'dns_global_key' || error.code === 'dns_zone_forbidden' || error.code === 'dns_zone_mismatch') {
+    if (error.code === 'dns_token_invalid' || error.code === 'dns_global_key' || error.code === 'dns_token_format' || error.code === 'dns_zone_forbidden' || error.code === 'dns_zone_mismatch') {
       return new AcmeFailure('dns_auth', false, 0, detail, error.status)
     }
     if (error.code === 'dns_network' || error.code === 'dns_rate_limited') {
