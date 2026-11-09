@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { initI18n, t } from '../../lib/i18n'
 import { projectDayToStamp } from '@shared/project/date'
+import { projectCardBadges } from '@shared/project/badges'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { CalendarView, GalleryView } from './GalleryCalendar'
 
@@ -20,7 +21,7 @@ afterEach(() => { view?.unmount() })
 describe('gallery view', () => {
   it('renders a tile per card that opens the card', async () => {
     const onOpen = vi.fn()
-    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [card('c1', 'Alpha'), card('c2', 'Beta')], contents: [], comments: [], properties: [], showTitle: true, showBadges: true, onOpenCard: onOpen })) })
+    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [card('c1', 'Alpha'), card('c2', 'Beta')], badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }), properties: [], showTitle: true, showBadges: true, onOpenCard: onOpen })) })
     const tiles = [...view.container.querySelectorAll('[data-project-card]')]
     expect(tiles).toHaveLength(2)
     await act(async () => { tiles[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
@@ -30,7 +31,7 @@ describe('gallery view', () => {
   it('shows description/comment/task badges on a tile (B-6)', async () => {
     const contents = [{ id: 'a1', cardId: 'c1', boardId: 'b1', type: 'text' as const, title: '- [x] done\n- [ ] todo', fields: {}, position: 0, ...stamps }]
     const comments = [{ id: 'm1', cardId: 'c1', boardId: 'b1', authorId: 'u1', body: 'hi', createAt: 1, updateAt: 1, deleteAt: 0 }]
-    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [card('c1', 'Alpha'), card('c2', 'Beta')], contents, comments, properties: [], showTitle: true, showBadges: true, onOpenCard: vi.fn() })) })
+    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [card('c1', 'Alpha'), card('c2', 'Beta')], badgesFor: (id) => (id === 'c1' ? projectCardBadges(contents, comments) : { description: false, comments: 0, checked: 0, checkboxes: 0 }), properties: [], showTitle: true, showBadges: true, onOpenCard: vi.fn() })) })
     const tiles = [...view.container.querySelectorAll('[data-project-card]')]
     expect(tiles[0]!.textContent).toContain('1/2')
     expect(tiles[0]!.textContent).toContain('1')
@@ -65,12 +66,12 @@ describe('calendar view', () => {
 
 describe('gallery display toggles (C-4)', () => {
   it('hides titles and badges when toggled off', async () => {
-    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [card('c1', 'Alpha')], contents: [], comments: [], properties: [], showTitle: false, showBadges: false, onOpenCard: vi.fn() })) })
+    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [card('c1', 'Alpha')], badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }), properties: [], showTitle: false, showBadges: false, onOpenCard: vi.fn() })) })
     const tile = view.container.querySelector('[data-project-card="c1"]')!
     expect(tile.textContent).not.toContain('Alpha')
   })
   it('shows titles when toggled on', async () => {
-    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [card('c1', 'Alpha')], contents: [], comments: [], properties: [], showTitle: true, showBadges: true, onOpenCard: vi.fn() })) })
+    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [card('c1', 'Alpha')], badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }), properties: [], showTitle: true, showBadges: true, onOpenCard: vi.fn() })) })
     expect(view.container.querySelector('[data-project-card="c1"]')!.textContent).toContain('Alpha')
   })
 })

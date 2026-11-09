@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from 'react'
 import { ChevronLeft, ChevronRight, SquareKanban } from 'lucide-react'
-import type { ProjectCard, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
-import { projectCardBadges } from '@shared/project/badges'
+import type { ProjectCard, ProjectProperty } from '@shared/project/model'
+import type { ProjectCardBadges } from '@shared/project/badges'
 import { projectDayToStamp } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
@@ -23,7 +23,7 @@ function dateFrom(card: ProjectCard, propertyId: string | undefined): number | n
   return null
 }
 
-export function GalleryView({ cards, contents, comments, properties, showTitle, showBadges, onOpenCard }: { cards: ProjectCard[], contents: ProjectContent[], comments: ProjectComment[], properties: ProjectProperty[], showTitle: boolean, showBadges: boolean, onOpenCard: (id: string) => void }): ReactElement {
+export function GalleryView({ cards, properties, showTitle, showBadges, badgesFor, onOpenCard }: { cards: ProjectCard[], properties: ProjectProperty[], showTitle: boolean, showBadges: boolean, badgesFor: (cardId: string) => ProjectCardBadges, onOpenCard: (id: string) => void }): ReactElement {
   return (
     <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3 overflow-y-auto p-3">
       {cards.map((card) => (
@@ -41,7 +41,7 @@ export function GalleryView({ cards, contents, comments, properties, showTitle, 
           {properties.slice(0, 3).map((property) => (
             <span key={property.id} className="min-w-0 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{projectPropertyDisplayText(card, property)}</span>
           ))}
-          {showBadges && <CardBadges badges={projectCardBadges(contents.filter((block) => block.cardId === card.id), comments.filter((comment) => comment.cardId === card.id))} />}
+          {showBadges && <CardBadges badges={badgesFor(card.id)} />}
         </button>
       ))}
     </div>

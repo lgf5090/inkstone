@@ -1,8 +1,8 @@
-import { useRef, useState, useEffect, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactElement } from 'react'
+import { useRef, useState, useEffect, useMemo, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactElement } from 'react'
 import { ArrowUpDown, BarChart3, Calendar, CalendarRange, ChevronDown, ChevronRight, Clock, Copy, Download, Eye, EyeOff, Filter, LayoutGrid, List, MoreHorizontal, Pencil, Plus, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
-import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
+import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
-import { projectCardBadges } from '@shared/project/badges'
+import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badges'
 import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, projectOptionLabel, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { t } from '../../lib/i18n'
@@ -115,8 +115,16 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const fields = active?.fields ?? emptyProjectViewFields()
   const viewType = active?.viewType ?? 'table'
   useEffect(() => { onActiveViewChange(active?.id ?? '') }, [active?.id, onActiveViewChange])
-  const filtered = bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, search, bundle.properties))
-  const sorted = sortProjectCards(filtered, fields.sortOptions, bundle.properties)
+  const filtered = useMemo(() => bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, search, bundle.properties)), [bundle.cards, fields.filter, fields.sortOptions, bundle.properties, search])
+  const sorted = useMemo(() => sortProjectCards(filtered, fields.sortOptions, bundle.properties), [filtered, fields.sortOptions, bundle.properties])
+  const badgesByCard = useMemo(() => {
+    const byCard = new Map<string, ProjectCardBadges>()
+    for (const card of bundle.cards) {
+      byCard.set(card.id, projectCardBadges(bundle.contents.filter((block) => block.cardId === card.id), bundle.comments.filter((comment) => comment.cardId === card.id)))
+    }
+    return byCard
+  }, [bundle.cards, bundle.contents, bundle.comments])
+  const badgesFor = (cardId: string): ProjectCardBadges => badgesByCard.get(cardId) ?? { description: false, comments: 0, checked: 0, checkboxes: 0 }
   const hiddenCount = bundle.cards.length - filtered.length
   const [resizing, setResizing] = useState<{ id: string, width: number } | null>(null)
   const dragRef = useRef<{ id: string, startX: number, startWidth: number } | null>(null)
@@ -362,10 +370,10 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           ? <Empty art="folder" title={t('project.board.empty_cards')} />
           : viewType === 'board'
             ? (fields.swimlaneBy
-              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} />
-              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} />)
+              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} />
+              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} />)
             : viewType === 'gallery'
-              ? <GalleryView cards={sorted} contents={bundle.contents} comments={bundle.comments} properties={columns} showTitle={fields.galleryShowTitle !== false} showBadges={fields.galleryShowBadges !== false} onOpenCard={onOpenCard} />
+              ? <GalleryView cards={sorted} badgesFor={badgesFor} properties={columns} showTitle={fields.galleryShowTitle !== false} showBadges={fields.galleryShowBadges !== false} onOpenCard={onOpenCard} />
               : viewType === 'list'
                 ? <ListView cards={sorted} properties={bundle.properties} onOpenCard={onOpenCard} />
                 : viewType === 'timeline' || viewType === 'gantt'
@@ -508,12 +516,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   )
 }
 
-function BoardColumns({ cards, groupById, properties, contents, comments, canEdit, onDeleteCard, fields, density, onPatch, onPatchCard, onAddGroupOption, selected, onSelectClick }: {
+function BoardColumns({ cards, groupById, properties, badgesFor, canEdit, onDeleteCard, fields, density, onPatch, onPatchCard, onAddGroupOption, selected, onSelectClick }: {
   cards: ProjectCard[]
   groupById?: string
   properties: ProjectProperty[]
-  contents: ProjectContent[]
-  comments: ProjectComment[]
+  badgesFor: (cardId: string) => ProjectCardBadges
   canEdit: boolean
   onDeleteCard: (id: string) => void
   fields: ProjectViewFields
@@ -605,7 +612,7 @@ function BoardColumns({ cards, groupById, properties, contents, comments, canEdi
                   <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={(event) => onSelectClick(event, card.id)}>
                     {card.title || t('project.board.untitled_card')}
                   </button>
-                  <CardBadges badges={projectCardBadges(contents.filter((block) => block.cardId === card.id), comments.filter((comment) => comment.cardId === card.id))} />
+                  <CardBadges badges={badgesFor(card.id)} />
                   {canEdit && (
                     <IconButton label={t('project.board.delete_card')} size="sm" onClick={() => onDeleteCard(card.id)}>
                       <Trash2 size={14} />
@@ -629,12 +636,11 @@ function BoardColumns({ cards, groupById, properties, contents, comments, canEdi
   )
 }
 
-function Swimlanes({ cards, fields, properties, contents, comments, canEdit, onDeleteCard, density, onPatch, onPatchCard, onAddGroupOption, selected, onSelectClick }: {
+function Swimlanes({ cards, fields, properties, badgesFor, canEdit, onDeleteCard, density, onPatch, onPatchCard, onAddGroupOption, selected, onSelectClick }: {
   cards: ProjectCard[]
   fields: ProjectViewFields
   properties: ProjectProperty[]
-  contents: ProjectContent[]
-  comments: ProjectComment[]
+  badgesFor: (cardId: string) => ProjectCardBadges
   canEdit: boolean
   onDeleteCard: (id: string) => void
   density: 'compact' | 'comfortable' | 'spacious'
@@ -653,7 +659,7 @@ function Swimlanes({ cards, fields, properties, contents, comments, canEdit, onD
           <h3 className="mb-1 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {key === '' ? t('project.view.no_value') : laneProperty?.options.find((o) => o.id === key)?.value ?? key}
           </h3>
-          <BoardColumns cards={laneCards} groupById={fields.groupById} properties={properties} contents={contents} comments={comments} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={onPatch} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={onSelectClick} />
+          <BoardColumns cards={laneCards} groupById={fields.groupById} properties={properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={onPatch} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={onSelectClick} />
         </section>
       ))}
     </div>
