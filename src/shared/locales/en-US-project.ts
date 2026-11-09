@@ -111,6 +111,8 @@ export const EN_US_PROJECT = {
     "project.view.density_spacious": "Spacious",
     "project.card.save_as_template": "Save as template",
     "project.card.menu": "Card actions",
+    "project.card.archived_file": "Archived file",
+    "project.card.edit_comment": "Edit comment",
     "project.card.badge_description": "Has description",
     "project.card.badge_comments": "{count} comments",
     "project.card.badge_tasks": "{checked}/{total} tasks",

@@ -22,7 +22,13 @@ vi.mock('./api', () => ({
   deleteProjectFile: vi.fn(),
   saveCardAsTemplate: vi.fn(),
   duplicateProjectCard: vi.fn(),
+  patchCardComment: vi.fn(),
+  deleteCardComment: vi.fn(),
   projectFileUrl: vi.fn((id: string) => `/api/project/files/${id}`),
+}))
+
+vi.mock('../../store/session', () => ({
+  useSession: (selector: (state: { user: { id: string } | null }) => unknown) => selector({ user: { id: 'u1' } }),
 }))
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
@@ -151,5 +157,60 @@ describe('card actions menu (B-9)', () => {
     await act(async () => { menuItem(t('project.board.delete_card')).click() })
     expect(onDelete).toHaveBeenCalledWith('c1')
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe('comment edit/delete, paste image, archived placeholder (D-6/D-8/D-11)', () => {
+  const ownComment = { id: 'm1', cardId: 'c1', boardId: 'b1', authorId: 'u1', body: 'original', createAt: 1, updateAt: 1, deleteAt: 0 }
+
+  function setValue(el: HTMLTextAreaElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    setter.call(el, value)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  async function mountWith(contents: unknown[] = [], comments: unknown[] = []): Promise<void> {
+    vi.mocked(api.fetchCardComments).mockResolvedValue(comments as never)
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], contents: contents as never, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+    })
+  }
+
+  it('edits own comment through patchCardComment', async () => {
+    vi.mocked(api.patchCardComment).mockResolvedValue({ ...ownComment, body: 'edited' })
+    await mountWith([], [ownComment])
+    const edit = document.body.querySelector(`button[aria-label="${t('project.card.edit_comment')}"]`) as HTMLButtonElement
+    expect(edit).not.toBeNull()
+    await act(async () => { edit.click() })
+    const textarea = document.body.querySelector(`textarea[aria-label="${t('project.card.edit_comment')}"]`) as HTMLTextAreaElement
+    await act(async () => { setValue(textarea, 'edited') })
+    const save = [...document.body.querySelectorAll('button')].find((b) => b.textContent === t('common.save'))!
+    await act(async () => { save.click() })
+    expect(api.patchCardComment).toHaveBeenCalledWith('m1', 'edited')
+  })
+
+  it('deletes own comment through deleteCardComment', async () => {
+    vi.mocked(api.deleteCardComment).mockResolvedValue(undefined)
+    await mountWith([], [ownComment])
+    const del = document.body.querySelector(`button[aria-label="${t('common.delete')}"]`) as HTMLButtonElement
+    await act(async () => { del.click() })
+    expect(api.deleteCardComment).toHaveBeenCalledWith('m1')
+  })
+
+  it('shows an archived placeholder when the image file is gone', async () => {
+    const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'image', title: 'pic.png', fields: { attachmentId: 'gone' }, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
+    await mountWith([block])
+    expect(document.body.textContent).toContain(t('project.card.archived_file'))
+  })
+
+  it('uploads a pasted image and adds an image block', async () => {
+    vi.mocked(api.uploadBoardFile).mockResolvedValue({ id: 'f1', boardId: 'b1', cardId: 'c1', filename: 'p.png', size: 1, contentType: 'image/png', createdBy: 'u1', createAt: 1 } as never)
+    vi.mocked(api.createCardContent).mockResolvedValue({ id: 'a2', cardId: 'c1', boardId: 'b1', type: 'image', title: 'p.png', fields: { attachmentId: 'f1' }, position: 1, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 })
+    await mountWith()
+    const section = document.body.querySelector(`section[aria-label="${t('project.card.content')}"]`)!
+    const event = new Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clipboardData', { value: { files: [new File(['x'], 'p.png', { type: 'image/png' })] } })
+    await act(async () => { section.dispatchEvent(event) })
+    expect(api.uploadBoardFile).toHaveBeenCalled()
+    expect(api.createCardContent).toHaveBeenCalledWith('c1', expect.objectContaining({ type: 'image', fields: { attachmentId: 'f1' } }))
   })
 })

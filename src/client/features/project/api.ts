@@ -111,6 +111,15 @@ export async function createCardComment(cardId: string, body: string): Promise<P
   return result.comment
 }
 
+export async function patchCardComment(id: string, body: string): Promise<ProjectComment> {
+  const result = await request<{ comment: ProjectComment }>(`/api/project/comments/${encodeURIComponent(id)}`, { method: 'PATCH', body: { body } })
+  return result.comment
+}
+
+export async function deleteCardComment(id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/comments/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
 export async function createCardContent(cardId: string, input: Partial<ProjectContentCreateInput>): Promise<ProjectContent> {
   const result = await request<{ content: ProjectContent }>(`/api/project/cards/${encodeURIComponent(cardId)}/contents`, { method: 'POST', body: input })
   return result.content

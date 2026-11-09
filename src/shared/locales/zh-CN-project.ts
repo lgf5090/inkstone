@@ -111,6 +111,8 @@ export const ZH_CN_PROJECT = {
     "project.view.density_spacious": "宽松",
     "project.card.save_as_template": "另存为模板",
     "project.card.menu": "卡片操作",
+    "project.card.archived_file": "归档文件",
+    "project.card.edit_comment": "编辑评论",
     "project.card.badge_description": "有正文",
     "project.card.badge_comments": "{count} 条评论",
     "project.card.badge_tasks": "{checked}/{total} 任务",

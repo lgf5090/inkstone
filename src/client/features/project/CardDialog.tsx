@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import { CheckSquare, Copy, Link2, Minus, MoreHorizontal, Paperclip, Plus, Trash2, Type } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
+import { Archive, CheckSquare, Copy, Link2, Minus, MoreHorizontal, Paperclip, Pencil, Plus, Trash2, Type } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input, Select, Textarea } from '../../components/form'
 import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
-import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
+import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
 import { useUi } from '../../store/ui'
+import { useSession } from '../../store/session'
 
 interface CardDialogProps {
   card: ProjectCard
@@ -20,6 +21,14 @@ interface CardDialogProps {
   onUpdated: (card: ProjectCard) => void
   onRefresh: () => void
   onDelete: (id: string) => void
+}
+
+function ArchivedFile(): ReactElement {
+  return (
+    <p className="flex items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-2 py-1 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+      <Archive size={13} aria-hidden="true" />{t('project.card.archived_file')}
+    </p>
+  )
 }
 
 export function CardDialog({ card, properties, members, contents, siblings, canEdit, onClose, onUpdated, onRefresh, onDelete }: CardDialogProps): ReactElement {
@@ -37,6 +46,9 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
   const menuAnchor = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const toast = useUi((state) => state.toast)
+  const currentUserId = useSession((state) => state.user?.id)
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState('')
 
   const duplicateCard = async () => {
     try {
@@ -95,6 +107,29 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
     } finally {
       setPosting(false)
     }
+  }
+
+  const saveCommentEdit = async () => {
+    if (!editingCommentId) return
+    const body = editDraft.trim()
+    if (!body) return
+    const updated = await patchCardComment(editingCommentId, body)
+    setComments((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)))
+    setEditingCommentId(null)
+  }
+  const removeComment = async (id: string) => {
+    await deleteCardComment(id)
+    setComments((current) => current.filter((entry) => entry.id !== id))
+  }
+  const pasteImage = async (event: ClipboardEvent) => {
+    if (!canEdit) return
+    const image = [...event.clipboardData.files].find((file) => file.type.startsWith('image/'))
+    if (!image) return
+    event.preventDefault()
+    const uploaded = await uploadBoardFile(card.boardId, image, card.id)
+    const block = await createCardContent(card.id, { type: 'image', title: image.name, fields: { attachmentId: uploaded.id } })
+    setFiles((current) => [uploaded, ...current])
+    setBlocks((current) => [...current, block])
   }
 
   const addBlock = async (type: ProjectContent['type']) => {
@@ -193,7 +228,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
             </div>
           ))}
         </section>
-        <section aria-label={t('project.card.content')} className="space-y-2">
+        <section aria-label={t('project.card.content')} className="space-y-2" onPaste={(event) => void pasteImage(event)}>
           <div className="flex items-center gap-2">
             <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{t('project.card.content')}</h3>
             {canEdit && (
@@ -212,7 +247,15 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
                     ? <Checkbox label={block.title || t('project.card.checkbox_block')} checked={block.fields.checked === true} disabled={!canEdit} onChange={(checked) => void toggleBlock(block, checked)} />
                     : block.type === 'divider'
                       ? <hr className="border-[var(--border-subtle)]" />
-                      : <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{block.title}</p>}
+                      : block.type === 'image'
+                        ? (block.fields.attachmentId && files.some((file) => file.id === block.fields.attachmentId)
+                          ? <img src={projectFileUrl(block.fields.attachmentId)} alt={block.title} className="max-h-64 rounded-[var(--r-sm)]" />
+                          : <ArchivedFile />)
+                        : block.type === 'attachment'
+                          ? (block.fields.attachmentId && files.some((file) => file.id === block.fields.attachmentId)
+                            ? <a className="text-[length:var(--text-13)] text-[var(--accent)]" href={projectFileUrl(block.fields.attachmentId)} target="_blank" rel="noreferrer">{block.title}</a>
+                            : <ArchivedFile />)
+                          : <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{block.title}</p>}
                 </div>
                 {canEdit && (
                   <IconButton label={t('common.delete')} size="sm" onClick={() => void removeBlock(block)}><Trash2 size={14} /></IconButton>
@@ -276,8 +319,26 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           <ul className="space-y-2">
             {comments.map((comment) => (
               <li key={comment.id} className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2">
-                <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{comment.authorId}</p>
-                <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{comment.body}</p>
+                <div className="flex items-center gap-2">
+                  <p className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{comment.authorId}</p>
+                  {canEdit && comment.authorId === currentUserId && editingCommentId !== comment.id && (
+                    <>
+                      <IconButton label={t('project.card.edit_comment')} size="sm" onClick={() => { setEditingCommentId(comment.id); setEditDraft(comment.body) }}><Pencil size={13} /></IconButton>
+                      <IconButton label={t('common.delete')} size="sm" onClick={() => void removeComment(comment.id)}><Trash2 size={13} /></IconButton>
+                    </>
+                  )}
+                </div>
+                {editingCommentId === comment.id
+                  ? (
+                    <div className="space-y-2">
+                      <Textarea className="w-full" rows={2} value={editDraft} aria-label={t('project.card.edit_comment')} onChange={(event) => setEditDraft(event.target.value)} />
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="primary" disabled={!editDraft.trim()} onClick={() => void saveCommentEdit()}>{t('common.save')}</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingCommentId(null)}>{t('common.cancel')}</Button>
+                      </div>
+                    </div>
+                  )
+                  : <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{comment.body}</p>}
               </li>
             ))}
           </ul>
