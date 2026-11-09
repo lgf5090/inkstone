@@ -1509,6 +1509,7 @@ export type ApiErrorCode =
   | 'forward_error'
   | 'dns_provider_missing'
   | 'dns_token_invalid'
+  | 'dns_global_key'
   | 'dns_zone_forbidden'
   | 'dns_zone_mismatch'
   | 'dns_network'

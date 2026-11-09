@@ -64,7 +64,7 @@ import {
   deleteCerthubObjects,
   readCerthubText,
 } from '../development/certhub/storage'
-import { probeDnsWrite, resolveZoneId, verifyCloudflareConnection, verifyCloudflareToken } from '../development/certhub/dns/cloudflare'
+import { normalizeCloudflareToken, probeDnsWrite, resolveZoneId, verifyCloudflareConnection, verifyCloudflareToken } from '../development/certhub/dns/cloudflare'
 import { pemToPfx } from '../development/certhub/crypto/pfx'
 import { exportPassword } from '../development/certhub/export-password'
 import { buildCerthubZip } from '../development/certhub/export/zip'
@@ -444,21 +444,23 @@ developmentCerthubRoutes.post('/dns-providers/test', async (c) => {
     return c.json({ ok: true, data: { ok: true, degraded: !configured } })
   }
   if (!body.zoneId) throw ApiError.badRequest('A Cloudflare connection needs a zone id', { reason: 'zone_id_required' })
-  if (!body.secret) throw ApiError.badRequest('A Cloudflare connection needs an API token', { reason: 'token_required' })
-  await verifyCloudflareConnection(body.secret, body.zoneId)
+  const token = normalizeCloudflareToken(body.secret ?? '')
+  if (!token) throw ApiError.badRequest('A Cloudflare connection needs an API token', { reason: 'token_required' })
+  await verifyCloudflareConnection(token, body.zoneId)
   return c.json({ ok: true, data: { ok: true } })
 })
 
 developmentCerthubRoutes.post('/dns-providers', async (c) => {
   const userId = userIdOf(c)
   const body = await parseBody(c, dnsProviderSchema)
-  if (body.kind === 'cloudflare' && (!body.zoneId || !body.secret)) {
+  const secret = body.kind === 'cloudflare' ? normalizeCloudflareToken(body.secret ?? '') : ''
+  if (body.kind === 'cloudflare' && (!body.zoneId || !secret)) {
     throw ApiError.badRequest('A Cloudflare provider needs a zone id and an API token')
   }
   const id = newId()
   const now = Date.now()
-  const ciphertext = body.kind === 'cloudflare' && body.secret
-    ? await encryptCerthubDnsCredential(c.env, id, { token: body.secret, email: body.accountEmail })
+  const ciphertext = body.kind === 'cloudflare' && secret
+    ? await encryptCerthubDnsCredential(c.env, id, { token: secret, email: body.accountEmail })
     : ''
   await insertProvider(c.env.DB, {
     user_id: userId,
@@ -497,8 +499,10 @@ developmentCerthubRoutes.patch('/dns-providers/:id', async (c) => {
   }
   if (body.secret) {
     if (provider.kind !== 'cloudflare') throw ApiError.badRequest('Only a Cloudflare provider carries a token')
+    const secret = normalizeCloudflareToken(body.secret)
+    if (!secret) throw ApiError.badRequest('The API token is empty after trimming whitespace and the Bearer prefix')
     patch.credential_ciphertext = await encryptCerthubDnsCredential(c.env, provider.id, {
-      token: body.secret,
+      token: secret,
       email: body.accountEmail ?? provider.account_email,
     })
   }

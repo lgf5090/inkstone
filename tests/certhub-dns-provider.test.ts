@@ -190,26 +190,47 @@ describe('zone resolution and write probe', () => {
     await expect(resolveZoneId('token', 'example.com')).rejects.toMatchObject({ status: 422, code: 'dns_zone_mismatch' })
   })
 
-  it('names an invalid token instead of answering a bare 502', async () => {
+  it('names an invalid token with 422, never the session-401 status', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       success: false, result: null, errors: [{ code: 10000, message: 'Authentication error' }],
     }), { status: 403 })))
     await expect(verifyCloudflareToken('token')).rejects.toMatchObject({
-      status: 401,
+      status: 422,
       code: 'dns_token_invalid',
       details: { endpoint: '/user/tokens/verify', upstreamStatus: 403, upstreamCodes: [10000], upstreamMessage: 'Authentication error' },
     })
   })
 
-  it('names a zone the token cannot write to, with the upstream status and code', async () => {
+  it('names a zone the token cannot write to with 422, with the upstream status and code', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       success: false, result: null, errors: [{ code: 9109, message: 'Unauthorized to access requested resource' }],
     }), { status: 403 })))
     await expect(probeDnsWrite('token', 'zone')).rejects.toMatchObject({
-      status: 403,
+      status: 422,
       code: 'dns_zone_forbidden',
       details: { endpoint: '/zones/zone/dns_records', upstreamStatus: 403, upstreamCodes: [9109] },
     })
+  })
+
+  it('sends a pasted token without its whitespace or Bearer prefix', async () => {
+    const calls: Array<{ url: string; auth?: string }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), auth: (init?.headers as Record<string, string> | undefined)?.Authorization })
+      return new Response(JSON.stringify({ success: true, result: { id: 'x', status: 'active' } }), { status: 200 })
+    }))
+    await verifyCloudflareToken('  Bearer token-with-space\n')
+    expect(calls[0].auth).toBe('Bearer token-with-space')
+  })
+
+  it('names a Global API Key before forwarding it to Cloudflare', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(verifyCloudflareToken('a'.repeat(37))).rejects.toMatchObject({
+      status: 422,
+      code: 'dns_global_key',
+      details: { endpoint: '/user/tokens/verify', reason: 'global_api_key' },
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('reports an unreachable provider as a retryable network error', async () => {

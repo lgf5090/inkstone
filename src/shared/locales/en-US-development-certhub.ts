@@ -381,6 +381,8 @@ export const EN_US_DEVELOPMENT_CERTHUB = {
   "development.certhub.error.dns_provider_missing": "This DNS-01 order has no DNS provider bound, so its TXT record cannot be written automatically. Bind a provider, or add the record by hand and retry.",
   "development.certhub.error.dns_error": "The DNS provider returned an error. Check its credentials or the network and retry.",
   "development.certhub.error.dns_token_invalid": "The Cloudflare API token is invalid or was deleted. Create a new one and paste it again.",
+  "development.certhub.error.dns_global_key": "This is a Cloudflare Global API Key, not an API token. Create and paste a scoped API token with Zone:Read and Zone:DNS:Edit.",
+  "development.certhub.error.session_expired": "Your platform session has expired. Sign in again and retry.",
   "development.certhub.error.dns_zone_forbidden": "The API token lacks permission on this zone (Zone:Read or Zone:DNS:Edit).",
   "development.certhub.error.dns_zone_mismatch": "The saved zone ID does not match the domain, or the zone belongs to another account than this token.",
   "development.certhub.error.dns_network": "The Cloudflare API timed out or is unreachable. Retry shortly.",

@@ -104,6 +104,12 @@ function toastActionError(error: unknown): void {
  * status and Cloudflare error code. A bare "502" told nobody which of token, zone or network failed.
  */
 function toastDnsFailure(error: unknown): void {
+  // A credential refusal answers 422 now; a 401 on this page can only mean the platform session,
+  // which needs its own sentence rather than "the Cloudflare token is invalid".
+  if (error instanceof ApiError && error.status === 401) {
+    useUi.getState().toast({ title: t('development.certhub.error.session_expired'), tone: 'danger' })
+    return
+  }
   if (error instanceof ApiError && error.code.startsWith('dns_')) {
     const details = error.details as { upstreamStatus?: number; upstreamCodes?: number[] } | undefined
     const suffix = details?.upstreamStatus

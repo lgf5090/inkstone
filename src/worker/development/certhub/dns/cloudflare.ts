@@ -3,6 +3,27 @@ import type { Env } from '../../../env'
 
 const BASE = 'https://api.cloudflare.com/client/v4'
 
+/**
+ * The token as Cloudflare will receive it.
+ *
+ * Pasting a token is not the same as typing it: it arrives with a trailing newline, a `Bearer ` prefix
+ * copied from the docs, or spaces a terminal added around it. Any of those turns into the same
+ * `Invalid request headers` (6003) as a revoked token, so the shape is fixed once, at the boundary.
+ * Cloudflare tokens never contain whitespace, so removing all of it is safe.
+ */
+export function normalizeCloudflareToken(value: string): string {
+  return value.trim().replace(/^bearer\s+/i, '').replace(/\s+/g, '')
+}
+
+/**
+ * A Global API Key is 37 hex characters; an API Token is a different shape and is what Bearer auth
+ * accepts. Catching the paste here names the mistake instead of forwarding it and reporting 6003.
+ */
+export function looksLikeGlobalApiKey(value: string): boolean {
+  return /^[0-9a-f]{37}$/i.test(normalizeCloudflareToken(value))
+}
+
+
 export interface CloudflareRecord {
   id: string
   name: string
@@ -19,10 +40,17 @@ interface CloudflareResponse<T> {
 
 async function request<T>(
   path: string,
-  token: string,
+  rawToken: string,
   init: RequestInit = {},
 ): Promise<T> {
-  if (!token) throw new ApiError(503, 'config_unavailable', 'The DNS provider token is not configured')
+  const token = normalizeCloudflareToken(rawToken)
+  if (!token) throw new ApiError(422, 'dns_token_invalid', 'The DNS provider token is empty', { endpoint: path, reason: 'empty_token' })
+  if (looksLikeGlobalApiKey(token)) {
+    throw new ApiError(422, 'dns_global_key', 'A Global API Key was pasted; Cloudflare requires an API Token', {
+      endpoint: path,
+      reason: 'global_api_key',
+    })
+  }
   const url = `${BASE}${path}`
   let response: Response
   try {
@@ -70,16 +98,18 @@ async function request<T>(
     const details = { endpoint: path, upstreamStatus: response.status, upstreamCodes: codes, upstreamMessage }
     const authLike = response.status === 401 || response.status === 403 || codes.includes(10000)
       || /authentication error|invalid request headers|unauthorized|forbidden|permission/i.test(upstreamMessage)
+    // A refused credential is a bad configuration value, not a bad platform session: 422 keeps the
+    // reader signed in and leaves 401 to the auth middleware. The category stays machine-readable.
     let status: 401 | 403 | 422 | 429 | 502 = 502
     let code: 'dns_token_invalid' | 'dns_zone_forbidden' | 'dns_zone_mismatch' | 'dns_rate_limited' | 'dns_error' = 'dns_error'
     if (response.status === 429) {
       status = 429
       code = 'dns_rate_limited'
     } else if (authLike && path.startsWith('/user/tokens/verify')) {
-      status = 401
+      status = 422
       code = 'dns_token_invalid'
     } else if (authLike) {
-      status = 403
+      status = 422
       code = 'dns_zone_forbidden'
     }
     throw new ApiError(status, code, upstreamMessage, details)

@@ -7106,6 +7106,8 @@ const allowed = new Map([
     "// here, before asking for the label, instead of letting a typed confirmation end in a bare 409.",
     "// Replacing the secret is a decision, not a field tweak: say explicitly that the stored token",
     "// is overwritten before the PATCH runs.",
+    "// A credential refusal answers 422 now; a 401 on this page can only mean the platform session,",
+    "// which needs its own sentence rather than \"the Cloudflare token is invalid\".",
   ]],
   ["src/client/features/development/certhub/events.ts", [
     "// A kind the catalog does not know yet must not leak its dotted key onto the page: the event list is",
@@ -40565,6 +40567,10 @@ const allowed = new Map([
     "/**\n * Proves the token can write DNS records, by creating and removing a temporary TXT record.\n *\n * `/user/tokens/verify` answers for a token with any scope, so a Zone:Read token passes every earlier\n * check and then fails every issuance at the first record write. The probe is the only honest test;\n * its name is unique and it is deleted immediately, so a successful probe leaves nothing behind.\n */",
     "// The category is the part a reader can act on; the upstream status/code/message ride along in",
     "// `details` so a blanket 502 never hides which Cloudflare check refused the request.",
+    "/**\n * The token as Cloudflare will receive it.\n *\n * Pasting a token is not the same as typing it: it arrives with a trailing newline, a `Bearer ` prefix\n * copied from the docs, or spaces a terminal added around it. Any of those turns into the same\n * `Invalid request headers` (6003) as a revoked token, so the shape is fixed once, at the boundary.\n * Cloudflare tokens never contain whitespace, so removing all of it is safe.\n */",
+    "/**\n * A Global API Key is 37 hex characters; an API Token is a different shape and is what Bearer auth\n * accepts. Catching the paste here names the mistake instead of forwarding it and reporting 6003.\n */",
+    "// A refused credential is a bad configuration value, not a bad platform session: 422 keeps the",
+    "// reader signed in and leaves 401 to the auth middleware. The category stays machine-readable.",
   ]],
   ["src/worker/development/certhub/state-machine.ts", [
     "/**\n   * Why the order did not move. A blocked result is a finished answer, not an error: the queue treats\n   * it as \"ask again later\" while the interactive action surfaces it as a refusal the reader can act on.\n   */",
@@ -47763,6 +47769,9 @@ const allowed = new Map([
     "/**\n * The request form's two visible bugs: a checkbox that printed its label twice, and a wildcard row\n * that still offered HTTP-01 even though the CA refuses it.\n */",
     "// The accessible name is the button's own content: a wrapping `<label>` would add a second copy",
     "// outside the control and leave the name unchanged, which is what made this hard to notice.",
+  ]],
+  ["tests/certhub-dns-provider-route.test.ts", [
+    "/**\n * What the provider PATCH does with the secret field, and what the token looks like once stored.\n *\n * The form's \"leave empty to keep / fill to replace\" promise is a route-level branch: it is not\n * visible in the schema alone. These cases read the ciphertext back out of the vault after the\n * request, so a change that silently clears or keeps the old token fails here.\n */",
   ]],
   ["tests/certhub-dns-provider.test.ts", [
     "/**\n * The DNS-provider contract of a DNS-01 order.\n *\n * These cases cover the four ways an order could silently sit in \"waiting for DNS\": the request form\n * never picks a provider, the queue has no way to report the missing provider, an existing order\n * cannot gain one, and a retried write stacks a duplicate value beside another order's TXT.\n */",

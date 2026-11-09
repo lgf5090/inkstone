@@ -381,6 +381,8 @@ export const ZH_CN_DEVELOPMENT_CERTHUB = {
   "development.certhub.error.dns_provider_missing": "该 DNS-01 订单尚未绑定 DNS 供应商，系统无法自动写入 TXT 记录。请绑定供应商，或手动添加记录后重试。",
   "development.certhub.error.dns_error": "DNS 服务返回错误，请检查供应商凭据或网络后重试。",
   "development.certhub.error.dns_token_invalid": "Cloudflare API Token 无效或已被删除，请重新创建后填入。",
+  "development.certhub.error.dns_global_key": "这里填的是 Cloudflare Global API Key，不是 API Token。请创建并粘贴具名 API Token（需要 Zone:Read 与 Zone:DNS:Edit）。",
+  "development.certhub.error.session_expired": "平台登录已失效，请重新登录后再操作。",
   "development.certhub.error.dns_zone_forbidden": "该 API Token 没有这个域名的 Zone 权限，缺少 Zone:Read 或 Zone:DNS:Edit。",
   "development.certhub.error.dns_zone_mismatch": "保存的 Zone ID 与域名不匹配，或该 Zone 不在这个 Token 所属的账号下。",
   "development.certhub.error.dns_network": "连接 Cloudflare 超时或网络不可达，请稍后重试。",
