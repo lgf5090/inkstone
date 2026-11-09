@@ -59,6 +59,22 @@ describe('project attachments', () => {
     expect((await req('DELETE', `/files/${file.id}`)).status).toBe(200)
     expect(((await (await req('GET', `/boards/${board.id}/files`)).json()) as { files: unknown[] }).files).toEqual([])
   })
+
+  it('serves unsafe mime as an opaque download, never inline in this origin (R2-3)', async () => {
+    const board = await makeBoard()
+    const form = new FormData()
+    form.append('file', new File(['<script>alert(1)</script>'], 'evil.html', { type: 'text/html' }))
+    const upload = await app.fetch(new Request(`http://localhost/api/project/boards/${board.id}/files`, {
+      method: 'POST', headers: { Cookie: `${LEGACY_SESSION_COOKIE}=${token}`, [CLIENT_HEADER]: '1' }, body: form,
+    }), env)
+    expect(upload.status, await upload.clone().text()).toBe(201)
+    const file = ((await upload.json()) as { file: ProjectAttachment }).file
+    const served = await req('GET', `/files/${file.id}`)
+    expect(served.status).toBe(200)
+    expect(served.headers.get('Content-Type')).toBe('application/octet-stream')
+    expect(served.headers.get('Content-Disposition')).toMatch(/^attachment;/)
+    expect(served.headers.get('X-Content-Type-Options')).toBe('nosniff')
+  })
   it('maps mime to category', () => {
     expect(attachmentCategory('image/png')).toBe('images')
     expect(attachmentCategory('application/pdf')).toBe('pdf')

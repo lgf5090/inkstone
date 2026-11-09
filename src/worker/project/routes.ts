@@ -93,7 +93,7 @@ import { topProjectBoards } from './insights'
 import { addCardLink, createCardFromTemplate, getCardTodoLink, linkCardTodo, listBoardLinks, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate, syncCardCompletionToTodo, unlinkCardTodo } from './enhance'
 import { notifyProjectComment } from './notify'
 import { projectBoardToMarkdown } from '@shared/project/markdown'
-import { deleteProjectAttachment, getProjectAttachment, listBoardAttachments, uploadProjectAttachment, PROJECT_UPLOAD_LIMIT } from './files'
+import { deleteProjectAttachment, getProjectAttachment, listBoardAttachments, uploadProjectAttachment, PROJECT_UPLOAD_LIMIT, PROJECT_INLINE_MIMES } from './files'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
 import { projectStatistics } from './statistics'
 import { createBoardFromTemplate, listProjectTemplates, saveBoardAsTemplate } from './templates'
@@ -257,7 +257,16 @@ projectRoutes.get('/files/:id', async (c) => {
   if (!c.env.FILES) throw ApiError.notFound('File not found')
   const object = await c.env.FILES.get(attachment.objectKey)
   if (!object) throw ApiError.notFound('File not found')
-  return new Response(object.body, { headers: { 'Content-Type': attachment.mime, 'Content-Disposition': `inline; filename="${encodeURIComponent(attachment.filename)}"` } })
+  // The stored mime is client-controlled; only render a safe allowlist inline. Anything else
+  // (html/svg/…) downloads as an opaque blob so it can never execute in this origin (stored XSS).
+  const safeInline = PROJECT_INLINE_MIMES.has(attachment.mime)
+  return new Response(object.body, {
+    headers: {
+      'Content-Type': safeInline ? attachment.mime : 'application/octet-stream',
+      'Content-Disposition': `${safeInline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(attachment.filename)}"`,
+      'X-Content-Type-Options': 'nosniff',
+    },
+  })
 })
 
 projectRoutes.delete('/files/:id', async (c) => {

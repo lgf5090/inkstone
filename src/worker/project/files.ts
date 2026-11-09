@@ -37,6 +37,9 @@ function rowToAttachment(row: AttachmentRow): ProjectAttachment {
   }
 }
 
+/** Mimes safe to render inline in this origin; everything else downloads as an opaque blob. */
+export const PROJECT_INLINE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'])
+
 export function attachmentCategory(mime: string): ProjectAttachmentCategory {
   if (mime.startsWith('image/')) return 'images'
   if (mime === 'application/pdf') return 'pdf'

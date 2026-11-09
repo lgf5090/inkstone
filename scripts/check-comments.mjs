@@ -41106,6 +41106,7 @@ const allowed = new Map([
   ]],
   ["src/worker/project/files.ts", [
     "/**\n * Project attachments (F-8/D-9): bytes live in R2 under a four-segment `project/<category>/<user>/<id>`\n * key, rows in project_attachments. The category segment keeps images/pdf/text apart for browsing and\n * cleanup. Uploads are editor-only; reads follow the board's viewer boundary so a private board's\n * files stay private.\n */",
+    "/** Mimes safe to render inline in this origin; everything else downloads as an opaque blob. */",
   ]],
   ["src/worker/project/insights.ts", [
     "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.\n */",
@@ -41129,6 +41130,8 @@ const allowed = new Map([
     "// Best-effort: the test harness fetches without an ExecutionContext, whose getter throws.",
     "/* no ExecutionContext in tests */",
     "/* best-effort: a refused mention notice must not refuse the comment */",
+    "// The stored mime is client-controlled; only render a safe allowlist inline. Anything else",
+    "// (html/svg/…) downloads as an opaque blob so it can never execute in this origin (stored XSS).",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
