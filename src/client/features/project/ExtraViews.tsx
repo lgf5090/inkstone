@@ -22,16 +22,22 @@ function dateRange(card: ProjectCard, propertyId: string | undefined): { from: n
 export function ListView({ cards, properties, onOpenCard }: { cards: ProjectCard[], properties: ProjectProperty[], onOpenCard: (id: string) => void }) {
   return (
     <ul className="min-h-0 flex-1 divide-y divide-[var(--border-subtle)] overflow-y-auto">
-      {cards.map((card) => (
-        <li key={card.id}>
-          <button type="button" className="flex w-full items-center gap-2 px-3 py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
-            <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>
-            {properties.slice(0, 3).map((property) => (
-              <span key={property.id} className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{projectPropertyDisplayText(card, property)}</span>
-            ))}
-          </button>
-        </li>
-      ))}
+      {cards.map((card) => {
+        const isSubtask = Boolean(card.parentId)
+        return (
+          <li key={card.id}>
+            <button type="button" className={`flex w-full items-center gap-2 ${isSubtask ? 'pl-8' : 'px-3'} py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]`} onClick={() => onOpenCard(card.id)}>
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
+                {isSubtask && <span className="mr-1 text-[var(--text-tertiary)]" aria-hidden="true">└─</span>}
+                {card.title || t('project.board.untitled_card')}
+              </span>
+              {properties.slice(0, 3).map((property) => (
+                <span key={property.id} className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{projectPropertyDisplayText(card, property)}</span>
+              ))}
+            </button>
+          </li>
+        )
+      })}
     </ul>
   )
 }

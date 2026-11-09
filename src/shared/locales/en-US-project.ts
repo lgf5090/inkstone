@@ -100,6 +100,8 @@ export const EN_US_PROJECT = {
     "project.import.no_file": "Choose a file first",
     "project.card.subtasks": "Subtasks",
     "project.card.add_subtask": "Add subtask",
+    "project.card.collapse_subtasks": "Collapse subtasks",
+    "project.card.expand_subtasks": "Expand subtasks",
     "project.card.dependencies": "Dependencies",
     "project.card.add_dependency": "Block by…",
     "project.board.activity": "Activity",

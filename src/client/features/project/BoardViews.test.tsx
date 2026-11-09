@@ -370,3 +370,53 @@ describe('display by and group by (C-13/C-6)', () => {
     expect([...select.options].map((option) => option.textContent)).toContain('Estimate')
   })
 })
+
+describe('subtask hierarchy in views', () => {
+  it('hides subtasks from flat root table rows and reveals them on expand', async () => {
+    const b = bundle()
+    b.cards = [
+      { id: 'c1', boardId: 'b1', parentId: '', title: 'Parent Card', icon: '', isTemplate: false, contentOrder: [], values: {}, ...stamps },
+      { id: 'c2', boardId: 'b1', parentId: 'c1', title: 'Child Card', icon: '', isTemplate: false, contentOrder: [], values: {}, ...stamps },
+    ]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+    expect(view.container.querySelectorAll('tbody tr')).toHaveLength(1)
+    expect(view.container.textContent).toContain('Parent Card')
+    expect(view.container.textContent).not.toContain('Child Card')
+
+    const expandBtn = view.container.querySelector(`button[aria-label="${t('project.card.expand_subtasks')}"]`) as HTMLButtonElement
+    expect(expandBtn).not.toBeNull()
+    await act(async () => {
+      expandBtn.click()
+    })
+
+    expect(view.container.querySelectorAll('tbody tr')).toHaveLength(2)
+    expect(view.container.textContent).toContain('Child Card')
+  })
+
+  it('nests subtasks inside kanban parent cards with progress badge and expandable checklist', async () => {
+    const b = bundle()
+    b.cards = [
+      { id: 'c1', boardId: 'b1', parentId: '', title: 'Parent Kanban', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o1' }, ...stamps },
+      { id: 'c2', boardId: 'b1', parentId: 'c1', title: 'Subtask Kanban', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o1' }, ...stamps },
+    ]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+    const boardTab = [...view.container.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === 'Board')
+    await act(async () => { boardTab?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
+
+    const columns = [...view.container.querySelectorAll('section')]
+    expect(columns[0]!.querySelectorAll('[data-project-card]')).toHaveLength(1)
+    expect(columns[0]!.textContent).toContain('Parent Kanban')
+    expect(columns[0]!.textContent).not.toContain('Subtask Kanban')
+
+    const expandBtn = columns[0]!.querySelector(`button[aria-label="${t('project.card.expand_subtasks')}"]`) as HTMLButtonElement
+    expect(expandBtn).not.toBeNull()
+    await act(async () => {
+      expandBtn.click()
+    })
+    expect(columns[0]!.textContent).toContain('Subtask Kanban')
+  })
+})

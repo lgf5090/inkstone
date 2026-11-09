@@ -100,6 +100,8 @@ export const ZH_CN_PROJECT = {
     "project.import.no_file": "请先选择文件",
     "project.card.subtasks": "子任务",
     "project.card.add_subtask": "添加子任务",
+    "project.card.collapse_subtasks": "收起子任务",
+    "project.card.expand_subtasks": "展开子任务",
     "project.card.dependencies": "依赖",
     "project.card.add_dependency": "阻塞于…",
     "project.board.activity": "动态",

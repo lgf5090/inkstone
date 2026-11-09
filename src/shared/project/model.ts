@@ -312,6 +312,21 @@ export interface ProjectCardPatch {
   values?: Record<string, string | null>
 }
 
+const CARD_DONE_PATTERN = /done|complete|finished/i
+
+export function isProjectCardDone(card: ProjectCard, properties: readonly ProjectProperty[]): boolean {
+  for (const property of properties) {
+    const raw = card.values[property.id]
+    if (!raw) continue
+    if (property.type === 'checkbox' && raw === 'true') return true
+    if (property.type === 'select') {
+      const option = property.options.find((o) => o.id === raw)
+      if (option && CARD_DONE_PATTERN.test(option.value)) return true
+    }
+  }
+  return false
+}
+
 export interface ProjectView {
   id: string
   boardId: string

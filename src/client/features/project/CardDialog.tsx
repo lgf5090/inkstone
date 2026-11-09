@@ -22,6 +22,7 @@ interface CardDialogProps {
   onUpdated: (card: ProjectCard) => void
   onRefresh: () => void
   onDelete: (id: string) => void
+  onOpenCard?: (id: string) => void
 }
 
 function SectionHeading({ icon: Icon, label }: { icon: LucideIcon, label: string }): ReactElement {
@@ -40,7 +41,7 @@ function ArchivedFile(): ReactElement {
   )
 }
 
-export function CardDialog({ card, properties, members, contents, siblings, canEdit, onClose, onUpdated, onRefresh, onDelete }: CardDialogProps): ReactElement {
+export function CardDialog({ card, properties, members, contents, siblings, canEdit, onClose, onUpdated, onRefresh, onDelete, onOpenCard }: CardDialogProps): ReactElement {
   const [title, setTitle] = useState(card.title)
   const [comments, setComments] = useState<ProjectComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
@@ -223,6 +224,19 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
   return (
     <Modal open onClose={onClose} title={card.title || t('project.board.untitled_card')} width={640}>
       <div className="space-y-4">
+        {card.parentId && siblings.some((s) => s.id === card.parentId) && (
+          <nav aria-label={t('project.card.subtasks')} className="flex items-center gap-1.5 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+            <button
+              type="button"
+              className="truncate font-medium text-[var(--text-secondary)] hover:text-[var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+              onClick={() => onOpenCard?.(card.parentId)}
+            >
+              {siblings.find((s) => s.id === card.parentId)?.title || t('project.board.untitled_card')}
+            </button>
+            <span aria-hidden="true">/</span>
+            <span className="truncate font-semibold text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>
+          </nav>
+        )}
         <Input
           className="w-full"
           value={title}
@@ -337,9 +351,27 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           )}
           <ul className="space-y-1">
             {subtasks.map((subtask) => (
-              <li key={subtask.id} className="flex items-center gap-1.5 text-[length:var(--text-13)] text-[var(--text-primary)]">
+              <li key={subtask.id} className="group flex items-center gap-1.5 text-[length:var(--text-13)] text-[var(--text-primary)]">
                 <Checkbox ariaLabel={subtask.title || t('project.board.untitled_card')} checked={isSubtaskDone(subtask)} disabled={!canEdit} onChange={(checked) => void toggleSubtask(subtask, checked)} />
-                <span className={isSubtaskDone(subtask) ? 'text-[var(--text-tertiary)] line-through' : ''}>{subtask.title || t('project.board.untitled_card')}</span>
+                <button
+                  type="button"
+                  className={`min-w-0 flex-1 truncate text-left hover:text-[var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${isSubtaskDone(subtask) ? 'text-[var(--text-tertiary)] line-through' : ''}`}
+                  onClick={() => onOpenCard?.(subtask.id)}
+                >
+                  {subtask.title || t('project.board.untitled_card')}
+                </button>
+                {canEdit && (
+                  <IconButton
+                    label={t('common.delete')}
+                    size="sm"
+                    className="opacity-0 transition-opacity group-hover:opacity-100"
+                    onClick={() => {
+                      onDelete(subtask.id)
+                    }}
+                  >
+                    <Trash2 size={13} />
+                  </IconButton>
+                )}
               </li>
             ))}
           </ul>

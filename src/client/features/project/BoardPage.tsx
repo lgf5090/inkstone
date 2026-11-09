@@ -357,6 +357,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           onDelete={(id) => void removeCard(id)}
           onUpdated={(updated) => setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current))}
           onRefresh={() => { void fetchProjectBoardBundle(boardId).then(setBundle).catch(() => { /* best-effort: dialog stays usable if the refetch fails */ return undefined }) }}
+          onOpenCard={setOpenCardId}
         />
       )}
     </div>

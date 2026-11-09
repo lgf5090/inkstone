@@ -51,6 +51,7 @@ import {
 import {
   createProjectCard,
   getProjectCard,
+  getProjectCardRow,
   patchProjectCard,
   softDeleteProjectCard,
   undeleteProjectCard,

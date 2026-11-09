@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { CheckSquare, FileText, MessageSquare } from 'lucide-react'
+import { CheckSquare, FileText, ListTodo, MessageSquare } from 'lucide-react'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import type { ProjectProperty } from '@shared/project/model'
 import { hasProjectCardBadges } from '@shared/project/badges'
@@ -15,8 +15,9 @@ export function OptionChip({ property, value }: { property: ProjectProperty, val
   )
 }
 
-export function CardBadges({ badges }: { badges: ProjectCardBadges }): ReactElement | null {
-  if (!hasProjectCardBadges(badges)) return null
+export function CardBadges({ badges, subtaskCount = 0, subtaskDone = 0 }: { badges: ProjectCardBadges, subtaskCount?: number, subtaskDone?: number }): ReactElement | null {
+  const hasSubtasks = subtaskCount > 0
+  if (!hasProjectCardBadges(badges) && !hasSubtasks) return null
   return (
     <span className="flex shrink-0 items-center gap-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
       {badges.description && (
@@ -30,6 +31,11 @@ export function CardBadges({ badges }: { badges: ProjectCardBadges }): ReactElem
       {badges.checkboxes > 0 && (
         <span className="flex items-center gap-0.5" aria-label={t('project.card.badge_tasks', { checked: badges.checked, total: badges.checkboxes })}>
           <CheckSquare size={13} aria-hidden="true" />{badges.checked}/{badges.checkboxes}
+        </span>
+      )}
+      {hasSubtasks && (
+        <span className="flex items-center gap-0.5 text-[var(--accent)] font-medium" aria-label={t('project.card.subtask_progress')}>
+          <ListTodo size={13} aria-hidden="true" />{subtaskDone}/{subtaskCount}
         </span>
       )}
     </span>

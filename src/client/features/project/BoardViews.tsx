@@ -1,7 +1,7 @@
-import { useRef, useState, useEffect, useMemo, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactElement } from 'react'
-import { ArrowUpDown, BarChart3, Calendar, CalendarRange, ChevronDown, ChevronRight, Clock, Copy, Download, Eye, EyeOff, Filter, LayoutGrid, List, MoreHorizontal, Pencil, Plus, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
+import { Fragment, useRef, useState, useEffect, useMemo, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactElement } from 'react'
+import { ArrowUpDown, BarChart3, Calendar, CalendarRange, ChevronDown, ChevronRight, Clock, Copy, CornerDownRight, Download, Eye, EyeOff, Filter, LayoutGrid, List, MoreHorizontal, Pencil, Plus, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
-import { emptyProjectViewFields, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
+import { emptyProjectViewFields, isProjectCardDone, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badges'
 import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, projectOptionLabel, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
@@ -171,6 +171,37 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const [selected, setSelected] = useState<string[]>([])
   const [batchPropertyId, setBatchPropertyId] = useState('')
   const [batchValue, setBatchValue] = useState('')
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(() => new Set())
+  const toggleExpandCard = (cardId: string) => {
+    setExpandedCards((prev) => {
+      const next = new Set(prev)
+      if (next.has(cardId)) next.delete(cardId)
+      else next.add(cardId)
+      return next
+    })
+  }
+
+  const allCardsById = useMemo(() => new Set(bundle.cards.map((c) => c.id)), [bundle.cards])
+  const subtasksByParent = useMemo(() => {
+    const map = new Map<string, ProjectCard[]>()
+    for (const card of bundle.cards) {
+      if (card.parentId) {
+        const list = map.get(card.parentId)
+        if (list) list.push(card)
+        else map.set(card.parentId, [card])
+      }
+    }
+    return map
+  }, [bundle.cards])
+
+  const subtaskProgressByParent = useMemo(() => {
+    const map = new Map<string, { total: number, done: number }>()
+    for (const [parentId, subtasks] of subtasksByParent) {
+      const done = subtasks.filter((s) => isProjectCardDone(s, bundle.properties)).length
+      map.set(parentId, { total: subtasks.length, done })
+    }
+    return map
+  }, [subtasksByParent, bundle.properties])
   const lastIndex = useRef<number | null>(null)
   const selectClick = (event: MouseEvent, cardId: string) => {
     const ids = sorted.map((card) => card.id)
@@ -386,8 +417,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           ? <Empty art="folder" title={t('project.board.empty_cards')} />
           : viewType === 'board'
             ? (fields.swimlaneBy
-              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} />
-              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} />)
+              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} allCardsById={allCardsById} subtasksByParent={subtasksByParent} subtaskProgressByParent={subtaskProgressByParent} expandedCards={expandedCards} onToggleExpand={toggleExpandCard} />
+              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} allCardsById={allCardsById} subtasksByParent={subtasksByParent} subtaskProgressByParent={subtaskProgressByParent} expandedCards={expandedCards} onToggleExpand={toggleExpandCard} />)
             : viewType === 'gallery'
               ? <GalleryView cards={sorted} badgesFor={badgesFor} properties={columns} showTitle={fields.galleryShowTitle !== false} showBadges={fields.galleryShowBadges !== false} onOpenCard={onOpenCard} />
               : viewType === 'list'
@@ -458,43 +489,114 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                           </td>
                         </tr>
                       )}
-                      {!fields.collapsedOptionIds.includes(groupKey) && groupCards.map((card) => (
-                        <tr key={card.id} className={`border-b border-[var(--border-subtle)] ${rowPad} ${selected.includes(card.id) ? 'bg-[var(--accent-soft)]' : ''}`} data-project-card={card.id}>
-                          <td className="px-3 py-2 text-[var(--text-primary)]">
-                            <button type="button" className="min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={(event) => selectClick(event, card.id)}>
-                              {card.title || t('project.board.untitled_card')}
-                            </button>
-                          </td>
-                          {columns.map((property) => (
-                            <td key={property.id} className="px-3 py-2 text-[var(--text-secondary)]">
-                              {editingCell?.cardId === card.id && editingCell.propertyId === property.id
-                                ? (
-                                  <PropertyValueEditor
-                                    property={property}
-                                    value={card.values[property.id] ?? ''}
-                                    members={bundle.members}
-                                    disabled={false}
-                                    onChange={(value) => { void onPatchCard(card.id, { values: { [property.id]: value } }); setEditingCell(null) }}
-                                  />
-                                )
-                                : canEdit
-                                  ? (
-                                    <button type="button" className="w-full truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => setEditingCell({ cardId: card.id, propertyId: property.id })}>
-                                      {cellDisplay(card, property)}
+                      {!fields.collapsedOptionIds.includes(groupKey) && (() => {
+                        const groupCardIds = new Set(groupCards.map((c) => c.id))
+                        const rootCards = groupCards.filter((c) => !c.parentId || !groupCardIds.has(c.parentId))
+                        return rootCards.map((card) => {
+                          const cardSubtasks = subtasksByParent.get(card.id) ?? []
+                          const hasSubtasks = cardSubtasks.length > 0
+                          const isExpanded = expandedCards.has(card.id)
+                          return (
+                            <Fragment key={card.id}>
+                              <tr className={`border-b border-[var(--border-subtle)] ${rowPad} ${selected.includes(card.id) ? 'bg-[var(--accent-soft)]' : ''}`} data-project-card={card.id}>
+                                <td className="px-3 py-2 text-[var(--text-primary)]">
+                                  <div className="flex items-center gap-1">
+                                    {hasSubtasks ? (
+                                      <button
+                                        type="button"
+                                        aria-label={isExpanded ? t('project.card.collapse_subtasks') : t('project.card.expand_subtasks')}
+                                        aria-expanded={isExpanded}
+                                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                                        onClick={() => toggleExpandCard(card.id)}
+                                      >
+                                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                      </button>
+                                    ) : (
+                                      <span className="w-5 shrink-0" aria-hidden="true" />
+                                    )}
+                                    <button type="button" className="min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={(event) => selectClick(event, card.id)}>
+                                      {card.title || t('project.board.untitled_card')}
                                     </button>
-                                  )
-                                  : cellDisplay(card, property)}
-                            </td>
-                          ))}
-                          {canEdit && (
-                            <td className="px-2 py-1">
-                              <IconButton label={t('project.board.delete_card')} size="sm" onClick={() => onDeleteCard(card.id)}>
-                                <Trash2 size={15} />
-                              </IconButton>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
+                                    {hasSubtasks && (
+                                      <span className="shrink-0 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
+                                        {cardSubtasks.filter((s) => isProjectCardDone(s, bundle.properties)).length}/{cardSubtasks.length}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                {columns.map((property) => (
+                                  <td key={property.id} className="px-3 py-2 text-[var(--text-secondary)]">
+                                    {editingCell?.cardId === card.id && editingCell.propertyId === property.id
+                                      ? (
+                                        <PropertyValueEditor
+                                          property={property}
+                                          value={card.values[property.id] ?? ''}
+                                          members={bundle.members}
+                                          disabled={false}
+                                          onChange={(value) => { void onPatchCard(card.id, { values: { [property.id]: value } }); setEditingCell(null) }}
+                                        />
+                                      )
+                                      : canEdit
+                                        ? (
+                                          <button type="button" className="w-full truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => setEditingCell({ cardId: card.id, propertyId: property.id })}>
+                                            {cellDisplay(card, property)}
+                                          </button>
+                                        )
+                                        : cellDisplay(card, property)}
+                                  </td>
+                                ))}
+                                {canEdit && (
+                                  <td className="px-2 py-1">
+                                    <IconButton label={t('project.board.delete_card')} size="sm" onClick={() => onDeleteCard(card.id)}>
+                                      <Trash2 size={15} />
+                                    </IconButton>
+                                  </td>
+                                )}
+                              </tr>
+                              {hasSubtasks && isExpanded && cardSubtasks.map((subtask) => (
+                                <tr key={subtask.id} className={`border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]/40 ${rowPad} ${selected.includes(subtask.id) ? 'bg-[var(--accent-soft)]' : ''}`} data-project-card={subtask.id}>
+                                  <td className="px-3 py-2 text-[var(--text-primary)]">
+                                    <div className="flex items-center gap-1.5 pl-6">
+                                      <CornerDownRight size={13} className="shrink-0 text-[var(--text-tertiary)]" />
+                                      <button type="button" className="min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={(event) => selectClick(event, subtask.id)}>
+                                        {subtask.title || t('project.board.untitled_card')}
+                                      </button>
+                                    </div>
+                                  </td>
+                                  {columns.map((property) => (
+                                    <td key={property.id} className="px-3 py-2 text-[var(--text-secondary)]">
+                                      {editingCell?.cardId === subtask.id && editingCell.propertyId === property.id
+                                        ? (
+                                          <PropertyValueEditor
+                                            property={property}
+                                            value={subtask.values[property.id] ?? ''}
+                                            members={bundle.members}
+                                            disabled={false}
+                                            onChange={(value) => { void onPatchCard(subtask.id, { values: { [property.id]: value } }); setEditingCell(null) }}
+                                          />
+                                        )
+                                        : canEdit
+                                          ? (
+                                            <button type="button" className="w-full truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => setEditingCell({ cardId: subtask.id, propertyId: property.id })}>
+                                              {cellDisplay(subtask, property)}
+                                            </button>
+                                          )
+                                          : cellDisplay(subtask, property)}
+                                    </td>
+                                  ))}
+                                  {canEdit && (
+                                    <td className="px-2 py-1">
+                                      <IconButton label={t('project.board.delete_card')} size="sm" onClick={() => onDeleteCard(subtask.id)}>
+                                        <Trash2 size={15} />
+                                      </IconButton>
+                                    </td>
+                                  )}
+                                </tr>
+                              ))}
+                            </Fragment>
+                          )
+                        })
+                      })()}
                     </tbody>
                   ))}
                   {active && (
@@ -532,7 +634,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   )
 }
 
-function BoardColumns({ cards, groupById, properties, badgesFor, canEdit, onDeleteCard, fields, density, onPatch, onPatchCard, onAddGroupOption, selected, onSelectClick }: {
+function BoardColumns({ cards, groupById, properties, badgesFor, canEdit, onDeleteCard, fields, density, onPatch, onPatchCard, onAddGroupOption, selected, onSelectClick, allCardsById, subtasksByParent, subtaskProgressByParent, expandedCards, onToggleExpand }: {
   cards: ProjectCard[]
   groupById?: string
   properties: ProjectProperty[]
@@ -546,6 +648,11 @@ function BoardColumns({ cards, groupById, properties, badgesFor, canEdit, onDele
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
   selected: string[]
   onSelectClick: (event: MouseEvent, id: string) => void
+  allCardsById?: Set<string>
+  subtasksByParent?: Map<string, ProjectCard[]>
+  subtaskProgressByParent?: Map<string, { total: number, done: number }>
+  expandedCards?: Set<string>
+  onToggleExpand?: (id: string) => void
 }): ReactElement {
   const cardPad = density === 'compact' ? 'px-2 py-1' : density === 'spacious' ? 'px-3 py-3' : 'px-2 py-2'
   const groupProperty = properties.find((property) => property.id === groupById)
@@ -563,6 +670,7 @@ function BoardColumns({ cards, groupById, properties, badgesFor, canEdit, onDele
     <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
       {columnKeys.map((key) => {
         const bucket = groups.get(key) ?? []
+        const rootCards = allCardsById ? bucket.filter((c) => !c.parentId || !allCardsById.has(c.parentId)) : bucket
         const label = key === '' ? t('project.view.no_value') : projectOptionLabel(groupProperty!, key)
         const calc = fields.kanbanCalculations[key]?.calculation ?? 'count'
         const calcProperty = groupProperty ?? properties[0]
@@ -597,7 +705,7 @@ function BoardColumns({ cards, groupById, properties, badgesFor, canEdit, onDele
                   {calculationOptionsFor(calcProperty).map((option) => <option key={option} value={option}>{option}</option>)}
                 </Select>
               )}
-              <span className={fields.wipLimits?.[key] !== undefined && bucket.length > fields.wipLimits[key]! ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}>{calcProperty ? computeProjectCalculation(bucket, calcProperty, calc) : bucket.length}</span>
+              <span className={fields.wipLimits?.[key] !== undefined && rootCards.length > fields.wipLimits[key]! ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}>{calcProperty ? computeProjectCalculation(rootCards, calcProperty, calc) : rootCards.length}</span>
               {canEdit && groupProperty && (
                 <Input
                   type="number"
@@ -616,26 +724,64 @@ function BoardColumns({ cards, groupById, properties, badgesFor, canEdit, onDele
               )}
             </header>
             <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
-              {bucket.length === 0 && <li className="px-1 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.empty_column')}</li>}
-              {bucket.map((card) => (
-                <li
-                  key={card.id}
-                  className={`flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--bg-base)] shadow-[var(--shadow-sm)] ${cardPad} ${selected.includes(card.id) ? 'ring-2 ring-[var(--accent)]' : ''}`}
-                  data-project-card={card.id}
-                  draggable={canEdit}
-                  onDragStart={(event) => { event.dataTransfer.setData('text/plain', card.id) }}
-                >
-                  <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={(event) => onSelectClick(event, card.id)}>
-                    {card.title || t('project.board.untitled_card')}
-                  </button>
-                  <CardBadges badges={badgesFor(card.id)} />
-                  {canEdit && (
-                    <IconButton label={t('project.board.delete_card')} size="sm" onClick={() => onDeleteCard(card.id)}>
-                      <Trash2 size={14} />
-                    </IconButton>
-                  )}
-                </li>
-              ))}
+              {rootCards.length === 0 && <li className="px-1 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.empty_column')}</li>}
+              {rootCards.map((card) => {
+                const cardSubtasks = subtasksByParent?.get(card.id) ?? []
+                const progress = subtaskProgressByParent?.get(card.id)
+                const hasSubtasks = cardSubtasks.length > 0
+                const isExpanded = expandedCards?.has(card.id) ?? false
+                return (
+                  <li
+                    key={card.id}
+                    className={`flex flex-col rounded-[var(--r-sm)] bg-[var(--bg-base)] shadow-[var(--shadow-sm)] ${cardPad} ${selected.includes(card.id) ? 'ring-2 ring-[var(--accent)]' : ''}`}
+                    data-project-card={card.id}
+                    draggable={canEdit}
+                    onDragStart={(event) => { event.dataTransfer.setData('text/plain', card.id) }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={(event) => onSelectClick(event, card.id)}>
+                        {card.title || t('project.board.untitled_card')}
+                      </button>
+                      <CardBadges badges={badgesFor(card.id)} subtaskCount={progress?.total} subtaskDone={progress?.done} />
+                      {hasSubtasks && onToggleExpand && (
+                        <button
+                          type="button"
+                          aria-label={isExpanded ? t('project.card.collapse_subtasks') : t('project.card.expand_subtasks')}
+                          aria-expanded={isExpanded}
+                          className="rounded p-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                          onClick={(e) => { e.stopPropagation(); onToggleExpand(card.id) }}
+                        >
+                          {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                        </button>
+                      )}
+                      {canEdit && (
+                        <IconButton label={t('project.board.delete_card')} size="sm" onClick={() => onDeleteCard(card.id)}>
+                          <Trash2 size={14} />
+                        </IconButton>
+                      )}
+                    </div>
+                    {hasSubtasks && isExpanded && (
+                      <div className="mt-2 space-y-1 border-t border-[var(--border-subtle)] pt-1.5 text-[length:var(--text-12)]">
+                        {cardSubtasks.map((subtask) => {
+                          const isDone = isProjectCardDone(subtask, properties)
+                          return (
+                            <div key={subtask.id} className="flex items-center gap-1.5 text-[var(--text-secondary)]">
+                              <CornerDownRight size={12} className="shrink-0 text-[var(--text-tertiary)]" />
+                              <button
+                                type="button"
+                                className={`min-w-0 flex-1 truncate text-left hover:text-[var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${isDone ? 'text-[var(--text-tertiary)] line-through' : ''}`}
+                                onClick={(e) => onSelectClick(e, subtask.id)}
+                              >
+                                {subtask.title || t('project.board.untitled_card')}
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           </section>
         )
@@ -652,7 +798,7 @@ function BoardColumns({ cards, groupById, properties, badgesFor, canEdit, onDele
   )
 }
 
-function Swimlanes({ cards, fields, properties, badgesFor, canEdit, onDeleteCard, density, onPatch, onPatchCard, onAddGroupOption, selected, onSelectClick }: {
+function Swimlanes({ cards, fields, properties, badgesFor, canEdit, onDeleteCard, density, onPatch, onPatchCard, onAddGroupOption, selected, onSelectClick, allCardsById, subtasksByParent, subtaskProgressByParent, expandedCards, onToggleExpand }: {
   cards: ProjectCard[]
   fields: ProjectViewFields
   properties: ProjectProperty[]
@@ -665,6 +811,11 @@ function Swimlanes({ cards, fields, properties, badgesFor, canEdit, onDeleteCard
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
   selected: string[]
   onSelectClick: (event: MouseEvent, id: string) => void
+  allCardsById?: Set<string>
+  subtasksByParent?: Map<string, ProjectCard[]>
+  subtaskProgressByParent?: Map<string, { total: number, done: number }>
+  expandedCards?: Set<string>
+  onToggleExpand?: (id: string) => void
 }) {
   const laneProperty = properties.find((property) => property.id === fields.swimlaneBy)
   const lanes = groupProjectCards(cards, fields.swimlaneBy, properties)
@@ -675,7 +826,7 @@ function Swimlanes({ cards, fields, properties, badgesFor, canEdit, onDeleteCard
           <h3 className="mb-1 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {key === '' ? t('project.view.no_value') : laneProperty?.options.find((o) => o.id === key)?.value ?? key}
           </h3>
-          <BoardColumns cards={laneCards} groupById={fields.groupById} properties={properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={onPatch} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={onSelectClick} />
+          <BoardColumns cards={laneCards} groupById={fields.groupById} properties={properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={onPatch} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={onSelectClick} allCardsById={allCardsById} subtasksByParent={subtasksByParent} subtaskProgressByParent={subtaskProgressByParent} expandedCards={expandedCards} onToggleExpand={onToggleExpand} />
         </section>
       ))}
     </div>
