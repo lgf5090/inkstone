@@ -294,6 +294,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         onActiveViewChange={setActiveViewId}
         onPatchCard={patchCard}
         onAddGroupOption={addGroupOption}
+        onRefresh={refresh}
       />
       {showProps && (
         <BoardPropertiesDialog

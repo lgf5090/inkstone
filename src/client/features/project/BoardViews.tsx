@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, type KeyboardEvent, type PointerEvent, type ReactElement } from 'react'
+import { useRef, useState, useEffect, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactElement } from 'react'
 import { ArrowUpDown, ChevronDown, ChevronRight, Copy, Download, Eye, EyeOff, Filter, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
@@ -16,7 +16,7 @@ import { PropertyValueEditor } from './PropertyValueEditor'
 import { CalendarView, GalleryView } from './GalleryCalendar'
 import { CardBadges } from './CardBadges'
 import { ChartView, ListView, TimelineView } from './ExtraViews'
-import { fetchBoardLinks, projectBoardExportUrl } from './api'
+import { batchDeleteProjectBoard, batchPatchProjectBoard, fetchBoardLinks, projectBoardExportUrl } from './api'
 
 const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   board: 'project.view.board',
@@ -58,9 +58,10 @@ interface BoardViewsProps {
   onActiveViewChange: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
+  onRefresh: () => Promise<void>
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onAddGroupOption }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onAddGroupOption, onRefresh }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
   useEffect(() => { setActiveId(readLastViewId(bundle.board.id)) }, [bundle.board.id])
   const selectView = (id: string): void => {
@@ -114,6 +115,40 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     setResizing(null)
   }
   const [editingCell, setEditingCell] = useState<{ cardId: string, propertyId: string } | null>(null)
+  const [selected, setSelected] = useState<string[]>([])
+  const [batchPropertyId, setBatchPropertyId] = useState('')
+  const [batchValue, setBatchValue] = useState('')
+  const lastIndex = useRef<number | null>(null)
+  const selectClick = (event: MouseEvent, cardId: string) => {
+    const ids = sorted.map((card) => card.id)
+    const index = ids.indexOf(cardId)
+    if (event.shiftKey && lastIndex.current !== null) {
+      const [a, b] = [lastIndex.current, index].sort((x, y) => x - y)
+      setSelected(ids.slice(a, b + 1))
+      return
+    }
+    if (event.ctrlKey || event.metaKey) {
+      lastIndex.current = index
+      setSelected((current) => (current.includes(cardId) ? current.filter((id) => id !== cardId) : [...current, cardId]))
+      return
+    }
+    lastIndex.current = index
+    setSelected([])
+    onOpenCard(cardId)
+  }
+  const batchDelete = async () => {
+    await batchDeleteProjectBoard(bundle.board.id, { cardIds: selected })
+    setSelected([])
+    await onRefresh()
+  }
+  const batchApply = async () => {
+    if (!batchPropertyId) return
+    await batchPatchProjectBoard(bundle.board.id, { cards: selected.map((id) => ({ id, patch: { values: { [batchPropertyId]: batchValue || null } } })) })
+    setSelected([])
+    await onRefresh()
+  }
+  const batchProperties = bundle.properties.filter((property) => property.type === 'select')
+  const batchProperty = batchProperties.find((property) => property.id === batchPropertyId)
   const tableGroups: [string, ProjectCard[]][] = fields.groupById
     ? [...groupProjectCards(sorted, fields.groupById, bundle.properties).entries()]
     : [['', sorted]]
@@ -262,14 +297,32 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           {t('project.view.hidden_count', { count: hiddenCount })}
         </p>
       )}
+      {canEdit && selected.length > 0 && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5" role="toolbar" aria-label={t('project.view.selected_count', { count: selected.length })}>
+          <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('project.view.selected_count', { count: selected.length })}</span>
+          <Button size="sm" variant="ghost" onClick={() => void batchDelete()}>{t('project.view.delete_selected')}</Button>
+          <Select className="w-32" value={batchPropertyId} aria-label={t('project.view.set_property')} onChange={(event) => { setBatchPropertyId(event.target.value); setBatchValue('') }}>
+            <option value="">{t('project.view.set_property')}</option>
+            {batchProperties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+          </Select>
+          {batchProperty && (
+            <Select className="w-32" value={batchValue} aria-label={t('project.view.filter_value')} onChange={(event) => setBatchValue(event.target.value)}>
+              <option value="">—</option>
+              {batchProperty.options.map((option) => <option key={option.id} value={option.id}>{option.value}</option>)}
+            </Select>
+          )}
+          <Button size="sm" disabled={!batchPropertyId} onClick={() => void batchApply()}>{t('common.save')}</Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelected([])}>{t('project.view.clear_selection')}</Button>
+        </div>
+      )}
       {viewType === 'calendar'
         ? <CalendarView cards={sorted} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} canEdit={canEdit} onOpenCard={onOpenCard} onPatchCard={onPatchCard} />
         : sorted.length === 0
           ? <Empty art="folder" title={t('project.board.empty_cards')} />
           : viewType === 'board'
             ? (fields.swimlaneBy
-              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} />
-              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} />)
+              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} />
+              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} />)
             : viewType === 'gallery'
               ? <GalleryView cards={sorted} contents={bundle.contents} comments={bundle.comments} onOpenCard={onOpenCard} />
               : viewType === 'list'
@@ -341,9 +394,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                         </tr>
                       )}
                       {!fields.collapsedOptionIds.includes(groupKey) && groupCards.map((card) => (
-                        <tr key={card.id} className={`border-b border-[var(--border-subtle)] ${rowPad}`} data-project-card={card.id}>
+                        <tr key={card.id} className={`border-b border-[var(--border-subtle)] ${rowPad} ${selected.includes(card.id) ? 'bg-[var(--accent-soft)]' : ''}`} data-project-card={card.id}>
                           <td className="px-3 py-2 text-[var(--text-primary)]">
-                            <button type="button" className="min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
+                            <button type="button" className="min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={(event) => selectClick(event, card.id)}>
                               {card.title || t('project.board.untitled_card')}
                             </button>
                           </td>
@@ -414,7 +467,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   )
 }
 
-function BoardColumns({ cards, groupById, properties, contents, comments, canEdit, onDeleteCard, onOpenCard, fields, density, onPatch, onPatchCard, onAddGroupOption }: {
+function BoardColumns({ cards, groupById, properties, contents, comments, canEdit, onDeleteCard, fields, density, onPatch, onPatchCard, onAddGroupOption, selected, onSelectClick }: {
   cards: ProjectCard[]
   groupById?: string
   properties: ProjectProperty[]
@@ -422,12 +475,13 @@ function BoardColumns({ cards, groupById, properties, contents, comments, canEdi
   comments: ProjectComment[]
   canEdit: boolean
   onDeleteCard: (id: string) => void
-  onOpenCard: (id: string) => void
   fields: ProjectViewFields
   density: 'compact' | 'comfortable' | 'spacious'
   onPatch: (fields: Partial<ProjectViewFields>) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
+  selected: string[]
+  onSelectClick: (event: MouseEvent, id: string) => void
 }): ReactElement {
   const cardPad = density === 'compact' ? 'px-2 py-1' : density === 'spacious' ? 'px-3 py-3' : 'px-2 py-2'
   const groupProperty = properties.find((property) => property.id === groupById)
@@ -502,12 +556,12 @@ function BoardColumns({ cards, groupById, properties, contents, comments, canEdi
               {bucket.map((card) => (
                 <li
                   key={card.id}
-                  className={`flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--bg-base)] shadow-[var(--shadow-sm)] ${cardPad}`}
+                  className={`flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--bg-base)] shadow-[var(--shadow-sm)] ${cardPad} ${selected.includes(card.id) ? 'ring-2 ring-[var(--accent)]' : ''}`}
                   data-project-card={card.id}
                   draggable={canEdit}
                   onDragStart={(event) => { event.dataTransfer.setData('text/plain', card.id) }}
                 >
-                  <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
+                  <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={(event) => onSelectClick(event, card.id)}>
                     {card.title || t('project.board.untitled_card')}
                   </button>
                   <CardBadges badges={projectCardBadges(contents.filter((block) => block.cardId === card.id), comments.filter((comment) => comment.cardId === card.id))} />
@@ -534,7 +588,7 @@ function BoardColumns({ cards, groupById, properties, contents, comments, canEdi
   )
 }
 
-function Swimlanes({ cards, fields, properties, contents, comments, canEdit, onDeleteCard, onOpenCard, density, onPatch, onPatchCard, onAddGroupOption }: {
+function Swimlanes({ cards, fields, properties, contents, comments, canEdit, onDeleteCard, density, onPatch, onPatchCard, onAddGroupOption, selected, onSelectClick }: {
   cards: ProjectCard[]
   fields: ProjectViewFields
   properties: ProjectProperty[]
@@ -542,11 +596,12 @@ function Swimlanes({ cards, fields, properties, contents, comments, canEdit, onD
   comments: ProjectComment[]
   canEdit: boolean
   onDeleteCard: (id: string) => void
-  onOpenCard: (id: string) => void
   density: 'compact' | 'comfortable' | 'spacious'
   onPatch: (fields: Partial<ProjectViewFields>) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
+  selected: string[]
+  onSelectClick: (event: MouseEvent, id: string) => void
 }) {
   const laneProperty = properties.find((property) => property.id === fields.swimlaneBy)
   const lanes = groupProjectCards(cards, fields.swimlaneBy, properties)
@@ -557,7 +612,7 @@ function Swimlanes({ cards, fields, properties, contents, comments, canEdit, onD
           <h3 className="mb-1 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {key === '' ? t('project.view.no_value') : laneProperty?.options.find((o) => o.id === key)?.value ?? key}
           </h3>
-          <BoardColumns cards={laneCards} groupById={fields.groupById} properties={properties} contents={contents} comments={comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={onPatch} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} />
+          <BoardColumns cards={laneCards} groupById={fields.groupById} properties={properties} contents={contents} comments={comments} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={onPatch} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={onSelectClick} />
         </section>
       ))}
     </div>

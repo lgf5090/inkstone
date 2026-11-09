@@ -64,6 +64,14 @@ export async function undeleteProjectCard(id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/cards/${encodeURIComponent(id)}/undelete`, { method: 'POST', body: {} })
 }
 
+export async function batchPatchProjectBoard(boardId: string, input: { cards?: { id: string, patch: Record<string, unknown> }[] }): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/batch`, { method: 'PATCH', body: input })
+}
+
+export async function batchDeleteProjectBoard(boardId: string, input: { cardIds?: string[] }): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/batch-delete`, { method: 'POST', body: input })
+}
+
 export async function patchProjectCard(id: string, patch: Record<string, unknown>): Promise<ProjectCard> {
   const body = await request<{ card: ProjectCard }>(`/api/project/cards/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
   return body.card
