@@ -13,6 +13,8 @@ vi.mock('./api', () => ({
   deleteProjectCategory: vi.fn(),
   addBoardToCategory: vi.fn(),
   setCategoryBoardHidden: vi.fn(),
+  reorderProjectCategories: vi.fn(),
+  reorderCategoryBoards: vi.fn(),
 }))
 
 const stamps = { ownerId: 'u1', type: 'P' as const, minimumRole: '' as const, description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0, role: 'admin' as const }
@@ -35,6 +37,22 @@ afterEach(() => { view?.unmount() })
 async function mount() {
   await act(async () => { view = renderElement(createElement(ProjectSidebar, { boards, onImport: vi.fn() })) })
 }
+
+describe('sidebar drag reorder (E-1/A-12)', () => {
+  it('dropping a board on another persists the new category order', async () => {
+    vi.mocked(api.fetchProjectCategories).mockResolvedValue({
+      categories: [{ id: 'cat1', userId: 'u1', name: 'Work', type: 'custom', collapsed: false, sortOrder: 0, createAt: 1, updateAt: 1, deleteAt: 0 }],
+      categoryBoards: [{ categoryId: 'cat1', boardId: 'b1', hidden: false, position: 0 }, { categoryId: 'cat1', boardId: 'b2', hidden: false, position: 1 }],
+    })
+    vi.mocked(api.reorderCategoryBoards).mockResolvedValue(undefined)
+    await mount()
+    const target = document.body.querySelector('[data-sidebar-board="b1"]')!
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { types: ['text/plain'], getData: () => 'board:b2' } })
+    await act(async () => { target.dispatchEvent(event) })
+    expect(api.reorderCategoryBoards).toHaveBeenCalledWith('cat1', ['b2', 'b1'])
+  })
+})
 
 describe('sidebar settings menu (E-7)', () => {
   afterEach(() => { localStorage.clear() })

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, Settings2, SquareKanban, Trash2 } from 'lucide-react'
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { t } from '../../lib/i18n'
@@ -16,6 +16,8 @@ import {
   deleteProjectCategory,
   fetchProjectCategories,
   patchProjectCategory,
+  reorderCategoryBoards,
+  reorderProjectCategories,
   setCategoryBoardHidden,
 } from './api'
 
@@ -112,7 +114,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   }
 
   const renderBoard = (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => (
-    <BoardEntry key={board.id} board={board} edge={edge} items={boardMenu(board, edge)} active={board.id === lastBoard} focused={visibleBoards[highlight]?.id === board.id} />
+    <BoardEntry key={board.id} board={board} edge={edge} items={boardMenu(board, edge)} active={board.id === lastBoard} focused={visibleBoards[highlight]?.id === board.id} onDragStart={(event) => { event.dataTransfer.setData('text/plain', `board:${board.id}`) }} onDrop={(event) => dropBoard(event, edge?.categoryId ?? '', board.id)} />
   )
 
   const settingsMenu: MenuItem[] = [
@@ -122,6 +124,29 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
     { id: 'theme', label: `${t('project.sidebar.theme')}: ${theme}`, onSelect: () => { applyAppearance({ theme: theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light' }) } },
     { id: 'random-icon', label: `${t('project.sidebar.random_icon')}${randomIcon ? ' ✓' : ''}`, onSelect: () => { const next = !randomIcon; writeRandomIconPref(next); setRandomIcon(next) } },
   ]
+
+  const dropCategory = (event: DragEvent, targetId: string) => {
+    const src = event.dataTransfer.getData('text/plain')
+    if (!src.startsWith('category:')) return
+    event.preventDefault()
+    const source = src.slice('category:'.length)
+    if (source === targetId) return
+    const ids = categories.map((c) => c.id).filter((id) => id !== source)
+    ids.splice(ids.indexOf(targetId), 0, source)
+    void guard(async () => { await reorderProjectCategories(ids) })
+  }
+  const dropBoard = (event: DragEvent, categoryId: string, targetId: string) => {
+    const src = event.dataTransfer.getData('text/plain')
+    if (!src.startsWith('board:') || !categoryId) return
+    event.preventDefault()
+    const source = src.slice('board:'.length)
+    if (source === targetId) return
+    const ids = edges.filter((e) => e.categoryId === categoryId).sort((a, b) => a.position - b.position).map((e) => e.boardId).filter((id) => id !== source)
+    const at = ids.indexOf(targetId)
+    if (at < 0) return
+    ids.splice(at, 0, source)
+    void guard(async () => { await reorderCategoryBoards(categoryId, ids) })
+  }
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]" aria-label={t('project.title')}>
@@ -136,8 +161,8 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           const categoryEdges = edges.filter((edge) => edge.categoryId === category.id).sort((a, b) => a.position - b.position)
           const categoryBoards = categoryEdges.map((edge) => ({ board: boards.find((b) => b.id === edge.boardId), edge })).filter((entry): entry is { board: ProjectBoardSummary, edge: ProjectCategoryBoard } => Boolean(entry.board) && matches(entry.board!))
           return (
-            <section key={category.id} className="mb-2">
-              <CategoryHeader category={category} onRename={() => {
+            <section key={category.id} className="mb-2" onDragOver={(event) => { if (event.dataTransfer.types.includes('text/plain')) event.preventDefault() }} onDrop={(event) => dropCategory(event, category.id)}>
+              <CategoryHeader category={category} onDragStart={(event) => { event.dataTransfer.setData('text/plain', `category:${category.id}`) }} onRename={() => {
                 void guard(async () => {
                   const name = await prompt({ title: t('project.sidebar.category_name'), defaultValue: category.name, confirmLabel: t('common.save') })
                   if (name !== null && name.trim()) await patchProjectCategory(category.id, { name: name.trim() })
@@ -161,7 +186,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   )
 }
 
-function CategoryHeader({ category, onRename, onDelete, onToggle }: { category: ProjectCategory, onRename: () => void, onDelete: () => void, onToggle: () => void }): ReactElement {
+function CategoryHeader({ category, onRename, onDelete, onToggle, onDragStart }: { category: ProjectCategory, onRename: () => void, onDelete: () => void, onToggle: () => void, onDragStart: (event: DragEvent) => void }): ReactElement {
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const items: MenuItem[] = [
@@ -169,7 +194,7 @@ function CategoryHeader({ category, onRename, onDelete, onToggle }: { category: 
     { id: 'delete', label: t('common.delete'), icon: <Trash2 size={15} />, tone: 'danger', disabled: category.type === 'system', onSelect: onDelete },
   ]
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1" draggable onDragStart={onDragStart}>
       <button type="button" className="flex min-w-0 flex-1 items-center gap-1 rounded-[var(--r-sm)] px-1 py-1 text-left text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={onToggle} aria-expanded={!category.collapsed}>
         {category.collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         <span className="min-w-0 flex-1 truncate">{category.name}</span>
@@ -180,11 +205,11 @@ function CategoryHeader({ category, onRename, onDelete, onToggle }: { category: 
   )
 }
 
-function BoardEntry({ board, edge, items, active, focused }: { board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined, items: MenuItem[], active: boolean, focused: boolean }): ReactElement {
+function BoardEntry({ board, edge, items, active, focused, onDragStart, onDrop }: { board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined, items: MenuItem[], active: boolean, focused: boolean, onDragStart: (event: DragEvent) => void, onDrop: (event: DragEvent) => void }): ReactElement {
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   return (
-    <li className={`flex items-center gap-1 ${edge?.hidden ? 'opacity-50' : ''}`} data-sidebar-board={board.id}>
+    <li className={`flex items-center gap-1 ${edge?.hidden ? 'opacity-50' : ''}`} data-sidebar-board={board.id} draggable onDragStart={onDragStart} onDragOver={(event) => { if (event.dataTransfer.types.includes('text/plain')) event.preventDefault() }} onDrop={onDrop}>
       <button type="button" aria-current={active ? 'true' : undefined} className={`flex min-w-0 flex-1 items-center gap-2 rounded-[var(--r-sm)] px-1 py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active ? 'bg-[var(--bg-hover)] font-semibold' : ''} ${focused ? 'ring-2 ring-[var(--accent)]' : ''}`} onClick={() => navigateToPath(`/project/boards/${board.id}`)}>
         <span aria-hidden="true" className="flex size-5 shrink-0 items-center justify-center text-[length:var(--text-12)]">{board.icon || <SquareKanban size={13} className="text-[var(--text-quaternary)]" />}</span>
         <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{board.title || t('project.boards.untitled')}</span>

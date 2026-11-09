@@ -72,6 +72,14 @@ export async function batchDeleteProjectBoard(boardId: string, input: { cardIds?
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/batch-delete`, { method: 'POST', body: input })
 }
 
+export async function reorderProjectCategories(categoryIds: string[]): Promise<void> {
+  await request<{ ok: true }>('/api/project/categories/order', { method: 'PUT', body: { categoryIds } })
+}
+
+export async function reorderCategoryBoards(categoryId: string, boardIds: string[]): Promise<void> {
+  await request<{ ok: true }>(`/api/project/categories/${encodeURIComponent(categoryId)}/boards/order`, { method: 'PUT', body: { boardIds } })
+}
+
 export async function patchProjectCard(id: string, patch: Record<string, unknown>): Promise<ProjectCard> {
   const body = await request<{ card: ProjectCard }>(`/api/project/cards/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
   return body.card
