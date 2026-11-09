@@ -3,6 +3,7 @@ import { Calendar, Check, ChevronLeft, ChevronRight, Copy, Download, FileCode, G
 import type { GithubTag, GistPrefs, SavedGist } from '@shared/development/github/types'
 import { GIST_SORT_OPTIONS } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
+import { isImeComposing } from '../../../../lib/ime'
 import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
 import { useUi } from '../../../../store/ui'
@@ -103,6 +104,7 @@ export function GistList({
   query,
   onQueryChange,
   onClear,
+  searchRef,
   totalCount,
   savedTotal,
   savedTruncated,
@@ -146,6 +148,7 @@ export function GistList({
   query: string
   onQueryChange: (value: string) => void
   onClear: () => void
+  searchRef?: React.Ref<HTMLInputElement>
   totalCount: number
   savedTotal: number
   savedTruncated: boolean
@@ -217,12 +220,12 @@ export function GistList({
         <div className="flex items-center gap-1.5 px-2 py-2">
           <IconButton label={t('development.github.common.toggle_sidebar')} size="sm" onClick={toggleSidebar}><PanelLeft size={15} /></IconButton>
           {!remote && <Checkbox checked={allSelected} onChange={onSelectAll} ariaLabel={t('development.github.gists.select_all')} className="hidden shrink-0 sm:inline-flex" />}
-          <div className="min-w-0 flex-1"><Input type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={t('development.github.gists.search_placeholder')} aria-label={t('development.github.gists.search_placeholder')} title={remote ? t('development.github.gists.page_search_hint') : undefined} className="h-8 pr-7 text-[length:var(--text-12)]" trailing={query ? <IconButton label={t('common.clear')} size="sm" onClick={onClear}><X size={12} /></IconButton> : undefined} /></div>
+          <div className="min-w-0 flex-1"><Input ref={searchRef} type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (query) onClear(); else event.currentTarget.blur() } }} placeholder={t('development.github.gists.search_placeholder')} aria-label={t('development.github.gists.search_placeholder')} title={remote ? t('development.github.gists.page_search_hint') : undefined} className="h-8 pr-7 text-[length:var(--text-12)]" trailing={query ? <IconButton label={t('common.clear')} size="sm" onClick={onClear}><X size={12} /></IconButton> : undefined} /></div>
           <div className="hidden shrink-0 items-center rounded-[var(--r-sm)] border border-[var(--border-default)] sm:flex">
             <IconButton label={t('development.github.gists.list_view')} size="sm" variant={viewMode === 'list' ? 'subtle' : 'ghost'} onClick={() => onViewModeChange('list')}><List size={13} /></IconButton>
             <IconButton label={t('development.github.gists.card_view')} size="sm" variant={viewMode === 'card' ? 'subtle' : 'ghost'} onClick={() => onViewModeChange('card')}><LayoutGrid size={13} /></IconButton>
           </div>
-          <Button ref={sortAnchor} variant="secondary" size="sm" className="size-8 px-0" onClick={() => setSortOpen(true)} title={t('development.github.gists.sort_by')} aria-label={t('development.github.gists.sort_by')}><Settings2 size={14} /></Button>
+          <IconButton ref={sortAnchor} variant="secondary" size="sm" className="size-8 md:size-8" label={t('development.github.gists.sort_by')} onClick={() => setSortOpen(true)}><Settings2 size={14} /></IconButton>
           <Button variant="primary" size="sm" className="shrink-0" onClick={onCreate}><Plus size={13} />{t('development.github.gists.create')}</Button>
           <IconButton label={t('development.github.common.toggle_detail')} size="sm" onClick={toggleDetail} disabled={detailDisabled}><PanelRight size={15} /></IconButton>
         </div>

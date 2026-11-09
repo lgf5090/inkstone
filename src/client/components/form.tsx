@@ -52,18 +52,22 @@ export function commitOnEnter(event: ReactKeyboardEvent, commit: () => void): bo
   return true
 }
 
+const HIDE_NATIVE_SEARCH_CLEAR =
+  '[&::-webkit-search-cancel-button]:hidden [&::-webkit-search-results-button]:hidden'
+
 export function Input({
   className,
   leading,
   trailing,
   invalid,
   'aria-invalid': ariaInvalid,
+  type,
   ...rest
 }: InputProps) {
   const accessibleInvalid = invalid ? true : ariaInvalid
-  if (leading || trailing) {
+  if (leading || trailing || type === 'search') {
     return (
-      <div className="relative flex items-center">
+      <div className="relative flex w-full min-w-0 items-center">
         {leading && (
           <span className="pointer-events-none absolute left-2.5 text-[var(--text-quaternary)]">
             {leading}
@@ -71,12 +75,14 @@ export function Input({
         )}
         <input
           {...rest}
+          type={type}
           aria-invalid={accessibleInvalid}
           className={cn(
             FIELD_BASE,
             'h-11 md:h-[34px]',
             leading && 'pl-8',
             trailing && 'pr-8',
+            trailing && type === 'search' && HIDE_NATIVE_SEARCH_CLEAR,
             invalid && 'border-[var(--danger)]',
             className,
           )}

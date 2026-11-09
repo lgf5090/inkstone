@@ -45,6 +45,7 @@ export function GistsPane({
   onOpenMirrors,
   currentMirrorId,
   deepLinkGistId,
+  active,
 }: {
   tab: GithubTab
   onTabChange: (tab: GithubTab) => void
@@ -52,6 +53,7 @@ export function GistsPane({
   onOpenMirrors: () => void
   currentMirrorId: string
   deepLinkGistId: string | null
+  active: boolean
 }) {
   const gistTags = useGithubStore((state) => state.gistTags)
   const gists = useGithubStore((state) => state.gists)
@@ -92,6 +94,18 @@ export function GistsPane({
   const [detailError, setDetailError] = useState<string | null>(null)
   const [deepLinkGist, setDeepLinkGist] = useState<GistItem | null>(null)
   const lookupRef = useRef<string | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!active) return
+    if (typeof window === 'undefined' || window.matchMedia('(pointer: coarse)').matches) return
+    const focused = document.activeElement
+    if (focused instanceof HTMLElement) {
+      const tag = focused.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || focused.isContentEditable) return
+    }
+    searchRef.current?.focus()
+  }, [active])
 
   const remote = isRemoteView(selectedView)
   const remoteUsername = extractUsernameFromView(selectedView)
@@ -379,6 +393,7 @@ export function GistsPane({
           <GistList
             query={query}
             onQueryChange={setQuery}
+            searchRef={searchRef}
             onClear={() => setQuery('')}
             totalCount={items.length}
             savedTotal={gistTotal}

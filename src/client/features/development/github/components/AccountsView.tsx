@@ -123,6 +123,9 @@ export function AccountsView({
             value={token}
             onChange={(event) => { setToken(event.target.value); setError(null) }}
             onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && token.trim() && !pending) { event.preventDefault(); void add() } }}
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
             placeholder={t('development.github.accounts.token_placeholder')}
             className="h-9 font-mono text-[length:var(--text-12)]"
             leading={<KeyRound size={13} />}

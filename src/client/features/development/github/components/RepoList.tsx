@@ -41,6 +41,7 @@ export function RepoList({
   onQueryChange,
   onCommitSearch,
   onClear,
+  searchRef,
   onGoDiscover,
   searchHistory,
   onPickSearchHistory,
@@ -90,6 +91,7 @@ export function RepoList({
   onQueryChange: (value: string) => void
   onCommitSearch: (query: string) => void
   onClear: () => void
+  searchRef?: React.Ref<HTMLInputElement>
   onGoDiscover: () => void
   searchHistory: string[]
   onPickSearchHistory: (value: string) => void
@@ -199,6 +201,7 @@ export function RepoList({
           {!isExplore && <Checkbox checked={allSelected} onChange={onSelectAllRepos} ariaLabel={t('development.github.repos.select_all')} className="shrink-0" />}
           <div className="min-w-0 flex-1">
             <Input
+              ref={searchRef}
               type="search"
               value={draft}
               onChange={(event) => {
@@ -206,16 +209,33 @@ export function RepoList({
                 setDraft(next)
                 if (!isExplore) onQueryChange(next)
               }}
-              onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && isExplore) { event.preventDefault(); onCommitSearch(draft) } }}
+              onKeyDown={(event) => {
+                if (isImeComposing(event)) return
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  if (draft) {
+                    setDraft('')
+                    onClear()
+                  } else {
+                    event.currentTarget.blur()
+                  }
+                  return
+                }
+                if (event.key === 'Enter' && isExplore) {
+                  event.preventDefault()
+                  onCommitSearch(draft)
+                }
+              }}
               placeholder={isExplore ? t('development.github.repos.search_placeholder') : t('development.github.repos.filter_placeholder')}
               aria-label={t('development.github.repos.search')}
               className="h-8 pr-7 text-[length:var(--text-12)]"
               trailing={draft ? <IconButton label={t('common.clear')} size="sm" onClick={() => { setDraft(''); onClear() }}><X size={12} /></IconButton> : undefined}
             />
           </div>
-          <Button ref={historyAnchor} variant="secondary" size="sm" className="hidden size-8 px-0 sm:inline-flex" title={t('development.github.repos.search_history')} aria-label={t('development.github.repos.search_history')} onClick={() => setHistoryOpen(true)}><History size={14} /></Button>
-          <Button ref={mirrorAnchor} variant="secondary" size="sm" className="size-8 px-0" title={t('development.github.mirrors.section')} aria-label={t('development.github.mirrors.section')} onClick={() => setMirrorOpen(true)}><Globe size={14} /></Button>
-          <Button ref={settingsAnchor} variant="secondary" size="sm" className="size-8 px-0" title={t('development.github.repos.more_settings')} aria-label={t('development.github.repos.more_settings')} onClick={() => setSettingsOpen(true)}><Settings2 size={14} /></Button>
+          <IconButton ref={historyAnchor} variant="secondary" size="sm" className="hidden size-8 md:size-8 sm:inline-flex" label={t('development.github.repos.search_history')} onClick={() => setHistoryOpen(true)}><History size={14} /></IconButton>
+          <IconButton ref={mirrorAnchor} variant="secondary" size="sm" className="size-8 md:size-8" label={t('development.github.mirrors.section')} onClick={() => setMirrorOpen(true)}><Globe size={14} /></IconButton>
+          <IconButton ref={settingsAnchor} variant="secondary" size="sm" className="size-8 md:size-8" label={t('development.github.repos.more_settings')} onClick={() => setSettingsOpen(true)}><Settings2 size={14} /></IconButton>
           <IconButton label={t('development.github.common.toggle_detail')} size="sm" onClick={toggleDetail} disabled={detailDisabled}><PanelRight size={15} /></IconButton>
         </div>
         {isExplore ? (

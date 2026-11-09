@@ -35,6 +35,7 @@ export function ReposPane({
   currentMirrorId,
   onCurrentMirrorChange,
   deepLinkRepo,
+  active,
 }: {
   tab: GithubTab
   onTabChange: (tab: GithubTab) => void
@@ -43,6 +44,7 @@ export function ReposPane({
   currentMirrorId: string
   onCurrentMirrorChange: (id: string) => void
   deepLinkRepo: string | null
+  active: boolean
 }) {
   const tags = useGithubStore((state) => state.tags)
   const repos = useGithubStore((state) => state.repos)
@@ -77,6 +79,18 @@ export function ReposPane({
   const [searchHistory, setSearchHistory] = useState(loadSearchHistory)
   const [extraRepo, setExtraRepo] = useState<GithubRepo | null>(null)
   const lookupRef = useRef<string | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!active) return
+    if (typeof window === 'undefined' || window.matchMedia('(pointer: coarse)').matches) return
+    const focused = document.activeElement
+    if (focused instanceof HTMLElement) {
+      const tag = focused.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || focused.isContentEditable) return
+    }
+    searchRef.current?.focus()
+  }, [active])
 
   const isExplore = selectedView === GITHUB_EXPLORE_VIEW
   const searchParams = useMemo(() => ({
@@ -417,6 +431,7 @@ export function ReposPane({
             isExplore={isExplore}
             query={query}
             onQueryChange={setQuery}
+            searchRef={searchRef}
             onCommitSearch={(value) => { setQuery(value); setCommittedQuery(value.trim()); setPage(1); rememberSearch(value) }}
             onClear={() => { setQuery(''); setCommittedQuery(''); setPage(1) }}
             searchHistory={searchHistory}
