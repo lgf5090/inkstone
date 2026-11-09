@@ -12,7 +12,8 @@ import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Modal } from '../../components/overlay'
-import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectView, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectView } from './api'
+import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectView, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView } from './api'
+import { newProjectId } from '@shared/project/limits'
 import { BoardViews } from './BoardViews'
 import { BoardPropertiesDialog } from './BoardPropertiesDialog'
 import { CardDialog } from './CardDialog'
@@ -115,6 +116,20 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     await deleteProjectCard(cardId)
     setBundle((current) => (current ? { ...current, cards: current.cards.filter((card) => card.id !== cardId) } : current))
   }, [])
+
+  const patchCard = useCallback(async (id: string, patch: Record<string, unknown>) => {
+    const updated = await patchProjectCard(id, patch)
+    setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === id ? updated : card)) } : current))
+  }, [])
+
+  const addGroupOption = useCallback(async (propertyId: string, value: string) => {
+    if (!bundle) return
+    const properties = bundle.properties.map((property) => (property.id === propertyId
+      ? { ...property, options: [...property.options, { id: newProjectId('property'), value, color: '' }] }
+      : property))
+    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties })
+    setBundle((current) => (current ? { ...current, properties: result.properties } : current))
+  }, [bundle, boardId])
 
   const addView = useCallback(async (viewType: ProjectViewType) => {
     const view = await createProjectView(boardId, viewType)
@@ -230,6 +245,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         onDeleteView={(id) => guard(() => removeView(id))}
         onDuplicateView={(id) => guard(() => copyView(id))}
         onActiveViewChange={setActiveViewId}
+        onPatchCard={patchCard}
+        onAddGroupOption={addGroupOption}
       />
       {showProps && (
         <BoardPropertiesDialog

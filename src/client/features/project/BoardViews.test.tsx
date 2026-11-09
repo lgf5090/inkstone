@@ -1,6 +1,6 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectBoardBundle, ProjectViewType } from '@shared/project/model'
+import type { ProjectBoardBundle, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_VIEW_TYPES } from '@shared/project/model'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
@@ -31,7 +31,7 @@ function bundle(): ProjectBoardBundle {
 let view: RenderedElement
 async function mount(): Promise<void> {
   await act(async () => {
-    view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
+    view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined) }))
   })
 }
 beforeEach(async () => { await initI18n() })
@@ -72,7 +72,7 @@ describe('view tab labels', () => {
       id: `v${index}`, boardId: 'b1', title: '', viewType, fields: emptyProjectViewFields(), position: index, ...stamps,
     }))
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined) }))
     })
     const labels = [...view.container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)
     expect(labels).toEqual(PROJECT_VIEW_TYPES.map((viewType) => t(`project.view.${viewType}` as Parameters<typeof t>[0])))
@@ -86,12 +86,41 @@ describe('view tab labels', () => {
   })
 })
 
+describe('board column hide and cross-column drag (C-2)', () => {
+  async function mountBoard(onPatch: ReturnType<typeof vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>>, onPatchCard: ReturnType<typeof vi.fn<(id: string, patch: Record<string, unknown>) => Promise<void>>>) {
+    const base = bundle()
+    base.views = [base.views[1]!]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: onPatch, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined) }))
+    })
+  }
+
+  it('hide column persists hiddenOptionIds', async () => {
+    const onPatch = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>().mockResolvedValue(undefined)
+    await mountBoard(onPatch, vi.fn<(id: string, patch: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined))
+    const hide = view.container.querySelector(`button[aria-label="${t('project.view.hide_column')}"]`) as HTMLButtonElement
+    expect(hide).not.toBeNull()
+    await act(async () => { hide.click() })
+    expect(onPatch).toHaveBeenCalledWith('v2', { fields: { hiddenOptionIds: ['o1'] } })
+  })
+
+  it('dropping a card on a column patches its group value', async () => {
+    const onPatchCard = vi.fn<(id: string, patch: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined)
+    await mountBoard(vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>().mockResolvedValue(undefined), onPatchCard)
+    const column = view.container.querySelector('section[aria-label="Done"]')!
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { getData: () => 'c1' } })
+    await act(async () => { column.dispatchEvent(event) })
+    expect(onPatchCard).toHaveBeenCalledWith('c1', { values: { ps: 'o2' } })
+  })
+})
+
 describe('column resize grip (C-17)', () => {
   it('ArrowRight on the grip persists a wider columnWidth', async () => {
     localStorage.clear()
     const onPatchView = vi.fn().mockResolvedValue(undefined)
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined) }))
     })
     const grip = view.container.querySelector(`[role="separator"][aria-label="${t('project.view.resize_column')}"]`) as HTMLButtonElement
     expect(grip).not.toBeNull()
@@ -105,7 +134,7 @@ describe('hidden card count (C-18)', () => {
     const base = bundle()
     base.views = [{ ...base.views[0]!, fields: { ...emptyProjectViewFields(), filter: { operation: 'and', filters: [{ propertyId: 'pt', condition: 'contains', values: ['hello'] }] } } }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined) }))
     })
     const status = view.container.querySelector('[role="status"]')
     expect(status?.textContent).toBe(t('project.view.hidden_count', { count: 2 }))
@@ -139,7 +168,7 @@ describe('view tab order (C-23)', () => {
       { ...base.views[1]!, id: 'va', title: 'Apple' },
     ]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined) }))
     })
     const labels = [...view.container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)
     expect(labels).toEqual(['Apple', '🗺️ Zebra'])
@@ -179,7 +208,7 @@ describe('view actions menu (C-1/C-15)', () => {
     const onDeleteView = vi.fn()
     const onDuplicateView = vi.fn()
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView, onDuplicateView, onActiveViewChange: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView, onDuplicateView, onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined) }))
     })
     await openMenu()
     await act(async () => { item(t('project.view.duplicate')).click() })
@@ -201,7 +230,7 @@ describe('view actions menu (C-1/C-15)', () => {
     const base = bundle()
     base.views = [base.views[0]!]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined) }))
     })
     await openMenu()
     expect(item(t('project.view.delete')).disabled).toBe(true)
@@ -214,7 +243,7 @@ describe('display by and group by (C-13/C-6)', () => {
     base.properties = [...base.properties, { id: 'pd', name: 'Due', type: 'date', options: [] }]
     base.views = [{ ...base.views[0]!, id: 'vc', viewType: 'calendar' }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined) }))
     })
     const select = view.container.querySelector(`select[aria-label="${t('project.view.display_by')}"]`) as HTMLSelectElement
     expect(select).not.toBeNull()
@@ -226,7 +255,7 @@ describe('display by and group by (C-13/C-6)', () => {
     base.properties = [...base.properties, { id: 'pn', name: 'Estimate', type: 'number', options: [] }]
     base.views = [{ ...base.views[1]!, id: 'vb' }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn() }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined) }))
     })
     const select = view.container.querySelector(`select[aria-label="${t('project.view.group_by')}"]`) as HTMLSelectElement
     expect([...select.options].map((option) => option.textContent)).toContain('Estimate')

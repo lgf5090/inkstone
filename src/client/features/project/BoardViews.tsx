@@ -1,12 +1,12 @@
 import { useRef, useState, useEffect, type KeyboardEvent, type PointerEvent, type ReactElement } from 'react'
-import { ArrowUpDown, Copy, Download, Eye, Filter, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowUpDown, Copy, Download, Eye, EyeOff, Filter, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { projectCardBadges } from '@shared/project/badges'
 import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, projectOptionLabel, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { t } from '../../lib/i18n'
-import { IconButton } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
 import { Menu, prompt, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
@@ -55,9 +55,11 @@ interface BoardViewsProps {
   onDeleteView: (id: string) => void
   onDuplicateView: (id: string) => void
   onActiveViewChange: (id: string) => void
+  onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
+  onAddGroupOption: (propertyId: string, value: string) => Promise<void>
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onAddGroupOption }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
   useEffect(() => { setActiveId(readLastViewId(bundle.board.id)) }, [bundle.board.id])
   const selectView = (id: string): void => {
@@ -249,8 +251,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           ? <Empty art="folder" title={t('project.board.empty_cards')} />
           : viewType === 'board'
             ? (fields.swimlaneBy
-              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />
-              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} />)
+              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} />
+              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} />)
             : viewType === 'gallery'
               ? <GalleryView cards={sorted} contents={bundle.contents} comments={bundle.comments} onOpenCard={onOpenCard} />
               : viewType === 'list'
@@ -343,7 +345,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   )
 }
 
-function BoardColumns({ cards, groupById, properties, contents, comments, canEdit, onDeleteCard, onOpenCard, fields, density, onPatch }: {
+function BoardColumns({ cards, groupById, properties, contents, comments, canEdit, onDeleteCard, onOpenCard, fields, density, onPatch, onPatchCard, onAddGroupOption }: {
   cards: ProjectCard[]
   groupById?: string
   properties: ProjectProperty[]
@@ -355,13 +357,21 @@ function BoardColumns({ cards, groupById, properties, contents, comments, canEdi
   fields: ProjectViewFields
   density: 'compact' | 'comfortable' | 'spacious'
   onPatch: (fields: Partial<ProjectViewFields>) => void
+  onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
+  onAddGroupOption: (propertyId: string, value: string) => Promise<void>
 }): ReactElement {
   const cardPad = density === 'compact' ? 'px-2 py-1' : density === 'spacious' ? 'px-3 py-3' : 'px-2 py-2'
   const groupProperty = properties.find((property) => property.id === groupById)
   const groups = groupProjectCards(cards, groupById, properties)
-  const columnKeys = groupProperty && groupProperty.options.length
+  const columnKeys = (groupProperty && groupProperty.options.length
     ? [...groupProperty.options.map((option) => option.id), '']
-    : ['']
+    : ['']).filter((key) => !fields.hiddenOptionIds.includes(key))
+  const addGroup = () => {
+    if (!groupProperty) return
+    void prompt({ title: t('project.view.add_group'), confirmLabel: t('common.save') }).then((value) => {
+      if (value !== null && value.trim()) void onAddGroupOption(groupProperty.id, value.trim())
+    })
+  }
   return (
     <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
       {columnKeys.map((key) => {
@@ -370,9 +380,25 @@ function BoardColumns({ cards, groupById, properties, contents, comments, canEdi
         const calc = fields.kanbanCalculations[key]?.calculation ?? 'count'
         const calcProperty = groupProperty ?? properties[0]
         return (
-          <section key={key || 'empty'} className="flex w-64 shrink-0 flex-col rounded-[var(--r-md)] bg-[var(--bg-sunken)]" aria-label={label}>
+          <section
+            key={key || 'empty'}
+            className="flex w-64 shrink-0 flex-col rounded-[var(--r-md)] bg-[var(--bg-sunken)]"
+            aria-label={label}
+            onDragOver={(event) => { if (canEdit && groupProperty) event.preventDefault() }}
+            onDrop={(event) => {
+              if (!canEdit || !groupProperty) return
+              event.preventDefault()
+              const cardId = event.dataTransfer.getData('text/plain')
+              if (cardId) void onPatchCard(cardId, { values: { [groupProperty.id]: key === '' ? null : key } })
+            }}
+          >
             <header className="flex items-center gap-2 px-3 py-2 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
               <span className="min-w-0 flex-1 truncate">{label}</span>
+              {canEdit && groupProperty && key !== '' && (
+                <IconButton label={t('project.view.hide_column')} size="sm" onClick={() => onPatch({ hiddenOptionIds: [...fields.hiddenOptionIds, key] })}>
+                  <EyeOff size={13} />
+                </IconButton>
+              )}
               {calcProperty && (
                 <Select
                   className="w-24"
@@ -405,7 +431,13 @@ function BoardColumns({ cards, groupById, properties, contents, comments, canEdi
             <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
               {bucket.length === 0 && <li className="px-1 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.empty_column')}</li>}
               {bucket.map((card) => (
-                <li key={card.id} className={`flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--bg-base)] shadow-[var(--shadow-sm)] ${cardPad}`} data-project-card={card.id}>
+                <li
+                  key={card.id}
+                  className={`flex items-center gap-2 rounded-[var(--r-sm)] bg-[var(--bg-base)] shadow-[var(--shadow-sm)] ${cardPad}`}
+                  data-project-card={card.id}
+                  draggable={canEdit}
+                  onDragStart={(event) => { event.dataTransfer.setData('text/plain', card.id) }}
+                >
                   <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-13)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
                     {card.title || t('project.board.untitled_card')}
                   </button>
@@ -421,11 +453,19 @@ function BoardColumns({ cards, groupById, properties, contents, comments, canEdi
           </section>
         )
       })}
+      {canEdit && groupProperty && (
+        <div className="flex w-40 shrink-0 flex-col gap-2">
+          <Button size="sm" icon={<Plus size={14} />} onClick={addGroup}>{t('project.view.add_group')}</Button>
+          {fields.hiddenOptionIds.length > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => onPatch({ hiddenOptionIds: [] })}>{t('project.view.show_hidden_columns')}</Button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
-function Swimlanes({ cards, fields, properties, contents, comments, canEdit, onDeleteCard, onOpenCard, density, onPatch }: {
+function Swimlanes({ cards, fields, properties, contents, comments, canEdit, onDeleteCard, onOpenCard, density, onPatch, onPatchCard, onAddGroupOption }: {
   cards: ProjectCard[]
   fields: ProjectViewFields
   properties: ProjectProperty[]
@@ -436,6 +476,8 @@ function Swimlanes({ cards, fields, properties, contents, comments, canEdit, onD
   onOpenCard: (id: string) => void
   density: 'compact' | 'comfortable' | 'spacious'
   onPatch: (fields: Partial<ProjectViewFields>) => void
+  onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
+  onAddGroupOption: (propertyId: string, value: string) => Promise<void>
 }) {
   const laneProperty = properties.find((property) => property.id === fields.swimlaneBy)
   const lanes = groupProjectCards(cards, fields.swimlaneBy, properties)
@@ -446,7 +488,7 @@ function Swimlanes({ cards, fields, properties, contents, comments, canEdit, onD
           <h3 className="mb-1 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {key === '' ? t('project.view.no_value') : laneProperty?.options.find((o) => o.id === key)?.value ?? key}
           </h3>
-          <BoardColumns cards={laneCards} groupById={fields.groupById} properties={properties} contents={contents} comments={comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={onPatch} />
+          <BoardColumns cards={laneCards} groupById={fields.groupById} properties={properties} contents={contents} comments={comments} canEdit={canEdit} onDeleteCard={onDeleteCard} onOpenCard={onOpenCard} fields={fields} density={density} onPatch={onPatch} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} />
         </section>
       ))}
     </div>
