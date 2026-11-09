@@ -84,6 +84,7 @@ export const EN_US_DEVELOPMENT_CERTHUB = {
   "development.certhub.failure.rejected_identifier": "The authority refused one domain. Check the spelling, and that it may be issued (reserved names and disallowed TLDs are refused).",
   "development.certhub.failure.order_not_ready": "The order is not ready yet and retries are automatic; press Verify now if it does not move.",
   "development.certhub.failure.dns": "Writing or reading the DNS record failed. Check the provider credentials, or add the record by hand and retry.",
+  "development.certhub.failure.dns_auth": "The DNS provider refused the write: the token cannot write the zone that holds this domain, or the stored Zone ID belongs to a different account. Test the connection again on the DNS provider page; if it still fails, create a token with Zone:DNS:Edit.",
   "development.certhub.failure.connection": "The authority or DNS service timed out. Retry later; if it persists, check the deployment network.",
   "development.certhub.failure.server": "The authority is temporarily unavailable. Wait for the backoff and retry.",
   "development.certhub.failure.invalid": "The authority rejected the request as invalid. Read the raw message above, fix the domains or the challenge, and request again.",

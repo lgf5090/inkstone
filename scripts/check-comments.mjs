@@ -7104,7 +7104,8 @@ const allowed = new Map([
     "// rendered for any stored row, including ones written by a newer worker.",
   ]],
   ["src/client/features/development/certhub/rules.ts", [
-    "/**\n * The provider whose zone canonically contains this domain, or `''` when none does.\n *\n * A provider is matched by its configured zone name, not its label: the label is free text, while the\n * zone name is what the token is allowed to write to. The longest matching zone wins, so a provider\n * for `sub.example.com` is preferred over one for `example.com`. The wildcard prefix is dropped before\n * matching because `*.example.com` lives inside the `example.com` zone.\n */",
+    "// The matching rule lives in the shared layer because the worker repairs stored orders with it too;",
+    "// a client-only copy would let the form and the repair path disagree about a domain's zone.",
   ]],
   ["src/client/features/development/icons/IconsApp.tsx", [
     "// The tuple below is the exact filter surface; the browse object also carries view settings that",
@@ -32400,6 +32401,9 @@ const allowed = new Map([
     "/** One multipart/form-data field after variable resolution. File fields carry an owned file id. */",
     "/** A cookie the relay learned from a response and may send to the same domain/path later. */",
   ]],
+  ["src/shared/development/certhub/provider-match.ts", [
+    "/**\n * Which provider owns the zone that contains a requested domain.\n *\n * A provider is matched by its configured zone name, not its label: the label is free text, while the\n * zone name is what the token is allowed to write to. The longest matching zone wins, so a provider\n * for `sub.example.com` is preferred over one for `example.com`. The wildcard prefix is dropped before\n * matching because `*.example.com` lives inside the `example.com` zone.\n *\n * Both the request form and the worker's repair path use this: a stored order has to be bound with\n * exactly the same rule the form would have applied, or the two disagree about which zone owns a name.\n */",
+  ]],
   ["src/shared/development/certhub/validation.ts", [
     "// An empty id is deliberate: it detaches the domain from a provider and returns it to the manual",
     "// flow, which is the only way to undo a wrong pick without touching the order itself.",
@@ -40461,6 +40465,9 @@ const allowed = new Map([
     "// queue wake; without (order, kind, created_at) the read walks the order's whole event history.",
     "// 360 starts a fresh lane above the reservations for the api-client (330), database-studio (340)",
     "// and xget (350) branches.",
+    "// Auto-binding a stored order walks the account's providers once per waiting order; the zone",
+    "// name is the column that decides the match, so it gets the index rather than a full table scan.",
+    "// 340/350/360 belong to the database-studio, xget and earlier certhub lanes, so this starts at 380.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -40536,8 +40543,16 @@ const allowed = new Map([
     "// The row expires with the idle window regardless; a failed cleanup must not fail the socket.",
     "// Checked before the ticket is consumed so a refused upgrade can be retried with the same ticket.",
   ]],
+  ["src/worker/development/certhub/acme/errors.ts", [
+    "// An ApiError is the app's own verdict, not an ACME problem document: it carries `code` and",
+    "// `status` directly and has no `response`. Reading it as an axios error turned every DNS refusal",
+    "// into \"unknown, retry in 30 seconds\", which is what made a permanent token problem repeat every",
+    "// cron tick.",
+  ]],
   ["src/worker/development/certhub/dns/cloudflare.ts", [
     "/**\n * Writes the TXT record this order owns, or returns the id of the one it already owns.\n *\n * Two orders for the same name (`example.com` and `*.example.com`) need two values at\n * `_acme-challenge.example.com`, so the write must never replace an existing record. An interrupted\n * attempt, though, can leave the record already there, and retrying would stack a duplicate value.\n * The comment carries the order id: a record with this name, value and comment is this order's own\n * record, while another order's value at the same name is left untouched.\n */",
+    "/**\n * Resolves the zone id the token can actually write to, by the zone's name.\n *\n * The id a reader pasted is a fact they cannot verify; a token that belongs to another account, or a\n * zone id copied from elsewhere, answers \"Authentication error\" on every record call while\n * `/user/tokens/verify` still succeeds. Asking Cloudflare for the zone by name turns that into either\n * the correct id or a readable \"this token cannot see this zone\" refusal.\n */",
+    "/**\n * Proves the token can write DNS records, by creating and removing a temporary TXT record.\n *\n * `/user/tokens/verify` answers for a token with any scope, so a Zone:Read token passes every earlier\n * check and then fails every issuance at the first record write. The probe is the only honest test;\n * its name is unique and it is deleted immediately, so a successful probe leaves nothing behind.\n */",
   ]],
   ["src/worker/development/certhub/state-machine.ts", [
     "/**\n   * Why the order did not move. A blocked result is a finished answer, not an error: the queue treats\n   * it as \"ask again later\" while the interactive action surfaces it as a refusal the reader can act on.\n   */",
@@ -40553,6 +40568,23 @@ const allowed = new Map([
     "// even when the reader never presses the button again.",
     "/** The order states in which a domain may still change its provider: everything before the CA decides. */",
     "/**\n * Binds (or changes, or clears) the DNS provider of one domain, then re-queues the order.\n *\n * The order goes back to `queued` so the next advance re-reads the authorizations and writes the\n * record through the newly bound provider; the domain's own record fields are cleared because the\n * record that was attached to the previous provider no longer describes where the value lives.\n *\n * Only the stored `dns_record_id` is deleted on the way out. Two orders for `example.com` and\n * `*.example.com` share `_acme-challenge.example.com` but hold different values, and deleting by id\n * removes this domain's value while leaving the other order's TXT in place.\n */",
+    "/** A retryable failure is reported at most this slowly; retries themselves are unaffected. */",
+    "/**\n * Binds every waiting DNS-01 domain that a stored provider's zone covers.\n *\n * The request form applies this rule to new orders; an order created before that rule existed still\n * carries an empty provider, and the queue is the only place that revisits it. Binding here also\n * forces the order back to `queued` so the next step re-reads the authorizations and writes the TXT\n * record through the provider it just chose. A domain no provider covers is left untouched, which\n * keeps the explicit \"missing provider\" block for the cases it describes.\n */",
+    "// No version bump: this is a repair of a row the queue owns, and the next step's CAS guard reads",
+    "// the version it finds here. A second concurrent repair would simply find the providers already set.",
+    "/**\n * Reports a retryable failure at most twice an hour.\n *\n * The queue wakes every minute; writing one row per wake buried the real history under copies of\n * the same line, which is how \"a transient DNS error\" came to look like \"this has failed forever\".\n */",
+    "// The stored id is a value the reader typed; the zone's own name is the fact. Ask Cloudflare",
+    "// which id that token can reach, and persist the answer when it differs, so a copied id",
+    "// stops producing \"Authentication error\" on every record call.",
+    "// A zone the token cannot see is the answer we need; other failures fall through to the",
+    "// record call, whose message is the one the reader can act on.",
+    "// A DNS failure is recoverable once the token or zone is fixed: the reader's retry puts the order",
+    "// back in the queue instead of forcing a brand-new application. Other failures stay terminal.",
+    "// A stored order can predate the form's default provider, and no surface revisits it. The queue is",
+    "// the one path every waiting order takes, so the matching provider is bound here before the step",
+    "// that would otherwise report the provider as missing.",
+    "// A permanent failure is a state, not a retry: the domains carry the reason too, so the detail",
+    "// page and the order row cannot disagree about why this stopped.",
   ]],
   ["src/worker/development/certhub/store.ts", [
     "/** Grouped order counts, scoped to one reader or to the whole deployment for the admin overview. */",
@@ -42831,6 +42863,12 @@ const allowed = new Map([
   ["src/worker/routes/development-api-tester.ts", [
     "// A state that cannot be opened is still deletable; its objects will expire on their own.",
     "// Decrypt in small batches: opening a hundred rows at once would burst the credential vault.",
+  ]],
+  ["src/worker/routes/development-certhub.ts", [
+    "// The token's own self-check says nothing about the zone or about DNS write scope, which is how a",
+    "// provider could report success while every issuance failed on its first record call.",
+    "// A zone the token cannot see is the answer we need; other failures fall through to the probe,",
+    "// whose message is the one the reader can act on.",
   ]],
   ["src/worker/routes/development-icons.ts", [
     "/** A brake on a client that spams the conversion endpoint; it is per isolate, like the other budgets. */",

@@ -53,9 +53,49 @@ export async function verifyCloudflareToken(token: string): Promise<void> {
   await request<{ id: string; status: string }>('/user/tokens/verify', token)
 }
 
+/**
+ * Resolves the zone id the token can actually write to, by the zone's name.
+ *
+ * The id a reader pasted is a fact they cannot verify; a token that belongs to another account, or a
+ * zone id copied from elsewhere, answers "Authentication error" on every record call while
+ * `/user/tokens/verify` still succeeds. Asking Cloudflare for the zone by name turns that into either
+ * the correct id or a readable "this token cannot see this zone" refusal.
+ */
+export async function resolveZoneId(token: string, zoneName: string): Promise<string> {
+  const name = zoneName.trim().toLowerCase().replace(/\.$/, '')
+  if (!name) return ''
+  const zones = await request<Array<{ id: string; name: string }>>(
+    `/zones?name=${encodeURIComponent(name)}&per_page=20`,
+    token,
+  )
+  const exact = zones.find((zone) => zone.name.toLowerCase() === name)
+  if (!exact) throw new ApiError(422, 'dns_error', `The API token cannot access the zone ${name}`)
+  return exact.id
+}
+
+/**
+ * Proves the token can write DNS records, by creating and removing a temporary TXT record.
+ *
+ * `/user/tokens/verify` answers for a token with any scope, so a Zone:Read token passes every earlier
+ * check and then fails every issuance at the first record write. The probe is the only honest test;
+ * its name is unique and it is deleted immediately, so a successful probe leaves nothing behind.
+ */
+export async function probeDnsWrite(token: string, zoneId: string): Promise<void> {
+  const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 12)
+  const recordId = await createTxtRecord(
+    token,
+    zoneId,
+    `_certhub-permission-probe-${suffix}`,
+    'certhub-permission-probe',
+    'certhub:permission-probe',
+  )
+  await deleteDnsRecord(token, zoneId, recordId)
+}
+
 export async function verifyCloudflareConnection(token: string, zoneId: string): Promise<void> {
   await verifyCloudflareToken(token)
   await request<{ id: string; name: string }>(`/zones/${zoneId}`, token)
+  await probeDnsWrite(token, zoneId)
 }
 
 export async function listDnsRecords(

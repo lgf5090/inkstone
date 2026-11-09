@@ -7,6 +7,7 @@ export type AcmeFailureKind =
   | 'rejected_identifier'
   | 'order_not_ready'
   | 'dns'
+  | 'dns_auth'
   | 'connection'
   | 'server'
   | 'invalid'
@@ -67,6 +68,20 @@ export function sanitizeAcmeDetail(value: string): string {
 
 export function parseAcmeFailure(error: unknown): AcmeFailure {
   if (error instanceof AcmeFailure) return error
+  // An ApiError is the app's own verdict, not an ACME problem document: it carries `code` and
+  // `status` directly and has no `response`. Reading it as an axios error turned every DNS refusal
+  // into "unknown, retry in 30 seconds", which is what made a permanent token problem repeat every
+  // cron tick.
+  if (error instanceof ApiError) {
+    const detail = sanitizeAcmeDetail(error.message)
+    if (error.code === 'dns_error') {
+      const permanent = /authentication error|unauthorized|forbidden|permission|invalid request headers|cannot access/i
+        .test(detail)
+      return new AcmeFailure(permanent ? 'dns_auth' : 'dns', !permanent, 0, detail, error.status)
+    }
+    if (error.status === 503) return new AcmeFailure('connection', true, 0, detail, error.status)
+    return new AcmeFailure('invalid', false, 0, detail, error.status)
+  }
   const record = asRecord(error)
   const response = asRecord(record?.response)
   const status = typeof response?.status === 'number' ? response.status : 0

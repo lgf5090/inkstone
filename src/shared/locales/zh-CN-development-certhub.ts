@@ -84,6 +84,7 @@ export const ZH_CN_DEVELOPMENT_CERTHUB = {
   "development.certhub.failure.rejected_identifier": "CA 拒绝其中一个域名。确认域名拼写，且该域名允许签发（保留域名或禁止的顶级域会被拒绝）。",
   "development.certhub.failure.order_not_ready": "订单尚未就绪，系统会自动重试；若长时间不前进，点「立即验证」。",
   "development.certhub.failure.dns": "写入或查询 DNS 记录失败。检查 DNS 供应商凭据，或手动添加记录后重试。",
+  "development.certhub.failure.dns_auth": "DNS 供应商拒绝了写入：Token 无权写入该域名所在的 Zone，或保存的 Zone ID 与 Token 所属账号不一致。请在「DNS 供应商」页重新测试连接；仍失败时重新创建具备 Zone:DNS:Edit 权限的 Token。",
   "development.certhub.failure.connection": "连接 CA 或 DNS 服务超时。稍后重试；持续失败请检查部署网络。",
   "development.certhub.failure.server": "CA 暂时不可用。按退避策略等待后重试。",
   "development.certhub.failure.invalid": "CA 判定请求无效。查看上方原始信息，修正域名或验证方式后重新申请。",
