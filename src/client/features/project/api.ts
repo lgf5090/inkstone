@@ -60,6 +60,10 @@ export async function deleteProjectCard(id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/cards/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
+export async function undeleteProjectCard(id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/cards/${encodeURIComponent(id)}/undelete`, { method: 'POST', body: {} })
+}
+
 export async function patchProjectCard(id: string, patch: Record<string, unknown>): Promise<ProjectCard> {
   const body = await request<{ card: ProjectCard }>(`/api/project/cards/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
   return body.card

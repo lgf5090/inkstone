@@ -12530,6 +12530,9 @@ const allowed = new Map([
   ["src/client/features/project/store.ts", [
     "/** The project tab's board list: what this account can open, and whether the last read succeeded. */",
   ]],
+  ["src/client/features/project/undo.ts", [
+    "/**\n * E-14: a bounded command stack for board mutations. Each command carries an inverse (undo) and a\n * re-apply (redo); pushing a new command clears the redo branch, and switching boards clears both.\n */",
+  ]],
   ["src/client/features/quickadd/bridge.test.ts", [
     "// `mount(undefined)` would take the helper's own default, so the prop is set here directly.",
   ]],

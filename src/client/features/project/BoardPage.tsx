@@ -12,7 +12,8 @@ import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Modal } from '../../components/overlay'
-import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectView, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView } from './api'
+import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard } from './api'
+import { createUndoStack } from './undo'
 import { newProjectId } from '@shared/project/limits'
 import type { SkinTone } from '@shared/types'
 import { EmojiPicker } from '../emoji/EmojiPicker'
@@ -34,6 +35,11 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
   const [iconOpen, setIconOpen] = useState(false)
   const [iconTone, setIconTone] = useState<SkinTone>(0)
+  const [undoStack] = useState(() => createUndoStack())
+  const refresh = useCallback(async () => {
+    setBundle(await fetchProjectBoardBundle(boardId))
+  }, [boardId])
+  useEffect(() => { undoStack.clear() }, [boardId, undoStack])
   const [showProps, setShowProps] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
@@ -109,6 +115,10 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       const values = projectFilterPrefill(bundle.views.find((view) => view.id === activeViewId)?.fields.filter)
       const card = await createProjectCard(boardId, readRandomIconPref() ? { title: trimmed, values, icon: await randomProjectIcon() } : { title: trimmed, values })
       setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current))
+      undoStack.push({
+        undo: async () => { await deleteProjectCard(card.id); await refresh() },
+        redo: async () => { await undeleteProjectCard(card.id); await refresh() },
+      })
       setTitle('')
     } finally {
       setBusy(false)
@@ -120,12 +130,23 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     if (!ok) return
     await deleteProjectCard(cardId)
     setBundle((current) => (current ? { ...current, cards: current.cards.filter((card) => card.id !== cardId) } : current))
-  }, [])
+    undoStack.push({
+      undo: async () => { await undeleteProjectCard(cardId); await refresh() },
+      redo: async () => { await deleteProjectCard(cardId); await refresh() },
+    })
+  }, [undoStack, refresh])
 
   const patchCard = useCallback(async (id: string, patch: Record<string, unknown>) => {
+    const previous = bundle?.cards.find((card) => card.id === id)
     const updated = await patchProjectCard(id, patch)
     setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === id ? updated : card)) } : current))
-  }, [])
+    if (previous) {
+      undoStack.push({
+        undo: async () => { await patchProjectCard(id, { title: previous.title, values: previous.values, icon: previous.icon }); await refresh() },
+        redo: async () => { await patchProjectCard(id, patch); await refresh() },
+      })
+    }
+  }, [bundle, undoStack, refresh])
 
   const addGroupOption = useCallback(async (propertyId: string, value: string) => {
     if (!bundle) return
@@ -174,6 +195,21 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     })
   }, [])
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable) return
+      const mod = event.ctrlKey || event.metaKey
+      const key = event.key.toLowerCase()
+      if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) void undoStack.redo(); else void undoStack.undo() }
+      else if (mod && key === 'y') { event.preventDefault(); void undoStack.redo() }
+      else if (mod && key === 'd' && openCardId) { event.preventDefault(); void duplicateProjectCard(openCardId).then(refresh) }
+      else if ((event.key === 'Delete' || event.key === 'Backspace') && openCardId) { event.preventDefault(); void removeCard(openCardId) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openCardId, undoStack, refresh, removeCard])
+
   if (status === 'loading') return <LoadingBlock />
   if (status === 'notfound') return <Empty art="select" title={t('project.board.not_found')} action={<Button onClick={() => navigateToPath('/project')}>{t('project.board.back')}</Button>} />
   if (status === 'error' || !bundle) {
@@ -182,6 +218,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
 
   const canEdit = projectRoleAtLeast(bundle.role, 'editor')
   const openCard = bundle.cards.find((card) => card.id === openCardId) ?? null
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]" data-project-board-page={boardId}>
       <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
