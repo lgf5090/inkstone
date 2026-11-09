@@ -7,7 +7,7 @@ import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, pro
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
-import { Input, Select } from '../../components/form'
+import { Checkbox, Input, Select } from '../../components/form'
 import { Menu, prompt, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { PropertiesModal, SortModal } from './ViewSettingsModals'
@@ -274,6 +274,12 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               {groupable.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
             </Select>
           )}
+          {viewType === 'gallery' && active && (
+            <span className="flex items-center gap-2">
+              <Checkbox label={t('project.view.gallery_title')} checked={fields.galleryShowTitle !== false} disabled={!canEdit} onChange={(checked) => onPatchView(active.id, { fields: { galleryShowTitle: checked } })} />
+              <Checkbox label={t('project.view.gallery_badges')} checked={fields.galleryShowBadges !== false} disabled={!canEdit} onChange={(checked) => onPatchView(active.id, { fields: { galleryShowBadges: checked } })} />
+            </span>
+          )}
           <span className="ml-auto flex items-center gap-1">
             <Select
               className="w-28"
@@ -324,7 +330,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} />
               : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} contents={bundle.contents} comments={bundle.comments} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} />)
             : viewType === 'gallery'
-              ? <GalleryView cards={sorted} contents={bundle.contents} comments={bundle.comments} onOpenCard={onOpenCard} />
+              ? <GalleryView cards={sorted} contents={bundle.contents} comments={bundle.comments} properties={columns} showTitle={fields.galleryShowTitle !== false} showBadges={fields.galleryShowBadges !== false} onOpenCard={onOpenCard} />
               : viewType === 'list'
                 ? <ListView cards={sorted} properties={bundle.properties} onOpenCard={onOpenCard} />
                 : viewType === 'timeline' || viewType === 'gantt'

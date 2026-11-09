@@ -222,6 +222,8 @@ export interface ProjectViewFields {
   columnCalculations: Record<string, ProjectCalculation>
   kanbanCalculations: Record<string, ProjectKanbanCalculation>
   defaultTemplateId: string
+  galleryShowTitle?: boolean
+  galleryShowBadges?: boolean
 }
 
 export function emptyProjectViewFields(): ProjectViewFields {

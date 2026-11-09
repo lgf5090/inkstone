@@ -91,6 +91,8 @@ export const ProjectViewFieldsSchema = z.object({
   columnCalculations: z.record(z.string().max(64), ProjectCalculationSchema),
   kanbanCalculations: z.record(z.string().max(64), ProjectKanbanCalculationSchema),
   defaultTemplateId: z.string().max(64),
+  galleryShowTitle: z.boolean().optional(),
+  galleryShowBadges: z.boolean().optional(),
 })
 
 export const ProjectBoardFromTemplateSchema = z.object({

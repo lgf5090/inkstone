@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, SquareKanban } from 'lucide-react'
 import type { ProjectCard, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
 import { projectCardBadges } from '@shared/project/badges'
 import { projectDayToStamp } from '@shared/project/date'
+import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
 import { IconButton } from '../../components/primitives'
 import { CardBadges } from './CardBadges'
@@ -22,7 +23,7 @@ function dateFrom(card: ProjectCard, propertyId: string | undefined): number | n
   return null
 }
 
-export function GalleryView({ cards, contents, comments, onOpenCard }: { cards: ProjectCard[], contents: ProjectContent[], comments: ProjectComment[], onOpenCard: (id: string) => void }): ReactElement {
+export function GalleryView({ cards, contents, comments, properties, showTitle, showBadges, onOpenCard }: { cards: ProjectCard[], contents: ProjectContent[], comments: ProjectComment[], properties: ProjectProperty[], showTitle: boolean, showBadges: boolean, onOpenCard: (id: string) => void }): ReactElement {
   return (
     <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3 overflow-y-auto p-3">
       {cards.map((card) => (
@@ -36,8 +37,11 @@ export function GalleryView({ cards, contents, comments, onOpenCard }: { cards: 
           <span aria-hidden="true" className="flex h-16 w-full items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-sunken)] text-[length:var(--text-20)]">
             {card.icon || <SquareKanban size={24} className="text-[var(--text-quaternary)]" />}
           </span>
-          <span className="min-w-0 truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>
-          <CardBadges badges={projectCardBadges(contents.filter((block) => block.cardId === card.id), comments.filter((comment) => comment.cardId === card.id))} />
+          {showTitle && <span className="min-w-0 truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>}
+          {properties.slice(0, 3).map((property) => (
+            <span key={property.id} className="min-w-0 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{projectPropertyDisplayText(card, property)}</span>
+          ))}
+          {showBadges && <CardBadges badges={projectCardBadges(contents.filter((block) => block.cardId === card.id), comments.filter((comment) => comment.cardId === card.id))} />}
         </button>
       ))}
     </div>

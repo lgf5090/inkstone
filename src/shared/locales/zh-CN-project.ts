@@ -145,6 +145,8 @@ export const ZH_CN_PROJECT = {
     "project.view.delete_selected": "删除所选",
     "project.view.set_property": "设置属性",
     "project.view.clear_selection": "清除选择",
+    "project.view.gallery_title": "显示标题",
+    "project.view.gallery_badges": "显示徽章",
     "project.view.filter_operation": "匹配",
     "project.view.filter_and": "全部（AND）",
     "project.view.filter_or": "任一（OR）",
