@@ -73,7 +73,7 @@ function BoardList(): ReactElement {
 
   return (
     <div className="flex h-full min-h-0 bg-[var(--bg-base)]" data-project-app="">
-      <ProjectSidebar boards={boards} />
+      <ProjectSidebar boards={boards} onImport={() => setShowImport(true)} />
       <div className="flex min-w-0 flex-1 flex-col">
       <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
         <span aria-hidden="true" className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
-import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, SquareKanban, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, Settings2, SquareKanban, Trash2 } from 'lucide-react'
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -8,6 +8,8 @@ import { Input } from '../../components/form'
 import { confirm, Menu, prompt, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useProjectStore } from './store'
+import { readRandomIconPref, writeRandomIconPref } from './project-icon'
+import { setLocale, useLocale } from '../../lib/i18n'
 import {
   addBoardToCategory,
   createProjectCategory,
@@ -31,11 +33,17 @@ function errorText(error: unknown): string {
   return error instanceof Error && error.message ? error.message : String(error)
 }
 
-export function ProjectSidebar({ boards }: { boards: ProjectBoardSummary[] }): ReactElement {
+export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSummary[], onImport: () => void }): ReactElement {
   const [categories, setCategories] = useState<ProjectCategory[]>([])
   const [edges, setEdges] = useState<ProjectCategoryBoard[]>([])
   const [query, setQuery] = useState('')
   const [lastBoard] = useState(readLastBoard)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [randomIcon, setRandomIcon] = useState(readRandomIconPref)
+  const settingsAnchor = useRef<HTMLButtonElement>(null)
+  const locale = useLocale()
+  const theme = useUi((state) => state.theme)
+  const applyAppearance = useUi((state) => state.applyAppearance)
   const toast = useUi((state) => state.toast)
 
   const reload = useCallback(async () => {
@@ -107,11 +115,21 @@ export function ProjectSidebar({ boards }: { boards: ProjectBoardSummary[] }): R
     <BoardEntry key={board.id} board={board} edge={edge} items={boardMenu(board, edge)} active={board.id === lastBoard} focused={visibleBoards[highlight]?.id === board.id} />
   )
 
+  const settingsMenu: MenuItem[] = [
+    { id: 'import', label: t('project.sidebar.import_archive'), onSelect: onImport },
+    { id: 'export', label: t('project.sidebar.export_archive'), onSelect: () => { window.open('/api/project/export', '_blank') } },
+    { id: 'language', label: `${t('project.sidebar.language')}: ${locale}`, onSelect: () => { void setLocale(locale === 'zh-CN' ? 'en-US' : 'zh-CN') } },
+    { id: 'theme', label: `${t('project.sidebar.theme')}: ${theme}`, onSelect: () => { applyAppearance({ theme: theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light' }) } },
+    { id: 'random-icon', label: `${t('project.sidebar.random_icon')}${randomIcon ? ' ✓' : ''}`, onSelect: () => { const next = !randomIcon; writeRandomIconPref(next); setRandomIcon(next) } },
+  ]
+
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]" aria-label={t('project.title')}>
       <div className="flex items-center gap-1 p-2">
         <Input className="min-w-0 flex-1" value={query} placeholder={t('project.sidebar.search')} aria-label={t('project.sidebar.search')} onChange={(event) => { setQuery(event.target.value); setHighlight(-1) }} onKeyDown={onSearchKey} />
         <IconButton label={t('project.sidebar.new_category')} size="sm" onClick={newCategory}><FolderPlus size={15} /></IconButton>
+        <IconButton ref={settingsAnchor} label={t('project.sidebar.settings')} size="sm" onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></IconButton>
+        <Menu anchor={settingsAnchor} open={settingsOpen} onClose={() => setSettingsOpen(false)} items={settingsMenu} label={t('project.sidebar.settings')} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {categories.map((category) => {

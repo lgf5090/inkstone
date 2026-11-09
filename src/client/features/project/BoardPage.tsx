@@ -14,6 +14,9 @@ import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Modal } from '../../components/overlay'
 import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectView, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView } from './api'
 import { newProjectId } from '@shared/project/limits'
+import type { SkinTone } from '@shared/types'
+import { EmojiPicker } from '../emoji/EmojiPicker'
+import { randomProjectIcon, readRandomIconPref } from './project-icon'
 import { BoardViews } from './BoardViews'
 import { BoardPropertiesDialog } from './BoardPropertiesDialog'
 import { CardDialog } from './CardDialog'
@@ -29,6 +32,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [busy, setBusy] = useState(false)
   const [openCardId, setOpenCardId] = useState<string | null>(null)
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
+  const [iconOpen, setIconOpen] = useState(false)
+  const [iconTone, setIconTone] = useState<SkinTone>(0)
   const [showProps, setShowProps] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
@@ -102,7 +107,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     setBusy(true)
     try {
       const values = projectFilterPrefill(bundle.views.find((view) => view.id === activeViewId)?.fields.filter)
-      const card = await createProjectCard(boardId, { title: trimmed, values })
+      const card = await createProjectCard(boardId, readRandomIconPref() ? { title: trimmed, values, icon: await randomProjectIcon() } : { title: trimmed, values })
       setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current))
       setTitle('')
     } finally {
@@ -130,6 +135,11 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     const result = await patchProjectBoard(boardId, { updatedCardProperties: properties })
     setBundle((current) => (current ? { ...current, properties: result.properties } : current))
   }, [bundle, boardId])
+
+  const setIcon = useCallback(async (icon: string) => {
+    await patchProjectBoard(boardId, { icon })
+    setBundle((current) => (current ? { ...current, board: { ...current.board, icon } } : current))
+  }, [boardId])
 
   const addView = useCallback(async (viewType: ProjectViewType) => {
     const view = await createProjectView(boardId, viewType)
@@ -178,9 +188,9 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         <IconButton label={t('project.board.back')} size="sm" onClick={() => navigateToPath('/project')}>
           <ArrowLeft size={16} />
         </IconButton>
-        <span aria-hidden="true" className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[length:var(--text-14)]">
+        <button type="button" aria-label={t('project.board.change_icon')} className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[length:var(--text-14)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => setIconOpen(true)}>
           {bundle.board.icon || <SquareKanban size={16} className="text-[var(--accent-on-soft)]" />}
-        </span>
+        </button>
         <h1 className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
           {bundle.board.title || t('project.boards.untitled')}
         </h1>
@@ -257,6 +267,17 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         />
       )}
       {showShare && <ShareDialog boardId={boardId} onClose={() => setShowShare(false)} />}
+      {iconOpen && (
+        <Modal open onClose={() => setIconOpen(false)} title={t('project.board.change_icon')} width={420}>
+          <div className="space-y-2">
+            <EmojiPicker tone={iconTone} onTone={setIconTone} onInsert={(glyph) => { void setIcon(glyph); setIconOpen(false) }} />
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => { void randomProjectIcon().then((glyph) => { void setIcon(glyph); setIconOpen(false) }) }}>{t('project.board.random_icon')}</Button>
+              <Button size="sm" variant="ghost" onClick={() => { void setIcon(''); setIconOpen(false) }}>{t('project.board.remove_icon')}</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {showActivity && (
         <Modal open onClose={() => setShowActivity(false)} title={t('project.board.activity')} width={480}>
           <ul className="space-y-2">

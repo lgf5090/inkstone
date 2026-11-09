@@ -33,8 +33,27 @@ beforeEach(async () => {
 afterEach(() => { view?.unmount() })
 
 async function mount() {
-  await act(async () => { view = renderElement(createElement(ProjectSidebar, { boards })) })
+  await act(async () => { view = renderElement(createElement(ProjectSidebar, { boards, onImport: vi.fn() })) })
 }
+
+describe('sidebar settings menu (E-7)', () => {
+  afterEach(() => { localStorage.clear() })
+
+  it('offers import/export/language/theme/random-icon and toggles the random-icon pref', async () => {
+    await mount()
+    const gear = document.body.querySelector(`button[aria-label="${t('project.sidebar.settings')}"]`) as HTMLButtonElement
+    expect(gear).not.toBeNull()
+    await act(async () => { gear.click() })
+    const labels = [...document.body.querySelectorAll('[role="menuitem"]')].map((entry) => entry.textContent ?? '')
+    expect(labels.some((label) => label.startsWith(t('project.sidebar.import_archive')))).toBe(true)
+    expect(labels.some((label) => label.startsWith(t('project.sidebar.export_archive')))).toBe(true)
+    expect(labels.some((label) => label.startsWith(t('project.sidebar.language')))).toBe(true)
+    expect(labels.some((label) => label.startsWith(t('project.sidebar.theme')))).toBe(true)
+    const randomItem = [...document.body.querySelectorAll('[role="menuitem"]')].find((entry) => (entry.textContent ?? '').startsWith(t('project.sidebar.random_icon'))) as HTMLButtonElement
+    await act(async () => { randomItem.click() })
+    expect(localStorage.getItem('inkstone.project.randomIcon')).toBe('1')
+  })
+})
 
 describe('find-board keyboard navigation (E-8)', () => {
   it('ArrowDown highlights the first match and Escape clears the query', async () => {

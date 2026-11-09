@@ -8,6 +8,7 @@ import {
   fetchProjectBoards,
   renameProjectBoard,
 } from './api'
+import { readRandomIconPref, randomProjectIcon } from './project-icon'
 
 export type ProjectBoardsStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -47,7 +48,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   async addBoard(title) {
-    const board = await createProjectBoard({ title })
+    const board = await createProjectBoard(readRandomIconPref() ? { title, icon: await randomProjectIcon() } : { title })
     set((state) => ({ boards: [board, ...state.boards] }))
     return board
   },

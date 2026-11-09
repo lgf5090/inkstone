@@ -12523,6 +12523,10 @@ const allowed = new Map([
   ["src/client/features/project/api.ts", [
     "/** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */",
   ]],
+  ["src/client/features/project/project-icon.ts", [
+    "/**\n * A-9/A-10: board & card icons. The random-icon preference is a local toggle; when on, newly created\n * boards/cards get a random emoji from the shared catalog so lists stay scannable without manual picking.\n */",
+    "/* best-effort: the preference is optional */",
+  ]],
   ["src/client/features/project/store.ts", [
     "/** The project tab's board list: what this account can open, and whether the last read succeeded. */",
   ]],
