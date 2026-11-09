@@ -4,7 +4,7 @@
  * create uses; creating from a saved template is a duplicate of that board.
  */
 import type { ProjectBoard, ProjectBoardSummary } from '@shared/project/model'
-import { BUILT_IN_PROJECT_TEMPLATES } from '@shared/project/templates'
+import { BUILT_IN_PROJECT_TEMPLATES, localizeProjectTemplate } from '@shared/project/templates'
 import { ApiError } from '../lib/errors'
 import { createProjectBoard, getProjectBoardRow } from './boards'
 import { createProjectCard } from './cards'
@@ -21,10 +21,11 @@ export interface ProjectTemplateSummary {
   isBuiltIn: boolean
 }
 
-export async function listProjectTemplates(db: D1Database, userId: string): Promise<ProjectTemplateSummary[]> {
-  const builtIn = BUILT_IN_PROJECT_TEMPLATES.map((template) => ({
-    id: template.id, title: template.title, icon: template.icon, description: template.description, isBuiltIn: true,
-  }))
+export async function listProjectTemplates(db: D1Database, userId: string, locale = ''): Promise<ProjectTemplateSummary[]> {
+  const builtIn = BUILT_IN_PROJECT_TEMPLATES.map((template) => {
+    const localized = localizeProjectTemplate(template, locale)
+    return { id: localized.id, title: localized.title, icon: localized.icon, description: localized.description, isBuiltIn: true }
+  })
   const { results } = await db
     .prepare('SELECT id, title, icon, description FROM project_boards WHERE owner_id = ?1 AND is_template = 1 AND delete_at = 0 ORDER BY update_at DESC')
     .bind(userId)
@@ -42,8 +43,10 @@ export async function createBoardFromTemplate(
   userId: string,
   templateId: string,
   now: number,
+  locale = '',
 ): Promise<ProjectBoardSummary> {
-  const builtIn = BUILT_IN_PROJECT_TEMPLATES.find((template) => template.id === templateId)
+  const found = BUILT_IN_PROJECT_TEMPLATES.find((template) => template.id === templateId)
+  const builtIn = found ? localizeProjectTemplate(found, locale) : undefined
   if (builtIn) {
     const board = await createProjectBoard(db, userId, {
       title: builtIn.title,

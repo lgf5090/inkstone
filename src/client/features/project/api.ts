@@ -162,13 +162,13 @@ export interface ProjectTemplateSummary {
   isBuiltIn: boolean
 }
 
-export async function fetchProjectTemplates(signal?: AbortSignal): Promise<ProjectTemplateSummary[]> {
-  const body = await request<{ templates: ProjectTemplateSummary[] }>('/api/project/templates', { signal })
+export async function fetchProjectTemplates(signal?: AbortSignal, locale = ''): Promise<ProjectTemplateSummary[]> {
+  const body = await request<{ templates: ProjectTemplateSummary[] }>(`/api/project/templates?locale=${encodeURIComponent(locale)}`, { signal })
   return body.templates
 }
 
-export async function createBoardFromTemplate(templateId: string): Promise<ProjectBoardSummary> {
-  const body = await request<{ board: ProjectBoardSummary }>('/api/project/boards/from-template', { method: 'POST', body: { templateId } })
+export async function createBoardFromTemplate(templateId: string, locale = ''): Promise<ProjectBoardSummary> {
+  const body = await request<{ board: ProjectBoardSummary }>('/api/project/boards/from-template', { method: 'POST', body: { templateId, locale } })
   return body.board
 }
 

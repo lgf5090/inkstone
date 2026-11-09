@@ -269,13 +269,13 @@ projectRoutes.delete('/files/:id', async (c) => {
 })
 
 projectRoutes.get('/templates', async (c) => {
-  return c.json({ templates: await listProjectTemplates(c.env.DB, projectUserId(c)) })
+  return c.json({ templates: await listProjectTemplates(c.env.DB, projectUserId(c), c.req.query('locale') ?? '') })
 })
 
 projectRoutes.post('/boards/from-template', async (c) => {
   const userId = projectUserId(c)
   const input = await projectBody(c, ProjectBoardFromTemplateSchema, JSON_BODY_LIMITS.small)
-  return c.json({ board: await createBoardFromTemplate(c.env.DB, userId, input.templateId, Date.now()) }, 201)
+  return c.json({ board: await createBoardFromTemplate(c.env.DB, userId, input.templateId, Date.now(), input.locale ?? '') }, 201)
 })
 
 projectRoutes.post('/boards', async (c) => {

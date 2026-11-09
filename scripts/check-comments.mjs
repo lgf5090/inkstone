@@ -31980,6 +31980,9 @@ const allowed = new Map([
   ["src/shared/locales/zh-CN-cloudflare.ts", [
     "/**\n * The Cloudflare app's catalogue, one language at a time.\n *\n * Loaded by the app when a reader opens it and never by the shell: the module carries 1,200-odd keys\n * of its own, and a reader who never visits /cloudflare should pay none of them.\n */",
   ]],
+  ["src/shared/locales/zh-CN-project.ts", [
+    "/** zh strings for the built-in board templates' demo content, keyed by the English source string. */",
+  ]],
   ["src/shared/locales/zh-CN-quick-add-keywords.ts", [
     "/** The Chinese words the quick-add parser reads. Data about the language, not interface copy. */",
     "/** The words that shift a 12-hour wall clock into the afternoon/evening; data about the language. */",
@@ -32441,6 +32444,7 @@ const allowed = new Map([
   ]],
   ["src/shared/project/templates.ts", [
     "/**\n * The built-in board templates, rewritten as starting points rather than copied verbatim: each carries\n * its property set, its views and a couple of sample cards so a new board is immediately usable. Ids\n * are stable 27-character slugs so re-instantiating a template never collides with a live board's ids\n * (the importer assigns fresh ids anyway).\n */",
+    "/** Resolve a built-in template's demo strings into the reader's locale; other locales keep the source. */",
   ]],
   ["src/shared/project/validation.ts", [
     "/**\n * The shapes a project request may take. The server runs every write through these before it touches\n * D1; the client runs the same schemas so a rejected field is reported at the control that typed it.\n *\n * Bounds come from `./limits` rather than being restated, so raising a ceiling is one edit.\n */",

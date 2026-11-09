@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { Copy, MoreHorizontal, Pencil, Plus, Save, Search, SquareKanban, Trash2, Upload } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { ProjectBoardSummary, ProjectRole } from '@shared/project/model'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import { navigateToPath, usePathname } from '../../lib/app-history'
 import { Button, IconButton } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -42,6 +42,7 @@ function BoardList(): ReactElement {
   const loadBoards = useProjectStore((state) => state.loadBoards)
   const addBoard = useProjectStore((state) => state.addBoard)
   const toast = useUi((state) => state.toast)
+  const locale = useLocale()
   const [showPicker, setShowPicker] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -63,7 +64,7 @@ function BoardList(): ReactElement {
         const board = await addBoard(title.trim())
         navigateToPath(`/project/boards/${board.id}`)
       } else {
-        const board = await createBoardFromTemplate(templateId)
+        const board = await createBoardFromTemplate(templateId, locale)
         navigateToPath(`/project/boards/${board.id}`)
       }
     } catch (reason) {

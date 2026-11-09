@@ -5,6 +5,7 @@
  * (the importer assigns fresh ids anyway).
  */
 import type { ProjectProperty, ProjectPropertyType, ProjectViewType } from './model'
+import { PROJECT_TEMPLATE_ZH } from '../locales/zh-CN-project'
 
 const tid = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '').padEnd(27, '0').slice(0, 27)
 
@@ -123,3 +124,25 @@ export const BUILT_IN_PROJECT_TEMPLATES: ProjectTemplate[] = [
     ],
   },
 ]
+
+/** Resolve a built-in template's demo strings into the reader's locale; other locales keep the source. */
+export function localizeProjectTemplate(template: ProjectTemplate, locale: string): ProjectTemplate {
+  if (!locale.startsWith('zh')) return template
+  const tr = (value: string): string => PROJECT_TEMPLATE_ZH[value] ?? value
+  return {
+    ...template,
+    title: tr(template.title),
+    description: tr(template.description),
+    properties: template.properties.map((property) => ({
+      ...property,
+      name: tr(property.name),
+      options: property.options.map((option) => ({ ...option, value: tr(option.value) })),
+    })),
+    views: template.views.map((view) => ({ ...view, title: tr(view.title) })),
+    cards: template.cards.map((card) => ({
+      ...card,
+      title: tr(card.title),
+      contents: card.contents?.map((content) => ({ ...content, title: tr(content.title) })),
+    })),
+  }
+}

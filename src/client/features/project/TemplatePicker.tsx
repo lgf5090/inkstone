@@ -1,19 +1,20 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { SquareKanban } from 'lucide-react'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import { Modal } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { fetchProjectTemplates, type ProjectTemplateSummary } from './api'
 
 export function TemplatePicker({ onClose, onPick }: { onClose: () => void, onPick: (templateId: string | null) => void }): ReactElement {
   const [templates, setTemplates] = useState<ProjectTemplateSummary[] | null>(null)
+  const locale = useLocale()
   useEffect(() => {
     const controller = new AbortController()
-    fetchProjectTemplates(controller.signal)
+    fetchProjectTemplates(controller.signal, locale)
       .then(setTemplates)
       .catch(() => { if (!controller.signal.aborted) setTemplates([]) })
     return () => controller.abort()
-  }, [])
+  }, [locale])
   return (
     <Modal open onClose={onClose} title={t('project.templates.title')} width={640}>
       {templates === null

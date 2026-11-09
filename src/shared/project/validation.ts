@@ -97,6 +97,7 @@ export const ProjectViewFieldsSchema = z.object({
 
 export const ProjectBoardFromTemplateSchema = z.object({
   templateId: z.string().min(1).max(64),
+  locale: z.string().max(16).optional(),
 })
 
 export const ProjectBoardCreateSchema = z.object({
