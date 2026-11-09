@@ -91,6 +91,7 @@ import { ProjectStore } from './store'
 import { searchProject } from './search'
 import { topProjectBoards } from './insights'
 import { addCardLink, createCardFromTemplate, getCardTodoLink, linkCardTodo, listBoardLinks, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate, syncCardCompletionToTodo, unlinkCardTodo } from './enhance'
+import { notifyProjectComment } from './notify'
 import { projectBoardToMarkdown } from '@shared/project/markdown'
 import { deleteProjectAttachment, getProjectAttachment, listBoardAttachments, uploadProjectAttachment, PROJECT_UPLOAD_LIMIT } from './files'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
@@ -561,7 +562,9 @@ projectRoutes.get('/cards/:id/comments', async (c) => {
 projectRoutes.post('/cards/:id/comments', async (c) => {
   const { card, userId } = await requireCard(c, c.req.param('id'), 'commenter')
   const input = await projectBody(c, ProjectCommentCreateSchema)
-  return c.json({ comment: await createProjectComment(c.env.DB, card, userId, input, Date.now()) }, 201)
+  const comment = await createProjectComment(c.env.DB, card, userId, input, Date.now())
+  await notifyProjectComment(c.env.DB, c.env, { boardId: card.boardId, cardId: card.id, cardTitle: card.title, body: input.body, authorId: userId }).catch(() => { /* best-effort: a refused mention notice must not refuse the comment */ })
+  return c.json({ comment }, 201)
 })
 
 projectRoutes.patch('/comments/:id', async (c) => {

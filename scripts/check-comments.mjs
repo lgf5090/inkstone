@@ -32399,6 +32399,9 @@ const allowed = new Map([
     "/**\n * Board-as-Markdown (X-12): a readable report of a board's cards, grouped by the active grouping\n * property when present, with each card's property values and text content. Pure so it can be tested\n * and reused by any export surface.\n */",
     "/* scalar */",
   ]],
+  ["src/shared/project/mentions.ts", [
+    "/**\n * D-7: who a comment notifies — the members it @mentions plus the subscribers watching the card or\n * board, never the author. Pure so tests can pin the set without a database.\n */",
+  ]],
   ["src/shared/project/model.test.ts", [
     "// X-8 deliberately makes number filterable/groupable, unlike the reference.",
   ]],
@@ -41098,6 +41101,9 @@ const allowed = new Map([
     "/**\n * The reference guards the last admin only in the client; here the server refuses the write that would\n * leave a board with no admin member, because a client check is not a trust boundary.\n */",
     "/** Joining an open board writes the board's minimum role; re-joining never downgrades an existing grant. */",
   ]],
+  ["src/worker/project/notify.ts", [
+    "/**\n * D-7: a comment notifies the members it @mentions and the subscribers watching the card or board.\n * The target set is a pure function so tests can pin it; delivery is best-effort because a refused\n * notice must never refuse the comment itself.\n */",
+  ]],
   ["src/worker/project/permissions.ts", [
     "/**\n * Which boards the sidebar lists, and what the caller may do with each.\n *\n * A board reaches its audience two ways — the account owns it, or a membership row names it — so the\n * list is the union of the two, and a board the caller can no longer read is dropped rather than\n * shown greyed out. The role is resolved here so no caller has to remember the open-board rule.\n */",
   ]],
@@ -41109,6 +41115,7 @@ const allowed = new Map([
     "/**\n * After any successful board-scoped write, tell every member's sync hub so open boards refetch. The\n * board id comes from the path for /boards/:id and from a row lookup for the child entities; routes\n * that own no board (categories, subscriptions, import) fall through untouched.\n */",
     "// Best-effort: the test harness fetches without an ExecutionContext, whose getter throws.",
     "/* no ExecutionContext in tests */",
+    "/* best-effort: a refused mention notice must not refuse the comment */",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
