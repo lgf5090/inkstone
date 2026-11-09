@@ -241,4 +241,18 @@ describe('subtask progress (UI-2)', () => {
     expect(bar.getAttribute('aria-valuemax')).toBe('2')
     expect(document.body.textContent).toContain('1/2')
   })
+
+  it('clicking a subtask checkbox writes its status and refreshes (R2-2)', async () => {
+    vi.mocked(api.patchProjectCard).mockResolvedValue({ ...card })
+    const onRefresh = vi.fn()
+    const open = { ...card, id: 's2', parentId: 'c1', values: { ps: 'o1' } }
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], contents: [], siblings: [open], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh, onDelete: vi.fn() }))
+    })
+    const checkbox = document.body.querySelector('button[role="checkbox"][aria-label="Card"]') as HTMLButtonElement
+    expect(checkbox).not.toBeNull()
+    await act(async () => { checkbox.click() })
+    expect(api.patchProjectCard).toHaveBeenCalledWith('s2', { values: { ps: 'o2' } })
+    expect(onRefresh).toHaveBeenCalled()
+  })
 })

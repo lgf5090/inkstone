@@ -192,6 +192,15 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
     return value === doneLabel || /done|complete/.test(value)
   }
   const subtaskDone = subtasks.filter(isSubtaskDone).length
+  const toggleSubtask = async (subtask: ProjectCard, checked: boolean) => {
+    if (!statusProperty) return
+    const doneOption = statusProperty.options.find((entry) => {
+      const value = entry.value.toLowerCase()
+      return value === doneLabel || /done|complete/.test(value)
+    })
+    await patchProjectCard(subtask.id, { values: { [statusProperty.id]: checked && doneOption ? doneOption.id : null } })
+    onRefresh()
+  }
   const blockers = links.filter((link) => link.toCardId === card.id && link.kind === 'blocks')
 
   const addSubtask = async () => {
@@ -329,8 +338,8 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           <ul className="space-y-1">
             {subtasks.map((subtask) => (
               <li key={subtask.id} className="flex items-center gap-1.5 text-[length:var(--text-13)] text-[var(--text-primary)]">
-                <CheckSquare size={13} aria-hidden="true" className={isSubtaskDone(subtask) ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]'} />
-                {subtask.title || t('project.board.untitled_card')}
+                <Checkbox ariaLabel={subtask.title || t('project.board.untitled_card')} checked={isSubtaskDone(subtask)} disabled={!canEdit} onChange={(checked) => void toggleSubtask(subtask, checked)} />
+                <span className={isSubtaskDone(subtask) ? 'text-[var(--text-tertiary)] line-through' : ''}>{subtask.title || t('project.board.untitled_card')}</span>
               </li>
             ))}
           </ul>
