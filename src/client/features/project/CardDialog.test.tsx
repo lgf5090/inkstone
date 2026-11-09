@@ -214,3 +214,17 @@ describe('comment edit/delete, paste image, archived placeholder (D-6/D-8/D-11)'
     expect(api.createCardContent).toHaveBeenCalledWith('c1', expect.objectContaining({ type: 'image', fields: { attachmentId: 'f1' } }))
   })
 })
+
+describe('content block reorder (D-1)', () => {
+  it('move down swaps contentOrder through patchProjectCard', async () => {
+    vi.mocked(api.patchProjectCard).mockResolvedValue({ ...card, contentOrder: ['a2', 'a1'] })
+    const blocks = ['a1', 'a2'].map((id) => ({ id, cardId: 'c1', boardId: 'b1', type: 'text' as const, title: id, fields: {}, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }))
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card: { ...card, contentOrder: ['a1', 'a2'] }, properties, members: [], contents: blocks, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+    })
+    const down = document.body.querySelector(`[data-project-content="a1"] button[aria-label="${t('project.card.move_down')}"]`) as HTMLButtonElement
+    expect(down).not.toBeNull()
+    await act(async () => { down.click() })
+    expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { contentOrder: ['a2', 'a1'] })
+  })
+})

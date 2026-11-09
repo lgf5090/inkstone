@@ -113,6 +113,8 @@ export const ZH_CN_PROJECT = {
     "project.card.menu": "卡片操作",
     "project.card.archived_file": "归档文件",
     "project.card.edit_comment": "编辑评论",
+    "project.card.move_up": "上移",
+    "project.card.move_down": "下移",
     "project.card.badge_description": "有正文",
     "project.card.badge_comments": "{count} 条评论",
     "project.card.badge_tasks": "{checked}/{total} 任务",

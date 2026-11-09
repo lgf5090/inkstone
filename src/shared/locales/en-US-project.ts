@@ -113,6 +113,8 @@ export const EN_US_PROJECT = {
     "project.card.menu": "Card actions",
     "project.card.archived_file": "Archived file",
     "project.card.edit_comment": "Edit comment",
+    "project.card.move_up": "Move up",
+    "project.card.move_down": "Move down",
     "project.card.badge_description": "Has description",
     "project.card.badge_comments": "{count} comments",
     "project.card.badge_tasks": "{checked}/{total} tasks",

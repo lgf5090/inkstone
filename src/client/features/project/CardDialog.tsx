@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
-import { Archive, CheckSquare, Copy, Link2, Minus, MoreHorizontal, Paperclip, Pencil, Plus, Trash2, Type } from 'lucide-react'
+import { Archive, CheckSquare, ChevronDown, ChevronUp, Copy, Link2, Minus, MoreHorizontal, Paperclip, Pencil, Plus, Trash2, Type } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
+import { moveContentOrder } from '@shared/project/content-order'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input, Select, Textarea } from '../../components/form'
@@ -152,6 +153,20 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
     await deleteCardContent(block.id)
     setBlocks((current) => current.filter((entry) => entry.id !== block.id))
   }
+  const reorderBlock = async (id: string, targetId: string, where: 'before' | 'after') => {
+    const newOrder = moveContentOrder(card.contentOrder, id, targetId, where)
+    const updated = await patchProjectCard(card.id, { contentOrder: newOrder })
+    onUpdated(updated)
+    const flat = newOrder.flat()
+    setBlocks((current) => [...current].sort((a, b) => flat.indexOf(a.id) - flat.indexOf(b.id)))
+  }
+  const moveBlock = (block: ProjectContent, direction: 'up' | 'down') => {
+    const ids = blocks.map((entry) => entry.id)
+    const index = ids.indexOf(block.id)
+    const neighbor = direction === 'up' ? ids[index - 1] : ids[index + 1]
+    if (!neighbor) return
+    void reorderBlock(block.id, neighbor, direction === 'up' ? 'before' : 'after')
+  }
 
   const contentMenu: MenuItem[] = [
     { id: 'text', label: t('project.card.text_block'), icon: <Type size={15} />, onSelect: () => void addBlock('text') },
@@ -241,7 +256,20 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           {blocks.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</p>}
           <div className="space-y-2">
             {blocks.map((block) => (
-              <div key={block.id} className="flex items-start gap-2" data-project-content={block.id}>
+              <div
+                key={block.id}
+                className="flex items-start gap-2"
+                data-project-content={block.id}
+                draggable={canEdit}
+                onDragStart={(event) => { event.dataTransfer.setData('text/plain', block.id) }}
+                onDragOver={(event) => { if (canEdit) event.preventDefault() }}
+                onDrop={(event) => {
+                  if (!canEdit) return
+                  event.preventDefault()
+                  const source = event.dataTransfer.getData('text/plain')
+                  if (source && source !== block.id) void reorderBlock(source, block.id, 'before')
+                }}
+              >
                 <div className="min-w-0 flex-1">
                   {block.type === 'checkbox'
                     ? <Checkbox label={block.title || t('project.card.checkbox_block')} checked={block.fields.checked === true} disabled={!canEdit} onChange={(checked) => void toggleBlock(block, checked)} />
@@ -258,7 +286,11 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
                           : <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{block.title}</p>}
                 </div>
                 {canEdit && (
-                  <IconButton label={t('common.delete')} size="sm" onClick={() => void removeBlock(block)}><Trash2 size={14} /></IconButton>
+                  <>
+                    <IconButton label={t('project.card.move_up')} size="sm" onClick={() => moveBlock(block, 'up')}><ChevronUp size={14} /></IconButton>
+                    <IconButton label={t('project.card.move_down')} size="sm" onClick={() => moveBlock(block, 'down')}><ChevronDown size={14} /></IconButton>
+                    <IconButton label={t('common.delete')} size="sm" onClick={() => void removeBlock(block)}><Trash2 size={14} /></IconButton>
+                  </>
                 )}
               </div>
             ))}
