@@ -118,9 +118,21 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const filtered = useMemo(() => bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, search, bundle.properties)), [bundle.cards, fields.filter, fields.sortOptions, bundle.properties, search])
   const sorted = useMemo(() => sortProjectCards(filtered, fields.sortOptions, bundle.properties), [filtered, fields.sortOptions, bundle.properties])
   const badgesByCard = useMemo(() => {
+    const contentsByCard = new Map<string, typeof bundle.contents>()
+    for (const block of bundle.contents) {
+      const list = contentsByCard.get(block.cardId)
+      if (list) list.push(block)
+      else contentsByCard.set(block.cardId, [block])
+    }
+    const commentsByCard = new Map<string, typeof bundle.comments>()
+    for (const comment of bundle.comments) {
+      const list = commentsByCard.get(comment.cardId)
+      if (list) list.push(comment)
+      else commentsByCard.set(comment.cardId, [comment])
+    }
     const byCard = new Map<string, ProjectCardBadges>()
     for (const card of bundle.cards) {
-      byCard.set(card.id, projectCardBadges(bundle.contents.filter((block) => block.cardId === card.id), bundle.comments.filter((comment) => comment.cardId === card.id)))
+      byCard.set(card.id, projectCardBadges(contentsByCard.get(card.id) ?? [], commentsByCard.get(card.id) ?? []))
     }
     return byCard
   }, [bundle.cards, bundle.contents, bundle.comments])

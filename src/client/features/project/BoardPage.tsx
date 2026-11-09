@@ -88,11 +88,28 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   useEffect(() => {
     const controller = new AbortController()
     const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return
       fetchProjectBoardBundle(boardId, controller.signal)
         .then((fresh) => setBundle(fresh))
         .catch(() => { /* best-effort convergence poll: a failed refetch keeps the last good bundle */ return undefined })
     }, 30_000)
-    return () => { window.clearInterval(timer); controller.abort() }
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        fetchProjectBoardBundle(boardId, controller.signal)
+          .then((fresh) => setBundle(fresh))
+          .catch(() => undefined)
+      }
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility)
+    }
+    return () => {
+      window.clearInterval(timer)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility)
+      }
+      controller.abort()
+    }
   }, [boardId])
 
   useEffect(() => {

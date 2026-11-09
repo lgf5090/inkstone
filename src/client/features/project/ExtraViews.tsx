@@ -47,8 +47,12 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
   const propertyId = datePropertyId ?? properties.find((p) => p.type === 'date')?.id
   const ranges = cards.map((card) => ({ card, range: dateRange(card, propertyId) })).filter((entry): entry is { card: ProjectCard, range: { from: number, to: number } } => entry.range !== null)
   if (ranges.length === 0) return <p className="p-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.no_dates')}</p>
-  const min = Math.min(...ranges.map((r) => r.range.from))
-  const max = Math.max(...ranges.map((r) => r.range.to))
+  let min = Infinity
+  let max = -Infinity
+  for (const entry of ranges) {
+    if (entry.range.from < min) min = entry.range.from
+    if (entry.range.to > max) max = entry.range.to
+  }
   const span = Math.max(max - min, 1)
   const blocked = new Set(links.filter((l) => l.kind === 'blocks').map((l) => l.toCardId))
   return (
