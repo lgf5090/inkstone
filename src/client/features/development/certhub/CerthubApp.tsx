@@ -25,6 +25,7 @@ import type {
   CerthubCa,
   CerthubConfigView,
   CerthubDnsProviderView,
+  CerthubDomainView,
   CerthubEventView,
   CerthubKeyAlgorithm,
   CerthubOrderStatus,
@@ -96,6 +97,27 @@ function toastActionError(error: unknown): void {
     return
   }
   toastError(error)
+}
+
+/**
+ * Reports an action's real outcome, not merely that the request answered 200.
+ *
+ * `advance` persists a permanent DNS refusal as `status: failed` and still answers 200 (the action
+ * itself ran); a success toast on that row would say the opposite of what the order now holds.
+ */
+function notifyActionResult(result: { order: CerthubOrderView; retryAfterMs?: number }): void {
+  if (result.order.status === 'failed') {
+    useUi.getState().toast({
+      title: result.order.failureMessage || t('development.certhub.failure.title'),
+      tone: 'danger',
+    })
+    return
+  }
+  if (result.retryAfterMs && result.retryAfterMs > 0) {
+    useUi.getState().toast({ title: t('development.certhub.detail.pending_refresh'), tone: 'warning' })
+    return
+  }
+  useUi.getState().toast({ title: t('development.certhub.cert.action_done'), tone: 'success' })
 }
 
 async function api<T>(path: string, options: Parameters<typeof request>[1] = {}): Promise<T> {
@@ -323,6 +345,32 @@ function QuotaLine({ label, used, limit, ratio }: { label: string; used: number;
   )
 }
 
+const ORDER_ACTIVE_STATUSES = ['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating', 'ready', 'finalizing']
+const ORDER_FINISHED_STATUSES = ['failed', 'canceled', 'revoked', 'expired']
+const ORDER_DNS_BINDABLE_STATUSES = ['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating']
+
+/**
+ * Downloads the issued chain without asking for a password: the list has no private key to protect,
+ * and `/download?kind=fullchain` only requires the session the list already has.
+ */
+async function downloadOrderCertificate(order: CerthubOrderSummary): Promise<void> {
+  const response = await fetch(`${BASE}/orders/${order.id}/download?kind=fullchain`, { headers: { 'X-Client': '1' } })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    toastError(new Error(body?.error?.message ?? `HTTP ${response.status}`))
+    return
+  }
+  const blob = await response.blob()
+  const name = `${(order.primaryDomain || order.id).replace(/[^a-z0-9.-]/gi, '_')}-fullchain.pem`
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = name
+  anchor.click()
+  URL.revokeObjectURL(url)
+  useUi.getState().toast({ title: t('development.certhub.cert.downloaded'), tone: 'success' })
+}
+
 function CertificatesPage({ compact }: { compact: boolean }) {
   const search = useSearch()
   const sort = orderSortFromSearch(search)
@@ -332,6 +380,9 @@ function CertificatesPage({ compact }: { compact: boolean }) {
   const [status, setStatus] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [providers, setProviders] = useState<CerthubDnsProviderView[]>([])
+  const [actionBusy, setActionBusy] = useState<string | null>(null)
+  const [bindOrder, setBindOrder] = useState<{ orderId: string; domains: CerthubDomainView[]; domainId: string; providerId: string; loading: boolean; saving: boolean } | null>(null)
   const load = (cursor?: string) => {
     setLoading(true)
     setError(null)
@@ -348,6 +399,9 @@ function CertificatesPage({ compact }: { compact: boolean }) {
       .finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [status, sort])
+  useEffect(() => {
+    api<{ items: CerthubDnsProviderView[] }>('/dns-providers').then((data) => setProviders(data.items)).catch(() => setProviders([]))
+  }, [])
   const statusOptions = useMemo(() => [
     { value: '', label: t('development.certhub.cert.all') },
     ...(['issued', 'awaiting_dns', 'awaiting_http', 'validating', 'failed', 'expired', 'revoked', 'canceled'] as CerthubOrderStatus[]).map((value) => ({ value, label: t(statusKey(value) as never) })),
@@ -357,6 +411,144 @@ function CertificatesPage({ compact }: { compact: boolean }) {
     { value: 'expires', label: t('development.certhub.cert.sort.expires') },
     { value: 'name', label: t('development.certhub.cert.sort.name') },
   ]), [])
+  const runOrderAction = async (orderId: string, action: CerthubAction, extra: Record<string, unknown> = {}) => {
+    setActionBusy(orderId)
+    try {
+      const result = await api<{ order: CerthubOrderView; retryAfterMs?: number }>(`/orders/${orderId}/actions`, { method: 'POST', body: { action, ...extra } })
+      notifyActionResult(result)
+      load()
+    } catch (reason) {
+      toastActionError(reason)
+    } finally {
+      setActionBusy(null)
+    }
+  }
+  const confirmTypedId = async (title: string, description: string): Promise<string | null> => {
+    const value = await prompt({ title, description, placeholder: t('development.certhub.detail.copy_id'), confirmLabel: t('development.certhub.common.confirm') })
+    return value
+  }
+  const openBind = async (order: CerthubOrderSummary) => {
+    setBindOrder({ orderId: order.id, domains: [], domainId: '', providerId: '', loading: true, saving: false })
+    try {
+      const detail = await api<{ order: CerthubOrderView; events: CerthubEventView[] }>(`/orders/${order.id}`)
+      const domains = detail.order.domains.filter((domain) => domain.challengeMode === 'dns-01')
+      if (domains.length === 0) {
+        setBindOrder(null)
+        toastActionError(new Error(t('development.certhub.cert.reason_bind')))
+        return
+      }
+      const first = domains[0]!
+      setBindOrder({ orderId: order.id, domains, domainId: first.id, providerId: first.dnsProviderId, loading: false, saving: false })
+    } catch (reason) {
+      setBindOrder(null)
+      toastActionError(reason)
+    }
+  }
+  const saveBind = async () => {
+    if (!bindOrder) return
+    setBindOrder({ ...bindOrder, saving: true })
+    try {
+      await api(`/orders/${bindOrder.orderId}/domains/${bindOrder.domainId}/provider`, {
+        method: 'POST',
+        body: { dnsProviderId: bindOrder.providerId },
+      })
+      setBindOrder(null)
+      useUi.getState().toast({ title: t('development.certhub.detail.provider_bound'), tone: 'success' })
+      load()
+    } catch (reason) {
+      setBindOrder((current) => (current ? { ...current, saving: false } : current))
+      toastActionError(reason)
+    }
+  }
+  const optionsFor = (order: CerthubOrderSummary) => {
+    const active = ORDER_ACTIVE_STATUSES.includes(order.status)
+    const finished = ORDER_FINISHED_STATUSES.includes(order.status)
+    const issued = order.status === 'issued' || order.status === 'expired'
+    const bindable = ORDER_DNS_BINDABLE_STATUSES.includes(order.status)
+    const finishedReason = t('development.certhub.cert.reason_finished')
+    const issuedReason = t('development.certhub.cert.reason_issued')
+    return [
+      { value: 'view', label: t('development.certhub.cert.view_detail') },
+      { value: 'verify', label: t('development.certhub.detail.verify'), disabled: !active, reason: finishedReason },
+      { value: 'regenerate', label: t('development.certhub.detail.regenerate'), disabled: !active, reason: finishedReason },
+      { value: 'bind', label: t('development.certhub.detail.bind_provider'), disabled: !bindable, reason: t('development.certhub.cert.reason_bind') },
+      { value: 'download', label: t('development.certhub.detail.cert'), disabled: !order.hasCertificate, reason: t('development.certhub.cert.reason_download') },
+      { value: 'renew', label: t('development.certhub.detail.renew'), disabled: !issued, reason: issuedReason },
+      { value: 'revoke', label: t('development.certhub.detail.revoke'), disabled: !issued, reason: issuedReason },
+      { value: 'cancel', label: t('development.certhub.detail.cancel'), disabled: !active, reason: finishedReason },
+      { value: 'purge', label: t('development.certhub.detail.purge'), disabled: !order.hasPrivateKey, reason: t('development.certhub.cert.reason_purge') },
+      { value: 'delete', label: t('development.certhub.detail.delete'), disabled: !finished, reason: t('development.certhub.cert.reason_delete') },
+    ]
+  }
+  const handleOrderOption = async (order: CerthubOrderSummary, value: string) => {
+    if (value === 'view') {
+      navigateToPath(`/development/certhub/certificates/${order.id}`)
+      return
+    }
+    if (value === 'verify') {
+      await runOrderAction(order.id, 'advance')
+      return
+    }
+    if (value === 'regenerate') {
+      if (await confirm({ title: t('development.certhub.detail.regenerate'), description: t('development.certhub.cert.confirm_regenerate'), tone: 'danger' })) {
+        await runOrderAction(order.id, 'regenerate')
+      }
+      return
+    }
+    if (value === 'cancel') {
+      if (await confirm({ title: t('development.certhub.detail.cancel'), description: t('development.certhub.cert.confirm_cancel'), tone: 'danger' })) {
+        await runOrderAction(order.id, 'cancel')
+      }
+      return
+    }
+    if (value === 'renew') {
+      if (await confirm({ title: t('development.certhub.detail.renew'), description: t('development.certhub.cert.confirm_renew'), tone: 'default' })) {
+        await runOrderAction(order.id, 'renew')
+      }
+      return
+    }
+    if (value === 'download') {
+      await downloadOrderCertificate(order)
+      return
+    }
+    if (value === 'bind') {
+      await openBind(order)
+      return
+    }
+    if (value === 'purge') {
+      const typed = await confirmTypedId(t('development.certhub.detail.purge'), t('development.certhub.detail.confirm_purge'))
+      if (typed === order.id) await runOrderAction(order.id, 'purge_key')
+      return
+    }
+    if (value === 'revoke') {
+      const typed = await confirmTypedId(t('development.certhub.detail.revoke'), t('development.certhub.detail.confirm_revoke'))
+      if (typed === order.id) await runOrderAction(order.id, 'revoke')
+      return
+    }
+    if (value === 'delete') {
+      const typed = await confirmTypedId(t('development.certhub.detail.delete'), t('development.certhub.detail.confirm_delete'))
+      if (typed === order.id) await runOrderAction(order.id, 'delete', { confirm: order.id })
+    }
+  }
+  const renderRowActions = (order: CerthubOrderSummary) => (
+    <div className="flex flex-wrap items-center gap-1">
+      <Button size="sm" onClick={() => navigateToPath(`/development/certhub/certificates/${order.id}`)}>{t('development.certhub.cert.view')}</Button>
+      <CopyButton text={order.id} label={t('development.certhub.detail.copy_id')} />
+      <div className="w-[96px]">
+        <SelectMenu
+          label={t('development.certhub.cert.more_actions')}
+          value=""
+          placeholder={t('development.certhub.cert.more_actions')}
+          options={optionsFor(order)}
+          onChange={(value) => { void handleOrderOption(order, value) }}
+          size="sm"
+          width={236}
+          align="end"
+          disabled={actionBusy === order.id}
+        />
+      </div>
+    </div>
+  )
   return (
     <Panel title={t('development.certhub.cert.title')} subtitle={t('development.certhub.cert.subtitle')}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -371,10 +563,13 @@ function CertificatesPage({ compact }: { compact: boolean }) {
       {items.length > 0 && (compact ? (
         <div className="space-y-2">
           {items.map((order) => (
-            <button key={order.id} type="button" onClick={() => navigateToPath(`/development/certhub/certificates/${order.id}`)} className="flex w-full flex-col gap-1.5 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3 text-left">
-              <div className="flex items-center justify-between gap-2"><span className="truncate text-[length:var(--text-13)] font-medium">{order.primaryDomain || order.id}</span><StatusBadge status={order.status} /></div>
-              <div className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{formatDate(order.certNotAfter)}</div>
-            </button>
+            <div key={order.id} className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3">
+              <button type="button" onClick={() => navigateToPath(`/development/certhub/certificates/${order.id}`)} className="flex w-full flex-col gap-1.5 text-left">
+                <div className="flex items-center justify-between gap-2"><span className="truncate text-[length:var(--text-13)] font-medium">{order.primaryDomain || order.id}</span><StatusBadge status={order.status} /></div>
+                <div className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{formatDate(order.certNotAfter)}</div>
+              </button>
+              <div className="mt-2">{renderRowActions(order)}</div>
+            </div>
           ))}
         </div>
       ) : (
@@ -396,13 +591,49 @@ function CertificatesPage({ compact }: { compact: boolean }) {
                 <td className="border-b border-[var(--border-subtle)] px-2 py-2"><StatusBadge status={order.status} /></td>
                 <td className="border-b border-[var(--border-subtle)] px-2 py-2">{formatDate(order.createdAt)}</td>
                 <td className="border-b border-[var(--border-subtle)] px-2 py-2">{formatDate(order.certNotAfter)}</td>
-                <td className="border-b border-[var(--border-subtle)] px-2 py-2"><Button size="sm" onClick={() => navigateToPath(`/development/certhub/certificates/${order.id}`)}>{t('development.certhub.cert.view')}</Button></td>
+                <td className="border-b border-[var(--border-subtle)] px-2 py-2">{renderRowActions(order)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       ))}
       {next ? <div className="mt-3 flex justify-center"><Button onClick={() => load(next)} loading={loading}>{t('development.certhub.cert.more')}</Button></div> : null}
+      <Modal open={Boolean(bindOrder)} onClose={() => setBindOrder(null)} title={t('development.certhub.detail.bind_provider')} width={440}>
+        {bindOrder?.loading ? <Skeleton className="h-24" /> : bindOrder ? (
+          <div className="space-y-3 text-[length:var(--text-12)]">
+            {bindOrder.domains.length > 1 ? (
+              <Field label={t('development.certhub.cert.domain')}>
+                <SelectMenu
+                  label={t('development.certhub.cert.domain')}
+                  value={bindOrder.domainId}
+                  options={bindOrder.domains.map((domain) => ({ value: domain.id, label: domain.fqdn }))}
+                  onChange={(value) => {
+                    const domain = bindOrder.domains.find((entry) => entry.id === value)
+                    setBindOrder({ ...bindOrder, domainId: value, providerId: domain?.dnsProviderId ?? '' })
+                  }}
+                />
+              </Field>
+            ) : (
+              <div className="rounded-[var(--r-md)] bg-[var(--bg-sunken)] p-2">
+                {t('development.certhub.cert.domain')}: {bindOrder.domains[0]?.fqdn ?? '-'}
+              </div>
+            )}
+            <Field label={t('development.certhub.detail.provider')}>
+              <SelectMenu
+                label={t('development.certhub.detail.provider')}
+                value={bindOrder.providerId}
+                options={[{ value: '', label: t('development.certhub.apply.provider_none') }, ...providers.map((provider) => ({ value: provider.id, label: provider.label }))]}
+                onChange={(value) => setBindOrder({ ...bindOrder, providerId: value })}
+              />
+            </Field>
+            <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('development.certhub.cert.bind_hint')}</p>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setBindOrder(null)}>{t('development.certhub.detail.cancel')}</Button>
+              <Button size="sm" variant="primary" loading={bindOrder.saving} onClick={saveBind}>{t('development.certhub.common.confirm')}</Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </Panel>
   )
 }
@@ -437,12 +668,8 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
     setBusy(true)
     try {
       const result = await api<{ order: CerthubOrderView; retryAfterMs?: number }>(`/orders/${id}/actions`, { method: 'POST', body: { action, ...extra } })
+      notifyActionResult(result)
       load()
-      // A 200 that only re-queues a retry is still an answer the reader should see: without this the
-      // button looks inert while the order silently waits for DNS propagation.
-      if (result.retryAfterMs && result.retryAfterMs > 0) {
-        useUi.getState().toast({ title: t('development.certhub.detail.pending_refresh'), tone: 'warning' })
-      }
     } catch (reason) {
       toastActionError(reason)
     } finally {
@@ -477,11 +704,18 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
   }
   const download = async (kind: string, exportKind?: 'zip' | 'pfx') => {
     if (!order) return
-    const password = await askPassword()
-    if (password === null) return
+    // Only the private key and the bundles that carry it need the re-auth gate; a certificate alone
+    // is public material and asking for a password made the "Certificate" button look broken.
+    const needsPassword = kind === 'key' || Boolean(exportKind)
+    let password = ''
+    if (needsPassword) {
+      const value = await askPassword()
+      if (value === null) return
+      password = value
+    }
     const path = exportKind ? `/orders/${id}/export?kind=${exportKind}` : `/orders/${id}/download?kind=${kind}`
     const response = await fetch(`${BASE}${path}`, {
-      headers: { 'X-Client': '1', 'X-Certhub-Reauth': password },
+      headers: { 'X-Client': '1', ...(password ? { 'X-Certhub-Reauth': password } : {}) },
     })
     if (!response.ok) {
       toastError(new Error((await response.json().catch(() => null))?.error?.message ?? `HTTP ${response.status}`))
@@ -514,7 +748,7 @@ function DetailPage({ id, compact }: { id: string; compact: boolean }) {
         <div className="mb-3 flex flex-wrap gap-2">
           <Button size="sm" onClick={() => runAction('advance')} loading={busy} icon={<RefreshCw size={14} />}>{t('development.certhub.detail.verify')}</Button>
           <Button size="sm" variant="ghost" onClick={load} icon={<RefreshCw size={14} />}>{t('development.certhub.detail.refresh')}</Button>
-          {['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating', 'ready', 'finalizing'].includes(order.status) ? <Button size="sm" variant="ghost" onClick={() => runAction('regenerate')}>{t('development.certhub.detail.regenerate')}</Button> : null}
+          {['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating', 'ready', 'finalizing'].includes(order.status) ? <Button size="sm" variant="ghost" onClick={async () => { if (await confirm({ title: t('development.certhub.detail.regenerate'), description: t('development.certhub.cert.confirm_regenerate'), tone: 'danger' })) runAction('regenerate') }}>{t('development.certhub.detail.regenerate')}</Button> : null}
           {['queued', 'creating_order', 'awaiting_dns', 'awaiting_http', 'validating', 'ready', 'finalizing'].includes(order.status) ? <Button size="sm" variant="ghost" onClick={async () => { if (await typedConfirm(t('development.certhub.detail.confirm_cancel'), order.id)) runAction('cancel') }}>{t('development.certhub.detail.cancel')}</Button> : null}
           <CopyButton text={order.id} label={t('development.certhub.detail.copy_id')} />
           {order.status === 'issued' || order.status === 'expired' ? <Button size="sm" onClick={() => runAction('renew')}>{t('development.certhub.detail.renew')}</Button> : null}

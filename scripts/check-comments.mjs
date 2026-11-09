@@ -731,6 +731,7 @@ const allowed = new Map([
     "/** The control's accessible name; also the menu's, so the panel is announced with its owner. */",
     "/** Panel width in pixels; the trigger takes its width from the layout. */",
     "/** `sm` is the toolbar row; `md` the form field. */",
+    "/** Why this row cannot be chosen; shown on hover instead of leaving a silent dead row. */",
   ]],
   ["src/client/components/tooltip-icon-button.tsx", [
     "/**\n   * What the tooltip says while the button is disabled. Disabled buttons drop pointer events of their\n   * own, so the wrapper below is the element that actually receives hover; without this hint a\n   * greyed-out control would be silent exactly when the reader needs to know why.\n   */",
@@ -7093,11 +7094,13 @@ const allowed = new Map([
     "// validates (a crafted request must not get past it), this is only the first gate.",
     "// An event row can outlive the order it describes; a raw identifier is worse than nothing.",
     "/**\n * An order action answers with a code the reader can act on. A missing provider is not a generic\n * failure — it names the one step left — so it gets its own sentence instead of the route's English.\n */",
-    "// A 200 that only re-queues a retry is still an answer the reader should see: without this the",
-    "// button looks inert while the order silently waits for DNS propagation.",
     "// A provider that covers the typed domain is the one the automatic path can actually write to.",
     "// The fill only touches rows the reader has not pinned: choosing the manual option explicitly is a",
     "// decision, and a later keystroke in the name must not silently undo it.",
+    "/**\n * Reports an action's real outcome, not merely that the request answered 200.\n *\n * `advance` persists a permanent DNS refusal as `status: failed` and still answers 200 (the action\n * itself ran); a success toast on that row would say the opposite of what the order now holds.\n */",
+    "/**\n * Downloads the issued chain without asking for a password: the list has no private key to protect,\n * and `/download?kind=fullchain` only requires the session the list already has.\n */",
+    "// Only the private key and the bundles that carry it need the re-auth gate; a certificate alone",
+    "// is public material and asking for a password made the \"Certificate\" button look broken.",
   ]],
   ["src/client/features/development/certhub/events.ts", [
     "// A kind the catalog does not know yet must not leak its dotted key onto the page: the event list is",
