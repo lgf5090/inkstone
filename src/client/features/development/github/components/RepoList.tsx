@@ -91,7 +91,7 @@ export function RepoList({
   onQueryChange: (value: string) => void
   onCommitSearch: (query: string) => void
   onClear: () => void
-  searchRef?: React.Ref<HTMLInputElement>
+  searchRef?: React.RefObject<HTMLInputElement | null>
   onGoDiscover: () => void
   searchHistory: string[]
   onPickSearchHistory: (value: string) => void
@@ -229,8 +229,8 @@ export function RepoList({
               }}
               placeholder={isExplore ? t('development.github.repos.search_placeholder') : t('development.github.repos.filter_placeholder')}
               aria-label={t('development.github.repos.search')}
-              className="h-8 pr-7 text-[length:var(--text-12)]"
-              trailing={draft ? <IconButton label={t('common.clear')} size="sm" onClick={() => { setDraft(''); onClear() }}><X size={12} /></IconButton> : undefined}
+              className="h-8 pr-11 text-[length:var(--text-12)] md:pr-9"
+              trailing={draft ? <IconButton label={t('common.clear')} size="sm" onClick={() => { setDraft(''); onClear(); searchRef?.current?.focus() }}><X size={12} /></IconButton> : undefined}
             />
           </div>
           <IconButton ref={historyAnchor} variant="secondary" size="sm" className="hidden size-8 md:size-8 sm:inline-flex" label={t('development.github.repos.search_history')} onClick={() => setHistoryOpen(true)}><History size={14} /></IconButton>

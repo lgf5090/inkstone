@@ -127,7 +127,7 @@ export function AccountsView({
             autoCapitalize="off"
             spellCheck={false}
             placeholder={t('development.github.accounts.token_placeholder')}
-            className="h-9 font-mono text-[length:var(--text-12)]"
+            className="h-9 pr-11 font-mono text-[length:var(--text-12)] md:pr-9"
             leading={<KeyRound size={13} />}
             trailing={<IconButton label={showToken ? t('development.github.accounts.hide_token') : t('development.github.accounts.show_token')} size="sm" onClick={() => setShowToken((value) => !value)}>{showToken ? <EyeOff size={13} /> : <Eye size={13} />}</IconButton>}
           />
