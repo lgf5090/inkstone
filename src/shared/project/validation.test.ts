@@ -101,6 +101,15 @@ describe('view fields', () => {
     expect(parsed.filter).toBeUndefined()
   })
 
+  it('retains density/swimlane/WIP so those controls are not silently stripped (R2-1)', () => {
+    const parsed = ProjectViewFieldsSchema.partial().parse({ cardSize: 'compact', swimlaneBy: 'p1', wipLimits: { o1: 3 } })
+    expect(parsed.cardSize).toBe('compact')
+    expect(parsed.swimlaneBy).toBe('p1')
+    expect(parsed.wipLimits).toEqual({ o1: 3 })
+    expect(ProjectViewFieldsSchema.partial().safeParse({ cardSize: 'gigantic' }).success).toBe(false)
+    expect(ProjectViewFieldsSchema.partial().safeParse({ wipLimits: { o1: -1 } }).success).toBe(false)
+  })
+
   it('refuses a column width that is not a sane pixel count', () => {
     expect(ProjectViewFieldsSchema.safeParse({ columnWidths: { p1: -1 } }).success).toBe(false)
     expect(ProjectViewFieldsSchema.safeParse({ columnWidths: { p1: 1e9 } }).success).toBe(false)

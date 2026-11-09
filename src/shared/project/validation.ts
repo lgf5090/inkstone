@@ -80,6 +80,9 @@ const idList = z.array(z.string().min(1).max(64)).max(PROJECT_LIMITS.cardsPerBoa
 export const ProjectViewFieldsSchema = z.object({
   groupById: z.string().max(64).optional(),
   dateDisplayPropertyId: z.string().max(64).optional(),
+  cardSize: z.enum(['compact', 'comfortable', 'spacious']).optional(),
+  swimlaneBy: z.string().max(64).optional(),
+  wipLimits: z.record(z.string().max(64), z.number().int().min(0)).optional(),
   sortOptions: z.array(ProjectSortOptionSchema).max(PROJECT_LIMITS.propertiesPerBoard),
   visiblePropertyIds: idList,
   visibleOptionIds: idList,
