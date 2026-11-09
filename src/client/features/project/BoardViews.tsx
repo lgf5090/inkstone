@@ -14,7 +14,7 @@ import { PropertiesModal, SortModal } from './ViewSettingsModals'
 import { FilterModal } from './FilterEditor'
 import { PropertyValueEditor } from './PropertyValueEditor'
 import { CalendarView, GalleryView } from './GalleryCalendar'
-import { CardBadges } from './CardBadges'
+import { CardBadges, OptionChip } from './CardBadges'
 import { ChartView, ListView, TimelineView } from './ExtraViews'
 import { batchDeleteProjectBoard, batchPatchProjectBoard, fetchBoardLinks, projectBoardExportUrl } from './api'
 
@@ -125,6 +125,10 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     return byCard
   }, [bundle.cards, bundle.contents, bundle.comments])
   const badgesFor = (cardId: string): ProjectCardBadges => badgesByCard.get(cardId) ?? { description: false, comments: 0, checked: 0, checkboxes: 0 }
+  const cellDisplay = (card: ProjectCard, property: ProjectProperty): ReactElement | string => {
+    if (property.type === 'select' && card.values[property.id]) return <OptionChip property={property} value={card.values[property.id]!} />
+    return projectPropertyDisplayText(card, property) || '—'
+  }
   const hiddenCount = bundle.cards.length - filtered.length
   const [resizing, setResizing] = useState<{ id: string, width: number } | null>(null)
   const dragRef = useRef<{ id: string, startX: number, startWidth: number } | null>(null)
@@ -464,10 +468,10 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                                 : canEdit
                                   ? (
                                     <button type="button" className="w-full truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => setEditingCell({ cardId: card.id, propertyId: property.id })}>
-                                      {projectPropertyDisplayText(card, property) || '—'}
+                                      {cellDisplay(card, property)}
                                     </button>
                                   )
-                                  : projectPropertyDisplayText(card, property)}
+                                  : cellDisplay(card, property)}
                             </td>
                           ))}
                           {canEdit && (

@@ -62,6 +62,14 @@ describe('calendar view', () => {
     await act(async () => { target.dispatchEvent(event) })
     expect(onPatchCard).toHaveBeenCalledWith('c1', { values: { pd: JSON.stringify({ from: projectDayToStamp(new Date(now.getFullYear(), now.getMonth(), 20)) }) } })
   })
+
+  it('highlights today and offers a jump-back-to-today control (R2-4)', async () => {
+    await act(async () => { view = renderElement(createElement(CalendarView, { cards: [], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    const todayButton = [...view.container.querySelectorAll('button')].find((b) => b.textContent === t('project.view.today'))
+    expect(todayButton).toBeTruthy()
+    const highlighted = [...view.container.querySelectorAll('div.min-h-16')].filter((c) => c.className.includes('border-[var(--accent)]'))
+    expect(highlighted).toHaveLength(1)
+  })
 })
 
 describe('gallery display toggles (C-4)', () => {

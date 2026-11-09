@@ -5,8 +5,8 @@ import type { ProjectCardBadges } from '@shared/project/badges'
 import { projectDayToStamp } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
-import { IconButton } from '../../components/primitives'
-import { CardBadges } from './CardBadges'
+import { Button, IconButton } from '../../components/primitives'
+import { CardBadges, OptionChip } from './CardBadges'
 
 function dateFrom(card: ProjectCard, propertyId: string | undefined): number | null {
   if (!propertyId) return null
@@ -39,7 +39,9 @@ export function GalleryView({ cards, properties, showTitle, showBadges, badgesFo
           </span>
           {showTitle && <span className="min-w-0 truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>}
           {properties.slice(0, 3).map((property) => (
-            <span key={property.id} className="min-w-0 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{projectPropertyDisplayText(card, property)}</span>
+            <span key={property.id} className="min-w-0 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+              {property.type === 'select' && card.values[property.id] ? <OptionChip property={property} value={card.values[property.id]!} /> : projectPropertyDisplayText(card, property)}
+            </span>
           ))}
           {showBadges && <CardBadges badges={badgesFor(card.id)} />}
         </button>
@@ -85,6 +87,8 @@ export function CalendarView({ cards, properties, datePropertyId, canEdit, onOpe
     return date.toLocaleDateString(undefined, { weekday: 'short' })
   })
   const shift = (delta: number) => setMonth(new Date(year, monthIndex + delta, 1))
+  const today = new Date()
+  const isToday = (day: number | null): boolean => day !== null && day === today.getDate() && monthIndex === today.getMonth() && year === today.getFullYear()
 
   return (
     <div className="flex min-h-0 flex-1 flex-col p-3">
@@ -93,14 +97,15 @@ export function CalendarView({ cards, properties, datePropertyId, canEdit, onOpe
         <span className="min-w-0 flex-1 text-center text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
           {month.toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
         </span>
+        <Button size="sm" variant="ghost" onClick={() => setMonth(new Date(today.getFullYear(), today.getMonth(), 1))}>{t('project.view.today')}</Button>
         <IconButton label={t('project.view.next_month')} size="sm" onClick={() => shift(1)}><ChevronRight size={15} /></IconButton>
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-7 gap-1 overflow-y-auto">
-        {weekdays.map((day, i) => <div key={i} className="pb-1 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{day}</div>)}
+        {weekdays.map((day, i) => <div key={i} className="pb-1 text-center text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{day}</div>)}
         {cells.map((day, i) => (
           <div
             key={i}
-            className={`min-h-16 rounded-[var(--r-sm)] border border-[var(--border-subtle)] p-1 ${day === null ? 'opacity-40' : ''}`}
+            className={`min-h-16 rounded-[var(--r-sm)] border p-1 ${day === null ? 'border-transparent opacity-40' : isToday(day) ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-subtle)]'}`}
             onDragOver={(event) => { if (day !== null && canEdit && propertyId) event.preventDefault() }}
             onDrop={(event) => {
               if (day === null || !canEdit || !propertyId) return
@@ -111,7 +116,7 @@ export function CalendarView({ cards, properties, datePropertyId, canEdit, onOpe
           >
             {day !== null && (
               <>
-                <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{day}</span>
+                <span className={`text-[length:var(--text-11)] ${isToday(day) ? 'font-semibold text-[var(--accent-on-soft)]' : 'text-[var(--text-tertiary)]'}`}>{day}</span>
                 <div className="mt-1 space-y-1">
                   {(byDay.get(day) ?? []).map((card) => (
                     <button

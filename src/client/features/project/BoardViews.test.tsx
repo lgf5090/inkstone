@@ -209,6 +209,21 @@ describe('multi-select and batch delete (B-10)', () => {
   })
 })
 
+describe('select option color chip (R2-6)', () => {
+  it('renders a colored chip for a select value with a color', async () => {
+    localStorage.clear()
+    const base = bundle()
+    base.properties = base.properties.map((p) => (p.id === 'ps' ? { ...p, options: p.options.map((o) => (o.id === 'o1' ? { ...o, color: '#ff0000' } : o)) } : p))
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+    const chip = view.container.querySelector('[data-project-card="c1"] td span[style]') as HTMLElement
+    expect(chip).not.toBeNull()
+    expect(chip.getAttribute('style')).toContain('background-color')
+    expect(chip.textContent).toBe('Open')
+  })
+})
+
 describe('column resize grip (C-17)', () => {
   it('ArrowRight on the grip persists a wider columnWidth', async () => {
     localStorage.clear()

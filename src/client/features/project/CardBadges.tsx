@@ -1,8 +1,19 @@
 import type { ReactElement } from 'react'
 import { CheckSquare, FileText, MessageSquare } from 'lucide-react'
 import type { ProjectCardBadges } from '@shared/project/badges'
+import type { ProjectProperty } from '@shared/project/model'
 import { hasProjectCardBadges } from '@shared/project/badges'
 import { t } from '../../lib/i18n'
+
+export function OptionChip({ property, value }: { property: ProjectProperty, value: string }): ReactElement | null {
+  const option = property.options.find((entry) => entry.id === value)
+  if (!option) return null
+  return (
+    <span className="inline-flex items-center rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-primary)]" style={option.color ? { backgroundColor: option.color } : undefined}>
+      {option.value}
+    </span>
+  )
+}
 
 export function CardBadges({ badges }: { badges: ProjectCardBadges }): ReactElement | null {
   if (!hasProjectCardBadges(badges)) return null
