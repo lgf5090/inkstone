@@ -36,6 +36,20 @@ async function mount() {
   await act(async () => { view = renderElement(createElement(ProjectSidebar, { boards })) })
 }
 
+describe('find-board keyboard navigation (E-8)', () => {
+  it('ArrowDown highlights the first match and Escape clears the query', async () => {
+    await mount()
+    const input = document.body.querySelector(`input[aria-label="${t('project.sidebar.search')}"]`) as HTMLInputElement
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(input, 'board'); input.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })) })
+    expect(document.body.querySelector('[data-sidebar-board="b1"] button')!.className).toContain('ring-2')
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+    expect(input.value).toBe('')
+    expect(document.body.querySelector('[data-sidebar-board="b1"] button')!.className).not.toContain('ring-2')
+  })
+})
+
 describe('the project sidebar', () => {
   it('files boards under their category and leaves the rest unfiled', async () => {
     await mount()

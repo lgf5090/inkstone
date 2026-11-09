@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, SquareKanban, Trash2 } from 'lucide-react'
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { t } from '../../lib/i18n'
@@ -52,6 +52,17 @@ export function ProjectSidebar({ boards }: { boards: ProjectBoardSummary[] }): R
   const matches = (board: ProjectBoardSummary) => board.title.toLowerCase().includes(query.trim().toLowerCase())
   const filedIds = new Set(edges.map((edge) => edge.boardId))
   const unfiled = boards.filter((board) => !filedIds.has(board.id) && matches(board))
+  const [highlight, setHighlight] = useState(-1)
+  const visibleBoards = [
+    ...categories.flatMap((category) => edges.filter((edge) => edge.categoryId === category.id).sort((a, b) => a.position - b.position).map((edge) => boards.find((board) => board.id === edge.boardId)).filter((board): board is ProjectBoardSummary => Boolean(board) && matches(board!))),
+    ...unfiled,
+  ]
+  const onSearchKey = (event: KeyboardEvent) => {
+    if (event.key === 'ArrowDown') { event.preventDefault(); setHighlight((current) => Math.min(current + 1, visibleBoards.length - 1)) }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); setHighlight((current) => Math.max(current - 1, 0)) }
+    else if (event.key === 'Enter') { const board = visibleBoards[highlight]; if (board) navigateToPath(`/project/boards/${board.id}`) }
+    else if (event.key === 'Escape') { setQuery(''); setHighlight(-1) }
+  }
 
   const newCategory = () => {
     void guard(async () => {
@@ -93,13 +104,13 @@ export function ProjectSidebar({ boards }: { boards: ProjectBoardSummary[] }): R
   }
 
   const renderBoard = (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => (
-    <BoardEntry key={board.id} board={board} edge={edge} items={boardMenu(board, edge)} active={board.id === lastBoard} />
+    <BoardEntry key={board.id} board={board} edge={edge} items={boardMenu(board, edge)} active={board.id === lastBoard} focused={visibleBoards[highlight]?.id === board.id} />
   )
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]" aria-label={t('project.title')}>
       <div className="flex items-center gap-1 p-2">
-        <Input className="min-w-0 flex-1" value={query} placeholder={t('project.sidebar.search')} aria-label={t('project.sidebar.search')} onChange={(event) => setQuery(event.target.value)} />
+        <Input className="min-w-0 flex-1" value={query} placeholder={t('project.sidebar.search')} aria-label={t('project.sidebar.search')} onChange={(event) => { setQuery(event.target.value); setHighlight(-1) }} onKeyDown={onSearchKey} />
         <IconButton label={t('project.sidebar.new_category')} size="sm" onClick={newCategory}><FolderPlus size={15} /></IconButton>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
@@ -151,12 +162,12 @@ function CategoryHeader({ category, onRename, onDelete, onToggle }: { category: 
   )
 }
 
-function BoardEntry({ board, edge, items, active }: { board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined, items: MenuItem[], active: boolean }): ReactElement {
+function BoardEntry({ board, edge, items, active, focused }: { board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined, items: MenuItem[], active: boolean, focused: boolean }): ReactElement {
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   return (
     <li className={`flex items-center gap-1 ${edge?.hidden ? 'opacity-50' : ''}`} data-sidebar-board={board.id}>
-      <button type="button" aria-current={active ? 'true' : undefined} className={`flex min-w-0 flex-1 items-center gap-2 rounded-[var(--r-sm)] px-1 py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active ? 'bg-[var(--bg-hover)] font-semibold' : ''}`} onClick={() => navigateToPath(`/project/boards/${board.id}`)}>
+      <button type="button" aria-current={active ? 'true' : undefined} className={`flex min-w-0 flex-1 items-center gap-2 rounded-[var(--r-sm)] px-1 py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active ? 'bg-[var(--bg-hover)] font-semibold' : ''} ${focused ? 'ring-2 ring-[var(--accent)]' : ''}`} onClick={() => navigateToPath(`/project/boards/${board.id}`)}>
         <span aria-hidden="true" className="flex size-5 shrink-0 items-center justify-center text-[length:var(--text-12)]">{board.icon || <SquareKanban size={13} className="text-[var(--text-quaternary)]" />}</span>
         <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{board.title || t('project.boards.untitled')}</span>
       </button>
