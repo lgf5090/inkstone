@@ -114,10 +114,10 @@ export function GistsPane({
     remoteType,
     remoteUsername,
     remotePage,
-    remote,
+    remote && active,
     selectedView === GIST_MY_GITHUB_VIEW ? activeAccountId : null,
   )
-  const remoteDetail = useGistDetailRemote(remote ? selectedRemoteId : null)
+  const remoteDetail = useGistDetailRemote(remote && active ? selectedRemoteId : null)
   const remoteItems = useMemo(() => (remoteQuery.data?.items ?? []).map((gist) => wrapRemote(gist, gists.find((local) => local.id === gist.id))), [remoteQuery.data, gists])
   const filteredRemote = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -181,7 +181,7 @@ export function GistsPane({
 
   const needle = query.trim()
   useEffect(() => {
-    if (remote || !needle) {
+    if (remote || !needle || !active) {
       setSearchIds(null)
       setSearchLoading(false)
       return
@@ -204,12 +204,12 @@ export function GistsPane({
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [needle, remote, toast])
+  }, [needle, remote, active, toast])
 
   const localId = selectedLocal?.id ?? null
   const localUpdatedAt = selectedLocal?.updatedAt ?? 0
   useEffect(() => {
-    if (remote || !localId || !needsFull) {
+    if (remote || !active || !localId || !needsFull) {
       setDetailLoading(false)
       setDetailError(null)
       return
@@ -240,7 +240,7 @@ export function GistsPane({
       .catch((error) => { if (!cancelled) setDetailError(causeText(error)) })
       .finally(() => { if (!cancelled) setDetailLoading(false) })
     return () => { cancelled = true }
-  }, [remote, localId, localUpdatedAt, needsFull, fullGists])
+  }, [remote, active, localId, localUpdatedAt, needsFull, fullGists])
 
   const retryFull = () => {
     if (!localId) return

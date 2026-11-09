@@ -102,7 +102,7 @@ export function ReposPane({
     perPage: GITHUB_PER_PAGE,
     page,
   }), [committedQuery, prefs, page])
-  const search = useGithubSearch(searchParams, isExplore)
+  const search = useGithubSearch(searchParams, isExplore && active)
 
   const selectedRepo = useMemo<GithubRepo | null>(() => {
     if (!selectedRepoId) return null
