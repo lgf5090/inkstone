@@ -70,6 +70,35 @@ describe('calendar view', () => {
     const highlighted = [...view.container.querySelectorAll('div.min-h-16')].filter((c) => c.className.includes('border-[var(--accent)]'))
     expect(highlighted).toHaveLength(1)
   })
+
+  it('switches between month and week view modes via Segmented control', async () => {
+    await act(async () => { view = renderElement(createElement(CalendarView, { cards: [], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    const weekBtn = [...view.container.querySelectorAll('button')].find((b) => b.textContent === t('preview.kanban_calendar_week'))
+    expect(weekBtn).toBeTruthy()
+    await act(async () => { weekBtn?.click() })
+    const cells = [...view.container.querySelectorAll('div.min-h-16')]
+    expect(cells).toHaveLength(7)
+  })
+
+  it('preserves multi-day duration when dropped on a new day', async () => {
+    const now = new Date()
+    const from = new Date(now.getFullYear(), now.getMonth(), 10).getTime()
+    const to = new Date(now.getFullYear(), now.getMonth(), 13).getTime()
+    const duration = to - from
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    const multiCard: ProjectCard = {
+      ...card('c1', 'Sprint', from),
+      values: { pd: JSON.stringify({ from, to }) },
+    }
+    await act(async () => { view = renderElement(createElement(CalendarView, { cards: [multiCard], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard })) })
+    const cells = [...view.container.querySelectorAll('div.min-h-16')]
+    const target = cells.find((cell) => cell.firstElementChild?.textContent === '20')!
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { getData: () => 'c1' } })
+    await act(async () => { target.dispatchEvent(event) })
+    const newFrom = projectDayToStamp(new Date(now.getFullYear(), now.getMonth(), 20))
+    expect(onPatchCard).toHaveBeenCalledWith('c1', { values: { pd: JSON.stringify({ from: newFrom, to: newFrom + duration }) } })
+  })
 })
 
 describe('gallery display toggles (C-4)', () => {

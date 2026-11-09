@@ -292,4 +292,37 @@ describe('AI card capabilities', () => {
     }))
     expect(onRefresh).toHaveBeenCalled()
   })
+
+  it('renders multi-level breadcrumb trail and navigates to ancestors', async () => {
+    const onOpen = vi.fn()
+    const grandParent = { ...card, id: 'gp1', title: 'Epic Feature' }
+    const parentCard = { ...card, id: 'p1', parentId: 'gp1', title: 'Backend API' }
+    const childCard = { ...card, id: 'c1', parentId: 'p1', title: 'Endpoint Schema' }
+
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, {
+        card: childCard,
+        properties,
+        members: [],
+        contents: [],
+        siblings: [grandParent, parentCard, childCard],
+        canEdit: true,
+        onClose: vi.fn(),
+        onUpdated: vi.fn(),
+        onRefresh: vi.fn(),
+        onDelete: vi.fn(),
+        onOpenCard: onOpen,
+      }))
+    })
+
+    const nav = document.body.querySelector('nav[aria-label]')!
+    expect(nav).toBeTruthy()
+    expect(nav.textContent).toContain('Epic Feature')
+    expect(nav.textContent).toContain('Backend API')
+    expect(nav.textContent).toContain('Endpoint Schema')
+
+    const gpBtn = [...nav.querySelectorAll('button')].find((b) => b.textContent === 'Epic Feature')
+    await act(async () => { gpBtn?.click() })
+    expect(onOpen).toHaveBeenCalledWith('gp1')
+  })
 })

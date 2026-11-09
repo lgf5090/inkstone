@@ -172,5 +172,12 @@ describe('deleting and restoring a card', () => {
 
     const selfParent = await req('alice', 'PATCH', `/cards/${card1.id}`, { parentId: card1.id })
     expect(selfParent.status).toBe(400)
+
+    const card3Res = await req('alice', 'POST', `/boards/${board1.id}/cards`, { title: 'Grandchild', parentId: childCard.id })
+    expect(card3Res.status).toBe(201)
+    const card3 = ((await card3Res.json()) as { card: ProjectCard }).card
+
+    const cyclicParent = await req('alice', 'PATCH', `/cards/${card1.id}`, { parentId: card3.id })
+    expect(cyclicParent.status).toBe(400)
   })
 })

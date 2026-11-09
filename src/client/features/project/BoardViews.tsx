@@ -115,7 +115,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const fields = active?.fields ?? emptyProjectViewFields()
   const viewType = active?.viewType ?? 'table'
   useEffect(() => { onActiveViewChange(active?.id ?? '') }, [active?.id, onActiveViewChange])
-  const filtered = useMemo(() => bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, search, bundle.properties)), [bundle.cards, fields.filter, fields.sortOptions, bundle.properties, search])
+  const filtered = useMemo(() => bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, search, bundle.properties)), [bundle.cards, fields.filter, bundle.properties, search])
   const sorted = useMemo(() => sortProjectCards(filtered, fields.sortOptions, bundle.properties), [filtered, fields.sortOptions, bundle.properties])
   const badgesByCard = useMemo(() => {
     const contentsByCard = new Map<string, typeof bundle.contents>()
@@ -412,7 +412,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         </div>
       )}
       {viewType === 'calendar'
-        ? <CalendarView cards={sorted} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} canEdit={canEdit} onOpenCard={onOpenCard} onPatchCard={onPatchCard} />
+        ? <CalendarView cards={sorted} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} canEdit={canEdit} onOpenCard={onOpenCard} onPatchCard={onPatchCard} onRefresh={onRefresh} />
         : sorted.length === 0
           ? <Empty art="folder" title={t('project.board.empty_cards')} />
           : viewType === 'board'

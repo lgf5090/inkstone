@@ -3,7 +3,10 @@
  * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the
  * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.
  */
+import { Fragment, useMemo, useState } from 'react'
+import { ChevronDown, ChevronRight, CornerDownRight } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty } from '@shared/project/model'
+import { isProjectCardDone } from '@shared/project/model'
 import { groupProjectCards, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
 
@@ -20,22 +23,101 @@ function dateRange(card: ProjectCard, propertyId: string | undefined): { from: n
 }
 
 export function ListView({ cards, properties, onOpenCard }: { cards: ProjectCard[], properties: ProjectProperty[], onOpenCard: (id: string) => void }) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const toggleExpand = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const cardIds = useMemo(() => new Set(cards.map((c) => c.id)), [cards])
+  const subtasksByParent = useMemo(() => {
+    const map = new Map<string, ProjectCard[]>()
+    for (const card of cards) {
+      if (card.parentId && cardIds.has(card.parentId)) {
+        const list = map.get(card.parentId)
+        if (list) list.push(card)
+        else map.set(card.parentId, [card])
+      }
+    }
+    return map
+  }, [cards, cardIds])
+
+  const rootCards = useMemo(() => cards.filter((c) => !c.parentId || !cardIds.has(c.parentId)), [cards, cardIds])
+
   return (
     <ul className="min-h-0 flex-1 divide-y divide-[var(--border-subtle)] overflow-y-auto">
-      {cards.map((card) => {
-        const isSubtask = Boolean(card.parentId)
+      {rootCards.map((card) => {
+        const cardSubtasks = subtasksByParent.get(card.id) ?? []
+        const hasSubtasks = cardSubtasks.length > 0
+        const isExpanded = expanded.has(card.id)
+        const doneCount = cardSubtasks.filter((s) => isProjectCardDone(s, properties)).length
         return (
-          <li key={card.id}>
-            <button type="button" className={`flex w-full items-center gap-2 ${isSubtask ? 'pl-8' : 'px-3'} py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]`} onClick={() => onOpenCard(card.id)}>
-              <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
-                {isSubtask && <span className="mr-1 text-[var(--text-tertiary)]" aria-hidden="true">└─</span>}
-                {card.title || t('project.board.untitled_card')}
-              </span>
-              {properties.slice(0, 3).map((property) => (
-                <span key={property.id} className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{projectPropertyDisplayText(card, property)}</span>
-              ))}
-            </button>
-          </li>
+          <Fragment key={card.id}>
+            <li>
+              <div className="flex w-full items-center gap-1.5 px-3 py-1">
+                {hasSubtasks ? (
+                  <button
+                    type="button"
+                    aria-label={isExpanded ? t('project.card.collapse_subtasks') : t('project.card.expand_subtasks')}
+                    aria-expanded={isExpanded}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                    onClick={() => toggleExpand(card.id)}
+                  >
+                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </button>
+                ) : (
+                  <span className="w-5 shrink-0" aria-hidden="true" />
+                )}
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                  onClick={() => onOpenCard(card.id)}
+                >
+                  <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
+                    {card.title || t('project.board.untitled_card')}
+                  </span>
+                  {hasSubtasks && (
+                    <span className="shrink-0 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
+                      {doneCount}/{cardSubtasks.length}
+                    </span>
+                  )}
+                  {properties.slice(0, 3).map((property) => (
+                    <span key={property.id} className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                      {projectPropertyDisplayText(card, property)}
+                    </span>
+                  ))}
+                </button>
+              </div>
+            </li>
+            {hasSubtasks && isExpanded && cardSubtasks.map((subtask) => {
+              const isDone = isProjectCardDone(subtask, properties)
+              return (
+                <li key={subtask.id} className="bg-[var(--bg-sunken)]/40">
+                  <div className="flex w-full items-center gap-1.5 py-1 pl-9 pr-3">
+                    <CornerDownRight size={13} className="shrink-0 text-[var(--text-tertiary)]" />
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                      onClick={() => onOpenCard(subtask.id)}
+                    >
+                      <span className={`min-w-0 flex-1 truncate text-[length:var(--text-12)] ${isDone ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]'}`}>
+                        {subtask.title || t('project.board.untitled_card')}
+                      </span>
+                      {properties.slice(0, 3).map((property) => (
+                        <span key={property.id} className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                          {projectPropertyDisplayText(subtask, property)}
+                        </span>
+                      ))}
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
+          </Fragment>
         )
       })}
     </ul>
@@ -86,7 +168,7 @@ export function ChartView({ cards, properties }: { cards: ProjectCard[], propert
   const groupProperty = properties.find((p) => p.type === 'select') ?? properties[0]
   const groups = groupProjectCards(cards, groupProperty?.id, properties)
   const entries = [...groups.entries()]
-  const max = Math.max(...entries.map(([, list]) => list.length), 1)
+  const max = entries.reduce((acc, [, list]) => Math.max(acc, list.length), 1)
   return (
     <div className="flex min-h-0 flex-1 items-end gap-3 overflow-x-auto p-4">
       {entries.map(([key, list]) => (

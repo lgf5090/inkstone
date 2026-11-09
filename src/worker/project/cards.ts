@@ -62,6 +62,7 @@ export async function createProjectCard(
     .first<{ n: number }>()
   if ((count?.n ?? 0) >= PROJECT_LIMITS.cardsPerBoard) throw ApiError.conflict('PROJECT_MAX_CARDS_PER_BOARD')
   if (input.parentId) {
+    if (input.id && input.parentId === input.id) throw ApiError.badRequest('A card cannot be its own parent')
     const parent = await getProjectCardRow(db, input.parentId)
     if (!parent || parent.board_id !== board.id || parent.delete_at !== 0) {
       throw ApiError.badRequest('Parent card does not exist on this board')
@@ -138,6 +139,17 @@ export async function patchProjectCard(
     const parent = await getProjectCardRow(db, patch.parentId)
     if (!parent || parent.board_id !== card.boardId || parent.delete_at !== 0) {
       throw ApiError.badRequest('Parent card does not exist on this board')
+    }
+    let currentAncestorId: string | null = parent.parent_id
+    const visited = new Set<string>([card.id, patch.parentId])
+    while (currentAncestorId) {
+      if (currentAncestorId === card.id) {
+        throw ApiError.badRequest('Cyclic parent relationship is not allowed')
+      }
+      if (visited.has(currentAncestorId)) break
+      visited.add(currentAncestorId)
+      const ancestor = await getProjectCardRow(db, currentAncestorId)
+      currentAncestorId = ancestor?.parent_id ?? null
     }
   }
   await db.batch(cardPatchStatements(db, card, patch, userId, now))

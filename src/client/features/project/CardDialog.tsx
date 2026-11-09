@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
 import { Archive, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
+import { isProjectCardDone } from '@shared/project/model'
 import { moveContentOrder } from '@shared/project/content-order'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
@@ -84,16 +85,15 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
     if (aiSplitting || !card.title.trim()) return
     setAiSplitting(true)
     try {
-      const promptText = `Break down the following project task into 3 to 5 concise actionable subtask titles. Return ONLY the subtask titles, one per line, without numbering, bullets, asterisks or markdown prefixes:\nTask: ${card.title}`
+      const context = blocks.filter((b) => b.title).map((b) => b.title).join('\n')
+      const promptText = `Break down the following project task into 3 to 5 concise actionable subtask titles. Return ONLY the subtask titles, one per line, without numbering, bullets, asterisks or markdown prefixes:\nTask: ${card.title}${context ? `\nContext:\n${context}` : ''}`
       const res = await sendForAnswerDetailed(promptText)
       if (res.status === 'ok') {
         const lines = res.text
           .split('\n')
           .map((l) => l.replace(/^[-*•0-9.)\s]+/, '').trim())
           .filter(Boolean)
-        for (const subTitle of lines) {
-          await createProjectCard(card.boardId, { title: subTitle, parentId: card.id })
-        }
+        await Promise.all(lines.map((subTitle) => createProjectCard(card.boardId, { title: subTitle, parentId: card.id })))
         onRefresh()
       } else {
         toast({ title: t('project.card.ai_split_failed'), tone: 'danger' })
@@ -230,24 +230,39 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
     { id: 'divider', label: t('project.card.divider_block'), icon: <Minus size={15} />, onSelect: () => void addBlock('divider') },
   ]
 
+  const breadcrumbs = useMemo(() => {
+    const trail: ProjectCard[] = []
+    let curr = card.parentId ? siblings.find((s) => s.id === card.parentId) : undefined
+    const seen = new Set<string>([card.id])
+    while (curr && !seen.has(curr.id)) {
+      seen.add(curr.id)
+      trail.unshift(curr)
+      const parentId: string | undefined = curr.parentId
+      curr = parentId ? siblings.find((s) => s.id === parentId) : undefined
+    }
+    return trail
+  }, [card.id, card.parentId, siblings])
+
   const subtasks = siblings.filter((sibling) => sibling.parentId === card.id)
-  const statusProperty = properties.find((property) => property.type === 'select')
   const doneLabel = t('project.card.done_label').toLowerCase()
-  const isSubtaskDone = (sibling: ProjectCard): boolean => {
-    const option = statusProperty?.options.find((entry) => entry.id === sibling.values[statusProperty.id])
-    if (!option) return false
-    const value = option.value.toLowerCase()
-    return value === doneLabel || /done|complete/.test(value)
-  }
-  const subtaskDone = subtasks.filter(isSubtaskDone).length
+  const subtaskDone = subtasks.filter((s) => isProjectCardDone(s, properties)).length
   const toggleSubtask = async (subtask: ProjectCard, checked: boolean) => {
-    if (!statusProperty) return
-    const doneOption = statusProperty.options.find((entry) => {
-      const value = entry.value.toLowerCase()
-      return value === doneLabel || /done|complete/.test(value)
-    })
-    await patchProjectCard(subtask.id, { values: { [statusProperty.id]: checked && doneOption ? doneOption.id : null } })
-    onRefresh()
+    const statusProperty = properties.find((property) => property.type === 'select')
+    if (statusProperty && statusProperty.options.length > 0) {
+      const doneOption = statusProperty.options.find((entry) => {
+        const value = entry.value.toLowerCase()
+        return value === doneLabel || /done|complete|finished/i.test(value)
+      })
+      const todoOption = statusProperty.options.find((entry) => entry !== doneOption) ?? statusProperty.options[0]
+      await patchProjectCard(subtask.id, { values: { [statusProperty.id]: checked ? (doneOption?.id ?? null) : (todoOption?.id ?? null) } })
+      onRefresh()
+      return
+    }
+    const checkboxProperty = properties.find((property) => property.type === 'checkbox')
+    if (checkboxProperty) {
+      await patchProjectCard(subtask.id, { values: { [checkboxProperty.id]: checked ? 'true' : 'false' } })
+      onRefresh()
+    }
   }
   const blockers = links.filter((link) => link.toCardId === card.id && link.kind === 'blocks')
 
@@ -271,16 +286,20 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
   return (
     <Modal open onClose={onClose} title={card.title || t('project.board.untitled_card')} width={640}>
       <div className="space-y-4">
-        {card.parentId && siblings.some((s) => s.id === card.parentId) && (
-          <nav aria-label={t('project.card.subtasks')} className="flex items-center gap-1.5 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
-            <button
-              type="button"
-              className="truncate font-medium text-[var(--text-secondary)] hover:text-[var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-              onClick={() => onOpenCard?.(card.parentId)}
-            >
-              {siblings.find((s) => s.id === card.parentId)?.title || t('project.board.untitled_card')}
-            </button>
-            <span aria-hidden="true">/</span>
+        {breadcrumbs.length > 0 && (
+          <nav aria-label={t('project.card.subtasks')} className="flex flex-wrap items-center gap-1.5 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+            {breadcrumbs.map((ancestor) => (
+              <Fragment key={ancestor.id}>
+                <button
+                  type="button"
+                  className="truncate font-medium text-[var(--text-secondary)] hover:text-[var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                  onClick={() => onOpenCard?.(ancestor.id)}
+                >
+                  {ancestor.title || t('project.board.untitled_card')}
+                </button>
+                <span aria-hidden="true">/</span>
+              </Fragment>
+            ))}
             <span className="truncate font-semibold text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>
           </nav>
         )}
@@ -413,30 +432,33 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
             </div>
           )}
           <ul className="space-y-1">
-            {subtasks.map((subtask) => (
-              <li key={subtask.id} className="group flex items-center gap-1.5 text-[length:var(--text-13)] text-[var(--text-primary)]">
-                <Checkbox ariaLabel={subtask.title || t('project.board.untitled_card')} checked={isSubtaskDone(subtask)} disabled={!canEdit} onChange={(checked) => void toggleSubtask(subtask, checked)} />
-                <button
-                  type="button"
-                  className={`min-w-0 flex-1 truncate text-left hover:text-[var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${isSubtaskDone(subtask) ? 'text-[var(--text-tertiary)] line-through' : ''}`}
-                  onClick={() => onOpenCard?.(subtask.id)}
-                >
-                  {subtask.title || t('project.board.untitled_card')}
-                </button>
-                {canEdit && (
-                  <IconButton
-                    label={t('common.delete')}
-                    size="sm"
-                    className="opacity-0 transition-opacity group-hover:opacity-100"
-                    onClick={() => {
-                      onDelete(subtask.id)
-                    }}
+            {subtasks.map((subtask) => {
+              const isDone = isProjectCardDone(subtask, properties)
+              return (
+                <li key={subtask.id} className="group flex items-center gap-1.5 text-[length:var(--text-13)] text-[var(--text-primary)]">
+                  <Checkbox ariaLabel={subtask.title || t('project.board.untitled_card')} checked={isDone} disabled={!canEdit} onChange={(checked) => void toggleSubtask(subtask, checked)} />
+                  <button
+                    type="button"
+                    className={`min-w-0 flex-1 truncate text-left hover:text-[var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${isDone ? 'text-[var(--text-tertiary)] line-through' : ''}`}
+                    onClick={() => onOpenCard?.(subtask.id)}
                   >
-                    <Trash2 size={13} />
-                  </IconButton>
-                )}
-              </li>
-            ))}
+                    {subtask.title || t('project.board.untitled_card')}
+                  </button>
+                  {canEdit && (
+                    <IconButton
+                      label={t('common.delete')}
+                      size="sm"
+                      className="opacity-0 transition-opacity group-hover:opacity-100"
+                      onClick={() => {
+                        onDelete(subtask.id)
+                      }}
+                    >
+                      <Trash2 size={13} />
+                    </IconButton>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         </section>
         <section aria-label={t('project.card.dependencies')} className="space-y-2">
@@ -453,7 +475,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
             <div className="flex items-center gap-2">
               <Select className="min-w-0 flex-1" value={blocker} aria-label={t('project.card.add_dependency')} onChange={(event) => setBlocker(event.target.value)}>
                 <option value="">{t('project.card.add_dependency')}</option>
-                {siblings.filter((s) => s.id !== card.id).map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+                {siblings.filter((s) => s.id !== card.id && !blockers.some((b) => b.fromCardId === s.id)).map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
               </Select>
               <Button size="sm" disabled={!blocker} onClick={() => void addDependency()}>{t('project.card.add_dependency')}</Button>
             </div>

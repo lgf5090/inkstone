@@ -122,8 +122,10 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         .then((fresh) => setBundle(fresh))
         .catch(() => { /* best-effort convergence poll: a failed refetch keeps the last good bundle */ return undefined })
     }, 30_000)
+    let lastRefetch = Date.now()
     const onVisibility = () => {
-      if (typeof document !== 'undefined' && !document.hidden) {
+      if (typeof document !== 'undefined' && !document.hidden && Date.now() - lastRefetch > 5_000) {
+        lastRefetch = Date.now()
         fetchProjectBoardBundle(boardId, controller.signal)
           .then((fresh) => setBundle(fresh))
           .catch(() => undefined)
@@ -399,6 +401,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       )}
       {openCard && (
         <CardDialog
+          key={openCard.id}
           card={openCard}
           properties={bundle.properties}
           members={bundle.members}
