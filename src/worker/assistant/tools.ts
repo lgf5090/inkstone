@@ -60,6 +60,7 @@ import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { DATABASE_TOOLS } from './database-tools'
 import { CALENDAR_TOOLS } from './calendar-tools'
+import { PROJECT_BOARD_TOOLS } from './project-tools'
 import { CLOUDDRIVE_TOOLS } from './clouddrive-tools'
 import { IMGBED_TOOLS } from './imgbed-tools'
 import { MEMOS_TOOLS } from './memos-tools'
@@ -4971,7 +4972,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...NAV_TOOLS,
   ...EMAIL_TOOLS,
   ...AUTOMATION_TOOLS,
-  ...PROJECT_TOOLS,
+  ...PROJECT_BOARD_TOOLS,
   ...SEARCH_TOOLS,
   ...QUESTION_TOOLS,
   ...SKILL_TOOLS,
@@ -4982,6 +4983,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...MUSIC_TOOLS,
   ...DATABASE_TOOLS,
   ...CALENDAR_TOOLS,
+  ...PROJECT_TOOLS,
   ...CLOUDDRIVE_TOOLS,
   ...IMGBED_TOOLS,
   ...MEMOS_TOOLS,

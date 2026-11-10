@@ -3,7 +3,7 @@ import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, Lin
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import { moveContentOrder } from '@shared/project/content-order'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input, Textarea } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
@@ -62,6 +62,8 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
   const toast = useUi((state) => state.toast)
   const currentUserId = useSession((state) => state.user?.id)
   const watch = useProjectWatch('card', card.id)
+  const locale = useLocale()
+  const answerIn = locale === 'zh-CN' ? 'Answer in Simplified Chinese.' : 'Answer in English.'
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
 
@@ -89,7 +91,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
     setAiSplitting(true)
     try {
       const context = blocks.filter((b) => b.title).map((b) => b.title).join('\n')
-      const promptText = `Break down the following project task into 3 to 5 concise actionable subtask titles. Return ONLY the subtask titles, one per line, without numbering, bullets, asterisks or markdown prefixes:\nTask: ${card.title}${context ? `\nContext:\n${context}` : ''}`
+      const promptText = `${answerIn} Break down the following project task into 3 to 5 concise actionable subtask titles. Return ONLY the subtask titles, one per line, without numbering, bullets, asterisks or markdown prefixes:\nTask: ${card.title}${context ? `\nContext:\n${context}` : ''}`
       const res = await sendForAnswerDetailed(promptText)
       if (res.status === 'ok') {
         const lines = res.text
@@ -115,7 +117,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
         blocks.length ? `Content:\n${blocks.map((b) => `- ${b.title}`).join('\n')}` : '',
         comments.length ? `Comments:\n${comments.map((c) => `- ${c.body}`).join('\n')}` : '',
       ].filter(Boolean).join('\n\n')
-      const promptText = `Summarize the following card and its discussion into a concise 2-3 sentence overview:\n${parts}`
+      const promptText = `${answerIn} Summarize the following card and its discussion into a concise 2-3 sentence overview:\n${parts}`
       const res = await sendForAnswerDetailed(promptText)
       if (res.status === 'ok') {
         const comment = await createCardComment(card.id, `🤖 **AI Summary**\n${res.text}`)

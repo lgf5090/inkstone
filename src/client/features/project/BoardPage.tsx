@@ -31,6 +31,8 @@ import { ShareDialog } from './ShareDialog'
 import { MembersDialog } from './MembersDialog'
 import { TrashDialog } from './TrashDialog'
 import { useProjectWatch } from './use-watch'
+import { useAssistantToolRefresh } from '../chat/tool-refresh'
+import { PROJECT_WRITE_TOOL_NAMES } from '@shared/project/assistant-tools'
 
 type Status = 'loading' | 'ready' | 'error' | 'notfound'
 
@@ -57,6 +59,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [showMembers, setShowMembers] = useState(false)
   const [showTrash, setShowTrash] = useState(false)
   const boardWatch = useProjectWatch('board', boardId)
+  useAssistantToolRefresh(PROJECT_WRITE_TOOL_NAMES, refresh)
   const [showActivity, setShowActivity] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
