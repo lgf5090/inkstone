@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { SquareKanban } from 'lucide-react'
 import { t } from '../../lib/i18n'
-import { navigateToPath } from '../../lib/app-history'
+import { navigateToAddress } from '../../lib/app-history'
 import { Input } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
@@ -26,7 +26,7 @@ export function SearchDialog({ onClose }: { onClose: () => void }): ReactElement
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [query])
 
-  const go = (path: string) => { onClose(); navigateToPath(path) }
+  const go = (path: string, search = '') => { onClose(); navigateToAddress(path, search) }
 
   return (
     <Modal open onClose={onClose} title={t('project.search.title')} width={560}>
@@ -57,7 +57,7 @@ export function SearchDialog({ onClose }: { onClose: () => void }): ReactElement
             <ul className="space-y-0.5">
               {result.cards.map((card) => (
                 <li key={card.id}>
-                  <button type="button" className="flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => go(`/project/boards/${card.boardId}`)}>
+                  <button type="button" className="flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => go(`/project/boards/${card.boardId}`, `card=${encodeURIComponent(card.id)}`)}>
                     <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{card.title}</span>
                   </button>
                 </li>

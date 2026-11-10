@@ -6,7 +6,7 @@ import { projectFilterPrefill } from '@shared/project/view-eval'
 import { buildProjectAssistantFacts } from '@shared/project/assistant-context'
 import type { AssistantPageContext } from '@shared/assistant'
 import { t } from '../../lib/i18n'
-import { navigateToPath } from '../../lib/app-history'
+import { navigateToPath, useSearch } from '../../lib/app-history'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
 import { useUi } from '../../store/ui'
@@ -31,6 +31,7 @@ import { ShareDialog } from './ShareDialog'
 type Status = 'loading' | 'ready' | 'error' | 'notfound'
 
 export function BoardPage({ boardId }: { boardId: string }): ReactElement {
+  const search = useSearch()
   const [bundle, setBundle] = useState<ProjectBoardBundle | null>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -62,12 +63,13 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     if (!bundle) return null
     return {
       surface: 'project',
-      label: bundle.board.title || t('project.board.untitled_card'),
+      label: bundle.board.title || t('project.boards.untitled'),
       facts: buildProjectAssistantFacts(bundle, activeView?.fields ?? emptyProjectViewFields()),
     }
   }, [bundle, activeView])
 
   useEffect(() => {
+    useAssistant.getState().setDockSurface('project')
     useAssistant.getState().setProjectContext(assistantContext)
     return () => {
       useAssistant.getState().setProjectContext(null)
@@ -75,9 +77,9 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   }, [assistantContext])
 
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get('card')
+    const id = new URLSearchParams(search).get('card')
     if (id) setOpenCardId(id)
-  }, [])
+  }, [search])
 
   useEffect(() => {
     try {
@@ -142,18 +144,6 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       controller.abort()
     }
   }, [boardId])
-
-  useEffect(() => {
-    if (!bundle) return
-    const store = useAssistant.getState()
-    store.setDockSurface('project')
-    store.setProjectContext({
-      surface: 'project',
-      label: bundle.board.title || t('project.boards.untitled'),
-      facts: buildProjectAssistantFacts(bundle, bundle.views[0]?.fields ?? emptyProjectViewFields()),
-    })
-    return () => { useAssistant.getState().setProjectContext(null) }
-  }, [bundle])
 
   const addCard = useCallback(async () => {
     const trimmed = title.trim()

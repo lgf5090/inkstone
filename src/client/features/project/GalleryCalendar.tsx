@@ -80,8 +80,9 @@ interface CalendarCell {
   key: string
 }
 
-export function CalendarView({ cards, properties, datePropertyId, canEdit, onOpenCard, onPatchCard, onRefresh }: {
+export function CalendarView({ cards, boardId, properties, datePropertyId, canEdit, onOpenCard, onPatchCard, onRefresh }: {
   cards: ProjectCard[]
+  boardId: string
   properties: ProjectProperty[]
   datePropertyId?: string
   canEdit: boolean
@@ -188,16 +189,14 @@ export function CalendarView({ cards, properties, datePropertyId, canEdit, onOpe
     cell.date.getFullYear() === today.getFullYear()
 
   const quickAdd = async (date: Date) => {
+    if (!propertyId) return
     const name = await prompt({ title: t('project.board.new_card'), confirmLabel: t('common.save') })
-    if (!name || !name.trim() || !propertyId) return
-    const boardId = cards[0]?.boardId
-    if (boardId) {
-      await createProjectCard(boardId, {
-        title: name.trim(),
-        values: { [propertyId]: JSON.stringify({ from: projectDayToStamp(date) }) },
-      })
-      void onRefresh?.()
-    }
+    if (!name || !name.trim()) return
+    await createProjectCard(boardId, {
+      title: name.trim(),
+      values: { [propertyId]: JSON.stringify({ from: projectDayToStamp(date) }) },
+    })
+    void onRefresh?.()
   }
 
   const handleDrop = (cell: CalendarCell, event: React.DragEvent) => {
@@ -286,7 +285,7 @@ export function CalendarView({ cards, properties, datePropertyId, canEdit, onOpe
               }`}>
                 {cell.day}
               </span>
-              {canEdit && (cell.inMonth || mode === 'week') && (
+              {canEdit && propertyId && (cell.inMonth || mode === 'week') && (
                 <button
                   type="button"
                   aria-label={t('project.board.new_card')}

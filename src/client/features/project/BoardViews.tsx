@@ -551,7 +551,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         </div>
       )}
       {viewType === 'calendar'
-        ? <CalendarView cards={sorted} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} canEdit={canEdit} onOpenCard={onOpenCard} onPatchCard={onPatchCard} onRefresh={onRefresh} />
+        ? <CalendarView cards={sorted} boardId={bundle.board.id} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} canEdit={canEdit} onOpenCard={onOpenCard} onPatchCard={onPatchCard} onRefresh={onRefresh} />
         : sorted.length === 0
           ? <Empty art="folder" title={t('project.board.empty_cards')} />
           : viewType === 'board'

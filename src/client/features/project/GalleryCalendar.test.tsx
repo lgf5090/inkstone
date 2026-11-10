@@ -6,6 +6,17 @@ import { projectDayToStamp } from '@shared/project/date'
 import { projectCardBadges } from '@shared/project/badges'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { CalendarView, GalleryView } from './GalleryCalendar'
+import * as api from './api'
+import { prompt } from '../../components/overlay'
+
+vi.mock('./api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./api')>(),
+  createProjectCard: vi.fn(),
+}))
+vi.mock('../../components/overlay', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../components/overlay')>(),
+  prompt: vi.fn(),
+}))
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 const properties: ProjectProperty[] = [{ id: 'pd', name: 'Due', type: 'date', options: [] }]
@@ -43,7 +54,7 @@ describe('calendar view', () => {
   it('places a card on its due day and navigates months', async () => {
     const now = new Date()
     const due = new Date(now.getFullYear(), now.getMonth(), 15).getTime()
-    await act(async () => { view = renderElement(createElement(CalendarView, { cards: [card('c1', 'Due card', due)], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [card('c1', 'Due card', due)], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
     expect(view.container.textContent).toContain('Due card')
     const next = [...view.container.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === t('project.view.next_month'))
     await act(async () => { next?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
@@ -54,7 +65,7 @@ describe('calendar view', () => {
     const now = new Date()
     const due = new Date(now.getFullYear(), now.getMonth(), 15).getTime()
     const onPatchCard = vi.fn().mockResolvedValue(undefined)
-    await act(async () => { view = renderElement(createElement(CalendarView, { cards: [card('c1', 'Due card', due)], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard })) })
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [card('c1', 'Due card', due)], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard })) })
     const cells = [...view.container.querySelectorAll('div.min-h-16')]
     const target = cells.find((cell) => cell.firstElementChild?.textContent === '20')!
     const event = new Event('drop', { bubbles: true, cancelable: true })
@@ -64,7 +75,7 @@ describe('calendar view', () => {
   })
 
   it('highlights today and offers a jump-back-to-today control (R2-4)', async () => {
-    await act(async () => { view = renderElement(createElement(CalendarView, { cards: [], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
     const todayButton = [...view.container.querySelectorAll('button')].find((b) => b.textContent === t('project.view.today'))
     expect(todayButton).toBeTruthy()
     const highlighted = [...view.container.querySelectorAll('div.min-h-16')].filter((c) => c.className.includes('border-[var(--accent)]'))
@@ -72,7 +83,7 @@ describe('calendar view', () => {
   })
 
   it('switches between month and week view modes via Segmented control', async () => {
-    await act(async () => { view = renderElement(createElement(CalendarView, { cards: [], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
     const weekBtn = [...view.container.querySelectorAll('button')].find((b) => b.textContent === t('preview.kanban_calendar_week'))
     expect(weekBtn).toBeTruthy()
     await act(async () => { weekBtn?.click() })
@@ -90,7 +101,7 @@ describe('calendar view', () => {
       ...card('c1', 'Sprint', from),
       values: { pd: JSON.stringify({ from, to }) },
     }
-    await act(async () => { view = renderElement(createElement(CalendarView, { cards: [multiCard], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard })) })
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [multiCard], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard })) })
     const cells = [...view.container.querySelectorAll('div.min-h-16')]
     const target = cells.find((cell) => cell.firstElementChild?.textContent === '20')!
     const event = new Event('drop', { bubbles: true, cancelable: true })
@@ -110,5 +121,28 @@ describe('gallery display toggles (C-4)', () => {
   it('shows titles when toggled on', async () => {
     await act(async () => { view = renderElement(createElement(GalleryView, { cards: [card('c1', 'Alpha')], badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }), properties: [], showTitle: true, showBadges: true, onOpenCard: vi.fn() })) })
     expect(view.container.querySelector('[data-project-card="c1"]')!.textContent).toContain('Alpha')
+  })
+})
+describe('calendar quick add (R3-6)', () => {
+  it('files a new card on the pressed day even when the view is filtered empty', async () => {
+    vi.mocked(prompt).mockResolvedValue('Fresh task')
+    vi.mocked(api.createProjectCard).mockResolvedValue({ ...card('cnew', 'Fresh task'), boardId: 'b1' })
+    const onRefresh = vi.fn().mockResolvedValue(undefined)
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onRefresh })) })
+    const add = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.getAttribute('aria-label') === t('project.board.new_card'))
+    expect(add, 'no quick-add affordance on an empty calendar').toBeDefined()
+    await act(async () => { add!.click() })
+    expect(api.createProjectCard).toHaveBeenCalledTimes(1)
+    const [boardId, input] = vi.mocked(api.createProjectCard).mock.calls[0]!
+    expect(boardId).toBe('b1')
+    expect(input.title).toBe('Fresh task')
+    expect(Object.keys(input.values ?? {})).toEqual(['pd'])
+    expect(onRefresh).toHaveBeenCalled()
+  })
+
+  it('offers no quick-add affordance when the board has no date property to file against', async () => {
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [], properties: [{ id: 'pt', name: 'Notes', type: 'text', options: [] }], canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    const add = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.getAttribute('aria-label') === t('project.board.new_card'))
+    expect(add).toBeUndefined()
   })
 })
