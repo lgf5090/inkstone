@@ -191,3 +191,17 @@ describe('new-card prefill from the active filter (B-11)', () => {
     expect(projectFilterPrefill({ operation: 'and', filters: [{ propertyId: 'ps', condition: 'is', values: ['o1', 'o2'] }] })).toEqual({})
   })
 })
+
+describe('multiPerson display (R3-10)', () => {
+  const many: ProjectProperty = { id: 'pm', name: 'Owners', type: 'multiPerson', options: [] }
+  const holder = (raw: string): ProjectCard => ({ id: 'c1', boardId: 'b1', parentId: '', title: 'T', icon: '', isTemplate: false, contentOrder: [], values: raw ? { pm: raw } : {}, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 })
+
+  it('reads the stored id array as a list rather than raw JSON', () => {
+    expect(projectPropertyDisplayText(holder('["alice","bob"]'), many)).toBe('alice, bob')
+  })
+
+  it('takes a bare id and reads an unset value as empty', () => {
+    expect(projectPropertyDisplayText(holder('alice'), many)).toBe('alice')
+    expect(projectPropertyDisplayText(holder(''), many)).toBe('')
+  })
+})

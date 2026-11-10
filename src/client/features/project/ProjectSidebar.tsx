@@ -151,12 +151,12 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
     writeStarredBoardsPref(next)
   }
 
-  const matches = (board: ProjectBoardSummary) => board.title.toLowerCase().includes(query.trim().toLowerCase())
-  const filedIds = new Set(edges.map((edge) => edge.boardId))
-  const unfiled = boards.filter((board) => !filedIds.has(board.id) && matches(board))
+  const matches = useCallback((board: ProjectBoardSummary) => board.title.toLowerCase().includes(query.trim().toLowerCase()), [query])
+  const filedIds = useMemo(() => new Set(edges.map((edge) => edge.boardId)), [edges])
+  const unfiled = useMemo(() => boards.filter((board) => !filedIds.has(board.id) && matches(board)), [boards, filedIds, matches])
   const [highlight, setHighlight] = useState(-1)
 
-  const categoryTree = useMemo(() => buildCategoryTree(categories, edges, boards, matches), [categories, edges, boards, query])
+  const categoryTree = useMemo(() => buildCategoryTree(categories, edges, boards, matches), [categories, edges, boards, matches])
 
   const visibleBoards = useMemo(() => {
     const fromCategories = categories.flatMap((category) =>
@@ -167,19 +167,19 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
         .filter((board): board is ProjectBoardSummary => Boolean(board) && matches(board!)),
     )
     return [...fromCategories, ...unfiled]
-  }, [categories, edges, boards, unfiled, query])
+  }, [categories, edges, boards, unfiled, matches])
 
   const pinnedBoards = useMemo(() => {
     return pinnedIds
       .map((id) => boards.find((b) => b.id === id))
       .filter((b): b is ProjectBoardSummary => b !== undefined && matches(b))
-  }, [pinnedIds, boards, query])
+  }, [pinnedIds, boards, matches])
 
   const starredBoards = useMemo(() => {
     return starredIds
       .map((id) => boards.find((b) => b.id === id))
       .filter((b): b is ProjectBoardSummary => b !== undefined && matches(b))
-  }, [starredIds, boards, query])
+  }, [starredIds, boards, matches])
 
   const onSearchKey = (event: KeyboardEvent) => {
     if (event.key === 'ArrowDown') { event.preventDefault(); setHighlight((current) => Math.min(current + 1, visibleBoards.length - 1)) }

@@ -695,6 +695,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                                       ? (
                                         <PropertyValueEditor
                                           property={property}
+                                          card={card}
                                           value={card.values[property.id] ?? ''}
                                           members={bundle.members}
                                           disabled={false}
@@ -734,6 +735,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                                         ? (
                                           <PropertyValueEditor
                                             property={property}
+                                            card={subtask}
                                             value={subtask.values[property.id] ?? ''}
                                             members={bundle.members}
                                             disabled={false}

@@ -70,6 +70,7 @@ export function projectPropertyDisplayText(card: ProjectCard, property: ProjectP
   switch (property.type) {
     case 'select': return raw ? projectOptionLabel(property, raw) : ''
     case 'multiSelect': return raw ? asArray(raw).map((id) => projectOptionLabel(property, id)).join(', ') : ''
+    case 'multiPerson': return raw ? asArray(raw).join(', ') : ''
     case 'checkbox': return raw === 'true' ? '✓' : ''
     case 'date': {
       const range = parseProjectDateValue(raw)

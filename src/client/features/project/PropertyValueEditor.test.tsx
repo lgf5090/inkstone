@@ -133,3 +133,42 @@ describe('the editor and the table cell agree', () => {
     }
   })
 })
+
+describe('the property kinds that had no editor (R3-10)', () => {
+  const members = [{ boardId: 'b1', userId: 'alice', role: 'admin' as const, createdAt: 1, updatedAt: 1 }, { boardId: 'b1', userId: 'bob', role: 'editor' as const, createdAt: 1, updatedAt: 1 }]
+
+  it('offers a checkbox per member for multiPerson and files the picked ids as an array', async () => {
+    const onChange = vi.fn()
+    const many: ProjectProperty = { id: 'pm', name: 'Owners', type: 'multiPerson', options: [] }
+    await act(async () => { view = renderElement(createElement(PropertyValueEditor, { property: many, value: '["alice"]', members, disabled: false, onChange })) })
+    const boxes = [...view.container.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')]
+    expect(boxes).toHaveLength(2)
+    expect(boxes[0]!.getAttribute('aria-checked')).toBe('true')
+    expect(boxes[1]!.getAttribute('aria-checked')).toBe('false')
+    expect(view.container.querySelector('input[type="text"]')).toBeNull()
+    await act(async () => { boxes[1]!.click() })
+    expect(onChange).toHaveBeenCalledWith('["alice","bob"]')
+  })
+
+  it('clears a multiPerson value when the last member is unchecked', async () => {
+    const onChange = vi.fn()
+    const many: ProjectProperty = { id: 'pm', name: 'Owners', type: 'multiPerson', options: [] }
+    await act(async () => { view = renderElement(createElement(PropertyValueEditor, { property: many, value: '["alice"]', members, disabled: false, onChange })) })
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('[role="checkbox"]')!.click() })
+    expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  it('reads the four server-stamped kinds off the card instead of always showing a dash', async () => {
+    const card: ProjectCard = { id: 'c1', boardId: 'b1', parentId: '', title: 'T', icon: '', isTemplate: false, contentOrder: [], values: {}, createdBy: 'alice', modifiedBy: 'bob', createAt: Date.UTC(2026, 10, 10, 12), updateAt: Date.UTC(2026, 10, 11, 12), deleteAt: 0 }
+    for (const [type, expected] of [['createdBy', 'alice'], ['updatedBy', 'bob']] as const) {
+      const stamped: ProjectProperty = { id: `p_${type}`, name: type, type, options: [] }
+      await act(async () => { view = renderElement(createElement(PropertyValueEditor, { property: stamped, value: '', members: [], disabled: true, onChange: vi.fn(), card })) })
+      expect(view.container.textContent).toBe(expected)
+      view.unmount()
+    }
+    const created: ProjectProperty = { id: 'pct', name: 'Created', type: 'createdTime', options: [] }
+    await act(async () => { view = renderElement(createElement(PropertyValueEditor, { property: created, value: '', members: [], disabled: true, onChange: vi.fn(), card })) })
+    expect(view.container.textContent).toBe(new Date(card.createAt).toLocaleDateString())
+    expect(view.container.textContent).not.toBe('—')
+  })
+})

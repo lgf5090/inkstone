@@ -12535,6 +12535,9 @@ const allowed = new Map([
     "// UTC-based reader would wrongly show; west of UTC both readings agree, so the zone matrix matters.",
     "/** The table cell's own display path — the consumer that disagreed with the editor. */",
   ]],
+  ["src/client/features/project/PropertyValueEditor.tsx", [
+    "/** The four server-stamped types live on the card, not in `values`, so they need the card to read. */",
+  ]],
   ["src/client/features/project/api.ts", [
     "/** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */",
     "/** The stranger's read: no session, the slug and passcode are the whole capability. */",

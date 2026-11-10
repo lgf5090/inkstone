@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react'
-import type { ProjectBoardMember, ProjectProperty } from '@shared/project/model'
+import type { ProjectBoardMember, ProjectCard, ProjectProperty } from '@shared/project/model'
 import { moveProjectDateValue, parseProjectDateValue, projectInputToStamp, projectStampToInput } from '@shared/project/date'
+import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import { Checkbox, commitOnEnter, Input, Select } from '../../components/form'
 import { DatePicker } from '../../components/date-picker'
 
@@ -10,6 +11,8 @@ interface PropertyValueEditorProps {
   members: ProjectBoardMember[]
   disabled: boolean
   onChange: (value: string | null) => void
+  /** The four server-stamped types live on the card, not in `values`, so they need the card to read. */
+  card?: ProjectCard
 }
 
 function readMulti(value: string): string[] {
@@ -28,7 +31,7 @@ function readDateFrom(value: string): string {
   return projectStampToInput(parsed.from, parsed.includeTime === true)
 }
 
-export function PropertyValueEditor({ property, value, members, disabled, onChange }: PropertyValueEditorProps): ReactElement {
+export function PropertyValueEditor({ property, value, members, disabled, onChange, card }: PropertyValueEditorProps): ReactElement {
   const [draft, setDraft] = useState(value)
   useEffect(() => { setDraft(value) }, [value])
 
@@ -63,6 +66,26 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
         </div>
       )
     }
+    case 'multiPerson': {
+      const selected = readMulti(value)
+      return (
+        <div className="flex flex-wrap gap-2">
+          {members.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</span>}
+          {members.map((member) => (
+            <Checkbox
+              key={member.userId}
+              label={member.userId}
+              checked={selected.includes(member.userId)}
+              disabled={disabled}
+              onChange={(checked) => {
+                const next = checked ? [...selected, member.userId] : selected.filter((id) => id !== member.userId)
+                onChange(next.length ? JSON.stringify(next) : null)
+              }}
+            />
+          ))}
+        </div>
+      )
+    }
     case 'checkbox':
       return <Checkbox ariaLabel={property.name} checked={value === 'true'} disabled={disabled} onChange={(checked) => onChange(checked ? 'true' : 'false')} />
     case 'date':
@@ -90,7 +113,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
     case 'updatedBy':
     case 'createdTime':
     case 'updatedTime':
-      return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{value || '—'}</span>
+      return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{(card ? projectPropertyDisplayText(card, property) : value) || '—'}</span>
     default:
       return (
         <Input

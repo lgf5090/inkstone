@@ -343,6 +343,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
               <div className="min-w-0 flex-1">
                 <PropertyValueEditor
                   property={property}
+                  card={card}
                   value={card.values[property.id] ?? ''}
                   members={members}
                   disabled={!canEdit}
