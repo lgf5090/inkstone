@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
-import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, Pin, Settings2, SquareKanban, Star, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, Pin, Plus, Settings2, SquareKanban, Star, Trash2 } from 'lucide-react'
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { setLocale, t, useLocale } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -10,6 +10,7 @@ import { useUi } from '../../store/ui'
 import { useProjectStore } from './store'
 import { readRandomIconPref, writeRandomIconPref } from './project-icon'
 import { categoryDropZone, planCategoryDrop } from './sidebar-drag'
+import { PROJECT_SIDEBAR_MAX_WIDTH, PROJECT_SIDEBAR_MIN_WIDTH, readSidebarWidthPref, writeSidebarWidthPref } from './project-prefs'
 import {
   readPinnedBoardsPref,
   readStarredBoardsPref,
@@ -122,6 +123,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   const [contextItems, setContextItems] = useState<MenuItem[]>([])
   const [contextLabel, setContextLabel] = useState<string>('')
   const [collapsedMap, setCollapsedMap] = useState<Map<string, boolean>>(new Map())
+  const [width, setWidth] = useState(readSidebarWidthPref)
 
   const settingsAnchor = useRef<HTMLButtonElement>(null)
   const locale = useLocale()
@@ -412,9 +414,48 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   }
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]" aria-label={t('project.title')}>
+    <aside className="relative flex shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]" style={{ width: `${width}px` }} aria-label={t('project.title')}>
+      <button
+        type="button"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t('project.sidebar.width')}
+        aria-valuenow={width}
+        aria-valuemin={PROJECT_SIDEBAR_MIN_WIDTH}
+        aria-valuemax={PROJECT_SIDEBAR_MAX_WIDTH}
+        className="absolute right-0 top-0 h-full w-1 cursor-col-resize focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+        onKeyDown={(event) => {
+          const delta = event.key === 'ArrowLeft' ? -16 : event.key === 'ArrowRight' ? 16 : 0
+          if (!delta) return
+          event.preventDefault()
+          setWidth((current) => { const next = Math.min(PROJECT_SIDEBAR_MAX_WIDTH, Math.max(PROJECT_SIDEBAR_MIN_WIDTH, current + delta)); writeSidebarWidthPref(next); return next })
+        }}
+        onPointerDown={(event) => {
+          const startX = event.clientX
+          const startWidth = width
+          const target = event.currentTarget
+          target.setPointerCapture(event.pointerId)
+          const move = (moveEvent: PointerEvent) => {
+            const next = Math.min(PROJECT_SIDEBAR_MAX_WIDTH, Math.max(PROJECT_SIDEBAR_MIN_WIDTH, startWidth + moveEvent.clientX - startX))
+            setWidth(next)
+          }
+          const up = () => {
+            target.removeEventListener('pointermove', move)
+            target.removeEventListener('pointerup', up)
+            setWidth((current) => { writeSidebarWidthPref(current); return current })
+          }
+          target.addEventListener('pointermove', move)
+          target.addEventListener('pointerup', up)
+        }}
+      />
       <div className="flex items-center gap-1 p-2">
         <Input className="min-w-0 flex-1" value={query} placeholder={t('project.sidebar.search')} aria-label={t('project.sidebar.search')} onChange={(event) => { setQuery(event.target.value); setHighlight(-1) }} onKeyDown={onSearchKey} />
+        <IconButton label={t('project.sidebar.new_board')} size="sm" onClick={() => { void guard(async () => {
+          const title = await prompt({ title: t('project.boards.create_title'), placeholder: t('project.boards.create_placeholder'), confirmLabel: t('project.boards.create_confirm') })
+          if (title === null || !title.trim()) return
+          const board = await useProjectStore.getState().addBoard(title.trim())
+          navigateToPath(`/project/boards/${board.id}`)
+        }) }}><Plus size={15} /></IconButton>
         <IconButton label={t('project.sidebar.new_category')} size="sm" onClick={newCategory}><FolderPlus size={15} /></IconButton>
         <IconButton ref={settingsAnchor} label={t('project.sidebar.settings')} size="sm" onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></IconButton>
         <Menu anchor={settingsAnchor} open={settingsOpen} onClose={() => setSettingsOpen(false)} items={settingsMenu} label={t('project.sidebar.settings')} />

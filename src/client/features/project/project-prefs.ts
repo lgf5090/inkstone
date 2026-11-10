@@ -33,3 +33,42 @@ export function readStarredBoardsPref(): string[] {
 export function writeStarredBoardsPref(boardIds: string[]): void {
   writeArrayPref(STARRED_BOARDS_KEY, boardIds)
 }
+
+const SIDEBAR_WIDTH_KEY = 'inkstone.project.sidebarWidth'
+const SIDEBAR_OPEN_KEY = 'inkstone.project.sidebarOpen'
+
+export const PROJECT_SIDEBAR_MIN_WIDTH = 200
+export const PROJECT_SIDEBAR_MAX_WIDTH = 420
+export const PROJECT_SIDEBAR_DEFAULT_WIDTH = 240
+
+/** The width the reader last dragged to, clamped so a stored value cannot collapse the tree. */
+export function readSidebarWidthPref(): number {
+  try {
+    const raw = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY))
+    if (!Number.isFinite(raw) || raw <= 0) return PROJECT_SIDEBAR_DEFAULT_WIDTH
+    return Math.min(PROJECT_SIDEBAR_MAX_WIDTH, Math.max(PROJECT_SIDEBAR_MIN_WIDTH, Math.round(raw)))
+  } catch { /* storage unavailable: the default width is a usable sidebar */
+    return PROJECT_SIDEBAR_DEFAULT_WIDTH
+  }
+}
+
+export function writeSidebarWidthPref(width: number): void {
+  try {
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(Math.min(PROJECT_SIDEBAR_MAX_WIDTH, Math.max(PROJECT_SIDEBAR_MIN_WIDTH, Math.round(width)))))
+  } catch { /* best-effort: a blocked storage loses the width, not the boards */ }
+}
+
+/** Open unless the reader explicitly closed it: a board page without its tree is the rarer choice. */
+export function readSidebarOpenPref(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_OPEN_KEY) !== '0'
+  } catch { /* storage unavailable: fall back to the open default */
+    return true
+  }
+}
+
+export function writeSidebarOpenPref(open: boolean): void {
+  try {
+    localStorage.setItem(SIDEBAR_OPEN_KEY, open ? '1' : '0')
+  } catch { /* best-effort: remembering the toggle is optional */ }
+}

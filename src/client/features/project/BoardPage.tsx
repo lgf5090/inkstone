@@ -21,6 +21,7 @@ import { newProjectId } from '@shared/project/limits'
 import type { SkinTone } from '@shared/types'
 import { EmojiPicker } from '../emoji/EmojiPicker'
 import { randomProjectIcon, readRandomIconPref } from './project-icon'
+import { readSidebarOpenPref, writeSidebarOpenPref } from './project-prefs'
 import { useProjectStore } from './store'
 import { ProjectSidebar } from './ProjectSidebar'
 import { ImportDialog } from './ImportDialog'
@@ -62,7 +63,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   useAssistantToolRefresh(PROJECT_WRITE_TOOL_NAMES, refresh)
   const [showActivity, setShowActivity] = useState(false)
   const [showImport, setShowImport] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpenPref)
   const [activity, setActivity] = useState<ProjectActivityEntry[]>([])
 
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
@@ -287,7 +288,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
             label={t('project.board.toggle_sidebar')}
             size="sm"
             active={sidebarOpen}
-            onClick={() => setSidebarOpen((v) => !v)}
+            onClick={() => setSidebarOpen((v) => { writeSidebarOpenPref(!v); return !v })}
           >
             <PanelLeft size={16} />
           </IconButton>

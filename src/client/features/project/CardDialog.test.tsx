@@ -349,3 +349,21 @@ describe('watching a card (R3-5)', () => {
     vi.mocked(api.fetchProjectSubscriptions).mockResolvedValue([])
   })
 })
+
+describe('the two-pane card detail (R3-26)', () => {
+  it('puts the comments beside the details rather than below them', async () => {
+    await mount()
+    const detail = document.querySelector('[data-card-detail="c1"]')
+    expect(detail, 'no two-pane detail container').not.toBeNull()
+    expect(detail!.className).toContain('md:flex-row')
+    const panes = [...detail!.children]
+    expect(panes).toHaveLength(2)
+    expect(panes[1]!.querySelector(`[aria-label="${t('project.card.comments')}"]`)).not.toBeNull()
+    expect(panes[0]!.querySelector(`[aria-label="${t('project.card.properties')}"]`)).not.toBeNull()
+  })
+
+  it('invites the first comment instead of showing an empty list', async () => {
+    await mount()
+    expect(document.body.textContent).toContain(t('project.card.comments_empty'))
+  })
+})

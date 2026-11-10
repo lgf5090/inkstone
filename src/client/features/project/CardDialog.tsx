@@ -289,8 +289,9 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
   }
 
   return (
-    <Modal open onClose={onClose} title={card.title || t('project.board.untitled_card')} width={640}>
-      <div className="space-y-4">
+    <Modal open onClose={onClose} title={card.title || t('project.board.untitled_card')} width={980}>
+      <div className="flex flex-col gap-4 md:flex-row" data-card-detail={card.id}>
+      <div className="min-w-0 flex-1 space-y-4">
         {breadcrumbs.length > 0 && (
           <nav aria-label={t('project.card.subtasks')} className="flex flex-wrap items-center gap-1.5 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {breadcrumbs.map((ancestor) => (
@@ -506,8 +507,13 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
             ))}
           </ul>
         </section>
+      </div>
+      <div className="min-w-0 flex-1 space-y-2 border-t border-[var(--border-subtle)] pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0">
         <section aria-label={t('project.card.comments')} className="space-y-2">
           <SectionHeading icon={MessageSquare} label={t('project.card.comments')} />
+          {comments.length === 0 && (
+            <p className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.card.comments_empty')}</p>
+          )}
           <ul className="space-y-2">
             {comments.map((comment) => (
               <li key={comment.id} className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2">
@@ -552,6 +558,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           </form>
         </section>
       </div>
+    </div>
     </Modal>
   )
 }

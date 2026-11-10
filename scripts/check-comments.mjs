@@ -12575,6 +12575,12 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/project-prefs.ts", [
     "/* best-effort: a full or blocked storage loses the pin, not the board */",
+    "/** The width the reader last dragged to, clamped so a stored value cannot collapse the tree. */",
+    "/* storage unavailable: the default width is a usable sidebar */",
+    "/* best-effort: a blocked storage loses the width, not the boards */",
+    "/** Open unless the reader explicitly closed it: a board page without its tree is the rarer choice. */",
+    "/* storage unavailable: fall back to the open default */",
+    "/* best-effort: remembering the toggle is optional */",
   ]],
   ["src/client/features/project/sidebar-drag.ts", [
     "/**\n * What a drop on the category tree means.\n *\n * The tree is drawn from slash-separated names, so \"nest under\" is a rename of the dragged category\n * and everything below it, while \"place beside\" is a reorder. Both are decided here rather than in\n * the component because the two failure modes are silent: a target that is not a real category used\n * to splice at -1 and land the row second-from-last, and a nest that forgot the descendants left them\n * pointing at a path that no longer exists.\n */",
