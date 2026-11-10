@@ -212,17 +212,18 @@ describe('multi-select and batch delete (B-10)', () => {
   })
 })
 
-describe('select option color chip (R2-6)', () => {
-  it('renders a colored chip for a select value with a color', async () => {
+describe('select option color chip (R2-6, R3-12)', () => {
+  it('renders a tinted chip for the reference token an archive actually stores', async () => {
     localStorage.clear()
     const base = bundle()
-    base.properties = base.properties.map((p) => (p.id === 'ps' ? { ...p, options: p.options.map((o) => (o.id === 'o1' ? { ...o, color: '#ff0000' } : o)) } : p))
+    base.properties = base.properties.map((p) => (p.id === 'ps' ? { ...p, options: p.options.map((o) => (o.id === 'o1' ? { ...o, color: 'propColorRed' } : o)) } : p))
     await act(async () => {
       view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     const chip = view.container.querySelector('[data-project-card="c1"] td span[style]') as HTMLElement
     expect(chip).not.toBeNull()
     expect(chip.getAttribute('style')).toContain('background-color')
+    expect(chip.getAttribute('style')).toContain('--kanban-tag-red-fg')
     expect(chip.textContent).toBe('Open')
   })
 })
@@ -449,7 +450,7 @@ describe('subtask hierarchy in views', () => {
       name: 'Tags',
       type: 'multiSelect',
       options: [
-        { id: 't1', value: 'feat/auth', color: '#ff0000' },
+        { id: 't1', value: 'feat/auth', color: 'propColorBlue' },
         { id: 't2', value: 'bug/critical', color: '#00ff00' },
       ],
     })
@@ -539,5 +540,15 @@ describe('subtask hierarchy in views', () => {
     await act(async () => { cardEl.dispatchEvent(contextEvent) })
     const items = [...document.body.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent ?? '')
     expect(items.some((item) => item.includes(t('project.card.open')))).toBe(true)
+  })
+})
+describe('calculation labels (R3-14)', () => {
+  it('names the summaries in the interface language rather than the raw identifier', async () => {
+    localStorage.clear()
+    await mount()
+    const options = [...view.container.querySelectorAll('select option')].map((option) => option.textContent)
+    expect(options).toContain(t('project.calc.percentempty'))
+    expect(options).not.toContain('percentEmpty')
+    expect(options).not.toContain('countUniqueValue')
   })
 })

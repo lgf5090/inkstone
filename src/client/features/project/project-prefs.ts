@@ -15,7 +15,7 @@ function readArrayPref(key: string): string[] {
 function writeArrayPref(key: string, items: string[]): void {
   try {
     localStorage.setItem(key, JSON.stringify(items))
-  } catch {}
+  } catch { /* best-effort: a full or blocked storage loses the pin, not the board */ }
 }
 
 export function readPinnedBoardsPref(): string[] {

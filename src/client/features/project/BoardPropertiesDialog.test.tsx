@@ -53,3 +53,36 @@ describe('the property dialog', () => {
     expect(deleted).toEqual(['p1'])
   })
 })
+describe('option colour and name (R3-12)', () => {
+  it('writes the reference colour token the archive round trips', async () => {
+    await mount()
+    const trigger = document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.props.option_color')}: Open"]`)
+    expect(trigger, 'no colour affordance on the option row').not.toBeNull()
+    await act(async () => { trigger!.click() })
+    const red = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((button) => button.textContent === t('project.color.red'))
+    expect(red, 'the palette never opened').toBeDefined()
+    await act(async () => { red!.click() })
+    const save = [...document.body.querySelectorAll('button')].find((b) => b.textContent === t('common.save'))
+    await act(async () => { save!.click() })
+    const [draft] = onSave.mock.calls[0]!
+    expect(draft[0]!.options[0]).toEqual({ id: 'o1', value: 'Open', color: 'propColorRed' })
+  })
+
+  it('renames an option in place without changing its id or colour', async () => {
+    await mount()
+    const field = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('project.props.option_value')}: Open"]`)
+    expect(field, 'the option name is not editable').not.toBeNull()
+    await act(async () => { setInput(field!, 'Backlog') })
+    const save = [...document.body.querySelectorAll('button')].find((b) => b.textContent === t('common.save'))
+    await act(async () => { save!.click() })
+    const [draft] = onSave.mock.calls[0]!
+    expect(draft[0]!.options[0]).toEqual({ id: 'o1', value: 'Backlog', color: '' })
+  })
+
+  it('names every property type in the interface language instead of the raw identifier', async () => {
+    await mount()
+    const options = [...document.body.querySelectorAll('select[aria-label]')].flatMap((select) => [...select.querySelectorAll('option')].map((option) => option.textContent))
+    expect(options).toContain(t('project.prop.type.multiselect'))
+    expect(options).not.toContain('multiSelect')
+  })
+})

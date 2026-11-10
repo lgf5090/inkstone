@@ -3,6 +3,7 @@ import { CheckSquare, FileText, ListTodo, MessageSquare } from 'lucide-react'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import type { ProjectProperty } from '@shared/project/model'
 import { hasProjectCardBadges } from '@shared/project/badges'
+import { projectOptionCssColor } from '@shared/project/option-color'
 import { t } from '../../lib/i18n'
 
 import { TagPill } from '../../components/TagChip'
@@ -15,7 +16,7 @@ export function OptionChip({ property, value }: { property: ProjectProperty, val
   return (
     <TagPill
       tone="tinted"
-      color={option.color}
+      color={projectOptionCssColor(option.color)}
       label={
         isHierarchy ? (
           <>

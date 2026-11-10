@@ -12511,6 +12511,7 @@ const allowed = new Map([
     "// Templates ship canonical English titles; treat them as defaults so a zh UI localizes them",
     "// instead of mixing languages. A title the user actually typed is kept verbatim.",
     "/** A public reader has no session: the member-only reads and exports would answer 401, so they are not offered. */",
+    "/* a stored value that is not a JSON array reads as plain text below */",
   ]],
   ["src/client/features/project/ExtraViews.tsx", [
     "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
@@ -12541,6 +12542,9 @@ const allowed = new Map([
   ["src/client/features/project/project-icon.ts", [
     "/**\n * A-9/A-10: board & card icons. The random-icon preference is a local toggle; when on, newly created\n * boards/cards get a random emoji from the shared catalog so lists stay scannable without manual picking.\n */",
     "/* best-effort: the preference is optional */",
+  ]],
+  ["src/client/features/project/project-prefs.ts", [
+    "/* best-effort: a full or blocked storage loses the pin, not the board */",
   ]],
   ["src/client/features/project/store.ts", [
     "/** The project tab's board list: what this account can open, and whether the last read succeeded. */",
@@ -32452,6 +32456,12 @@ const allowed = new Map([
     "/** A board as the caller sees it: the stored fields plus the role this caller actually holds. */",
     "/** The counts the board list shows as a subtitle (reference BoardMetadata). */",
     "// X-8: the reference left number unfilterable; this port makes it filterable and groupable.",
+  ]],
+  ["src/shared/project/option-color.ts", [
+    "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",
+    "/** The picker's ramp, in the reference's own spelling and order. `''` is the no-colour slot. */",
+    "/** The palette name a stored colour names, or `''` for none — including the reference's `propColorDefault`. */",
+    "/** The CSS colour a chip's text and dot are painted in, or `null` when the option carries no colour. */",
   ]],
   ["src/shared/project/property-patch.ts", [
     "/**\n * The reference's cardProperties patch, step for step (board.go Patch): a whole-object replacement\n * matched by id, where a never-seen id is appended rather than inserted, and a deletion leaves the\n * survivors in their original relative order. Entries without a string id are skipped, not rejected.\n *\n * One guard the reference lacks: a deleted id leaves the order list immediately, so an id both deleted\n * and re-added in the same patch lands at the end exactly once. The reference keeps the deleted id in\n * the order list and would emit it twice; here a property id is a primary key, so a duplicate cannot be\n * stored and the order list must not name it twice.\n */",

@@ -4,6 +4,7 @@ import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { projectDayToStamp } from '@shared/project/date'
+import { projectOptionCssColor } from '@shared/project/option-color'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t, useLocale } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
@@ -319,7 +320,7 @@ export function CalendarView({ cards, boardId, properties, datePropertyId, canEd
                     >
                       <span
                         className="h-1.5 w-1.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: statusOption?.color ? `var(--${statusOption.color}, var(--accent))` : 'var(--accent)' }}
+                        style={{ backgroundColor: (statusOption && projectOptionCssColor(statusOption.color)) ?? 'var(--accent)' }}
                       />
                       <span className={`min-w-0 flex-1 truncate font-medium ${isDone ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]'}`}>
                         {card.title || t('project.board.untitled_card')}

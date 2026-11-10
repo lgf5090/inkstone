@@ -6,6 +6,7 @@ import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badge
 import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, projectOptionLabel, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { t } from '../../lib/i18n'
+import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Input, Select } from '../../components/form'
 import { Menu, prompt, submenuFor, type MenuItem } from '../../components/overlay'
@@ -154,7 +155,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             </div>
           )
         }
-      } catch {}
+      } catch { /* a stored value that is not a JSON array reads as plain text below */ }
     }
     return projectPropertyDisplayText(card, property) || '—'
   }
@@ -196,7 +197,10 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     const url = `${window.location.origin}/project/boards/${encodeURIComponent(bundle.board.id)}?card=${encodeURIComponent(cardId)}`
     try {
       await navigator.clipboard.writeText(url)
-    } catch {}
+      useUi.getState().toast({ title: t('common.copied') })
+    } catch {
+      useUi.getState().toast({ title: t('project.card.copy_link_failed'), tone: 'danger' })
+    }
   }
 
   const buildCardContextMenu = (card: ProjectCard): MenuItem[] => {
@@ -776,7 +780,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                                 disabled={!canEdit}
                                 onChange={(event) => onPatchView(active.id, { fields: { columnCalculations: { ...fields.columnCalculations, [property.id]: event.target.value as typeof calc } } })}
                               >
-                                {calculationOptionsFor(property).map((option) => <option key={option} value={option}>{option}</option>)}
+                                {calculationOptionsFor(property).map((option) => <option key={option} value={option}>{t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0])}</option>)}
                               </Select>
                             </td>
                           )
@@ -898,7 +902,7 @@ function BoardColumns({
                   disabled={!canEdit}
                   onChange={(event) => onPatch({ kanbanCalculations: { ...fields.kanbanCalculations, [key]: { calculation: event.target.value as ProjectCalculation, propertyId: calcProperty.id } } })}
                 >
-                  {calculationOptionsFor(calcProperty).map((option) => <option key={option} value={option}>{option}</option>)}
+                  {calculationOptionsFor(calcProperty).map((option) => <option key={option} value={option}>{t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0])}</option>)}
                 </Select>
               )}
               <span className={fields.wipLimits?.[key] !== undefined && rootCards.length > fields.wipLimits[key]! ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}>{calcProperty ? computeProjectCalculation(rootCards, calcProperty, calc) : rootCards.length}</span>
@@ -907,8 +911,8 @@ function BoardColumns({
                   type="number"
                   className="w-14"
                   value={fields.wipLimits?.[key] ?? ''}
-                  placeholder="WIP"
-                  aria-label={`${label} WIP`}
+                  placeholder={t('project.view.wip_limit')}
+                  aria-label={`${label} ${t('project.view.wip_limit')}`}
                   onChange={(event) => {
                     const raw = event.target.value
                     const next = { ...fields.wipLimits }
