@@ -9,6 +9,7 @@ import { confirm, Menu, prompt, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useProjectStore } from './store'
 import { readRandomIconPref, writeRandomIconPref } from './project-icon'
+import { categoryDropZone, planCategoryDrop } from './sidebar-drag'
 import {
   readPinnedBoardsPref,
   readStarredBoardsPref,
@@ -361,15 +362,26 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
     { id: 'random-icon', label: `${t('project.sidebar.random_icon')}${randomIcon ? ' ✓' : ''}`, onSelect: () => { const next = !randomIcon; writeRandomIconPref(next); setRandomIcon(next) } },
   ]
 
-  const dropCategory = (event: DragEvent, targetId: string) => {
+  const dropOnCategory = (event: DragEvent, node: CategoryTreeNode) => {
     const src = event.dataTransfer.getData('text/plain')
+    const targetId = node.category?.id
+    if (!targetId) return
+    if (src.startsWith('board:')) {
+      event.preventDefault()
+      const boardId = src.slice('board:'.length)
+      if (edges.some((edge) => edge.boardId === boardId && edge.categoryId === targetId)) return
+      void guard(async () => { await addBoardToCategory(targetId, boardId) })
+      return
+    }
     if (!src.startsWith('category:')) return
     event.preventDefault()
-    const source = src.slice('category:'.length)
-    if (source === targetId) return
-    const ids = categories.map((c) => c.id).filter((id) => id !== source)
-    ids.splice(ids.indexOf(targetId), 0, source)
-    void guard(async () => { await reorderProjectCategories(ids) })
+    const box = event.currentTarget.getBoundingClientRect()
+    const plan = planCategoryDrop(categories, src.slice('category:'.length), targetId, categoryDropZone(event.clientY - box.top, box.height))
+    if (!plan) return
+    void guard(async () => {
+      if (plan.kind === 'reorder') await reorderProjectCategories(plan.ids)
+      else for (const rename of plan.renames) await patchProjectCategory(rename.id, { name: rename.name })
+    })
   }
 
   const dropBoard = (event: DragEvent, categoryId: string, targetId: string) => {
@@ -447,7 +459,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
               setContextPoint({ x: event.clientX, y: event.clientY })
             }}
             renderBoard={renderBoard}
-            dropCategory={dropCategory}
+            dropOnCategory={dropOnCategory}
           />
         ))}
 
@@ -477,7 +489,7 @@ function CategoryTreeItem({
   categoryMenu,
   onContextMenu,
   renderBoard,
-  dropCategory,
+  dropOnCategory,
 }: {
   node: CategoryTreeNode
   collapsedMap: Map<string, boolean>
@@ -485,7 +497,7 @@ function CategoryTreeItem({
   categoryMenu: (node: CategoryTreeNode) => MenuItem[]
   onContextMenu: (event: ReactMouseEvent, node: CategoryTreeNode) => void
   renderBoard: (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => ReactElement
-  dropCategory: (event: DragEvent, categoryId: string) => void
+  dropOnCategory: (event: DragEvent, node: CategoryTreeNode) => void
 }): ReactElement {
   const isCollapsed = node.category ? node.category.collapsed : (collapsedMap.get(node.id) ?? false)
   const indent = node.depth * 14
@@ -496,7 +508,7 @@ function CategoryTreeItem({
     <section
       className="mb-1"
       onDragOver={(event) => { if (event.dataTransfer.types.includes('text/plain')) event.preventDefault() }}
-      onDrop={(event) => dropCategory(event, node.category?.id ?? node.id)}
+      onDrop={(event) => dropOnCategory(event, node)}
     >
       <div
         className="group/cat flex items-center gap-1"
@@ -545,7 +557,7 @@ function CategoryTreeItem({
               categoryMenu={categoryMenu}
               onContextMenu={onContextMenu}
               renderBoard={renderBoard}
-              dropCategory={dropCategory}
+              dropOnCategory={dropOnCategory}
             />
           ))}
         </div>

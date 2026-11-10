@@ -12564,6 +12564,11 @@ const allowed = new Map([
   ["src/client/features/project/project-prefs.ts", [
     "/* best-effort: a full or blocked storage loses the pin, not the board */",
   ]],
+  ["src/client/features/project/sidebar-drag.ts", [
+    "/**\n * What a drop on the category tree means.\n *\n * The tree is drawn from slash-separated names, so \"nest under\" is a rename of the dragged category\n * and everything below it, while \"place beside\" is a reorder. Both are decided here rather than in\n * the component because the two failure modes are silent: a target that is not a real category used\n * to splice at -1 and land the row second-from-last, and a nest that forgot the descendants left them\n * pointing at a path that no longer exists.\n */",
+    "/** The third of the row the pointer is in: the middle nests, the edges place beside. */",
+    "/**\n * The writes a drop needs, or null when it means nothing.\n *\n * A synthetic group node has no id in `categories`, so it is refused outright rather than treated as\n * a position. Nesting under one's own descendant would detach a whole subtree from the tree, so that\n * is refused too.\n */",
+  ]],
   ["src/client/features/project/store.ts", [
     "/** The project tab's board list: what this account can open, and whether the last read succeeded. */",
   ]],

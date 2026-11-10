@@ -163,3 +163,27 @@ describe('the project sidebar', () => {
     expect(menuItems.some((item) => item.includes(t('common.delete')))).toBe(true)
   })
 })
+describe('dropping onto a category (R3-8)', () => {
+  function categorySection(): HTMLElement {
+    const button = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((node) => node.textContent === 'Work')
+    expect(button, 'no Work category row').toBeDefined()
+    return button!.closest('section')!
+  }
+
+  it('files a loose board into the category it was dropped on', async () => {
+    vi.mocked(api.addBoardToCategory).mockResolvedValue({ categoryId: 'cat1', boardId: 'b2', hidden: false, position: 1 })
+    await mount()
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { types: ['text/plain'], getData: () => 'board:b2' } })
+    await act(async () => { categorySection().dispatchEvent(event) })
+    expect(api.addBoardToCategory).toHaveBeenCalledWith('cat1', 'b2')
+  })
+
+  it('does not re-file a board already in that category', async () => {
+    await mount()
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { types: ['text/plain'], getData: () => 'board:b1' } })
+    await act(async () => { categorySection().dispatchEvent(event) })
+    expect(api.addBoardToCategory).not.toHaveBeenCalled()
+  })
+})
