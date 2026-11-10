@@ -551,9 +551,31 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} allCardsById={allCardsById} subtasksByParent={subtasksByParent} subtaskProgressByParent={subtaskProgressByParent} expandedCards={expandedCards} onToggleExpand={toggleExpandCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onOpenCard={onOpenCard} />
               : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} allCardsById={allCardsById} subtasksByParent={subtasksByParent} subtaskProgressByParent={subtaskProgressByParent} expandedCards={expandedCards} onToggleExpand={toggleExpandCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onOpenCard={onOpenCard} />)
             : viewType === 'gallery'
-              ? <GalleryView cards={sorted} badgesFor={badgesFor} properties={columns} showTitle={fields.galleryShowTitle !== false} showBadges={fields.galleryShowBadges !== false} onOpenCard={onOpenCard} />
+              ? (
+                <GalleryView
+                  cards={sorted}
+                  badgesFor={badgesFor}
+                  properties={columns}
+                  showTitle={fields.galleryShowTitle !== false}
+                  showBadges={fields.galleryShowBadges !== false}
+                  onOpenCard={onOpenCard}
+                  onCardContextMenu={onCardContextMenu}
+                />
+              )
               : viewType === 'list'
-                ? <ListView cards={sorted} properties={bundle.properties} onOpenCard={onOpenCard} />
+                ? (
+                  <ListView
+                    cards={sorted}
+                    properties={bundle.properties}
+                    canEdit={canEdit}
+                    badgesFor={badgesFor}
+                    onOpenCard={onOpenCard}
+                    onCardContextMenu={onCardContextMenu}
+                    onAddSubtask={handleAddSubtask}
+                    onToggleCardDone={toggleCardDone}
+                    onDeleteCard={onDeleteCard}
+                  />
+                )
                 : viewType === 'timeline' || viewType === 'gantt'
                   ? <TimelineView cards={sorted} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} links={links} gantt={viewType === 'gantt'} onOpenCard={onOpenCard} />
                   : viewType === 'chart'
@@ -960,15 +982,12 @@ function BoardColumns({
                               onDragStart={(event) => { event.dataTransfer.setData('text/plain', subtask.id) }}
                               onContextMenu={(event) => onCardContextMenu?.(event, subtask)}
                             >
-                              <input
-                                type="checkbox"
-                                aria-label={subtask.title || t('project.board.untitled_card')}
+                              <Checkbox
+                                ariaLabel={subtask.title || t('project.board.untitled_card')}
                                 checked={isDone}
                                 disabled={!canEdit}
-                                className="size-3.5 rounded-[var(--r-xs)] accent-[var(--accent)] cursor-pointer"
-                                onChange={(e) => {
-                                  e.stopPropagation()
-                                  void onToggleCardDone?.(subtask, !isDone)
+                                onChange={(checked) => {
+                                  void onToggleCardDone?.(subtask, checked)
                                 }}
                               />
                               <button

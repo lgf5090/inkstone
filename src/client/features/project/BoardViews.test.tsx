@@ -461,4 +461,83 @@ describe('subtask hierarchy in views', () => {
     expect(view.container.textContent).toContain('auth')
     expect(view.container.textContent).toContain('critical')
   })
+
+  it('toggles subtask status using project Checkbox component in board view', async () => {
+    const b = bundle()
+    b.views = [
+      { id: 'v2', boardId: 'b1', title: 'Board', viewType: 'board', fields: { ...emptyProjectViewFields(), groupById: 'ps' }, position: 0, ...stamps },
+    ]
+    const patchCard = vi.fn().mockResolvedValue(undefined)
+    b.cards.push({
+      id: 'sub1',
+      boardId: 'b1',
+      title: 'Subtask 1',
+      icon: '',
+      parentId: 'c1',
+      isTemplate: false,
+      contentOrder: [],
+      values: {},
+      ...stamps,
+    })
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: patchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+    const expandBtn = view.container.querySelector('button[aria-expanded="false"]') as HTMLButtonElement
+    expect(expandBtn).not.toBeNull()
+    await act(async () => { expandBtn.click() })
+
+    const checkbox = view.container.querySelector('button[role="checkbox"]') as HTMLButtonElement
+    expect(checkbox).not.toBeNull()
+    await act(async () => { checkbox.click() })
+    expect(patchCard).toHaveBeenCalledWith('sub1', expect.anything())
+  })
+
+  it('renders subtasks with checkboxes and context menus in list view', async () => {
+    const b = bundle()
+    b.views = [
+      { id: 'v_list', boardId: 'b1', title: 'List', viewType: 'list', fields: { ...emptyProjectViewFields(), groupById: '' }, position: 0, ...stamps },
+    ]
+    b.cards.push({
+      id: 'sub_list',
+      boardId: 'b1',
+      title: 'Nested list subtask',
+      icon: '',
+      parentId: 'c1',
+      isTemplate: false,
+      contentOrder: [],
+      values: {},
+      ...stamps,
+    })
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+
+    expect(view.container.textContent).toContain('Alpha')
+    const expandBtn = view.container.querySelector('button[aria-label="' + t('project.card.expand_subtasks') + '"]') as HTMLButtonElement
+    expect(expandBtn).not.toBeNull()
+    await act(async () => { expandBtn.click() })
+    expect(view.container.textContent).toContain('Nested list subtask')
+  })
+
+  it('opens context menu on card right-click in gallery view', async () => {
+    const b = bundle()
+    b.views = [
+      { id: 'v_gallery', boardId: 'b1', title: 'Gallery', viewType: 'gallery', fields: { ...emptyProjectViewFields(), groupById: '' }, position: 0, ...stamps },
+    ]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+
+    const cardEl = view.container.querySelector('[data-project-card="c1"]')!
+    expect(cardEl).not.toBeNull()
+    const contextEvent = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 120,
+      clientY: 120,
+    })
+    await act(async () => { cardEl.dispatchEvent(contextEvent) })
+    const items = [...document.body.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent ?? '')
+    expect(items.some((item) => item.includes(t('project.card.open')))).toBe(true)
+  })
 })

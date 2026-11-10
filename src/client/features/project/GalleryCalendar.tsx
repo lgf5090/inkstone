@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactElement } from 'react'
+import { useMemo, useState, type MouseEvent, type ReactElement } from 'react'
 import { ChevronLeft, ChevronRight, Plus, SquareKanban } from 'lucide-react'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
@@ -29,7 +29,23 @@ function parseCardDate(card: ProjectCard, propertyId: string | undefined): { fro
   return null
 }
 
-export function GalleryView({ cards, properties, showTitle, showBadges, badgesFor, onOpenCard }: { cards: ProjectCard[], properties: ProjectProperty[], showTitle: boolean, showBadges: boolean, badgesFor: (cardId: string) => ProjectCardBadges, onOpenCard: (id: string) => void }): ReactElement {
+export function GalleryView({
+  cards,
+  properties,
+  showTitle,
+  showBadges,
+  badgesFor,
+  onOpenCard,
+  onCardContextMenu,
+}: {
+  cards: ProjectCard[]
+  properties: ProjectProperty[]
+  showTitle: boolean
+  showBadges: boolean
+  badgesFor: (cardId: string) => ProjectCardBadges
+  onOpenCard: (id: string) => void
+  onCardContextMenu?: (event: MouseEvent, card: ProjectCard) => void
+}): ReactElement {
   return (
     <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3 overflow-y-auto p-3">
       {cards.map((card) => (
@@ -39,6 +55,7 @@ export function GalleryView({ cards, properties, showTitle, showBadges, badgesFo
           data-project-card={card.id}
           className="flex flex-col items-start gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 text-left shadow-[var(--shadow-sm)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
           onClick={() => onOpenCard(card.id)}
+          onContextMenu={(event) => onCardContextMenu?.(event, card)}
         >
           <span aria-hidden="true" className="flex h-16 w-full items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-sunken)] text-[length:var(--text-20)]">
             {card.icon || <SquareKanban size={24} className="text-[var(--text-quaternary)]" />}

@@ -252,6 +252,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   }
 
   const categoryMenu = (node: CategoryTreeNode): MenuItem[] => {
+    const isSystem = node.category?.type === 'system'
     const items: MenuItem[] = [
       {
         id: 'new-sub',
@@ -270,42 +271,61 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           })
         },
       },
-    ]
-    if (node.category) {
-      const category = node.category
-      items.push({
+      {
         id: 'rename',
         label: t('project.boards.rename'),
         icon: <Pencil size={14} />,
+        disabled: isSystem,
         onSelect: () => {
           void guard(async () => {
             const name = await prompt({
               title: t('project.sidebar.category_name'),
-              defaultValue: category.name,
+              defaultValue: node.name,
               confirmLabel: t('common.save'),
             })
-            if (name !== null && name.trim()) await patchProjectCategory(category.id, { name: name.trim() })
+            if (name === null || !name.trim() || name.trim() === node.name) return
+            const newLeaf = name.trim()
+            const cut = node.fullPath.lastIndexOf('/')
+            const newFullPath = cut >= 0 ? `${node.fullPath.slice(0, cut + 1)}${newLeaf}` : newLeaf
+
+            if (node.category) {
+              await patchProjectCategory(node.category.id, { name: newFullPath })
+            }
+            const prefix = `${node.fullPath}/`
+            const descendants = categories.filter((c) => c.name.startsWith(prefix))
+            for (const desc of descendants) {
+              const suffix = desc.name.slice(prefix.length)
+              await patchProjectCategory(desc.id, { name: `${newFullPath}/${suffix}` })
+            }
           })
         },
-      })
-      items.push({
+      },
+      {
         id: 'delete',
         label: t('common.delete'),
         icon: <Trash2 size={14} />,
         tone: 'danger',
-        disabled: category.type === 'system',
+        disabled: isSystem,
         onSelect: () => {
           void guard(async () => {
             const ok = await confirm({
-              title: `${t('common.delete')} ${category.name}?`,
+              title: `${t('common.delete')} ${node.name}?`,
               tone: 'danger',
               confirmLabel: t('common.delete'),
             })
-            if (ok) await deleteProjectCategory(category.id)
+            if (!ok) return
+            if (node.category && node.category.type !== 'system') {
+              await deleteProjectCategory(node.category.id)
+            }
+            const prefix = `${node.fullPath}/`
+            const descendants = categories.filter((c) => c.name.startsWith(prefix) && c.type !== 'system')
+            for (const desc of descendants) {
+              await deleteProjectCategory(desc.id)
+            }
           })
         },
-      })
-    }
+      },
+    ]
     return items
   }
 
@@ -418,6 +438,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
             node={node}
             collapsedMap={collapsedMap}
             onToggleCollapse={toggleCollapseNode}
+            categoryMenu={categoryMenu}
             onContextMenu={(event, targetNode) => {
               event.preventDefault()
               event.stopPropagation()
@@ -453,6 +474,7 @@ function CategoryTreeItem({
   node,
   collapsedMap,
   onToggleCollapse,
+  categoryMenu,
   onContextMenu,
   renderBoard,
   dropCategory,
@@ -460,6 +482,7 @@ function CategoryTreeItem({
   node: CategoryTreeNode
   collapsedMap: Map<string, boolean>
   onToggleCollapse: (node: CategoryTreeNode) => void
+  categoryMenu: (node: CategoryTreeNode) => MenuItem[]
   onContextMenu: (event: ReactMouseEvent, node: CategoryTreeNode) => void
   renderBoard: (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => ReactElement
   dropCategory: (event: DragEvent, categoryId: string) => void
@@ -506,14 +529,7 @@ function CategoryTreeItem({
           anchor={anchor}
           open={menuOpen}
           onClose={() => setMenuOpen(false)}
-          items={[
-            {
-              id: 'new-sub',
-              label: t('project.sidebar.new_subcategory'),
-              icon: <FolderPlus size={14} />,
-              onSelect: () => onContextMenu({ clientX: 0, clientY: 0 } as ReactMouseEvent, node),
-            },
-          ]}
+          items={categoryMenu(node)}
           label={node.name}
         />
       </div>
@@ -526,6 +542,7 @@ function CategoryTreeItem({
               node={child}
               collapsedMap={collapsedMap}
               onToggleCollapse={onToggleCollapse}
+              categoryMenu={categoryMenu}
               onContextMenu={onContextMenu}
               renderBoard={renderBoard}
               dropCategory={dropCategory}

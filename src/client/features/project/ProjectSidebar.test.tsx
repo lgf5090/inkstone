@@ -151,4 +151,15 @@ describe('the project sidebar', () => {
     expect(menuItems.some((item) => item.includes(t('project.sidebar.pin')))).toBe(true)
     expect(menuItems.some((item) => item.includes(t('project.sidebar.favorite')))).toBe(true)
   })
+
+  it('opens category menu with new subcategory, rename and delete on more button click', async () => {
+    await mount()
+    const moreBtn = view.container.querySelector('button[aria-label="Work"]') as HTMLButtonElement
+    expect(moreBtn).not.toBeNull()
+    await act(async () => { moreBtn.click() })
+    const menuItems = [...document.body.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent ?? '')
+    expect(menuItems.some((item) => item.includes(t('project.sidebar.new_subcategory')))).toBe(true)
+    expect(menuItems.some((item) => item.includes(t('project.boards.rename')))).toBe(true)
+    expect(menuItems.some((item) => item.includes(t('common.delete')))).toBe(true)
+  })
 })

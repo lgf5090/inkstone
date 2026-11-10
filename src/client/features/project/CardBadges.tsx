@@ -5,25 +5,26 @@ import type { ProjectProperty } from '@shared/project/model'
 import { hasProjectCardBadges } from '@shared/project/badges'
 import { t } from '../../lib/i18n'
 
+import { TagPill } from '../../components/TagChip'
+
 export function OptionChip({ property, value }: { property: ProjectProperty, value: string }): ReactElement | null {
   const option = property.options.find((entry) => entry.id === value)
   if (!option) return null
   const parts = option.value.split('/').map((s) => s.trim()).filter(Boolean)
   const isHierarchy = parts.length > 1
   return (
-    <span
-      className="inline-flex max-w-full items-center gap-1 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium select-none"
-      style={option.color ? { backgroundColor: option.color } : { backgroundColor: 'var(--bg-subtle)' }}
-    >
-      {isHierarchy ? (
-        <>
-          <span className="text-[var(--text-tertiary)]">{parts.slice(0, -1).join(' / ')} /</span>
-          <span className="text-[var(--text-primary)] font-semibold">{parts[parts.length - 1]}</span>
-        </>
-      ) : (
-        <span className="text-[var(--text-primary)]">{option.value}</span>
-      )}
-    </span>
+    <TagPill
+      tone="tinted"
+      color={option.color}
+      label={
+        isHierarchy ? (
+          <>
+            <span className="opacity-70">{parts.slice(0, -1).join(' / ')} / </span>
+            <span className="font-semibold">{parts[parts.length - 1]}</span>
+          </>
+        ) : option.value
+      }
+    />
   )
 }
 

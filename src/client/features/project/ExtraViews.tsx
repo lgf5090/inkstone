@@ -3,12 +3,16 @@
  * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the
  * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.
  */
-import { Fragment, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, CornerDownRight } from 'lucide-react'
+import { Fragment, useMemo, useState, type MouseEvent } from 'react'
+import { ChevronDown, ChevronRight, CornerDownRight, Plus, Trash2 } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
+import type { ProjectCardBadges } from '@shared/project/badges'
 import { groupProjectCards, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
+import { Checkbox } from '../../components/form'
+import { IconButton } from '../../components/primitives'
+import { CardBadges, OptionChip } from './CardBadges'
 
 function dateRange(card: ProjectCard, propertyId: string | undefined): { from: number, to: number } | null {
   if (!propertyId) return null
@@ -22,7 +26,27 @@ function dateRange(card: ProjectCard, propertyId: string | undefined): { from: n
   return Number.isFinite(stamp) ? { from: stamp, to: stamp } : null
 }
 
-export function ListView({ cards, properties, onOpenCard }: { cards: ProjectCard[], properties: ProjectProperty[], onOpenCard: (id: string) => void }) {
+export function ListView({
+  cards,
+  properties,
+  canEdit = false,
+  badgesFor,
+  onOpenCard,
+  onCardContextMenu,
+  onAddSubtask,
+  onToggleCardDone,
+  onDeleteCard,
+}: {
+  cards: ProjectCard[]
+  properties: ProjectProperty[]
+  canEdit?: boolean
+  badgesFor?: (cardId: string) => ProjectCardBadges
+  onOpenCard: (id: string) => void
+  onCardContextMenu?: (event: MouseEvent, card: ProjectCard) => void
+  onAddSubtask?: (parentCardId: string) => Promise<void>
+  onToggleCardDone?: (card: ProjectCard, checked: boolean) => Promise<void>
+  onDeleteCard?: (id: string) => void
+}) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const toggleExpand = (id: string) => {
     setExpanded((prev) => {
@@ -48,23 +72,36 @@ export function ListView({ cards, properties, onOpenCard }: { cards: ProjectCard
 
   const rootCards = useMemo(() => cards.filter((c) => !c.parentId || !cardIds.has(c.parentId)), [cards, cardIds])
 
+  const renderPropertyCell = (card: ProjectCard, property: ProjectProperty) => {
+    if (property.type === 'select' && card.values[property.id]) {
+      return <OptionChip property={property} value={card.values[property.id]!} />
+    }
+    return projectPropertyDisplayText(card, property)
+  }
+
   return (
     <ul className="min-h-0 flex-1 divide-y divide-[var(--border-subtle)] overflow-y-auto">
       {rootCards.map((card) => {
         const cardSubtasks = subtasksByParent.get(card.id) ?? []
         const hasSubtasks = cardSubtasks.length > 0
         const isExpanded = expanded.has(card.id)
+        const isDone = isProjectCardDone(card, properties)
         const doneCount = cardSubtasks.filter((s) => isProjectCardDone(s, properties)).length
+        const cardBadges = badgesFor ? badgesFor(card.id) : undefined
+
         return (
           <Fragment key={card.id}>
-            <li>
-              <div className="flex w-full items-center gap-1.5 px-3 py-1">
+            <li
+              className="group/listitem hover:bg-[var(--bg-hover)] transition-colors"
+              onContextMenu={(event) => onCardContextMenu?.(event, card)}
+            >
+              <div className="flex w-full items-center gap-2 px-3 py-1.5">
                 {hasSubtasks ? (
                   <button
                     type="button"
                     aria-label={isExpanded ? t('project.card.collapse_subtasks') : t('project.card.expand_subtasks')}
                     aria-expanded={isExpanded}
-                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--text-tertiary)] hover:bg-[var(--bg-sunken)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                     onClick={() => toggleExpand(card.id)}
                   >
                     {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -72,14 +109,25 @@ export function ListView({ cards, properties, onOpenCard }: { cards: ProjectCard
                 ) : (
                   <span className="w-5 shrink-0" aria-hidden="true" />
                 )}
+                {onToggleCardDone && (
+                  <Checkbox
+                    ariaLabel={card.title || t('project.board.untitled_card')}
+                    checked={isDone}
+                    disabled={!canEdit}
+                    onChange={(checked) => {
+                      void onToggleCardDone(card, checked)
+                    }}
+                  />
+                )}
                 <button
                   type="button"
                   className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                   onClick={() => onOpenCard(card.id)}
                 >
-                  <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
+                  <span className={`min-w-0 flex-1 truncate text-[length:var(--text-12)] ${isDone ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]'}`}>
                     {card.title || t('project.board.untitled_card')}
                   </span>
+                  {cardBadges && <CardBadges badges={cardBadges} />}
                   {hasSubtasks && (
                     <span className="shrink-0 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
                       {doneCount}/{cardSubtasks.length}
@@ -87,32 +135,78 @@ export function ListView({ cards, properties, onOpenCard }: { cards: ProjectCard
                   )}
                   {properties.slice(0, 3).map((property) => (
                     <span key={property.id} className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-                      {projectPropertyDisplayText(card, property)}
+                      {renderPropertyCell(card, property)}
                     </span>
                   ))}
                 </button>
+                {canEdit && onAddSubtask && (
+                  <IconButton
+                    label={t('project.card.add_subtask')}
+                    size="sm"
+                    className="opacity-0 group-hover/listitem:opacity-100 transition-opacity"
+                    onClick={() => void onAddSubtask(card.id)}
+                  >
+                    <Plus size={13} />
+                  </IconButton>
+                )}
+                {canEdit && onDeleteCard && (
+                  <IconButton
+                    label={t('project.board.delete_card')}
+                    size="sm"
+                    className="opacity-0 group-hover/listitem:opacity-100 transition-opacity"
+                    onClick={() => onDeleteCard(card.id)}
+                  >
+                    <Trash2 size={13} />
+                  </IconButton>
+                )}
               </div>
             </li>
             {hasSubtasks && isExpanded && cardSubtasks.map((subtask) => {
-              const isDone = isProjectCardDone(subtask, properties)
+              const subtaskDone = isProjectCardDone(subtask, properties)
+              const subtaskBadges = badgesFor ? badgesFor(subtask.id) : undefined
               return (
-                <li key={subtask.id} className="bg-[var(--bg-sunken)]/40">
-                  <div className="flex w-full items-center gap-1.5 py-1 pl-9 pr-3">
+                <li
+                  key={subtask.id}
+                  className="group/subitem bg-[var(--bg-sunken)]/40 hover:bg-[var(--bg-hover)] transition-colors"
+                  onContextMenu={(event) => onCardContextMenu?.(event, subtask)}
+                >
+                  <div className="flex w-full items-center gap-2 py-1.5 pl-9 pr-3">
                     <CornerDownRight size={13} className="shrink-0 text-[var(--text-tertiary)]" />
+                    {onToggleCardDone && (
+                      <Checkbox
+                        ariaLabel={subtask.title || t('project.board.untitled_card')}
+                        checked={subtaskDone}
+                        disabled={!canEdit}
+                        onChange={(checked) => {
+                          void onToggleCardDone(subtask, checked)
+                        }}
+                      />
+                    )}
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                       onClick={() => onOpenCard(subtask.id)}
                     >
-                      <span className={`min-w-0 flex-1 truncate text-[length:var(--text-12)] ${isDone ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]'}`}>
+                      <span className={`min-w-0 flex-1 truncate text-[length:var(--text-12)] ${subtaskDone ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]'}`}>
                         {subtask.title || t('project.board.untitled_card')}
                       </span>
+                      {subtaskBadges && <CardBadges badges={subtaskBadges} />}
                       {properties.slice(0, 3).map((property) => (
                         <span key={property.id} className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-                          {projectPropertyDisplayText(subtask, property)}
+                          {renderPropertyCell(subtask, property)}
                         </span>
                       ))}
                     </button>
+                    {canEdit && onDeleteCard && (
+                      <IconButton
+                        label={t('project.board.delete_card')}
+                        size="sm"
+                        className="opacity-0 group-hover/subitem:opacity-100 transition-opacity"
+                        onClick={() => onDeleteCard(subtask.id)}
+                      >
+                        <Trash2 size={13} />
+                      </IconButton>
+                    )}
                   </div>
                 </li>
               )
