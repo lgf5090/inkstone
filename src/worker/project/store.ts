@@ -20,19 +20,21 @@ export class ProjectStore {
   async boards(): Promise<ProjectBoardSummary[]> {
     const { results } = await this.db
       .prepare(
-        `SELECT * FROM project_boards
-         WHERE delete_at = 0 AND is_template = 0
-           AND (owner_id = ?1
-                OR id IN (SELECT board_id FROM project_board_members WHERE user_id = ?1))
-         ORDER BY update_at DESC`,
+        `SELECT b.*, (SELECT COUNT(*) FROM project_cards c WHERE c.board_id = b.id AND c.delete_at = 0) AS card_count
+         FROM project_boards b
+         WHERE b.delete_at = 0 AND b.is_template = 0
+           AND (b.owner_id = ?1
+                OR b.id IN (SELECT board_id FROM project_board_members WHERE user_id = ?1))
+         ORDER BY b.update_at DESC`,
       )
       .bind(this.userId)
-      .all<ProjectBoardRow>()
+      .all<ProjectBoardRow & { card_count: number }>()
     const { results: memberships } = await this.db
       .prepare('SELECT board_id, role FROM project_board_members WHERE user_id = ?1')
       .bind(this.userId)
       .all<ProjectMembershipRow>()
-    return visibleProjectBoards(results, memberships, this.userId)
+    const counts = new Map(results.map((row) => [row.id, row.card_count ?? 0]))
+    return visibleProjectBoards(results, memberships, this.userId).map((board) => ({ ...board, cardCount: counts.get(board.id) ?? 0 }))
   }
   /** Soft-deleted boards this account owns: the restore list, which the live board list excludes. */
   async deletedBoards(): Promise<ProjectBoardSummary[]> {

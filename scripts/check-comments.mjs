@@ -32515,6 +32515,7 @@ const allowed = new Map([
     "/** A board as the caller sees it: the stored fields plus the role this caller actually holds. */",
     "/** The counts the board list shows as a subtitle (reference BoardMetadata). */",
     "// X-8: the reference left number unfilterable; this port makes it filterable and groupable.",
+    "/** Live card count, present on the list projection so the sidebar needs no request per board. */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",

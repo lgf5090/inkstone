@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
-import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, Pin, Plus, Settings2, SquareKanban, Star, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, Pin, Plus, Settings2, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { setLocale, t, useLocale } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -450,17 +450,26 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           target.addEventListener('pointerup', up)
         }}
       />
-      <div className="flex items-center gap-1 p-2">
-        <Input className="min-w-0 flex-1" value={query} placeholder={t('project.sidebar.search')} aria-label={t('project.sidebar.search')} onChange={(event) => { setQuery(event.target.value); setHighlight(-1) }} onKeyDown={onSearchKey} />
-        <IconButton label={t('project.sidebar.new_board')} size="sm" onClick={() => { void guard(async () => {
-          const title = await prompt({ title: t('project.boards.create_title'), placeholder: t('project.boards.create_placeholder'), confirmLabel: t('project.boards.create_confirm') })
-          if (title === null || !title.trim()) return
-          const board = await useProjectStore.getState().addBoard(title.trim())
-          navigateToPath(`/project/boards/${board.id}`)
-        }) }}><Plus size={15} /></IconButton>
-        <IconButton label={t('project.sidebar.new_category')} size="sm" onClick={newCategory}><FolderPlus size={15} /></IconButton>
-        <IconButton ref={settingsAnchor} label={t('project.sidebar.settings')} size="sm" onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></IconButton>
-        <Menu anchor={settingsAnchor} open={settingsOpen} onClose={() => setSettingsOpen(false)} items={settingsMenu} label={t('project.sidebar.settings')} />
+      <div className="space-y-2 p-2">
+        <button
+          type="button"
+          className="flex w-full items-center justify-center gap-1.5 rounded-[var(--r-md)] border border-dashed border-[var(--border-default)] px-2 py-2 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+          onClick={() => { void guard(async () => {
+            const title = await prompt({ title: t('project.boards.create_title'), placeholder: t('project.boards.create_placeholder'), confirmLabel: t('project.boards.create_confirm') })
+            if (title === null || !title.trim()) return
+            const board = await useProjectStore.getState().addBoard(title.trim())
+            navigateToPath(`/project/boards/${board.id}`)
+          }) }}
+        >
+          <Plus size={14} aria-hidden="true" />{t('project.sidebar.new_board')}
+        </button>
+        <Input className="w-full" value={query} placeholder={t('project.sidebar.search')} aria-label={t('project.sidebar.search')} onChange={(event) => { setQuery(event.target.value); setHighlight(-1) }} onKeyDown={onSearchKey} />
+        <div className="flex items-center gap-1">
+          <IconButton label={t('project.sidebar.new_category')} size="sm" onClick={newCategory}><FolderPlus size={15} /></IconButton>
+          <IconButton label={t('project.sidebar.import_archive')} size="sm" onClick={onImport}><Upload size={15} /></IconButton>
+          <IconButton ref={settingsAnchor} className="ml-auto" label={t('project.sidebar.settings')} size="sm" onClick={() => setSettingsOpen(true)}><Settings2 size={15} /></IconButton>
+          <Menu anchor={settingsAnchor} open={settingsOpen} onClose={() => setSettingsOpen(false)} items={settingsMenu} label={t('project.sidebar.settings')} />
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {pinnedBoards.length > 0 && (
@@ -656,6 +665,9 @@ function BoardEntry({
         <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
           {board.title || t('project.boards.untitled')}
         </span>
+        {board.cardCount !== undefined && (
+          <span className="shrink-0 tabular text-[length:var(--text-10)] text-[var(--text-quaternary)]" aria-label={t('project.board.cards_count', { count: board.cardCount })}>{board.cardCount}</span>
+        )}
         {isPinned && <Pin size={11} className="shrink-0 text-[var(--accent)]" />}
         {isStarred && <Star size={11} className="shrink-0 fill-[var(--warning)] text-[var(--warning)]" />}
       </button>

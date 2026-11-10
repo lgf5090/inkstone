@@ -194,3 +194,16 @@ describe('board metadata', () => {
     expect((await response.json()) as ProjectBoardMetadata).toEqual({ cardCount: 1, propertyCount: 2, viewCount: 1 })
   })
 })
+describe('the board list card count (R4-4)', () => {
+  it('counts live cards per board in the list itself, excluding deleted ones', async () => {
+    const created = await req('alice', 'POST', '/boards', { title: 'Counted' })
+    const board = ((await created.json()) as { board: { id: string } }).board
+    const a = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'One' })).json()) as { card: { id: string } }).card
+    await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Two' })
+    const listed = ((await (await req('alice', 'GET', '/boards')).json()) as { boards: { id: string, cardCount?: number }[] }).boards
+    expect(listed.find((entry) => entry.id === board.id)?.cardCount).toBe(2)
+    await req('alice', 'DELETE', `/cards/${a.id}`)
+    const after = ((await (await req('alice', 'GET', '/boards')).json()) as { boards: { id: string, cardCount?: number }[] }).boards
+    expect(after.find((entry) => entry.id === board.id)?.cardCount).toBe(1)
+  })
+})

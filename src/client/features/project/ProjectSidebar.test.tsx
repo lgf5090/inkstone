@@ -19,7 +19,7 @@ vi.mock('./api', () => ({
 
 const stamps = { ownerId: 'u1', type: 'P' as const, minimumRole: '' as const, description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0, role: 'admin' as const }
 const boards: ProjectBoardSummary[] = [
-  { id: 'b1', title: 'Filed board', ...stamps },
+  { id: 'b1', title: 'Filed board', cardCount: 7, ...stamps },
   { id: 'b2', title: 'Loose board', ...stamps },
 ]
 
@@ -185,5 +185,23 @@ describe('dropping onto a category (R3-8)', () => {
     Object.defineProperty(event, 'dataTransfer', { value: { types: ['text/plain'], getData: () => 'board:b1' } })
     await act(async () => { categorySection().dispatchEvent(event) })
     expect(api.addBoardToCategory).not.toHaveBeenCalled()
+  })
+})
+
+describe('the rebuilt sidebar (R4-4)', () => {
+  it('offers a full-width new-board action rather than a cramped icon', async () => {
+    await mount()
+    const aside = document.body.querySelector('aside')!
+    const create = [...aside.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('project.sidebar.new_board'))
+    expect(create, 'no labelled new-board action').toBeDefined()
+    expect(create!.className).toContain('w-full')
+    expect(create!.className).toContain('border-dashed')
+  })
+
+  it('shows each board card count from the list projection', async () => {
+    await mount()
+    const row = document.body.querySelector('[data-sidebar-board="b1"]')!
+    expect(row.textContent).toContain('7')
+    expect(row.querySelector(`[aria-label="${t('project.board.cards_count', { count: 7 })}"]`)).not.toBeNull()
   })
 })
