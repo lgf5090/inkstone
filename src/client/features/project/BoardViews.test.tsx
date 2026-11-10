@@ -131,9 +131,12 @@ describe('board column hide and cross-column drag (C-2)', () => {
   it('hide column persists hiddenOptionIds', async () => {
     const onPatch = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>().mockResolvedValue(undefined)
     await mountBoard(onPatch, vi.fn<(id: string, patch: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined))
-    const hide = view.container.querySelector(`button[aria-label="${t('project.view.hide_column')}"]`) as HTMLButtonElement
-    expect(hide).not.toBeNull()
-    await act(async () => { hide.click() })
+    const menu = view.container.querySelector<HTMLButtonElement>(`button[aria-label="Open ${t('project.view.menu')}"]`)
+    expect(menu, 'no column menu').not.toBeNull()
+    await act(async () => { menu!.click() })
+    const hide = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((row) => row.textContent === t('project.view.hide_column'))
+    expect(hide, 'hide is not in the column menu').toBeDefined()
+    await act(async () => { hide!.click() })
     expect(onPatch).toHaveBeenCalledWith('v2', { fields: { hiddenOptionIds: ['o1'] } })
   })
 
@@ -650,5 +653,51 @@ describe('the table row budget (R3-16a)', () => {
     expect(more, 'no way to reach the remaining rows').toBeDefined()
     await act(async () => { more!.click() })
     expect(view.container.querySelectorAll('tbody tr[data-project-card]')).toHaveLength(260)
+  })
+})
+
+describe('the column header stays readable (R4-1)', () => {
+  async function mountColoured(): Promise<void> {
+    const base = bundle()
+    base.properties = base.properties.map((p) => (p.id === 'ps' ? { ...p, options: p.options.map((o) => (o.id === 'o1' ? { ...o, color: 'propColorRed' } : o)) } : p))
+    base.views = [{ id: 'v2', boardId: 'b1', title: 'Board', viewType: 'board', fields: { ...emptyProjectViewFields(), groupById: 'ps' }, position: 0, ...stamps }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+  }
+
+  it('keeps no laid-out-but-invisible control in the title row', async () => {
+    await mountColoured()
+    const header = view.container.querySelector('section[aria-label="Open"] header')!
+    expect(header.querySelector('input')).toBeNull()
+    expect(header.querySelector(`button[aria-label="Open ${t('project.view.menu')}"]`)).not.toBeNull()
+    expect([...header.querySelectorAll('*')].some((node) => (node.getAttribute('class') ?? '').includes('opacity-0'))).toBe(false)
+    const title = header.querySelector('span[title]')!
+    expect(title.className).toContain('truncate')
+    expect(title.className).toContain('min-w-0')
+  })
+
+  it('tints the column with the colour picked for its option', async () => {
+    await mountColoured()
+    const open = view.container.querySelector<HTMLElement>('section[aria-label="Open"]')!
+    expect(open.getAttribute('style')).toContain('inset 0 3px')
+    expect(open.getAttribute('style')).toContain('--kanban-tag-red-fg')
+    const done = view.container.querySelector<HTMLElement>('section[aria-label="Done"]')!
+    expect(done.getAttribute('style') ?? '').not.toContain('inset')
+  })
+
+  it('moves the summary choice into the menu and writes it back', async () => {
+    const onPatch = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>().mockResolvedValue(undefined)
+    const base = bundle()
+    base.views = [{ id: 'v2', boardId: 'b1', title: 'Board', viewType: 'board', fields: { ...emptyProjectViewFields(), groupById: 'ps' }, position: 0, ...stamps }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: onPatch, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+    const menu = view.container.querySelector<HTMLButtonElement>(`button[aria-label="Open ${t('project.view.menu')}"]`)!
+    await act(async () => { menu.click() })
+    const sum = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((row) => row.textContent === t('project.calc.countnotempty'))
+    expect(sum, 'the summary choices are not in the menu').toBeDefined()
+    await act(async () => { sum!.click() })
+    expect(onPatch).toHaveBeenCalledWith('v2', { fields: { kanbanCalculations: { o1: { calculation: 'countNotEmpty', propertyId: 'ps' } } } })
   })
 })

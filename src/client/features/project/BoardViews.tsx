@@ -5,6 +5,7 @@ import { emptyProjectViewFields, isProjectCardDone, PROJECT_PROPERTY_CAPABILITIE
 import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badges'
 import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, projectOptionLabel, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
+import { projectOptionCssColor } from '@shared/project/option-color'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { isImeComposing } from '../../lib/ime'
@@ -964,7 +965,8 @@ function BoardColumns({
         return (
           <section
             key={key || 'empty'}
-            className="flex w-64 shrink-0 flex-col rounded-[var(--r-md)] bg-[var(--bg-sunken)]"
+            className="flex w-64 shrink-0 flex-col overflow-hidden rounded-[var(--r-md)] bg-[var(--bg-sunken)]"
+            style={columnTint(groupProperty, key)}
             aria-label={label}
             onDragOver={(event) => { if (canEdit && groupProperty) event.preventDefault() }}
             onDrop={(event) => {
@@ -974,44 +976,25 @@ function BoardColumns({
               if (cardId) void onPatchCard(cardId, { values: { [groupProperty.id]: key === '' ? null : key } })
             }}
           >
-            <header className="group/col flex items-center gap-2 px-3 py-2 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
-              <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                {groupProperty && key !== '' ? <span className="min-w-0 shrink-0"><OptionChip property={groupProperty} value={key} /></span> : <span className="truncate">{label}</span>}
-              </span>
-              {canEdit && groupProperty && key !== '' && (
-                <IconButton label={t('project.view.hide_column')} size="sm" onClick={() => onPatch({ hiddenOptionIds: [...fields.hiddenOptionIds, key] })}>
-                  <EyeOff size={13} />
-                </IconButton>
-              )}
-              {calcProperty && (
-                <SelectMenu
-                  className="w-24 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/col:opacity-100"
-                  size="sm"
-                  value={calc}
-                  label={label}
-                  disabled={!canEdit}
-                  onChange={(value) => onPatch({ kanbanCalculations: { ...fields.kanbanCalculations, [key]: { calculation: value as ProjectCalculation, propertyId: calcProperty.id } } })}
-                  options={calculationOptionsFor(calcProperty).map((option) => ({ value: option, label: t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0]) }))}
-                />
-              )}
-              <span className={fields.wipLimits?.[key] !== undefined && rootCards.length > fields.wipLimits[key]! ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}>{calcProperty ? computeProjectCalculation(rootCards, calcProperty, calc) : rootCards.length}</span>
-              {canEdit && groupProperty && (
-                <Input
-                  type="number"
-                  className="w-14 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/col:opacity-100"
-                  value={fields.wipLimits?.[key] ?? ''}
-                  placeholder={t('project.view.wip_limit')}
-                  aria-label={`${label} ${t('project.view.wip_limit')}`}
-                  onChange={(event) => {
-                    const raw = event.target.value
-                    const next = { ...fields.wipLimits }
-                    if (raw === '') delete next[key]
-                    else next[key] = Number(raw)
-                    onPatch({ wipLimits: next })
-                  }}
-                />
-              )}
-            </header>
+            <ColumnHeader
+              label={label}
+              count={calcProperty ? computeProjectCalculation(rootCards, calcProperty, calc) : rootCards.length}
+              overLimit={fields.wipLimits?.[key] !== undefined && rootCards.length > fields.wipLimits[key]!}
+              color={groupProperty && key !== '' ? projectOptionCssColor(groupProperty.options.find((option) => option.id === key)?.color ?? '') : null}
+              canEdit={canEdit && Boolean(groupProperty)}
+              hideable={canEdit && Boolean(groupProperty) && key !== ''}
+              calc={calc}
+              calcOptions={calcProperty ? calculationOptionsFor(calcProperty) : []}
+              wip={fields.wipLimits?.[key]}
+              onCalc={(next) => { if (calcProperty) onPatch({ kanbanCalculations: { ...fields.kanbanCalculations, [key]: { calculation: next, propertyId: calcProperty.id } } }) }}
+              onWip={(next) => {
+                const limits = { ...fields.wipLimits }
+                if (next === null) delete limits[key]
+                else limits[key] = next
+                onPatch({ wipLimits: limits })
+              }}
+              onHide={() => onPatch({ hiddenOptionIds: [...fields.hiddenOptionIds, key] })}
+            />
             <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
               {rootCards.length === 0 && <li className="px-1 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.empty_column')}</li>}
               {rootCards.map((card) => {
@@ -1209,8 +1192,10 @@ function Swimlanes({
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
       {[...lanes.entries()].map(([key, laneCards]) => (
         <section key={key || 'empty'}>
-          <h3 className="mb-1 px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
-            {key === '' ? t('project.view.no_value') : laneProperty?.options.find((o) => o.id === key)?.value ?? key}
+          <h3 className="mb-1 flex items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]" style={laneTint(laneProperty, key)}>
+            {laneColor(laneProperty, key) && <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: laneColor(laneProperty, key)! }} />}
+            <span className="min-w-0 flex-1 truncate">{key === '' ? t('project.view.no_value') : laneProperty?.options.find((o) => o.id === key)?.value ?? key}</span>
+            <span className="shrink-0 tabular text-[var(--text-tertiary)]">{laneCards.length}</span>
           </h3>
           <BoardColumns
             cards={laneCards}
@@ -1287,4 +1272,94 @@ function ColumnAddTask({ label, onAdd }: { label: string, onAdd: (title: string)
       />
     </form>
   )
+}
+
+/** A whisper of the option's own colour on the column, so a colour picked in properties is visible here. */
+function columnTint(property: ProjectProperty | undefined, key: string): { boxShadow: string } | undefined {
+  const css = property && key !== '' ? projectOptionCssColor(property.options.find((option) => option.id === key)?.color ?? '') : null
+  return css ? { boxShadow: `inset 0 3px 0 0 ${css}` } : undefined
+}
+
+/**
+ * The column's title row.
+ *
+ * Only the name and its count live here. The summary, the WIP ceiling and hiding the column sit in a
+ * menu, because an invisible-but-laid-out control still takes its width: the previous row kept a
+ * 96px select and a 56px input at `opacity-0`, which squeezed the name until it printed over the
+ * hide icon next to it.
+ */
+function ColumnHeader({ label, count, overLimit, color, canEdit, hideable, calc, calcOptions, wip, onCalc, onWip, onHide }: {
+  label: string
+  count: string | number
+  overLimit: boolean
+  color: string | null
+  canEdit: boolean
+  hideable: boolean
+  calc: ProjectCalculation
+  calcOptions: readonly ProjectCalculation[]
+  wip: number | undefined
+  onCalc: (next: ProjectCalculation) => void
+  onWip: (next: number | null) => void
+  onHide: () => void
+}): ReactElement {
+  const anchor = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const [wipDraft, setWipDraft] = useState<string | null>(null)
+  const items: MenuItem[] = [
+    ...calcOptions.map((option) => ({
+      id: `calc-${option}`,
+      label: t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0]),
+      checked: option === calc,
+      onSelect: () => { setOpen(false); onCalc(option) },
+    })),
+    ...(hideable ? [{ id: 'hide', label: t('project.view.hide_column'), icon: <EyeOff size={14} />, separatorBefore: true, onSelect: () => { setOpen(false); onHide() } }] : []),
+  ]
+  return (
+    <header className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2 text-[length:var(--text-12)] font-semibold">
+      {color && <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
+      <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]" title={label}>{label}</span>
+      <span className={`shrink-0 tabular ${overLimit ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}`}>{count}</span>
+      {canEdit && (
+        <>
+          <IconButton ref={anchor} label={`${label} ${t('project.view.menu')}`} size="sm" onClick={() => { setWipDraft(wip === undefined ? '' : String(wip)); setOpen(true) }}>
+            <MoreHorizontal size={14} />
+          </IconButton>
+          <Menu
+            anchor={anchor}
+            open={open}
+            onClose={() => setOpen(false)}
+            items={items}
+            align="end"
+            label={label}
+            header={
+              <label className="flex items-center gap-2 px-2 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+                <span className="shrink-0">{t('project.view.wip_limit')}</span>
+                <Input
+                  type="number"
+                  className="h-7 min-w-0 flex-1"
+                  value={wipDraft ?? ''}
+                  aria-label={`${label} ${t('project.view.wip_limit')}`}
+                  onChange={(event) => setWipDraft(event.target.value)}
+                  onBlur={() => {
+                    const raw = (wipDraft ?? '').trim()
+                    onWip(raw === '' ? null : Math.max(0, Math.round(Number(raw))))
+                  }}
+                />
+              </label>
+            }
+          />
+        </>
+      )}
+    </header>
+  )
+}
+
+function laneColor(property: ProjectProperty | undefined, key: string): string | null {
+  return property && key !== '' ? projectOptionCssColor(property.options.find((option) => option.id === key)?.color ?? '') : null
+}
+
+/** The lane band carries its option's tint so two lanes never read as one surface. */
+function laneTint(property: ProjectProperty | undefined, key: string): { backgroundColor: string } | undefined {
+  const css = laneColor(property, key)
+  return css ? { backgroundColor: `color-mix(in oklab, ${css} 10%, transparent)` } : undefined
 }

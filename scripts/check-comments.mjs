@@ -12523,6 +12523,9 @@ const allowed = new Map([
     "/** A public reader has no session: the member-only reads and exports would answer 401, so they are not offered. */",
     "/* a stored value that is not a JSON array reads as plain text below */",
     "// A board may hold thousands of cards; the table draws a page at a time so the DOM stays bounded.",
+    "/** A whisper of the option's own colour on the column, so a colour picked in properties is visible here. */",
+    "/**\n * The column's title row.\n *\n * Only the name and its count live here. The summary, the WIP ceiling and hiding the column sit in a\n * menu, because an invisible-but-laid-out control still takes its width: the previous row kept a\n * 96px select and a 56px input at `opacity-0`, which squeezed the name until it printed over the\n * hide icon next to it.\n */",
+    "/** The lane band carries its option's tint so two lanes never read as one surface. */",
   ]],
   ["src/client/features/project/CardBadges.tsx", [
     "/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */",
@@ -12544,6 +12547,8 @@ const allowed = new Map([
     "// An empty group still gets its section and its add tile, the way an empty kanban column does.",
     "// One pass builds the day index; each of the 42 cells then reads its own bucket instead of",
     "// rescanning every card, and the bucket key is the local day the reader resolved, not the raw stamp.",
+    "// A subtask belongs under its parent's tile, not beside it: only roots are grouped.",
+    "/**\n * One gallery tile, with its subtasks folded underneath it.\n *\n * The reference keeps a parent's children out of the sibling grid: a tile carries the count, and\n * opening it reveals the children indented inside the same tile. Listing them beside the parent made\n * a three-step task read as four unrelated cards.\n */",
   ]],
   ["src/client/features/project/MembersDialog.tsx", [
     "/**\n * Who is on this board, and what they may do.\n *\n * The role model, the person properties and the mention notifications all key on membership, so\n * without this screen a \"shared\" board is a board of one. The server owns the two refusals that\n * matter — the last admin cannot be demoted or removed, and the roster is capped — so the dialog\n * reports what the server said rather than guessing at either rule.\n */",

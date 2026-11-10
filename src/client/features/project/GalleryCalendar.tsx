@@ -1,5 +1,5 @@
 import { useMemo, useState, type MouseEvent, type ReactElement } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, Plus, SquareKanban } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, ListTodo, Plus, SquareKanban } from 'lucide-react'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
@@ -59,7 +59,18 @@ export function GalleryView({
   onAddCard?: (title: string, optionId: string) => Promise<void>
   coverFor?: (cardId: string) => string | null
 }): ReactElement {
-  const groups = groupProjectCards(cards, groupById, allProperties)
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const ids = new Set(cards.map((card) => card.id))
+  const children = new Map<string, ProjectCard[]>()
+  for (const card of cards) {
+    if (!card.parentId || !ids.has(card.parentId)) continue
+    const list = children.get(card.parentId)
+    if (list) list.push(card)
+    else children.set(card.parentId, [card])
+  }
+  // A subtask belongs under its parent's tile, not beside it: only roots are grouped.
+  const roots = cards.filter((card) => !card.parentId || !ids.has(card.parentId))
+  const groups = groupProjectCards(roots, groupById, allProperties)
   const groupProperty = allProperties.find((property) => property.id === groupById)
   // An empty group still gets its section and its add tile, the way an empty kanban column does.
   const entries: [string, ProjectCard[]][] = groupProperty
@@ -86,35 +97,28 @@ export function GalleryView({
             )}
             {!collapsed && (
               <div className="grid auto-rows-min grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
-                {groupCards.map((card) => {
-                  const cover = coverFor?.(card.id) ?? null
-                  return (
-                    <button
-                      key={card.id}
-                      type="button"
-                      data-project-card={card.id}
-                      aria-label={card.title || t('project.board.untitled_card')}
-                      className="flex flex-col items-start gap-2 overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 text-left shadow-[var(--shadow-sm)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-                      onClick={() => onOpenCard(card.id)}
-                      onContextMenu={(event) => onCardContextMenu?.(event, card)}
-                    >
-                      {cover
-                        ? <img src={cover} alt="" className="h-24 w-full rounded-[var(--r-sm)] object-cover" />
-                        : (
-                          <span aria-hidden="true" className="flex h-24 w-full items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-sunken)] text-[length:var(--text-20)]">
-                            {card.icon || <SquareKanban size={24} className="text-[var(--text-quaternary)]" />}
-                          </span>
-                        )}
-                      {showTitle && <span className="min-w-0 max-w-full truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>}
-                      {properties.slice(0, 3).map((property) => (
-                        <span key={property.id} className="min-w-0 max-w-full truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-                          {property.type === 'select' && card.values[property.id] ? <OptionChip property={property} value={card.values[property.id]!} /> : projectPropertyDisplayText(card, property)}
-                        </span>
-                      ))}
-                      {showBadges && <CardBadges badges={badgesFor(card.id)} />}
-                    </button>
-                  )
-                })}
+                {groupCards.map((card) => (
+                  <GalleryTile
+                    key={card.id}
+                    card={card}
+                    cover={coverFor?.(card.id) ?? null}
+                    properties={properties}
+                    showTitle={showTitle}
+                    showBadges={showBadges}
+                    subtasks={children.get(card.id) ?? []}
+                    expanded={expanded.has(card.id)}
+                    onToggle={() => setExpanded((current) => {
+                      const nextSet = new Set(current)
+                      if (nextSet.has(card.id)) nextSet.delete(card.id)
+                      else nextSet.add(card.id)
+                      return nextSet
+                    })}
+                    childCover={(id) => coverFor?.(id) ?? null}
+                    childBadges={badgesFor}
+                    onOpenCard={onOpenCard}
+                    onCardContextMenu={onCardContextMenu}
+                  />
+                ))}
                 {canEdit && onAddCard && (
                   <div className="flex min-h-32 flex-col justify-center rounded-[var(--r-md)] border border-dashed border-[var(--border-default)] p-3">
                     <GalleryAddTile onAdd={(title) => onAddCard(title, key)} />
@@ -391,6 +395,94 @@ export function CalendarView({ cards, boardId, properties, datePropertyId, canEd
           )
         })}
       </div>
+    </div>
+  )
+}
+/**
+ * One gallery tile, with its subtasks folded underneath it.
+ *
+ * The reference keeps a parent's children out of the sibling grid: a tile carries the count, and
+ * opening it reveals the children indented inside the same tile. Listing them beside the parent made
+ * a three-step task read as four unrelated cards.
+ */
+function GalleryTile({ card, cover, properties, showTitle, showBadges, subtasks, expanded, onToggle, childCover, childBadges, onOpenCard, onCardContextMenu }: {
+  card: ProjectCard
+  cover: string | null
+  properties: ProjectProperty[]
+  showTitle: boolean
+  showBadges: boolean
+  subtasks: ProjectCard[]
+  expanded: boolean
+  onToggle: () => void
+  childCover: (id: string) => string | null
+  childBadges: (id: string) => ProjectCardBadges
+  onOpenCard: (id: string) => void
+  onCardContextMenu?: (event: MouseEvent, card: ProjectCard) => void
+}): ReactElement {
+  const face = (entry: ProjectCard, image: string | null) => (
+    <>
+      {image
+        ? <img src={image} alt="" className="h-24 w-full rounded-[var(--r-sm)] object-cover" />
+        : (
+          <span aria-hidden="true" className="flex h-24 w-full items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-sunken)] text-[length:var(--text-20)]">
+            {entry.icon || <SquareKanban size={24} className="text-[var(--text-quaternary)]" />}
+          </span>
+        )}
+      {showTitle && <span className="min-w-0 max-w-full truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{entry.title || t('project.board.untitled_card')}</span>}
+      {properties.slice(0, 3).map((property) => (
+        <span key={property.id} className="min-w-0 max-w-full truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          {property.type === 'select' && entry.values[property.id] ? <OptionChip property={property} value={entry.values[property.id]!} /> : projectPropertyDisplayText(entry, property)}
+        </span>
+      ))}
+      {showBadges && <CardBadges badges={childBadges(entry.id)} />}
+    </>
+  )
+  return (
+    <div className="flex flex-col gap-2 overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 shadow-[var(--shadow-sm)]" data-gallery-tile={card.id}>
+      <button
+        type="button"
+        data-project-card={card.id}
+        aria-label={card.title || t('project.board.untitled_card')}
+        className="flex flex-col items-start gap-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+        onClick={() => onOpenCard(card.id)}
+        onContextMenu={(event) => onCardContextMenu?.(event, card)}
+      >
+        {face(card, cover)}
+      </button>
+      {subtasks.length > 0 && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={expanded ? t('project.card.collapse_subtasks') : t('project.card.expand_subtasks')}
+          className="flex items-center gap-1 self-start rounded-[var(--r-full)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+          onClick={onToggle}
+        >
+          <ListTodo size={11} aria-hidden="true" />
+          <span>{subtasks.length}</span>
+          {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        </button>
+      )}
+      {expanded && (
+        <div className="space-y-2 border-l-2 border-[var(--border-subtle)] pl-2" data-gallery-children={card.id}>
+          {subtasks.map((child) => (
+            <button
+              key={child.id}
+              type="button"
+              data-project-card={child.id}
+              aria-label={child.title || t('project.board.untitled_card')}
+              className="flex w-full flex-col items-start gap-1 rounded-[var(--r-sm)] bg-[var(--bg-sunken)] p-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+              onClick={() => onOpenCard(child.id)}
+              onContextMenu={(event) => onCardContextMenu?.(event, child)}
+            >
+              <span className="flex items-center gap-1 text-[length:var(--text-12)] text-[var(--text-primary)]">
+                <CornerDownRight size={11} aria-hidden="true" className="shrink-0 text-[var(--text-tertiary)]" />
+                <span className="min-w-0 truncate">{child.title || t('project.board.untitled_card')}</span>
+              </span>
+              {childCover(child.id) && <img src={childCover(child.id)!} alt="" className="h-16 w-full rounded-[var(--r-sm)] object-cover" />}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

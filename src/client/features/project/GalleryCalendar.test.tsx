@@ -233,3 +233,36 @@ describe('the calendar grid and day index (R3-7/R3-17)', () => {
     } finally { setCalendarDisplayPrefs({ weekStart: 'auto' }) }
   })
 })
+
+describe('gallery hierarchy (R4-2)', () => {
+  const parent = card('p', 'Parent')
+  const childA = { ...card('c1', 'Child A'), parentId: 'p' }
+  const childB = { ...card('c2', 'Child B'), parentId: 'p' }
+  const orphan = { ...card('c3', 'Orphan'), parentId: 'filtered-away' }
+  const badges = () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 })
+
+  it('keeps subtasks out of the sibling grid and counts them on the parent', async () => {
+    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [parent, childA, childB], badgesFor: badges, properties: [], showTitle: true, showBadges: false, onOpenCard: vi.fn() })) })
+    const tiles = [...view.container.querySelectorAll('[data-gallery-tile]')]
+    expect(tiles.map((node) => node.getAttribute('data-gallery-tile'))).toEqual(['p'])
+    expect(view.container.querySelector('[data-project-card="c1"]')).toBeNull()
+    const expander = view.container.querySelector<HTMLButtonElement>(`[data-gallery-tile="p"] button[aria-label="${t('project.card.expand_subtasks')}"]`)
+    expect(expander, 'the parent tile does not count its subtasks').not.toBeNull()
+    expect(expander!.textContent).toContain('2')
+  })
+
+  it('reveals the children inside the parent tile when expanded', async () => {
+    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [parent, childA, childB], badgesFor: badges, properties: [], showTitle: true, showBadges: false, onOpenCard: vi.fn() })) })
+    const expander = view.container.querySelector<HTMLButtonElement>(`[data-gallery-tile="p"] button[aria-expanded]`)!
+    await act(async () => { expander.click() })
+    const nested = view.container.querySelector('[data-gallery-children="p"]')
+    expect(nested).not.toBeNull()
+    expect([...nested!.querySelectorAll('[data-project-card]')].map((node) => node.getAttribute('data-project-card'))).toEqual(['c1', 'c2'])
+    expect(view.container.querySelectorAll('[data-gallery-tile]')).toHaveLength(1)
+  })
+
+  it('promotes a child whose parent the view filtered out', async () => {
+    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [orphan], badgesFor: badges, properties: [], showTitle: true, showBadges: false, onOpenCard: vi.fn() })) })
+    expect([...view.container.querySelectorAll('[data-gallery-tile]')].map((node) => node.getAttribute('data-gallery-tile'))).toEqual(['c3'])
+  })
+})
