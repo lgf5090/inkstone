@@ -162,13 +162,31 @@ export async function searchRepositories(
   params: GithubSearchParams,
   token?: string | null,
 ): Promise<GithubSearchResult> {
+  return searchRepositoriesByQuery(
+    buildSearchQuery(params),
+    params.sort === 'best-match' ? null : params.sort,
+    params.order,
+    params.page,
+    params.perPage,
+    token,
+  )
+}
+
+export async function searchRepositoriesByQuery(
+  query: string,
+  sort: 'stars' | 'forks' | 'updated' | null,
+  order: 'asc' | 'desc',
+  page: number,
+  perPage: number,
+  token?: string | null,
+): Promise<GithubSearchResult> {
   const search = new URLSearchParams({
-    q: buildSearchQuery(params),
-    per_page: String(params.perPage),
-    page: String(params.page),
+    q: query,
+    per_page: String(perPage),
+    page: String(page),
   })
-  if (params.sort !== 'best-match') search.set('sort', params.sort)
-  search.set('order', params.order)
+  if (sort) search.set('sort', sort)
+  search.set('order', order)
   const { data } = await githubJson<{ total_count?: unknown; items?: unknown }>(
     `/search/repositories?${search.toString()}`,
     { token, timeoutMs: GITHUB_SEARCH_TIMEOUT_MS },
@@ -216,6 +234,7 @@ function normalizeAsset(value: unknown): GithubReleaseAsset {
     contentType: readString(raw.content_type, 200) || 'application/octet-stream',
     size: readNumber(raw.size),
     downloadUrl: readHttpUrl(raw.browser_download_url, 2048),
+    downloadCount: readNumber(raw.download_count),
   }
 }
 
@@ -232,6 +251,20 @@ function normalizeRelease(value: unknown, isLatest: boolean): GithubRelease {
     body: readNullableString(raw.body, 40000),
     assets: Array.isArray(raw.assets) ? raw.assets.map((asset) => normalizeAsset(asset)) : [],
   }
+}
+
+export function normalizeLatestStableRelease(values: readonly unknown[]): GithubRelease | null {
+  let latest: { release: GithubRelease; publishedAt: number } | null = null
+  for (const value of values) {
+    const raw = isRecord(value) ? value : {}
+    if (raw.draft === true || raw.prerelease === true) continue
+    const publishedAt = Date.parse(String(raw.published_at ?? raw.created_at ?? ''))
+    if (!Number.isFinite(publishedAt)) continue
+    if (!latest || publishedAt > latest.publishedAt) {
+      latest = { release: normalizeRelease(value, false), publishedAt }
+    }
+  }
+  return latest?.release ?? null
 }
 
 function latestReleaseId(values: readonly unknown[]): string | null {

@@ -13,19 +13,23 @@ import {
 } from '@shared/development/github/limits'
 import {
   GithubAccountTokenSchema,
+  GithubAppsCheckSchema,
   GithubBatchDeleteSchema,
   GithubBatchUpdateSchema,
   GithubCollectionInputSchema,
+  GithubDevProfileQuerySchema,
+  GithubDiscoverQuerySchema,
   GithubExportSchema,
   GithubGistListQuerySchema,
   GithubMirrorListSchema,
   GithubMirrorProbeSchema,
   GithubSearchQuerySchema,
   GithubTagInputSchema,
+  GithubTrackedAppInputSchema,
   SavedGistInputSchema,
   SavedGithubRepoInputSchema,
 } from '@shared/development/github/schemas'
-import type { GistItem, GithubRepoDetailPart, GithubTag } from '@shared/development/github/types'
+import type { GistItem, GithubRepoDetailPart, GithubTag, GithubTrackedApp } from '@shared/development/github/types'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -53,6 +57,10 @@ import {
   listGithubGists,
   updateGithubGist,
 } from '../development/github/github-gists'
+import { checkAppUpdates } from '../development/github/app-updates'
+import { deleteApp, listApps, recordAppCheck, upsertApp } from '../development/github/apps'
+import { fetchDeveloperProfile } from '../development/github/dev-profile'
+import { discoverRepositories } from '../development/github/discover'
 import { fetchRepoDetail, fetchRepository, fetchStarredRepos, parseRepoFullName, REPO_DETAIL_PARTS, searchRepositories } from '../development/github/github-repos'
 import { assertMirrorUrl, listMirrors, probeMirrors, replaceMirrors } from '../development/github/mirrors'
 import {
@@ -117,6 +125,8 @@ const listBudget = createMinuteBudget(60, 'Too many GitHub list requests. Try ag
 const writeBudget = createMinuteBudget(30, 'Too many GitHub write requests. Try again in a minute.')
 const imageBudget = createMinuteBudget(120, 'Too many GitHub image requests. Try again in a minute.')
 const probeBudget = createMinuteBudget(20, 'Too many mirror probes. Try again in a minute.')
+const discoverBudget = createMinuteBudget(20, 'Too many GitHub discovery requests. Try again in a minute.')
+const appCheckBudget = createMinuteBudget(10, 'Too many update checks. Try again in a minute.')
 
 const SLUG_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/
 const REPO_ID_PATTERN = /^[0-9]{1,20}$/
@@ -417,7 +427,7 @@ developmentGithubRoutes.get('/image', async (c) => {
 developmentGithubRoutes.get('/bootstrap', async (c) => {
   const userId = userIdOf(c)
   const query = parseQuery(c, BootstrapQuerySchema)
-  const [tags, repos, collections, gistTags, gists, mirrors, accounts, repoCount, gistCount] = await Promise.all([
+  const [tags, repos, collections, gistTags, gists, mirrors, accounts, apps, repoCount, gistCount] = await Promise.all([
     listTags(c.env.DB, userId),
     listRepos(c.env.DB, userId, query.limit),
     listCollections(c.env.DB, userId),
@@ -425,6 +435,7 @@ developmentGithubRoutes.get('/bootstrap', async (c) => {
     listGistSummaries(c.env.DB, userId, query.limit),
     listMirrors(c.env.DB, userId),
     listAccountViews(c.env.DB, userId),
+    listApps(c.env.DB, userId),
     countRepos(c.env.DB, userId),
     countGists(c.env.DB, userId),
   ])
@@ -438,6 +449,7 @@ developmentGithubRoutes.get('/bootstrap', async (c) => {
       gists,
       mirrors,
       accounts,
+      apps,
       capabilities: { exports: Boolean(c.env.FILES) },
       counts: { repos: repoCount, gists: gistCount },
       truncated: { repos: repoCount > repos.length, gists: gistCount > gists.length },
@@ -754,6 +766,97 @@ developmentGithubRoutes.get('/search', async (c) => {
   return c.json({ ok: true, data: result })
 })
 
+developmentGithubRoutes.get('/discover', async (c) => {
+  const userId = userIdOf(c)
+  discoverBudget(userId)
+  const query = parseQuery(c, GithubDiscoverQuerySchema)
+  const token = await effectiveGithubToken(c.env, c.env.DB, userId)
+  const result = await discoverRepositories(
+    {
+      chart: query.chart,
+      platform: query.platform,
+      topic: query.topic,
+      page: query.page,
+      perPage: query.per_page,
+    },
+    token,
+  )
+  return c.json({ ok: true, data: result })
+})
+
+developmentGithubRoutes.get('/dev-profile', async (c) => {
+  const userId = userIdOf(c)
+  detailBudget(userId)
+  const query = parseQuery(c, GithubDevProfileQuerySchema)
+  const token = await effectiveGithubToken(c.env, c.env.DB, userId)
+  return c.json({ ok: true, data: { profile: await fetchDeveloperProfile(query.login, token) } })
+})
+
+developmentGithubRoutes.get('/apps', async (c) => {
+  const apps = await listApps(c.env.DB, userIdOf(c))
+  return c.json({ ok: true, data: { apps } })
+})
+
+developmentGithubRoutes.put('/apps/:id', async (c) => {
+  const userId = userIdOf(c)
+  writeBudget(userId)
+  const id = slugId(c)
+  const body = await parseBody(c, GithubTrackedAppInputSchema, SMALL_BODY_LIMIT)
+  if (id !== `${body.repoId}-${body.platform}`) {
+    throw ApiError.badRequest('A tracked app id must combine its repository id and platform')
+  }
+  const app = await upsertApp(c.env.DB, userId, {
+    id,
+    repoId: body.repoId,
+    fullName: body.fullName,
+    repoUrl: body.repoUrl,
+    ownerAvatarUrl: body.ownerAvatarUrl,
+    platform: body.platform,
+    assetPattern: body.assetPattern,
+    installedTag: body.installedTag,
+    installedAt: body.installedAt,
+  })
+  return c.json({ ok: true, data: { app } })
+})
+
+developmentGithubRoutes.delete('/apps/:id', async (c) => {
+  const userId = userIdOf(c)
+  writeBudget(userId)
+  const id = slugId(c)
+  if (!(await deleteApp(c.env.DB, userId, id))) throw githubNotFound('Tracked app not found')
+  return c.json({ ok: true, data: { ok: true } })
+})
+
+developmentGithubRoutes.post('/apps/check', async (c) => {
+  const userId = userIdOf(c)
+  appCheckBudget(userId)
+  const body = await parseBody(c, GithubAppsCheckSchema, SMALL_BODY_LIMIT)
+  const token = requireToken(
+    await effectiveGithubToken(c.env, c.env.DB, userId),
+    'Add a GitHub account before checking updates',
+  )
+  const tracked = await listApps(c.env.DB, userId)
+  const byId = new Map(tracked.map((app) => [app.id, app]))
+  const targets = body.ids.flatMap((id) => {
+    const app = byId.get(id)
+    return app ? [app] : []
+  })
+  if (targets.length === 0) throw githubNotFound('Tracked app not found')
+  const outcomes = await checkAppUpdates(targets, token)
+  const apps: GithubTrackedApp[] = []
+  const failed: { id: string; message: string }[] = []
+  for (const outcome of outcomes) {
+    if (!outcome.patch) {
+      failed.push({ id: outcome.id, message: outcome.error?.message ?? 'The update check failed' })
+      continue
+    }
+    const updated = await recordAppCheck(c.env.DB, userId, outcome.id, outcome.patch)
+    if (updated) apps.push(updated)
+    else failed.push({ id: outcome.id, message: 'The tracked app disappeared while checking' })
+  }
+  return c.json({ ok: true, data: { apps, checked: apps.length, failed } })
+})
+
 developmentGithubRoutes.get('/starred', async (c) => {
   const userId = userIdOf(c)
   listBudget(userId)
@@ -764,7 +867,6 @@ developmentGithubRoutes.get('/starred', async (c) => {
   )
   return c.json({ ok: true, data: await fetchStarredRepos(query.page, query.per_page, token) })
 })
-
 developmentGithubRoutes.get('/repo-lookup', async (c) => {
   const userId = userIdOf(c)
   detailBudget(userId)

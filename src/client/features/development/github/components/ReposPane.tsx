@@ -9,7 +9,7 @@ import { githubApi } from '../api'
 import { repoAddress } from '../routes'
 import { useGithubSearch } from '../cache'
 import { useGithubStore } from '../store'
-import { loadRepoPrefs, loadSearchHistory, saveRepoPrefs, saveSearchHistory } from '../prefs'
+import { loadRepoPrefs, loadSearchHistory, saveRepoPrefs, saveSearchHistory, loadRecentRepos, recordRecentRepo, clearRecentRepos } from '../prefs'
 import { sortSavedRepos, filterRepos } from '../lib/filters'
 import { syncStarredRepositories } from '../lib/star-sync'
 import { buildRepoCsv } from '../lib/csv'
@@ -78,6 +78,7 @@ export function ReposPane({
   const [syncingStars, setSyncingStars] = useState(false)
   const [searchHistory, setSearchHistory] = useState(loadSearchHistory)
   const [extraRepo, setExtraRepo] = useState<GithubRepo | null>(null)
+  const [recentRepos, setRecentRepos] = useState(loadRecentRepos)
   const lookupRef = useRef<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -282,8 +283,27 @@ export function ReposPane({
 
   const selectRepo = useCallback((repo: GithubRepo) => {
     setSelectedRepoId(String(repo.id))
+    setRecentRepos(recordRecentRepo(repo.fullName, repo.owner.avatarUrl))
     navigateToAddress(repoAddress(repo.fullName))
   }, [])
+
+  const openRecent = useCallback((fullName: string) => {
+    const saved = useGithubStore.getState().repos.find((repo) => repo.fullName.toLowerCase() === fullName.toLowerCase())
+    if (saved) {
+      setSelectedView(GITHUB_ALL_VIEW)
+      setSelectedRepoId(saved.id)
+      return
+    }
+    void githubApi.repoLookup(fullName)
+      .then((repo) => {
+        setExtraRepo(repo)
+        setSelectedRepoId(String(repo.id))
+        setRecentRepos(recordRecentRepo(repo.fullName, repo.owner.avatarUrl))
+      })
+      .catch((error) => {
+        toast({ title: t('development.github.repos.deep_link_missing'), description: error instanceof Error ? error.message : undefined, tone: 'danger' })
+      })
+  }, [toast])
 
   const selectedFullName = selectedRepo?.fullName ?? null
   useEffect(() => {
@@ -414,7 +434,7 @@ export function ReposPane({
   }, [tags, repos, toast])
 
   const sidebar = (
-    <RepoSidebar tags={tags} collections={collections} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} onManageCollections={() => setCollectionManagerOpen(true)} onImportRepo={() => setImportOpen(true)} />
+    <RepoSidebar tags={tags} collections={collections} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} onManageCollections={() => setCollectionManagerOpen(true)} onImportRepo={() => setImportOpen(true)} recentRepos={recentRepos} onOpenRecent={openRecent} onClearRecent={() => setRecentRepos(clearRecentRepos())} />
   )
 
   return (
@@ -479,7 +499,7 @@ export function ReposPane({
             detailDisabled={detailDisabled}
           />
         )}
-        detail={<RepoDetail repo={selectedRepo} mirror={currentMirror} notes={selectedRepo ? repos.find((entry) => entry.id === String(selectedRepo.id))?.notes ?? '' : ''} onUpdateNotes={selectedRepo && repos.some((entry) => entry.id === String(selectedRepo.id)) ? (notes) => saveRepo(selectedRepo, { notes }) : undefined} />}
+        detail={<RepoDetail repo={selectedRepo} mirror={currentMirror} notes={selectedRepo ? repos.find((entry) => entry.id === String(selectedRepo.id))?.notes ?? '' : ''} onUpdateNotes={selectedRepo && repos.some((entry) => entry.id === String(selectedRepo.id)) ? (notes) => saveRepo(selectedRepo, { notes }) : undefined} onOpenRepo={(next) => { setExtraRepo(next); setSelectedRepoId(String(next.id)); setRecentRepos(recordRecentRepo(next.fullName, next.owner.avatarUrl)); navigateToAddress(repoAddress(next.fullName)) }} />}
       />
       <TagManager
         open={tagManagerOpen}

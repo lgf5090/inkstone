@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { isHttpUrl } from './url'
 import {
   GITHUB_TOKEN_MAX_LENGTH,
+  MAX_APP_CHECK,
+  MAX_ASSET_PATTERN,
   MAX_BATCH_IDS,
   MAX_COLLECTION_REPOS,
   MAX_GIST_DATA_BYTES,
@@ -182,6 +184,35 @@ export const GithubGistListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(1000).default(1),
   per_page: z.coerce.number().int().min(1).max(100).default(30),
   account: z.string().min(1).max(100).optional(),
+})
+
+export const GithubDiscoverQuerySchema = z.object({
+  chart: z.enum(['trending', 'releases', 'popular']).default('trending'),
+  platform: z.enum(['all', 'android', 'windows', 'macos', 'linux']).default('all'),
+  topic: z.string().max(50).regex(/^(?:[a-z0-9][a-z0-9-]{0,49})?$/).default(''),
+  page: z.coerce.number().int().min(1).max(20).default(1),
+  per_page: z.coerce.number().int().min(1).max(50).default(20),
+})
+
+const TRACKED_REPO_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})\/[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/
+
+export const GithubTrackedAppInputSchema = z.object({
+  repoId: z.string().regex(/^[0-9]{1,20}$/),
+  fullName: z.string().max(300).regex(TRACKED_REPO_NAME),
+  repoUrl: z.string().max(2048).refine(isHttpUrl, 'URL must use http or https'),
+  ownerAvatarUrl: z.string().max(2048).refine((value) => value === '' || isHttpUrl(value), 'URL must use http or https').default(''),
+  platform: z.enum(['android', 'windows', 'macos', 'linux']),
+  assetPattern: z.string().max(MAX_ASSET_PATTERN).default(''),
+  installedTag: z.string().max(100).default(''),
+  installedAt: z.number().int().nonnegative().optional(),
+})
+
+export const GithubAppsCheckSchema = z.object({
+  ids: z.array(z.string().min(1).max(100)).min(1).max(MAX_APP_CHECK),
+})
+
+export const GithubDevProfileQuerySchema = z.object({
+  login: z.string().min(1).max(100),
 })
 
 export type GithubTagInput = z.infer<typeof GithubTagInputSchema>

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   GistItem,
   GistListResult,
+  GithubDiscoverQuery,
+  GithubDiscoverResult,
   GithubRepoDetail,
   GithubRepoDetailPart,
   GithubSearchParams,
@@ -156,6 +158,11 @@ export function useGithubSearch(params: GithubSearchParams, enabled = true): Git
     params.page,
   )
   return useGithubQuery(key, SEARCH_TTL_MS, enabled, (signal) => githubApi.search(params, signal))
+}
+
+export function useGithubDiscover(params: GithubDiscoverQuery, enabled = true): GithubQuery<GithubDiscoverResult> {
+  const key = cacheKey('discover', params.chart, params.platform, params.topic, params.page, params.perPage)
+  return useGithubQuery(key, SEARCH_TTL_MS, enabled, (signal) => githubApi.discover(params, signal))
 }
 
 export function useRepoDetail(

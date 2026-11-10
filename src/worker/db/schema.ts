@@ -202,6 +202,7 @@ import {
   DEVELOPMENT_GITHUB_REQUIRED_COLUMNS,
   DEVELOPMENT_GITHUB_REQUIRED_INDEXES,
   DEVELOPMENT_GITHUB_REQUIRED_TABLES,
+  DEVELOPMENT_GITHUB_APPS_SCHEMA_STATEMENTS,
   DEVELOPMENT_GITHUB_COLLECTIONS_SCHEMA_STATEMENTS,
   DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS,
 } from '../development/github/schema'
@@ -4182,6 +4183,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_certhub_dns_user_zone
          ON development_certhub_dns_providers(user_id, zone_name)`,
     ],
+  },
+  {
+    version: 381,
+    statements: DEVELOPMENT_GITHUB_APPS_SCHEMA_STATEMENTS,
   },
 ]
 

@@ -6,12 +6,15 @@ import {
 } from '@shared/development/github/types'
 import {
   DEFAULT_LAYOUT_PREFS,
+  clearRecentRepos,
   loadCurrentMirrorId,
   loadGistPrefs,
   loadGistViewMode,
   loadLayoutPrefs,
+  loadRecentRepos,
   loadRepoPrefs,
   loadSearchHistory,
+  recordRecentRepo,
   saveCurrentMirrorId,
   saveGistPrefs,
   saveGistViewMode,
@@ -84,5 +87,18 @@ describe('GitHub local preferences', () => {
     expect(loadLayoutPrefs()).toEqual({ sidebarWidth: 200, detailRatio: 0.7 })
     localStorage.setItem('inkstone.development.github.layout', JSON.stringify({ sidebarWidth: 'wide', detailRatio: null }))
     expect(loadLayoutPrefs()).toEqual(DEFAULT_LAYOUT_PREFS)
+  })
+
+  it('keeps the most recent repositories once each, newest first', () => {
+    expect(loadRecentRepos()).toEqual([])
+    recordRecentRepo('owner/one', 'https://avatar/one')
+    recordRecentRepo('owner/two', 'https://avatar/two')
+    recordRecentRepo('OWNER/one', 'https://avatar/one')
+    expect(loadRecentRepos().map((entry) => entry.fullName)).toEqual(['OWNER/one', 'owner/two'])
+    for (let index = 0; index < 10; index += 1) recordRecentRepo(`owner/r${index}`, '')
+    expect(loadRecentRepos()).toHaveLength(8)
+    expect(loadRecentRepos()[0]?.fullName).toBe('owner/r9')
+    expect(clearRecentRepos()).toEqual([])
+    expect(loadRecentRepos()).toEqual([])
   })
 })

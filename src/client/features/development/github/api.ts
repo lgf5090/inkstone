@@ -7,8 +7,12 @@ import {
   type GistListResult,
   type GistMetaPatch,
   type GithubAccountView,
+  type GithubAppsCheckResult,
   type GithubBootstrap,
   type GithubCollection,
+  type GithubDevProfile,
+  type GithubDiscoverQuery,
+  type GithubDiscoverResult,
   type GithubExportFile,
   type GithubExportFormat,
   type GithubMirrorProbeResult,
@@ -19,6 +23,7 @@ import {
   type GithubSearchParams,
   type GithubSearchResult,
   type GithubTag,
+  type GithubTrackedApp,
   type RepoBatchPatch,
   type SavedGist,
   type SavedGithubRepo,
@@ -269,6 +274,52 @@ export const githubApi = {
       page: String(params.page),
     })
     return readData(`/search?${query.toString()}`, { signal })
+  },
+
+  discover(params: GithubDiscoverQuery, signal?: AbortSignal): Promise<GithubDiscoverResult> {
+    const query = new URLSearchParams({
+      chart: params.chart,
+      platform: params.platform,
+      topic: params.topic,
+      page: String(params.page),
+      per_page: String(params.perPage),
+    })
+    return readData(`/discover?${query.toString()}`, { signal })
+  },
+
+  devProfile(login: string, signal?: AbortSignal): Promise<GithubDevProfile> {
+    return readData<{ profile: GithubDevProfile }>(`/dev-profile?login=${encodeURIComponent(login)}`, { signal })
+      .then((response) => response.profile)
+  },
+
+  listApps(signal?: AbortSignal): Promise<GithubTrackedApp[]> {
+    return readData<{ apps: GithubTrackedApp[] }>('/apps', { signal }).then((response) => response.apps)
+  },
+
+  upsertApp(app: GithubTrackedApp, signal?: AbortSignal): Promise<GithubTrackedApp> {
+    return readData<{ app: GithubTrackedApp }>(`/apps/${encodeURIComponent(app.id)}`, {
+      method: 'PUT',
+      body: {
+        repoId: app.repoId,
+        fullName: app.fullName,
+        repoUrl: app.repoUrl,
+        ownerAvatarUrl: app.ownerAvatarUrl,
+        platform: app.platform,
+        assetPattern: app.assetPattern,
+        installedTag: app.installedTag,
+        installedAt: app.installedAt,
+      },
+      signal,
+    }).then((response) => response.app)
+  },
+
+  deleteApp(id: string, signal?: AbortSignal): Promise<void> {
+    return request<{ ok: true }>(`${BASE}/apps/${encodeURIComponent(id)}`, { method: 'DELETE', signal })
+      .then(() => undefined)
+  },
+
+  checkApps(ids: string[], signal?: AbortSignal): Promise<GithubAppsCheckResult> {
+    return readData('/apps/check', { method: 'POST', body: { ids }, signal })
   },
 
   repoDetail(fullName: string, defaultBranch?: string | null, parts?: readonly GithubRepoDetailPart[], signal?: AbortSignal): Promise<GithubRepoDetail> {

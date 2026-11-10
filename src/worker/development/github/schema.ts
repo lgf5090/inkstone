@@ -13,6 +13,31 @@ export const DEVELOPMENT_GITHUB_COLLECTIONS_SCHEMA_STATEMENTS: readonly string[]
      ON development_github_collections(user_id, created_at ASC)`,
 ]
 
+export const DEVELOPMENT_GITHUB_APPS_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS development_github_tracked_apps (
+    user_id             TEXT NOT NULL,
+    id                  TEXT NOT NULL,
+    repo_id             TEXT NOT NULL,
+    full_name           TEXT NOT NULL,
+    repo_url            TEXT NOT NULL DEFAULT '',
+    owner_avatar_url    TEXT NOT NULL DEFAULT '',
+    platform            TEXT NOT NULL,
+    asset_pattern       TEXT NOT NULL DEFAULT '',
+    installed_tag       TEXT NOT NULL DEFAULT '',
+    installed_at        INTEGER NOT NULL DEFAULT 0,
+    latest_tag          TEXT NOT NULL DEFAULT '',
+    latest_asset_name   TEXT NOT NULL DEFAULT '',
+    latest_asset_url    TEXT NOT NULL DEFAULT '',
+    latest_published_at TEXT NOT NULL DEFAULT '',
+    checked_at          INTEGER NOT NULL DEFAULT 0,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_development_github_apps_user_platform
+     ON development_github_tracked_apps(user_id, platform, updated_at DESC)`,
+]
+
 export const DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS development_github_tags (
     user_id    TEXT NOT NULL,
@@ -115,6 +140,7 @@ export const DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_development_github_exports_user_created
      ON development_github_exports(user_id, created_at DESC)`,
   ...DEVELOPMENT_GITHUB_COLLECTIONS_SCHEMA_STATEMENTS,
+  ...DEVELOPMENT_GITHUB_APPS_SCHEMA_STATEMENTS,
 ]
 
 export const DEVELOPMENT_GITHUB_REQUIRED_TABLES: readonly string[] = [
@@ -126,6 +152,7 @@ export const DEVELOPMENT_GITHUB_REQUIRED_TABLES: readonly string[] = [
   'development_github_accounts',
   'development_github_mirrors',
   'development_github_exports',
+  'development_github_tracked_apps',
 ]
 
 export const DEVELOPMENT_GITHUB_REQUIRED_INDEXES: readonly string[] = [
@@ -137,6 +164,7 @@ export const DEVELOPMENT_GITHUB_REQUIRED_INDEXES: readonly string[] = [
   'idx_development_github_accounts_user_name',
   'idx_development_github_mirrors_user_created',
   'idx_development_github_exports_user_created',
+  'idx_development_github_apps_user_platform',
 ]
 
 export const DEVELOPMENT_GITHUB_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -148,4 +176,5 @@ export const DEVELOPMENT_GITHUB_REQUIRED_COLUMNS: Readonly<Record<string, readon
   development_github_accounts: ['user_id', 'id', 'username', 'avatar_url', 'token_ciphertext', 'created_at', 'updated_at'],
   development_github_mirrors: ['user_id', 'id', 'name', 'url', 'enabled', 'created_at', 'updated_at'],
   development_github_exports: ['user_id', 'id', 'filename', 'format', 'r2_key', 'size', 'created_at'],
+  development_github_tracked_apps: ['user_id', 'id', 'repo_id', 'full_name', 'repo_url', 'owner_avatar_url', 'platform', 'asset_pattern', 'installed_tag', 'installed_at', 'latest_tag', 'latest_asset_name', 'latest_asset_url', 'latest_published_at', 'checked_at', 'created_at', 'updated_at'],
 }

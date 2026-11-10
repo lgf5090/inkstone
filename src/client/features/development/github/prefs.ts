@@ -19,6 +19,13 @@ const LAYOUT_KEY = `${PREFIX}.layout`
 const ACCOUNT_KEY = `${PREFIX}.account`
 const SEARCH_HISTORY_KEY = `${PREFIX}.search-history`
 const SEARCH_HISTORY_LIMIT = 8
+const RECENT_REPOS_KEY = `${PREFIX}.recent-repos`
+const RECENT_REPOS_LIMIT = 8
+
+export interface RecentRepoRef {
+  fullName: string
+  avatarUrl: string
+}
 
 const RANGES: readonly GithubTimeRange[] = ['today', 'week', 'month', 'quarter', 'year', 'all']
 const SORTS: readonly GithubSortKey[] = ['stars', 'forks', 'updated', 'best-match']
@@ -202,4 +209,41 @@ export function loadSearchHistory(): string[] {
 
 export function saveSearchHistory(entries: readonly string[]): void {
   writeJson(SEARCH_HISTORY_KEY, entries.slice(0, SEARCH_HISTORY_LIMIT))
+}
+
+export function loadRecentRepos(): RecentRepoRef[] {
+  const store = storage()
+  if (!store) return []
+  try {
+    const raw = store.getItem(RECENT_REPOS_KEY)
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((entry): entry is RecentRepoRef =>
+        Boolean(entry)
+        && typeof entry === 'object'
+        && typeof (entry as RecentRepoRef).fullName === 'string'
+        && typeof (entry as RecentRepoRef).avatarUrl === 'string')
+      .slice(0, RECENT_REPOS_LIMIT)
+  } catch (error) {
+    console.warn('[inkstone] GitHub recent repositories could not be read', error)
+    return []
+  }
+}
+
+export function recordRecentRepo(fullName: string, avatarUrl: string): RecentRepoRef[] {
+  const normalized = fullName.trim()
+  if (!normalized) return loadRecentRepos()
+  const next = [
+    { fullName: normalized, avatarUrl },
+    ...loadRecentRepos().filter((entry) => entry.fullName.toLowerCase() !== normalized.toLowerCase()),
+  ].slice(0, RECENT_REPOS_LIMIT)
+  writeJson(RECENT_REPOS_KEY, next)
+  return next
+}
+
+export function clearRecentRepos(): RecentRepoRef[] {
+  writeJson(RECENT_REPOS_KEY, [])
+  return []
 }

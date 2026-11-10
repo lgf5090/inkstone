@@ -1,9 +1,9 @@
-import { Code2 } from 'lucide-react'
+import { Code2, Store } from 'lucide-react'
 import { t } from '../../../../lib/i18n'
 import { Segmented } from '../../../../components/form'
 import { GithubIcon } from './GithubIcon'
 
-export type GithubTab = 'repos' | 'gists'
+export type GithubTab = 'repos' | 'gists' | 'store'
 
 export function ModuleTabs({ value, onChange }: { value: GithubTab; onChange: (value: GithubTab) => void }) {
   return (
@@ -28,6 +28,15 @@ export function ModuleTabs({ value, onChange }: { value: GithubTab; onChange: (v
             <span className="inline-flex items-center gap-1.5">
               <Code2 size={14} />
               {t('development.github.tabs.gists')}
+            </span>
+          ),
+        },
+        {
+          value: 'store',
+          label: (
+            <span className="inline-flex items-center gap-1.5">
+              <Store size={14} />
+              {t('development.github.tabs.store')}
             </span>
           ),
         },

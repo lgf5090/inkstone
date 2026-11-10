@@ -14,6 +14,7 @@ import { AccountsDialog } from './components/AccountsView'
 import { MirrorDialog } from './components/MirrorDialog'
 import { ReposPane } from './components/ReposPane'
 import { GistsPane } from './components/GistsPane'
+import { StorePane } from './components/StorePane'
 
 export function GithubApp() {
   const status = useGithubStore((state) => state.status)
@@ -78,6 +79,9 @@ export function GithubApp() {
       </div>
       <div data-testid="github-tab-gists" className={tab === 'gists' ? 'contents' : 'hidden'}>
         <GistsPane tab={tab} onTabChange={changeTab} onOpenAccounts={shared.onOpenAccounts} onOpenMirrors={shared.onOpenMirrors} currentMirrorId={shared.currentMirrorId} deepLinkGistId={route.gistId} active={tab === 'gists'} />
+      </div>
+      <div data-testid="github-tab-store" className={tab === 'store' ? 'contents' : 'hidden'}>
+        <StorePane tab={tab} onTabChange={changeTab} onOpenAccounts={shared.onOpenAccounts} onOpenMirrors={shared.onOpenMirrors} currentMirrorId={shared.currentMirrorId} initialView={route.storeView} active={tab === 'store'} />
       </div>
       <AccountsDialog
         open={accountsOpen}

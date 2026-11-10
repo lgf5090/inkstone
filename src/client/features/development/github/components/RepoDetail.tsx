@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Calendar, Code2, Copy, Download, Edit3, ExternalLink, FileText, GitBranch, Globe, History, Package, Save, Scale, Sparkles, Star, Tag as TagIcon, Terminal } from 'lucide-react'
+import { AlertCircle, Calendar, Code2, Copy, Download, Edit3, ExternalLink, FileText, GitBranch, Globe, History, Package, PackagePlus, Save, Scale, Sparkles, Star, Tag as TagIcon, Terminal, User } from 'lucide-react'
 import type { GithubMirrorSource, GithubRelease, GithubReleaseAsset, GithubRepo } from '@shared/development/github/types'
+import { assetPlatform } from '@shared/development/github/platforms'
 import { t } from '../../../../lib/i18n'
 import { navigateToPath } from '../../../../lib/app-history'
 import { useAssistant } from '../../../chat/assistant-store'
@@ -12,10 +13,15 @@ import { Empty } from '../../../../components/feedback'
 import { Menu, type MenuItem } from '../../../../components/overlay'
 import { useUi } from '../../../../store/ui'
 import { useRepoDetail } from '../cache'
+import { useGithubStore } from '../store'
+import { buildTrackedApp } from '../lib/apps'
 import { buildMirrorDownloadUrl, formatNumber, formatDate, formatFileSize } from '../lib/format'
 import { getLanguageColor } from '../lib/languages'
 import { renderGithubReadme } from '../lib/readme'
 import { GithubAvatar } from './GithubAvatar'
+import { TrackAppDialog, type TrackAppValues } from './TrackAppDialog'
+import { DeveloperDialog } from './DeveloperDialog'
+import { platformLabel } from './StoreSidebar'
 
 const README_RENDER_MAX_CHARS = 600_000
 const LANGUAGE_LEGEND_LIMIT = 6
@@ -93,7 +99,7 @@ function AssetPicker({ assets, value, onChange, mirrorBase }: { assets: GithubRe
   )
 }
 
-export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: GithubRepo | null; mirror: GithubMirrorSource | undefined; notes: string; onUpdateNotes?: (notes: string) => void }) {
+export function RepoDetail({ repo, mirror, notes, onUpdateNotes, onOpenRepo }: { repo: GithubRepo | null; mirror: GithubMirrorSource | undefined; notes: string; onUpdateNotes?: (notes: string) => void; onOpenRepo?: (repo: GithubRepo) => void }) {
   const overview = useRepoDetail(repo?.fullName ?? null, repo?.defaultBranch, OVERVIEW_PARTS)
   const [metaRequested, setMetaRequested] = useState(false)
   const meta = useRepoDetail(metaRequested ? repo?.fullName ?? null : null, repo?.defaultBranch, META_PARTS)
@@ -102,8 +108,13 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesDraft, setNotesDraft] = useState(notes)
   const [cloneOpen, setCloneOpen] = useState(false)
+  const [trackOpen, setTrackOpen] = useState(false)
+  const [developerOpen, setDeveloperOpen] = useState(false)
   const cloneAnchor = useRef<HTMLButtonElement>(null)
   const toast = useUi((state) => state.toast)
+  const upsertApp = useGithubStore((state) => state.upsertApp)
+  const checkApps = useGithubStore((state) => state.checkApps)
+  const accounts = useGithubStore((state) => state.accounts)
 
   useEffect(() => setNotesDraft(notes), [notes])
   useEffect(() => {
@@ -111,6 +122,8 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
     setAssetName('')
     setMetaRequested(false)
     setEditingNotes(false)
+    setTrackOpen(false)
+    setDeveloperOpen(false)
   }, [repo?.id])
 
   const detail = useMemo(() => {
@@ -162,6 +175,34 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
   const mirrorBase = mirror?.url ?? ''
   const mirrorPage = mirrorBase ? buildMirrorDownloadUrl(mirrorBase, repo.url) : ''
   const readmeFailed = detail.warnings.some((warning) => warning.source === 'readme')
+  const submitTrack = async (values: TrackAppValues) => {
+    const app = buildTrackedApp(repo, values.platform, values.assetPattern, values.installedTag)
+    try {
+      await upsertApp(app)
+    } catch (error) {
+      toast({
+        title: t('development.github.apps.save_failed'),
+        description: error instanceof Error ? error.message : undefined,
+        tone: 'danger',
+      })
+      return
+    }
+    setTrackOpen(false)
+    toast({ title: t('development.github.apps.saved', { name: repo.fullName }), tone: 'success' })
+    if (accounts.length === 0) return
+    try {
+      const result = await checkApps([app.id])
+      if (result.failed.length > 0) {
+        toast({ title: t('development.github.apps.check_failed'), description: result.failed[0]?.message, tone: 'warning' })
+      }
+    } catch (error) {
+      toast({
+        title: t('development.github.apps.check_failed'),
+        description: error instanceof Error ? error.message : undefined,
+        tone: 'warning',
+      })
+    }
+  }
   const copyValue = async (value: string, message: string) => {
     const ok = await copyText(value)
     toast({ title: ok ? message : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' })
@@ -203,6 +244,8 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
             {repo.homepage && <a href={repo.homepage} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{repo.homepage}</a>}
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            <Button variant="secondary" size="sm" onClick={() => setDeveloperOpen(true)}><User size={12} />{t('development.github.dev_profile.open')}</Button>
+            <Button variant="secondary" size="sm" onClick={() => setTrackOpen(true)}><PackagePlus size={12} />{t('development.github.apps.track')}</Button>
             <Button variant="secondary" size="sm" onClick={startAiSummary}><Sparkles size={12} />{t('development.github.repos.ai_summary')}</Button>
             <Button ref={cloneAnchor} variant="secondary" size="sm" onClick={() => setCloneOpen(true)}><Terminal size={12} />{t('development.github.repos.clone')}</Button>
             {mirrorPage && <a href={mirrorPage} target="_blank" rel="noopener noreferrer" className="inline-flex h-7 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 text-[length:var(--text-11)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Globe size={12} />{t('development.github.repos.open_in_mirror')}</a>}
@@ -260,10 +303,10 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
         {detail.releases.length === 0 ? <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{detail.warnings.some((warning) => warning.source === 'releases') ? t('development.github.repos.releases_failed') : t('development.github.repos.no_releases')}</p> : (
           <div className="space-y-2">
             <ReleaseMenu releases={detail.releases} index={releaseIndex} onChange={(index) => { setReleaseIndex(index); setAssetName(detail.releases[index]?.assets[0]?.name ?? '') }} />
-            {release && <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2.5"><div className="flex items-center gap-2 text-[length:var(--text-11)]"><a href={release.htmlUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-[var(--accent)] hover:underline">{release.name || release.tagName}</a><span className="text-[var(--text-tertiary)]">{t('development.github.repos.published_at', { date: formatDate(release.publishedAt) })}</span></div>{release.body && <pre className="mt-1.5 max-h-28 overflow-y-auto whitespace-pre-wrap break-words text-[length:var(--text-11)] text-[var(--text-tertiary)]">{release.body.length > RELEASE_BODY_PREVIEW_CHARS ? `${release.body.slice(0, RELEASE_BODY_PREVIEW_CHARS)}...` : release.body}</pre>}</div>}
+            {release && <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2.5"><div className="flex items-center gap-2 text-[length:var(--text-11)]"><a href={release.htmlUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-[var(--accent)] hover:underline">{release.name || release.tagName}</a><span className="text-[var(--text-tertiary)]">{t('development.github.repos.published_at', { date: formatDate(release.publishedAt) })}</span>{release.assets.length > 0 && <span className="text-[var(--text-quaternary)]">{t('development.github.store.downloads', { count: formatNumber(release.assets.reduce((sum, asset) => sum + asset.downloadCount, 0)) })}</span>}</div>{release.body && <pre className="mt-1.5 max-h-28 overflow-y-auto whitespace-pre-wrap break-words text-[length:var(--text-11)] text-[var(--text-tertiary)]">{release.body.length > RELEASE_BODY_PREVIEW_CHARS ? `${release.body.slice(0, RELEASE_BODY_PREVIEW_CHARS)}...` : release.body}</pre>}</div>}
             {release && release.assets.length > 0 ? <AssetPicker assets={release.assets} value={currentAsset?.name ?? ''} onChange={setAssetName} mirrorBase={mirrorBase} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-3 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.repos.no_assets')}</p>}
             {release && release.assets.length > 0 && <div className="text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{t('development.github.repos.all_assets', { count: release.assets.length })}</div>}
-            {release && release.assets.length > 0 && <ul className="divide-y divide-[var(--border-subtle)] rounded-[var(--r-md)] border border-[var(--border-subtle)]">{release.assets.map((asset) => { const url = buildMirrorDownloadUrl(mirrorBase, asset.downloadUrl); return <li key={asset.id} className="flex items-center gap-2 px-2.5 py-1.5 text-[length:var(--text-11)]"><FileText size={11} className="shrink-0 text-[var(--text-tertiary)]" /><button type="button" onClick={() => setAssetName(asset.name)} className="min-w-0 flex-1 truncate text-left hover:text-[var(--accent)]" title={asset.name}>{asset.name}</button><span className="shrink-0 text-[var(--text-quaternary)]">{formatFileSize(asset.size)}</span><IconButton label={t('development.github.repos.copy_mirror_url')} size="sm" onClick={() => void copyText(url).then((ok) => toast({ title: ok ? t('development.github.repos.mirror_url_copied') : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' }))}><Copy size={11} /></IconButton><a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]" title={t('development.github.repos.download_via_mirror')}><Download size={11} /></a></li> })}</ul>}
+            {release && release.assets.length > 0 && <ul className="divide-y divide-[var(--border-subtle)] rounded-[var(--r-md)] border border-[var(--border-subtle)]">{release.assets.map((asset) => { const url = buildMirrorDownloadUrl(mirrorBase, asset.downloadUrl); const platform = assetPlatform(asset.name); return <li key={asset.id} className="flex items-center gap-2 px-2.5 py-1.5 text-[length:var(--text-11)]"><FileText size={11} className="shrink-0 text-[var(--text-tertiary)]" /><button type="button" onClick={() => setAssetName(asset.name)} className="min-w-0 flex-1 truncate text-left hover:text-[var(--accent)]" title={asset.name}>{asset.name}</button>{platform && <span className="shrink-0 rounded-full border border-[var(--border-subtle)] px-1.5 py-0.5 text-[var(--text-tertiary)]">{platformLabel(platform)}</span>}<span className="shrink-0 text-[var(--text-quaternary)]" title={t('development.github.store.downloads', { count: formatNumber(asset.downloadCount) })}>{formatNumber(asset.downloadCount)}</span><span className="shrink-0 text-[var(--text-quaternary)]">{formatFileSize(asset.size)}</span><IconButton label={t('development.github.repos.copy_mirror_url')} size="sm" onClick={() => void copyText(url).then((ok) => toast({ title: ok ? t('development.github.repos.mirror_url_copied') : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' }))}><Copy size={11} /></IconButton><a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]" title={t('development.github.repos.download_via_mirror')}><Download size={11} /></a></li> })}</ul>}
           </div>
         )}
       </div>
@@ -292,6 +335,8 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
         <div className="mb-2 flex items-center gap-2"><FileText size={15} className="text-[var(--text-tertiary)]" /><h3 className="text-[length:var(--text-13)] font-semibold">{t('development.github.repos.notes')}</h3>{!editingNotes && <Button variant="ghost" size="sm" className="ml-auto" onClick={() => { setNotesDraft(notes); setEditingNotes(true) }}><Edit3 size={11} />{t('common.edit')}</Button>}</div>
         {editingNotes ? <div className="space-y-2"><Textarea value={notesDraft} onChange={(event) => setNotesDraft(event.target.value)} placeholder={t('development.github.repos.notes_placeholder')} className="min-h-20 text-[length:var(--text-11)]" autoFocus /><div className="flex justify-end gap-1"><Button variant="secondary" size="sm" onClick={() => setEditingNotes(false)}>{t('common.cancel')}</Button><Button size="sm" onClick={() => { onUpdateNotes(notesDraft); setEditingNotes(false) }}><Save size={11} />{t('common.save')}</Button></div></div> : notes ? <p className="whitespace-pre-wrap text-[length:var(--text-11)] text-[var(--text-secondary)]">{notes}</p> : <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.github.repos.no_notes')}</p>}
       </div>}
+      <TrackAppDialog open={trackOpen} repo={repo} release={release ?? null} onClose={() => setTrackOpen(false)} onSubmit={(values) => void submitTrack(values)} />
+      <DeveloperDialog open={developerOpen} login={repo.owner.login} onClose={() => setDeveloperOpen(false)} onOpenRepo={(next) => onOpenRepo?.(next)} />
     </div>
   )
 }

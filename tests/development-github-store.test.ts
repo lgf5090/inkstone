@@ -99,6 +99,7 @@ const BOOTSTRAP: GithubBootstrap = {
   gists: [],
   mirrors: [],
   accounts: [],
+  apps: [],
   capabilities: { exports: true },
 }
 

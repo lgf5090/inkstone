@@ -1,4 +1,7 @@
 import type { MessageKey } from '@shared/locales/en-US'
+import type { GithubAssetPlatform, GithubPlatformFilter } from './platforms'
+
+export type { GithubAssetPlatform, GithubPlatformFilter, GithubUpdateState } from './platforms'
 
 export interface GithubRepo {
   id: number
@@ -89,6 +92,7 @@ export interface GithubReleaseAsset {
   contentType: string
   size: number
   downloadUrl: string
+  downloadCount: number
 }
 
 export interface GithubRelease {
@@ -336,7 +340,112 @@ export interface GithubBootstrap {
   gists: SavedGist[]
   mirrors: GithubMirrorSource[]
   accounts: GithubAccountView[]
+  apps: GithubTrackedApp[]
   capabilities: GithubCapabilities
   counts?: GithubBootstrapCounts
   truncated?: GithubBootstrapTruncation
 }
+
+export type GithubDiscoverChart = 'trending' | 'releases' | 'popular'
+
+export interface GithubDiscoverQuery {
+  chart: GithubDiscoverChart
+  platform: GithubPlatformFilter
+  topic: string
+  page: number
+  perPage: number
+}
+
+export interface GithubDiscoverRelease {
+  tagName: string
+  name: string | null
+  publishedAt: string
+  htmlUrl: string
+  assetCount: number
+  downloadCount: number
+  platforms: GithubAssetPlatform[]
+  recommendedAsset: GithubReleaseAsset | null
+}
+
+export interface GithubDiscoverItem {
+  repo: GithubRepo
+  release: GithubDiscoverRelease | null
+}
+
+export interface GithubDiscoverResult {
+  chart: GithubDiscoverChart
+  platform: GithubPlatformFilter
+  topic: string
+  page: number
+  perPage: number
+  total: number
+  items: GithubDiscoverItem[]
+  verified: boolean
+  checked: number
+}
+
+export interface GithubTrackedApp {
+  id: string
+  repoId: string
+  fullName: string
+  repoUrl: string
+  ownerAvatarUrl: string
+  platform: GithubAssetPlatform
+  assetPattern: string
+  installedTag: string
+  installedAt: number
+  latestTag: string
+  latestAssetName: string
+  latestAssetUrl: string
+  latestPublishedAt: string
+  checkedAt: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface GithubAppsCheckFailure {
+  id: string
+  message: string
+}
+
+export interface GithubAppsCheckResult {
+  apps: GithubTrackedApp[]
+  checked: number
+  failed: GithubAppsCheckFailure[]
+}
+
+export interface GithubDevProfile {
+  login: string
+  name: string | null
+  avatarUrl: string
+  bio: string | null
+  company: string | null
+  location: string | null
+  blog: string | null
+  htmlUrl: string
+  followers: number
+  following: number
+  publicRepos: number
+  createdAt: string
+  repos: GithubRepo[]
+}
+
+export const GITHUB_DISCOVER_PER_PAGE = 20
+export const GITHUB_DISCOVER_MAX_PAGE = 20
+
+export const GITHUB_DISCOVER_CHARTS: { value: GithubDiscoverChart; labelKey: MessageKey }[] = [
+  { value: 'trending', labelKey: 'development.github.store.chart.trending' },
+  { value: 'releases', labelKey: 'development.github.store.chart.releases' },
+  { value: 'popular', labelKey: 'development.github.store.chart.popular' },
+]
+
+export const GITHUB_DISCOVER_TOPICS: { value: string; labelKey: MessageKey }[] = [
+  { value: 'android', labelKey: 'development.github.store.topic.android' },
+  { value: 'desktop', labelKey: 'development.github.store.topic.desktop' },
+  { value: 'macos', labelKey: 'development.github.store.topic.macos' },
+  { value: 'linux', labelKey: 'development.github.store.topic.linux' },
+  { value: 'cli', labelKey: 'development.github.store.topic.cli' },
+  { value: 'self-hosted', labelKey: 'development.github.store.topic.self_hosted' },
+  { value: 'developer-tools', labelKey: 'development.github.store.topic.developer_tools' },
+]
+
