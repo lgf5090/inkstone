@@ -9,22 +9,13 @@ import type { ProjectCard, ProjectCardLink, ProjectProperty } from '@shared/proj
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { groupProjectCards, projectPropertyDisplayText } from '@shared/project/view-eval'
-import { t } from '../../lib/i18n'
+import { PROJECT_TIMELINE_COLUMN_PX, projectCardDays, projectTimelineBar, projectTimelineDays, projectTimelineRows, projectTimelineWindow, type ProjectTimelineScale } from '@shared/project/timeline-layout'
+import { t, useLocale } from '../../lib/i18n'
+import { Segmented } from '../../components/form'
+import { Button } from '../../components/primitives'
 import { Checkbox } from '../../components/form'
 import { IconButton } from '../../components/primitives'
 import { CardBadges, OptionChip } from './CardBadges'
-
-function dateRange(card: ProjectCard, propertyId: string | undefined): { from: number, to: number } | null {
-  if (!propertyId) return null
-  const raw = card.values[propertyId] ?? ''
-  if (!raw) return null
-  try {
-    const parsed = JSON.parse(raw) as { from?: number, to?: number }
-    if (typeof parsed.from === 'number') return { from: parsed.from, to: typeof parsed.to === 'number' ? parsed.to : parsed.from }
-  } catch { /* bare stamp */ }
-  const stamp = Number(raw)
-  return Number.isFinite(stamp) ? { from: stamp, to: stamp } : null
-}
 
 export function ListView({
   cards,
@@ -226,34 +217,153 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
   gantt: boolean
   onOpenCard: (id: string) => void
 }) {
-  const propertyId = datePropertyId ?? properties.find((p) => p.type === 'date')?.id
-  const ranges = cards.map((card) => ({ card, range: dateRange(card, propertyId) })).filter((entry): entry is { card: ProjectCard, range: { from: number, to: number } } => entry.range !== null)
-  if (ranges.length === 0) return <p className="p-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.no_dates')}</p>
-  let min = Infinity
-  let max = -Infinity
-  for (const entry of ranges) {
-    if (entry.range.from < min) min = entry.range.from
-    if (entry.range.to > max) max = entry.range.to
+  const locale = useLocale()
+  const [scale, setScale] = useState<ProjectTimelineScale>('day')
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  const [showUnscheduled, setShowUnscheduled] = useState(true)
+  const propertyId = datePropertyId ?? properties.find((property) => property.type === 'date')?.id
+  const today = Date.now()
+  const dated = cards
+    .map((card) => ({ card, days: projectCardDays(card, propertyId) }))
+    .filter((entry): entry is { card: ProjectCard, days: { start: number, end: number } } => entry.days !== null)
+  const unscheduled = cards.filter((card) => projectCardDays(card, propertyId) === null)
+  const window = projectTimelineWindow(dated.map((entry) => ({ from: entry.days.start, to: entry.days.end })), today)
+  const days = projectTimelineDays(window, today)
+  const columnPx = PROJECT_TIMELINE_COLUMN_PX[scale]
+  const rows = projectTimelineRows(dated.map((entry) => entry.card), collapsed)
+  const daysByCard = new Map(dated.map((entry) => [entry.card.id, entry.days]))
+  const blocked = new Set(links.filter((link) => link.kind === 'blocks').map((link) => link.toCardId))
+  const todayColumn = days.findIndex((entry) => entry.today)
+  const monthRuns: { label: string, span: number }[] = []
+  for (const entry of days) {
+    const label = new Date(entry.stamp).toLocaleDateString(locale, { year: 'numeric', month: 'short' })
+    const last = monthRuns[monthRuns.length - 1]
+    if (last && last.label === label) last.span += 1
+    else monthRuns.push({ label, span: 1 })
   }
-  const span = Math.max(max - min, 1)
-  const blocked = new Set(links.filter((l) => l.kind === 'blocks').map((l) => l.toCardId))
+  const toggle = (id: string) => setCollapsed((current) => {
+    const next = new Set(current)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
+
   return (
-    <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3">
-      {ranges.map(({ card, range }) => {
-        const left = ((range.from - min) / span) * 100
-        const width = Math.max(((range.to - range.from) / span) * 100, 2)
-        return (
-          <div key={card.id} className="flex items-center gap-2">
-            <button type="button" className="w-40 shrink-0 truncate text-left text-[length:var(--text-12)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
-              {card.title || t('project.board.untitled_card')}
-            </button>
-            <div className="relative h-5 min-w-0 flex-1 rounded-[var(--r-sm)] bg-[var(--bg-sunken)]">
-              <div className="absolute top-0 h-full rounded-[var(--r-sm)] bg-[var(--accent-soft)]" style={{ left: `${left}%`, width: `${width}%` }} />
-            </div>
-            {gantt && blocked.has(card.id) && <span className="shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1 text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('project.view.blocked')}</span>}
+    <div className="flex min-h-0 flex-1 flex-col" data-project-timeline="">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5">
+        <Segmented
+          value={scale}
+          onChange={setScale}
+          size="sm"
+          label={t('project.view.scale')}
+          options={[
+            { value: 'day', label: t('project.view.scale_day') },
+            { value: 'week', label: t('project.view.scale_week') },
+            { value: 'month', label: t('project.view.scale_month') },
+          ]}
+        />
+        <span className="ml-auto text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+          {t('project.view.unscheduled_count', { count: unscheduled.length })}
+        </span>
+        {unscheduled.length > 0 && (
+          <Button size="sm" variant="ghost" onClick={() => setShowUnscheduled((value) => !value)}>
+            {t('project.view.unscheduled')}
+          </Button>
+        )}
+      </div>
+      <div className="flex min-h-0 flex-1 overflow-auto">
+        <div className="sticky left-0 z-10 w-56 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-base)]">
+          <div className="flex h-12 items-center border-b border-[var(--border-subtle)] px-3 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
+            {t('project.board.title_column')}
           </div>
-        )
-      })}
+          {rows.map(({ card, depth, childCount }) => (
+            <div key={card.id} className="flex h-9 items-center gap-1 border-b border-[var(--border-subtle)] px-2" style={{ paddingLeft: `${8 + depth * 14}px` }}>
+              {childCount > 0 ? (
+                <button
+                  type="button"
+                  aria-label={collapsed.has(card.id) ? t('project.card.expand_subtasks') : t('project.card.collapse_subtasks')}
+                  aria-expanded={!collapsed.has(card.id)}
+                  className="flex size-5 shrink-0 items-center justify-center rounded text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                  onClick={() => toggle(card.id)}
+                >
+                  {collapsed.has(card.id) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                </button>
+              ) : <span className="size-5 shrink-0" aria-hidden="true" />}
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left text-[length:var(--text-12)] text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                onClick={() => onOpenCard(card.id)}
+              >
+                {card.title || t('project.board.untitled_card')}
+              </button>
+              {gantt && blocked.has(card.id) && <span className="shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1 text-[length:var(--text-10)] text-[var(--text-secondary)]">{t('project.view.blocked')}</span>}
+            </div>
+          ))}
+        </div>
+        <div className="relative min-w-0" style={{ width: `${days.length * columnPx}px` }}>
+          <div className="sticky top-0 z-[1] h-12 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]">
+            <div className="flex h-6">
+              {monthRuns.map((run) => (
+                <div key={run.label} className="truncate border-r border-[var(--border-subtle)] px-1 text-center text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]" style={{ width: `${run.span * columnPx}px` }}>
+                  {run.label}
+                </div>
+              ))}
+            </div>
+            <div className="flex h-6">
+              {days.map((entry) => (
+                <div
+                  key={entry.stamp}
+                  className={`flex shrink-0 items-center justify-center text-[length:var(--text-10)] ${entry.today ? 'font-bold text-[var(--accent)]' : 'text-[var(--text-tertiary)]'}`}
+                  style={{ width: `${columnPx}px` }}
+                >
+                  {scale === 'day' || entry.monthStart ? new Date(entry.stamp).getDate() : ''}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="relative">
+            <div className="pointer-events-none absolute inset-0 flex" aria-hidden="true">
+              {days.map((entry) => (
+                <div key={entry.stamp} className={`shrink-0 border-r border-[var(--border-subtle)] ${entry.weekend ? 'bg-[var(--bg-sunken)]' : ''}`} style={{ width: `${columnPx}px` }} />
+              ))}
+            </div>
+            {todayColumn >= 0 && (
+              <div className="pointer-events-none absolute bottom-0 top-0 w-px bg-[var(--danger)]" style={{ left: `${todayColumn * columnPx}px` }} aria-hidden="true" data-timeline-today="" />
+            )}
+            {rows.map(({ card }) => {
+              const range = daysByCard.get(card.id)!
+              const bar = projectTimelineBar({ from: range.start, to: range.end }, window)
+              return (
+                <div key={card.id} className="relative h-9 border-b border-[var(--border-subtle)]" data-timeline-row={card.id}>
+                  <button
+                    type="button"
+                    aria-label={card.title || t('project.board.untitled_card')}
+                    className={`absolute top-1.5 h-6 rounded-[var(--r-sm)] text-left text-[length:var(--text-10)] ${isProjectCardDone(card, properties) ? 'bg-[var(--bg-hover)] text-[var(--text-tertiary)]' : 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'} focus-visible:outline-2 focus-visible:outline-[var(--accent)]`}
+                    style={{ left: `${bar.left * columnPx}px`, width: `${bar.width * columnPx}px` }}
+                    onClick={() => onOpenCard(card.id)}
+                  >
+                    <span className="block truncate px-1.5 leading-6">{card.title || t('project.board.untitled_card')}</span>
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        {showUnscheduled && unscheduled.length > 0 && (
+          <aside className="ml-auto w-52 shrink-0 border-l border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2" aria-label={t('project.view.unscheduled')}>
+            <h3 className="mb-1 px-1 text-[length:var(--text-11)] font-semibold uppercase text-[var(--text-tertiary)]">{t('project.view.unscheduled')}</h3>
+            <ul className="space-y-0.5">
+              {unscheduled.map((card) => (
+                <li key={card.id}>
+                  <button type="button" className="w-full truncate rounded-[var(--r-sm)] px-1.5 py-1 text-left text-[length:var(--text-12)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpenCard(card.id)}>
+                    {card.title || t('project.board.untitled_card')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </aside>
+        )}
+      </div>
     </div>
   )
 }

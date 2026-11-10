@@ -12522,7 +12522,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/ExtraViews.tsx", [
     "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
-    "/* bare stamp */",
   ]],
   ["src/client/features/project/FilterEditor.test.tsx", [
     "/** The row a stored value is offered under: a property name, a join word, or a condition's own label. */",
@@ -32485,6 +32484,19 @@ const allowed = new Map([
   ["src/shared/project/templates.ts", [
     "/**\n * The built-in board templates, rewritten as starting points rather than copied verbatim: each carries\n * its property set, its views and a couple of sample cards so a new board is immediately usable. Ids\n * are stable 27-character slugs so re-instantiating a template never collides with a live board's ids\n * (the importer assigns fresh ids anyway).\n */",
     "/** Resolve a built-in template's demo strings into the reader's locale; other locales keep the source. */",
+  ]],
+  ["src/shared/project/timeline-layout.test.ts", [
+    "// 2026-11-01 is a Sunday; the 7th is Saturday and the 10th is Tuesday.",
+  ]],
+  ["src/shared/project/timeline-layout.ts", [
+    "/**\n * The arithmetic behind the timeline, kept out of the component because it is the half that can be\n * wrong in ways the eye forgives: a bar one day wide of its range, a today line on the wrong column,\n * a child drawn as a sibling. Everything is measured in whole local days read through the module's\n * own date conversion, so a card dated the 10th sits on the 10th in every zone.\n */",
+    "/** Granularities the axis can be drawn at; the column width is what changes, not the window. */",
+    "/** The days a card covers, as local midnight stamps, or null when it names no date. */",
+    "/**\n * The window the axis draws: every dated card, padded by three days each side, or the fortnight\n * around today when nothing is dated yet — an empty axis still has to say what dates it covers.\n */",
+    "/** The month label is drawn only on the first column of a month, the way the reference heads it. */",
+    "/** Where a bar sits inside the window, in whole columns; a range is inclusive of its last day. */",
+    "/**\n * The rows in reading order: a parent, then its children indented under it.\n *\n * A card whose parent is not in this view is a root, so a filtered view never hides a child whose\n * parent was filtered out. `seen` breaks a cycle rather than recursing forever on imported data.\n */",
+    "// A cycle has no root, so its members would otherwise disappear from the view entirely.",
   ]],
   ["src/shared/project/validation.ts", [
     "/**\n * The shapes a project request may take. The server runs every write through these before it touches\n * D1; the client runs the same schemas so a rejected field is reported at the control that typed it.\n *\n * Bounds come from `./limits` rather than being restated, so raising a ceiling is one edit.\n */",
