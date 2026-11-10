@@ -1,5 +1,5 @@
 import { Fragment, useRef, useState, useEffect, useMemo, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactElement } from 'react'
-import { ArrowUpDown, BarChart3, Calendar, CalendarRange, CheckSquare, ChevronDown, ChevronRight, Clock, Copy, CornerDownRight, Download, Eye, EyeOff, FileText, Filter, LayoutGrid, Link2, List, ListTodo, MoreHorizontal, Pencil, Plus, SlidersHorizontal, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
+import { ArrowUpDown, BarChart3, Calendar, CalendarRange, CheckSquare, ChevronDown, ChevronRight, Clock, Copy, CornerDownRight, Download, Eye, EyeOff, FileText, Filter, FolderOpen, LayoutDashboard, LayoutGrid, Link2, List, ListTodo, MoreHorizontal, Pencil, Plus, SlidersHorizontal, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, isProjectCardDone, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badges'
@@ -18,6 +18,7 @@ import { PropertyValueEditor } from './PropertyValueEditor'
 import { CalendarView, GalleryView } from './GalleryCalendar'
 import { CardBadges, CardPropertyChips, OptionChip, optionDot } from './CardBadges'
 import { ChartView, ListView, TimelineView } from './ExtraViews'
+import { CollectionView, DashboardView } from './BoardInsights'
 import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, projectBoardExportUrl, projectFileUrl } from './api'
 
 const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
@@ -29,6 +30,8 @@ const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   timeline: 'project.view.timeline',
   gantt: 'project.view.gantt',
   chart: 'project.view.chart',
+  dashboard: 'project.view.dashboard',
+  collection: 'project.view.collection',
 }
 
 const VIEW_ICON: Record<string, LucideIcon> = {
@@ -40,6 +43,8 @@ const VIEW_ICON: Record<string, LucideIcon> = {
   timeline: Clock,
   gantt: CalendarRange,
   chart: BarChart3,
+  dashboard: LayoutDashboard,
+  collection: FolderOpen,
 }
 
 // Templates ship canonical English titles; treat them as defaults so a zh UI localizes them
@@ -53,6 +58,8 @@ const VIEW_DEFAULT_TITLE: Record<string, string> = {
   timeline: 'Timeline',
   gantt: 'Gantt',
   chart: 'Chart',
+  dashboard: 'Dashboard',
+  collection: 'Collection',
 }
 
 function viewTabLabel(view: { title: string, viewType: string }): string {
@@ -408,7 +415,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     : bundle.properties
   const groupable = bundle.properties.filter((property) => PROJECT_PROPERTY_CAPABILITIES[property.type].canGroup)
   const dateProperties = bundle.properties.filter((property) => property.type === 'date')
-  const showsDateDisplay = viewType === 'calendar' || viewType === 'timeline' || viewType === 'gantt'
+  const showsDateDisplay = viewType === 'calendar' || viewType === 'timeline' || viewType === 'gantt' || viewType === 'dashboard'
 
   const renameView = () => {
     if (!active) return
@@ -455,7 +462,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               open={addOpen}
               onClose={() => setAddOpen(false)}
               label={t('project.view.add')}
-              items={([['table', 'project.view.table'], ['board', 'project.view.board'], ['gallery', 'project.view.gallery'], ['calendar', 'project.view.calendar'], ['list', 'project.view.list'], ['timeline', 'project.view.timeline'], ['gantt', 'project.view.gantt'], ['chart', 'project.view.chart']] as const).map(([type, key]) => ({
+              items={([['table', 'project.view.table'], ['board', 'project.view.board'], ['gallery', 'project.view.gallery'], ['calendar', 'project.view.calendar'], ['list', 'project.view.list'], ['timeline', 'project.view.timeline'], ['gantt', 'project.view.gantt'], ['chart', 'project.view.chart'], ['dashboard', 'project.view.dashboard'], ['collection', 'project.view.collection']] as const).map(([type, key]) => ({
                 id: type,
                 label: t(key),
                 onSelect: () => onCreateView(type),
@@ -561,7 +568,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           <Button size="sm" variant="ghost" onClick={() => setSelected([])}>{t('project.view.clear_selection')}</Button>
         </div>
       )}
-      {viewType === 'calendar'
+      {viewType === 'collection'
+        ? <CollectionView boardId={bundle.board.id} canEdit={canEdit} onOpenCard={onOpenCard} />
+        : viewType === 'dashboard'
+          ? <DashboardView boardId={bundle.board.id} cards={sorted} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} onOpenCard={onOpenCard} />
+        : viewType === 'calendar'
         ? <CalendarView cards={sorted} boardId={bundle.board.id} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} canEdit={canEdit} onOpenCard={onOpenCard} onPatchCard={onPatchCard} onRefresh={onRefresh} />
         : sorted.length === 0 && viewType !== 'board'
           ? <Empty art="folder" title={t('project.board.empty_cards')} />

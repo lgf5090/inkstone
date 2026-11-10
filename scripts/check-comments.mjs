@@ -12497,6 +12497,10 @@ const allowed = new Map([
     "// The last branch is for `[[#heading]]`, whose target lives in that same datum. A span without one",
     "// is not a wiki link, and the card it used to produce only repeated the note already on screen.",
   ]],
+  ["src/client/features/project/BoardInsights.tsx", [
+    "/**\n * The board at a glance, and the files it carries.\n *\n * Both read only what the bundle already holds, so neither adds a round trip to a screen the reader\n * opened to look rather than to edit. The dashboard's counts come from the same filter/sort the view\n * was handed, so a filtered board reports the filtered truth rather than the whole board's.\n */",
+    "/** The same buckets the server files uploads under, read from the mime the row carries. */",
+  ]],
   ["src/client/features/project/BoardPage.tsx", [
     "// Realtime fallback (D-11): the sync hub notifies members on writes, but a tab that misses the",
     "// notification (or a deployment without the DO) still converges via a quiet 30s refetch.",

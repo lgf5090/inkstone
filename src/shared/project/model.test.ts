@@ -20,7 +20,9 @@ describe('the project vocabulary', () => {
     expect(PROJECT_PROPERTY_TYPES).toHaveLength(17)
     expect(PROJECT_FILTER_CONDITIONS).toHaveLength(17)
     expect(PROJECT_CALCULATIONS).toHaveLength(21)
-    expect(PROJECT_VIEW_TYPES).toHaveLength(8)
+    expect(PROJECT_VIEW_TYPES).toHaveLength(10)
+    expect(PROJECT_VIEW_TYPES).toContain('dashboard')
+    expect(PROJECT_VIEW_TYPES).toContain('collection')
     expect(PROJECT_ROLES).toEqual(['viewer', 'commenter', 'editor', 'admin'])
   })
 

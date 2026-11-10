@@ -3,7 +3,7 @@
  * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the
  * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.
  */
-import { Fragment, useMemo, useState, type MouseEvent } from 'react'
+import { Fragment, useCallback, useMemo, useState, type MouseEvent } from 'react'
 import { ChevronDown, ChevronRight, CornerDownRight, Plus, Trash2 } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
@@ -13,6 +13,7 @@ import { PROJECT_TIMELINE_COLUMN_PX, projectCardDays, projectTimelineBar, projec
 import { t, useLocale } from '../../lib/i18n'
 import { Segmented } from '../../components/form'
 import { Button } from '../../components/primitives'
+import { ChartCanvas, type ChartColors } from '../../components/chart-canvas'
 import { Checkbox } from '../../components/form'
 import { IconButton } from '../../components/primitives'
 import { CardBadges, OptionChip } from './CardBadges'
@@ -369,21 +370,35 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
 }
 
 export function ChartView({ cards, properties }: { cards: ProjectCard[], properties: ProjectProperty[] }) {
-  const groupProperty = properties.find((p) => p.type === 'select') ?? properties[0]
-  const groups = groupProjectCards(cards, groupProperty?.id, properties)
-  const entries = [...groups.entries()]
-  const max = entries.reduce((acc, [, list]) => Math.max(acc, list.length), 1)
+  const groupProperty = properties.find((property) => property.type === 'select') ?? properties[0]
+  const groups = [...groupProjectCards(cards, groupProperty?.id, properties).entries()]
+  const labels = groups.map(([key]) => key === '' ? t('project.view.no_value') : groupProperty?.options.find((option) => option.id === key)?.value ?? key)
+  const counts = groups.map(([, list]) => list.length)
+  const build = useCallback((colors: ChartColors) => ({
+    type: 'bar' as const,
+    data: {
+      labels,
+      datasets: [{ label: t('project.view.chart'), data: counts, backgroundColor: colors.palette.slice(0, labels.length) }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0, color: colors.text }, grid: { color: colors.grid } }, x: { ticks: { color: colors.text }, grid: { display: false } } },
+    },
+  }), [labels, counts])
+  if (groups.length === 0) return <p className="p-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.board.empty_cards')}</p>
   return (
-    <div className="flex min-h-0 flex-1 items-end gap-3 overflow-x-auto p-4">
-      {entries.map(([key, list]) => (
-        <div key={key || 'empty'} className="flex w-24 shrink-0 flex-col items-center gap-1">
-          <span className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{list.length}</span>
-          <div className="w-full rounded-t-[var(--r-sm)] bg-[var(--accent-soft)]" style={{ height: `${(list.length / max) * 160}px` }} />
-          <span className="w-full truncate text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-            {key === '' ? t('project.view.no_value') : groupProperty?.options.find((o) => o.id === key)?.value ?? key}
-          </span>
-        </div>
-      ))}
+    <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <ChartCanvas height="h-64" label={t('project.view.chart')} build={build} />
+      <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2">
+        {groups.map(([key, list], index) => (
+          <li key={key || 'empty'} className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-2 py-1 text-[length:var(--text-12)]">
+            <span className="text-[var(--text-secondary)]">{labels[index]}</span>
+            <span className="ml-2 font-semibold text-[var(--text-primary)]">{list.length}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
