@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   PROJECT_ONE_DAY_MS,
+  moveProjectDateValue,
   parseProjectDateValue,
   projectCalendarRangeToValue,
   projectDayToStamp,
@@ -85,5 +86,42 @@ describe('the calendar range (§6.6)', () => {
     const value = projectCalendarRangeToValue(new Date(2026, 10, 15), new Date(2026, 10, 20))
     const range = projectValueToCalendarRange(value)!
     expect(projectCalendarRangeToValue(range.start, range.end)).toEqual(value)
+  })
+})
+describe('moving a value to a new start day', () => {
+  it('carries `to` the same distance so the range keeps its length', () => {
+    const from = projectDayToStamp(new Date(2026, 10, 10))
+    const to = projectDayToStamp(new Date(2026, 10, 13))
+    const next = projectDayToStamp(new Date(2026, 10, 15))
+    const moved = moveProjectDateValue({ from, to }, next)
+    expect(moved.from).toBe(next)
+    expect(projectStampToInput(moved.to!)).toBe('2026-11-18')
+    expect(moved.to! - moved.from!).toBe(to - from)
+  })
+
+  it('moves a range backwards as well as forwards', () => {
+    const from = projectDayToStamp(new Date(2026, 10, 10))
+    const to = projectDayToStamp(new Date(2026, 10, 13))
+    const moved = moveProjectDateValue({ from, to }, projectDayToStamp(new Date(2026, 10, 5)))
+    expect(projectStampToInput(moved.from!)).toBe('2026-11-05')
+    expect(projectStampToInput(moved.to!)).toBe('2026-11-08')
+  })
+
+  it('adds no `to` when the value had none', () => {
+    const moved = moveProjectDateValue({ from: projectDayToStamp(new Date(2026, 10, 10)) }, projectDayToStamp(new Date(2026, 10, 15)))
+    expect(moved.to).toBeUndefined()
+    expect(Object.keys(moved)).toEqual(['from'])
+  })
+
+  it('takes the new start alone when the old value had no start', () => {
+    const next = projectDayToStamp(new Date(2026, 10, 15))
+    expect(moveProjectDateValue({}, next)).toEqual({ from: next })
+    expect(moveProjectDateValue({ to: 1000 }, next)).toEqual({ from: next, to: 1000 })
+  })
+
+  it('carries includeTime and timeZone, which choose the conversion every reader applies', () => {
+    const moved = moveProjectDateValue({ from: 1000, to: 2000, includeTime: true, timeZone: 'Asia/Shanghai' }, 5000)
+    expect(moved).toEqual({ from: 5000, to: 6000, includeTime: true, timeZone: 'Asia/Shanghai' })
+    expect(moveProjectDateValue({ from: 1000, includeTime: false }, 5000)).toEqual({ from: 5000 })
   })
 })

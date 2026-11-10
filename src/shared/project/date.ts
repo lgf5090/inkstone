@@ -94,3 +94,16 @@ export function projectValueToCalendarRange(value: ProjectDateValue): { start: D
   end.setDate(end.getDate() + 1)
   return { start, end }
 }
+
+/**
+ * The same value moved to a new start: `to` travels the same distance, so editing a start day cannot
+ * silently shorten a range to a single day. `includeTime`/`timeZone` ride along because they decide
+ * which of the two conversions above every reader applies.
+ */
+export function moveProjectDateValue(value: ProjectDateValue, from: number): ProjectDateValue {
+  const moved: ProjectDateValue = { from }
+  if (value.to !== undefined) moved.to = value.to + (value.from === undefined ? 0 : from - value.from)
+  if (value.includeTime === true) moved.includeTime = true
+  if (value.timeZone !== undefined) moved.timeZone = value.timeZone
+  return moved
+}

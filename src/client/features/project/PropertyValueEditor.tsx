@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import type { ProjectBoardMember, ProjectProperty } from '@shared/project/model'
+import { moveProjectDateValue, parseProjectDateValue, projectInputToStamp, projectStampToInput } from '@shared/project/date'
 import { Checkbox, commitOnEnter, Input, Select } from '../../components/form'
 import { DatePicker } from '../../components/date-picker'
 
@@ -22,16 +23,9 @@ function readMulti(value: string): string[] {
 }
 
 function readDateFrom(value: string): string {
-  if (!value) return ''
-  try {
-    const parsed: unknown = JSON.parse(value)
-    const from = (parsed as { from?: number })?.from
-    if (typeof from === 'number') return new Date(from).toISOString().slice(0, 10)
-  } catch {
-    const stamp = Number(value)
-    if (Number.isFinite(stamp)) return new Date(stamp).toISOString().slice(0, 10)
-  }
-  return ''
+  const parsed = parseProjectDateValue(value)
+  if (parsed?.from === undefined) return ''
+  return projectStampToInput(parsed.from, parsed.includeTime === true)
 }
 
 export function PropertyValueEditor({ property, value, members, disabled, onChange }: PropertyValueEditorProps): ReactElement {
@@ -78,8 +72,10 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
           label={property.name}
           value={readDateFrom(value)}
           onChange={(raw) => {
-            if (!raw) onChange(null)
-            else onChange(JSON.stringify({ from: new Date(`${raw}T00:00:00`).getTime() }))
+            const current = parseProjectDateValue(value)
+            const from = raw ? projectInputToStamp(raw, current?.includeTime === true) : null
+            if (from === null) { onChange(null); return }
+            onChange(JSON.stringify(moveProjectDateValue(current ?? {}, from)))
           }}
         />
       )

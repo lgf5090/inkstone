@@ -12522,6 +12522,12 @@ const allowed = new Map([
     "/* best-effort: an unreadable category list leaves the board list usable */",
     "/* best-effort: the highlight is optional */",
   ]],
+  ["src/client/features/project/PropertyValueEditor.test.tsx", [
+    "/**\n * The date cell has to agree with the module's own conversion (§6.6) in the reader's own zone: the day\n * the picker files is the day the table cell, the date filter and the timeline read back. The editor\n * once did its own UTC arithmetic, which filed local midnight and read back a day early east of UTC.\n *\n * The zone is switched per case rather than assumed, because the defect is invisible in UTC — the\n * machine's own zone is not a fixture.\n */",
+    "// 01:00 local on the 10th. East of UTC this instant is still the 9th in UTC, which is the day a",
+    "// UTC-based reader would wrongly show; west of UTC both readings agree, so the zone matrix matters.",
+    "/** The table cell's own display path — the consumer that disagreed with the editor. */",
+  ]],
   ["src/client/features/project/api.ts", [
     "/** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */",
   ]],
@@ -32396,6 +32402,7 @@ const allowed = new Map([
     "// V8 normalises an impossible day (2026-02-30) into March instead of failing, so compare back.",
     "/**\n * Calendar writer: the grid's end is exclusive, so it loses a day on the way back into storage, and a\n * single-day drag stores no `to` at all (§6.6, `createDatePropertyFromCalendarDates`).\n */",
     "/** Calendar reader: no `to` means the range covers exactly the `from` day. */",
+    "/**\n * The same value moved to a new start: `to` travels the same distance, so editing a start day cannot\n * silently shorten a range to a single day. `includeTime`/`timeZone` ride along because they decide\n * which of the two conversions above every reader applies.\n */",
   ]],
   ["src/shared/project/importers.ts", [
     "/**\n * The six external importers (G-1…G-6) as pure converters: each parses its system's export into the\n * same archive lines the server importer reads, so there is exactly one trust boundary. Lists /\n * sections / columns become a single select property; rows become cards carrying that property, and\n * free text becomes a text content block. G-7's packing is the shared archive envelope itself.\n */",
