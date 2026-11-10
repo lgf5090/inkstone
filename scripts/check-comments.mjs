@@ -12532,6 +12532,9 @@ const allowed = new Map([
   ["src/client/features/project/GalleryCalendar.tsx", [
     "// An empty group still gets its section and its add tile, the way an empty kanban column does.",
   ]],
+  ["src/client/features/project/MembersDialog.tsx", [
+    "/**\n * Who is on this board, and what they may do.\n *\n * The role model, the person properties and the mention notifications all key on membership, so\n * without this screen a \"shared\" board is a board of one. The server owns the two refusals that\n * matter — the last admin cannot be demoted or removed, and the roster is capped — so the dialog\n * reports what the server said rather than guessing at either rule.\n */",
+  ]],
   ["src/client/features/project/ProjectSharePage.tsx", [
     "/**\n * A shared board, as a stranger reads it.\n *\n * The slug and the passcode are the whole capability — there is no session on this page, so every byte\n * comes from the one public answer. The board is drawn by the same views a member sees with editing\n * off, rather than by a second renderer that could drift from what the owner previewed; the member-only\n * reads (dependencies, exports, attachments) are not offered because they would answer 401.\n */",
     "// A refusal is the passcode's answer, not a broken page: the server hands over no board at all",

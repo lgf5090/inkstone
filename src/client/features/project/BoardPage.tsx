@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
-import { ArrowLeft, FileDown, History, PanelLeft, Plus, Settings2, Share2, Sparkles, SquareKanban } from 'lucide-react'
+import { ArrowLeft, FileDown, History, PanelLeft, Plus, Settings2, Share2, Sparkles, SquareKanban, Users } from 'lucide-react'
 import type { ProjectActivityEntry, ProjectBoardBundle, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { projectRoleAtLeast, emptyProjectViewFields } from '@shared/project/model'
 import { projectFilterPrefill } from '@shared/project/view-eval'
@@ -28,6 +28,7 @@ import { BoardViews } from './BoardViews'
 import { BoardPropertiesDialog } from './BoardPropertiesDialog'
 import { CardDialog } from './CardDialog'
 import { ShareDialog } from './ShareDialog'
+import { MembersDialog } from './MembersDialog'
 
 type Status = 'loading' | 'ready' | 'error' | 'notfound'
 
@@ -49,6 +50,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   useEffect(() => { undoStack.clear() }, [boardId, undoStack])
   const [showProps, setShowProps] = useState(false)
   const [showShare, setShowShare] = useState(false)
+  const [showMembers, setShowMembers] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -289,9 +291,14 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
             </IconButton>
           )}
           {bundle.role === 'admin' && (
-            <IconButton label={t('project.share.title')} size="sm" onClick={() => setShowShare(true)}>
-              <Share2 size={16} />
-            </IconButton>
+            <>
+              <IconButton label={t('project.members.title')} size="sm" onClick={() => setShowMembers(true)}>
+                <Users size={16} />
+              </IconButton>
+              <IconButton label={t('project.share.title')} size="sm" onClick={() => setShowShare(true)}>
+                <Share2 size={16} />
+              </IconButton>
+            </>
           )}
           <IconButton label={t('project.board.activity')} size="sm" onClick={openActivity}><History size={16} /></IconButton>
           <IconButton label={t('project.board.export_md')} size="sm" onClick={exportMarkdown}><FileDown size={16} /></IconButton>
@@ -365,6 +372,18 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         />
       )}
       {showShare && <ShareDialog boardId={boardId} onClose={() => setShowShare(false)} />}
+      {showMembers && (
+        <MembersDialog
+          boardId={boardId}
+          boardType={bundle.board.type}
+          minimumRole={bundle.board.minimumRole}
+          onClose={() => setShowMembers(false)}
+          onBoardPatched={async (patch) => {
+            const result = await patchProjectBoard(boardId, patch)
+            setBundle((current) => (current ? { ...current, board: result.board } : current))
+          }}
+        />
+      )}
       {iconOpen && (
         <Modal open onClose={() => setIconOpen(false)} title={t('project.board.change_icon')} width={420}>
           <div className="space-y-2">

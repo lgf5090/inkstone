@@ -8,6 +8,7 @@ import type {
   ProjectBoardBundle,
   ProjectBoardMetadata,
   ProjectBoardPatch,
+  ProjectBoardMember,
   ProjectBoardSummary,
   ProjectCard,
   ProjectCardLink,
@@ -15,6 +16,7 @@ import type {
   ProjectCategoryBoard,
   ProjectComment,
   ProjectContent,
+  ProjectRole,
   ProjectShare,
   ProjectView,
   ProjectViewPatch,
@@ -299,4 +301,30 @@ export async function deleteProjectFile(id: string): Promise<void> {
 
 export function projectFileUrl(id: string): string {
   return `/api/project/files/${encodeURIComponent(id)}`
+}
+export async function fetchBoardMembers(boardId: string, signal?: AbortSignal): Promise<ProjectBoardMember[]> {
+  const body = await request<{ members: ProjectBoardMember[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/members`, { signal })
+  return body.members
+}
+
+export async function addBoardMember(boardId: string, userId: string, role: ProjectRole): Promise<ProjectBoardMember> {
+  const body = await request<{ member: ProjectBoardMember }>(`/api/project/boards/${encodeURIComponent(boardId)}/members`, { method: 'POST', body: { userId, role } })
+  return body.member
+}
+
+export async function setBoardMemberRole(boardId: string, userId: string, role: ProjectRole): Promise<ProjectBoardMember> {
+  const body = await request<{ member: ProjectBoardMember }>(`/api/project/boards/${encodeURIComponent(boardId)}/members/${encodeURIComponent(userId)}`, { method: 'PATCH', body: { role } })
+  return body.member
+}
+
+export async function removeBoardMember(boardId: string, userId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' })
+}
+
+export async function joinProjectBoard(boardId: string): Promise<ProjectBoardMember> {
+  return request<ProjectBoardMember>(`/api/project/boards/${encodeURIComponent(boardId)}/join`, { method: 'POST', body: {} })
+}
+
+export async function leaveProjectBoard(boardId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/leave`, { method: 'POST', body: {} })
 }
