@@ -5,7 +5,8 @@ import { isProjectFilterGroup, PROJECT_CONDITIONS_BY_VALUE_TYPE, PROJECT_PROPERT
 import { projectDayToStamp, projectInputToStamp, projectStampToInput } from '@shared/project/date'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
-import { Checkbox, Input, Select } from '../../components/form'
+import { Checkbox, Input } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
 import { DatePicker } from '../../components/date-picker'
 import { Modal } from '../../components/overlay'
 
@@ -102,27 +103,27 @@ function ClauseRow({ clause, properties, members, canEdit, onChange, onDelete }:
   const filterable = properties.filter((entry) => PROJECT_PROPERTY_CAPABILITIES[entry.type].canFilter)
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] p-2" data-project-filter-clause={clause.propertyId}>
-      <Select
+      <SelectMenu
         className="w-32"
+        size="sm"
         value={clause.propertyId}
-        aria-label={t('project.view.filter')}
+        label={t('project.view.filter')}
         disabled={!canEdit}
-        onChange={(event) => {
-          const next = properties.find((entry) => entry.id === event.target.value)
-          onChange({ propertyId: event.target.value, condition: conditionsFor(next).default, values: [] })
+        onChange={(value) => {
+          const next = properties.find((entry) => entry.id === value)
+          onChange({ propertyId: value, condition: conditionsFor(next).default, values: [] })
         }}
-      >
-        {filterable.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
-      </Select>
-      <Select
+        options={filterable.map((entry) => ({ value: entry.id, label: entry.name }))}
+      />
+      <SelectMenu
         className="w-32"
+        size="sm"
         value={clause.condition}
-        aria-label={t('project.view.filter_condition')}
+        label={t('project.view.filter_condition')}
         disabled={!canEdit}
-        onChange={(event) => onChange({ ...clause, condition: event.target.value as ProjectFilterClause['condition'], values: [] })}
-      >
-        {conditionsFor(property).conditions.map((condition) => <option key={condition} value={condition}>{t(`project.condition.${condition.toLowerCase()}` as Parameters<typeof t>[0])}</option>)}
-      </Select>
+        onChange={(value) => onChange({ ...clause, condition: value as ProjectFilterClause['condition'], values: [] })}
+        options={conditionsFor(property).conditions.map((condition) => ({ value: condition, label: t(`project.condition.${condition.toLowerCase()}` as Parameters<typeof t>[0]) }))}
+      />
       <ClauseValue clause={clause} property={property} members={members} disabled={!canEdit} onChange={(values) => onChange({ ...clause, values })} />
       <IconButton label={t('common.delete')} size="sm" disabled={!canEdit} onClick={onDelete}><Trash2 size={14} /></IconButton>
     </div>
@@ -145,16 +146,15 @@ function GroupEditor({ group, properties, members, canEdit, depth, onChange, onD
   return (
     <div className={`space-y-2 ${depth > 0 ? 'rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2' : ''}`} data-project-filter-group={depth}>
       <div className="flex items-center gap-2">
-        <Select
+        <SelectMenu
           className="w-24"
+          size="sm"
           value={group.operation}
-          aria-label={t('project.view.filter_operation')}
+          label={t('project.view.filter_operation')}
           disabled={!canEdit}
-          onChange={(event) => onChange({ ...group, operation: event.target.value as 'and' | 'or' })}
-        >
-          <option value="and">{t('project.view.filter_and')}</option>
-          <option value="or">{t('project.view.filter_or')}</option>
-        </Select>
+          onChange={(value) => onChange({ ...group, operation: value as 'and' | 'or' })}
+          options={[{ value: 'and', label: t('project.view.filter_and') }, { value: 'or', label: t('project.view.filter_or') }]}
+        />
         {onDelete && <IconButton label={t('common.delete')} size="sm" disabled={!canEdit} onClick={onDelete}><Trash2 size={14} /></IconButton>}
       </div>
       {group.filters.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.no_filters')}</p>}

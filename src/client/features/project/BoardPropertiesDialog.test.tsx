@@ -81,7 +81,10 @@ describe('option colour and name (R3-12)', () => {
 
   it('names every property type in the interface language instead of the raw identifier', async () => {
     await mount()
-    const options = [...document.body.querySelectorAll('select[aria-label]')].flatMap((select) => [...select.querySelectorAll('option')].map((option) => option.textContent))
+    const trigger = document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.props.type')}"]`)
+    expect(trigger, 'no type picker').not.toBeNull()
+    await act(async () => { trigger!.click() })
+    const options = [...document.querySelectorAll('[role="menuitemcheckbox"], [role="menuitem"]')].map((row) => row.textContent)
     expect(options).toContain(t('project.prop.type.multiselect'))
     expect(options).not.toContain('multiSelect')
   })

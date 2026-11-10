@@ -3,7 +3,8 @@ import { Plus, Trash2 } from 'lucide-react'
 import type { ProjectProperty, ProjectSortOption, ProjectView, ProjectViewFields } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
-import { Checkbox, Select } from '../../components/form'
+import { Checkbox } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
 import { Modal } from '../../components/overlay'
 
 interface ModalProps {
@@ -33,13 +34,8 @@ export function SortModal({ view, properties, onClose, onPatch }: ModalProps): R
           </div>
         ))}
         <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] pt-2">
-          <Select className="min-w-0 flex-1" value={propertyId} aria-label={t('project.view.sort')} onChange={(event) => setPropertyId(event.target.value)}>
-            {properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </Select>
-          <Select className="w-28" value={reversed ? 'desc' : 'asc'} aria-label={t('project.view.sort')} onChange={(event) => setReversed(event.target.value === 'desc')}>
-            <option value="asc">{t('project.view.asc')}</option>
-            <option value="desc">{t('project.view.desc')}</option>
-          </Select>
+          <SelectMenu className="min-w-0 flex-1" value={propertyId} label={t('project.view.sort')} onChange={setPropertyId} options={properties.map((p) => ({ value: p.id, label: p.name }))} />
+          <SelectMenu className="w-28" value={reversed ? 'desc' : 'asc'} label={t('project.view.sort')} onChange={(value) => setReversed(value === 'desc')} options={[{ value: 'asc', label: t('project.view.asc') }, { value: 'desc', label: t('project.view.desc') }]} />
           <Button size="sm" icon={<Plus size={14} />} disabled={!propertyId} onClick={() => setDraft((current) => [...current, { propertyId, reversed }])}>{t('project.view.add_sort')}</Button>
         </div>
       </div>

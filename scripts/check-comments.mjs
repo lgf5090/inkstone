@@ -12504,6 +12504,9 @@ const allowed = new Map([
     "/* best-effort: dialog stays usable if the refetch fails */",
     "/* best-effort: remembering the last board is optional */",
   ]],
+  ["src/client/features/project/BoardViews.test.tsx", [
+    "/** Opens a SelectMenu by its accessible name and reads the rows it offers. */",
+  ]],
   ["src/client/features/project/BoardViews.tsx", [
     "/* storage unavailable (private mode): fall back to the first view */",
     "/* best-effort: remembering the last view is optional */",
@@ -12516,6 +12519,9 @@ const allowed = new Map([
   ["src/client/features/project/ExtraViews.tsx", [
     "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
     "/* bare stamp */",
+  ]],
+  ["src/client/features/project/FilterEditor.test.tsx", [
+    "/** The row a stored value is offered under: a property name, a join word, or a condition's own label. */",
   ]],
   ["src/client/features/project/FilterEditor.tsx", [
     "/** The value editor the reference dispatches on `filterValueType`, one branch per kind of clause. */",
@@ -47787,6 +47793,9 @@ const allowed = new Map([
   ]],
   ["tests/project-archive.test.ts", [
     "// Import into a fresh instance: the archive's ids are preserved, so the source board must be gone.",
+  ]],
+  ["tests/project-no-native-select.test.ts", [
+    "/**\n * The project app draws its selects with the app's own menu.\n *\n * A native `<select>` cannot carry an option's colour dot or the accent state the rest of the app\n * uses, and its system chrome ignores every design token. `SelectMenu` exists for exactly this and\n * is what the other features use; this app was the last one still on the browser control, which is\n * why its status pickers read as grey text where the reference shows a coloured pill.\n */",
   ]],
   ["tests/project-shares.test.ts", [
     "// requestClientIp only trusts CF-Connecting-IP when the edge attached `cf`; without it every caller",

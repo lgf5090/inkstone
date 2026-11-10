@@ -2,7 +2,9 @@ import { useEffect, useState, type ReactElement } from 'react'
 import type { ProjectBoardMember, ProjectCard, ProjectProperty } from '@shared/project/model'
 import { moveProjectDateValue, parseProjectDateValue, projectInputToStamp, projectStampToInput } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
-import { Checkbox, commitOnEnter, Input, Select } from '../../components/form'
+import { Checkbox, commitOnEnter, Input } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
+import { optionDot } from './CardBadges'
 import { DatePicker } from '../../components/date-picker'
 
 interface PropertyValueEditorProps {
@@ -42,10 +44,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
   switch (property.type) {
     case 'select':
       return (
-        <Select className="w-full" value={value} disabled={disabled} aria-label={property.name} onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}>
-          <option value="">—</option>
-          {property.options.map((option) => <option key={option.id} value={option.id}>{option.value}</option>)}
-        </Select>
+        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: '—' }, ...property.options.map((option) => ({ value: option.id, label: option.value, icon: optionDot(option.color) }))]} />
       )
     case 'multiSelect': {
       const selected = readMulti(value)
@@ -104,10 +103,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
       )
     case 'person':
       return (
-        <Select className="w-full" value={value} disabled={disabled} aria-label={property.name} onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}>
-          <option value="">—</option>
-          {members.map((member) => <option key={member.userId} value={member.userId}>{member.userId}</option>)}
-        </Select>
+        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: '—' }, ...members.map((member) => ({ value: member.userId, label: member.userId }))]} />
       )
     case 'createdBy':
     case 'updatedBy':

@@ -5,11 +5,14 @@ import { newProjectId } from '@shared/project/limits'
 import { PROJECT_OPTION_COLORS, projectOptionColorName, projectOptionCssColor } from '@shared/project/option-color'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
-import { Input, Select } from '../../components/form'
+import { Input } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
 import { Menu, Modal, type MenuItem } from '../../components/overlay'
 
 const EDITABLE_TYPES: ProjectPropertyType[] = ['text', 'number', 'select', 'multiSelect', 'date', 'person', 'checkbox', 'url', 'email', 'phone']
 const OPTION_TYPES = new Set(['select', 'multiSelect'])
+
+const typeOptions = () => EDITABLE_TYPES.map((type) => ({ value: type, label: t(`project.prop.type.${type.toLowerCase()}` as Parameters<typeof t>[0]) }))
 
 interface BoardPropertiesDialogProps {
   boardId: string
@@ -79,9 +82,7 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
           <div key={property.id} className="space-y-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3">
             <div className="flex items-center gap-2">
               <Input className="min-w-0 flex-1" value={property.name} aria-label={t('project.props.name')} onChange={(event) => update(property.id, { name: event.target.value })} />
-              <Select className="w-32" value={property.type} aria-label={t('project.props.type')} onChange={(event) => update(property.id, { type: event.target.value as ProjectPropertyType })}>
-                {EDITABLE_TYPES.map((type) => <option key={type} value={type}>{t(`project.prop.type.${type.toLowerCase()}` as Parameters<typeof t>[0])}</option>)}
-              </Select>
+              <SelectMenu className="w-32" value={property.type} label={t('project.props.type')} onChange={(value) => update(property.id, { type: value as ProjectPropertyType })} options={typeOptions()} />
               <IconButton label={t('project.props.move_up')} size="sm" disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></IconButton>
               <IconButton label={t('project.props.move_down')} size="sm" disabled={index === draft.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></IconButton>
               <IconButton label={t('common.delete')} size="sm" onClick={() => setDraft((current) => current.filter((p) => p.id !== property.id))}><Trash2 size={15} /></IconButton>
@@ -121,9 +122,7 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
         ))}
         <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
           <Input className="min-w-0 flex-1" value={newName} placeholder={t('project.props.name')} aria-label={t('project.props.name')} onChange={(event) => setNewName(event.target.value)} />
-          <Select className="w-32" value={newType} aria-label={t('project.props.type')} onChange={(event) => setNewType(event.target.value as ProjectPropertyType)}>
-            {EDITABLE_TYPES.map((type) => <option key={type} value={type}>{t(`project.prop.type.${type.toLowerCase()}` as Parameters<typeof t>[0])}</option>)}
-          </Select>
+          <SelectMenu className="w-32" value={newType} label={t('project.props.type')} onChange={(value) => setNewType(value as ProjectPropertyType)} options={typeOptions()} />
           <Button size="sm" variant="primary" icon={<Plus size={14} />} disabled={!newName.trim()} onClick={addProperty}>{t('project.props.add')}</Button>
         </div>
       </div>

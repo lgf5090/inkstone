@@ -35,6 +35,14 @@ async function mount(): Promise<void> {
     view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
   })
 }
+/** Opens a SelectMenu by its accessible name and reads the rows it offers. */
+async function menuLabels(label: string): Promise<string[]> {
+  const trigger = view.container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+  expect(trigger, `no select named ${label}`).not.toBeNull()
+  await act(async () => { trigger!.click() })
+  return [...document.querySelectorAll('[role="menuitemcheckbox"], [role="menuitem"]')].map((row) => row.textContent ?? '')
+}
+
 beforeEach(async () => {
   localStorage.clear()
   await initI18n()
@@ -174,9 +182,12 @@ describe('table group rows, collapse, inline edit, column reorder (C-3/C-22)', (
     await mountTable({}, vi.fn().mockResolvedValue(undefined), onPatchCard)
     const cell = view.container.querySelector('[data-project-card="c1"] td:nth-child(2) button') as HTMLButtonElement
     await act(async () => { cell.click() })
-    const select = view.container.querySelector('[data-project-card="c1"] select') as HTMLSelectElement
-    expect(select).not.toBeNull()
-    await act(async () => { select.value = 'o2'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    const trigger = view.container.querySelector<HTMLButtonElement>('[data-project-card="c1"] button[aria-label="Status"]')
+    expect(trigger).not.toBeNull()
+    await act(async () => { trigger!.click() })
+    const done = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((row) => row.textContent === 'Done')
+    expect(done, 'no Done row in the cell picker').toBeDefined()
+    await act(async () => { done!.click() })
     expect(onPatchCard).toHaveBeenCalledWith('c1', { values: { ps: 'o2' } })
   })
 
@@ -358,9 +369,7 @@ describe('display by and group by (C-13/C-6)', () => {
     await act(async () => {
       view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
-    const select = view.container.querySelector(`select[aria-label="${t('project.view.display_by')}"]`) as HTMLSelectElement
-    expect(select).not.toBeNull()
-    expect([...select.options].map((option) => option.textContent)).toContain('Due')
+    expect(await menuLabels(t('project.view.display_by'))).toContain('Due')
   })
 
   it('groups by every groupable type, not only select and person', async () => {
@@ -370,8 +379,7 @@ describe('display by and group by (C-13/C-6)', () => {
     await act(async () => {
       view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
-    const select = view.container.querySelector(`select[aria-label="${t('project.view.group_by')}"]`) as HTMLSelectElement
-    expect([...select.options].map((option) => option.textContent)).toContain('Estimate')
+    expect(await menuLabels(t('project.view.group_by'))).toContain('Estimate')
   })
 })
 
@@ -483,7 +491,7 @@ describe('subtask hierarchy in views', () => {
     await act(async () => {
       view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: patchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
-    const expandBtn = view.container.querySelector('button[aria-expanded="false"]') as HTMLButtonElement
+    const expandBtn = view.container.querySelector(`button[aria-label="${t('project.card.expand_subtasks')}"]`) as HTMLButtonElement
     expect(expandBtn).not.toBeNull()
     await act(async () => { expandBtn.click() })
 
@@ -546,7 +554,7 @@ describe('calculation labels (R3-14)', () => {
   it('names the summaries in the interface language rather than the raw identifier', async () => {
     localStorage.clear()
     await mount()
-    const options = [...view.container.querySelectorAll('select option')].map((option) => option.textContent)
+    const options = await menuLabels('Status')
     expect(options).toContain(t('project.calc.percentempty'))
     expect(options).not.toContain('percentEmpty')
     expect(options).not.toContain('countUniqueValue')

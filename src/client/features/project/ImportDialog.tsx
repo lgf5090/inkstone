@@ -5,7 +5,7 @@ import { importAsanaCsv, importDeck, importJiraCsv, importNotionCsv, importTodoi
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { Button } from '../../components/primitives'
-import { Select } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
 import { Modal } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { importProjectArchive } from './api'
@@ -55,9 +55,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }): ReactElement
       <div className="space-y-3">
         <label className="block text-[length:var(--text-12)] text-[var(--text-secondary)]">
           {t('project.import.format')}
-          <Select className="mt-1 w-full" value={format} onChange={(event) => setFormat(event.target.value as Format)}>
-            {Object.keys(CONVERTERS).map((key) => <option key={key} value={key}>{key}</option>)}
-          </Select>
+          <SelectMenu className="mt-1 w-full" value={format} label={t('project.import.format')} onChange={(value) => setFormat(value as Format)} options={Object.keys(CONVERTERS).map((key) => ({ value: key, label: key }))} />
         </label>
         <input ref={inputRef} type="file" className="hidden" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
         <Button size="sm" onClick={() => inputRef.current?.click()}>{t('project.import.choose')}</Button>

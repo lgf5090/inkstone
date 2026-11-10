@@ -8,14 +8,15 @@ import { calculationOptionsFor, computeProjectCalculation } from '@shared/projec
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
-import { Checkbox, Input, Select } from '../../components/form'
+import { Checkbox, Input } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
 import { Menu, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { PropertiesModal, SortModal } from './ViewSettingsModals'
 import { FilterModal } from './FilterEditor'
 import { PropertyValueEditor } from './PropertyValueEditor'
 import { CalendarView, GalleryView } from './GalleryCalendar'
-import { CardBadges, OptionChip } from './CardBadges'
+import { CardBadges, OptionChip, optionDot } from './CardBadges'
 import { ChartView, ListView, TimelineView } from './ExtraViews'
 import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, projectBoardExportUrl } from './api'
 
@@ -468,40 +469,37 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             onChange={(event) => setSearch(event.target.value)}
           />
           {showsDateDisplay && (
-            <Select
+            <SelectMenu
               className="w-36"
+              size="sm"
               value={fields.dateDisplayPropertyId ?? ''}
-              aria-label={t('project.view.display_by')}
+              label={t('project.view.display_by')}
               disabled={!canEdit}
-              onChange={(event) => onPatchView(active.id, { fields: { dateDisplayPropertyId: event.target.value || undefined } })}
-            >
-              <option value="">{t('project.view.display_by')}</option>
-              {dateProperties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
-            </Select>
+              onChange={(value) => onPatchView(active.id, { fields: { dateDisplayPropertyId: value || undefined } })}
+              options={[{ value: '', label: t('project.view.display_by') }, ...dateProperties.map((property) => ({ value: property.id, label: property.name }))]}
+            />
           )}
           {(viewType === 'board' || viewType === 'table') && (
-            <Select
+            <SelectMenu
               className="w-36"
+              size="sm"
               value={fields.groupById ?? ''}
-              aria-label={t('project.view.group_by')}
+              label={t('project.view.group_by')}
               disabled={!canEdit}
-              onChange={(event) => onPatchView(active.id, { fields: { groupById: event.target.value || undefined } })}
-            >
-              <option value="">{t('project.view.group_by')}</option>
-              {groupable.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
-            </Select>
+              onChange={(value) => onPatchView(active.id, { fields: { groupById: value || undefined } })}
+              options={[{ value: '', label: t('project.view.group_by') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
+            />
           )}
           {viewType === 'board' && (
-            <Select
+            <SelectMenu
               className="w-32"
+              size="sm"
               value={fields.swimlaneBy ?? ''}
-              aria-label={t('project.view.swimlane')}
+              label={t('project.view.swimlane')}
               disabled={!canEdit}
-              onChange={(event) => onPatchView(active.id, { fields: { swimlaneBy: event.target.value || undefined } })}
-            >
-              <option value="">{t('project.view.swimlane')}</option>
-              {groupable.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
-            </Select>
+              onChange={(value) => onPatchView(active.id, { fields: { swimlaneBy: value || undefined } })}
+              options={[{ value: '', label: t('project.view.swimlane') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
+            />
           )}
           {viewType === 'gallery' && active && (
             <span className="flex items-center gap-2">
@@ -510,17 +508,19 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             </span>
           )}
           <span className="ml-auto flex items-center gap-1">
-            <Select
+            <SelectMenu
               className="w-28"
+              size="sm"
               value={density}
-              aria-label={t('project.view.density')}
+              label={t('project.view.density')}
               disabled={!canEdit}
-              onChange={(event) => onPatchView(active.id, { fields: { cardSize: event.target.value as 'compact' | 'comfortable' | 'spacious' } })}
-            >
-              <option value="compact">{t('project.view.density_compact')}</option>
-              <option value="comfortable">{t('project.view.density_comfortable')}</option>
-              <option value="spacious">{t('project.view.density_spacious')}</option>
-            </Select>
+              onChange={(value) => onPatchView(active.id, { fields: { cardSize: value as 'compact' | 'comfortable' | 'spacious' } })}
+              options={[
+                { value: 'compact', label: t('project.view.density_compact') },
+                { value: 'comfortable', label: t('project.view.density_comfortable') },
+                { value: 'spacious', label: t('project.view.density_spacious') },
+              ]}
+            />
             {!publicView && (
               <>
                 <IconButton label={t('project.view.sort')} size="sm" onClick={() => setSettings('sort')}><ArrowUpDown size={15} /></IconButton>
@@ -540,15 +540,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5" role="toolbar" aria-label={t('project.view.selected_count', { count: selected.length })}>
           <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('project.view.selected_count', { count: selected.length })}</span>
           <Button size="sm" variant="ghost" onClick={() => void batchDelete()}>{t('project.view.delete_selected')}</Button>
-          <Select className="w-32" value={batchPropertyId} aria-label={t('project.view.set_property')} onChange={(event) => { setBatchPropertyId(event.target.value); setBatchValue('') }}>
-            <option value="">{t('project.view.set_property')}</option>
-            {batchProperties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
-          </Select>
+          <SelectMenu className="w-32" size="sm" value={batchPropertyId} label={t('project.view.set_property')} onChange={(value) => { setBatchPropertyId(value); setBatchValue('') }} options={[{ value: '', label: t('project.view.set_property') }, ...batchProperties.map((property) => ({ value: property.id, label: property.name }))]} />
           {batchProperty && (
-            <Select className="w-32" value={batchValue} aria-label={t('project.view.filter_value')} onChange={(event) => setBatchValue(event.target.value)}>
-              <option value="">—</option>
-              {batchProperty.options.map((option) => <option key={option.id} value={option.id}>{option.value}</option>)}
-            </Select>
+            <SelectMenu className="w-32" size="sm" value={batchValue} label={t('project.view.filter_value')} onChange={setBatchValue} options={[{ value: '', label: '—' }, ...batchProperty.options.map((option) => ({ value: option.id, label: option.value, icon: optionDot(option.color) }))]} />
           )}
           <Button size="sm" disabled={!batchPropertyId} onClick={() => void batchApply()}>{t('common.save')}</Button>
           <Button size="sm" variant="ghost" onClick={() => setSelected([])}>{t('project.view.clear_selection')}</Button>
@@ -775,15 +769,15 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                           return (
                             <td key={property.id} className="px-3 py-1">
                               <span className="mr-2">{computeProjectCalculation(sorted, property, calc)}</span>
-                              <Select
+                              <SelectMenu
                                 className="w-28"
+                                size="sm"
                                 value={calc}
-                                aria-label={property.name}
+                                label={property.name}
                                 disabled={!canEdit}
-                                onChange={(event) => onPatchView(active.id, { fields: { columnCalculations: { ...fields.columnCalculations, [property.id]: event.target.value as typeof calc } } })}
-                              >
-                                {calculationOptionsFor(property).map((option) => <option key={option} value={option}>{t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0])}</option>)}
-                              </Select>
+                                onChange={(value) => onPatchView(active.id, { fields: { columnCalculations: { ...fields.columnCalculations, [property.id]: value as typeof calc } } })}
+                                options={calculationOptionsFor(property).map((option) => ({ value: option, label: t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0]) }))}
+                              />
                             </td>
                           )
                         })}
@@ -897,15 +891,15 @@ function BoardColumns({
                 </IconButton>
               )}
               {calcProperty && (
-                <Select
+                <SelectMenu
                   className="w-24"
+                  size="sm"
                   value={calc}
-                  aria-label={label}
+                  label={label}
                   disabled={!canEdit}
-                  onChange={(event) => onPatch({ kanbanCalculations: { ...fields.kanbanCalculations, [key]: { calculation: event.target.value as ProjectCalculation, propertyId: calcProperty.id } } })}
-                >
-                  {calculationOptionsFor(calcProperty).map((option) => <option key={option} value={option}>{t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0])}</option>)}
-                </Select>
+                  onChange={(value) => onPatch({ kanbanCalculations: { ...fields.kanbanCalculations, [key]: { calculation: value as ProjectCalculation, propertyId: calcProperty.id } } })}
+                  options={calculationOptionsFor(calcProperty).map((option) => ({ value: option, label: t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0]) }))}
+                />
               )}
               <span className={fields.wipLimits?.[key] !== undefined && rootCards.length > fields.wipLimits[key]! ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}>{calcProperty ? computeProjectCalculation(rootCards, calcProperty, calc) : rootCards.length}</span>
               {canEdit && groupProperty && (

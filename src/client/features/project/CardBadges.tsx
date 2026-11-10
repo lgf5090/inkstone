@@ -55,3 +55,6 @@ export function CardBadges({ badges, subtaskCount = 0, subtaskDone = 0 }: { badg
     </span>
   )
 }
+export function optionDot(color: string): ReactElement {
+  return <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: projectOptionCssColor(color) ?? 'var(--text-quaternary)' }} />
+}

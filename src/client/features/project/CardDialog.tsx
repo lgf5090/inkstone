@@ -5,7 +5,8 @@ import { isProjectCardDone } from '@shared/project/model'
 import { moveContentOrder } from '@shared/project/content-order'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
-import { Checkbox, commitOnEnter, Input, Select, Textarea } from '../../components/form'
+import { Checkbox, commitOnEnter, Input, Textarea } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
 import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
 import { sendForAnswerDetailed } from '../chat/editor-ai'
 import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
@@ -474,10 +475,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           </ul>
           {canEdit && (
             <div className="flex items-center gap-2">
-              <Select className="min-w-0 flex-1" value={blocker} aria-label={t('project.card.add_dependency')} onChange={(event) => setBlocker(event.target.value)}>
-                <option value="">{t('project.card.add_dependency')}</option>
-                {siblings.filter((s) => s.id !== card.id && !blockers.some((b) => b.fromCardId === s.id)).map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
-              </Select>
+              <SelectMenu className="min-w-0 flex-1" value={blocker} label={t('project.card.add_dependency')} searchable onChange={setBlocker} options={[{ value: '', label: t('project.card.add_dependency') }, ...siblings.filter((s) => s.id !== card.id && !blockers.some((b) => b.fromCardId === s.id)).map((s) => ({ value: s.id, label: s.title }))]} />
               <Button size="sm" disabled={!blocker} onClick={() => void addDependency()}>{t('project.card.add_dependency')}</Button>
             </div>
           )}

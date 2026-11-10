@@ -11,7 +11,8 @@ import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
 import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
-import { Input, Select } from '../../components/form'
+import { Input } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Modal } from '../../components/overlay'
 import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard } from './api'
@@ -322,19 +323,17 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
             {t('project.board.new_card')}
           </Button>
           {canEdit && bundle.cards.some((card) => card.isTemplate) && (
-            <Select
+            <SelectMenu
               className="w-36"
               value=""
-              aria-label={t('project.card.from_template')}
-              onChange={(event) => {
-                const templateId = event.target.value
+              label={t('project.card.from_template')}
+              placeholder={t('project.card.from_template')}
+              onChange={(templateId) => {
                 if (!templateId) return
                 void createCardFromTemplate(boardId, templateId).then((card) => setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current)))
               }}
-            >
-              <option value="">{t('project.card.from_template')}</option>
-              {bundle.cards.filter((card) => card.isTemplate).map((card) => <option key={card.id} value={card.id}>{card.title}</option>)}
-            </Select>
+              options={bundle.cards.filter((card) => card.isTemplate).map((card) => ({ value: card.id, label: card.title }))}
+            />
           )}
         </form>
       )}

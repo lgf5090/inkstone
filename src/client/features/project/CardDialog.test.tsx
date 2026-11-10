@@ -63,12 +63,12 @@ describe('the card dialog', () => {
   it('patches a select property when changed', async () => {
     vi.mocked(api.patchProjectCard).mockResolvedValue({ ...card, values: { pt: 'old', ps: 'o2' } })
     await mount()
-    const select = document.body.querySelector('select[aria-label="Status"]') as HTMLSelectElement
-    expect(select).not.toBeNull()
-    await act(async () => {
-      select.value = 'o2'
-      select.dispatchEvent(new Event('change', { bubbles: true }))
-    })
+    const trigger = document.body.querySelector<HTMLButtonElement>('button[aria-label="Status"]')
+    expect(trigger).not.toBeNull()
+    await act(async () => { trigger!.click() })
+    const done = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((row) => row.textContent === 'Done')
+    expect(done, 'no Done row in the status picker').toBeDefined()
+    await act(async () => { done!.click() })
     expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { values: { ps: 'o2' } })
   })
 

@@ -44,14 +44,22 @@ async function save(): Promise<void> {
 function clauseRow(index = 0): HTMLElement {
   return document.body.querySelectorAll('[data-project-filter-clause]')[index] as HTMLElement
 }
-function selectIn(row: HTMLElement, label: string): HTMLSelectElement {
-  return row.querySelector(`select[aria-label="${label}"]`) as HTMLSelectElement
+function selectIn(row: HTMLElement, label: string): HTMLButtonElement {
+  return row.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement
 }
-async function choose(select: HTMLSelectElement, value: string): Promise<void> {
-  await act(async () => {
-    select.value = value
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
+/** The row a stored value is offered under: a property name, a join word, or a condition's own label. */
+function labelFor(value: string): string {
+  const property = properties.find((entry) => entry.id === value)
+  if (property) return property.name
+  if (value === 'and') return t('project.view.filter_and')
+  if (value === 'or') return t('project.view.filter_or')
+  return t(`project.condition.${value.toLowerCase()}` as Parameters<typeof t>[0])
+}
+async function choose(trigger: HTMLButtonElement, value: string): Promise<void> {
+  await act(async () => { trigger.click() })
+  const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((item) => item.textContent === labelFor(value))
+  expect(row, `no menu row for ${value}`).toBeDefined()
+  await act(async () => { row!.click() })
 }
 async function type(input: HTMLInputElement, value: string): Promise<void> {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
@@ -66,7 +74,7 @@ describe('the nested filter editor (C-9)', () => {
     await mount()
     await click(t('project.view.add_filter'))
     const row = clauseRow()
-    expect(selectIn(row, t('project.view.filter_condition')).value).toBe('is')
+    expect(selectIn(row, t('project.view.filter_condition')).textContent).toBe(t('project.condition.is'))
     await type(row.querySelector('input') as HTMLInputElement, 'abc')
     await save()
     expect(onPatch).toHaveBeenCalledWith({ filter: { operation: 'and', filters: [{ propertyId: 'pt', condition: 'is', values: ['abc'] }] } })
@@ -76,7 +84,7 @@ describe('the nested filter editor (C-9)', () => {
     await mount()
     await click(t('project.view.add_filter_group'))
     const parent = document.body.querySelector('[data-project-filter-group="0"]') as HTMLElement
-    await choose(parent.querySelector(`select[aria-label="${t('project.view.filter_operation')}"]`) as HTMLSelectElement, 'or')
+    await choose(parent.querySelector(`button[aria-label="${t('project.view.filter_operation')}"]`) as HTMLButtonElement, 'or')
     const nested = document.body.querySelector('[data-project-filter-group="1"]') as HTMLElement
     await click(t('project.view.add_filter'))
     expect(nested.querySelector('[data-project-filter-clause]')).not.toBeNull()
@@ -116,7 +124,7 @@ describe('the nested filter editor (C-9)', () => {
     await click(t('project.view.add_filter'))
     await type(clauseRow().querySelector('input') as HTMLInputElement, 'abc')
     await choose(selectIn(clauseRow(), t('project.view.filter')), 'ps')
-    expect(selectIn(clauseRow(), t('project.view.filter_condition')).value).toBe('includes')
+    expect(selectIn(clauseRow(), t('project.view.filter_condition')).textContent).toBe(t('project.condition.includes'))
     await save()
     expect(onPatch).toHaveBeenCalledWith({ filter: { operation: 'and', filters: [{ propertyId: 'ps', condition: 'includes', values: [] }] } })
   })
@@ -160,7 +168,7 @@ describe('typed filter values (C-10/C-11)', () => {
     await mount()
     await click(t('project.view.add_filter'))
     await choose(selectIn(clauseRow(), t('project.view.filter')), 'pb')
-    expect(selectIn(clauseRow(), t('project.view.filter_condition')).value).toBe('isSet')
+    expect(selectIn(clauseRow(), t('project.view.filter_condition')).textContent).toBe(t('project.condition.isset'))
     expect(clauseRow().querySelector('input')).toBeNull()
     expect(clauseRow().querySelector('[role="checkbox"]')).toBeNull()
     await save()
