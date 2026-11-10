@@ -3902,6 +3902,37 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 291,
     statements: PROJECT_FTS_SCHEMA_STATEMENTS,
   },
+  {
+    // The view type list lives in PROJECT_VIEW_TYPES and is enforced by ProjectViewTypeSchema at the
+    // API boundary. The table used to repeat it as a CHECK, which a new view type could not get past:
+    // CREATE TABLE IF NOT EXISTS leaves an existing constraint alone, so adding 'dashboard' to the
+    // enum made the write fail with a 500 on every database created before it. Rebuild without the
+    // duplicate list, carrying every row across unchanged.
+    version: 292,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS project_views_rebuild (
+         id TEXT PRIMARY KEY,
+         board_id TEXT NOT NULL,
+         title TEXT NOT NULL DEFAULT '',
+         view_type TEXT NOT NULL,
+         fields TEXT NOT NULL DEFAULT '{}',
+         position REAL NOT NULL DEFAULT 0,
+         created_by TEXT NOT NULL,
+         modified_by TEXT NOT NULL,
+         create_at INTEGER NOT NULL,
+         update_at INTEGER NOT NULL,
+         delete_at INTEGER NOT NULL DEFAULT 0
+       )`,
+      `INSERT INTO project_views_rebuild
+         (id, board_id, title, view_type, fields, position, created_by, modified_by, create_at, update_at, delete_at)
+         SELECT id, board_id, title, view_type, fields, position, created_by, modified_by, create_at, update_at, delete_at
+         FROM project_views`,
+      'DROP TABLE project_views',
+      'ALTER TABLE project_views_rebuild RENAME TO project_views',
+      `CREATE INDEX IF NOT EXISTS idx_project_views_board
+         ON project_views(board_id, delete_at, position)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -122,7 +122,7 @@ export function ListView({
                   </span>
                   {cardBadges && <CardBadges badges={cardBadges} />}
                   {hasSubtasks && (
-                    <span className="shrink-0 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
+                    <span className="shrink-0 rounded bg-[var(--bg-hover)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
                       {doneCount}/{cardSubtasks.length}
                     </span>
                   )}
@@ -306,7 +306,7 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
           ))}
         </div>
         <div className="relative min-w-0" style={{ width: `${days.length * columnPx}px` }}>
-          <div className="sticky top-0 z-[1] h-12 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]">
+          <div className="sticky top-0 z-10 h-12 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]">
             <div className="flex h-6">
               {monthRuns.map((run) => (
                 <div key={run.label} className="truncate border-r border-[var(--border-subtle)] px-1 text-center text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]" style={{ width: `${run.span * columnPx}px` }}>

@@ -12509,6 +12509,7 @@ const allowed = new Map([
     "/* best-effort: remembering the last board is optional */",
     "// Ask the cheap question first: an unchanged cursor means the copy on screen is still current,",
     "// and a busy board's whole-bundle read is the expensive half of this poll.",
+    "/* best-effort wake-up refetch: the interval still converges on its next beat */",
   ]],
   ["src/client/features/project/BoardViews.test.tsx", [
     "/** Opens a SelectMenu by its accessible name and reads the rows it offers. */",
@@ -39721,6 +39722,11 @@ const allowed = new Map([
     "// existed and was withdrawn before it ran out.",
     "// A preview read arrives with the token and nothing else, so the lookup has to find the row by",
     "// its hash. The primary key starts with the owner, which would make that lookup a scan.",
+    "// The view type list lives in PROJECT_VIEW_TYPES and is enforced by ProjectViewTypeSchema at the",
+    "// API boundary. The table used to repeat it as a CHECK, which a new view type could not get past:",
+    "// CREATE TABLE IF NOT EXISTS leaves an existing constraint alone, so adding 'dashboard' to the",
+    "// enum made the write fail with a 500 on every database created before it. Rebuild without the",
+    "// duplicate list, carrying every row across unchanged.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -47864,6 +47870,11 @@ const allowed = new Map([
   ]],
   ["tests/project-no-native-select.test.ts", [
     "/**\n * The project app draws its selects with the app's own menu.\n *\n * A native `<select>` cannot carry an option's colour dot or the accent state the rest of the app\n * uses, and its system chrome ignores every design token. `SelectMenu` exists for exactly this and\n * is what the other features use; this app was the last one still on the browser control, which is\n * why its status pickers read as grey text where the reference shows a coloured pill.\n */",
+  ]],
+  ["tests/project-schema.test.ts", [
+    "// view_type is no longer CHECKed in SQL: the list lives in PROJECT_VIEW_TYPES and",
+    "// ProjectViewTypeSchema refuses an unknown value at the API boundary, which is the one place",
+    "// that can grow without rebuilding the table. The boundary is asserted just below.",
   ]],
   ["tests/project-shares.test.ts", [
     "// requestClientIp only trusts CF-Connecting-IP when the edge attached `cf`; without it every caller",

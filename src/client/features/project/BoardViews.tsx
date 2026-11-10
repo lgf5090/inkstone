@@ -7,6 +7,7 @@ import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, pro
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
+import { isImeComposing } from '../../lib/ime'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
@@ -732,7 +733,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                                       {card.title || t('project.board.untitled_card')}
                                     </button>
                                     {hasSubtasks && (
-                                      <span className="shrink-0 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
+                                      <span className="shrink-0 rounded bg-[var(--bg-hover)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">
                                         {cardSubtasks.filter((s) => isProjectCardDone(s, bundle.properties)).length}/{cardSubtasks.length}
                                       </span>
                                     )}
@@ -1281,7 +1282,7 @@ function ColumnAddTask({ label, onAdd }: { label: string, onAdd: (title: string)
         aria-label={label}
         placeholder={t('project.board.card_placeholder')}
         onChange={(event) => setTitle(event.target.value)}
-        onKeyDown={(event) => { if (event.key === 'Escape') { setOpen(false); setTitle('') } }}
+        onKeyDown={(event) => { if (event.key === 'Escape' && !isImeComposing(event)) { setOpen(false); setTitle('') } }}
         onBlur={() => { if (!title.trim()) setOpen(false) }}
       />
     </form>

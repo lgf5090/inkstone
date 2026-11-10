@@ -93,8 +93,7 @@ export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
     id TEXT PRIMARY KEY,
     board_id TEXT NOT NULL,
     title TEXT NOT NULL DEFAULT '',
-    view_type TEXT NOT NULL CHECK (view_type IN
-      ('board','table','gallery','calendar','list','timeline','gantt','chart')),
+    view_type TEXT NOT NULL,
     fields TEXT NOT NULL DEFAULT '{}',
     position REAL NOT NULL DEFAULT 0,
     created_by TEXT NOT NULL,

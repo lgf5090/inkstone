@@ -149,7 +149,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         lastRefetch = Date.now()
         fetchProjectBoardBundle(boardId, controller.signal)
           .then((fresh) => setBundle(fresh))
-          .catch(() => undefined)
+          .catch(() => { /* best-effort wake-up refetch: the interval still converges on its next beat */ return undefined })
       }
     }
     if (typeof document !== 'undefined') {

@@ -10,6 +10,7 @@ import { useUi } from '../../store/ui'
 import { useProjectStore } from './store'
 import { readRandomIconPref, writeRandomIconPref } from './project-icon'
 import { categoryDropZone, planCategoryDrop } from './sidebar-drag'
+import { isImeComposing } from '../../lib/ime'
 import { PROJECT_SIDEBAR_MAX_WIDTH, PROJECT_SIDEBAR_MIN_WIDTH, readSidebarWidthPref, writeSidebarWidthPref } from './project-prefs'
 import {
   readPinnedBoardsPref,
@@ -185,6 +186,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   }, [starredIds, boards, matches])
 
   const onSearchKey = (event: KeyboardEvent) => {
+    if (isImeComposing(event)) return
     if (event.key === 'ArrowDown') { event.preventDefault(); setHighlight((current) => Math.min(current + 1, visibleBoards.length - 1)) }
     else if (event.key === 'ArrowUp') { event.preventDefault(); setHighlight((current) => Math.max(current - 1, 0)) }
     else if (event.key === 'Enter') { const board = visibleBoards[highlight]; if (board) navigateToPath(`/project/boards/${board.id}`) }

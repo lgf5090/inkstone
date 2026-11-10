@@ -10,6 +10,7 @@ import { t, useLocale } from '../../lib/i18n'
 import { buildMonthGridCells } from '../../components/calendar-grids'
 import { resolveWeekStart, useCalendarDisplayPrefs } from '../../lib/calendar-display-prefs'
 import { dateKey, narrowWeekdayLabels, startOfWeek } from '../../lib/time'
+import { isImeComposing } from '../../lib/ime'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { Segmented } from '../../components/form'
@@ -92,6 +93,7 @@ export function GalleryView({
                       key={card.id}
                       type="button"
                       data-project-card={card.id}
+                      aria-label={card.title || t('project.board.untitled_card')}
                       className="flex flex-col items-start gap-2 overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 text-left shadow-[var(--shadow-sm)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                       onClick={() => onOpenCard(card.id)}
                       onContextMenu={(event) => onCardContextMenu?.(event, card)}
@@ -150,7 +152,7 @@ function GalleryAddTile({ onAdd }: { onAdd: (title: string) => Promise<void> }):
         aria-label={t('project.board.new_card')}
         placeholder={t('project.board.card_placeholder')}
         onChange={(event) => setTitle(event.target.value)}
-        onKeyDown={(event) => { if (event.key === 'Escape') { setOpen(false); setTitle('') } }}
+        onKeyDown={(event) => { if (event.key === 'Escape' && !isImeComposing(event)) { setOpen(false); setTitle('') } }}
         onBlur={() => { if (!title.trim()) setOpen(false) }}
       />
     </form>

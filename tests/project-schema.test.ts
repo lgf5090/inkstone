@@ -2,6 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import { ProjectViewTypeSchema } from '../src/shared/project/validation'
 import {
   PROJECT_AUX_SCHEMA_STATEMENTS,
   PROJECT_CONTENT_SCHEMA_STATEMENTS,
@@ -142,10 +143,11 @@ describe('the project tables', () => {
       `INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at)
        VALUES ('b1', 'u2', 'owner', 1, 1)`,
     ).run()).toThrow()
-    expect(() => sqlite.prepare(
-      `INSERT INTO project_views (id, board_id, view_type, created_by, modified_by, create_at, update_at)
-       VALUES ('v1', 'b1', 'spreadsheet', 'u1', 'u1', 1, 1)`,
-    ).run()).toThrow()
+    // view_type is no longer CHECKed in SQL: the list lives in PROJECT_VIEW_TYPES and
+    // ProjectViewTypeSchema refuses an unknown value at the API boundary, which is the one place
+    // that can grow without rebuilding the table. The boundary is asserted just below.
+    expect(ProjectViewTypeSchema.safeParse('spreadsheet').success).toBe(false)
+    expect(ProjectViewTypeSchema.safeParse('dashboard').success).toBe(true)
     expect(() => sqlite.prepare(
       `INSERT INTO project_card_contents (id, card_id, board_id, type, created_by, modified_by, create_at, update_at)
        VALUES ('a1', 'c1', 'b1', 'video', 'u1', 'u1', 1, 1)`,
