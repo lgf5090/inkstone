@@ -25,6 +25,9 @@ vi.mock('./api', () => ({
   patchCardComment: vi.fn(),
   deleteCardComment: vi.fn(),
   projectFileUrl: vi.fn((id: string) => `/api/project/files/${id}`),
+  fetchProjectSubscriptions: vi.fn().mockResolvedValue([]),
+  watchProjectBlock: vi.fn().mockResolvedValue(undefined),
+  unwatchProjectBlock: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../store/session', () => ({
@@ -324,5 +327,25 @@ describe('AI card capabilities', () => {
     const gpBtn = [...nav.querySelectorAll('button')].find((b) => b.textContent === 'Epic Feature')
     await act(async () => { gpBtn?.click() })
     expect(onOpen).toHaveBeenCalledWith('gp1')
+  })
+})
+
+describe('watching a card (R3-5)', () => {
+  it('offers a watch toggle that subscribes the reader', async () => {
+    await mount()
+    const watch = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('project.watch.on'))
+    expect(watch, 'no watch affordance on the card').toBeDefined()
+    await act(async () => { watch!.click() })
+    expect(api.watchProjectBlock).toHaveBeenCalledWith('card', 'c1')
+  })
+
+  it('starts as watching when the subscription list already names the card', async () => {
+    vi.mocked(api.fetchProjectSubscriptions).mockResolvedValue([{ blockType: 'card', blockId: 'c1', subscriberId: 'u1', notifiedAt: 0, createAt: 1 }])
+    await mount()
+    const off = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('project.watch.off'))
+    expect(off, 'an existing subscription is not reflected').toBeDefined()
+    await act(async () => { off!.click() })
+    expect(api.unwatchProjectBlock).toHaveBeenCalledWith('c1')
+    vi.mocked(api.fetchProjectSubscriptions).mockResolvedValue([])
   })
 })

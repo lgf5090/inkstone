@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { ArrowLeft, FileDown, History, PanelLeft, Plus, Settings2, Share2, Sparkles, SquareKanban, Users } from 'lucide-react'
+import { ArrowLeft, Bell, FileDown, History, PanelLeft, Plus, Settings2, Share2, Sparkles, SquareKanban, Trash2, Users } from 'lucide-react'
 import type { ProjectActivityEntry, ProjectBoardBundle, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { projectRoleAtLeast, emptyProjectViewFields } from '@shared/project/model'
 import { projectFilterPrefill } from '@shared/project/view-eval'
@@ -29,6 +29,8 @@ import { BoardPropertiesDialog } from './BoardPropertiesDialog'
 import { CardDialog } from './CardDialog'
 import { ShareDialog } from './ShareDialog'
 import { MembersDialog } from './MembersDialog'
+import { TrashDialog } from './TrashDialog'
+import { useProjectWatch } from './use-watch'
 
 type Status = 'loading' | 'ready' | 'error' | 'notfound'
 
@@ -53,6 +55,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [showProps, setShowProps] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
+  const [showTrash, setShowTrash] = useState(false)
+  const boardWatch = useProjectWatch('board', boardId)
   const [showActivity, setShowActivity] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -308,6 +312,10 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
               </IconButton>
             </>
           )}
+          <IconButton label={boardWatch.watching ? t('project.watch.off') : t('project.watch.on')} size="sm" active={boardWatch.watching} onClick={() => { void boardWatch.toggle() }}><Bell size={16} /></IconButton>
+          {bundle.role === 'admin' && (
+            <IconButton label={t('project.trash.title')} size="sm" onClick={() => setShowTrash(true)}><Trash2 size={16} /></IconButton>
+          )}
           <IconButton label={t('project.board.activity')} size="sm" onClick={openActivity}><History size={16} /></IconButton>
           <IconButton label={t('project.board.export_md')} size="sm" onClick={exportMarkdown}><FileDown size={16} /></IconButton>
           <IconButton
@@ -379,6 +387,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           onSave={saveProps}
         />
       )}
+      {showTrash && <TrashDialog boardId={boardId} onClose={() => setShowTrash(false)} onRestored={() => { void refresh() }} />}
       {showShare && <ShareDialog boardId={boardId} onClose={() => setShowShare(false)} />}
       {showMembers && (
         <MembersDialog

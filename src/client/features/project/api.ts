@@ -18,6 +18,7 @@ import type {
   ProjectContent,
   ProjectRole,
   ProjectShare,
+  ProjectSubscription,
   ProjectView,
   ProjectViewPatch,
   ProjectViewType,
@@ -333,4 +334,33 @@ export async function joinProjectBoard(boardId: string): Promise<ProjectBoardMem
 
 export async function leaveProjectBoard(boardId: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/leave`, { method: 'POST', body: {} })
+}
+
+export async function fetchProjectSubscriptions(signal?: AbortSignal): Promise<ProjectSubscription[]> {
+  const body = await request<{ subscriptions: ProjectSubscription[] }>('/api/project/subscriptions', { signal })
+  return body.subscriptions
+}
+
+export async function watchProjectBlock(blockType: ProjectSubscription['blockType'], blockId: string): Promise<void> {
+  await request<{ subscription: ProjectSubscription }>('/api/project/subscriptions', { method: 'POST', body: { blockType, blockId } })
+}
+
+export async function unwatchProjectBlock(blockId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/subscriptions/${encodeURIComponent(blockId)}`, { method: 'DELETE' })
+}
+
+export interface DeletedProjectCard { id: string, title: string, deleteAt: number }
+
+export async function fetchProjectTrash(signal?: AbortSignal): Promise<ProjectBoardSummary[]> {
+  const body = await request<{ boards: ProjectBoardSummary[] }>('/api/project/trash', { signal })
+  return body.boards
+}
+
+export async function fetchBoardTrash(boardId: string, signal?: AbortSignal): Promise<DeletedProjectCard[]> {
+  const body = await request<{ cards: DeletedProjectCard[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/trash`, { signal })
+  return body.cards
+}
+
+export async function restoreProjectBoard(boardId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/undelete`, { method: 'POST', body: {} })
 }

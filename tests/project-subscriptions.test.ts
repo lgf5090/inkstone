@@ -110,3 +110,27 @@ describe('following a card', () => {
     expect((await list('bob')).map((s) => s.blockId)).toEqual([card.id])
   })
 })
+describe('the restore list (R3-5)', () => {
+  it('lists a soft-deleted board the live list hides, and restoring brings it back', async () => {
+    const created = await req('alice', 'POST', '/boards', { title: 'Doomed' })
+    const board = ((await created.json()) as { board: ProjectBoard }).board
+    await req('alice', 'DELETE', `/boards/${board.id}`)
+    const live = ((await (await req('alice', 'GET', '/boards')).json()) as { boards: ProjectBoard[] }).boards
+    expect(live.some((entry) => entry.id === board.id)).toBe(false)
+    const trash = ((await (await req('alice', 'GET', '/trash')).json()) as { boards: ProjectBoard[] }).boards
+    expect(trash.some((entry) => entry.id === board.id)).toBe(true)
+    await req('alice', 'POST', `/boards/${board.id}/undelete`, {})
+    const after = ((await (await req('alice', 'GET', '/trash')).json()) as { boards: ProjectBoard[] }).boards
+    expect(after.some((entry) => entry.id === board.id)).toBe(false)
+  })
+
+  it('lists deleted cards for a board admin', async () => {
+    const created = await req('alice', 'POST', '/boards', { title: 'Card trash' })
+    const board = ((await created.json()) as { board: ProjectBoard }).board
+    const cardRes = await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Dropped' })
+    const card = ((await cardRes.json()) as { card: { id: string } }).card
+    await req('alice', 'DELETE', `/cards/${card.id}`)
+    const trash = ((await (await req('alice', 'GET', `/boards/${board.id}/trash`)).json()) as { cards: { id: string }[] }).cards
+    expect(trash.map((entry) => entry.id)).toContain(card.id)
+  })
+})

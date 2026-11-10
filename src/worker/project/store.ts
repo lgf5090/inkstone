@@ -1,5 +1,5 @@
 import type { ProjectBoardSummary } from '@shared/project/model'
-import { visibleProjectBoards, type ProjectBoardRow, type ProjectMembershipRow } from './permissions'
+import { rowToBoard, visibleProjectBoards, type ProjectBoardRow, type ProjectMembershipRow } from './permissions'
 
 /**
  * The project app's reads and writes, in one place so no route file carries SQL.
@@ -33,5 +33,17 @@ export class ProjectStore {
       .bind(this.userId)
       .all<ProjectMembershipRow>()
     return visibleProjectBoards(results, memberships, this.userId)
+  }
+  /** Soft-deleted boards this account owns: the restore list, which the live board list excludes. */
+  async deletedBoards(): Promise<ProjectBoardSummary[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT * FROM project_boards
+         WHERE delete_at != 0 AND is_template = 0 AND owner_id = ?1
+         ORDER BY delete_at DESC LIMIT 100`,
+      )
+      .bind(this.userId)
+      .all<ProjectBoardRow>()
+    return results.map((row) => ({ ...rowToBoard(row), role: 'admin' as const }))
   }
 }

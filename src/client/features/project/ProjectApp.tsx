@@ -15,6 +15,7 @@ import { ImportDialog } from './ImportDialog'
 import { ProjectSidebar } from './ProjectSidebar'
 import { SearchDialog } from './SearchDialog'
 import { TemplatePicker } from './TemplatePicker'
+import { TrashDialog } from './TrashDialog'
 
 const ROLE_LABEL_KEYS: Record<ProjectRole, MessageKey> = {
   viewer: 'project.role.viewer',
@@ -46,6 +47,7 @@ function BoardList(): ReactElement {
   const [showPicker, setShowPicker] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [showTrash, setShowTrash] = useState(false)
 
   useEffect(() => {
     ensureBoards()
@@ -87,6 +89,7 @@ function BoardList(): ReactElement {
           </span>
         )}
         <IconButton className="ml-auto" label={t('project.search.title')} size="sm" onClick={() => setShowSearch(true)}><Search size={16} /></IconButton>
+        <IconButton label={t('project.trash.title')} size="sm" onClick={() => setShowTrash(true)}><Trash2 size={16} /></IconButton>
         <IconButton label={t('project.import.title')} size="sm" onClick={() => setShowImport(true)}><Upload size={16} /></IconButton>
         <Button variant="primary" size="sm" icon={<Plus size={15} />} onClick={() => setShowPicker(true)}>
           {t('project.boards.new')}
@@ -113,6 +116,7 @@ function BoardList(): ReactElement {
       </div>
       {showPicker && <TemplatePicker onClose={() => setShowPicker(false)} onPick={(id) => void pickTemplate(id)} />}
       {showSearch && <SearchDialog onClose={() => setShowSearch(false)} />}
+      {showTrash && <TrashDialog onClose={() => setShowTrash(false)} onRestored={() => { void loadBoards() }} />}
       {showImport && <ImportDialog onClose={() => setShowImport(false)} />}
     </div>
   )

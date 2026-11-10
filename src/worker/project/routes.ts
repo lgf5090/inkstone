@@ -177,6 +177,20 @@ projectRoutes.get('/insights/top-boards', async (c) => {
   return c.json(await topProjectBoards(c.env.DB, projectUserId(c), limit, offset))
 })
 
+/** The restore list: soft-deleted boards this account owns, which the live list deliberately hides. */
+projectRoutes.get('/trash', async (c) => {
+  return c.json({ boards: await store(c).deletedBoards() })
+})
+
+/** Soft-deleted cards on one board, for the same restore panel. */
+projectRoutes.get('/boards/:id/trash', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'admin', { allowDeleted: true })
+  const { results } = await c.env.DB
+    .prepare('SELECT id, title, delete_at FROM project_cards WHERE board_id = ?1 AND delete_at != 0 ORDER BY delete_at DESC LIMIT 200')
+    .bind(board.id).all<{ id: string, title: string, delete_at: number }>()
+  return c.json({ cards: results.map((row) => ({ id: row.id, title: row.title, deleteAt: row.delete_at })) })
+})
+
 projectRoutes.get('/boards/:id/activity', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
   const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 50) || 50, 1), 200)

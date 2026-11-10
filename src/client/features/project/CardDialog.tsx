@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
-import { Archive, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
+import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import { moveContentOrder } from '@shared/project/content-order'
@@ -13,6 +13,7 @@ import { addCardLink, createCardComment, createCardContent, createProjectCard, d
 import { PropertyValueEditor } from './PropertyValueEditor'
 import { useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
+import { useProjectWatch } from './use-watch'
 
 interface CardDialogProps {
   card: ProjectCard
@@ -60,6 +61,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
   const [menuOpen, setMenuOpen] = useState(false)
   const toast = useUi((state) => state.toast)
   const currentUserId = useSession((state) => state.user?.id)
+  const watch = useProjectWatch('card', card.id)
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
 
@@ -317,6 +319,9 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
           {canEdit && (
             <Button size="sm" variant="ghost" onClick={() => { void saveCardAsTemplate(card.id).then(onRefresh) }}>{t('project.card.save_as_template')}</Button>
           )}
+          <Button size="sm" variant={watch.watching ? 'primary' : 'ghost'} icon={<Bell size={14} />} onClick={() => { void watch.toggle() }}>
+            {watch.watching ? t('project.watch.off') : t('project.watch.on')}
+          </Button>
           <IconButton ref={menuAnchor} label={t('project.card.menu')} size="sm" onClick={() => setMenuOpen(true)}>
             <MoreHorizontal size={15} />
           </IconButton>

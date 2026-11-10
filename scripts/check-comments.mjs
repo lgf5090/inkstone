@@ -12557,6 +12557,9 @@ const allowed = new Map([
   ["src/client/features/project/PropertyValueEditor.tsx", [
     "/** The four server-stamped types live on the card, not in `values`, so they need the card to read. */",
   ]],
+  ["src/client/features/project/TrashDialog.tsx", [
+    "/**\n * What this account deleted, and the way back.\n *\n * Deletes are soft everywhere in this app, so the rows are still there — until now nothing listed\n * them, which made a delete permanent in practice. Boards are listed for their owner and cards for\n * a board admin, the same roles the restore routes themselves require.\n */",
+  ]],
   ["src/client/features/project/api.ts", [
     "/** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */",
     "/** The stranger's read: no session, the slug and passcode are the whole capability. */",
@@ -12579,6 +12582,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/undo.ts", [
     "/**\n * E-14: a bounded command stack for board mutations. Each command carries an inverse (undo) and a\n * re-apply (redo); pushing a new command clears the redo branch, and switching boards clears both.\n */",
+  ]],
+  ["src/client/features/project/use-watch.ts", [
+    "/**\n * Whether this account is watching one block, and the toggle that changes it.\n *\n * The reminder sweep and the comment notifications both read the subscription rows, so a board with\n * no watchers is a board whose notifications nobody receives. The list is read once per mount and\n * the toggle writes through it, rather than each caller keeping its own copy of the same roster.\n */",
   ]],
   ["src/client/features/quickadd/bridge.test.ts", [
     "// `mount(undefined)` would take the helper's own default, so the prop is set here directly.",
@@ -41202,6 +41208,8 @@ const allowed = new Map([
     "// The stored mime is client-controlled; only render a safe allowlist inline. Anything else",
     "// (html/svg/…) downloads as an opaque blob so it can never execute in this origin (stored XSS).",
     "/** The cheap staleness question: a poller asks this before paying for the whole bundle. */",
+    "/** The restore list: soft-deleted boards this account owns, which the live list deliberately hides. */",
+    "/** Soft-deleted cards on one board, for the same restore panel. */",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
@@ -41234,6 +41242,7 @@ const allowed = new Map([
   ["src/worker/project/store.ts", [
     "/**\n * The project app's reads and writes, in one place so no route file carries SQL.\n *\n * Board-scoped rows key on the board rather than the account, so every query here either names the\n * account explicitly (the boards it owns) or reaches it through the membership table.\n */",
     "/**\n   * Owned boards and boards shared with this account, in one statement: a per-membership lookup\n   * would turn a sidebar of fifty boards into fifty round trips.\n   */",
+    "/** Soft-deleted boards this account owns: the restore list, which the live board list excludes. */",
   ]],
   ["src/worker/project/subscriptions.ts", [
     "/**\n * Following a board or a card. A subscription is the caller's own row keyed by (block, subscriber),\n * so re-following revives a soft-deleted row rather than duplicating it, and unfollowing only ever\n * touches the caller's own subscription. Notification delivery reads these rows separately (D-16).\n */",
