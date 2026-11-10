@@ -13,6 +13,7 @@ vi.mock('./api', async (importOriginal) => ({
   ...await importOriginal<typeof import('./api')>(),
   fetchProjectBoardBundle: vi.fn(),
   fetchBoardLinks: vi.fn().mockResolvedValue([]),
+  fetchBoardCursor: vi.fn(),
   fetchProjectBoards: vi.fn().mockResolvedValue([]),
 }))
 
@@ -38,6 +39,8 @@ beforeEach(async () => {
   localStorage.clear()
   vi.clearAllMocks()
   vi.mocked(api.fetchProjectBoardBundle).mockImplementation(async () => bundle())
+  let tick = 1
+  vi.mocked(api.fetchBoardCursor).mockImplementation(async () => { tick += 1; return tick })
   navigateToAddress(`/project/boards/${BOARD_ID}`)
   await initI18n()
 })
@@ -62,7 +65,8 @@ describe('the board page assistant context (R3-9)', () => {
     expect(facts()).toContain('grouped by: Status')
     const readsBefore = vi.mocked(api.fetchProjectBoardBundle).mock.calls.length
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
-    expect(vi.mocked(api.fetchProjectBoardBundle).mock.calls.length, 'the background poll never fired').toBeGreaterThan(readsBefore)
+    expect(vi.mocked(api.fetchBoardCursor).mock.calls.length, 'the poll never asked the cursor').toBeGreaterThan(0)
+    expect(vi.mocked(api.fetchProjectBoardBundle).mock.calls.length, 'a moved cursor never refetched').toBeGreaterThan(readsBefore)
     expect(facts()).toContain('grouped by: Status')
   })
 })
@@ -75,5 +79,16 @@ describe('the card deep link (R3-13)', () => {
     const dialog = document.querySelector('[role="dialog"]')
     expect(dialog, 'the deep-linked card never opened').not.toBeNull()
     expect(dialog!.textContent).toContain('Alpha')
+  })
+})
+describe('the convergence poll (R3-15)', () => {
+  it('skips the whole-board read when the cursor has not moved', async () => {
+    vi.useFakeTimers()
+    vi.mocked(api.fetchBoardCursor).mockResolvedValue(1)
+    await mount()
+    const readsAfterMount = vi.mocked(api.fetchProjectBoardBundle).mock.calls.length
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(vi.mocked(api.fetchBoardCursor).mock.calls.length).toBeGreaterThan(1)
+    expect(vi.mocked(api.fetchProjectBoardBundle).mock.calls.length).toBe(readsAfterMount)
   })
 })

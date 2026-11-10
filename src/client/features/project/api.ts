@@ -53,6 +53,12 @@ export async function fetchProjectBoardBundle(id: string, signal?: AbortSignal):
   return request<ProjectBoardBundle>(`/api/project/boards/${encodeURIComponent(id)}/bundle`, { signal })
 }
 
+/** The staleness question a poller asks before paying for the whole bundle. */
+export async function fetchBoardCursor(boardId: string, signal?: AbortSignal): Promise<number> {
+  const body = await request<{ cursor: number }>(`/api/project/boards/${encodeURIComponent(boardId)}/cursor`, { signal })
+  return body.cursor
+}
+
 export async function createProjectCard(boardId: string, input: Partial<ProjectCardCreateInput>): Promise<ProjectCard> {
   const body = await request<{ card: ProjectCard }>(`/api/project/boards/${encodeURIComponent(boardId)}/cards`, { method: 'POST', body: input })
   return body.card

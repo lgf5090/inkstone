@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { ArrowLeft, FileDown, History, PanelLeft, Plus, Settings2, Share2, Sparkles, SquareKanban, Users } from 'lucide-react'
 import type { ProjectActivityEntry, ProjectBoardBundle, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { projectRoleAtLeast, emptyProjectViewFields } from '@shared/project/model'
@@ -15,7 +15,7 @@ import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Modal } from '../../components/overlay'
-import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard } from './api'
+import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchBoardCursor, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard } from './api'
 import { createUndoStack } from './undo'
 import { newProjectId } from '@shared/project/limits'
 import type { SkinTone } from '@shared/types'
@@ -35,6 +35,8 @@ type Status = 'loading' | 'ready' | 'error' | 'notfound'
 export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const search = useSearch()
   const [bundle, setBundle] = useState<ProjectBoardBundle | null>(null)
+  const bundleRef = useRef<ProjectBoardBundle | null>(null)
+  bundleRef.current = bundle
   const [status, setStatus] = useState<Status>('loading')
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
@@ -121,12 +123,18 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   // notification (or a deployment without the DO) still converges via a quiet 30s refetch.
   useEffect(() => {
     const controller = new AbortController()
-    const timer = window.setInterval(() => {
+    const converge = () => {
       if (typeof document !== 'undefined' && document.hidden) return
-      fetchProjectBoardBundle(boardId, controller.signal)
-        .then((fresh) => setBundle(fresh))
+      // Ask the cheap question first: an unchanged cursor means the copy on screen is still current,
+      // and a busy board's whole-bundle read is the expensive half of this poll.
+      fetchBoardCursor(boardId, controller.signal)
+        .then(async (cursor) => {
+          if (cursor <= (bundleRef.current?.cursor ?? 0)) return
+          setBundle(await fetchProjectBoardBundle(boardId, controller.signal))
+        })
         .catch(() => { /* best-effort convergence poll: a failed refetch keeps the last good bundle */ return undefined })
-    }, 30_000)
+    }
+    const timer = window.setInterval(converge, 30_000)
     let lastRefetch = Date.now()
     const onVisibility = () => {
       if (typeof document !== 'undefined' && !document.hidden && Date.now() - lastRefetch > 5_000) {

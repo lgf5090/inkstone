@@ -4,6 +4,7 @@
  * with LIKE over board and card titles; the reserved project_fts table and pinyin initials are the
  * indexed follow-up (the queue/drain machinery mirrors notes once write-path indexing is wired).
  */
+import { PROJECT_LIMITS } from '@shared/project/limits'
 import { ProjectStore } from './store'
 
 export interface ProjectSearchResult {
@@ -12,7 +13,7 @@ export interface ProjectSearchResult {
 }
 
 const CHUNK = 90
-const LIMIT = 50
+const LIMIT = PROJECT_LIMITS.searchResults
 
 export async function searchProject(db: D1Database, userId: string, query: string): Promise<ProjectSearchResult> {
   const needle = `%${query.replace(/[%_\\]/g, '\\$&')}%`

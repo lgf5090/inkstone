@@ -2,12 +2,14 @@
  * E-14: a bounded command stack for board mutations. Each command carries an inverse (undo) and a
  * re-apply (redo); pushing a new command clears the redo branch, and switching boards clears both.
  */
+import { PROJECT_LIMITS } from '@shared/project/limits'
+
 export interface UndoCommand {
   undo: () => Promise<void>
   redo: () => Promise<void>
 }
 
-export function createUndoStack(limit = 50) {
+export function createUndoStack(limit: number = PROJECT_LIMITS.undoDepth) {
   let undoStack: UndoCommand[] = []
   let redoStack: UndoCommand[] = []
   return {

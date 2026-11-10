@@ -12503,6 +12503,8 @@ const allowed = new Map([
     "/* best-effort convergence poll: a failed refetch keeps the last good bundle */",
     "/* best-effort: dialog stays usable if the refetch fails */",
     "/* best-effort: remembering the last board is optional */",
+    "// Ask the cheap question first: an unchanged cursor means the copy on screen is still current,",
+    "// and a busy board's whole-bundle read is the expensive half of this poll.",
   ]],
   ["src/client/features/project/BoardViews.test.tsx", [
     "/** Opens a SelectMenu by its accessible name and reads the rows it offers. */",
@@ -12556,6 +12558,7 @@ const allowed = new Map([
   ["src/client/features/project/api.ts", [
     "/** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */",
     "/** The stranger's read: no session, the slug and passcode are the whole capability. */",
+    "/** The staleness question a poller asks before paying for the whole bundle. */",
   ]],
   ["src/client/features/project/project-icon.ts", [
     "/**\n * A-9/A-10: board & card icons. The random-icon preference is a local toggle; when on, newly created\n * boards/cards get a random emoji from the shared catalog so lists stay scannable without manual picking.\n */",
@@ -41133,6 +41136,7 @@ const allowed = new Map([
   ["src/worker/project/bundle.ts", [
     "/**\n * The whole-board read. The reference made the client page through blocks and stitch them together;\n * every screen that opens a board needs all of it, so this gathers board, properties, views, cards,\n * values, contents, comments and members in one round trip. The cursor is the newest update stamp\n * across them all, which is what a realtime `changed` notification carries so a client knows whether\n * its copy is stale.\n */",
     "// Values are keyed to a card, so a deleted card's values drop out with it rather than lingering.",
+    "/**\n * The newest stamp across everything the bundle carries, without reading any of it.\n *\n * The bundle's own cursor is computed from rows it already fetched; a poller only needs the number,\n * so this asks each table for its MAX instead. An unchanged answer means the copy the reader holds\n * is still current and the whole-board read can be skipped.\n */",
   ]],
   ["src/worker/project/cards.ts", [
     "/**\n * Cards and their property values. A card is a row plus a bag of values keyed by property id; the\n * value bag lives in its own table so changing one property never rewrites the whole card. Writes\n * land in one D1 batch, and a delete is a stamp so a card can come back with its values intact.\n */",
@@ -41195,6 +41199,7 @@ const allowed = new Map([
     "/* best-effort: a refused mention notice must not refuse the comment */",
     "// The stored mime is client-controlled; only render a safe allowlist inline. Anything else",
     "// (html/svg/…) downloads as an opaque blob so it can never execute in this origin (stored XSS).",
+    "/** The cheap staleness question: a poller asks this before paying for the whole bundle. */",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",

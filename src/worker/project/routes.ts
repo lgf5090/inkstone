@@ -36,7 +36,7 @@ import { broadcastProjectChange } from './realtime'
 import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAccountArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireCard, requireComment, requireContent, requireView } from './auth'
 import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
-import { readProjectBoardBundle } from './bundle'
+import { projectBoardCursor, readProjectBoardBundle } from './bundle'
 import {
   addBoardToCategory,
   createProjectCategory,
@@ -304,6 +304,12 @@ projectRoutes.post('/boards', async (c) => {
 projectRoutes.get('/boards/:id', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
   return c.json({ board, properties: await readBoardProperties(c.env.DB, board.id), role })
+})
+
+/** The cheap staleness question: a poller asks this before paying for the whole bundle. */
+projectRoutes.get('/boards/:id/cursor', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ cursor: await projectBoardCursor(c.env.DB, board) })
 })
 
 projectRoutes.get('/boards/:id/bundle', async (c) => {

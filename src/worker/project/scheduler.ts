@@ -22,9 +22,11 @@ export async function sweepProjectReminders(env: AppBindings['Bindings'], now: n
       `SELECT v.card_id, v.value, c.board_id FROM project_card_values v
        JOIN project_cards c ON c.id = v.card_id AND c.delete_at = 0
        JOIN project_properties p ON p.id = v.property_id AND p.board_id = c.board_id AND p.type = 'date'
-       LIMIT ?1`,
+       WHERE COALESCE(json_extract(v.value, '$.from'), CAST(v.value AS INTEGER)) BETWEEN ?1 AND ?2
+       ORDER BY COALESCE(json_extract(v.value, '$.from'), CAST(v.value AS INTEGER))
+       LIMIT ?3`,
     )
-    .bind(SCAN_LIMIT)
+    .bind(now, now + REMINDER_WINDOW_MS, SCAN_LIMIT)
     .all<DateValueRow>()
   let reminded = 0
   for (const row of results) {

@@ -21,7 +21,6 @@ export const PROJECT_LIMITS = {
   undoDepth: 100,
   idLength: 27,
   batchOperations: 200,
-  bundleCards: 500,
   searchResults: 50,
 } as const
 

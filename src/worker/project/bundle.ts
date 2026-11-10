@@ -188,3 +188,22 @@ export async function readProjectBoardBundle(
 
   return { board, properties, views, cards, contents, comments, members, role, cursor }
 }
+/**
+ * The newest stamp across everything the bundle carries, without reading any of it.
+ *
+ * The bundle's own cursor is computed from rows it already fetched; a poller only needs the number,
+ * so this asks each table for its MAX instead. An unchanged answer means the copy the reader holds
+ * is still current and the whole-board read can be skipped.
+ */
+export async function projectBoardCursor(db: D1Database, board: ProjectBoard): Promise<number> {
+  const queries = [
+    'SELECT MAX(update_at) AS at FROM project_cards WHERE board_id = ?1 AND delete_at = 0',
+    'SELECT MAX(update_at) AS at FROM project_views WHERE board_id = ?1 AND delete_at = 0',
+    'SELECT MAX(update_at) AS at FROM project_card_contents WHERE board_id = ?1 AND delete_at = 0',
+    'SELECT MAX(update_at) AS at FROM project_comments WHERE board_id = ?1 AND delete_at = 0',
+    'SELECT MAX(updated_at) AS at FROM project_board_members WHERE board_id = ?1',
+    'SELECT MAX(updated_at) AS at FROM project_properties WHERE board_id = ?1',
+  ]
+  const rows = await Promise.all(queries.map((sql) => db.prepare(sql).bind(board.id).first<{ at: number | null }>()))
+  return rows.reduce((newest, row) => Math.max(newest, row?.at ?? 0), board.updateAt)
+}

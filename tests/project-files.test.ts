@@ -96,4 +96,36 @@ describe('project due reminders (F-10)', () => {
     const second = await sweepProjectReminders(env, Date.now())
     expect(second).toBe(0)
   })
+
+  it('finds a due card even when hundreds of unrelated date values sort ahead of it', async () => {
+    const board = await makeBoard()
+    const pid = 'd'.repeat(27)
+    sqlite.prepare(`INSERT INTO project_properties (board_id, id, name, type, options, position, created_at, updated_at) VALUES (?, ?, 'Due', 'date', '[]', 0, 1, 1)`).run(board.id, pid)
+    const far = Date.now() + 400 * 24 * 60 * 60 * 1000
+    const insertCard = sqlite.prepare(`INSERT INTO project_cards (id, board_id, parent_id, title, icon, is_template, content_order, created_by, modified_by, create_at, update_at, delete_at) VALUES (?, ?, '', 'Filler', '', 0, '[]', 'alice', 'alice', 1, 1, 0)`)
+    const insertValue = sqlite.prepare(`INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)`)
+    for (let index = 0; index < 600; index += 1) {
+      const id = `f${String(index).padStart(26, '0')}`
+      insertCard.run(id, board.id)
+      insertValue.run(id, pid, JSON.stringify({ from: far }))
+    }
+    const due = Date.now() + 60 * 60 * 1000
+    const card = ((await (await req('POST', `/boards/${board.id}/cards`, { title: 'Due soon', values: { [pid]: JSON.stringify({ from: due }) } })).json()) as { card: { id: string } }).card
+    sqlite.prepare(`INSERT INTO project_subscriptions (block_type, block_id, subscriber_id, notified_at, create_at, delete_at) VALUES ('card', ?, 'alice', 0, 1, 0)`).run(card.id)
+    expect(await sweepProjectReminders(env, Date.now())).toBe(1)
+  })
+})
+
+describe('the board cursor (R3-15)', () => {
+  it('answers the bundle cursor without the bundle and moves when a card changes', async () => {
+    const board = await makeBoard()
+    const before = ((await (await req('GET', `/boards/${board.id}/cursor`)).json()) as { cursor: number }).cursor
+    const bundle = await (await req('GET', `/boards/${board.id}/bundle`)).json() as { cursor: number }
+    expect(before).toBe(bundle.cursor)
+    await req('POST', `/boards/${board.id}/cards`, { title: 'Moves the cursor' })
+    const after = ((await (await req('GET', `/boards/${board.id}/cursor`)).json()) as { cursor: number }).cursor
+    expect(after).toBeGreaterThanOrEqual(before)
+    const fresh = await (await req('GET', `/boards/${board.id}/bundle`)).json() as { cursor: number }
+    expect(after).toBe(fresh.cursor)
+  })
 })
