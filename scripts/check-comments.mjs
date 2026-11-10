@@ -12521,6 +12521,7 @@ const allowed = new Map([
     "// instead of mixing languages. A title the user actually typed is kept verbatim.",
     "/** A public reader has no session: the member-only reads and exports would answer 401, so they are not offered. */",
     "/* a stored value that is not a JSON array reads as plain text below */",
+    "// A board may hold thousands of cards; the table draws a page at a time so the DOM stays bounded.",
   ]],
   ["src/client/features/project/CardBadges.tsx", [
     "/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */",

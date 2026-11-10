@@ -91,6 +91,7 @@ export const ZH_CN_PROJECT = {
     "project.prop.type.email": "邮箱",
     "project.prop.type.phone": "电话",
     "project.view.wip_limit": "在制品上限",
+    "project.view.show_more": "再显示 {count} 行",
     "project.card.comments_empty": "还没有评论。提个问题或同步一下进展。",
     "project.sidebar.new_board": "新建板",
     "project.sidebar.width": "侧栏宽度",

@@ -67,6 +67,8 @@ function viewTabLabel(view: { title: string, viewType: string }): string {
   return !view.title || view.title === VIEW_DEFAULT_TITLE[view.viewType] ? localized : view.title
 }
 
+const PROJECT_TABLE_PAGE = 200
+
 const LAST_VIEW_KEY = 'inkstone.project.lastView.'
 
 function readLastViewId(boardId: string): string | null {
@@ -328,6 +330,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     setResizing(null)
   }
   const [editingCell, setEditingCell] = useState<{ cardId: string, propertyId: string } | null>(null)
+  const [rowLimit, setRowLimit] = useState(PROJECT_TABLE_PAGE)
   const [selected, setSelected] = useState<string[]>([])
   const [batchPropertyId, setBatchPropertyId] = useState('')
   const [batchValue, setBatchValue] = useState('')
@@ -393,9 +396,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   }
   const batchProperties = bundle.properties.filter((property) => property.type === 'select')
   const batchProperty = batchProperties.find((property) => property.id === batchPropertyId)
+  // A board may hold thousands of cards; the table draws a page at a time so the DOM stays bounded.
+  const tableCards = sorted.slice(0, rowLimit)
   const tableGroups: [string, ProjectCard[]][] = fields.groupById
-    ? [...groupProjectCards(sorted, fields.groupById, bundle.properties).entries()]
-    : [['', sorted]]
+    ? [...groupProjectCards(tableCards, fields.groupById, bundle.properties).entries()]
+    : [['', tableCards]]
   const toggleGroup = (key: string) => {
     if (!active) return
     const collapsed = fields.collapsedOptionIds.includes(key)
@@ -819,6 +824,17 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                       })()}
                     </tbody>
                   ))}
+                  {sorted.length > rowLimit && (
+                    <tbody>
+                      <tr>
+                        <td colSpan={columns.length + 1 + (canEdit ? 2 : 0)} className="px-3 py-2">
+                          <Button size="sm" variant="ghost" onClick={() => setRowLimit((current) => current + PROJECT_TABLE_PAGE)}>
+                            {t('project.view.show_more', { count: sorted.length - rowLimit })}
+                          </Button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  )}
                   {canEdit && (
                     <tbody>
                       <tr className="border-b border-[var(--border-subtle)]">

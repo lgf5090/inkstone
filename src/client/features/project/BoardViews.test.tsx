@@ -636,3 +636,19 @@ describe('the table row furniture (R3-20)', () => {
     create.mockRestore()
   })
 })
+
+describe('the table row budget (R3-16a)', () => {
+  it('draws a page at a time and reveals the rest on request', async () => {
+    localStorage.clear()
+    const base = bundle()
+    base.cards = Array.from({ length: 260 }, (_, index) => ({ id: `c${index}`, boardId: 'b1', parentId: '', title: `Card ${index}`, icon: '', isTemplate: false, contentOrder: [], values: {}, ...stamps }))
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+    expect(view.container.querySelectorAll('tbody tr[data-project-card]')).toHaveLength(200)
+    const more = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('project.view.show_more', { count: 60 }))
+    expect(more, 'no way to reach the remaining rows').toBeDefined()
+    await act(async () => { more!.click() })
+    expect(view.container.querySelectorAll('tbody tr[data-project-card]')).toHaveLength(260)
+  })
+})

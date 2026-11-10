@@ -91,6 +91,7 @@ export const EN_US_PROJECT = {
     "project.prop.type.email": "Email",
     "project.prop.type.phone": "Phone",
     "project.view.wip_limit": "WIP limit",
+    "project.view.show_more": "Show {count} more",
     "project.card.comments_empty": "No comments yet. Ask a question or share an update.",
     "project.sidebar.new_board": "New board",
     "project.sidebar.width": "Sidebar width",
