@@ -114,3 +114,56 @@ describe('dragging a bar to reschedule (R3-22)', () => {
     expect(onPatchCard, 'a viewer drag still wrote').not.toHaveBeenCalled()
   })
 })
+
+describe('the timeline bar and dependency treatment (R4-3)', () => {
+  const coloured: ProjectProperty[] = [
+    { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: 'propColorBlue' }] },
+    ...properties,
+  ]
+
+  it('paints the bar with the card status colour rather than a washed-out tint', async () => {
+    const dated = { ...card('c1', 'Sprint', new Date(2026, 10, 10)), values: { ps: 'o1', pd: JSON.stringify({ from: projectDayToStamp(new Date(2026, 10, 10)) }) } }
+    await act(async () => { view = renderElement(createElement(TimelineView, { cards: [dated], properties: coloured, links: [], gantt: true, onOpenCard: vi.fn() })) })
+    const bar = view.container.querySelector<HTMLElement>('[data-timeline-bar="c1"]')!
+    expect(bar.getAttribute('style')).toContain('--kanban-tag-blue-fg')
+    expect(bar.className).toContain('text-white')
+  })
+
+  it('draws a blocking dependency as an arrow between the two bars', async () => {
+    const a = card('a', 'Blocker', new Date(2026, 10, 10))
+    const b = card('b', 'Blocked', new Date(2026, 10, 14))
+    await act(async () => { view = renderElement(createElement(TimelineView, { cards: [a, b], properties, links: [{ fromCardId: 'a', toCardId: 'b', kind: 'blocks' }], gantt: true, onOpenCard: vi.fn() })) })
+    const layer = view.container.querySelector('[data-timeline-dependencies]')
+    expect(layer, 'no dependency layer').not.toBeNull()
+    expect(layer!.getAttribute('data-timeline-dependencies')).toBe('1')
+    expect(layer!.querySelector('path[marker-end]')).not.toBeNull()
+  })
+
+  it('draws no arrow when one end is off the drawn rows', async () => {
+    const a = card('a', 'Blocker', new Date(2026, 10, 10))
+    await act(async () => { view = renderElement(createElement(TimelineView, { cards: [a], properties, links: [{ fromCardId: 'a', toCardId: 'absent', kind: 'blocks' }], gantt: true, onOpenCard: vi.fn() })) })
+    expect(view.container.querySelector('[data-timeline-dependencies]')).toBeNull()
+  })
+
+  it('marks the weekend columns without flooding the canvas', async () => {
+    await act(async () => { view = renderElement(createElement(TimelineView, { cards: [card('c1', 'Sprint', new Date(2026, 10, 10))], properties, links: [], gantt: false, onOpenCard: vi.fn() })) })
+    const grid = view.container.querySelector('[data-timeline-grid]')!
+    const cells = [...grid.children] as HTMLElement[]
+    expect(cells.length).toBeGreaterThan(6)
+    expect(cells.every((cell) => cell.className.includes('opacity-60'))).toBe(true)
+    expect(cells.some((cell) => (cell.getAttribute('style') ?? '').includes('color-mix'))).toBe(true)
+  })
+})
+
+describe('dependency edges and collapsed rows (R4-3)', () => {
+  it('draws no arrow to a dated card whose row is collapsed away', async () => {
+    const parent = card('p', 'Parent', new Date(2026, 10, 10))
+    const child = { ...card('c', 'Child', new Date(2026, 10, 14)), parentId: 'p' }
+    await act(async () => { view = renderElement(createElement(TimelineView, { cards: [parent, child], properties, links: [{ fromCardId: 'p', toCardId: 'c', kind: 'blocks' }], gantt: true, onOpenCard: vi.fn() })) })
+    expect(view.container.querySelector('[data-timeline-dependencies]')?.getAttribute('data-timeline-dependencies')).toBe('1')
+    const collapse = view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.card.collapse_subtasks')}"]`)!
+    await act(async () => { collapse.click() })
+    expect(view.container.querySelector('[data-timeline-row="c"]')).toBeNull()
+    expect(view.container.querySelector('[data-timeline-dependencies]'), 'an edge points at a row that is not drawn').toBeNull()
+  })
+})

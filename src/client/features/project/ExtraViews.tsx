@@ -3,7 +3,7 @@
  * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the
  * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.
  */
-import { Fragment, useCallback, useMemo, useState, type MouseEvent } from 'react'
+import { Fragment, useCallback, useMemo, useState, type MouseEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, CornerDownRight, Plus, Trash2 } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
@@ -11,6 +11,7 @@ import type { ProjectCardBadges } from '@shared/project/badges'
 import { groupProjectCards, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { PROJECT_TIMELINE_COLUMN_PX, projectCardDays, projectTimelineBar, projectTimelineColumn, projectTimelineDays, projectTimelineDragRange, projectTimelineRows, projectTimelineWindow, type ProjectTimelineScale } from '@shared/project/timeline-layout'
 import { projectDayToStamp } from '@shared/project/date'
+import { projectOptionCssColor } from '@shared/project/option-color'
 import { t, useLocale } from '../../lib/i18n'
 import { Segmented } from '../../components/form'
 import { Button } from '../../components/primitives'
@@ -327,13 +328,18 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
             </div>
           </div>
           <div className="relative">
-            <div className="pointer-events-none absolute inset-0 flex" aria-hidden="true">
+            <div className="pointer-events-none absolute inset-0 flex" aria-hidden="true" data-timeline-grid="">
               {days.map((entry) => (
-                <div key={entry.stamp} className={`shrink-0 border-r border-[var(--border-subtle)] ${entry.weekend ? 'bg-[var(--bg-sunken)]' : ''}`} style={{ width: `${columnPx}px` }} />
+                <div
+                  key={entry.stamp}
+                  className="shrink-0 border-r border-[var(--border-subtle)] opacity-60"
+                  style={{ width: `${columnPx}px`, backgroundColor: entry.weekend ? 'color-mix(in oklab, var(--text-quaternary) 6%, transparent)' : undefined }}
+                />
               ))}
             </div>
+            <DependencyLayer rows={rows} daysByCard={daysByCard} window={window} columnPx={columnPx} links={links} rowHeight={36} />
             {todayColumn >= 0 && (
-              <div className="pointer-events-none absolute bottom-0 top-0 w-px bg-[var(--danger)]" style={{ left: `${todayColumn * columnPx}px` }} aria-hidden="true" data-timeline-today="" />
+              <div className="pointer-events-none absolute bottom-0 top-0 z-10 border-l border-dashed border-[var(--danger)]" style={{ left: `${todayColumn * columnPx}px` }} aria-hidden="true" data-timeline-today="" />
             )}
             {rows.map(({ card }) => {
               const range = daysByCard.get(card.id)!
@@ -343,8 +349,9 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
                   <button
                     type="button"
                     aria-label={card.title || t('project.board.untitled_card')}
-                    className={`absolute top-1.5 h-6 rounded-[var(--r-sm)] text-left text-[length:var(--text-10)] ${isProjectCardDone(card, properties) ? 'bg-[var(--bg-hover)] text-[var(--text-tertiary)]' : 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'} ${canEdit && onPatchCard ? 'cursor-grab' : ''} focus-visible:outline-2 focus-visible:outline-[var(--accent)]`}
-                    style={{ left: `${(bar.left + (drag?.id === card.id ? drag.columns : 0)) * columnPx}px`, width: `${bar.width * columnPx}px` }}
+                    className={`absolute top-1.5 flex h-6 items-center overflow-hidden rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-11)] text-white ${isProjectCardDone(card, properties) ? 'opacity-55' : ''} ${canEdit && onPatchCard ? 'cursor-grab' : ''} focus-visible:outline-2 focus-visible:outline-[var(--accent)]`}
+                    data-timeline-bar={card.id}
+                    style={{ left: `${(bar.left + (drag?.id === card.id ? drag.columns : 0)) * columnPx}px`, width: `${bar.width * columnPx}px`, backgroundColor: barColor(card, properties) }}
                     onClick={() => { if (!drag) onOpenCard(card.id) }}
                     onPointerDown={(event) => {
                       if (!canEdit || !onPatchCard || !propertyId) return
@@ -371,7 +378,7 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
                       target.addEventListener('pointerup', up)
                     }}
                   >
-                    <span className="block truncate px-1.5 leading-6">{card.title || t('project.board.untitled_card')}</span>
+                    <span className="min-w-0 flex-1 truncate">{card.title || t('project.board.untitled_card')}</span>
                   </button>
                 </div>
               )
@@ -428,5 +435,60 @@ export function ChartView({ cards, properties }: { cards: ProjectCard[], propert
         ))}
       </ul>
     </div>
+  )
+}
+
+/** The bar wears its status colour; a card with none rides the accent rather than a washed-out tint. */
+function barColor(card: ProjectCard, properties: readonly ProjectProperty[]): string {
+  const status = properties.find((property) => property.type === 'select')
+  const option = status?.options.find((entry) => entry.id === card.values[status.id])
+  return (option && projectOptionCssColor(option.color)) ?? 'var(--accent)'
+}
+
+/**
+ * Blocking dependencies drawn as arrows behind the bars.
+ *
+ * A badge said "blocked" without saying *by what*; the reference draws the edge, so the reader can see
+ * which bar is holding which. Only edges whose both ends are on screen are drawn, and the layer never
+ * takes a pointer event so a bar underneath stays draggable.
+ */
+function DependencyLayer({ rows, daysByCard, window, columnPx, links, rowHeight }: {
+  rows: { card: ProjectCard }[]
+  daysByCard: Map<string, { start: number, end: number }>
+  window: { start: number, end: number }
+  columnPx: number
+  links: ProjectCardLink[]
+  rowHeight: number
+}): ReactElement | null {
+  const index = new Map(rows.map((row, position) => [row.card.id, position]))
+  const edges: { key: string, d: string }[] = []
+  for (const link of links) {
+    if (link.kind !== 'blocks') continue
+    const fromRow = index.get(link.fromCardId)
+    const toRow = index.get(link.toCardId)
+    const fromRange = daysByCard.get(link.fromCardId)
+    const toRange = daysByCard.get(link.toCardId)
+    if (fromRow === undefined || toRow === undefined || !fromRange || !toRange) continue
+    const fromBar = projectTimelineBar({ from: fromRange.start, to: fromRange.end }, window)
+    const toBar = projectTimelineBar({ from: toRange.start, to: toRange.end }, window)
+    const x1 = (fromBar.left + fromBar.width) * columnPx
+    const y1 = fromRow * rowHeight + rowHeight / 2
+    const x2 = toBar.left * columnPx
+    const y2 = toRow * rowHeight + rowHeight / 2
+    const bend = Math.max(8, Math.min(24, Math.abs(x2 - x1) / 2))
+    edges.push({ key: `${link.fromCardId}-${link.toCardId}`, d: `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}` })
+  }
+  if (edges.length === 0) return null
+  return (
+    <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true" data-timeline-dependencies={edges.length}>
+      <defs>
+        <marker id="project-timeline-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-quaternary)" />
+        </marker>
+      </defs>
+      {edges.map((edge) => (
+        <path key={edge.key} d={edge.d} fill="none" stroke="var(--text-quaternary)" strokeWidth="1" markerEnd="url(#project-timeline-arrow)" />
+      ))}
+    </svg>
   )
 }

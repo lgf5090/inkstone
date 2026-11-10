@@ -12536,6 +12536,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/ExtraViews.tsx", [
     "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
+    "/** The bar wears its status colour; a card with none rides the accent rather than a washed-out tint. */",
+    "/**\n * Blocking dependencies drawn as arrows behind the bars.\n *\n * A badge said \"blocked\" without saying *by what*; the reference draws the edge, so the reader can see\n * which bar is holding which. Only edges whose both ends are on screen are drawn, and the layer never\n * takes a pointer event so a bar underneath stays draggable.\n */",
   ]],
   ["src/client/features/project/FilterEditor.test.tsx", [
     "/** The row a stored value is offered under: a property name, a join word, or a condition's own label. */",
