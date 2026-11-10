@@ -12533,6 +12533,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/GalleryCalendar.tsx", [
     "// An empty group still gets its section and its add tile, the way an empty kanban column does.",
+    "// One pass builds the day index; each of the 42 cells then reads its own bucket instead of",
+    "// rescanning every card, and the bucket key is the local day the reader resolved, not the raw stamp.",
   ]],
   ["src/client/features/project/MembersDialog.tsx", [
     "/**\n * Who is on this board, and what they may do.\n *\n * The role model, the person properties and the mention notifications all key on membership, so\n * without this screen a \"shared\" board is a board of one. The server owns the two refusals that\n * matter — the last admin cannot be demoted or removed, and the roster is capped — so the dialog\n * reports what the server said rather than guessing at either rule.\n */",

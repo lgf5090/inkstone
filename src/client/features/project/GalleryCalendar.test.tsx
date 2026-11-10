@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { initI18n, t } from '../../lib/i18n'
 import { projectDayToStamp } from '@shared/project/date'
+import { setCalendarDisplayPrefs } from '../../lib/calendar-display-prefs'
+import { narrowWeekdayLabels } from '../../lib/time'
 import { projectCardBadges } from '@shared/project/badges'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { CalendarView, GalleryView } from './GalleryCalendar'
@@ -53,7 +55,7 @@ describe('gallery view', () => {
 describe('calendar view', () => {
   it('places a card on its due day and navigates months', async () => {
     const now = new Date()
-    const due = new Date(now.getFullYear(), now.getMonth(), 15).getTime()
+    const due = projectDayToStamp(new Date(now.getFullYear(), now.getMonth(), 15))
     await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [card('c1', 'Due card', due)], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
     expect(view.container.textContent).toContain('Due card')
     const next = [...view.container.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === t('project.view.next_month'))
@@ -63,7 +65,7 @@ describe('calendar view', () => {
 
   it('dropping a card on a day reschedules its date property (C-5)', async () => {
     const now = new Date()
-    const due = new Date(now.getFullYear(), now.getMonth(), 15).getTime()
+    const due = projectDayToStamp(new Date(now.getFullYear(), now.getMonth(), 15))
     const onPatchCard = vi.fn().mockResolvedValue(undefined)
     await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [card('c1', 'Due card', due)], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard })) })
     const cells = [...view.container.querySelectorAll('div.min-h-16')]
@@ -93,8 +95,8 @@ describe('calendar view', () => {
 
   it('preserves multi-day duration when dropped on a new day', async () => {
     const now = new Date()
-    const from = new Date(now.getFullYear(), now.getMonth(), 10).getTime()
-    const to = new Date(now.getFullYear(), now.getMonth(), 13).getTime()
+    const from = projectDayToStamp(new Date(now.getFullYear(), now.getMonth(), 10))
+    const to = projectDayToStamp(new Date(now.getFullYear(), now.getMonth(), 13))
     const duration = to - from
     const onPatchCard = vi.fn().mockResolvedValue(undefined)
     const multiCard: ProjectCard = {
@@ -185,5 +187,49 @@ describe('the grouped gallery (R3-21)', () => {
     await act(async () => { setter.call(field!, 'Fresh'); field!.dispatchEvent(new Event('input', { bubbles: true })) })
     await act(async () => { field!.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
     expect(onAddCard).toHaveBeenCalledWith('Fresh', 'o2')
+  })
+})
+
+describe('the calendar grid and day index (R3-7/R3-17)', () => {
+  const originalTZ = process.env.TZ
+  afterEach(() => { if (originalTZ === undefined) delete process.env.TZ; else process.env.TZ = originalTZ })
+
+  it('files a card on the day it was picked in a zone east of UTC+12', async () => {
+    process.env.TZ = 'Pacific/Kiritimati'
+    const picked = new Date(2026, 10, 10)
+    const stamped = { ...card('c1', 'Far east'), values: { pd: JSON.stringify({ from: projectDayToStamp(picked) }) } }
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [stamped], properties, canEdit: false, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    const cells = [...view.container.querySelectorAll('div.min-h-16')]
+    const tenth = cells.find((cell) => cell.firstElementChild?.textContent === '10' && !cell.className.includes('opacity-40'))
+    expect(tenth, 'no in-month tenth cell').toBeDefined()
+    expect(tenth!.textContent).toContain('Far east')
+  })
+
+  it('draws a multi-day card on every day it covers', async () => {
+    process.env.TZ = 'UTC'
+    const now = new Date()
+    const from = projectDayToStamp(new Date(now.getFullYear(), now.getMonth(), 10))
+    const to = projectDayToStamp(new Date(now.getFullYear(), now.getMonth(), 12))
+    const ranged = { ...card('c1', 'Sprint'), values: { pd: JSON.stringify({ from, to }) } }
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [ranged], properties, canEdit: false, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    const cells = [...view.container.querySelectorAll('div.min-h-16')]
+    const covered = cells.filter((cell) => cell.textContent?.includes('Sprint')).map((cell) => cell.firstElementChild?.textContent)
+    expect(covered).toEqual(['10', '11', '12'])
+  })
+
+  it('leads the month with the account week start rather than always Sunday', async () => {
+    process.env.TZ = 'UTC'
+    setCalendarDisplayPrefs({ weekStart: '1' })
+    try {
+      await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [], properties, canEdit: false, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+      const header = [...view.container.querySelectorAll('div.grid > div')].slice(0, 7).map((node) => node.textContent)
+      expect(header).toEqual(narrowWeekdayLabels('en-US', 1))
+      const cells = [...view.container.querySelectorAll('div.min-h-16')]
+      const now = new Date()
+      const first = new Date(now.getFullYear(), now.getMonth(), 1)
+      const expectedLead = (first.getDay() + 6) % 7
+      const leading = cells.slice(0, expectedLead)
+      expect(leading.every((cell) => cell.className.includes('opacity-40'))).toBe(true)
+    } finally { setCalendarDisplayPrefs({ weekStart: 'auto' }) }
   })
 })

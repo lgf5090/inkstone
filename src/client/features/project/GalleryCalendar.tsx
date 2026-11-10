@@ -3,10 +3,13 @@ import { ChevronDown, ChevronLeft, ChevronRight, Plus, SquareKanban } from 'luci
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
-import { projectDayToStamp } from '@shared/project/date'
+import { parseProjectDateValue, projectDayToStamp, projectStampToDay } from '@shared/project/date'
 import { projectOptionCssColor } from '@shared/project/option-color'
 import { groupProjectCards, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t, useLocale } from '../../lib/i18n'
+import { buildMonthGridCells } from '../../components/calendar-grids'
+import { resolveWeekStart, useCalendarDisplayPrefs } from '../../lib/calendar-display-prefs'
+import { dateKey, narrowWeekdayLabels, startOfWeek } from '../../lib/time'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { Segmented } from '../../components/form'
@@ -14,21 +17,14 @@ import { prompt } from '../../components/overlay'
 import { CardBadges, OptionChip } from './CardBadges'
 import { createProjectCard } from './api'
 
-function parseCardDate(card: ProjectCard, propertyId: string | undefined): { from: number, to: number } | null {
+function cardDayKeys(card: ProjectCard, propertyId: string | undefined): { from: number, to: number } | null {
   if (!propertyId) return null
-  const raw = card.values[propertyId] ?? ''
-  if (!raw) return null
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    const obj = parsed as { from?: number, to?: number }
-    if (typeof obj.from === 'number') {
-      return { from: obj.from, to: typeof obj.to === 'number' ? obj.to : obj.from }
-    }
-  } catch {
-    const stamp = Number(raw)
-    if (Number.isFinite(stamp)) return { from: stamp, to: stamp }
-  }
-  return null
+  const value = parseProjectDateValue(card.values[propertyId] ?? '')
+  if (value?.from === undefined) return null
+  const includeTime = value.includeTime === true
+  const from = projectStampToDay(value.from, includeTime).getTime()
+  const to = value.to === undefined ? from : Math.max(from, projectStampToDay(value.to, includeTime).getTime())
+  return { from, to }
 }
 
 export function GalleryView({
@@ -188,76 +184,49 @@ export function CalendarView({ cards, boardId, properties, datePropertyId, canEd
   const year = currentDate.getFullYear()
   const monthIndex = currentDate.getMonth()
 
-  const cardRanges = useMemo(() => {
-    return cards.map((card) => ({ card, range: parseCardDate(card, propertyId) }))
-  }, [cards, propertyId])
+  const prefs = useCalendarDisplayPrefs()
+  const weekStart = resolveWeekStart(prefs.weekStart, locale)
+  const todayKey = dateKey(new Date())
 
-  const getCardsForDay = (date: Date): ProjectCard[] => {
-    const startStamp = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
-    const endStamp = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999).getTime()
-    return cardRanges
-      .filter(({ range }) => range !== null && range.from <= endStamp && range.to >= startStamp)
-      .map(({ card }) => card)
-  }
+  const cardRanges = useMemo(() => cards.map((card) => ({ card, range: cardDayKeys(card, propertyId) })), [cards, propertyId])
 
-  const firstWeekday = new Date(year, monthIndex, 1).getDay()
-  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate()
-  const prevMonthDays = new Date(year, monthIndex, 0).getDate()
+  // One pass builds the day index; each of the 42 cells then reads its own bucket instead of
+  // rescanning every card, and the bucket key is the local day the reader resolved, not the raw stamp.
+  const cardsByDay = useMemo(() => {
+    const map = new Map<string, ProjectCard[]>()
+    for (const { card, range } of cardRanges) {
+      if (!range) continue
+      for (let stamp = range.from; stamp <= range.to; stamp += 86_400_000) {
+        const key = dateKey(new Date(stamp))
+        const list = map.get(key)
+        if (list) list.push(card)
+        else map.set(key, [card])
+      }
+    }
+    return map
+  }, [cardRanges])
+
+  const getCardsForDay = (date: Date): ProjectCard[] => cardsByDay.get(dateKey(date)) ?? []
 
   const monthCells: CalendarCell[] = useMemo(() => {
-    const list: CalendarCell[] = [
-      ...Array.from({ length: firstWeekday }, (_, i) => {
-        const d = prevMonthDays - firstWeekday + 1 + i
-        return {
-          day: d,
-          inMonth: false,
-          date: new Date(year, monthIndex - 1, d),
-          key: `prev-${d}`,
-        }
-      }),
-      ...Array.from({ length: daysInMonth }, (_, i) => {
-        const d = i + 1
-        return {
-          day: d,
-          inMonth: true,
-          date: new Date(year, monthIndex, d),
-          key: `curr-${d}`,
-        }
-      }),
-    ]
-    const remainder = (7 - (list.length % 7)) % 7
-    for (let i = 1; i <= remainder; i++) {
-      list.push({
-        day: i,
-        inMonth: false,
-        date: new Date(year, monthIndex + 1, i),
-        key: `next-${i}`,
-      })
-    }
-    return list
-  }, [year, monthIndex, firstWeekday, daysInMonth, prevMonthDays])
+    return buildMonthGridCells(year, monthIndex, weekStart, todayKey).map((cell) => ({
+      day: cell.day,
+      inMonth: cell.inMonth,
+      date: cell.date,
+      key: cell.key,
+    }))
+  }, [year, monthIndex, weekStart, todayKey])
 
   const weekCells: CalendarCell[] = useMemo(() => {
-    const anchor = new Date(currentDate)
-    const dayOfWeek = anchor.getDay()
-    const sunday = new Date(anchor)
-    sunday.setDate(anchor.getDate() - dayOfWeek)
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(sunday)
-      d.setDate(sunday.getDate() + i)
-      return {
-        day: d.getDate(),
-        inMonth: d.getMonth() === monthIndex,
-        date: d,
-        key: `week-${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`,
-      }
+    const first = startOfWeek(currentDate, weekStart)
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(first)
+      date.setDate(first.getDate() + index)
+      return { day: date.getDate(), inMonth: date.getMonth() === monthIndex, date, key: dateKey(date) }
     })
-  }, [currentDate, monthIndex])
+  }, [currentDate, monthIndex, weekStart])
 
-  const weekdays = useMemo(() => {
-    const formatter = new Intl.DateTimeFormat(locale, { weekday: 'short' })
-    return Array.from({ length: 7 }, (_, i) => formatter.format(new Date(2024, 0, 7 + i)))
-  }, [locale])
+  const weekdays = useMemo(() => narrowWeekdayLabels(locale, weekStart), [locale, weekStart])
 
   const shift = (delta: number) => {
     if (mode === 'week') {
