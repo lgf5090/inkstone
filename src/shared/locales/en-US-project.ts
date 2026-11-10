@@ -91,6 +91,8 @@ export const EN_US_PROJECT = {
     "project.prop.type.email": "Email",
     "project.prop.type.phone": "Phone",
     "project.view.wip_limit": "WIP limit",
+    "project.view.select_all": "Select all cards",
+    "project.view.add_row": "Add a card",
     "project.props.empty": "No properties yet",
     "project.props.move_up": "Move up",
     "project.props.move_down": "Move down",

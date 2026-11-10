@@ -91,6 +91,8 @@ export const ZH_CN_PROJECT = {
     "project.prop.type.email": "邮箱",
     "project.prop.type.phone": "电话",
     "project.view.wip_limit": "在制品上限",
+    "project.view.select_all": "全选卡片",
+    "project.view.add_row": "新增卡片",
     "project.props.empty": "还没有属性",
     "project.props.move_up": "上移",
     "project.props.move_down": "下移",

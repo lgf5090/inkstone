@@ -1,13 +1,14 @@
 import { useMemo, useState, type MouseEvent, type ReactElement } from 'react'
-import { ChevronLeft, ChevronRight, Plus, SquareKanban } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, SquareKanban } from 'lucide-react'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { projectDayToStamp } from '@shared/project/date'
 import { projectOptionCssColor } from '@shared/project/option-color'
-import { projectPropertyDisplayText } from '@shared/project/view-eval'
+import { groupProjectCards, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t, useLocale } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
+import { Input } from '../../components/form'
 import { Segmented } from '../../components/form'
 import { prompt } from '../../components/overlay'
 import { CardBadges, OptionChip } from './CardBadges'
@@ -38,6 +39,13 @@ export function GalleryView({
   badgesFor,
   onOpenCard,
   onCardContextMenu,
+  groupById,
+  allProperties = [],
+  collapsedOptionIds = [],
+  onToggleGroup,
+  canEdit = false,
+  onAddCard,
+  coverFor,
 }: {
   cards: ProjectCard[]
   properties: ProjectProperty[]
@@ -46,31 +54,110 @@ export function GalleryView({
   badgesFor: (cardId: string) => ProjectCardBadges
   onOpenCard: (id: string) => void
   onCardContextMenu?: (event: MouseEvent, card: ProjectCard) => void
+  groupById?: string
+  allProperties?: ProjectProperty[]
+  collapsedOptionIds?: string[]
+  onToggleGroup?: (key: string) => void
+  canEdit?: boolean
+  onAddCard?: (title: string, optionId: string) => Promise<void>
+  coverFor?: (cardId: string) => string | null
 }): ReactElement {
+  const groups = groupProjectCards(cards, groupById, allProperties)
+  const groupProperty = allProperties.find((property) => property.id === groupById)
+  // An empty group still gets its section and its add tile, the way an empty kanban column does.
+  const entries: [string, ProjectCard[]][] = groupProperty
+    ? [...groupProperty.options.map((option) => option.id), ''].map((key) => [key, groups.get(key) ?? []])
+    : [...groups.entries()]
   return (
-    <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3 overflow-y-auto p-3">
-      {cards.map((card) => (
-        <button
-          key={card.id}
-          type="button"
-          data-project-card={card.id}
-          className="flex flex-col items-start gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 text-left shadow-[var(--shadow-sm)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-          onClick={() => onOpenCard(card.id)}
-          onContextMenu={(event) => onCardContextMenu?.(event, card)}
-        >
-          <span aria-hidden="true" className="flex h-16 w-full items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-sunken)] text-[length:var(--text-20)]">
-            {card.icon || <SquareKanban size={24} className="text-[var(--text-quaternary)]" />}
-          </span>
-          {showTitle && <span className="min-w-0 truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>}
-          {properties.slice(0, 3).map((property) => (
-            <span key={property.id} className="min-w-0 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-              {property.type === 'select' && card.values[property.id] ? <OptionChip property={property} value={card.values[property.id]!} /> : projectPropertyDisplayText(card, property)}
-            </span>
-          ))}
-          {showBadges && <CardBadges badges={badgesFor(card.id)} />}
-        </button>
-      ))}
+    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
+      {entries.map(([key, groupCards]) => {
+        const collapsed = collapsedOptionIds.includes(key)
+        const label = key === '' ? t('project.view.no_value') : projectOptionLabel(groupProperty!, key)
+        return (
+          <section key={key || 'empty'} aria-label={label} data-gallery-group={key}>
+            {groupById && (
+              <button
+                type="button"
+                aria-expanded={!collapsed}
+                className="mb-2 flex items-center gap-1.5 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                onClick={() => onToggleGroup?.(key)}
+              >
+                {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                {groupProperty && key !== '' ? <OptionChip property={groupProperty} value={key} /> : <span>{label}</span>}
+                <span className="text-[var(--text-tertiary)]">{groupCards.length}</span>
+              </button>
+            )}
+            {!collapsed && (
+              <div className="grid auto-rows-min grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
+                {groupCards.map((card) => {
+                  const cover = coverFor?.(card.id) ?? null
+                  return (
+                    <button
+                      key={card.id}
+                      type="button"
+                      data-project-card={card.id}
+                      className="flex flex-col items-start gap-2 overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 text-left shadow-[var(--shadow-sm)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                      onClick={() => onOpenCard(card.id)}
+                      onContextMenu={(event) => onCardContextMenu?.(event, card)}
+                    >
+                      {cover
+                        ? <img src={cover} alt="" className="h-24 w-full rounded-[var(--r-sm)] object-cover" />
+                        : (
+                          <span aria-hidden="true" className="flex h-24 w-full items-center justify-center rounded-[var(--r-sm)] bg-[var(--bg-sunken)] text-[length:var(--text-20)]">
+                            {card.icon || <SquareKanban size={24} className="text-[var(--text-quaternary)]" />}
+                          </span>
+                        )}
+                      {showTitle && <span className="min-w-0 max-w-full truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>}
+                      {properties.slice(0, 3).map((property) => (
+                        <span key={property.id} className="min-w-0 max-w-full truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                          {property.type === 'select' && card.values[property.id] ? <OptionChip property={property} value={card.values[property.id]!} /> : projectPropertyDisplayText(card, property)}
+                        </span>
+                      ))}
+                      {showBadges && <CardBadges badges={badgesFor(card.id)} />}
+                    </button>
+                  )
+                })}
+                {canEdit && onAddCard && (
+                  <div className="flex min-h-32 flex-col justify-center rounded-[var(--r-md)] border border-dashed border-[var(--border-default)] p-3">
+                    <GalleryAddTile onAdd={(title) => onAddCard(title, key)} />
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        )
+      })}
     </div>
+  )
+}
+
+function GalleryAddTile({ onAdd }: { onAdd: (title: string) => Promise<void> }): ReactElement {
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="flex items-center justify-center gap-1.5 rounded-[var(--r-sm)] py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+        onClick={() => setOpen(true)}
+      >
+        <Plus size={13} aria-hidden="true" />{t('project.board.new_card')}
+      </button>
+    )
+  }
+  return (
+    <form onSubmit={(event) => { event.preventDefault(); const trimmed = title.trim(); if (trimmed) { void onAdd(trimmed); setTitle(''); setOpen(false) } }}>
+      <Input
+        className="w-full"
+        value={title}
+        autoFocus
+        aria-label={t('project.board.new_card')}
+        placeholder={t('project.board.card_placeholder')}
+        onChange={(event) => setTitle(event.target.value)}
+        onKeyDown={(event) => { if (event.key === 'Escape') { setOpen(false); setTitle('') } }}
+        onBlur={() => { if (!title.trim()) setOpen(false) }}
+      />
+    </form>
   )
 }
 

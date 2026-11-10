@@ -18,7 +18,7 @@ import { PropertyValueEditor } from './PropertyValueEditor'
 import { CalendarView, GalleryView } from './GalleryCalendar'
 import { CardBadges, CardPropertyChips, OptionChip, optionDot } from './CardBadges'
 import { ChartView, ListView, TimelineView } from './ExtraViews'
-import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, projectBoardExportUrl } from './api'
+import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, projectBoardExportUrl, projectFileUrl } from './api'
 
 const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   board: 'project.view.board',
@@ -141,6 +141,13 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     }
     return byCard
   }, [bundle.cards, bundle.contents, bundle.comments])
+  const coverByCard = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const block of bundle.contents) {
+      if (block.type === 'image' && block.fields.attachmentId && !map.has(block.cardId)) map.set(block.cardId, projectFileUrl(block.fields.attachmentId))
+    }
+    return map
+  }, [bundle.contents])
   const badgesFor = (cardId: string): ProjectCardBadges => badgesByCard.get(cardId) ?? { description: false, comments: 0, checked: 0, checkboxes: 0 }
   const cellDisplay = (card: ProjectCard, property: ProjectProperty): ReactElement | string => {
     if (property.type === 'select' && card.values[property.id]) {
@@ -485,7 +492,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               options={[{ value: '', label: t('project.view.display_by') }, ...dateProperties.map((property) => ({ value: property.id, label: property.name }))]}
             />
           )}
-          {(viewType === 'board' || viewType === 'table') && (
+          {(viewType === 'board' || viewType === 'table' || viewType === 'gallery') && (
             <SelectMenu
               className="w-36"
               size="sm"
@@ -572,6 +579,13 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                   showBadges={fields.galleryShowBadges !== false}
                   onOpenCard={onOpenCard}
                   onCardContextMenu={onCardContextMenu}
+                  groupById={fields.groupById}
+                  allProperties={bundle.properties}
+                  collapsedOptionIds={fields.collapsedOptionIds}
+                  onToggleGroup={toggleGroup}
+                  canEdit={canEdit}
+                  onAddCard={addCardInColumn}
+                  coverFor={publicView ? undefined : (cardId) => coverByCard.get(cardId) ?? null}
                 />
               )
               : viewType === 'list'
@@ -597,6 +611,15 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                 <table className="w-full border-collapse text-[length:var(--text-13)]">
                   <thead>
                     <tr className="border-b border-[var(--border-subtle)] text-left text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                      {canEdit && (
+                        <th scope="col" className="w-9 px-2 py-2">
+                          <Checkbox
+                            ariaLabel={t('project.view.select_all')}
+                            checked={sorted.length > 0 && sorted.every((card) => selected.includes(card.id))}
+                            onChange={(checked) => setSelected(checked ? sorted.map((card) => card.id) : [])}
+                          />
+                        </th>
+                      )}
                       <th scope="col" className="px-3 py-2 font-medium">{t('project.board.title_column')}</th>
                       {columns.map((property) => (
                         <th
@@ -640,7 +663,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                     <tbody key={groupKey || 'all'}>
                       {fields.groupById && (
                         <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
-                          <td colSpan={columns.length + 1 + (canEdit ? 1 : 0)} className="px-3 py-1">
+                          <td colSpan={columns.length + 1 + (canEdit ? 2 : 0)} className="px-3 py-1">
                             <button
                               type="button"
                               className="flex items-center gap-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
@@ -657,15 +680,25 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                       {!fields.collapsedOptionIds.includes(groupKey) && (() => {
                         const groupCardIds = new Set(groupCards.map((c) => c.id))
                         const rootCards = groupCards.filter((c) => !c.parentId || !groupCardIds.has(c.parentId))
-                        return rootCards.map((card) => {
+                        return rootCards.map((card, rowIndex) => {
                           const cardSubtasks = subtasksByParent.get(card.id) ?? []
                           const hasSubtasks = cardSubtasks.length > 0
                           const isExpanded = expandedCards.has(card.id)
                           return (
                             <Fragment key={card.id}>
                               <tr className={`border-b border-[var(--border-subtle)] ${rowPad} ${selected.includes(card.id) ? 'bg-[var(--accent-soft)]' : ''}`} data-project-card={card.id} onContextMenu={(event) => onCardContextMenu(event, card)}>
+                                {canEdit && (
+                                  <td className="px-2 py-2">
+                                    <Checkbox
+                                      ariaLabel={card.title || t('project.board.untitled_card')}
+                                      checked={selected.includes(card.id)}
+                                      onChange={(checked) => setSelected((current) => checked ? [...current, card.id] : current.filter((id) => id !== card.id))}
+                                    />
+                                  </td>
+                                )}
                                 <td className="px-3 py-2 text-[var(--text-primary)]">
                                   <div className="flex items-center gap-1">
+                                    <span aria-hidden="true" className="w-5 shrink-0 text-right text-[length:var(--text-11)] text-[var(--text-quaternary)] tabular">{rowIndex + 1}</span>
                                     {hasSubtasks ? (
                                       <button
                                         type="button"
@@ -721,6 +754,15 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                               </tr>
                               {hasSubtasks && isExpanded && cardSubtasks.map((subtask) => (
                                 <tr key={subtask.id} className={`border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]/40 ${rowPad} ${selected.includes(subtask.id) ? 'bg-[var(--accent-soft)]' : ''}`} data-project-card={subtask.id} onContextMenu={(event) => onCardContextMenu(event, subtask)}>
+                                  {canEdit && (
+                                    <td className="px-2 py-2">
+                                      <Checkbox
+                                        ariaLabel={subtask.title || t('project.board.untitled_card')}
+                                        checked={selected.includes(subtask.id)}
+                                        onChange={(checked) => setSelected((current) => checked ? [...current, subtask.id] : current.filter((id) => id !== subtask.id))}
+                                      />
+                                    </td>
+                                  )}
                                   <td className="px-3 py-2 text-[var(--text-primary)]">
                                     <div className="flex items-center gap-1.5 pl-6">
                                       <CornerDownRight size={13} className="shrink-0 text-[var(--text-tertiary)]" />
@@ -766,9 +808,19 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                       })()}
                     </tbody>
                   ))}
+                  {canEdit && (
+                    <tbody>
+                      <tr className="border-b border-[var(--border-subtle)]">
+                        <td colSpan={columns.length + 1 + (canEdit ? 2 : 0)} className="px-2 py-1">
+                          <ColumnAddTask label={t('project.view.add_row')} onAdd={(title) => addCardInColumn(title, '')} />
+                        </td>
+                      </tr>
+                    </tbody>
+                  )}
                   {active && (
                     <tfoot>
                       <tr className="border-t border-[var(--border-subtle)] text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                        {canEdit && <td />}
                         <td className="px-3 py-1">{t('project.view.summary')}</td>
                         {columns.map((property) => {
                           const calc = fields.columnCalculations[property.id] ?? 'count'

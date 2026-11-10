@@ -146,3 +146,44 @@ describe('calendar quick add (R3-6)', () => {
     expect(add).toBeUndefined()
   })
 })
+
+describe('the grouped gallery (R3-21)', () => {
+  const grouped: ProjectProperty[] = [
+    { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '' }, { id: 'o2', value: 'Done', color: '' }] },
+  ]
+  const withStatus = (id: string, title: string, option: string): ProjectCard => ({ ...card(id, title), values: { ps: option } })
+
+  it('splits the tiles into a section per option with its count', async () => {
+    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [withStatus('c1', 'Alpha', 'o1'), withStatus('c2', 'Beta', 'o2')], badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }), properties: [], showTitle: true, showBadges: false, onOpenCard: vi.fn(), groupById: 'ps', allProperties: grouped })) })
+    const sections = [...view.container.querySelectorAll('[data-gallery-group]')]
+    expect(sections.map((node) => node.getAttribute('data-gallery-group'))).toEqual(['o1', 'o2', ''])
+    expect(sections[0]!.textContent).toContain('Alpha')
+    expect(sections[0]!.textContent).not.toContain('Beta')
+    expect(sections[0]!.querySelector('[aria-expanded]')?.textContent).toContain('1')
+  })
+
+  it('hides a collapsed group tiles but keeps its header', async () => {
+    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [withStatus('c1', 'Alpha', 'o1')], badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }), properties: [], showTitle: true, showBadges: false, onOpenCard: vi.fn(), groupById: 'ps', allProperties: grouped, collapsedOptionIds: ['o1'] })) })
+    expect(view.container.querySelector('[data-project-card="c1"]')).toBeNull()
+    expect(view.container.querySelector('[data-gallery-group="o1"]')).not.toBeNull()
+  })
+
+  it('uses the cover the caller resolves instead of the icon placeholder', async () => {
+    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [card('c1', 'Alpha')], badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }), properties: [], showTitle: true, showBadges: false, onOpenCard: vi.fn(), coverFor: () => '/api/project/files/i1' })) })
+    expect(view.container.querySelector('[data-project-card="c1"] img')?.getAttribute('src')).toBe('/api/project/files/i1')
+  })
+
+  it('files a new card into the group whose tile was used', async () => {
+    const onAddCard = vi.fn().mockResolvedValue(undefined)
+    await act(async () => { view = renderElement(createElement(GalleryView, { cards: [], badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }), properties: [], showTitle: true, showBadges: false, onOpenCard: vi.fn(), groupById: 'ps', allProperties: grouped, canEdit: true, onAddCard })) })
+    const tiles = [...view.container.querySelectorAll<HTMLButtonElement>('[data-gallery-group] button')].filter((button) => button.textContent === t('project.board.new_card'))
+    expect(tiles).toHaveLength(3)
+    await act(async () => { tiles[1]!.click() })
+    const field = view.container.querySelector<HTMLInputElement>(`input[aria-label="${t('project.board.new_card')}"]`)
+    expect(field).not.toBeNull()
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(field!, 'Fresh'); field!.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { field!.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
+    expect(onAddCard).toHaveBeenCalledWith('Fresh', 'o2')
+  })
+})

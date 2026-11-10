@@ -56,7 +56,7 @@ describe('the table view', () => {
     const headers = [...view.container.querySelectorAll('thead th')].map((th) => th.textContent)
     expect(headers).toContain('Status')
     expect(headers).toContain('Notes')
-    const rows = [...view.container.querySelectorAll('tbody tr')]
+    const rows = [...view.container.querySelectorAll('tbody tr[data-project-card]')]
     expect(rows).toHaveLength(3)
     expect(rows[0]!.textContent).toContain('Alpha')
     expect(rows[0]!.textContent).toContain('Open')
@@ -181,7 +181,7 @@ describe('table group rows, collapse, inline edit, column reorder (C-3/C-22)', (
   it('clicking a cell opens the inline editor and commits via onPatchCard', async () => {
     const onPatchCard = vi.fn().mockResolvedValue(undefined)
     await mountTable({}, vi.fn().mockResolvedValue(undefined), onPatchCard)
-    const cell = view.container.querySelector('[data-project-card="c1"] td:nth-child(2) button') as HTMLButtonElement
+    const cell = view.container.querySelector('[data-project-card="c1"] td:nth-child(3) button') as HTMLButtonElement
     await act(async () => { cell.click() })
     const trigger = view.container.querySelector<HTMLButtonElement>('[data-project-card="c1"] button[aria-label="Status"]')
     expect(trigger).not.toBeNull()
@@ -310,7 +310,7 @@ describe('view search (C-12)', () => {
       setter.call(input, 'open')
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    const rows = [...view.container.querySelectorAll('tbody tr')]
+    const rows = [...view.container.querySelectorAll('tbody tr[data-project-card]')]
     expect(rows).toHaveLength(1)
     expect(rows[0]!.textContent).toContain('Alpha')
     expect(view.container.querySelector('[role="status"]')?.textContent).toBe(t('project.view.hidden_count', { count: 2 }))
@@ -394,7 +394,7 @@ describe('subtask hierarchy in views', () => {
     await act(async () => {
       view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
-    expect(view.container.querySelectorAll('tbody tr')).toHaveLength(1)
+    expect(view.container.querySelectorAll('tbody tr[data-project-card]')).toHaveLength(1)
     expect(view.container.textContent).toContain('Parent Card')
     expect(view.container.textContent).not.toContain('Child Card')
 
@@ -404,7 +404,7 @@ describe('subtask hierarchy in views', () => {
       expandBtn.click()
     })
 
-    expect(view.container.querySelectorAll('tbody tr')).toHaveLength(2)
+    expect(view.container.querySelectorAll('tbody tr[data-project-card]')).toHaveLength(2)
     expect(view.container.textContent).toContain('Child Card')
   })
 
@@ -604,6 +604,35 @@ describe('the board card face (R3-19)', () => {
     await act(async () => { setter.call(field!, 'Fresh'); field!.dispatchEvent(new Event('input', { bubbles: true })) })
     await act(async () => { field!.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
     expect(create).toHaveBeenCalledWith('b1', { title: 'Fresh', values: { ps: 'o2' } })
+    create.mockRestore()
+  })
+})
+
+describe('the table row furniture (R3-20)', () => {
+  it('numbers the rows and selects every card from the header checkbox', async () => {
+    localStorage.clear()
+    await mount()
+    const numbers = [...view.container.querySelectorAll('tbody tr[data-project-card] td:nth-child(2) span.tabular')].map((node) => node.textContent)
+    expect(numbers).toEqual(['1', '2', '3'])
+    const all = view.container.querySelector<HTMLButtonElement>(`thead [role="checkbox"][aria-label="${t('project.view.select_all')}"]`)
+    expect(all, 'no select-all affordance').not.toBeNull()
+    await act(async () => { all!.click() })
+    expect(view.container.querySelector('[role="toolbar"]')?.textContent).toContain(t('project.view.selected_count', { count: 3 }))
+  })
+
+  it('files a card from the footer add row', async () => {
+    localStorage.clear()
+    const create = vi.spyOn(api, 'createProjectCard').mockResolvedValue({ id: 'cnew', boardId: 'b1', parentId: '', title: 'Row', icon: '', isTemplate: false, contentOrder: [], values: {}, ...stamps })
+    await mount()
+    const add = [...view.container.querySelectorAll<HTMLButtonElement>('tfoot, tbody')].flatMap((node) => [...node.querySelectorAll<HTMLButtonElement>('button')]).find((button) => button.textContent === t('project.view.add_row'))
+    expect(add, 'no footer add row').toBeDefined()
+    await act(async () => { add!.click() })
+    const field = view.container.querySelector<HTMLInputElement>(`input[aria-label="${t('project.view.add_row')}"]`)
+    expect(field).not.toBeNull()
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(field!, 'Row'); field!.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { field!.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
+    expect(create).toHaveBeenCalledWith('b1', { title: 'Row', values: {} })
     create.mockRestore()
   })
 })
