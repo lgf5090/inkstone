@@ -16,7 +16,7 @@ import { PropertiesModal, SortModal } from './ViewSettingsModals'
 import { FilterModal } from './FilterEditor'
 import { PropertyValueEditor } from './PropertyValueEditor'
 import { CalendarView, GalleryView } from './GalleryCalendar'
-import { CardBadges, OptionChip, optionDot } from './CardBadges'
+import { CardBadges, CardPropertyChips, OptionChip, optionDot } from './CardBadges'
 import { ChartView, ListView, TimelineView } from './ExtraViews'
 import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, projectBoardExportUrl } from './api'
 
@@ -186,6 +186,12 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     const name = await prompt({ title: t('project.card.add_subtask'), confirmLabel: t('project.card.add_subtask') })
     if (name === null || !name.trim()) return
     await createProjectCard(bundle.board.id, { title: name.trim(), parentId: parentCardId })
+    await onRefresh()
+  }
+
+  const addCardInColumn = async (title: string, optionId: string): Promise<void> => {
+    const values = fields.groupById && optionId ? { [fields.groupById]: optionId } : {}
+    await createProjectCard(bundle.board.id, { title, values })
     await onRefresh()
   }
 
@@ -550,12 +556,12 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       )}
       {viewType === 'calendar'
         ? <CalendarView cards={sorted} boardId={bundle.board.id} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} canEdit={canEdit} onOpenCard={onOpenCard} onPatchCard={onPatchCard} onRefresh={onRefresh} />
-        : sorted.length === 0
+        : sorted.length === 0 && viewType !== 'board'
           ? <Empty art="folder" title={t('project.board.empty_cards')} />
           : viewType === 'board'
             ? (fields.swimlaneBy
-              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} allCardsById={allCardsById} subtasksByParent={subtasksByParent} subtaskProgressByParent={subtaskProgressByParent} expandedCards={expandedCards} onToggleExpand={toggleExpandCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onOpenCard={onOpenCard} />
-              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} allCardsById={allCardsById} subtasksByParent={subtasksByParent} subtaskProgressByParent={subtaskProgressByParent} expandedCards={expandedCards} onToggleExpand={toggleExpandCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onOpenCard={onOpenCard} />)
+              ? <Swimlanes cards={sorted} fields={fields} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} allCardsById={allCardsById} subtasksByParent={subtasksByParent} subtaskProgressByParent={subtaskProgressByParent} expandedCards={expandedCards} onToggleExpand={toggleExpandCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onOpenCard={onOpenCard} onAddCard={addCardInColumn} />
+              : <BoardColumns cards={sorted} groupById={fields.groupById} properties={bundle.properties} badgesFor={badgesFor} canEdit={canEdit} onDeleteCard={onDeleteCard} fields={fields} density={density} onPatch={(f) => { if (active) onPatchView(active.id, { fields: f }) }} onPatchCard={onPatchCard} onAddGroupOption={onAddGroupOption} selected={selected} onSelectClick={selectClick} allCardsById={allCardsById} subtasksByParent={subtasksByParent} subtaskProgressByParent={subtaskProgressByParent} expandedCards={expandedCards} onToggleExpand={toggleExpandCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onOpenCard={onOpenCard} onAddCard={addCardInColumn} />)
             : viewType === 'gallery'
               ? (
                 <GalleryView
@@ -826,6 +832,7 @@ function BoardColumns({
   onAddSubtask,
   onToggleCardDone,
   onOpenCard,
+  onAddCard,
 }: {
   cards: ProjectCard[]
   groupById?: string
@@ -849,8 +856,12 @@ function BoardColumns({
   onAddSubtask?: (parentCardId: string) => Promise<void>
   onToggleCardDone?: (card: ProjectCard, checked: boolean) => Promise<void>
   onOpenCard?: (id: string) => void
+  onAddCard?: (title: string, optionId: string) => Promise<void>
 }): ReactElement {
   const cardPad = density === 'compact' ? 'px-2 py-1' : density === 'spacious' ? 'px-3 py-3' : 'px-2 py-2'
+  const chipProperties = fields.visiblePropertyIds.length
+    ? fields.visiblePropertyIds.map((id) => properties.find((property) => property.id === id)).filter((property): property is ProjectProperty => Boolean(property))
+    : properties
   const groupProperty = properties.find((property) => property.id === groupById)
   const groups = groupProjectCards(cards, groupById, properties)
   const columnKeys = (groupProperty && groupProperty.options.length
@@ -883,8 +894,10 @@ function BoardColumns({
               if (cardId) void onPatchCard(cardId, { values: { [groupProperty.id]: key === '' ? null : key } })
             }}
           >
-            <header className="flex items-center gap-2 px-3 py-2 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
-              <span className="min-w-0 flex-1 truncate">{label}</span>
+            <header className="group/col flex items-center gap-2 px-3 py-2 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
+              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                {groupProperty && key !== '' ? <span className="min-w-0 shrink-0"><OptionChip property={groupProperty} value={key} /></span> : <span className="truncate">{label}</span>}
+              </span>
               {canEdit && groupProperty && key !== '' && (
                 <IconButton label={t('project.view.hide_column')} size="sm" onClick={() => onPatch({ hiddenOptionIds: [...fields.hiddenOptionIds, key] })}>
                   <EyeOff size={13} />
@@ -892,7 +905,7 @@ function BoardColumns({
               )}
               {calcProperty && (
                 <SelectMenu
-                  className="w-24"
+                  className="w-24 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/col:opacity-100"
                   size="sm"
                   value={calc}
                   label={label}
@@ -905,7 +918,7 @@ function BoardColumns({
               {canEdit && groupProperty && (
                 <Input
                   type="number"
-                  className="w-14"
+                  className="w-14 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/col:opacity-100"
                   value={fields.wipLimits?.[key] ?? ''}
                   placeholder={t('project.view.wip_limit')}
                   aria-label={`${label} ${t('project.view.wip_limit')}`}
@@ -976,6 +989,7 @@ function BoardColumns({
                         </IconButton>
                       )}
                     </div>
+                    <CardPropertyChips card={card} properties={chipProperties} excludePropertyId={groupById} />
                     {hasSubtasks && isExpanded && (
                       <div className="mt-2 space-y-1.5 border-l-2 border-[var(--border-subtle)] ml-2 pl-2">
                         {cardSubtasks.map((subtask) => {
@@ -1042,6 +1056,11 @@ function BoardColumns({
                 )
               })}
             </ul>
+            {canEdit && onAddCard && (
+              <div className="shrink-0 px-1 pb-1">
+                <ColumnAddTask label={t('project.board.new_card')} onAdd={(title) => onAddCard(title, key)} />
+              </div>
+            )}
           </section>
         )
       })}
@@ -1079,6 +1098,7 @@ function Swimlanes({
   onAddSubtask,
   onToggleCardDone,
   onOpenCard,
+  onAddCard,
 }: {
   cards: ProjectCard[]
   fields: ProjectViewFields
@@ -1101,6 +1121,7 @@ function Swimlanes({
   onAddSubtask?: (parentCardId: string) => Promise<void>
   onToggleCardDone?: (card: ProjectCard, checked: boolean) => Promise<void>
   onOpenCard?: (id: string) => void
+  onAddCard?: (title: string, optionId: string) => Promise<void>
 }) {
   const laneProperty = properties.find((property) => property.id === fields.swimlaneBy)
   const lanes = groupProjectCards(cards, fields.swimlaneBy, properties)
@@ -1134,9 +1155,56 @@ function Swimlanes({
             onAddSubtask={onAddSubtask}
             onToggleCardDone={onToggleCardDone}
             onOpenCard={onOpenCard}
+            onAddCard={onAddCard}
           />
         </section>
       ))}
     </div>
+  )
+}
+function ColumnAddTask({ label, onAdd }: { label: string, onAdd: (title: string) => Promise<void> }): ReactElement {
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    const trimmed = title.trim()
+    if (!trimmed || busy) return
+    setBusy(true)
+    try {
+      await onAdd(trimmed)
+      setTitle('')
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+        onClick={() => setOpen(true)}
+      >
+        <Plus size={13} aria-hidden="true" />
+        <span>{label}</span>
+      </button>
+    )
+  }
+  return (
+    <form
+      className="px-1 pb-1"
+      onSubmit={(event) => { event.preventDefault(); void submit() }}
+    >
+      <Input
+        className="w-full"
+        value={title}
+        autoFocus
+        disabled={busy}
+        aria-label={label}
+        placeholder={t('project.board.card_placeholder')}
+        onChange={(event) => setTitle(event.target.value)}
+        onKeyDown={(event) => { if (event.key === 'Escape') { setOpen(false); setTitle('') } }}
+        onBlur={() => { if (!title.trim()) setOpen(false) }}
+      />
+    </form>
   )
 }

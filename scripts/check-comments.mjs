@@ -12516,6 +12516,10 @@ const allowed = new Map([
     "/** A public reader has no session: the member-only reads and exports would answer 401, so they are not offered. */",
     "/* a stored value that is not a JSON array reads as plain text below */",
   ]],
+  ["src/client/features/project/CardBadges.tsx", [
+    "/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */",
+    "/**\n * The row a board card wears under its title.\n *\n * A kanban card has to be readable without opening it, so the properties the view already shows are\n * repeated here as chips — the group's own property is left out because the column already says it.\n * Only set values are drawn: an empty chip per property would bury the title it is meant to support.\n */",
+  ]],
   ["src/client/features/project/ExtraViews.tsx", [
     "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
     "/* bare stamp */",

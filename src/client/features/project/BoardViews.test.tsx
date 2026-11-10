@@ -2,6 +2,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectBoardBundle, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_VIEW_TYPES } from '@shared/project/model'
+import { projectDayToStamp } from '@shared/project/date'
 import { initI18n, initI18nForReading, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { BoardViews } from './BoardViews'
@@ -558,5 +559,51 @@ describe('calculation labels (R3-14)', () => {
     expect(options).toContain(t('project.calc.percentempty'))
     expect(options).not.toContain('percentEmpty')
     expect(options).not.toContain('countUniqueValue')
+  })
+})
+
+describe('the board card face (R3-19)', () => {
+  async function mountBoardWith(extra: Partial<ProjectBoardBundle>): Promise<void> {
+    const base = { ...bundle(), ...extra }
+    base.views = [{ id: 'v2', boardId: 'b1', title: 'Board', viewType: 'board', fields: { ...emptyProjectViewFields(), groupById: 'ps' }, position: 0, ...stamps }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+  }
+
+  it('repeats the card set properties as chips but not the one the column already names', async () => {
+    const base = bundle()
+    base.properties = [...base.properties, { id: 'pd', name: 'Due', type: 'date', options: [] }]
+    base.cards = [{ id: 'c1', boardId: 'b1', parentId: '', title: 'Alpha', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o1', pt: 'a note', pd: JSON.stringify({ from: projectDayToStamp(new Date(2020, 0, 2)) }) }, ...stamps }]
+    await mountBoardWith(base)
+    const chips = view.container.querySelector('[data-card-properties="c1"]')
+    expect(chips, 'the card wears no property row').not.toBeNull()
+    expect(chips!.textContent).toContain('a note')
+    expect(chips!.textContent).not.toContain('Open')
+    expect(chips!.querySelector('[title="Due"]')?.className).toContain('danger')
+  })
+
+  it('draws no property row when the card has no values beyond its column', async () => {
+    const base = bundle()
+    base.cards = [{ id: 'c1', boardId: 'b1', parentId: '', title: 'Alpha', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o1' }, ...stamps }]
+    await mountBoardWith(base)
+    expect(view.container.querySelector('[data-card-properties="c1"]')).toBeNull()
+  })
+
+  it('files a card into the column it was typed under', async () => {
+    const create = vi.spyOn(api, 'createProjectCard').mockResolvedValue({ id: 'cnew', boardId: 'b1', parentId: '', title: 'Fresh', icon: '', isTemplate: false, contentOrder: [], values: {}, ...stamps })
+    const base = bundle()
+    base.cards = []
+    await mountBoardWith(base)
+    const adders = [...view.container.querySelectorAll<HTMLButtonElement>('button')].filter((button) => button.textContent === t('project.board.new_card'))
+    expect(adders.length).toBeGreaterThan(0)
+    await act(async () => { adders[1]!.click() })
+    const field = view.container.querySelector<HTMLInputElement>(`input[aria-label="${t('project.board.new_card')}"]`)
+    expect(field, 'the column never opened an input').not.toBeNull()
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(field!, 'Fresh'); field!.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { field!.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
+    expect(create).toHaveBeenCalledWith('b1', { title: 'Fresh', values: { ps: 'o2' } })
+    create.mockRestore()
   })
 })

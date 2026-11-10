@@ -1,7 +1,10 @@
 import type { ReactElement } from 'react'
-import { CheckSquare, FileText, ListTodo, MessageSquare } from 'lucide-react'
+import { CalendarDays, CheckSquare, FileText, Hash, Link2, ListTodo, Mail, MessageSquare, Phone, Type, User, Users, type LucideIcon } from 'lucide-react'
 import type { ProjectCardBadges } from '@shared/project/badges'
-import type { ProjectProperty } from '@shared/project/model'
+import type { ProjectCard, ProjectProperty } from '@shared/project/model'
+import { isProjectCardDone, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
+import { parseProjectDateValue, projectStampToDay } from '@shared/project/date'
+import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import { hasProjectCardBadges } from '@shared/project/badges'
 import { projectOptionCssColor } from '@shared/project/option-color'
 import { t } from '../../lib/i18n'
@@ -57,4 +60,63 @@ export function CardBadges({ badges, subtaskCount = 0, subtaskDone = 0 }: { badg
 }
 export function optionDot(color: string): ReactElement {
   return <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: projectOptionCssColor(color) ?? 'var(--text-quaternary)' }} />
+}
+
+const PROPERTY_ICONS: Partial<Record<ProjectProperty['type'], LucideIcon>> = {
+  date: CalendarDays,
+  person: User,
+  multiPerson: Users,
+  number: Hash,
+  url: Link2,
+  email: Mail,
+  phone: Phone,
+  text: Type,
+}
+
+/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */
+function isOverdue(card: ProjectCard, property: ProjectProperty, properties: readonly ProjectProperty[]): boolean {
+  const value = parseProjectDateValue(card.values[property.id] ?? '')
+  if (value?.from === undefined) return false
+  if (isProjectCardDone(card, properties)) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return projectStampToDay(value.to ?? value.from, value.includeTime === true).getTime() < today.getTime()
+}
+
+/**
+ * The row a board card wears under its title.
+ *
+ * A kanban card has to be readable without opening it, so the properties the view already shows are
+ * repeated here as chips — the group's own property is left out because the column already says it.
+ * Only set values are drawn: an empty chip per property would bury the title it is meant to support.
+ */
+export function CardPropertyChips({ card, properties, excludePropertyId, max = 4 }: {
+  card: ProjectCard
+  properties: readonly ProjectProperty[]
+  excludePropertyId?: string
+  max?: number
+}): ReactElement | null {
+  const shown = properties
+    .filter((property) => property.id !== excludePropertyId && !PROJECT_PROPERTY_CAPABILITIES[property.type].readOnly && card.values[property.id])
+    .slice(0, max)
+  if (shown.length === 0) return null
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5" data-card-properties={card.id}>
+      {shown.map((property) => {
+        if (property.type === 'select') return <OptionChip key={property.id} property={property} value={card.values[property.id]!} />
+        const Icon = PROPERTY_ICONS[property.type] ?? Type
+        const overdue = property.type === 'date' && isOverdue(card, property, properties)
+        return (
+          <span
+            key={property.id}
+            title={property.name}
+            className={`inline-flex max-w-full items-center gap-1 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] ${overdue ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--bg-sunken)] text-[var(--text-secondary)]'}`}
+          >
+            <Icon size={11} aria-hidden="true" className="shrink-0" />
+            <span className="truncate">{projectPropertyDisplayText(card, property)}</span>
+          </span>
+        )
+      })}
+    </div>
+  )
 }
