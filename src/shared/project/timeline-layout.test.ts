@@ -5,7 +5,9 @@ import {
   PROJECT_TIMELINE_DAY_MS,
   projectCardDays,
   projectTimelineBar,
+  projectTimelineColumn,
   projectTimelineDays,
+  projectTimelineDragRange,
   projectTimelineRows,
   projectTimelineWindow,
 } from './timeline-layout'
@@ -92,5 +94,28 @@ describe('the task tree', () => {
   it('stops at a cycle rather than recursing forever', () => {
     const rows = projectTimelineRows([card('a', {}, 'b'), card('b', {}, 'a')])
     expect(rows.map((row) => row.card.id).sort()).toEqual(['a', 'b'])
+  })
+})
+describe('dragging a bar', () => {
+  it('moves both ends by whole columns so the task keeps its length', () => {
+    const range = { from: day(10), to: day(13) }
+    const moved = projectTimelineDragRange(range, 2)
+    expect(moved).toEqual({ from: day(12), to: day(15) })
+    expect(moved.to - moved.from).toBe(range.to - range.from)
+    expect(projectTimelineDragRange(range, -3)).toEqual({ from: day(7), to: day(10) })
+  })
+
+  it('rounds a fractional column and leaves a zero drag alone', () => {
+    const range = { from: day(10), to: day(10) }
+    expect(projectTimelineDragRange(range, 0)).toEqual(range)
+    expect(projectTimelineDragRange(range, 0.6)).toEqual({ from: day(11), to: day(11) })
+  })
+
+  it('reads the pointer column and clamps it into the window', () => {
+    expect(projectTimelineColumn(0, 40, 7)).toBe(0)
+    expect(projectTimelineColumn(95, 40, 7)).toBe(2)
+    expect(projectTimelineColumn(-50, 40, 7)).toBe(0)
+    expect(projectTimelineColumn(9999, 40, 7)).toBe(6)
+    expect(projectTimelineColumn(10, 0, 7)).toBe(0)
   })
 })

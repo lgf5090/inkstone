@@ -134,3 +134,19 @@ export function projectTimelineRows(cards: readonly ProjectCard[], collapsed: Re
   for (const card of cards) walk(card, 0)
   return rows
 }
+/**
+ * The range a bar lands on after being dragged whole across the axis.
+ *
+ * The bar keeps its length: a three-day task moved two columns right is still three days, and the
+ * writer turns both ends back into stored stamps so the move cannot quietly become a single day.
+ */
+export function projectTimelineDragRange(range: TimelineRange, columns: number): TimelineRange {
+  const shift = Math.round(columns) * PROJECT_TIMELINE_DAY_MS
+  return { from: range.from + shift, to: range.to + shift }
+}
+
+/** Which column a pointer at `offsetX` is over, clamped into the drawn window. */
+export function projectTimelineColumn(offsetX: number, columnPx: number, dayCount: number): number {
+  if (!(columnPx > 0) || dayCount <= 0) return 0
+  return Math.min(dayCount - 1, Math.max(0, Math.floor(offsetX / columnPx)))
+}

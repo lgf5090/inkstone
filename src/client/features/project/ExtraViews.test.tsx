@@ -1,7 +1,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
-import { projectDayToStamp } from '@shared/project/date'
+import { projectDayToStamp, projectStampToInput } from '@shared/project/date'
 import { PROJECT_TIMELINE_COLUMN_PX } from '@shared/project/timeline-layout'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
@@ -16,7 +16,12 @@ function card(id: string, title: string, from?: Date, to?: Date, parentId = ''):
 }
 
 let view: RenderedElement
-beforeEach(async () => { await initI18n() })
+beforeEach(async () => {
+  // jsdom ships no pointer capture; the drag handler asks for it before it attaches its listeners.
+  Element.prototype.setPointerCapture = () => {}
+  Element.prototype.releasePointerCapture = () => {}
+  await initI18n()
+})
 afterEach(() => { view?.unmount() })
 
 async function mount(cards: ProjectCard[], gantt = false): Promise<void> {
@@ -69,5 +74,43 @@ describe('the timeline axis (R3-22)', () => {
     const after = view.container.querySelector<HTMLButtonElement>('[data-timeline-row="c1"] button')!.style.width
     expect(after).not.toBe(before)
     expect(after).toBe(`${4 * PROJECT_TIMELINE_COLUMN_PX.week}px`)
+  })
+})
+describe('dragging a bar to reschedule (R3-22)', () => {
+  it('writes both ends through the shared day conversion and keeps the length', async () => {
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    const cards = [card('c1', 'Sprint', new Date(2026, 10, 10), new Date(2026, 10, 13))]
+    await act(async () => { view = renderElement(createElement(TimelineView, { cards, properties, links: [], gantt: false, onOpenCard: vi.fn(), canEdit: true, onPatchCard })) })
+    const bar = view.container.querySelector<HTMLButtonElement>('[data-timeline-row="c1"] button')!
+    const down = new Event('pointerdown', { bubbles: true }) as PointerEvent
+    Object.defineProperties(down, { clientX: { value: 100 }, pointerId: { value: 1 } })
+    await act(async () => { bar.dispatchEvent(down) })
+    const move = new Event('pointermove', { bubbles: true }) as PointerEvent
+    Object.defineProperties(move, { clientX: { value: 100 + 2 * PROJECT_TIMELINE_COLUMN_PX.day } })
+    await act(async () => { bar.dispatchEvent(move) })
+    const up = new Event('pointerup', { bubbles: true }) as PointerEvent
+    await act(async () => { bar.dispatchEvent(up) })
+    expect(onPatchCard).toHaveBeenCalledTimes(1)
+    const [id, patch] = onPatchCard.mock.calls[0]!
+    expect(id).toBe('c1')
+    const written = JSON.parse((patch as { values: Record<string, string> }).values.pd!) as { from: number, to: number }
+    expect(projectStampToInput(written.from)).toBe('2026-11-12')
+    expect(projectStampToInput(written.to)).toBe('2026-11-15')
+  })
+
+  it('offers no drag to a viewer', async () => {
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    await act(async () => { view = renderElement(createElement(TimelineView, { cards: [card('c1', 'Sprint', new Date(2026, 10, 10))], properties, links: [], gantt: false, onOpenCard: vi.fn(), canEdit: false, onPatchCard })) })
+    const bar = view.container.querySelector<HTMLButtonElement>('[data-timeline-row="c1"] button')!
+    expect(bar.className).not.toContain('cursor-grab')
+    const down = new Event('pointerdown', { bubbles: true }) as PointerEvent
+    Object.defineProperties(down, { clientX: { value: 100 }, pointerId: { value: 1 } })
+    await act(async () => { bar.dispatchEvent(down) })
+    const move = new Event('pointermove', { bubbles: true }) as PointerEvent
+    Object.defineProperties(move, { clientX: { value: 100 + 3 * PROJECT_TIMELINE_COLUMN_PX.day } })
+    await act(async () => { bar.dispatchEvent(move) })
+    const up = new Event('pointerup', { bubbles: true }) as PointerEvent
+    await act(async () => { bar.dispatchEvent(up) })
+    expect(onPatchCard, 'a viewer drag still wrote').not.toHaveBeenCalled()
   })
 })

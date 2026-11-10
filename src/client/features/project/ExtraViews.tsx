@@ -9,7 +9,8 @@ import type { ProjectCard, ProjectCardLink, ProjectProperty } from '@shared/proj
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { groupProjectCards, projectPropertyDisplayText } from '@shared/project/view-eval'
-import { PROJECT_TIMELINE_COLUMN_PX, projectCardDays, projectTimelineBar, projectTimelineDays, projectTimelineRows, projectTimelineWindow, type ProjectTimelineScale } from '@shared/project/timeline-layout'
+import { PROJECT_TIMELINE_COLUMN_PX, projectCardDays, projectTimelineBar, projectTimelineColumn, projectTimelineDays, projectTimelineDragRange, projectTimelineRows, projectTimelineWindow, type ProjectTimelineScale } from '@shared/project/timeline-layout'
+import { projectDayToStamp } from '@shared/project/date'
 import { t, useLocale } from '../../lib/i18n'
 import { Segmented } from '../../components/form'
 import { Button } from '../../components/primitives'
@@ -210,18 +211,21 @@ export function ListView({
   )
 }
 
-export function TimelineView({ cards, properties, datePropertyId, links, gantt, onOpenCard }: {
+export function TimelineView({ cards, properties, datePropertyId, links, gantt, onOpenCard, canEdit = false, onPatchCard }: {
   cards: ProjectCard[]
   properties: ProjectProperty[]
   datePropertyId?: string
   links: ProjectCardLink[]
   gantt: boolean
   onOpenCard: (id: string) => void
+  canEdit?: boolean
+  onPatchCard?: (id: string, patch: Record<string, unknown>) => Promise<void>
 }) {
   const locale = useLocale()
   const [scale, setScale] = useState<ProjectTimelineScale>('day')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [showUnscheduled, setShowUnscheduled] = useState(true)
+  const [drag, setDrag] = useState<{ id: string, startX: number, columns: number } | null>(null)
   const propertyId = datePropertyId ?? properties.find((property) => property.type === 'date')?.id
   const today = Date.now()
   const dated = cards
@@ -339,9 +343,33 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
                   <button
                     type="button"
                     aria-label={card.title || t('project.board.untitled_card')}
-                    className={`absolute top-1.5 h-6 rounded-[var(--r-sm)] text-left text-[length:var(--text-10)] ${isProjectCardDone(card, properties) ? 'bg-[var(--bg-hover)] text-[var(--text-tertiary)]' : 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'} focus-visible:outline-2 focus-visible:outline-[var(--accent)]`}
-                    style={{ left: `${bar.left * columnPx}px`, width: `${bar.width * columnPx}px` }}
-                    onClick={() => onOpenCard(card.id)}
+                    className={`absolute top-1.5 h-6 rounded-[var(--r-sm)] text-left text-[length:var(--text-10)] ${isProjectCardDone(card, properties) ? 'bg-[var(--bg-hover)] text-[var(--text-tertiary)]' : 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'} ${canEdit && onPatchCard ? 'cursor-grab' : ''} focus-visible:outline-2 focus-visible:outline-[var(--accent)]`}
+                    style={{ left: `${(bar.left + (drag?.id === card.id ? drag.columns : 0)) * columnPx}px`, width: `${bar.width * columnPx}px` }}
+                    onClick={() => { if (!drag) onOpenCard(card.id) }}
+                    onPointerDown={(event) => {
+                      if (!canEdit || !onPatchCard || !propertyId) return
+                      const target = event.currentTarget
+                      const startX = event.clientX
+                      target.setPointerCapture(event.pointerId)
+                      let moved = 0
+                      const move = (moveEvent: PointerEvent) => {
+                        moved = projectTimelineColumn(moveEvent.clientX - startX + columnPx / 2, columnPx, days.length) * (moveEvent.clientX < startX ? -1 : 1)
+                        setDrag({ id: card.id, startX, columns: moved })
+                      }
+                      const up = () => {
+                        target.removeEventListener('pointermove', move)
+                        target.removeEventListener('pointerup', up)
+                        setDrag(null)
+                        if (!moved) return
+                        const next = projectTimelineDragRange({ from: range.start, to: range.end }, moved)
+                        const value = next.to === next.from
+                          ? { from: projectDayToStamp(new Date(next.from)) }
+                          : { from: projectDayToStamp(new Date(next.from)), to: projectDayToStamp(new Date(next.to)) }
+                        void onPatchCard(card.id, { values: { [propertyId]: JSON.stringify(value) } })
+                      }
+                      target.addEventListener('pointermove', move)
+                      target.addEventListener('pointerup', up)
+                    }}
                   >
                     <span className="block truncate px-1.5 leading-6">{card.title || t('project.board.untitled_card')}</span>
                   </button>

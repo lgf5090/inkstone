@@ -12526,6 +12526,9 @@ const allowed = new Map([
     "/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */",
     "/**\n * The row a board card wears under its title.\n *\n * A kanban card has to be readable without opening it, so the properties the view already shows are\n * repeated here as chips — the group's own property is left out because the column already says it.\n * Only set values are drawn: an empty chip per property would bury the title it is meant to support.\n */",
   ]],
+  ["src/client/features/project/ExtraViews.test.tsx", [
+    "// jsdom ships no pointer capture; the drag handler asks for it before it attaches its listeners.",
+  ]],
   ["src/client/features/project/ExtraViews.tsx", [
     "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
   ]],
@@ -32529,6 +32532,8 @@ const allowed = new Map([
     "/** Where a bar sits inside the window, in whole columns; a range is inclusive of its last day. */",
     "/**\n * The rows in reading order: a parent, then its children indented under it.\n *\n * A card whose parent is not in this view is a root, so a filtered view never hides a child whose\n * parent was filtered out. `seen` breaks a cycle rather than recursing forever on imported data.\n */",
     "// A cycle has no root, so its members would otherwise disappear from the view entirely.",
+    "/**\n * The range a bar lands on after being dragged whole across the axis.\n *\n * The bar keeps its length: a three-day task moved two columns right is still three days, and the\n * writer turns both ends back into stored stamps so the move cannot quietly become a single day.\n */",
+    "/** Which column a pointer at `offsetX` is over, clamped into the drawn window. */",
   ]],
   ["src/shared/project/validation.ts", [
     "/**\n * The shapes a project request may take. The server runs every write through these before it touches\n * D1; the client runs the same schemas so a rejected field is reported at the control that typed it.\n *\n * Bounds come from `./limits` rather than being restated, so raising a ceiling is one edit.\n */",

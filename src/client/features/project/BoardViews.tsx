@@ -614,7 +614,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
                   />
                 )
                 : viewType === 'timeline' || viewType === 'gantt'
-                  ? <TimelineView cards={sorted} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} links={links} gantt={viewType === 'gantt'} onOpenCard={onOpenCard} />
+                  ? <TimelineView cards={sorted} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} links={links} gantt={viewType === 'gantt'} onOpenCard={onOpenCard} canEdit={canEdit} onPatchCard={onPatchCard} />
                   : viewType === 'chart'
                     ? <ChartView cards={sorted} properties={bundle.properties} />
                     : (
