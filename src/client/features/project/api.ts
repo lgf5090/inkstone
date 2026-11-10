@@ -227,6 +227,11 @@ export async function deleteProjectShare(boardId: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/share`, { method: 'DELETE' })
 }
 
+/** The stranger's read: no session, the slug and passcode are the whole capability. */
+export async function readPublicProjectBoard(slug: string, password?: string): Promise<ProjectBoardBundle> {
+  return request<ProjectBoardBundle>(`/api/project/public/${encodeURIComponent(slug)}`, { method: 'POST', body: password ? { password } : {} })
+}
+
 export async function importProjectArchive(bytes: Uint8Array): Promise<ProjectBoardSummary> {
   const response = await fetch('/api/project/boards/import', {
     method: 'POST',

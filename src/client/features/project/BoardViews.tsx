@@ -88,9 +88,11 @@ interface BoardViewsProps {
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
   onRefresh: () => Promise<void>
+  /** A public reader has no session: the member-only reads and exports would answer 401, so they are not offered. */
+  publicView?: boolean
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onAddGroupOption, onRefresh }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onAddGroupOption, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
   useEffect(() => { setActiveId(readLastViewId(bundle.board.id)) }, [bundle.board.id])
   const selectView = (id: string): void => {
@@ -105,10 +107,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const [search, setSearch] = useState('')
   const [links, setLinks] = useState<ProjectCardLink[]>([])
   useEffect(() => {
+    if (publicView) return
     const controller = new AbortController()
     fetchBoardLinks(bundle.board.id, controller.signal).then(setLinks).catch(() => { if (!controller.signal.aborted) setLinks([]) })
     return () => controller.abort()
-  }, [bundle.board.id])
+  }, [bundle.board.id, publicView])
   // C-23: tabs read alphabetically; the default view stays the board's first by position.
   const orderedViews = sortProjectViewsAlphabetically(bundle.views)
   const active = orderedViews.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
@@ -251,6 +254,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       id: 'copy-link',
       label: t('project.card.copy_link'),
       icon: <Link2 size={14} />,
+      disabled: publicView,
       onSelect: () => { void handleCopyLink(card.id) },
     })
     items.push({
@@ -441,7 +445,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             />
           </>
         )}
-        {active && (
+        {active && !publicView && (
           <>
             <IconButton ref={viewAnchor} label={t('project.view.menu')} size="sm" onClick={() => setViewMenuOpen(true)}>
               <MoreHorizontal size={15} />
@@ -513,9 +517,13 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               <option value="comfortable">{t('project.view.density_comfortable')}</option>
               <option value="spacious">{t('project.view.density_spacious')}</option>
             </Select>
-            <IconButton label={t('project.view.sort')} size="sm" onClick={() => setSettings('sort')}><ArrowUpDown size={15} /></IconButton>
-            <IconButton label={t('project.view.filter')} size="sm" onClick={() => setSettings('filter')}><Filter size={15} /></IconButton>
-            <IconButton label={t('project.view.properties')} size="sm" onClick={() => setSettings('properties')}><Eye size={15} /></IconButton>
+            {!publicView && (
+              <>
+                <IconButton label={t('project.view.sort')} size="sm" onClick={() => setSettings('sort')}><ArrowUpDown size={15} /></IconButton>
+                <IconButton label={t('project.view.filter')} size="sm" onClick={() => setSettings('filter')}><Filter size={15} /></IconButton>
+                <IconButton label={t('project.view.properties')} size="sm" onClick={() => setSettings('properties')}><Eye size={15} /></IconButton>
+              </>
+            )}
           </span>
         </div>
       )}

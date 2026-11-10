@@ -8,6 +8,7 @@ import type { ProjectBoard, ProjectBoardBundle, ProjectShare } from '@shared/pro
 import { newSlug } from '../lib/id'
 import { hashPassword, verifyPassword } from '../lib/password'
 import { ApiError } from '../lib/errors'
+import { assertAttemptBudget, assertNotLocked, clearLoginFailures, consumeAttemptBudget, recordLoginFailure, type AttemptBudgetTarget } from '../lib/throttle'
 import { readProjectBoardBundle } from './bundle'
 
 interface ShareRow {
@@ -63,15 +64,48 @@ export async function deleteProjectShare(db: D1Database, boardId: string, userId
   await db.prepare('DELETE FROM project_shares WHERE board_id = ?1 AND user_id = ?2').bind(boardId, userId).run()
 }
 
-export async function readPublicProjectShare(db: D1Database, slug: string, password: string | undefined, now: number): Promise<ProjectBoardBundle> {
+/**
+ * The passcode ledger, keyed per surface.
+ *
+ * The note share and the collection directory budget the same gate with the same numbers; a project's
+ * public answer is wider than either — the whole board bundle — so an unbudgeted slug would be the
+ * cheapest of the three to walk. The namespace is its own so probing a board can never lock a note's
+ * reader out, and the budgets match so no surface is the soft one.
+ */
+function projectShareThrottle(slug: string, ip: string): { lockTargets: string[], workTargets: AttemptBudgetTarget[] } {
+  return {
+    lockTargets: [`project-share:${slug}:ip:${ip}`],
+    workTargets: [
+      { key: `project-share-work:${slug}:ip:${ip}`, maxAttempts: 8, windowMs: 10 * 60 * 1000 },
+      { key: `project-share-work:${slug}`, maxAttempts: 60, windowMs: 10 * 60 * 1000, lockMs: 60_000 },
+    ],
+  }
+}
+
+export async function readPublicProjectShare(db: D1Database, slug: string, password: string | undefined, now: number, ip: string): Promise<ProjectBoardBundle> {
+  await assertAttemptBudget(async () => {
+    await consumeAttemptBudget(db, [
+      { key: `project-share-read:${slug}:ip:${ip}`, maxAttempts: 20, windowMs: 10 * 60 * 1000 },
+      { key: `project-share-read:ip:${ip}`, maxAttempts: 60, windowMs: 10 * 60 * 1000 },
+    ])
+  })
   const row = await db.prepare('SELECT * FROM project_shares WHERE slug = ?1').bind(slug).first<ShareRow>()
   if (!row) throw ApiError.notFound('Share not found')
   if (row.expires_at !== null && row.expires_at <= now) throw ApiError.notFound('Share not found')
   const boardRow = await db.prepare('SELECT * FROM project_boards WHERE id = ?1 AND delete_at = 0').bind(row.board_id).first<{ id: string, owner_id: string, type: string, minimum_role: string, title: string, description: string, icon: string, show_description: number, is_template: number, template_version: number, created_by: string, modified_by: string, create_at: number, update_at: number, delete_at: number }>()
   if (!boardRow) throw ApiError.notFound('Share not found')
   if (row.password_hash !== null) {
-    const ok = await verifyPassword(password ?? '', row.password_hash)
-    if (!ok) throw ApiError.forbidden()
+    if (!password) throw ApiError.unauthenticated('An access password is required')
+    const targets = projectShareThrottle(slug, ip)
+    await assertAttemptBudget(async () => {
+      await assertNotLocked(db, targets.lockTargets)
+      await consumeAttemptBudget(db, targets.workTargets)
+    })
+    if (!(await verifyPassword(password, row.password_hash))) {
+      await recordLoginFailure(db, targets.lockTargets)
+      throw new ApiError(401, 'invalid_credentials', 'Incorrect passcode')
+    }
+    await clearLoginFailures(db, [...targets.lockTargets, ...targets.workTargets.map((target) => target.key)])
   }
   await db.prepare('UPDATE project_shares SET views = views + 1 WHERE slug = ?1').bind(slug).run()
   const board: ProjectBoard = {

@@ -29,7 +29,7 @@ import {
 } from '@shared/project/validation'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit } from '../lib/request'
+import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit, requestClientIp } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { originOf } from '../lib/notify'
 import { broadcastProjectChange } from './realtime'
@@ -629,7 +629,7 @@ projectPublicRoutes.post('/:slug', async (c) => {
       throw ApiError.badRequest('The request body is not valid JSON')
     }
   }
-  return c.json(await readPublicProjectShare(c.env.DB, c.req.param('slug'), password, Date.now()))
+  return c.json(await readPublicProjectShare(c.env.DB, c.req.param('slug'), password, Date.now(), requestClientIp(c)))
 })
 
 projectRoutes.post('/categories', async (c) => {

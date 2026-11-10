@@ -12510,6 +12510,7 @@ const allowed = new Map([
     "// C-23: tabs read alphabetically; the default view stays the board's first by position.",
     "// Templates ship canonical English titles; treat them as defaults so a zh UI localizes them",
     "// instead of mixing languages. A title the user actually typed is kept verbatim.",
+    "/** A public reader has no session: the member-only reads and exports would answer 401, so they are not offered. */",
   ]],
   ["src/client/features/project/ExtraViews.tsx", [
     "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
@@ -12517,6 +12518,11 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/FilterEditor.tsx", [
     "/** The value editor the reference dispatches on `filterValueType`, one branch per kind of clause. */",
+  ]],
+  ["src/client/features/project/ProjectSharePage.tsx", [
+    "/**\n * A shared board, as a stranger reads it.\n *\n * The slug and the passcode are the whole capability — there is no session on this page, so every byte\n * comes from the one public answer. The board is drawn by the same views a member sees with editing\n * off, rather than by a second renderer that could drift from what the owner previewed; the member-only\n * reads (dependencies, exports, attachments) are not offered because they would answer 401.\n */",
+    "// A refusal is the passcode's answer, not a broken page: the server hands over no board at all",
+    "// until the gate is passed, so treating it as \"gone\" would hide the one control that gets in.",
   ]],
   ["src/client/features/project/ProjectSidebar.tsx", [
     "/* best-effort: an unreadable category list leaves the board list usable */",
@@ -12530,6 +12536,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/api.ts", [
     "/** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */",
+    "/** The stranger's read: no session, the slug and passcode are the whole capability. */",
   ]],
   ["src/client/features/project/project-icon.ts", [
     "/**\n * A-9/A-10: board & card icons. The random-icon preference is a local toggle; when on, newly created\n * boards/cards get a random emoji from the shared catalog so lists stay scannable without manual picking.\n */",
@@ -41128,6 +41135,9 @@ const allowed = new Map([
   ["src/worker/project/permissions.ts", [
     "/**\n * Which boards the sidebar lists, and what the caller may do with each.\n *\n * A board reaches its audience two ways — the account owns it, or a membership row names it — so the\n * list is the union of the two, and a board the caller can no longer read is dropped rather than\n * shown greyed out. The role is resolved here so no caller has to remember the open-board rule.\n */",
   ]],
+  ["src/worker/project/public-page.ts", [
+    "/**\n * The public board's address.\n *\n * `/p` is reserved in `wrangler.toml`'s run_worker_first, so the worker answers it rather than the\n * asset fallback — without this route the reserved path was a 404 and the link the share dialog hands\n * out led nowhere. It serves the app shell and nothing more: a board's title sits behind the same\n * passcode as its cards, so a crawler is told no more than a stranger holding the address.\n */",
+  ]],
   ["src/worker/project/realtime.ts", [
     "/**\n * Board-scoped realtime fan-out (D-11). The shared sync hub is per-user, so a project write notifies\n * every member's hub individually with the board's fresh cursor and the writer's origin; a client\n * ignores notifications whose origin is its own tab and otherwise refetches the open board. Members\n * are capped at the board-member ceiling, and a hub failure is best-effort (the 30s client poll is the\n * fallback), so one unreachable member never fails the write.\n */",
   ]],
@@ -41162,6 +41172,7 @@ const allowed = new Map([
   ]],
   ["src/worker/project/shares.ts", [
     "/**\n * Public read-only sharing, modelled on the assistant's share links: a slug is the capability, an\n * optional password hash gates it, and an expiry lapses it. The hash never leaves the server; the\n * management answer carries only `hasPassword`. Reading increments the view counter and returns the\n * board bundle at viewer role, so a shared board exposes exactly what a viewer sees.\n */",
+    "/**\n * The passcode ledger, keyed per surface.\n *\n * The note share and the collection directory budget the same gate with the same numbers; a project's\n * public answer is wider than either — the whole board bundle — so an unbudgeted slug would be the\n * cheapest of the three to walk. The namespace is its own so probing a board can never lock a note's\n * reader out, and the budgets match so no surface is the soft one.\n */",
   ]],
   ["src/worker/project/statistics.ts", [
     "/**\n * Personal statistics: how many boards this account can see and how many cards live on them. The\n * reference reported site-wide counts; a self-hosted instance only needs the caller's own. Visibility\n * is the same rule the board list uses, so the two never disagree about what counts.\n */",
@@ -47763,6 +47774,10 @@ const allowed = new Map([
   ]],
   ["tests/project-archive.test.ts", [
     "// Import into a fresh instance: the archive's ids are preserved, so the source board must be gone.",
+  ]],
+  ["tests/project-shares.test.ts", [
+    "// requestClientIp only trusts CF-Connecting-IP when the edge attached `cf`; without it every caller",
+    "// reads as `local`, which would hide the per-slug ceiling from a test that means to rotate addresses.",
   ]],
   ["tests/project-stats-csv.test.ts", [
     "// Response.text() strips a leading UTF-8 BOM by spec, so verify the bytes on the wire instead.",

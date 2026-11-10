@@ -111,6 +111,7 @@ import { navAiRoutes } from './nav/ai'
 import { navCheckRoutes } from './nav/check'
 import { calendarRoutes } from './routes/calendar'
 import { projectRoutes, projectPublicRoutes } from './project/routes'
+import { projectSharePageRoutes } from './project/public-page'
 import { calendarContactRoutes } from './routes/calendar-contacts'
 import { calendarTemplateRoutes } from './routes/calendar-templates'
 import { calendarCsvRoutes } from './routes/calendar-csv'
@@ -362,6 +363,7 @@ export function createApp() {
 
 
   app.route('/s', sharePageRoutes)
+  app.route('/p', projectSharePageRoutes)
   app.route('/m', musicSharePageRoutes)
   app.route('/c', conversationSharePageRoutes)
   app.route('/collections', publicCollectionPageRoutes)
