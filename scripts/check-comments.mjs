@@ -12547,6 +12547,9 @@ const allowed = new Map([
   ["src/client/features/project/FilterEditor.tsx", [
     "/** The value editor the reference dispatches on `filterValueType`, one branch per kind of clause. */",
   ]],
+  ["src/client/features/project/GalleryCalendar.test.tsx", [
+    "// A spanning card is one ribbon across its days, with a chip only where it starts.",
+  ]],
   ["src/client/features/project/GalleryCalendar.tsx", [
     "// An empty group still gets its section and its add tile, the way an empty kanban column does.",
     "// One pass builds the day index; each of the 42 cells then reads its own bucket instead of",
@@ -32448,6 +32451,16 @@ const allowed = new Map([
     "/**\n * The 21 column summaries (§3.3.1), ported from the reference's calculations.ts. Values come from the\n * card's value bag (or its stamps for the server-written time fields); numeric results round to two\n * decimals and timestamps normalize to whole minutes, matching the reference's display precision.\n */",
     "/* bare stamp */",
     "/** Which summaries a property type offers, per the reference's per-type calculationOptions. */",
+  ]],
+  ["src/shared/project/calendar-layout.test.ts", [
+    "// Stored stamps go through the module's own writer; keys are the local days a reader resolves.",
+  ]],
+  ["src/shared/project/calendar-layout.ts", [
+    "/**\n * The calendar's spanning ribbons.\n *\n * A task that runs Tuesday to Thursday is one ribbon across three cells, not three unrelated chips.\n * The reference stacks a thin line at the top of each day and pushes the day number below the stack;\n * the lane a task occupies is decided once for the whole visible grid so the ribbon does not jump\n * rows as it crosses a week boundary.\n */",
+    "/** The colour a card's chip border and ribbon wear: its status option, or the accent. */",
+    "/**\n * Ribbons per day key, with a stable lane per card.\n *\n * Lanes are handed out greedily in start order, longest first, and reused once a lane's last task has\n * ended — the same packing a month view of any calendar uses. Only ranges that actually span more\n * than one day become ribbons; a single-day card stays a chip.\n */",
+    "/** The chips a day draws: cards starting or ending that day, which the ribbons do not already name. */",
+    "/** A chip reads as overdue when its range has passed and the card is not done. */",
   ]],
   ["src/shared/project/content-order.ts", [
     "/**\n * A card's reading order. It interleaves content-block ids with comment ids, and a nested array\n * threads comments under one block — an order the per-row position column cannot express, so the\n * card carries it (DV-12). These helpers keep that array honest as blocks and comments come and go:\n * append on create, scrub on delete (including inside threads), and splice on move.\n */",

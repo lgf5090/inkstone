@@ -91,6 +91,8 @@ export const EN_US_PROJECT = {
     "project.prop.type.email": "Email",
     "project.prop.type.phone": "Phone",
     "project.view.wip_limit": "WIP limit",
+    "project.calendar.day_panel": "Tasks on this day",
+    "project.calendar.day_empty": "Nothing on this day",
     "project.view.resize_start": "Move start day",
     "project.view.resize_end": "Move end day",
     "project.view.auto_fit": "Auto fit",

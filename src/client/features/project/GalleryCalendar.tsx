@@ -4,7 +4,8 @@ import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { parseProjectDateValue, projectDayToStamp, projectStampToDay } from '@shared/project/date'
-import { projectOptionCssColor } from '@shared/project/option-color'
+import { PROJECT_CALENDAR_RIBBON_PX, projectCalendarCardColor, projectCalendarDayChips, projectCalendarOverdue, projectCalendarRibbons } from '@shared/project/calendar-layout'
+import { projectCardDays } from '@shared/project/timeline-layout'
 import { groupProjectCards, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t, useLocale } from '../../lib/i18n'
 import { buildMonthGridCells } from '../../components/calendar-grids'
@@ -212,7 +213,8 @@ export function CalendarView({ cards, boardId, properties, datePropertyId, canEd
     return map
   }, [cardRanges])
 
-  const getCardsForDay = (date: Date): ProjectCard[] => cardsByDay.get(dateKey(date)) ?? []
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const todayStamp = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() }, [])
 
   const monthCells: CalendarCell[] = useMemo(() => {
     return buildMonthGridCells(year, monthIndex, weekStart, todayKey).map((cell) => ({
@@ -287,6 +289,11 @@ export function CalendarView({ cards, boardId, properties, datePropertyId, canEd
   }, [mode, weekCells, currentDate, locale])
 
   const activeCells = mode === 'week' ? weekCells : monthCells
+  const selectedCards = selectedDay ? (cardsByDay.get(selectedDay) ?? []) : []
+  const ribbons = useMemo(
+    () => projectCalendarRibbons(cards, propertyId, properties, activeCells.map((cell) => dateKey(cell.date)), (stamp) => dateKey(new Date(stamp))),
+    [cards, propertyId, properties, activeCells],
+  )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col p-3">
@@ -325,68 +332,79 @@ export function CalendarView({ cards, boardId, properties, datePropertyId, canEd
       <div className={`grid min-h-0 flex-1 grid-cols-7 gap-1.5 overflow-y-auto pt-1.5 ${mode === 'week' ? 'auto-rows-fr' : ''}`}>
         {activeCells.map((cell) => {
           const current = isToday(cell)
-          const dayCards = getCardsForDay(cell.date)
+          const key = dateKey(cell.date)
+          const dayRibbons = ribbons.get(key) ?? []
+          const chips = projectCalendarDayChips(cards, propertyId, key, (stamp) => dateKey(new Date(stamp)))
+          const selected = selectedDay === key
           return (
             <div
               key={cell.key}
-              className={`group relative flex min-h-16 flex-col rounded-[var(--r-md)] border p-1.5 transition-colors ${
+              data-calendar-day={key}
+              className={`group relative flex min-h-20 flex-col overflow-hidden rounded-[var(--r-sm)] border p-1 transition-colors ${
                 !cell.inMonth && mode === 'month'
-                  ? 'border-transparent bg-[var(--bg-sunken)]/30 opacity-40'
+                  ? 'border-[var(--border-subtle)] bg-[var(--bg-sunken)]'
                   : current
-                    ? 'border-[var(--accent)] bg-[var(--accent-soft)]/20 shadow-[0_0_0_1px_var(--accent)]'
-                    : 'border-[var(--border-subtle)] bg-[var(--bg-base)] hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-xs)]'
-              }`}
+                    ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
+                    : 'border-[var(--border-subtle)] bg-[var(--bg-base)] hover:border-[var(--border-strong)]'
+              } ${selected ? 'outline outline-2 -outline-offset-2 outline-[var(--accent)]' : ''}`}
               onDragOver={(event) => { if (canEdit && propertyId) event.preventDefault() }}
               onDrop={(event) => handleDrop(cell, event)}
             >
-              <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[length:var(--text-12)] ${
-                !cell.inMonth && mode === 'month'
-                  ? 'text-[var(--text-quaternary)]'
-                  : current
-                    ? 'bg-[var(--accent)] font-bold text-white shadow-sm'
-                    : 'font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'
-              }`}>
+              <button
+                type="button"
+                aria-label={key}
+                aria-pressed={selected}
+                className="absolute inset-0 z-0"
+                onClick={() => setSelectedDay(selected ? null : key)}
+              />
+              <div className="pointer-events-none relative z-10 h-0" data-calendar-ribbons={key}>
+                {dayRibbons.map((ribbon) => (
+                  <span
+                    key={ribbon.card.id}
+                    title={ribbon.card.title}
+                    className={`absolute h-1 ${ribbon.start ? 'left-1 rounded-l-[var(--r-xs)]' : 'left-0'} ${ribbon.end ? 'right-1 rounded-r-[var(--r-xs)]' : 'right-0'}`}
+                    style={{ top: `${ribbon.lane * PROJECT_CALENDAR_RIBBON_PX}px`, backgroundColor: ribbon.color }}
+                  />
+                ))}
+              </div>
+              <span
+                className={`relative z-10 inline-flex h-5 w-5 items-center justify-center rounded-full text-[length:var(--text-11)] ${
+                  current ? 'bg-[var(--accent)] font-bold text-white' : 'font-medium text-[var(--text-tertiary)]'
+                }`}
+                style={{ marginTop: `${dayRibbons.length ? dayRibbons.length * PROJECT_CALENDAR_RIBBON_PX + 2 : 0}px` }}
+              >
                 {cell.day}
               </span>
               {canEdit && propertyId && (cell.inMonth || mode === 'week') && (
                 <button
                   type="button"
                   aria-label={t('project.board.new_card')}
-                  className="absolute right-1 top-1 rounded p-0.5 text-[var(--text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] group-hover:opacity-100 focus-visible:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void quickAdd(cell.date)
-                  }}
+                  className="absolute right-1 top-1 z-20 rounded p-0.5 text-[var(--text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] group-hover:opacity-100 focus-visible:opacity-100"
+                  onClick={(event) => { event.stopPropagation(); void quickAdd(cell.date) }}
                 >
                   <Plus size={12} />
                 </button>
               )}
-              <div className="mt-1 flex-1 space-y-1 overflow-y-auto">
-                {dayCards.map((card) => {
-                  const isDone = isProjectCardDone(card, properties)
-                  const statusProperty = properties.find((p) => p.type === 'select')
-                  const statusOption = statusProperty && card.values[statusProperty.id]
-                    ? statusProperty.options.find((o) => o.id === card.values[statusProperty.id])
-                    : undefined
+              <div className="relative z-10 mt-0.5 flex-1 space-y-0.5 overflow-hidden">
+                {chips.map(({ card, starting }) => {
+                  const days = projectCardDays(card, propertyId)!
+                  const done = isProjectCardDone(card, properties)
+                  const overdue = projectCalendarOverdue(card, properties, days.end, todayStamp)
                   return (
                     <button
                       key={card.id}
                       type="button"
                       data-project-card={card.id}
+                      data-calendar-start={starting ? '' : undefined}
                       draggable={canEdit}
                       onDragStart={(event) => { event.dataTransfer.setData('text/plain', card.id) }}
-                      className={`group/chip flex w-full items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1 text-left text-[length:var(--text-12)] shadow-[var(--shadow-xs)] transition-all hover:border-[var(--accent)] hover:shadow-[var(--shadow-sm)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${
-                        isDone ? 'opacity-70' : ''
-                      }`}
-                      onClick={() => onOpenCard(card.id)}
+                      className={`block w-full truncate rounded-[var(--r-xs)] border-l-[3px] px-1 py-0.5 text-left text-[length:var(--text-10)] ${
+                        starting ? 'bg-[var(--accent-soft)] font-medium' : 'bg-[var(--bg-sunken)]'
+                      } ${done ? 'line-through opacity-50' : ''} ${overdue ? 'text-[var(--danger)]' : 'text-[var(--text-primary)]'} hover:bg-[var(--bg-hover)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]`}
+                      style={{ borderLeftColor: projectCalendarCardColor(card, properties) }}
+                      onClick={(event) => { event.stopPropagation(); onOpenCard(card.id) }}
                     >
-                      <span
-                        className="h-1.5 w-1.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: (statusOption && projectOptionCssColor(statusOption.color)) ?? 'var(--accent)' }}
-                      />
-                      <span className={`min-w-0 flex-1 truncate font-medium ${isDone ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]'}`}>
-                        {card.title || t('project.board.untitled_card')}
-                      </span>
+                      {card.title || t('project.board.untitled_card')}
                     </button>
                   )
                 })}
@@ -395,6 +413,33 @@ export function CalendarView({ cards, boardId, properties, datePropertyId, canEd
           )
         })}
       </div>
+      {selectedDay && (
+        <aside className="mt-2 shrink-0 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2" aria-label={t('project.calendar.day_panel')} data-calendar-panel={selectedDay}>
+          <div className="mb-1 flex items-center gap-2">
+            <h3 className="min-w-0 flex-1 truncate text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">{selectedDay}</h3>
+            <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.board.cards_count', { count: selectedCards.length })}</span>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedDay(null)}>{t('common.close')}</Button>
+          </div>
+          {selectedCards.length === 0
+            ? <p className="px-1 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.calendar.day_empty')}</p>
+            : (
+              <ul className="space-y-0.5">
+                {selectedCards.map((card) => (
+                  <li key={card.id}>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-[var(--r-sm)] border-l-[3px] px-2 py-1 text-left text-[length:var(--text-12)] hover:bg-[var(--bg-hover)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                      style={{ borderLeftColor: projectCalendarCardColor(card, properties) }}
+                      onClick={() => onOpenCard(card.id)}
+                    >
+                      <span className={`min-w-0 flex-1 truncate ${isProjectCardDone(card, properties) ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]'}`}>{card.title || t('project.board.untitled_card')}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+        </aside>
+      )}
     </div>
   )
 }

@@ -68,8 +68,8 @@ describe('calendar view', () => {
     const due = projectDayToStamp(new Date(now.getFullYear(), now.getMonth(), 15))
     const onPatchCard = vi.fn().mockResolvedValue(undefined)
     await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [card('c1', 'Due card', due)], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard })) })
-    const cells = [...view.container.querySelectorAll('div.min-h-16')]
-    const target = cells.find((cell) => cell.firstElementChild?.textContent === '20')!
+    const cells = [...view.container.querySelectorAll('[data-calendar-day]')]
+    const target = cells.find((cell) => cell.querySelector('span.rounded-full')?.textContent === '20')!
     const event = new Event('drop', { bubbles: true, cancelable: true })
     Object.defineProperty(event, 'dataTransfer', { value: { getData: () => 'c1' } })
     await act(async () => { target.dispatchEvent(event) })
@@ -80,7 +80,7 @@ describe('calendar view', () => {
     await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
     const todayButton = [...view.container.querySelectorAll('button')].find((b) => b.textContent === t('project.view.today'))
     expect(todayButton).toBeTruthy()
-    const highlighted = [...view.container.querySelectorAll('div.min-h-16')].filter((c) => c.className.includes('border-[var(--accent)]'))
+    const highlighted = [...view.container.querySelectorAll('[data-calendar-day]')].filter((c) => c.className.includes('border-[var(--accent)]'))
     expect(highlighted).toHaveLength(1)
   })
 
@@ -89,7 +89,7 @@ describe('calendar view', () => {
     const weekBtn = [...view.container.querySelectorAll('button')].find((b) => b.textContent === t('preview.kanban_calendar_week'))
     expect(weekBtn).toBeTruthy()
     await act(async () => { weekBtn?.click() })
-    const cells = [...view.container.querySelectorAll('div.min-h-16')]
+    const cells = [...view.container.querySelectorAll('[data-calendar-day]')]
     expect(cells).toHaveLength(7)
   })
 
@@ -104,8 +104,8 @@ describe('calendar view', () => {
       values: { pd: JSON.stringify({ from, to }) },
     }
     await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [multiCard], properties, canEdit: true, onOpenCard: vi.fn(), onPatchCard })) })
-    const cells = [...view.container.querySelectorAll('div.min-h-16')]
-    const target = cells.find((cell) => cell.firstElementChild?.textContent === '20')!
+    const cells = [...view.container.querySelectorAll('[data-calendar-day]')]
+    const target = cells.find((cell) => cell.querySelector('span.rounded-full')?.textContent === '20')!
     const event = new Event('drop', { bubbles: true, cancelable: true })
     Object.defineProperty(event, 'dataTransfer', { value: { getData: () => 'c1' } })
     await act(async () => { target.dispatchEvent(event) })
@@ -199,8 +199,8 @@ describe('the calendar grid and day index (R3-7/R3-17)', () => {
     const picked = new Date(2026, 10, 10)
     const stamped = { ...card('c1', 'Far east'), values: { pd: JSON.stringify({ from: projectDayToStamp(picked) }) } }
     await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [stamped], properties, canEdit: false, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
-    const cells = [...view.container.querySelectorAll('div.min-h-16')]
-    const tenth = cells.find((cell) => cell.firstElementChild?.textContent === '10' && !cell.className.includes('opacity-40'))
+    const cells = [...view.container.querySelectorAll('[data-calendar-day]')]
+    const tenth = cells.find((cell) => cell.querySelector('span.rounded-full')?.textContent === '10' && !cell.className.includes('opacity-40'))
     expect(tenth, 'no in-month tenth cell').toBeDefined()
     expect(tenth!.textContent).toContain('Far east')
   })
@@ -212,9 +212,12 @@ describe('the calendar grid and day index (R3-7/R3-17)', () => {
     const to = projectDayToStamp(new Date(now.getFullYear(), now.getMonth(), 12))
     const ranged = { ...card('c1', 'Sprint'), values: { pd: JSON.stringify({ from, to }) } }
     await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [ranged], properties, canEdit: false, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
-    const cells = [...view.container.querySelectorAll('div.min-h-16')]
-    const covered = cells.filter((cell) => cell.textContent?.includes('Sprint')).map((cell) => cell.firstElementChild?.textContent)
-    expect(covered).toEqual(['10', '11', '12'])
+    const cells = [...view.container.querySelectorAll('[data-calendar-day]')]
+    // A spanning card is one ribbon across its days, with a chip only where it starts.
+    const ribboned = cells.filter((cell) => (cell.querySelector('[data-calendar-ribbons]')?.children.length ?? 0) > 0).map((cell) => cell.querySelector('span.rounded-full')?.textContent)
+    expect(ribboned).toEqual(['10', '11', '12'])
+    const chipDays = cells.filter((cell) => cell.querySelector('[data-project-card]')).map((cell) => cell.querySelector('span.rounded-full')?.textContent)
+    expect(chipDays).toEqual(['10'])
   })
 
   it('leads the month with the account week start rather than always Sunday', async () => {
@@ -224,12 +227,12 @@ describe('the calendar grid and day index (R3-7/R3-17)', () => {
       await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [], properties, canEdit: false, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
       const header = [...view.container.querySelectorAll('div.grid > div')].slice(0, 7).map((node) => node.textContent)
       expect(header).toEqual(narrowWeekdayLabels('en-US', 1))
-      const cells = [...view.container.querySelectorAll('div.min-h-16')]
+      const cells = [...view.container.querySelectorAll('[data-calendar-day]')]
       const now = new Date()
       const first = new Date(now.getFullYear(), now.getMonth(), 1)
       const expectedLead = (first.getDay() + 6) % 7
       const leading = cells.slice(0, expectedLead)
-      expect(leading.every((cell) => cell.className.includes('opacity-40'))).toBe(true)
+      expect(leading.every((cell) => cell.className.includes('bg-[var(--bg-sunken)]'))).toBe(true)
     } finally { setCalendarDisplayPrefs({ weekStart: 'auto' }) }
   })
 })
@@ -264,5 +267,58 @@ describe('gallery hierarchy (R4-2)', () => {
   it('promotes a child whose parent the view filtered out', async () => {
     await act(async () => { view = renderElement(createElement(GalleryView, { cards: [orphan], badgesFor: badges, properties: [], showTitle: true, showBadges: false, onOpenCard: vi.fn() })) })
     expect([...view.container.querySelectorAll('[data-gallery-tile]')].map((node) => node.getAttribute('data-gallery-tile'))).toEqual(['c3'])
+  })
+})
+
+describe('the rebuilt calendar cell (R6-1)', () => {
+  const props: ProjectProperty[] = [
+    { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: 'propColorBlue' }] },
+    ...properties,
+  ]
+  const ranged = (id: string, from: Date, to?: Date) => ({
+    ...card(id, id),
+    values: { ps: 'o1', pd: JSON.stringify(to ? { from: projectDayToStamp(from), to: projectDayToStamp(to) } : { from: projectDayToStamp(from) }) },
+  })
+
+  it('caps a ribbon only at its two ends and keeps one lane across the span', async () => {
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [ranged('Sprint', new Date(2026, 10, 10), new Date(2026, 10, 12))], properties: props, canEdit: false, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    const cells = [...view.container.querySelectorAll('[data-calendar-day]')]
+    const withRibbons = cells.filter((cell) => (cell.querySelector('[data-calendar-ribbons]')?.children.length ?? 0) > 0)
+    expect(withRibbons).toHaveLength(3)
+    const [first, middle, last] = withRibbons.map((cell) => cell.querySelector('[data-calendar-ribbons] span') as HTMLElement)
+    expect(first!.className).toContain('rounded-l-')
+    expect(first!.className).not.toContain('rounded-r-')
+    expect(middle!.className).not.toContain('rounded-l-')
+    expect(last!.className).toContain('rounded-r-')
+    expect(new Set([first, middle, last].map((node) => node!.style.top)).size).toBe(1)
+    expect(first!.getAttribute('style')).toContain('--kanban-tag-blue-fg')
+  })
+
+  it('pushes the day number below the ribbon stack', async () => {
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [ranged('A', new Date(2026, 10, 10), new Date(2026, 10, 14)), ranged('B', new Date(2026, 10, 11), new Date(2026, 10, 13))], properties: props, canEdit: false, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    const cell = [...view.container.querySelectorAll('[data-calendar-day]')].find((node) => (node.querySelector('[data-calendar-ribbons]')?.children.length ?? 0) === 2)!
+    const number = cell.querySelector('span.rounded-full') as HTMLElement
+    expect(number.style.marginTop).toBe(`${2 * 4 + 2}px`)
+  })
+
+  it('borders each chip with the card colour and marks the start day', async () => {
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [ranged('Once', new Date(2026, 10, 10))], properties: props, canEdit: false, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    const chip = view.container.querySelector('[data-project-card]') as HTMLElement
+    expect(chip.getAttribute('style')).toContain('--kanban-tag-blue-fg')
+    expect(chip.className).toContain('border-l-[3px]')
+    expect(chip.hasAttribute('data-calendar-start')).toBe(true)
+  })
+
+  it('opens a day panel listing that day and closes it again', async () => {
+    await act(async () => { view = renderElement(createElement(CalendarView, { boardId: 'b1', cards: [ranged('Once', new Date(2026, 10, 10))], properties: props, canEdit: false, onOpenCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    expect(view.container.querySelector('[data-calendar-panel]')).toBeNull()
+    const cell = [...view.container.querySelectorAll('[data-calendar-day]')].find((node) => node.querySelector('[data-project-card]'))!
+    await act(async () => { (cell.querySelector('button[aria-pressed]') as HTMLButtonElement).click() })
+    const panel = view.container.querySelector('[data-calendar-panel]')
+    expect(panel, 'clicking a day opened no panel').not.toBeNull()
+    expect(panel!.textContent).toContain('Once')
+    const close = [...panel!.querySelectorAll('button')].find((button) => button.textContent === t('common.close'))!
+    await act(async () => { close.click() })
+    expect(view.container.querySelector('[data-calendar-panel]')).toBeNull()
   })
 })
