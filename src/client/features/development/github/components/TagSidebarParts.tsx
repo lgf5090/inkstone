@@ -7,13 +7,13 @@ import { IconButton } from '../../../../components/primitives'
 import { buildTagTree, tagCountsWithAncestors, type TagTreeNode } from '../lib/tags'
 import { treeIndent } from '../../../../lib/tree/indent'
 
-export function SidebarItem({ icon, label, count, active, onClick, badge }: { icon: ReactNode; label: string; count?: number; active: boolean; onClick: () => void; badge?: ReactNode }) {
+export function SidebarItem({ icon, label, count, active, onClick, badge, pressed }: { icon: ReactNode; label: string; count?: number; active: boolean; onClick: () => void; badge?: ReactNode; pressed?: boolean }) {
   return (
-    <button type="button" onClick={onClick} data-active={active || undefined} className={cn('flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-[length:var(--text-12)] transition-colors', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
+    <button type="button" onClick={onClick} aria-pressed={pressed} data-active={active || undefined} className={cn('flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-[length:var(--text-12)] transition-colors', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
       <span className="shrink-0">{icon}</span>
       <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-      {badge}
       {count !== undefined && <span className="shrink-0 rounded-full bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-11)] tabular text-[var(--text-tertiary)]">{count}</span>}
+      {badge}
     </button>
   )
 }

@@ -23,6 +23,7 @@ export interface GithubPanesProps {
   detail: ReactNode
   detailDisabled?: boolean
   detailKey?: string | null
+  autoHideDetail?: boolean
 }
 
 export function GithubPanes({
@@ -34,6 +35,7 @@ export function GithubPanes({
   detail,
   detailDisabled = false,
   detailKey = null,
+  autoHideDetail = false,
 }: GithubPanesProps) {
   const wide = useMediaQuery(WIDE_QUERY)
   const twoPane = useMediaQuery(TWO_PANE_QUERY)
@@ -43,7 +45,7 @@ export function GithubPanes({
   const [detailRatio, setDetailRatio] = useState(() => Math.min(0.7, Math.max(0.3, initial.detailRatio)))
   const [sidebarDrawer, setSidebarDrawer] = useState(false)
   const [detailDrawer, setDetailDrawer] = useState(false)
-  const [detailHidden, setDetailHidden] = useState(false)
+  const [detailHidden, setDetailHidden] = useState(() => autoHideDetail && !detailKey)
   const splitRef = useRef<HTMLDivElement>(null)
   const pendingLayout = useRef<Partial<GithubLayoutPrefs>>({})
   const layoutTimer = useRef<number | null>(null)
@@ -82,7 +84,12 @@ export function GithubPanes({
 
   useEffect(() => {
     if (detailKey) setDetailHidden(false)
-  }, [detailKey])
+    else if (autoHideDetail) setDetailHidden(true)
+  }, [detailKey, autoHideDetail])
+
+  useEffect(() => {
+    if (!twoPane && detailKey) setDetailDrawer(true)
+  }, [detailKey, twoPane])
 
   const controls: ListPaneControls = { toggleSidebar, toggleDetail, detailDisabled }
   const listContent = typeof list === 'function' ? list(controls) : list

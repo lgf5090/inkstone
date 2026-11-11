@@ -139,7 +139,7 @@ export function StorePane({
       onTopicChange={changeTopic}
       appCount={apps.length}
       updateCount={updateCount}
-      filteredCount={view === 'discover' ? discover.data?.total ?? 0 : apps.length}
+      filteredCount={discover.data?.total}
     />
   )
 
@@ -150,15 +150,17 @@ export function StorePane({
       sidebarFooter={<SidebarFooter onOpenAccounts={onOpenAccounts} onOpenMirrors={onOpenMirrors} currentMirrorName={currentMirror?.name} />}
       detailDisabled={!selectedRepo}
       detailKey={selectedRepo ? String(selectedRepo.id) : null}
+      autoHideDetail
       sidebar={sidebar}
       list={({ toggleSidebar }) => (view === 'apps'
-        ? <AppsView apps={apps} checking={checking} mirror={currentMirror} onCheck={(ids) => void runCheck(ids)} onRemove={removeApp} onOpenSidebar={toggleSidebar} />
+        ? <AppsView apps={apps} checking={checking} mirror={currentMirror} onCheck={(ids) => void runCheck(ids)} onRemove={removeApp} onOpenSidebar={toggleSidebar} onDiscover={() => changeView('discover')} />
         : (
           <DiscoverList
             result={discover.data}
             loading={discover.loading}
             error={discover.error}
             onRetry={() => void discover.refetch()}
+            onRefresh={() => void discover.refetch()}
             page={page}
             onPageChange={setPage}
             onSelectRepo={setSelectedRepo}

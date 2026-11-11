@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, Calendar, ExternalLink, Star, Users } from 'lucide-react'
+import { AlertCircle, ExternalLink, Star } from 'lucide-react'
 import type { GithubDevProfile, GithubRepo } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { Button, Spinner } from '../../../../components/primitives'
@@ -79,22 +79,22 @@ export function DeveloperDialog({
               {profile.bio && <p className="mt-1 whitespace-pre-wrap text-[length:var(--text-12)] text-[var(--text-secondary)]">{profile.bio}</p>}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-            <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2 py-1.5">
-              <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.github.dev_profile.followers')}</p>
-              <p className="text-[length:var(--text-12)] font-medium">{formatNumber(profile.followers)}</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-y border-[var(--border-subtle)] py-2 sm:grid-cols-4">
+            <div>
+              <p className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.github.dev_profile.followers')}</p>
+              <p className="text-[length:var(--text-12)] font-medium tabular-nums text-[var(--text-secondary)]">{formatNumber(profile.followers)}</p>
             </div>
-            <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2 py-1.5">
-              <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.github.dev_profile.following')}</p>
-              <p className="text-[length:var(--text-12)] font-medium">{formatNumber(profile.following)}</p>
+            <div>
+              <p className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.github.dev_profile.following')}</p>
+              <p className="text-[length:var(--text-12)] font-medium tabular-nums text-[var(--text-secondary)]">{formatNumber(profile.following)}</p>
             </div>
-            <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2 py-1.5">
-              <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.github.dev_profile.public_repos')}</p>
-              <p className="text-[length:var(--text-12)] font-medium">{formatNumber(profile.publicRepos)}</p>
+            <div>
+              <p className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.github.dev_profile.public_repos')}</p>
+              <p className="text-[length:var(--text-12)] font-medium tabular-nums text-[var(--text-secondary)]">{formatNumber(profile.publicRepos)}</p>
             </div>
-            <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2 py-1.5">
-              <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.github.dev_profile.joined')}</p>
-              <p className="truncate text-[length:var(--text-12)] font-medium">{formatDate(profile.createdAt)}</p>
+            <div>
+              <p className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.github.dev_profile.joined')}</p>
+              <p className="text-[length:var(--text-12)] font-medium tabular-nums text-[var(--text-secondary)]">{formatDate(profile.createdAt)}</p>
             </div>
           </div>
           {(profile.company || profile.location || profile.blog) && (
@@ -115,22 +115,21 @@ export function DeveloperDialog({
                     <button
                       type="button"
                       onClick={() => { onOpenRepo(repo); onClose() }}
-                      className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-[length:var(--text-11)] transition-colors hover:bg-[var(--bg-hover)]"
+                      className="group flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-[var(--bg-hover)]"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium text-[var(--text-secondary)]">{repo.name}</span>
-                        {repo.description && <span className="block truncate text-[var(--text-quaternary)]">{repo.description}</span>}
+                        <span className="block truncate text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]">{repo.name}</span>
+                        {repo.description && <span className="block truncate text-[length:var(--text-10)] text-[var(--text-quaternary)]">{repo.description}</span>}
                       </span>
-                      <span className="inline-flex shrink-0 items-center gap-1 text-[var(--text-quaternary)]"><Star size={10} />{formatNumber(repo.stargazersCount)}</span>
-                      {repo.language && <span className="hidden shrink-0 text-[var(--text-quaternary)] sm:inline">{repo.language}</span>}
-                      <Calendar size={10} className="shrink-0 text-[var(--text-quaternary)]" />
+                      <span className="inline-flex shrink-0 items-center gap-1 text-[length:var(--text-10)] tabular-nums text-[var(--text-quaternary)]"><Star size={10} />{formatNumber(repo.stargazersCount)}</span>
+                      {repo.language && <span className="hidden shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)] sm:inline">{repo.language}</span>}
+                      <span className="hidden shrink-0 text-[length:var(--text-10)] tabular-nums text-[var(--text-quaternary)] md:inline">{formatDate(repo.updatedAt)}</span>
                     </button>
                   </li>
                 ))}
               </ul>
             )}
           </div>
-          <p className="flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]"><Users size={11} />{t('development.github.dev_profile.note')}</p>
         </div>
       )}
     </Modal>

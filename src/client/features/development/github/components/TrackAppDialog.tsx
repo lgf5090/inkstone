@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import type { GithubAssetPlatform, GithubRelease, GithubRepo } from '@shared/development/github/types'
 import { GITHUB_ASSET_PLATFORMS, assetPlatform } from '@shared/development/github/platforms'
 import { t } from '../../../../lib/i18n'
-import { Button } from '../../../../components/primitives'
+import { Badge, Button } from '../../../../components/primitives'
 import { Field, Input, Segmented } from '../../../../components/form'
 import { Modal } from '../../../../components/overlay'
+import { GithubAvatar } from './GithubAvatar'
 import { platformLabel } from './StoreSidebar'
 
 export interface TrackAppValues {
@@ -50,13 +51,20 @@ export function TrackAppDialog({
       description={t('development.github.apps.track_desc')}
       footer={
         <>
-          <Button variant="secondary" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button size="sm" onClick={() => onSubmit({ platform, assetPattern: pattern, installedTag })}>{t('common.save')}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button onClick={() => onSubmit({ platform, assetPattern: pattern, installedTag })}>{t('common.save')}</Button>
         </>
       }
     >
       <div className="space-y-3">
-        <p className="truncate text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{repo?.fullName}</p>
+        <div className="flex items-center gap-2.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2.5">
+          <GithubAvatar src={repo?.owner.avatarUrl ?? ''} name={repo?.owner.login ?? ''} size={28} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{repo?.fullName}</p>
+            <p className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.github.apps.track_hint')}</p>
+          </div>
+          {release ? <Badge tone="neutral">{release.tagName}</Badge> : <Badge tone="neutral">{t('development.github.store.no_release')}</Badge>}
+        </div>
         <Field label={t('development.github.apps.platform')}>
           <Segmented
             value={platform}

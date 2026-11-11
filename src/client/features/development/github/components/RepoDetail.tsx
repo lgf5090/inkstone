@@ -236,14 +236,16 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes, onOpenRepo }: {
       {!detail.rateLimited && detail.warnings.length > 0 && <div className="flex items-start gap-2 border-b border-[color-mix(in_oklab,var(--warning)_30%,transparent)] p-3 text-[length:var(--text-11)] text-[var(--warning)]"><AlertCircle size={14} className="mt-0.5 shrink-0" /><div><p className="font-medium">{t('development.github.repos.partial_failed')}</p><ul className="mt-0.5 list-inside list-disc">{detail.warnings.map((warning, index) => <li key={`${warning.source}-${index}`}>{warning.source}: {warning.message}</li>)}</ul></div></div>}
 
       <div className="border-b border-[var(--border-subtle)] p-4">
-        <div className="flex items-start gap-3">
-          <GithubAvatar src={repo.owner.avatarUrl} name={repo.owner.login} size={40} />
-          <div className="min-w-0 flex-1">
-            <a href={repo.url} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate text-[length:var(--text-15)] font-semibold hover:text-[var(--accent)] hover:underline">{repo.owner.login}/<span className="text-[var(--accent)]">{repo.name}</span></a>
-            {repo.description && <p className="mt-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">{repo.description}</p>}
-            {repo.homepage && <a href={repo.homepage} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{repo.homepage}</a>}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <GithubAvatar src={repo.owner.avatarUrl} name={repo.owner.login} size={40} />
+            <div className="min-w-0 flex-1">
+              <a href={repo.url} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate text-[length:var(--text-15)] font-semibold hover:text-[var(--accent)] hover:underline">{repo.owner.login}/<span className="text-[var(--accent)]">{repo.name}</span></a>
+              {repo.description && <p className="mt-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">{repo.description}</p>}
+              {repo.homepage && <a href={repo.homepage} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{repo.homepage}</a>}
+            </div>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
             <Button variant="secondary" size="sm" onClick={() => setDeveloperOpen(true)}><User size={12} />{t('development.github.dev_profile.open')}</Button>
             <Button variant="secondary" size="sm" onClick={() => setTrackOpen(true)}><PackagePlus size={12} />{t('development.github.apps.track')}</Button>
             <Button variant="secondary" size="sm" onClick={startAiSummary}><Sparkles size={12} />{t('development.github.repos.ai_summary')}</Button>
