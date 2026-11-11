@@ -4,6 +4,8 @@ import { projectDayToStamp } from './date'
 import {
   PROJECT_TIMELINE_DAY_MS,
   projectCardDays,
+  projectScheduleConflicts,
+  projectTimelineFitScale,
   projectTimelineBar,
   projectTimelineColumn,
   projectTimelineDays,
@@ -117,5 +119,32 @@ describe('dragging a bar', () => {
     expect(projectTimelineColumn(-50, 40, 7)).toBe(0)
     expect(projectTimelineColumn(9999, 40, 7)).toBe(6)
     expect(projectTimelineColumn(10, 0, 7)).toBe(0)
+  })
+})
+
+describe('schedule conflicts (R5-1)', () => {
+  const days = new Map([['a', { start: day(10), end: day(13) }], ['b', { start: day(12), end: day(15) }], ['c', { start: day(14), end: day(16) }]])
+
+  it('flags a dependent that starts before its blocker ends', () => {
+    expect([...projectScheduleConflicts([{ fromCardId: 'a', toCardId: 'b', kind: 'blocks' }], days)]).toEqual(['b'])
+  })
+
+  it('accepts a dependent starting after the blocker ends', () => {
+    expect([...projectScheduleConflicts([{ fromCardId: 'a', toCardId: 'c', kind: 'blocks' }], days)]).toEqual([])
+  })
+
+  it('ignores other link kinds and undated ends', () => {
+    expect(projectScheduleConflicts([{ fromCardId: 'a', toCardId: 'b', kind: 'parent' }], days).size).toBe(0)
+    expect(projectScheduleConflicts([{ fromCardId: 'a', toCardId: 'missing', kind: 'blocks' }], days).size).toBe(0)
+  })
+})
+
+describe('fiting the window (R5-1)', () => {
+  it('keeps days when the span fits, then coarsens', () => {
+    const short = [{ from: day(10), to: day(13) }]
+    expect(projectTimelineFitScale(short, 800)).toBe('day')
+    const long = [{ from: day(1), to: day(60) }]
+    expect(projectTimelineFitScale(long, 800)).toBe('month')
+    expect(projectTimelineFitScale([], 800)).toBe('day')
   })
 })

@@ -76,11 +76,11 @@ describe('the timeline axis (R3-22)', () => {
     expect(after).toBe(`${4 * PROJECT_TIMELINE_COLUMN_PX.week}px`)
   })
 })
-describe('dragging a bar to reschedule (R3-22)', () => {
+describe('dragging a bar to reschedule (R3-22/R5-1)', () => {
   it('writes both ends through the shared day conversion and keeps the length', async () => {
     const onPatchCard = vi.fn().mockResolvedValue(undefined)
     const cards = [card('c1', 'Sprint', new Date(2026, 10, 10), new Date(2026, 10, 13))]
-    await act(async () => { view = renderElement(createElement(TimelineView, { cards, properties, links: [], gantt: false, onOpenCard: vi.fn(), canEdit: true, onPatchCard })) })
+    await act(async () => { view = renderElement(createElement(TimelineView, { cards, properties, links: [], gantt: true, onOpenCard: vi.fn(), canEdit: true, onPatchCard })) })
     const bar = view.container.querySelector<HTMLButtonElement>('[data-timeline-row="c1"] button')!
     const down = new Event('pointerdown', { bubbles: true }) as PointerEvent
     Object.defineProperties(down, { clientX: { value: 100 }, pointerId: { value: 1 } })
@@ -165,5 +165,69 @@ describe('dependency edges and collapsed rows (R4-3)', () => {
     await act(async () => { collapse.click() })
     expect(view.container.querySelector('[data-timeline-row="c"]')).toBeNull()
     expect(view.container.querySelector('[data-timeline-dependencies]'), 'an edge points at a row that is not drawn').toBeNull()
+  })
+})
+
+type PatchFn = (id: string, patch: Record<string, unknown>) => Promise<void>
+
+describe('timeline reads, gantt plans (R5-1)', () => {
+  const cards = [card('c1', 'Sprint', new Date(2026, 10, 10), new Date(2026, 10, 13))]
+
+  async function dragBar(gantt: boolean, onPatchCard: ReturnType<typeof vi.fn<PatchFn>>) {
+    await act(async () => { view = renderElement(createElement(TimelineView, { cards, properties, links: [], gantt, onOpenCard: vi.fn(), canEdit: true, onPatchCard })) })
+    const bar = view.container.querySelector<HTMLButtonElement>('[data-timeline-row="c1"] [data-timeline-bar]')!
+    const down = new Event('pointerdown', { bubbles: true }) as PointerEvent
+    Object.defineProperties(down, { clientX: { value: 100 }, pointerId: { value: 1 }, button: { value: 0 } })
+    await act(async () => { bar.dispatchEvent(down) })
+    const move = new Event('pointermove', { bubbles: true }) as PointerEvent
+    Object.defineProperties(move, { clientX: { value: 100 + 2 * PROJECT_TIMELINE_COLUMN_PX.day } })
+    await act(async () => { bar.dispatchEvent(move) })
+    await act(async () => { bar.dispatchEvent(new Event('pointerup', { bubbles: true })) })
+  }
+
+  it('refuses to reschedule from the timeline overview', async () => {
+    const onPatchCard = vi.fn<PatchFn>().mockResolvedValue(undefined)
+    await dragBar(false, onPatchCard)
+    expect(onPatchCard, 'the read-only overview wrote a date').not.toHaveBeenCalled()
+    expect(view.container.querySelector('[data-schedule-mode="timeline"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-bar-handle]')).toBeNull()
+    expect(view.container.textContent).toContain(t('project.view.timeline_hint'))
+  })
+
+  it('offers end handles and auto-fit only in the gantt', async () => {
+    const onPatchCard = vi.fn<PatchFn>().mockResolvedValue(undefined)
+    await dragBar(true, onPatchCard)
+    expect(onPatchCard).toHaveBeenCalledTimes(1)
+    expect(view.container.querySelector('[data-schedule-mode="gantt"]')).not.toBeNull()
+    expect(view.container.querySelectorAll('[data-bar-handle]')).toHaveLength(2)
+    expect([...view.container.querySelectorAll('button')].some((button) => button.textContent === t('project.view.auto_fit'))).toBe(true)
+  })
+
+  it('resizes only the end whose handle was dragged', async () => {
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    await act(async () => { view = renderElement(createElement(TimelineView, { cards, properties, links: [], gantt: true, onOpenCard: vi.fn(), canEdit: true, onPatchCard })) })
+    const handle = view.container.querySelector<HTMLButtonElement>('[data-bar-handle="end"]')!
+    const down = new Event('pointerdown', { bubbles: true }) as PointerEvent
+    Object.defineProperties(down, { clientX: { value: 200 } })
+    await act(async () => { handle.dispatchEvent(down) })
+    const move = new Event('pointermove', { bubbles: true }) as PointerEvent
+    Object.defineProperties(move, { clientX: { value: 200 + PROJECT_TIMELINE_COLUMN_PX.day } })
+    await act(async () => { window.dispatchEvent(move) })
+    await act(async () => { window.dispatchEvent(new Event('pointerup')) })
+    const [, patch] = onPatchCard.mock.calls[0]!
+    const written = JSON.parse((patch as { values: Record<string, string> }).values.pd!) as { from: number, to: number }
+    expect(projectStampToInput(written.from)).toBe('2026-11-10')
+    expect(projectStampToInput(written.to)).toBe('2026-11-14')
+  })
+
+  it('outlines a card that starts before its blocker ends', async () => {
+    const blocker = card('a', 'Blocker', new Date(2026, 10, 10), new Date(2026, 10, 13))
+    const dependent = card('b', 'Dependent', new Date(2026, 10, 12))
+    await act(async () => { view = renderElement(createElement(TimelineView, { cards: [blocker, dependent], properties, links: [{ fromCardId: 'a', toCardId: 'b', kind: 'blocks' }], gantt: true, onOpenCard: vi.fn(), canEdit: true, onPatchCard: vi.fn().mockResolvedValue(undefined) })) })
+    const offender = view.container.querySelector('[data-timeline-bar="b"][data-timeline-conflict]')
+    expect(offender).not.toBeNull()
+    expect(offender!.className).toContain('outline-[var(--danger)]')
+    expect(view.container.querySelector('[data-timeline-bar="a"][data-timeline-conflict]')).toBeNull()
+    expect(view.container.textContent).toContain(t('project.view.conflicts', { count: 1 }))
   })
 })

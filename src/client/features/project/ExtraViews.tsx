@@ -3,13 +3,13 @@
  * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the
  * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.
  */
-import { Fragment, useCallback, useMemo, useState, type MouseEvent, type ReactElement } from 'react'
+import { Fragment, useCallback, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, CornerDownRight, Plus, Trash2 } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { groupProjectCards, projectPropertyDisplayText } from '@shared/project/view-eval'
-import { PROJECT_TIMELINE_COLUMN_PX, projectCardDays, projectTimelineBar, projectTimelineColumn, projectTimelineDays, projectTimelineDragRange, projectTimelineRows, projectTimelineWindow, type ProjectTimelineScale } from '@shared/project/timeline-layout'
+import { PROJECT_TIMELINE_COLUMN_PX, projectCardDays, projectTimelineBar, projectTimelineColumn, projectTimelineDays, projectTimelineDragRange, projectTimelineFitScale, projectScheduleConflicts, projectTimelineRows, projectTimelineWindow, type ProjectTimelineScale } from '@shared/project/timeline-layout'
 import { projectDayToStamp } from '@shared/project/date'
 import { projectOptionCssColor } from '@shared/project/option-color'
 import { t, useLocale } from '../../lib/i18n'
@@ -226,6 +226,7 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
   const [scale, setScale] = useState<ProjectTimelineScale>('day')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [showUnscheduled, setShowUnscheduled] = useState(true)
+  const canvasRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<{ id: string, startX: number, columns: number } | null>(null)
   const propertyId = datePropertyId ?? properties.find((property) => property.type === 'date')?.id
   const today = Date.now()
@@ -233,12 +234,14 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
     .map((card) => ({ card, days: projectCardDays(card, propertyId) }))
     .filter((entry): entry is { card: ProjectCard, days: { start: number, end: number } } => entry.days !== null)
   const unscheduled = cards.filter((card) => projectCardDays(card, propertyId) === null)
-  const window = projectTimelineWindow(dated.map((entry) => ({ from: entry.days.start, to: entry.days.end })), today)
-  const days = projectTimelineDays(window, today)
+  const axisWindow = projectTimelineWindow(dated.map((entry) => ({ from: entry.days.start, to: entry.days.end })), today)
+  const days = projectTimelineDays(axisWindow, today)
   const columnPx = PROJECT_TIMELINE_COLUMN_PX[scale]
   const rows = projectTimelineRows(dated.map((entry) => entry.card), collapsed)
   const daysByCard = new Map(dated.map((entry) => [entry.card.id, entry.days]))
   const blocked = new Set(links.filter((link) => link.kind === 'blocks').map((link) => link.toCardId))
+  const planning = gantt && canEdit && Boolean(onPatchCard) && Boolean(propertyId)
+  const conflicts = gantt ? projectScheduleConflicts(links, daysByCard) : new Set<string>()
   const todayColumn = days.findIndex((entry) => entry.today)
   const monthRuns: { label: string, span: number }[] = []
   for (const entry of days) {
@@ -255,7 +258,7 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
   })
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-project-timeline="">
+    <div className="flex min-h-0 flex-1 flex-col" data-project-timeline="" data-schedule-mode={gantt ? 'gantt' : 'timeline'}>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5">
         <Segmented
           value={scale}
@@ -268,6 +271,19 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
             { value: 'month', label: t('project.view.scale_month') },
           ]}
         />
+        {gantt && (
+          <>
+            <Button size="sm" variant="ghost" onClick={() => setScale(projectTimelineFitScale(dated.map((entry) => ({ from: entry.days.start, to: entry.days.end })), canvasRef.current?.clientWidth ?? 900))}>
+              {t('project.view.auto_fit')}
+            </Button>
+            {conflicts.size > 0 && (
+              <span className="rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--danger)]" role="status">
+                {t('project.view.conflicts', { count: conflicts.size })}
+              </span>
+            )}
+          </>
+        )}
+        {!gantt && <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('project.view.timeline_hint')}</span>}
         <span className="ml-auto text-[length:var(--text-12)] text-[var(--text-tertiary)]">
           {t('project.view.unscheduled_count', { count: unscheduled.length })}
         </span>
@@ -277,7 +293,31 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
           </Button>
         )}
       </div>
-      <div className="flex min-h-0 flex-1 overflow-auto">
+      <div
+        ref={canvasRef}
+        className={`flex min-h-0 flex-1 overflow-auto ${gantt ? '' : 'cursor-grab'}`}
+        onPointerDown={(event) => {
+          // The Timeline reads: dragging empty canvas pans it, the way the reference's overview does.
+          if (gantt || event.button !== 0) return
+          const target = event.target as HTMLElement
+          if (target.closest('[data-timeline-bar]')) return
+          const scroller = event.currentTarget
+          const startX = event.clientX
+          const startY = event.clientY
+          const left = scroller.scrollLeft
+          const top = scroller.scrollTop
+          const move = (moveEvent: PointerEvent) => {
+            scroller.scrollLeft = left - (moveEvent.clientX - startX)
+            scroller.scrollTop = top - (moveEvent.clientY - startY)
+          }
+          const up = () => {
+            window.removeEventListener('pointermove', move)
+            window.removeEventListener('pointerup', up)
+          }
+          window.addEventListener('pointermove', move)
+          window.addEventListener('pointerup', up)
+        }}
+      >
         <div className="sticky left-0 z-10 w-56 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-base)]">
           <div className="flex h-12 items-center border-b border-[var(--border-subtle)] px-3 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
             {t('project.board.title_column')}
@@ -337,24 +377,25 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
                 />
               ))}
             </div>
-            <DependencyLayer rows={rows} daysByCard={daysByCard} window={window} columnPx={columnPx} links={links} rowHeight={36} />
+            <DependencyLayer rows={rows} daysByCard={daysByCard} window={axisWindow} columnPx={columnPx} links={links} rowHeight={36} />
             {todayColumn >= 0 && (
               <div className="pointer-events-none absolute bottom-0 top-0 z-10 border-l border-dashed border-[var(--danger)]" style={{ left: `${todayColumn * columnPx}px` }} aria-hidden="true" data-timeline-today="" />
             )}
             {rows.map(({ card }) => {
               const range = daysByCard.get(card.id)!
-              const bar = projectTimelineBar({ from: range.start, to: range.end }, window)
+              const bar = projectTimelineBar({ from: range.start, to: range.end }, axisWindow)
               return (
                 <div key={card.id} className="relative h-9 border-b border-[var(--border-subtle)]" data-timeline-row={card.id}>
                   <button
                     type="button"
                     aria-label={card.title || t('project.board.untitled_card')}
-                    className={`absolute top-1.5 flex h-6 items-center overflow-hidden rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-11)] text-white ${isProjectCardDone(card, properties) ? 'opacity-55' : ''} ${canEdit && onPatchCard ? 'cursor-grab' : ''} focus-visible:outline-2 focus-visible:outline-[var(--accent)]`}
+                    className={`absolute top-1.5 flex h-6 items-center overflow-hidden rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-11)] text-white ${isProjectCardDone(card, properties) ? 'opacity-55' : ''} ${planning ? 'cursor-grab' : ''} ${conflicts.has(card.id) ? 'outline outline-2 outline-offset-1 outline-[var(--danger)]' : ''} focus-visible:outline-2 focus-visible:outline-[var(--accent)]`}
                     data-timeline-bar={card.id}
+                    data-timeline-conflict={conflicts.has(card.id) ? '' : undefined}
                     style={{ left: `${(bar.left + (drag?.id === card.id ? drag.columns : 0)) * columnPx}px`, width: `${bar.width * columnPx}px`, backgroundColor: barColor(card, properties) }}
                     onClick={() => { if (!drag) onOpenCard(card.id) }}
                     onPointerDown={(event) => {
-                      if (!canEdit || !onPatchCard || !propertyId) return
+                      if (!planning || !onPatchCard || !propertyId) return
                       const target = event.currentTarget
                       const startX = event.clientX
                       target.setPointerCapture(event.pointerId)
@@ -380,6 +421,12 @@ export function TimelineView({ cards, properties, datePropertyId, links, gantt, 
                   >
                     <span className="min-w-0 flex-1 truncate">{card.title || t('project.board.untitled_card')}</span>
                   </button>
+                  {planning && (
+                    <>
+                      <BarHandle side="start" card={card} range={range} propertyId={propertyId!} columnPx={columnPx} barLeft={bar.left} onPatchCard={onPatchCard!} />
+                      <BarHandle side="end" card={card} range={range} propertyId={propertyId!} columnPx={columnPx} barLeft={bar.left + bar.width - 1} onPatchCard={onPatchCard!} />
+                    </>
+                  )}
                 </div>
               )
             })}
@@ -490,5 +537,54 @@ function DependencyLayer({ rows, daysByCard, window, columnPx, links, rowHeight 
         <path key={edge.key} d={edge.d} fill="none" stroke="var(--text-quaternary)" strokeWidth="1" markerEnd="url(#project-timeline-arrow)" />
       ))}
     </svg>
+  )
+}
+
+/**
+ * One end of a Gantt bar, dragged to change that end's day.
+ *
+ * The reference gives each bar two 8px `ew-resize` handles. They are siblings of the bar rather than
+ * children, because a button cannot contain another button; the drag writes only the end it owns, so
+ * pulling the start past the end clamps instead of inverting the range.
+ */
+function BarHandle({ side, card, range, propertyId, columnPx, barLeft, onPatchCard }: {
+  side: 'start' | 'end'
+  card: ProjectCard
+  range: { start: number, end: number }
+  propertyId: string
+  columnPx: number
+  barLeft: number
+  onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      aria-label={`${side === 'start' ? t('project.view.resize_start') : t('project.view.resize_end')}: ${card.title || t('project.board.untitled_card')}`}
+      data-bar-handle={side}
+      className="absolute top-1.5 h-6 w-2 cursor-ew-resize rounded-[var(--r-xs)] hover:bg-white/30 focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+      style={{ left: `${barLeft * columnPx}px` }}
+      onPointerDown={(event) => {
+        event.stopPropagation()
+        const startX = event.clientX
+        let columns = 0
+        const move = (moveEvent: PointerEvent) => {
+          columns = Math.round((moveEvent.clientX - startX) / columnPx)
+        }
+        const up = () => {
+          window.removeEventListener('pointermove', move)
+          window.removeEventListener('pointerup', up)
+          if (!columns) return
+          const shift = columns * 86_400_000
+          const start = side === 'start' ? Math.min(range.end, range.start + shift) : range.start
+          const end = side === 'end' ? Math.max(start, range.end + shift) : range.end
+          const value = end === start
+            ? { from: projectDayToStamp(new Date(start)) }
+            : { from: projectDayToStamp(new Date(start)), to: projectDayToStamp(new Date(end)) }
+          void onPatchCard(card.id, { values: { [propertyId]: JSON.stringify(value) } })
+        }
+        window.addEventListener('pointermove', move)
+        window.addEventListener('pointerup', up)
+      }}
+    />
   )
 }

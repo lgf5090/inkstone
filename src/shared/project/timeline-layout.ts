@@ -150,3 +150,40 @@ export function projectTimelineColumn(offsetX: number, columnPx: number, dayCoun
   if (!(columnPx > 0) || dayCount <= 0) return 0
   return Math.min(dayCount - 1, Math.max(0, Math.floor(offsetX / columnPx)))
 }
+
+/**
+ * Cards whose schedule contradicts a blocking dependency.
+ *
+ * A card that is blocked by another should not start before that one ends. The Gantt draws the edge
+ * and outlines the offender, because an arrow alone does not say which end is wrong. Cards with no
+ * date on either side are not judged.
+ */
+export function projectScheduleConflicts(
+  links: readonly { fromCardId: string, toCardId: string, kind: string }[],
+  daysByCard: ReadonlyMap<string, { start: number, end: number }>,
+): Set<string> {
+  const conflicts = new Set<string>()
+  for (const link of links) {
+    if (link.kind !== 'blocks') continue
+    const blocker = daysByCard.get(link.fromCardId)
+    const dependent = daysByCard.get(link.toCardId)
+    if (!blocker || !dependent) continue
+    if (dependent.start <= blocker.end) conflicts.add(link.toCardId)
+  }
+  return conflicts
+}
+
+/** The window that fits every dated card exactly, for the Gantt's "fit" action. */
+export function projectTimelineFitScale(ranges: readonly TimelineRange[], viewportPx: number): ProjectTimelineScale {
+  if (ranges.length === 0 || !(viewportPx > 0)) return 'day'
+  let min = Infinity
+  let max = -Infinity
+  for (const range of ranges) {
+    if (range.from < min) min = range.from
+    if (range.to > max) max = range.to
+  }
+  const days = Math.max(1, Math.round((max - min) / PROJECT_TIMELINE_DAY_MS) + 1)
+  if (days * PROJECT_TIMELINE_COLUMN_PX.day <= viewportPx) return 'day'
+  if (days * PROJECT_TIMELINE_COLUMN_PX.week <= viewportPx) return 'week'
+  return 'month'
+}

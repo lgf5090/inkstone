@@ -12538,6 +12538,8 @@ const allowed = new Map([
     "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
     "/** The bar wears its status colour; a card with none rides the accent rather than a washed-out tint. */",
     "/**\n * Blocking dependencies drawn as arrows behind the bars.\n *\n * A badge said \"blocked\" without saying *by what*; the reference draws the edge, so the reader can see\n * which bar is holding which. Only edges whose both ends are on screen are drawn, and the layer never\n * takes a pointer event so a bar underneath stays draggable.\n */",
+    "// The Timeline reads: dragging empty canvas pans it, the way the reference's overview does.",
+    "/**\n * One end of a Gantt bar, dragged to change that end's day.\n *\n * The reference gives each bar two 8px `ew-resize` handles. They are siblings of the bar rather than\n * children, because a button cannot contain another button; the drag writes only the end it owns, so\n * pulling the start past the end clamps instead of inverting the range.\n */",
   ]],
   ["src/client/features/project/FilterEditor.test.tsx", [
     "/** The row a stored value is offered under: a property name, a join word, or a condition's own label. */",
@@ -32544,6 +32546,8 @@ const allowed = new Map([
     "// A cycle has no root, so its members would otherwise disappear from the view entirely.",
     "/**\n * The range a bar lands on after being dragged whole across the axis.\n *\n * The bar keeps its length: a three-day task moved two columns right is still three days, and the\n * writer turns both ends back into stored stamps so the move cannot quietly become a single day.\n */",
     "/** Which column a pointer at `offsetX` is over, clamped into the drawn window. */",
+    "/**\n * Cards whose schedule contradicts a blocking dependency.\n *\n * A card that is blocked by another should not start before that one ends. The Gantt draws the edge\n * and outlines the offender, because an arrow alone does not say which end is wrong. Cards with no\n * date on either side are not judged.\n */",
+    "/** The window that fits every dated card exactly, for the Gantt's \"fit\" action. */",
   ]],
   ["src/shared/project/validation.ts", [
     "/**\n * The shapes a project request may take. The server runs every write through these before it touches\n * D1; the client runs the same schemas so a rejected field is reported at the control that typed it.\n *\n * Bounds come from `./limits` rather than being restated, so raising a ceiling is one edit.\n */",
