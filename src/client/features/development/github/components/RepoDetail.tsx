@@ -252,21 +252,21 @@ export function RepoDetail({ repo, mirror, notes, favorited = false, onToggleFav
   ]
 
   return (
-    <div className="h-full min-w-0 overflow-y-auto overscroll-contain" data-slot="repo-detail">
+    <div className="gh-detail h-full min-w-0 overflow-y-auto overscroll-contain" data-slot="repo-detail">
       {detail.rateLimited && <div className="flex items-start gap-2 border-b border-[color-mix(in_oklab,var(--warning)_35%,transparent)] bg-[color-mix(in_oklab,var(--warning)_10%,transparent)] p-3 text-[length:var(--text-11)] text-[var(--warning)]"><AlertCircle size={14} className="mt-0.5 shrink-0" /><div><p className="font-medium">{t('development.github.repos.rate_limited_title')}</p><p className="mt-0.5">{t('development.github.repos.rate_limited_hint')}</p></div></div>}
       {!detail.rateLimited && detail.warnings.length > 0 && <div className="flex items-start gap-2 border-b border-[color-mix(in_oklab,var(--warning)_30%,transparent)] p-3 text-[length:var(--text-11)] text-[var(--warning)]"><AlertCircle size={14} className="mt-0.5 shrink-0" /><div><p className="font-medium">{t('development.github.repos.partial_failed')}</p><ul className="mt-0.5 list-inside list-disc">{detail.warnings.map((warning, index) => <li key={`${warning.source}-${index}`}>{warning.source}: {warning.message}</li>)}</ul></div></div>}
 
       <div className="border-b border-[var(--border-subtle)] p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="gh-detail-head">
           <div className="flex min-w-0 items-start gap-3">
             <GithubAvatar src={repo.owner.avatarUrl} name={repo.owner.login} size={40} />
             <div className="min-w-0 flex-1">
-              <a href={repo.url} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate text-[length:var(--text-15)] font-semibold hover:text-[var(--accent)] hover:underline">{repo.owner.login}/<span className="text-[var(--accent)]">{repo.name}</span></a>
-              {repo.description && <p className="mt-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">{repo.description}</p>}
-              {repo.homepage && <a href={repo.homepage} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{repo.homepage}</a>}
+              <a href={repo.url} target="_blank" rel="noopener noreferrer" className="block min-w-0 truncate text-[length:var(--text-15)] font-semibold hover:text-[var(--accent)] hover:underline" title={repo.fullName}>{repo.owner.login}/<span className="text-[var(--accent)]">{repo.name}</span></a>
+              {repo.description && <p className="mt-1.5 break-words text-[length:var(--text-12)] text-[var(--text-secondary)]">{repo.description}</p>}
+              {repo.homepage && <a href={repo.homepage} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex max-w-full items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} className="shrink-0" /><span className="min-w-0 truncate">{repo.homepage}</span></a>}
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
+          <div className="gh-detail-actions">
             {onToggleFavorite && (
               <Button variant="secondary" size="sm" aria-pressed={favorited} onClick={() => onToggleFavorite(repo)}>
                 <Heart size={12} className={favorited ? 'fill-[var(--accent)] text-[var(--accent)]' : ''} />
@@ -282,7 +282,7 @@ export function RepoDetail({ repo, mirror, notes, favorited = false, onToggleFav
         </div>
         <Menu anchor={cloneAnchor} open={cloneOpen} onClose={() => setCloneOpen(false)} items={cloneItems} align="end" width={240} label={t('development.github.repos.clone')} />
         {repo.topics.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{repo.topics.map((topic) => <span key={topic} className="inline-flex items-center gap-0.5 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)]"><TagIcon size={9} />{topic}</span>)}</div>}
-        <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+        <div className="gh-detail-stats mt-3 grid gap-1.5">
           <Stat icon={<Star size={12} className="text-[var(--warning)]" />} label={t('development.github.repos.stars')} value={formatNumber(repo.stargazersCount)} />
           <Stat icon={<GitBranch size={12} />} label={t('development.github.repos.forks')} value={formatNumber(repo.forksCount)} />
           <Stat icon={<AlertCircle size={12} />} label={t('development.github.repos.issues')} value={formatNumber(repo.openIssuesCount)} />
