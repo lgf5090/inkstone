@@ -25,7 +25,7 @@ import {
   projectTimelineFitScale,
   projectTimelineWindow,
 } from '@shared/project/timeline-layout'
-import { t } from '../../../lib/i18n'
+import { t, useLocale } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox, Input } from '../../../components/form'
 import { SelectMenu } from '../../../components/select-menu'
@@ -62,6 +62,7 @@ interface DragState {
 
 export function GanttView(props: GanttProps): ReactElement {
   const { cards, properties, links, fields, subtasksByParent, canEdit } = props
+  const locale = useLocale()
   const propertyId = projectViewPropertyId(fields.dateDisplayPropertyId) ?? properties.find((property) => property.type === 'date')?.id
   const statusProperty = properties.find((property) => property.type === 'select')
   const scale = fields.scheduleScale ?? 'day'
@@ -250,6 +251,7 @@ export function GanttView(props: GanttProps): ReactElement {
     return next
   })
   const bindViewport = useCallback((node: HTMLDivElement | null) => { viewport.current = node }, [])
+  const shortDay = (stamp: number): string => new Date(stamp).toLocaleDateString(locale, { month: 'numeric', day: 'numeric' })
 
   // Escape backs out of whatever is open; Delete takes the selected bar off the schedule rather than
   // deleting the card, because the card is still real work — only its dates were wrong.
@@ -436,6 +438,7 @@ export function GanttView(props: GanttProps): ReactElement {
                   draggable={planning}
                   dragging={Boolean(active)}
                   milestone={milestone}
+                tip={`${card.title || t('project.board.untitled_card')}\n${shortDay(range.start)} → ${shortDay(range.end)}`}
                   onOpen={() => { if (!drag) props.onOpenCard(card.id) }}
                   onPointerDown={(event) => startBarDrag(event, card, 'move')}
                   onDoubleClick={() => { if (planning) setRenaming({ id: card.id, value: card.title }) }}

@@ -1,16 +1,19 @@
 /**
- * The dashboard: the board's health, and the two lists that need acting on today.
+ * The dashboard: the board's health, the report the reference's Stats view draws, and the two lists
+ * that need acting on today.
  *
- * Every number is computed from the cards the view was handed, so a filtered board reports the filtered
+ * Every number comes from the cards the view was handed, so a filtered board reports the filtered
  * truth. The tiles are buttons where a number has a list behind it — "6 overdue" is only useful if
- * clicking it shows the six.
+ * clicking it shows the six — and the report panels below are the same CSS shapes the reference uses:
+ * a completion ring, one stacked status bar, priority tiles, a four-week trend and an effort summary.
  */
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { Activity, AlertTriangle, CalendarClock, CheckCircle2, LayoutDashboard, Loader, Users } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, LayoutDashboard, Loader, Users } from 'lucide-react'
 import type { ProjectActivityEntry, ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectCardDays } from '@shared/project/timeline-layout'
 import { projectOptionCssColor } from '@shared/project/option-color'
+import { projectEffortStats, projectPriorityBuckets, projectPriorityProperty, projectWeeklyCompletions } from '@shared/project/stats'
 import { t, useLocale } from '../../../lib/i18n'
 import { ViewHead, ViewShell } from './shell'
 import { fetchBoardActivity } from '../api'
@@ -53,6 +56,15 @@ function Kpi({ label, value, note, color, icon, onClick }: {
     : <div className="pv-kpi" style={{ '--pv-kpi-color': color } as React.CSSProperties}>{body}</div>
 }
 
+function Panel({ title, children }: { title: string, children: React.ReactNode }): ReactElement {
+  return (
+    <section className="pv-panel" aria-label={title}>
+      <h3 className="pv-panel-title">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
 export function DashboardView(props: DashboardProps): ReactElement {
   const { cards, properties, boardId } = props
   const locale = useLocale()
@@ -61,6 +73,8 @@ export function DashboardView(props: DashboardProps): ReactElement {
   const propertyId = projectViewPropertyId(props.datePropertyId) ?? properties.find((property) => property.type === 'date')?.id
   const statusProperty = properties.find((property) => property.type === 'select')
   const personProperty = properties.find((property) => property.type === 'person' || property.type === 'multiPerson')
+  const priorityProperty = useMemo(() => projectPriorityProperty(properties), [properties])
+  const effortProperty = properties.find((property) => property.type === 'number')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -83,7 +97,7 @@ export function DashboardView(props: DashboardProps): ReactElement {
     }
     const byEnd = (left: ProjectCard, right: ProjectCard): number =>
       (projectCardDays(left, propertyId)?.end ?? 0) - (projectCardDays(right, propertyId)?.end ?? 0)
-    return { overdue: overdue.sort(byEnd), soon: soon.sort(byEnd), unscheduled, done, inProgress: cards.length - done - overdue.length - soon.length - unscheduled }
+    return { overdue: overdue.sort(byEnd), soon: soon.sort(byEnd), unscheduled, done, later: cards.length - done - overdue.length - soon.length - unscheduled }
   }, [cards, properties, propertyId, today])
 
   const byStatus = useMemo(() => {
@@ -100,6 +114,13 @@ export function DashboardView(props: DashboardProps): ReactElement {
       color: projectOptionCssColor(option.color) ?? 'var(--text-quaternary)',
     })), { key: '', label: t('project.view.no_value'), count: counts.get('') ?? 0, color: 'var(--text-quaternary)' }]
   }, [cards, statusProperty])
+
+  const priority = useMemo(() => (priorityProperty
+    ? projectPriorityBuckets(cards, priorityProperty, (color) => projectOptionCssColor(color))
+    : []), [cards, priorityProperty])
+  const weekly = useMemo(() => projectWeeklyCompletions(cards, properties, today, 4), [cards, properties, today])
+  const effort = useMemo(() => projectEffortStats(cards, effortProperty), [cards, effortProperty])
+  const maxWeekly = Math.max(1, ...weekly.map((week) => week.count))
 
   const workload = useMemo(() => {
     if (!personProperty) return []
@@ -118,6 +139,15 @@ export function DashboardView(props: DashboardProps): ReactElement {
 
   const percent = cards.length > 0 ? Math.round((buckets.done / cards.length) * 100) : 0
   const focusList = focus === 'overdue' ? buckets.overdue : focus === 'soon' ? buckets.soon : []
+
+  const dueLabel = (stamp: number): string => {
+    const days = Math.round((stamp - today) / DAY_MS)
+    if (days === 0) return t('project.dashboard.today')
+    if (days === 1) return t('project.dashboard.tomorrow')
+    if (days === 2) return t('project.dashboard.day_after')
+    return new Date(stamp).toLocaleDateString(locale, { month: 'numeric', day: 'numeric' })
+  }
+
   return (
     <ViewShell data-view="dashboard">
       <ViewHead
@@ -130,28 +160,26 @@ export function DashboardView(props: DashboardProps): ReactElement {
         <div className="pv-kpis">
           <Kpi label={t('project.dashboard.total')} value={cards.length} color="var(--accent)" icon={<LayoutDashboard size={12} aria-hidden="true" />} />
           <Kpi label={t('project.dashboard.done')} value={buckets.done} note={`${percent}%`} color="var(--success)" icon={<CheckCircle2 size={12} aria-hidden="true" />} />
-          <Kpi label={t('project.dashboard.in_progress')} value={Math.max(0, buckets.inProgress)} color="var(--warning)" icon={<Loader size={12} aria-hidden="true" />} />
+          <Kpi label={t('project.dashboard.in_progress')} value={Math.max(0, buckets.later)} color="var(--warning)" icon={<Loader size={12} aria-hidden="true" />} />
           <Kpi label={t('project.dashboard.overdue')} value={buckets.overdue.length} color="var(--danger)" icon={<AlertTriangle size={12} aria-hidden="true" />} onClick={() => setFocus(focus === 'overdue' ? null : 'overdue')} />
           <Kpi label={t('project.dashboard.due_soon')} value={buckets.soon.length} color="var(--accent)" icon={<CalendarClock size={12} aria-hidden="true" />} onClick={() => setFocus(focus === 'soon' ? null : 'soon')} />
           <Kpi label={t('project.dashboard.unscheduled')} value={buckets.unscheduled} color="var(--text-tertiary)" icon={<CalendarClock size={12} aria-hidden="true" />} />
         </div>
 
         {focus && (
-          <section className="pv-panel" aria-label={focus === 'overdue' ? t('project.dashboard.overdue_list') : t('project.dashboard.due_soon')}>
-            <h3 className="pv-panel-title">{focus === 'overdue' ? t('project.dashboard.overdue_list') : t('project.dashboard.due_soon')}</h3>
+          <Panel title={focus === 'overdue' ? t('project.dashboard.overdue_list') : t('project.dashboard.due_soon')}>
             {focusList.length === 0
               ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.dashboard.nothing_here')}</p>
               : (
                 <ul className="space-y-0.5">
                   {focusList.map((card) => {
                     const days = projectCardDays(card, propertyId)
-                    const late = days ? Math.round((today - days.end) / DAY_MS) : 0
                     return (
                       <li key={card.id}>
                         <button type="button" className="flex w-full items-center gap-2 rounded-[var(--r-sm)] px-1.5 py-1 text-left text-[length:var(--text-12)] hover:bg-[var(--bg-hover)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => props.onOpenCard(card.id)}>
                           <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>
-                          <span className={`shrink-0 text-[length:var(--text-11)] ${late > 0 ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}`}>
-                            {days ? new Date(days.end).toLocaleDateString(locale) : ''}
+                          <span className={`shrink-0 text-[length:var(--text-11)] ${days && days.end < today ? 'text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}`}>
+                            {days ? dueLabel(days.end) : ''}
                           </span>
                         </button>
                       </li>
@@ -159,14 +187,33 @@ export function DashboardView(props: DashboardProps): ReactElement {
                   })}
                 </ul>
               )}
-          </section>
+          </Panel>
         )}
 
         <div className="grid gap-3 lg:grid-cols-2">
+          <Panel title={t('project.dashboard.completion_rate')}>
+            <div className="flex items-center gap-5">
+              <span className="pv-ring" style={{ background: `conic-gradient(var(--success) ${percent}%, var(--bg-sunken) ${percent}%)` }} role="img" aria-label={t('project.dashboard.completion', { percent })}>
+                <span className="pv-ring-inner">{percent}%</span>
+              </span>
+              <span className="flex flex-col gap-0.5">
+                <span className="flex items-baseline gap-1">
+                  <span className="text-[length:var(--text-28)] font-bold text-[var(--success)]">{buckets.done}</span>
+                  <span className="text-[length:var(--text-13)] text-[var(--text-tertiary)]">/ {cards.length}</span>
+                </span>
+                <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.dashboard.done')}</span>
+              </span>
+            </div>
+          </Panel>
+
           {byStatus.length > 0 && (
-            <section className="pv-panel" aria-label={t('project.dashboard.by_status')}>
-              <h3 className="pv-panel-title">{t('project.dashboard.by_status')}</h3>
-              <ul className="space-y-1.5">
+            <Panel title={t('project.dashboard.by_status')}>
+              <span className="pv-stack" role="img" aria-label={byStatus.map((entry) => `${entry.label} ${entry.count}`).join(', ')}>
+                {byStatus.filter((entry) => entry.count > 0).map((entry) => (
+                  <span key={entry.key || 'none'} className="pv-stack-seg" style={{ width: `${cards.length ? (entry.count / cards.length) * 100 : 0}%`, backgroundColor: entry.color }} title={`${entry.label}: ${entry.count}`} />
+                ))}
+              </span>
+              <ul className="mt-2.5 space-y-1.5">
                 {byStatus.map((entry) => (
                   <li key={entry.key || 'none'} className="pv-meter">
                     <span className="pv-meter-label">{entry.label}</span>
@@ -177,28 +224,88 @@ export function DashboardView(props: DashboardProps): ReactElement {
                   </li>
                 ))}
               </ul>
-            </section>
+            </Panel>
           )}
+
+          {priority.length > 0 && (
+            <Panel title={t('project.dashboard.priority_dist')}>
+              <div className="grid grid-cols-3 gap-2">
+                {priority.map((bucket) => (
+                  <div key={bucket.key} className="pv-prio-tile" style={{ '--pv-prio-color': bucket.color } as React.CSSProperties}>
+                    <span className="text-[length:var(--text-20)] font-bold" style={{ color: bucket.color }}>{bucket.count}</span>
+                    <span className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{bucket.label}</span>
+                    <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{cards.length ? Math.round((bucket.count / cards.length) * 100) : 0}%</span>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+
+          <Panel title={t('project.dashboard.weekly_trend')}>
+            <div className="pv-weeks">
+              {weekly.map((week) => (
+                <div key={week.start} className="pv-week">
+                  <span className="pv-week-track">
+                    <span className="pv-week-bar" style={{ height: `${(week.count / maxWeekly) * 100}%` }} />
+                  </span>
+                  <span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{new Date(week.start).toLocaleDateString(locale, { month: 'numeric', day: 'numeric' })}</span>
+                  <span className="text-[length:var(--text-10)] font-semibold text-[var(--text-secondary)]">{week.count}</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+
+          {effortProperty && (
+            <Panel title={t('project.dashboard.effort', { name: effortProperty.name })}>
+              <div className="grid grid-cols-2 gap-3">
+                <span className="flex flex-col"><span className="text-[length:var(--text-20)] font-bold text-[var(--text-primary)]">{effort.total}</span><span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.dashboard.effort_total')}</span></span>
+                <span className="flex flex-col"><span className="text-[length:var(--text-20)] font-bold text-[var(--text-primary)]">{effort.average.toFixed(1)}</span><span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.dashboard.effort_avg')}</span></span>
+              </div>
+              {effort.maxCard && (
+                <button type="button" className="mt-2 flex w-full items-baseline gap-2 border-t border-[var(--border-subtle)] pt-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => props.onOpenCard(effort.maxCard!.id)}>
+                  <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.dashboard.effort_max')}</span>
+                  <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-secondary)]">{effort.maxCard.title} — {effort.max}</span>
+                </button>
+              )}
+            </Panel>
+          )}
+
+          <Panel title={t('project.dashboard.due_soon')}>
+            {buckets.soon.length === 0
+              ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.dashboard.nothing_due')}</p>
+              : (
+                <ul className="space-y-1">
+                  {buckets.soon.slice(0, 8).map((card) => {
+                    const days = projectCardDays(card, propertyId)!
+                    return (
+                      <li key={card.id}>
+                        <button type="button" className="pv-upcoming" style={{ '--pv-card-color': projectOptionCssColor(statusProperty?.options.find((option) => option.id === card.values[statusProperty.id])?.color ?? '') ?? 'var(--accent)' } as React.CSSProperties} onClick={() => props.onOpenCard(card.id)}>
+                          <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>
+                          <span className={`shrink-0 text-[length:var(--text-11)] ${days.end === today ? 'font-semibold text-[var(--danger)]' : 'text-[var(--text-tertiary)]'}`}>{dueLabel(days.end)}</span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+          </Panel>
+
           {workload.length > 0 && (
-            <section className="pv-panel" aria-label={t('project.dashboard.workload')}>
-              <h3 className="pv-panel-title"><Users size={13} aria-hidden="true" />{t('project.dashboard.workload')}</h3>
+            <Panel title={t('project.dashboard.workload')}>
               <ul className="space-y-1.5">
                 {workload.map(([id, count]) => (
                   <li key={id} className="pv-meter">
-                    <span className="pv-meter-label">{id}</span>
-                    <span className="pv-meter-track">
-                      <span className="pv-meter-fill" style={{ width: `${cards.length ? Math.round((count / cards.length) * 100) : 0}%` }} />
-                    </span>
+                    <span className="pv-meter-label"><Users size={11} aria-hidden="true" className="mr-1 inline" />{id}</span>
+                    <span className="pv-meter-track"><span className="pv-meter-fill" style={{ width: `${cards.length ? Math.round((count / cards.length) * 100) : 0}%` }} /></span>
                     <span className="pv-meter-value">{count}</span>
                   </li>
                 ))}
               </ul>
-            </section>
+            </Panel>
           )}
         </div>
 
-        <section className="pv-panel" aria-label={t('project.dashboard.activity')}>
-          <h3 className="pv-panel-title"><Activity size={13} aria-hidden="true" />{t('project.dashboard.activity')}</h3>
+        <Panel title={t('project.dashboard.activity')}>
           {activity.length === 0
             ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.dashboard.nothing_here')}</p>
             : (
@@ -216,13 +323,13 @@ export function DashboardView(props: DashboardProps): ReactElement {
                             {target.title || t('project.board.untitled_card')}
                           </button>
                         )
-                        : <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]">{verb ? '' : entry.summary}</span>}
+                        : <span className="min-w-0 flex-1 truncate text-[var(--text-tertiary)]">{verb ? t('project.dashboard.other_target') : entry.summary}</span>}
                     </li>
                   )
                 })}
               </ul>
             )}
-        </section>
+        </Panel>
       </div>
     </ViewShell>
   )

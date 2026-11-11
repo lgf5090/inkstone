@@ -616,11 +616,9 @@ describe('the board card face (R3-19)', () => {
     const base = bundle()
     base.cards = []
     await mountBoardWith(base)
-    const adders = [...view.container.querySelectorAll<HTMLButtonElement>('button')].filter((button) => button.textContent === t('project.board.new_card'))
-    expect(adders.length).toBeGreaterThan(0)
-    await act(async () => { adders[1]!.click() })
-    const field = view.container.querySelector<HTMLInputElement>(`input[aria-label="${t('project.board.new_card')}"]`)
-    expect(field, 'the column never opened an input').not.toBeNull()
+    const fields = [...view.container.querySelectorAll<HTMLInputElement>(`input[aria-label="${t('project.board.new_card')}"]`)]
+    expect(fields.length).toBeGreaterThan(1)
+    const field = fields[1]!
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
     await act(async () => { setter.call(field!, 'Fresh'); field!.dispatchEvent(new Event('input', { bubbles: true })) })
     await act(async () => { field!.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })

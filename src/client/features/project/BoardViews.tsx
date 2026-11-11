@@ -378,6 +378,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             onPatchCard={onPatchCard}
             onRefresh={onRefresh}
             descriptionFor={(cardId) => descriptionByCard.get(cardId) ?? ''}
+            subtasksByParent={subtasksByParent}
           />
         )
       case 'timeline':

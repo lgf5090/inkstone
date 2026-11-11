@@ -13,7 +13,8 @@ import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectDayToStamp } from '@shared/project/date'
 import { projectCardDays } from '@shared/project/timeline-layout'
 import { projectCalendarDayChips, projectCalendarDayRoles, projectCalendarOverdue, projectCalendarRibbons, projectCalendarWeekSpans } from '@shared/project/calendar-layout'
-import { projectCardColor } from '@shared/project/option-color'
+import { projectCardColor, projectOptionCssColor } from '@shared/project/option-color'
+import { projectPriorityProperty } from '@shared/project/stats'
 import { t, useLocale } from '../../../lib/i18n'
 import { buildMonthGridCells } from '../../../components/calendar-grids'
 import { resolveWeekStart, useCalendarDisplayPrefs } from '../../../lib/calendar-display-prefs'
@@ -38,6 +39,7 @@ export interface CalendarProps {
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onRefresh?: () => Promise<void>
   descriptionFor?: (cardId: string) => string
+  subtasksByParent?: Map<string, ProjectCard[]>
 }
 
 interface Cell {
@@ -271,6 +273,7 @@ export function CalendarView(props: CalendarProps): ReactElement {
             properties={properties}
             colorOf={colorOf}
             descriptionFor={props.descriptionFor}
+            subtasksByParent={props.subtasksByParent}
             onOpenCard={props.onOpenCard}
             onClose={() => setSelected(null)}
           />
@@ -355,18 +358,20 @@ function CalendarCell({ cell, mode, today, selected, dropping, cards, propertyId
 }
 
 /** The selected day in full: every card it touches, and whether it starts, ends or runs through it. */
-function DayPanel({ dayKey, roles, properties, colorOf, descriptionFor, onOpenCard, onClose }: {
+function DayPanel({ dayKey, roles, properties, colorOf, descriptionFor, subtasksByParent, onOpenCard, onClose }: {
   dayKey: string
   roles: readonly { card: ProjectCard, role: string }[]
   properties: readonly ProjectProperty[]
   colorOf: (card: ProjectCard) => string
   descriptionFor?: (cardId: string) => string
+  subtasksByParent?: Map<string, ProjectCard[]>
   onOpenCard: (id: string) => void
   onClose: () => void
 }): ReactElement {
   const locale = useLocale()
   const date = new Date(`${dayKey}T00:00:00`)
   const label = date.toLocaleDateString(locale, { month: 'long', day: 'numeric', weekday: 'long' })
+  const priorityProperty = projectPriorityProperty(properties)
   const roleLabel: Record<string, string> = {
     start: t('project.calendar.role_start'),
     due: t('project.calendar.role_due'),
@@ -400,6 +405,17 @@ function DayPanel({ dayKey, roles, properties, colorOf, descriptionFor, onOpenCa
               {description && <span className="pv-daycard-desc">{description}</span>}
               <span className="pv-daycard-meta">
                 {isProjectCardDone(card, properties) && <span className="text-[var(--success)]">{t('project.card.done_label')}</span>}
+                {priorityProperty && card.values[priorityProperty.id] && (
+                  <span style={{ color: projectOptionCssColor(priorityProperty.options.find((option) => option.id === card.values[priorityProperty.id])?.color ?? '') ?? undefined }}>
+                    {priorityProperty.options.find((option) => option.id === card.values[priorityProperty.id])?.value}
+                  </span>
+                )}
+                {(() => {
+                  const subtasks = subtasksByParent?.get(card.id) ?? []
+                  return subtasks.length > 0
+                    ? <span>{subtasks.filter((entry) => isProjectCardDone(entry, properties)).length}/{subtasks.length}</span>
+                    : null
+                })()}
                 <span>{dayKey}</span>
               </span>
             </button>

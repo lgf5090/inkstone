@@ -27,6 +27,8 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const [broken, setBroken] = useState<Set<string>>(() => new Set())
+  const [preview, setPreview] = useState<ProjectAttachment | null>(null)
+  const [text, setText] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
   const toast = useUi((state) => state.toast)
 
@@ -48,6 +50,17 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
       setBusy(false)
     }
   }
+
+  // The reference previews the picked file beside the tree; a cloud attachment gets the same panel.
+  useEffect(() => {
+    if (!preview || !preview.mime.startsWith('text/')) { setText(null); return }
+    const controller = new AbortController()
+    fetch(projectFileUrl(preview.id), { signal: controller.signal })
+      .then((response) => response.text())
+      .then((body) => setText(body.slice(0, 20_000)))
+      .catch(() => { if (!controller.signal.aborted) setText(null) })
+    return () => controller.abort()
+  }, [preview])
 
   const counts = useMemo(() => {
     const map = new Map<string, number>()
@@ -95,8 +108,8 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
               const kind = fileCategory(file.mime)
               const Icon = FILE_ICONS[kind] ?? FileIcon
               return (
-                <article key={file.id} className="pv-file" data-collection-file={file.id}>
-                  <a href={projectFileUrl(file.id)} target="_blank" rel="noreferrer" className="pv-file-thumb">
+                <article key={file.id} className="pv-file" data-collection-file={file.id} data-selected={preview?.id === file.id}>
+                  <button type="button" className="pv-file-thumb" aria-label={t('project.collection.preview', { name: file.filename })} onClick={() => setPreview(file)}>
                     {kind === 'images' && !broken.has(file.id)
                       ? (
                         <img
@@ -108,7 +121,7 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
                         />
                       )
                       : <Icon size={30} aria-hidden="true" className="text-[var(--text-quaternary)]" />}
-                  </a>
+                  </button>
                   <div className="pv-file-body">
                     <a className="truncate text-[length:var(--text-12)] font-medium text-[var(--text-primary)] hover:text-[var(--accent)]" href={projectFileUrl(file.id)} target="_blank" rel="noreferrer" title={file.filename}>
                       {file.filename}
@@ -125,6 +138,26 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
             })}
           </div>
         )}
+      {preview && (
+        <aside className="pv-preview" aria-label={preview.filename} data-file-preview={preview.id}>
+          <div className="pv-cal-panel-head">
+            <span className="pv-cal-panel-date truncate">{preview.filename}</span>
+            <Button size="sm" variant="ghost" onClick={() => setPreview(null)}>{t('common.close')}</Button>
+          </div>
+          <div className="pv-preview-body pv-scroll">
+            {fileCategory(preview.mime) === 'images' && !broken.has(preview.id)
+              ? <img src={projectFileUrl(preview.id)} alt={preview.filename} className="max-h-full max-w-full object-contain" onError={() => setBroken((current) => new Set(current).add(preview.id))} />
+              : text !== null
+                ? <pre className="pv-preview-text">{text}</pre>
+                : (() => { const Fallback = FILE_ICONS[fileCategory(preview.mime)] ?? FileIcon; return <Fallback size={40} aria-hidden="true" className="text-[var(--text-quaternary)]" /> })()}
+          </div>
+          <div className="pv-preview-foot">
+            <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{formatBytes(preview.size)} · {new Date(preview.createdAt).toLocaleDateString(locale)}</span>
+            <a className="text-[length:var(--text-12)] text-[var(--accent)]" href={projectFileUrl(preview.id)} target="_blank" rel="noreferrer">{t('project.collection.open_raw')}</a>
+            {preview.cardId && <Button size="sm" variant="ghost" onClick={() => onOpenCard(preview.cardId!)}>{t('project.card.open')}</Button>}
+          </div>
+        </aside>
+      )}
     </ViewShell>
   )
 }

@@ -104,9 +104,8 @@ describe('cards on the board', () => {
 
   it('files a card into the column whose quick-add was used', async () => {
     const props = await mount([])
-    const add = columns()[1]!.querySelector<HTMLButtonElement>('.pv-quickadd-btn')!
-    await act(async () => { add.click() })
-    const field = columns()[1]!.querySelector<HTMLInputElement>('input')!
+    const field = columns()[1]!.querySelector<HTMLInputElement>('.pv-quickadd input')!
+    expect(field, 'the column has no always-visible add input').not.toBeNull()
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
     await act(async () => { setter.call(field, 'Fresh'); field.dispatchEvent(new Event('input', { bubbles: true })) })
     await act(async () => { field.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })

@@ -197,6 +197,7 @@ export function TimelineView(props: TimelineProps): ReactElement {
                 draggable={false}
                 dragging={false}
                 milestone={false}
+                tip={`${row.card.title || t('project.board.untitled_card')}\n${shortDay(daysByCard.get(row.card.id)!.start)} → ${shortDay(daysByCard.get(row.card.id)!.end)}`}
                 onOpen={() => props.onOpenCard(row.card.id)}
               />
             )

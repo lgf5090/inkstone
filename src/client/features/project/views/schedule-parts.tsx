@@ -54,7 +54,7 @@ export function DependencyEdges({ links, geometry, rowHeight, columnPx, width, h
   )
 }
 
-export function ScheduleBar({ card, color, left, width, top, height, done, progress, conflict, selected, draggable, dragging, milestone, onOpen, onPointerDown, onContextMenu, onDoubleClick, children }: {
+export function ScheduleBar({ card, color, left, width, top, height, done, progress, conflict, selected, draggable, dragging, milestone, tip, onOpen, onPointerDown, onContextMenu, onDoubleClick, children }: {
   card: ProjectCard
   color: string
   left: number
@@ -68,6 +68,7 @@ export function ScheduleBar({ card, color, left, width, top, height, done, progr
   draggable: boolean
   dragging: boolean
   milestone: boolean
+  tip?: string
   onOpen: () => void
   onPointerDown?: (event: React.PointerEvent) => void
   onContextMenu?: (event: React.MouseEvent) => void
@@ -88,7 +89,7 @@ export function ScheduleBar({ card, color, left, width, top, height, done, progr
       data-draggable={draggable}
       data-milestone={milestone}
       aria-label={title}
-      title={title}
+      title={tip ?? title}
       style={{
         left: `${left}px`,
         width: `${width}px`,

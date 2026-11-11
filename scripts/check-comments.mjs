@@ -12603,10 +12603,11 @@ const allowed = new Map([
   ["src/client/features/project/views/CollectionView.tsx", [
     "/**\n * The collection: every file the board carries, as a shelf rather than a list of filenames.\n *\n * An image shows itself; everything else shows its kind. Search and the category chips narrow the\n * shelf, and a file that belongs to a card opens that card, because \"where did this come from\" is the\n * question a board's attachments actually raise.\n */",
     "/** The same buckets the server files uploads under, read from the mime the row carries. */",
+    "// The reference previews the picked file beside the tree; a cloud attachment gets the same panel.",
   ]],
   ["src/client/features/project/views/DashboardView.tsx", [
-    "/**\n * The dashboard: the board's health, and the two lists that need acting on today.\n *\n * Every number is computed from the cards the view was handed, so a filtered board reports the filtered\n * truth. The tiles are buttons where a number has a list behind it — \"6 overdue\" is only useful if\n * clicking it shows the six.\n */",
     "/** The server logs the request it served; the reader wants the verb and the card, not the route. */",
+    "/**\n * The dashboard: the board's health, the report the reference's Stats view draws, and the two lists\n * that need acting on today.\n *\n * Every number comes from the cards the view was handed, so a filtered board reports the filtered\n * truth. The tiles are buttons where a number has a list behind it — \"6 overdue\" is only useful if\n * clicking it shows the six — and the report panels below are the same CSS shapes the reference uses:\n * a completion ring, one stacked status bar, priority tiles, a four-week trend and an effort summary.\n */",
   ]],
   ["src/client/features/project/views/GalleryView.tsx", [
     "/**\n * The gallery: cards as tiles, cover first.\n *\n * A tile with no image still gets a plate tinted by the card's own colour rather than a grey box, so a\n * board of text-only cards reads as a set of things instead of a set of placeholders. Subtasks fold\n * under their parent tile: listing them beside it made a three-step task read as four unrelated cards.\n */",
@@ -12628,7 +12629,8 @@ const allowed = new Map([
     "/**\n * The column's title row: name, summary and one menu.\n *\n * The name is a button so a double click renames the option itself — the column and every card wearing\n * that option change together, which is what renaming a status means.\n */",
   ]],
   ["src/client/features/project/views/ListView.tsx", [
-    "/**\n * The list: the whole board as a dense, checkable outline.\n *\n * It is the view for working through a board rather than looking at it, so the checkbox is first, the\n * title is one line, and the properties trail behind it. Rows drag to reorder within their group, and\n * a parent's children stay indented under it instead of becoming siblings.\n */",
+    "/**\n * The list: the whole board as a dense, checkable outline.\n *\n * It is the view for working through a board rather than looking at it, so the round check is first,\n * the title is one line, and the properties trail behind it. A double click renames in place and a\n * click on the priority chip walks it to the next level — the two edits the reference's task list\n * lets you make without opening anything. Rows drag to reorder within their group.\n */",
+    "/** The reference walks low → medium → high → low on a click; here it walks the option order. */",
   ]],
   ["src/client/features/project/views/ScheduleViews.test.tsx", [
     "// The axis opens centred on today; start the drag from a known scroll offset.",
@@ -30775,6 +30777,9 @@ const allowed = new Map([
     "/* ══ The two schedule surfaces are deliberately not the same picture ══════════\n   The overview heads its axis twice and carries a whole-range strip; the planner\n   heads it once with hour ticks and carries a settings drawer instead of a row of\n   checkboxes. Row and bar heights differ so the rhythm reads differently at a glance. */",
     "/* ── Overview strip: where the viewport sits in the whole range ─────────────── */",
     "/* ── Planner settings drawer ────────────────────────────────────────────────── */",
+    "/* ── List: the reference's round check, inline rename and cycling priority ───── */",
+    "/* ── Report shapes the reference's Stats view draws, in our own tokens ───────── */",
+    "/* ── File preview: the reference's right-hand pane, for a cloud attachment ───── */",
   ]],
   ["src/client/styles/properties.css", [
     "/* The preview pane can be far narrower than the window, so the stack point is measured on the panel. */",
@@ -32634,6 +32639,18 @@ const allowed = new Map([
   ]],
   ["src/shared/project/property-patch.ts", [
     "/**\n * The reference's cardProperties patch, step for step (board.go Patch): a whole-object replacement\n * matched by id, where a never-seen id is appended rather than inserted, and a deletion leaves the\n * survivors in their original relative order. Entries without a string id are skipped, not rejected.\n *\n * One guard the reference lacks: a deleted id leaves the order list immediately, so an id both deleted\n * and re-added in the same patch lands at the end exactly once. The reference keeps the deleted id in\n * the order list and would emit it twice; here a property id is a primary key, so a duplicate cannot be\n * stored and the order list must not name it twice.\n */",
+  ]],
+  ["src/shared/project/stats.test.ts", [
+    "// 2026-11-11 is a Wednesday; its week starts Monday the 9th.",
+    "// Nov 1 is a Sunday, so it lands in the week that started Monday Oct 26.",
+  ]],
+  ["src/shared/project/stats.ts", [
+    "/**\n * The report numbers the reference's Stats view draws, computed from cards instead of tasks.\n *\n * A board has no fixed `priority` or `status` field — it has properties the reader named. So the\n * buckets are found by what the options say, not by a column position, and a board that never named\n * a priority simply reports no priority panel rather than inventing one.\n */",
+    "// U+9AD8 / U+4E2D / U+4F4E are high / medium / low; the lookbehind-free alternation is enough because",
+    "// an option named \"not high\" is not a priority level anyone writes.",
+    "/** The select property whose options read as priority levels, if the board has one. */",
+    "/**\n * Cards finished in each of the last `weeks` weeks, oldest first.\n *\n * \"Finished\" is the done test the whole app uses, dated by the card's last edit — the only timestamp\n * a card carries that can stand in for a completion time.\n */",
+    "/** Sum, mean and peak of a numeric property — the reference's time panel, over whatever the board measures. */",
   ]],
   ["src/shared/project/templates.ts", [
     "/**\n * The built-in board templates, rewritten as starting points rather than copied verbatim: each carries\n * its property set, its views and a couple of sample cards so a new board is immediately usable. Ids\n * are stable 27-character slugs so re-instantiating a template never collides with a live board's ids\n * (the importer assigns fresh ids anyway).\n */",

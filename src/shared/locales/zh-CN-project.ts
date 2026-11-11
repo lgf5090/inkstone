@@ -375,6 +375,23 @@ export const ZH_CN_PROJECT = {
     "project.view.new_schedule": "新建排期",
     "project.view.lane_effort": "{value} 工时",
     "project.view.reset_schedule": "恢复默认",
+    "project.view.list_columns": "显示哪些列",
+    "project.view.cycle_priority": "点击切换到下一档",
+    "project.dashboard.today": "今天",
+    "project.dashboard.tomorrow": "明天",
+    "project.dashboard.day_after": "后天",
+    "project.dashboard.completion_rate": "完成率",
+    "project.dashboard.priority_dist": "优先级分布",
+    "project.dashboard.weekly_trend": "每周完成",
+    "project.dashboard.effort": "{name}统计",
+    "project.dashboard.effort_total": "合计",
+    "project.dashboard.effort_avg": "平均",
+    "project.dashboard.effort_max": "最大",
+    "project.dashboard.nothing_due": "未来 7 天没有到期卡片",
+    "project.view.add_card_inline": "+ 添加卡片",
+    "project.collection.preview": "预览 {name}",
+    "project.collection.open_raw": "打开原文件",
+    "project.dashboard.other_target": "其它对象",
 } as const
 
 /** zh strings for the built-in board templates' demo content, keyed by the English source string. */

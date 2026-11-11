@@ -83,11 +83,12 @@ export function Legend({ items }: { items: readonly { key: string, label: string
  * It stays a button until pressed so a column of twenty cards is not twenty open text fields, and it
  * keeps focus after a submit so typing three cards in a row is three Enters rather than six clicks.
  */
-export function QuickAdd({ label, placeholder, onAdd, className }: {
+export function QuickAdd({ label, placeholder, onAdd, className, alwaysOpen = false }: {
   label: string
   placeholder?: string
   onAdd: (title: string) => Promise<void>
   className?: string
+  alwaysOpen?: boolean
 }): ReactElement {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
@@ -104,7 +105,7 @@ export function QuickAdd({ label, placeholder, onAdd, className }: {
       setBusy(false)
     }
   }
-  if (!open) {
+  if (!open && !alwaysOpen) {
     return (
       <button type="button" className={`pv-quickadd-btn ${className ?? ''}`} onClick={() => setOpen(true)}>
         <Plus size={13} aria-hidden="true" />
@@ -123,7 +124,7 @@ export function QuickAdd({ label, placeholder, onAdd, className }: {
         placeholder={placeholder ?? t('project.board.card_placeholder')}
         onChange={(event) => setTitle(event.target.value)}
         onKeyDown={(event) => { if (event.key === 'Escape' && !isImeComposing(event)) { setOpen(false); setTitle('') } }}
-        onBlur={() => { if (!title.trim()) setOpen(false) }}
+        onBlur={() => { if (!title.trim() && !alwaysOpen) setOpen(false) }}
       />
     </form>
   )

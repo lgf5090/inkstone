@@ -232,7 +232,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
             />
             {canEdit && (
               <div className="pv-quickadd">
-                <QuickAdd label={t('project.board.new_card')} onAdd={(title) => props.onAddCard(title, columnKey)} />
+                <QuickAdd alwaysOpen label={t('project.board.new_card')} placeholder={t('project.view.add_card_inline')} onAdd={(title) => props.onAddCard(title, columnKey)} />
               </div>
             )}
             <div className="pv-col-body pv-scroll" data-drag-zone={columnKey}>
