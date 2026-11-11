@@ -10,6 +10,7 @@ const existing: GithubCollection = {
   id: 'c1',
   name: 'Curated',
   description: 'Picked',
+  parentId: null,
   repoIds: ['1'],
   createdAt: 1,
   updatedAt: 1,
@@ -36,7 +37,7 @@ describe('collection manager', () => {
     const create = Array.from(document.body.querySelectorAll('button'))
       .find((button) => (button.textContent ?? '').trim() === t('development.github.collections.add'))
     act(() => create!.click())
-    expect(onAdd).toHaveBeenCalledWith('Reading', 'For later')
+    expect(onAdd).toHaveBeenCalledWith('Reading', 'For later', null)
     view.unmount()
 
     const duplicateView = renderElement(
@@ -70,7 +71,7 @@ describe('collection manager', () => {
     const save = Array.from(document.body.querySelectorAll('button'))
       .find((button) => button.getAttribute('aria-label') === t('common.save'))
     act(() => save!.click())
-    expect(onUpdate).toHaveBeenCalledWith('c1', { name: 'Renamed', description: 'Picked' })
+    expect(onUpdate).toHaveBeenCalledWith('c1', { name: 'Renamed', description: 'Picked', parentId: null })
     view.unmount()
   })
 

@@ -367,19 +367,20 @@ export function ReposPane({
     }
   }, [saveRepo, syncingStars, toast])
 
-  const addCollection = useCallback((name: string, description: string) => {
+  const addCollection = useCallback((name: string, description: string, parentId: string | null = null) => {
     const now = Date.now()
     void upsertCollection({
       id: `gh-collection-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
       name,
       description,
+      parentId,
       repoIds: [],
       createdAt: now,
       updatedAt: now,
     })
   }, [upsertCollection])
 
-  const updateCollection = useCallback((id: string, patch: { name: string; description: string }) => {
+  const updateCollection = useCallback((id: string, patch: { name: string; description: string; parentId: string | null }) => {
     const existing = collections.find((collection) => collection.id === id)
     if (existing) void upsertCollection({ ...existing, ...patch, updatedAt: Date.now() })
   }, [collections, upsertCollection])
@@ -434,7 +435,7 @@ export function ReposPane({
   }, [tags, repos, toast])
 
   const sidebar = (
-    <RepoSidebar tags={tags} collections={collections} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} onManageCollections={() => setCollectionManagerOpen(true)} onImportRepo={() => setImportOpen(true)} recentRepos={recentRepos} onOpenRecent={openRecent} onClearRecent={() => setRecentRepos(clearRecentRepos())} />
+    <RepoSidebar tags={tags} collections={collections} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} onManageCollections={() => setCollectionManagerOpen(true)} onImportRepo={() => setImportOpen(true)} onAddTag={addTag} onUpdateTag={updateTag} onDeleteTags={(ids) => ids.forEach((id) => void deleteTag(id))} onSaveCollection={(collection) => void upsertCollection(collection)} onDeleteCollection={removeCollection} recentRepos={recentRepos} onOpenRecent={openRecent} onClearRecent={() => setRecentRepos(clearRecentRepos())} />
   )
 
   return (

@@ -183,6 +183,7 @@ describe('saved repository batch actions', () => {
       id: 'c1',
       name: 'Curated',
       description: 'Picked repositories',
+      parentId: null,
       repoIds: [],
       createdAt: 1,
       updatedAt: 1,
