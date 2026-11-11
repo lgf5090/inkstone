@@ -28,3 +28,25 @@ export function projectOptionCssColor(color: string): string | null {
   const name = projectOptionColorName(color)
   return name ? `var(--kanban-tag-${name}-fg)` : null
 }
+
+/**
+ * The colour a card wears on every surface: its first single-select value's colour, else the accent.
+ *
+ * One rule for the board dot, the calendar ribbon, the schedule bar and the gallery placeholder, so a
+ * card is the same colour wherever the reader meets it. `select` only — a multi-select card has no
+ * single colour to wear, and picking its first tag would change with tag order.
+ */
+export function projectCardColor(
+  card: { values: Record<string, string> },
+  properties: readonly { id: string, type: string, options: readonly { id: string, color: string }[] }[],
+): string {
+  for (const property of properties) {
+    if (property.type !== 'select') continue
+    const raw = card.values[property.id]
+    if (!raw) continue
+    const option = property.options.find((entry) => entry.id === raw)
+    const css = option ? projectOptionCssColor(option.color) : null
+    if (css) return css
+  }
+  return 'var(--accent)'
+}

@@ -12497,10 +12497,6 @@ const allowed = new Map([
     "// The last branch is for `[[#heading]]`, whose target lives in that same datum. A span without one",
     "// is not a wiki link, and the card it used to produce only repeated the note already on screen.",
   ]],
-  ["src/client/features/project/BoardInsights.tsx", [
-    "/**\n * The board at a glance, and the files it carries.\n *\n * Both read only what the bundle already holds, so neither adds a round trip to a screen the reader\n * opened to look rather than to edit. The dashboard's counts come from the same filter/sort the view\n * was handed, so a filtered board reports the filtered truth rather than the whole board's.\n */",
-    "/** The same buckets the server files uploads under, read from the mime the row carries. */",
-  ]],
   ["src/client/features/project/BoardPage.tsx", [
     "// Realtime fallback (D-11): the sync hub notifies members on writes, but a tab that misses the",
     "// notification (or a deployment without the DO) still converges via a quiet 30s refetch.",
@@ -12510,9 +12506,11 @@ const allowed = new Map([
     "// Ask the cheap question first: an unchanged cursor means the copy on screen is still current,",
     "// and a busy board's whole-bundle read is the expensive half of this poll.",
     "/* best-effort wake-up refetch: the interval still converges on its next beat */",
+    "// Renaming a column renames the option, so every card wearing it and every other view of it agree.",
   ]],
   ["src/client/features/project/BoardViews.test.tsx", [
     "/** Opens a SelectMenu by its accessible name and reads the rows it offers. */",
+    "// jsdom lays nothing out, so the drag engine is given the geometry a real board would have.",
   ]],
   ["src/client/features/project/BoardViews.tsx", [
     "/* storage unavailable (private mode): fall back to the first view */",
@@ -12521,41 +12519,21 @@ const allowed = new Map([
     "// Templates ship canonical English titles; treat them as defaults so a zh UI localizes them",
     "// instead of mixing languages. A title the user actually typed is kept verbatim.",
     "/** A public reader has no session: the member-only reads and exports would answer 401, so they are not offered. */",
-    "/* a stored value that is not a JSON array reads as plain text below */",
-    "// A board may hold thousands of cards; the table draws a page at a time so the DOM stays bounded.",
-    "/** A whisper of the option's own colour on the column, so a colour picked in properties is visible here. */",
-    "/**\n * The column's title row.\n *\n * Only the name and its count live here. The summary, the WIP ceiling and hiding the column sit in a\n * menu, because an invisible-but-laid-out control still takes its width: the previous row kept a\n * 96px select and a 56px input at `opacity-0`, which squeezed the name until it printed over the\n * hide icon next to it.\n */",
-    "/** The lane band carries its option's tint so two lanes never read as one surface. */",
+    "/**\n * The board shell: the tab strip, the controls every view shares, and the one view that is active.\n *\n * Filtering, sorting and searching happen here once, so every view receives the same cards and a\n * reader who switches tabs is looking at the same set. What a view does with them — columns, cells,\n * bars, tiles — is the view's own business.\n */",
+    "// The board and the list are manual surfaces: a card the reader dropped stays where it was dropped.",
+    "/** Swimlanes stack one board per option of a second property, each with its own columns. */",
+    "// These surfaces carry their own \"add the first card\" affordance, so an empty board must still draw",
+    "// them: replacing them with a blank state leaves a new board with no way to start from that tab.",
   ]],
   ["src/client/features/project/CardBadges.tsx", [
     "/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */",
     "/**\n * The row a board card wears under its title.\n *\n * A kanban card has to be readable without opening it, so the properties the view already shows are\n * repeated here as chips — the group's own property is left out because the column already says it.\n * Only set values are drawn: an empty chip per property would bury the title it is meant to support.\n */",
-  ]],
-  ["src/client/features/project/ExtraViews.test.tsx", [
-    "// jsdom ships no pointer capture; the drag handler asks for it before it attaches its listeners.",
-  ]],
-  ["src/client/features/project/ExtraViews.tsx", [
-    "/**\n * The four added views (X-1): a compact list, a timeline and Gantt laid over the cards' date range,\n * and a distribution chart. They reuse the same filtered/sorted cards and the shared grouping; the\n * Gantt additionally surfaces blocking dependencies as a badge rather than drawn edges.\n */",
-    "/** The bar wears its status colour; a card with none rides the accent rather than a washed-out tint. */",
-    "/**\n * Blocking dependencies drawn as arrows behind the bars.\n *\n * A badge said \"blocked\" without saying *by what*; the reference draws the edge, so the reader can see\n * which bar is holding which. Only edges whose both ends are on screen are drawn, and the layer never\n * takes a pointer event so a bar underneath stays draggable.\n */",
-    "// The Timeline reads: dragging empty canvas pans it, the way the reference's overview does.",
-    "/**\n * One end of a Gantt bar, dragged to change that end's day.\n *\n * The reference gives each bar two 8px `ew-resize` handles. They are siblings of the bar rather than\n * children, because a button cannot contain another button; the drag writes only the end it owns, so\n * pulling the start past the end clamps instead of inverting the range.\n */",
   ]],
   ["src/client/features/project/FilterEditor.test.tsx", [
     "/** The row a stored value is offered under: a property name, a join word, or a condition's own label. */",
   ]],
   ["src/client/features/project/FilterEditor.tsx", [
     "/** The value editor the reference dispatches on `filterValueType`, one branch per kind of clause. */",
-  ]],
-  ["src/client/features/project/GalleryCalendar.test.tsx", [
-    "// A spanning card is one ribbon across its days, with a chip only where it starts.",
-  ]],
-  ["src/client/features/project/GalleryCalendar.tsx", [
-    "// An empty group still gets its section and its add tile, the way an empty kanban column does.",
-    "// One pass builds the day index; each of the 42 cells then reads its own bucket instead of",
-    "// rescanning every card, and the bucket key is the local day the reader resolved, not the raw stamp.",
-    "// A subtask belongs under its parent's tile, not beside it: only roots are grouped.",
-    "/**\n * One gallery tile, with its subtasks folded underneath it.\n *\n * The reference keeps a parent's children out of the sibling grid: a tile carries the count, and\n * opening it reveals the children indented inside the same tile. Listing them beside the parent made\n * a three-step task read as four unrelated cards.\n */",
   ]],
   ["src/client/features/project/MembersDialog.tsx", [
     "/**\n * Who is on this board, and what they may do.\n *\n * The role model, the person properties and the mention notifications all key on membership, so\n * without this screen a \"shared\" board is a board of one. The server owns the two refusals that\n * matter — the last admin cannot be demoted or removed, and the roster is capped — so the dialog\n * reports what the server said rather than guessing at either rule.\n */",
@@ -12612,6 +12590,78 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/use-watch.ts", [
     "/**\n * Whether this account is watching one block, and the toggle that changes it.\n *\n * The reminder sweep and the comment notifications both read the subscription rows, so a board with\n * no watchers is a board whose notifications nobody receives. The list is read once per mount and\n * the toggle writes through it, rather than each caller keeping its own copy of the same roster.\n */",
+  ]],
+  ["src/client/features/project/views/CalendarView.tsx", [
+    "/**\n * The calendar: a continuous month grid, spanning cards drawn as one bar across the week, and a day\n * panel that says what the selected day means to each card on it.\n *\n * The grid is a real grid — shared hairlines, no gaps — because a month made of separated tiles reads\n * as a list of boxes rather than as time. Ribbons are placed per week with CSS grid columns, so a\n * five-day task is one bar with one label instead of five fragments.\n */",
+    "/** Pointer drag onto a day: the same path for a mouse and a finger, unlike native drag-and-drop. */",
+    "/** The selected day in full: every card it touches, and whether it starts, ends or runs through it. */",
+  ]],
+  ["src/client/features/project/views/ChartView.tsx", [
+    "/**\n * The chart: one distribution, chosen by the reader.\n *\n * The reference draws a fixed bar chart of the first select property. This one lets the reader pick the\n * shape, the grouping and the measure, because \"how many per status\" and \"how much effort per person\"\n * are the same picture with different axes — and a chart that cannot answer the second is decoration.\n */",
+    "/**\n * A canvas cannot read a CSS custom property, and chart.js's own parser does not know `oklch`, so an\n * option colour handed over as `var(--kanban-tag-blue-fg)` paints black. Resolve the variable, then\n * let a 1×1 context normalise whatever colour space it names into the rgba the chart understands.\n */",
+  ]],
+  ["src/client/features/project/views/CollectionView.tsx", [
+    "/**\n * The collection: every file the board carries, as a shelf rather than a list of filenames.\n *\n * An image shows itself; everything else shows its kind. Search and the category chips narrow the\n * shelf, and a file that belongs to a card opens that card, because \"where did this come from\" is the\n * question a board's attachments actually raise.\n */",
+    "/** The same buckets the server files uploads under, read from the mime the row carries. */",
+  ]],
+  ["src/client/features/project/views/DashboardView.tsx", [
+    "/**\n * The dashboard: the board's health, and the two lists that need acting on today.\n *\n * Every number is computed from the cards the view was handed, so a filtered board reports the filtered\n * truth. The tiles are buttons where a number has a list behind it — \"6 overdue\" is only useful if\n * clicking it shows the six.\n */",
+    "/** The server logs the request it served; the reader wants the verb and the card, not the route. */",
+  ]],
+  ["src/client/features/project/views/GalleryView.tsx", [
+    "/**\n * The gallery: cards as tiles, cover first.\n *\n * A tile with no image still gets a plate tinted by the card's own colour rather than a grey box, so a\n * board of text-only cards reads as a set of things instead of a set of placeholders. Subtasks fold\n * under their parent tile: listing them beside it made a three-step task read as four unrelated cards.\n */",
+  ]],
+  ["src/client/features/project/views/GanttView.tsx", [
+    "/**\n * The Gantt: the schedule you edit.\n *\n * Where the timeline reads, this writes. A bar moves whole or by either end, an empty stretch of a\n * lane is dragged out to create a card on those dates, a double click renames it in place, and a right\n * click moves it to another status — the card model has no free colour field, so the palette is the\n * status palette, which is the thing a reader actually means by \"make this one green\".\n */",
+    "/** One pointer path for moving a bar and for pulling either of its ends. */",
+    "/** Dragging an empty stretch of a lane draws a ghost, then files a new card on those dates. */",
+    "// Escape backs out of whatever is open; Delete takes the selected bar off the schedule rather than",
+    "// deleting the card, because the card is still real work — only its dates were wrong.",
+  ]],
+  ["src/client/features/project/views/KanbanView.test.tsx", [
+    "// The ghost and the line are painted on the next frame, not on the event itself.",
+  ]],
+  ["src/client/features/project/views/KanbanView.tsx", [
+    "/**\n * The board: one column per group option, cards dragged between and within them.\n *\n * Dragging is pointer-based (see use-drag-sort) so a finger works the same as a mouse, and the drop\n * writes two things: the card's group value when it crossed a column, and the view's manual card\n * order when it landed between two cards. The reference keeps those as one gesture; splitting them\n * made a reorder inside a column silently do nothing.\n */",
+    "/** Column keys in the reader's order: the property's options, then the ungrouped bucket. */",
+    "/**\n * The column's title row: name, summary and one menu.\n *\n * The name is a button so a double click renames the option itself — the column and every card wearing\n * that option change together, which is what renaming a status means.\n */",
+  ]],
+  ["src/client/features/project/views/ListView.tsx", [
+    "/**\n * The list: the whole board as a dense, checkable outline.\n *\n * It is the view for working through a board rather than looking at it, so the checkbox is first, the\n * title is one line, and the properties trail behind it. Rows drag to reorder within their group, and\n * a parent's children stay indented under it instead of becoming siblings.\n */",
+  ]],
+  ["src/client/features/project/views/ScheduleViews.test.tsx", [
+    "// The axis opens centred on today; start the drag from a known scroll offset.",
+  ]],
+  ["src/client/features/project/views/TableView.tsx", [
+    "/**\n * The table: every property in a column, edited where it is read.\n *\n * The head and the title column are both frozen, so a wide board keeps its bearings while it scrolls\n * sideways. A cell is a button until it is clicked, then it is the editor for that property type —\n * one click to edit rather than a mode the reader has to discover.\n */",
+    "/* a stored value that is not a JSON array reads as plain text below */",
+  ]],
+  ["src/client/features/project/views/TimelineView.tsx", [
+    "/**\n * The timeline: the whole schedule at a glance, read-only.\n *\n * It answers \"what runs when, and what holds what\" — so it draws every dated card, the blocking edges\n * between them and today's line, and it pans under the pointer. Changing a date is the Gantt's job;\n * keeping that split means a reader scrolling the overview cannot move a task by accident.\n */",
+  ]],
+  ["src/client/features/project/views/card-face.tsx", [
+    "/**\n * What a card looks like on a surface: cover, title, the properties the view chose to show, its\n * badges and its subtask progress. The board, the list and the day panel all draw the same face, so\n * a card is recognisable when the reader moves between them.\n */",
+  ]],
+  ["src/client/features/project/views/schedule-frame.tsx", [
+    "/**\n * The axis both schedule views draw on: a two-tier head, a frozen column of row names, and a canvas\n * that scrolls under them.\n *\n * The head and the name column are translated rather than sticky, because a sticky element inside a\n * horizontally scrolling flex row jitters against the canvas on every frame. Only the rows inside the\n * viewport are mounted, so a board with two thousand cards scrolls like one with twenty.\n */",
+    "/** The column the axis opens on; re-centred whenever the axis itself changes, not on every render. */",
+    "// An axis that opens three weeks before the work starts reads as empty. Land on today once per",
+    "// axis, then leave the reader's scrolling alone.",
+  ]],
+  ["src/client/features/project/views/schedule-parts.tsx", [
+    "/**\n * The pieces both schedule views draw with: the dependency edges, a bar, and the tray of cards that\n * have no date yet.\n *\n * Edges are orthogonal (out right, down, in from the left) rather than curved, because a curve between\n * two nearby rows hides which end it leaves; the reference's elbow reads at a glance even when twenty\n * edges cross.\n */",
+    "/** Cards with no date: visible, draggable onto the axis, and never silently dropped from the view. */",
+  ]],
+  ["src/client/features/project/views/shell.tsx", [
+    "/**\n * The frame every project view sits in: a head that names the surface and counts what it shows, a\n * toolbar of controls that change what is drawn, and a body that owns the remaining height.\n *\n * Ten views used to each invent their own padding, border and empty state, so switching tabs moved\n * the whole page. One shell means the tab strip is the only thing that changes.\n */",
+    "/** A pill row of mutually exclusive choices; `aria-pressed` carries the state a screen reader needs. */",
+    "/**\n * The inline \"add a card\" control every collection surface offers.\n *\n * It stays a button until pressed so a column of twenty cards is not twenty open text fields, and it\n * keeps focus after a submit so typing three cards in a row is three Enters rather than six clicks.\n */",
+    "/** The empty body a view shows when its filter left nothing, with the action that fixes it. */",
+  ]],
+  ["src/client/features/project/views/use-drag-sort.ts", [
+    "/**\n * Pointer drag for the board and the list.\n *\n * HTML5 drag-and-drop never fires from a touch, so a board built on `draggable` is a desktop-only\n * board. This walks the same path for mouse, pen and finger: press, cross a small threshold (or hold\n * on touch), then a fixed clone follows the pointer while the real card stays behind as a slot.\n *\n * The drop index is counted in midlines and means \"insert here after the dragged card is removed\",\n * so the caller can splice without a ±1 correction. Geometry is read once at drag start and corrected\n * by scroll deltas, because reading every card's rect on every pointermove forces a layout per frame.\n */",
+    "/** Scroll deltas since `measure`, so a cached rect stays honest while the column scrolls. */",
+    "// A finger that travels before the hold expires meant to scroll the column, not drag.",
   ]],
   ["src/client/features/quickadd/bridge.test.ts", [
     "// `mount(undefined)` would take the helper's own default, so the prop is set here directly.",
@@ -30691,6 +30741,33 @@ const allowed = new Map([
   ["src/client/styles/presentation.css", [
     "/* The printed page is the design canvas, and every sheet stamps these with its own numbers on\n   `[data-deck-print]`. They are declared here as well so a page drawn before that style lands — or a\n   reader with the sheet's stylesheet blocked — gets a page of the right shape rather than a zero-wide\n   one, and so the token gate can see a definition for a name the sheet writes from a template. */",
   ]],
+  ["src/client/styles/project-views.css", [
+    "/**\n * The project planning surfaces: board, table, gallery, calendar, list, timeline, gantt, chart,\n * dashboard and collection. One visual language for all ten — hairline grids on a sunken canvas,\n * colour carried by the card's own option rather than by decoration, and a sticky head that never\n * scrolls away from the rows it labels.\n *\n * Every colour, radius and step comes from tokens.css; the only literals here are geometry that\n * belongs to a view (row height, frozen column width) and is named once at the top.\n */",
+    "/* Geometry every project surface shares. Declared at the root rather than on `.pv` so a fragment\n   rendered outside a shell — a swimlane's board, a portal'd bar — still resolves its own steps. */",
+    "/* ── Scrollbars: the surface draws its own, in its own palette ───────────────── */",
+    "/* ── View head: what the reader is looking at, and how much of it ────────────── */",
+    "/* ── Toolbar: the controls that change what the surface draws ────────────────── */",
+    "/* A pill toggle row: the reference's granularity segment, drawn with our own tokens. */",
+    "/* ── Legend: what the colours on the canvas mean ─────────────────────────────── */",
+    "/* ══ Board ═══════════════════════════════════════════════════════════════════ */",
+    "/* ── Card: the unit every surface repeats ────────────────────────────────────── */",
+    "/* A subtask checklist reads as a bar before it reads as a fraction. */",
+    "/* ── Drag: the insertion line and the clone that follows the pointer ─────────── */",
+    "/* ── Quick add: always reachable at the top of a column ──────────────────────── */",
+    "/* ── Swimlane band ───────────────────────────────────────────────────────────── */",
+    "/* ══ Calendar ════════════════════════════════════════════════════════════════ */",
+    "/* The number owns the first row; the week's ribbons are laid over the space after it. */",
+    "/* A spanning card is one bar across the week, not one chip per day. */",
+    "/* ── Day panel: the selected day, in full ────────────────────────────────────── */",
+    "/* ══ Timeline & Gantt ════════════════════════════════════════════════════════ */",
+    "/* ── Bar ─────────────────────────────────────────────────────────────────────── */",
+    "/* ── Floating create menu / colour palette (fixed: never clipped by the canvas) ─ */",
+    "/* ══ Table ═══════════════════════════════════════════════════════════════════ */",
+    "/* ══ Gallery ═════════════════════════════════════════════════════════════════ */",
+    "/* ══ List ════════════════════════════════════════════════════════════════════ */",
+    "/* ══ Chart & Dashboard ═══════════════════════════════════════════════════════ */",
+    "/* ══ Collection ══════════════════════════════════════════════════════════════ */",
+  ]],
   ["src/client/styles/properties.css", [
     "/* The preview pane can be far narrower than the window, so the stack point is measured on the panel. */",
     "/* The panel is chrome, not prose: in the live editor it sits inside the prose column, whose 1.65\n     leading would make every row taller than the same panel in the reading pane. */",
@@ -32459,8 +32536,10 @@ const allowed = new Map([
     "/**\n * The calendar's spanning ribbons.\n *\n * A task that runs Tuesday to Thursday is one ribbon across three cells, not three unrelated chips.\n * The reference stacks a thin line at the top of each day and pushes the day number below the stack;\n * the lane a task occupies is decided once for the whole visible grid so the ribbon does not jump\n * rows as it crosses a week boundary.\n */",
     "/** The colour a card's chip border and ribbon wear: its status option, or the accent. */",
     "/**\n * Ribbons per day key, with a stable lane per card.\n *\n * Lanes are handed out greedily in start order, longest first, and reused once a lane's last task has\n * ended — the same packing a month view of any calendar uses. Only ranges that actually span more\n * than one day become ribbons; a single-day card stays a chip.\n */",
-    "/** The chips a day draws: cards starting or ending that day, which the ribbons do not already name. */",
     "/** A chip reads as overdue when its range has passed and the card is not done. */",
+    "/**\n * The chips a day draws: cards that live on that day alone.\n *\n * A spanning card is named by its ribbon, so repeating it as a chip on its start day said the same\n * thing twice and pushed the single-day cards out of a short cell.\n */",
+    "/**\n * One week's ribbons as bars, not as per-day fragments.\n *\n * The lane was decided for the whole grid, so a card keeps its row across the week boundary; here the\n * days it covers inside this week collapse into a single bar with the columns it spans. A bar that\n * runs off either edge is left square on that side, which is how a reader sees \"continues\".\n */",
+    "/** Every card the day touches, and what the day means to it — the day panel's own vocabulary. */",
   ]],
   ["src/shared/project/content-order.ts", [
     "/**\n * A card's reading order. It interleaves content-block ids with comment ids, and a nested array\n * threads comments under one block — an order the per-row position column cannot express, so the\n * card carries it (DV-12). These helpers keep that array honest as blocks and comments come and go:\n * append on create, scrub on delete (including inside threads), and splice on move.\n */",
@@ -32531,12 +32610,18 @@ const allowed = new Map([
     "/** The counts the board list shows as a subtitle (reference BoardMetadata). */",
     "// X-8: the reference left number unfilterable; this port makes it filterable and groupable.",
     "/** Live card count, present on the list projection so the sidebar needs no request per board. */",
+    "/** Column ids in the reader's order; an id absent from the property is dropped when read. */",
+    "/** `quarter` is a fourth step the schedule views offer; the axis window itself never changes. */",
+    "// A board's \"done\" column is named by whoever made the board, so the reader recognises the word in",
+    "// the languages the interface ships: U+5B8C U+6210 is \"finished\". The lookbehind keeps the negated",
+    "// form (U+672A / U+6CA1 / U+4E0D in front of it) out of the match.",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",
     "/** The picker's ramp, in the reference's own spelling and order. `''` is the no-colour slot. */",
     "/** The palette name a stored colour names, or `''` for none — including the reference's `propColorDefault`. */",
     "/** The CSS colour a chip's text and dot are painted in, or `null` when the option carries no colour. */",
+    "/**\n * The colour a card wears on every surface: its first single-select value's colour, else the accent.\n *\n * One rule for the board dot, the calendar ribbon, the schedule bar and the gallery placeholder, so a\n * card is the same colour wherever the reader meets it. `select` only — a multi-select card has no\n * single colour to wear, and picking its first tag would change with tag order.\n */",
   ]],
   ["src/shared/project/property-patch.ts", [
     "/**\n * The reference's cardProperties patch, step for step (board.go Patch): a whole-object replacement\n * matched by id, where a never-seen id is appended rather than inserted, and a deletion leaves the\n * survivors in their original relative order. Entries without a string id are skipped, not rejected.\n *\n * One guard the reference lacks: a deleted id leaves the order list immediately, so an id both deleted\n * and re-added in the same patch lands at the end exactly once. The reference keeps the deleted id in\n * the order list and would emit it twice; here a property id is a primary key, so a duplicate cannot be\n * stored and the order list must not name it twice.\n */",
@@ -32561,6 +32646,9 @@ const allowed = new Map([
     "/** Which column a pointer at `offsetX` is over, clamped into the drawn window. */",
     "/**\n * Cards whose schedule contradicts a blocking dependency.\n *\n * A card that is blocked by another should not start before that one ends. The Gantt draws the edge\n * and outlines the offender, because an arrow alone does not say which end is wrong. Cards with no\n * date on either side are not judged.\n */",
     "/** The window that fits every dated card exactly, for the Gantt's \"fit\" action. */",
+    "/**\n * The rows a schedule draws, optionally banded into lanes by a property.\n *\n * A lane is a row of its own rather than a sticky label over the cards, so the frozen name column and\n * the canvas stay in lockstep: row N on the left is row N on the axis, whatever it is.\n */",
+    "/** How far through its subtasks a card is, as a fraction the bar can fill. */",
+    "/** The window a \"fit\" action needs, in days, so the caller can pick the widest scale that fits. */",
   ]],
   ["src/shared/project/validation.ts", [
     "/**\n * The shapes a project request may take. The server runs every write through these before it touches\n * D1; the client runs the same schemas so a rejected field is reported at the control that typed it.\n *\n * Bounds come from `./limits` rather than being restated, so raising a ceiling is one edit.\n */",
@@ -32583,6 +32671,8 @@ const allowed = new Map([
     "/**\n * C-23: strip the leading emoji cluster before comparing, so \"🗺️ Roadmap\" sorts under R rather than\n * under the emoji's code point. The reference's `\\p{Emoji}` also matches digits and leaves the\n * variation selector behind, which put \"🗺️ Zebra\" ahead of \"Apple\"; Extended_Pictographic plus the\n * joiner/modifier code points strips the whole cluster and leaves ordinary titles alone.\n */",
     "/**\n * C-12: the view's own search box, which the reference runs over the title and every property's\n * display text. Both sides are lowercased, matching this port's filter correction (Q-10).\n */",
     "/** B-11: a new card inherits the value-pinning clauses (is / includes with one value) of the active filter. */",
+    "/**\n * The manual order a reader dragged, laid over the sort the view computed.\n *\n * A card the order names sits where it was dropped; a card it does not name (a new one, or one that\n * arrived from another view) keeps its sorted place after them. An empty order is the sorted list\n * unchanged, so a board that has never been dragged behaves exactly as it did before.\n */",
+    "/**\n * Where a dropped card lands in the view's manual order.\n *\n * `index` counts the target column's cards with the dragged one already removed, so the anchor is\n * simply the card now at that position. Cards the view does not show keep their relative order at the\n * end: a filtered board must not reshuffle the cards it hid.\n */",
   ]],
   ["src/shared/provider-balance.ts", [
     "/**\n * Which providers will say what they are owed, and how to read it out of their own answer.\n *\n * The reader asked for a balance per API key, because a ring of three keys is three wallets and the settings\n * screen showed none of them. What this file holds is the whole of the knowledge about each vendor's billing\n * endpoint: an address, the header the credential goes into, and the field names to read. It is data on\n * purpose — a working implementation of this feature elsewhere in the world runs a user-supplied script per\n * provider, which means the account's own key is handed into code the reader pasted in. That is not being\n * ported here. An adapter is a row, so the only thing a new vendor needs is somebody who has read its answer.\n *\n * Two rules hold this together:\n *  - a balance is only ever asked of the host the provider already sends its keys to. The table is keyed by\n *    host, so a relay at an address of the reader's own never receives a billing request aimed at a vendor,\n *    and a vendor's key never travels somewhere the reader did not already point it;\n *  - nothing here is a secret and nothing here is stored. A reading is fetched, shown, and forgotten: it is\n *    not written into settings, not part of a backup, and not logged.\n *\n * The shapes below were read off a working client of each of these endpoints (cc-switch's Rust balance\n * service, `src-tauri/src/services/balance.rs`), not off the vendors' own references, which were not\n * reachable from the machine this was written on. Where a vendor's documentation disagrees, the vendor wins\n * and the row here is the thing to correct. `amountPaths` is a candidate list for that reason: a field that\n * has moved is worth one line rather than a broken screen.\n */",

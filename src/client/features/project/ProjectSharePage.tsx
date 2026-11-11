@@ -110,6 +110,7 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
         onActiveViewChange={() => {}}
         onPatchCard={async () => {}}
         onAddGroupOption={async () => {}}
+        onRenameGroupOption={async () => {}}
         onRefresh={async () => {}}
       />
       {openCard && <PublicCardDetail card={openCard} bundle={bundle} onClose={() => setOpenCardId(null)} />}

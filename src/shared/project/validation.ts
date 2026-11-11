@@ -9,12 +9,16 @@ import { isProjectId, PROJECT_LIMITS } from './limits'
 import {
   PROJECT_BOARD_TYPES,
   PROJECT_CALCULATIONS,
+  PROJECT_CALENDAR_MODES,
   PROJECT_CARD_LINK_KINDS,
   PROJECT_CATEGORY_TYPES,
+  PROJECT_CHART_TYPES,
   PROJECT_CONTENT_TYPES,
   PROJECT_FILTER_CONDITIONS,
+  PROJECT_GALLERY_SIZES,
   PROJECT_PROPERTY_TYPES,
   PROJECT_ROLES,
+  PROJECT_SCHEDULE_SCALES,
   PROJECT_SUBSCRIPTION_BLOCKS,
   PROJECT_VIEW_TYPES,
 } from './model'
@@ -96,6 +100,18 @@ export const ProjectViewFieldsSchema = z.object({
   defaultTemplateId: z.string().max(64),
   galleryShowTitle: z.boolean().optional(),
   galleryShowBadges: z.boolean().optional(),
+  columnOrder: idList.optional(),
+  galleryCardSize: z.enum(PROJECT_GALLERY_SIZES).optional(),
+  calendarMode: z.enum(PROJECT_CALENDAR_MODES).optional(),
+  scheduleScale: z.enum(PROJECT_SCHEDULE_SCALES).optional(),
+  scheduleGroupById: z.string().max(64).optional(),
+  scheduleShowToday: z.boolean().optional(),
+  scheduleShowWeekends: z.boolean().optional(),
+  scheduleShowDependencies: z.boolean().optional(),
+  chartType: z.enum(PROJECT_CHART_TYPES).optional(),
+  chartGroupById: z.string().max(64).optional(),
+  chartPropertyId: z.string().max(64).optional(),
+  chartCalculation: ProjectCalculationSchema.optional(),
 })
 
 export const ProjectBoardFromTemplateSchema = z.object({

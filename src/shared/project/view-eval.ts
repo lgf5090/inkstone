@@ -250,3 +250,54 @@ export function matchProjectViewSearch(
   if (card.title.toLowerCase().includes(needle)) return true
   return properties.some((property) => projectPropertyDisplayText(card, property).toLowerCase().includes(needle))
 }
+
+/**
+ * The manual order a reader dragged, laid over the sort the view computed.
+ *
+ * A card the order names sits where it was dropped; a card it does not name (a new one, or one that
+ * arrived from another view) keeps its sorted place after them. An empty order is the sorted list
+ * unchanged, so a board that has never been dragged behaves exactly as it did before.
+ */
+export function orderProjectCards(cards: readonly ProjectCard[], cardOrder: readonly string[]): ProjectCard[] {
+  if (cardOrder.length === 0) return [...cards]
+  const rank = new Map(cardOrder.map((id, index) => [id, index]))
+  return [...cards].sort((left, right) => {
+    const a = rank.get(left.id)
+    const b = rank.get(right.id)
+    if (a === undefined && b === undefined) return 0
+    if (a === undefined) return 1
+    if (b === undefined) return -1
+    return a - b
+  })
+}
+
+/**
+ * Where a dropped card lands in the view's manual order.
+ *
+ * `index` counts the target column's cards with the dragged one already removed, so the anchor is
+ * simply the card now at that position. Cards the view does not show keep their relative order at the
+ * end: a filtered board must not reshuffle the cards it hid.
+ */
+export function projectKanbanDropOrder(input: {
+  columns: readonly { key: string, cardIds: readonly string[] }[]
+  cardOrder: readonly string[]
+  draggedId: string
+  target: { zone: string, index: number }
+}): string[] {
+  const { columns, cardOrder, draggedId, target } = input
+  const column = columns.find((entry) => entry.key === target.zone)
+  if (!column) return [...cardOrder]
+  const flat = columns.flatMap((entry) => entry.cardIds).filter((id) => id !== draggedId)
+  const landing = column.cardIds.filter((id) => id !== draggedId)
+  const anchor = landing[target.index]
+  let at: number
+  if (anchor !== undefined) at = flat.indexOf(anchor)
+  else if (landing.length > 0) at = flat.indexOf(landing[landing.length - 1]!) + 1
+  else {
+    const before = columns.slice(0, columns.indexOf(column)).flatMap((entry) => entry.cardIds).filter((id) => id !== draggedId)
+    at = before.length
+  }
+  flat.splice(at, 0, draggedId)
+  const visible = new Set(flat)
+  return [...flat, ...cardOrder.filter((id) => !visible.has(id))]
+}

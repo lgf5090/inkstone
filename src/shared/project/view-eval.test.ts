@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectCard, ProjectFilterClause, ProjectFilterGroup, ProjectProperty } from './model'
 import { emptyProjectFilterGroup } from './model'
-import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, projectFilterPrefill, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from './view-eval'
+import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, projectFilterPrefill, projectKanbanDropOrder, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from './view-eval'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u2', createAt: 1_000_000, updateAt: 2_000_000, deleteAt: 0 }
 
@@ -203,5 +203,58 @@ describe('multiPerson display (R3-10)', () => {
   it('takes a bare id and reads an unset value as empty', () => {
     expect(projectPropertyDisplayText(holder('alice'), many)).toBe('alice')
     expect(projectPropertyDisplayText(holder(''), many)).toBe('')
+  })
+})
+
+describe('manual card order', () => {
+  const card = (id: string): ProjectCard => ({ id, boardId: 'b1', parentId: '', title: id, icon: '', isTemplate: false, contentOrder: [], values: {}, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 })
+  const cards = [card('a'), card('b'), card('c')]
+
+  it('leaves the sorted list alone when nothing has been dragged', () => {
+    expect(orderProjectCards(cards, []).map((entry) => entry.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('puts a named card where it was dropped and keeps the rest in sorted order behind it', () => {
+    expect(orderProjectCards(cards, ['c']).map((entry) => entry.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('moves a card to the front of the column it landed in', () => {
+    const order = projectKanbanDropOrder({
+      columns: [{ key: 'x', cardIds: ['a'] }, { key: 'y', cardIds: ['b', 'c'] }],
+      cardOrder: [],
+      draggedId: 'a',
+      target: { zone: 'y', index: 0 },
+    })
+    expect(order).toEqual(['a', 'b', 'c'])
+  })
+
+  it('appends to the end of a column when the drop is past its last card', () => {
+    const order = projectKanbanDropOrder({
+      columns: [{ key: 'x', cardIds: ['a', 'b'] }, { key: 'y', cardIds: ['c'] }],
+      cardOrder: [],
+      draggedId: 'a',
+      target: { zone: 'x', index: 1 },
+    })
+    expect(order).toEqual(['b', 'a', 'c'])
+  })
+
+  it('lands in an empty column at the position that column occupies', () => {
+    const order = projectKanbanDropOrder({
+      columns: [{ key: 'x', cardIds: ['a'] }, { key: 'y', cardIds: [] }, { key: 'z', cardIds: ['c'] }],
+      cardOrder: [],
+      draggedId: 'c',
+      target: { zone: 'y', index: 0 },
+    })
+    expect(order).toEqual(['a', 'c'])
+  })
+
+  it('keeps cards the view filtered out at the end in their own order', () => {
+    const order = projectKanbanDropOrder({
+      columns: [{ key: 'x', cardIds: ['a', 'b'] }],
+      cardOrder: ['hidden1', 'b', 'hidden2', 'a'],
+      draggedId: 'a',
+      target: { zone: 'x', index: 0 },
+    })
+    expect(order).toEqual(['a', 'b', 'hidden1', 'hidden2'])
   })
 })

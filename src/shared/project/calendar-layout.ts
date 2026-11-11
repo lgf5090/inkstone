@@ -74,7 +74,12 @@ export function projectCalendarRibbons(
   return byDay
 }
 
-/** The chips a day draws: cards starting or ending that day, which the ribbons do not already name. */
+/**
+ * The chips a day draws: cards that live on that day alone.
+ *
+ * A spanning card is named by its ribbon, so repeating it as a chip on its start day said the same
+ * thing twice and pushed the single-day cards out of a short cell.
+ */
 export function projectCalendarDayChips(
   cards: readonly ProjectCard[],
   propertyId: string | undefined,
@@ -84,12 +89,76 @@ export function projectCalendarDayChips(
   const out: { card: ProjectCard, starting: boolean }[] = []
   for (const card of cards) {
     const days = projectCardDays(card, propertyId)
+    if (!days || days.end !== days.start) continue
+    if (keyOf(days.start) !== dayKey) continue
+    out.push({ card, starting: true })
+  }
+  return out
+}
+
+export interface CalendarWeekSpan {
+  card: ProjectCard
+  lane: number
+  startCol: number
+  endCol: number
+  continuesLeft: boolean
+  continuesRight: boolean
+  color: string
+}
+
+/**
+ * One week's ribbons as bars, not as per-day fragments.
+ *
+ * The lane was decided for the whole grid, so a card keeps its row across the week boundary; here the
+ * days it covers inside this week collapse into a single bar with the columns it spans. A bar that
+ * runs off either edge is left square on that side, which is how a reader sees "continues".
+ */
+export function projectCalendarWeekSpans(
+  weekKeys: readonly string[],
+  ribbons: ReadonlyMap<string, CalendarRibbon[]>,
+): CalendarWeekSpan[] {
+  const byCard = new Map<string, CalendarWeekSpan>()
+  weekKeys.forEach((key, column) => {
+    for (const ribbon of ribbons.get(key) ?? []) {
+      const existing = byCard.get(ribbon.card.id)
+      if (existing) {
+        existing.endCol = column
+        existing.continuesRight = !ribbon.end
+      } else {
+        byCard.set(ribbon.card.id, {
+          card: ribbon.card,
+          lane: ribbon.lane,
+          startCol: column,
+          endCol: column,
+          continuesLeft: !ribbon.start,
+          continuesRight: !ribbon.end,
+          color: ribbon.color,
+        })
+      }
+    }
+  })
+  return [...byCard.values()]
+}
+
+export type CalendarDayRole = 'start' | 'due' | 'both' | 'active'
+
+/** Every card the day touches, and what the day means to it — the day panel's own vocabulary. */
+export function projectCalendarDayRoles(
+  cards: readonly ProjectCard[],
+  propertyId: string | undefined,
+  dayKey: string,
+  keyOf: (stamp: number) => string,
+): { card: ProjectCard, role: CalendarDayRole }[] {
+  const out: { card: ProjectCard, role: CalendarDayRole }[] = []
+  for (const card of cards) {
+    const days = projectCardDays(card, propertyId)
     if (!days) continue
-    const starts = keyOf(days.start) === dayKey
-    const ends = keyOf(days.end) === dayKey
-    if (!starts && !ends) continue
-    if (days.end > days.start && !starts) continue
-    out.push({ card, starting: starts })
+    const first = keyOf(days.start)
+    const last = keyOf(days.end)
+    if (dayKey < first || dayKey > last) continue
+    const starts = dayKey === first
+    const ends = dayKey === last
+    out.push({ card, role: starts && ends ? 'both' : starts ? 'start' : ends ? 'due' : 'active' })
   }
   return out
 }

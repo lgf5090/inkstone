@@ -224,7 +224,33 @@ export interface ProjectViewFields {
   defaultTemplateId: string
   galleryShowTitle?: boolean
   galleryShowBadges?: boolean
+  /** Column ids in the reader's order; an id absent from the property is dropped when read. */
+  columnOrder?: string[]
+  galleryCardSize?: ProjectGallerySize
+  calendarMode?: ProjectCalendarMode
+  scheduleScale?: ProjectScheduleScale
+  scheduleGroupById?: string
+  scheduleShowToday?: boolean
+  scheduleShowWeekends?: boolean
+  scheduleShowDependencies?: boolean
+  chartType?: ProjectChartType
+  chartGroupById?: string
+  chartPropertyId?: string
+  chartCalculation?: ProjectCalculation
 }
+
+export const PROJECT_GALLERY_SIZES = ['small', 'medium', 'large'] as const
+export type ProjectGallerySize = (typeof PROJECT_GALLERY_SIZES)[number]
+
+export const PROJECT_CALENDAR_MODES = ['month', 'week', 'day'] as const
+export type ProjectCalendarMode = (typeof PROJECT_CALENDAR_MODES)[number]
+
+/** `quarter` is a fourth step the schedule views offer; the axis window itself never changes. */
+export const PROJECT_SCHEDULE_SCALES = ['day', 'week', 'month', 'quarter'] as const
+export type ProjectScheduleScale = (typeof PROJECT_SCHEDULE_SCALES)[number]
+
+export const PROJECT_CHART_TYPES = ['bar', 'line', 'pie', 'doughnut'] as const
+export type ProjectChartType = (typeof PROJECT_CHART_TYPES)[number]
 
 export function emptyProjectViewFields(): ProjectViewFields {
   return {
@@ -314,7 +340,10 @@ export interface ProjectCardPatch {
   values?: Record<string, string | null>
 }
 
-const CARD_DONE_PATTERN = /done|complete|finished/i
+// A board's "done" column is named by whoever made the board, so the reader recognises the word in
+// the languages the interface ships: U+5B8C U+6210 is "finished". The lookbehind keeps the negated
+// form (U+672A / U+6CA1 / U+4E0D in front of it) out of the match.
+const CARD_DONE_PATTERN = /done|complete|finished|(?<![\u672a\u6ca1\u4e0d])\u5b8c\u6210/i
 
 export function isProjectCardDone(card: ProjectCard, properties: readonly ProjectProperty[]): boolean {
   for (const property of properties) {

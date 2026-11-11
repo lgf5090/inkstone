@@ -4,18 +4,21 @@
  * a child drawn as a sibling. Everything is measured in whole local days read through the module's
  * own date conversion, so a card dated the 10th sits on the 10th in every zone.
  */
-import type { ProjectCard } from './model'
+import type { ProjectCard, ProjectProperty, ProjectScheduleScale } from './model'
 import { parseProjectDateValue, projectStampToDay } from './date'
+import { projectOptionCssColor } from './option-color'
+import { groupProjectCards, projectOptionLabel } from './view-eval'
 
 export const PROJECT_TIMELINE_DAY_MS = 86_400_000
 
 /** Granularities the axis can be drawn at; the column width is what changes, not the window. */
-export type ProjectTimelineScale = 'day' | 'week' | 'month'
+export type ProjectTimelineScale = ProjectScheduleScale
 
 export const PROJECT_TIMELINE_COLUMN_PX: Readonly<Record<ProjectTimelineScale, number>> = {
   day: 40,
   week: 18,
   month: 6,
+  quarter: 3,
 }
 
 export interface TimelineRange {
@@ -176,14 +179,92 @@ export function projectScheduleConflicts(
 /** The window that fits every dated card exactly, for the Gantt's "fit" action. */
 export function projectTimelineFitScale(ranges: readonly TimelineRange[], viewportPx: number): ProjectTimelineScale {
   if (ranges.length === 0 || !(viewportPx > 0)) return 'day'
+  const days = projectScheduleSpanDays(ranges)
+  if (days * PROJECT_TIMELINE_COLUMN_PX.day <= viewportPx) return 'day'
+  if (days * PROJECT_TIMELINE_COLUMN_PX.week <= viewportPx) return 'week'
+  if (days * PROJECT_TIMELINE_COLUMN_PX.month <= viewportPx) return 'month'
+  return 'quarter'
+}
+
+export interface ScheduleRow {
+  kind: 'lane' | 'card'
+  id: string
+  card?: ProjectCard
+  label: string
+  depth: number
+  childCount: number
+  color: string
+  laneKey: string
+}
+
+/**
+ * The rows a schedule draws, optionally banded into lanes by a property.
+ *
+ * A lane is a row of its own rather than a sticky label over the cards, so the frozen name column and
+ * the canvas stay in lockstep: row N on the left is row N on the axis, whatever it is.
+ */
+export function projectScheduleRows(
+  cards: readonly ProjectCard[],
+  options: {
+    groupById?: string
+    properties: readonly ProjectProperty[]
+    collapsed?: ReadonlySet<string>
+    colorOf: (card: ProjectCard) => string
+  },
+): ScheduleRow[] {
+  const collapsed = options.collapsed ?? new Set<string>()
+  const groupProperty = options.properties.find((property) => property.id === options.groupById)
+  const cardRows = (list: readonly ProjectCard[], laneKey: string, depth: number): ScheduleRow[] =>
+    projectTimelineRows(list, collapsed).map((row) => ({
+      kind: 'card' as const,
+      id: row.card.id,
+      card: row.card,
+      label: row.card.title,
+      depth: row.depth + depth,
+      childCount: row.childCount,
+      color: options.colorOf(row.card),
+      laneKey,
+    }))
+  if (!groupProperty) return cardRows(cards, '', 0)
+  const groups = groupProjectCards(cards, groupProperty.id, options.properties)
+  const keys = [...groupProperty.options.map((option) => option.id), '']
+  const rows: ScheduleRow[] = []
+  for (const key of keys) {
+    const list = groups.get(key) ?? []
+    const color = (key === '' ? null : projectOptionCssColor(groupProperty.options.find((option) => option.id === key)?.color ?? '')) ?? 'var(--text-quaternary)'
+    rows.push({
+      kind: 'lane',
+      id: `lane:${key}`,
+      label: key === '' ? '' : projectOptionLabel(groupProperty, key),
+      depth: 0,
+      childCount: list.length,
+      color,
+      laneKey: key,
+    })
+    if (!collapsed.has(`lane:${key}`)) rows.push(...cardRows(list, key, 1))
+  }
+  return rows
+}
+
+/** How far through its subtasks a card is, as a fraction the bar can fill. */
+export function projectCardProgress(
+  card: ProjectCard,
+  subtasks: readonly ProjectCard[],
+  isDone: (card: ProjectCard) => boolean,
+): number {
+  if (isDone(card)) return 1
+  if (subtasks.length === 0) return 0
+  return subtasks.filter(isDone).length / subtasks.length
+}
+
+/** The window a "fit" action needs, in days, so the caller can pick the widest scale that fits. */
+export function projectScheduleSpanDays(ranges: readonly TimelineRange[]): number {
+  if (ranges.length === 0) return 0
   let min = Infinity
   let max = -Infinity
   for (const range of ranges) {
     if (range.from < min) min = range.from
     if (range.to > max) max = range.to
   }
-  const days = Math.max(1, Math.round((max - min) / PROJECT_TIMELINE_DAY_MS) + 1)
-  if (days * PROJECT_TIMELINE_COLUMN_PX.day <= viewportPx) return 'day'
-  if (days * PROJECT_TIMELINE_COLUMN_PX.week <= viewportPx) return 'week'
-  return 'month'
+  return Math.max(1, Math.round((max - min) / PROJECT_TIMELINE_DAY_MS) + 1)
 }
