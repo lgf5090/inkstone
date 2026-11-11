@@ -42,9 +42,17 @@ export const DEVELOPMENT_GITHUB_COLLECTION_PARENT_MIGRATION: readonly string[] =
   'ALTER TABLE development_github_collections ADD COLUMN parent_id TEXT',
 ]
 
-export const DEVELOPMENT_GITHUB_APPS_SETTINGS_MIGRATION: readonly string[] = [
+export const DEVELOPMENT_GITHUB_APPS_UPDATE_CHECK_MIGRATION: readonly string[] = [
   'ALTER TABLE development_github_tracked_apps ADD COLUMN update_check_enabled INTEGER NOT NULL DEFAULT 1',
+]
+
+export const DEVELOPMENT_GITHUB_APPS_SKIPPED_TAG_MIGRATION: readonly string[] = [
   "ALTER TABLE development_github_tracked_apps ADD COLUMN skipped_tag TEXT NOT NULL DEFAULT ''",
+]
+
+export const DEVELOPMENT_GITHUB_APPS_SETTINGS_MIGRATION: readonly string[] = [
+  ...DEVELOPMENT_GITHUB_APPS_UPDATE_CHECK_MIGRATION,
+  ...DEVELOPMENT_GITHUB_APPS_SKIPPED_TAG_MIGRATION,
 ]
 
 export const DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS: readonly string[] = [

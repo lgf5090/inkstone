@@ -52,17 +52,14 @@ export function DiscoverCard({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={onSelectRepo}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onSelectRepo()
-        }
-      }}
-      className="group flex h-full min-h-[124px] w-full cursor-pointer flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5 pr-9 text-left transition-[border-color,background-color] duration-[var(--dur-fast)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-raised)] focus-visible:shadow-[var(--shadow-ring-focus)] focus-visible:outline-none"
+      className="group relative flex h-full min-h-[124px] w-full flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5 pr-9 text-left transition-[border-color,background-color] duration-[var(--dur-fast)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-raised)]"
     >
+      <button
+        type="button"
+        onClick={onSelectRepo}
+        aria-label={item.repo.fullName}
+        className="absolute inset-0 rounded-[var(--r-md)] focus-visible:shadow-[var(--shadow-ring-focus)] focus-visible:outline-none"
+      />
       <span className="flex items-start gap-2">
         <GithubAvatar src={item.repo.owner.avatarUrl} name={item.repo.owner.login} size={28} />
         <span className="min-w-0 flex-1">
@@ -76,10 +73,10 @@ export function DiscoverCard({
             <button
               ref={versionAnchor}
               type="button"
-              onClick={(event) => { event.stopPropagation(); setVersionsOpen(true) }}
+              onClick={() => setVersionsOpen(true)}
               aria-label={t('development.github.store.pick_version')}
               title={t('development.github.store.pick_version')}
-              className="inline-flex items-center gap-0.5 rounded-full bg-[var(--bg-raised)] px-2 py-0.5 text-[length:var(--text-11)] font-medium tabular text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+              className="relative z-10 inline-flex items-center gap-0.5 rounded-full bg-[var(--bg-raised)] px-2 py-0.5 text-[length:var(--text-11)] font-medium tabular text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
             >
               {release.tagName}
               <ChevronDown size={10} />
@@ -100,8 +97,8 @@ export function DiscoverCard({
       <IconButton
         label={favorited ? t('development.github.store.unfavorite') : t('development.github.store.favorite')}
         size="sm"
-        className="absolute right-1.5 top-1.5 bg-[var(--bg-surface)]"
-        onClick={(event) => { event.stopPropagation(); onToggleFavorite() }}
+        className="absolute right-1.5 top-1.5 z-10 bg-[var(--bg-surface)]"
+        onClick={() => onToggleFavorite()}
       >
         <Heart size={13} className={favorited ? 'fill-[var(--accent)] text-[var(--accent)]' : ''} />
       </IconButton>
@@ -110,10 +107,9 @@ export function DiscoverCard({
           href={downloadUrl}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={(event) => event.stopPropagation()}
           aria-label={t('development.github.store.download_asset', { name: asset.name })}
           title={t('development.github.store.download_asset', { name: asset.name })}
-          className="absolute bottom-2 right-2 inline-flex h-6 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 text-[length:var(--text-10)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]"
+          className="absolute bottom-2 right-2 z-10 inline-flex h-6 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 text-[length:var(--text-10)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]"
         >
           <Download size={10} />
           {assetFormat(asset.name)}
