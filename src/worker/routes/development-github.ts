@@ -24,6 +24,7 @@ import {
   GithubMirrorListSchema,
   GithubMirrorProbeSchema,
   GithubSearchQuerySchema,
+  GithubStoreSearchQuerySchema,
   GithubTagInputSchema,
   GithubTrackedAppInputSchema,
   SavedGistInputSchema,
@@ -60,7 +61,7 @@ import {
 import { checkAppUpdates } from '../development/github/app-updates'
 import { deleteApp, listApps, recordAppCheck, upsertApp } from '../development/github/apps'
 import { fetchDeveloperProfile } from '../development/github/dev-profile'
-import { discoverRepositories } from '../development/github/discover'
+import { createTrackedLookup, discoverRepositories, searchStoreRepositories } from '../development/github/discover'
 import { fetchRepoDetail, fetchRepository, fetchStarredRepos, parseRepoFullName, REPO_DETAIL_PARTS, searchRepositories } from '../development/github/github-repos'
 import { assertMirrorUrl, listMirrors, probeMirrors, replaceMirrors } from '../development/github/mirrors'
 import {
@@ -574,6 +575,7 @@ developmentGithubRoutes.put('/collections/:id', async (c) => {
     id,
     name: body.name,
     description: body.description,
+    parentId: body.parentId ?? null,
     repoIds: body.repoIds,
   })
   return c.json({ ok: true, data: { collection } })
@@ -583,8 +585,20 @@ developmentGithubRoutes.delete('/collections/:id', async (c) => {
   const userId = userIdOf(c)
   const id = slugId(c)
   if (!(await findCollection(c.env.DB, userId, id))) throw githubNotFound('Collection not found')
-  await deleteCollection(c.env.DB, userId, id)
-  return c.json({ ok: true, data: { ok: true } })
+  const all = await listCollections(c.env.DB, userId)
+  const removed = new Set<string>([id])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const collection of all) {
+      if (collection.parentId && removed.has(collection.parentId) && !removed.has(collection.id)) {
+        removed.add(collection.id)
+        grew = true
+      }
+    }
+  }
+  for (const target of removed) await deleteCollection(c.env.DB, userId, target)
+  return c.json({ ok: true, data: { ok: true, removed: removed.size } })
 })
 
 developmentGithubRoutes.get('/gist/tags', async (c) => {
@@ -771,15 +785,54 @@ developmentGithubRoutes.get('/discover', async (c) => {
   discoverBudget(userId)
   const query = parseQuery(c, GithubDiscoverQuerySchema)
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
+  const tracked = createTrackedLookup(await listApps(c.env.DB, userId))
   const result = await discoverRepositories(
     {
       chart: query.chart,
       platform: query.platform,
       topic: query.topic,
+      category: query.category,
+      query: query.q,
+      language: query.language,
+      updated: query.updated,
+      tracked: query.tracked,
+      installerOnly: query.installer === '1',
+      updateStatus: query.update_status,
+      sort: query.sort,
+      order: query.order,
       page: query.page,
       perPage: query.per_page,
     },
     token,
+    tracked,
+  )
+  return c.json({ ok: true, data: result })
+})
+
+developmentGithubRoutes.get('/search/store', async (c) => {
+  const userId = userIdOf(c)
+  searchBudget(userId)
+  const query = parseQuery(c, GithubStoreSearchQuerySchema)
+  const token = await effectiveGithubToken(c.env, c.env.DB, userId)
+  const tracked = createTrackedLookup(await listApps(c.env.DB, userId))
+  const result = await searchStoreRepositories(
+    {
+      q: query.q,
+      platform: query.platform,
+      topic: query.topic,
+      category: query.category,
+      sort: query.sort,
+      order: query.order,
+      page: query.page,
+      perPage: query.per_page,
+      language: query.language,
+      updated: query.updated,
+      tracked: query.tracked,
+      installerOnly: query.installer === '1',
+      updateStatus: query.update_status,
+    },
+    token,
+    tracked,
   )
   return c.json({ ok: true, data: result })
 })
@@ -815,6 +868,8 @@ developmentGithubRoutes.put('/apps/:id', async (c) => {
     assetPattern: body.assetPattern,
     installedTag: body.installedTag,
     installedAt: body.installedAt,
+    updateCheckEnabled: body.updateCheckEnabled,
+    skippedTag: body.skippedTag,
   })
   return c.json({ ok: true, data: { app } })
 })
