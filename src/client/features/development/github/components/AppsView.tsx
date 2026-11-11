@@ -1,10 +1,11 @@
-import { Download, PanelLeft, RefreshCw, Trash2 } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Download, PanelLeft, RefreshCw, Settings2, Trash2 } from 'lucide-react'
 import type { GithubMirrorSource, GithubTrackedApp } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { Badge, Button, IconButton, Spinner } from '../../../../components/primitives'
 import { Empty } from '../../../../components/feedback'
-import { confirm } from '../../../../components/overlay'
+import { confirm, Menu, type MenuItem } from '../../../../components/overlay'
 import { buildMirrorDownloadUrl, formatDate } from '../lib/format'
 import { trackedAppStatus } from '../lib/apps'
 import { GithubAvatar } from './GithubAvatar'
@@ -13,9 +14,38 @@ import { platformLabel } from './StoreSidebar'
 function StatusBadge({ app }: { app: GithubTrackedApp }) {
   const status = trackedAppStatus(app)
   if (!app.latestTag) return <Badge tone="neutral">{t('development.github.apps.not_checked')}</Badge>
+  if (status.suppressed === 'ignored') return <Badge tone="neutral">{t('development.github.apps.ignored')}</Badge>
+  if (status.suppressed === 'skipped') return <Badge tone="neutral">{t('development.github.apps.skipped')}</Badge>
   if (status.state === 'update-available') return <Badge tone="warning">{t('development.github.apps.update_available')}</Badge>
   if (status.state === 'up-to-date') return <Badge tone="success">{t('development.github.apps.up_to_date')}</Badge>
   return <Badge tone="neutral">{t('development.github.apps.unknown')}</Badge>
+}
+
+function RowMenu({ app, onPatch }: { app: GithubTrackedApp; onPatch: (patch: Partial<GithubTrackedApp>) => void }) {
+  const anchor = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const status = trackedAppStatus(app)
+  const items: MenuItem[] = [
+    {
+      id: 'ignore',
+      label: app.updateCheckEnabled ? t('development.github.apps.ignore_updates') : t('development.github.apps.enable_updates'),
+      checked: !app.updateCheckEnabled,
+      onSelect: () => onPatch({ updateCheckEnabled: !app.updateCheckEnabled }),
+    },
+    {
+      id: 'skip',
+      label: status.suppressed === 'skipped' ? t('development.github.apps.unskip_release') : t('development.github.apps.skip_release'),
+      checked: status.suppressed === 'skipped',
+      disabled: !app.latestTag,
+      onSelect: () => onPatch({ skippedTag: status.suppressed === 'skipped' ? '' : app.latestTag }),
+    },
+  ]
+  return (
+    <>
+      <IconButton ref={anchor} label={t('development.github.apps.actions')} size="sm" onClick={() => setOpen(true)}><Settings2 size={12} /></IconButton>
+      <Menu anchor={anchor} open={open} onClose={() => setOpen(false)} items={items} align="end" width={210} label={t('development.github.apps.actions')} />
+    </>
+  )
 }
 
 export function AppsView({
@@ -24,6 +54,7 @@ export function AppsView({
   mirror,
   onCheck,
   onRemove,
+  onPatch,
   onOpenSidebar,
   onDiscover,
 }: {
@@ -32,6 +63,7 @@ export function AppsView({
   mirror: GithubMirrorSource | undefined
   onCheck: (ids: string[]) => void
   onRemove: (id: string) => void
+  onPatch: (app: GithubTrackedApp, patch: Partial<GithubTrackedApp>) => void
   onOpenSidebar: () => void
   onDiscover: () => void
 }) {
@@ -74,6 +106,7 @@ export function AppsView({
                     <span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{platformLabel(app.platform)}</span>
                     <StatusBadge app={app} />
                     <span className="ml-auto flex shrink-0 items-center gap-0.5 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                      <RowMenu app={app} onPatch={(patch) => onPatch(app, patch)} />
                       <IconButton label={t('development.github.apps.check_one')} size="sm" disabled={checking} onClick={() => onCheck([app.id])}><RefreshCw size={12} /></IconButton>
                       <IconButton label={t('development.github.apps.remove')} size="sm" onClick={() => void remove(app)}><Trash2 size={12} /></IconButton>
                     </span>
@@ -81,7 +114,7 @@ export function AppsView({
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                     <span className="tabular-nums">{t('development.github.apps.installed', { tag: app.installedTag || '—' })}</span>
                     <span aria-hidden="true" className="text-[var(--text-quaternary)]">·</span>
-                    <span className={cn('tabular-nums', app.latestTag && status.state === 'update-available' && 'font-medium text-[var(--warning)]')}>{t('development.github.apps.latest', { tag: app.latestTag || '—' })}</span>
+                    <span className={cn('tabular-nums', app.latestTag && status.state === 'update-available' && !status.suppressed && 'font-medium text-[var(--warning)]')}>{t('development.github.apps.latest', { tag: app.latestTag || '—' })}</span>
                     {app.assetPattern && <Badge tone="neutral">{t('development.github.apps.asset_pattern_chip', { pattern: app.assetPattern })}</Badge>}
                     {app.checkedAt > 0 && <span className="ml-auto tabular-nums text-[var(--text-quaternary)]">{t('development.github.apps.last_checked', { date: formatDate(new Date(app.checkedAt).toISOString()) })}</span>}
                   </div>

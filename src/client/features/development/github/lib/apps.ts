@@ -4,6 +4,7 @@ import type { GithubAssetPlatform, GithubRepo, GithubTrackedApp, GithubUpdateSta
 export interface TrackedAppStatus {
   state: GithubUpdateState
   hasAsset: boolean
+  suppressed: 'ignored' | 'skipped' | null
 }
 
 export function buildTrackedApp(
@@ -23,6 +24,8 @@ export function buildTrackedApp(
     assetPattern: assetPattern.trim(),
     installedTag: installedTag.trim(),
     installedAt: now,
+    updateCheckEnabled: true,
+    skippedTag: '',
     latestTag: '',
     latestAssetName: '',
     latestAssetUrl: '',
@@ -37,5 +40,6 @@ export function trackedAppStatus(app: GithubTrackedApp): TrackedAppStatus {
   return {
     state: updateState(app.latestTag, app.installedTag),
     hasAsset: Boolean(app.latestAssetUrl),
+    suppressed: !app.updateCheckEnabled ? 'ignored' : app.skippedTag && app.skippedTag === app.latestTag ? 'skipped' : null,
   }
 }

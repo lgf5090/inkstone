@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, ExternalLink, Star } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AlertCircle, ExternalLink, Search, Star } from 'lucide-react'
 import type { GithubDevProfile, GithubRepo } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { Button, Spinner } from '../../../../components/primitives'
+import { Input } from '../../../../components/form'
 import { Modal } from '../../../../components/overlay'
+import { SelectMenu } from '../../../../components/select-menu'
 import { githubApi } from '../api'
 import { formatDate, formatNumber } from '../lib/format'
 import { GithubAvatar } from './GithubAvatar'
@@ -23,6 +25,8 @@ export function DeveloperDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
+  const [repoQuery, setRepoQuery] = useState('')
+  const [repoSort, setRepoSort] = useState<'updated' | 'stars' | 'name'>('updated')
 
   useEffect(() => {
     if (!open || !login) return
@@ -46,6 +50,18 @@ export function DeveloperDialog({
   }, [open, login, attempt])
 
   const retry = useCallback(() => setAttempt((value) => value + 1), [])
+
+  const visibleRepos = useMemo(() => {
+    const needle = repoQuery.trim().toLowerCase()
+    const matched = needle
+      ? (profile?.repos ?? []).filter((repo) => repo.name.toLowerCase().includes(needle) || (repo.description ?? '').toLowerCase().includes(needle))
+      : (profile?.repos ?? [])
+    return [...matched].sort((left, right) => {
+      if (repoSort === 'name') return left.name.localeCompare(right.name)
+      if (repoSort === 'stars') return right.stargazersCount - left.stargazersCount
+      return right.updatedAt.localeCompare(left.updatedAt)
+    })
+  }, [profile, repoQuery, repoSort])
 
   return (
     <Modal
@@ -106,12 +122,35 @@ export function DeveloperDialog({
             </div>
           )}
           <div>
-            <p className="mb-1.5 text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{t('development.github.dev_profile.repos')}</p>
+            <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+              <p className="text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{t('development.github.dev_profile.repos')}</p>
+              <span className="text-[length:var(--text-10)] tabular-nums text-[var(--text-quaternary)]">{visibleRepos.length}/{profile.repos.length}</span>
+              <div className="relative ml-auto min-w-32 flex-1 sm:max-w-56">
+                <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
+                <Input value={repoQuery} onChange={(event) => setRepoQuery(event.target.value)} placeholder={t('development.github.dev_profile.repo_search')} aria-label={t('development.github.dev_profile.repo_search')} className="h-7 pl-7 text-[length:var(--text-11)]" />
+              </div>
+              <SelectMenu
+                label={t('development.github.dev_profile.repo_sort')}
+                value={repoSort}
+                size="sm"
+                width={150}
+                align="end"
+                className="w-auto shrink-0"
+                options={[
+                  { value: 'updated', label: t('development.github.dev_profile.sort_updated') },
+                  { value: 'stars', label: t('development.github.dev_profile.sort_stars') },
+                  { value: 'name', label: t('development.github.dev_profile.sort_name') },
+                ]}
+                onChange={setRepoSort}
+              />
+            </div>
             {profile.repos.length === 0 ? (
               <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.dev_profile.no_repos')}</p>
+            ) : visibleRepos.length === 0 ? (
+              <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.dev_profile.no_repo_matches')}</p>
             ) : (
               <ul className="divide-y divide-[var(--border-subtle)] rounded-[var(--r-md)] border border-[var(--border-subtle)]">
-                {profile.repos.map((repo) => (
+                {visibleRepos.map((repo) => (
                   <li key={repo.id}>
                     <button
                       type="button"

@@ -36,10 +36,18 @@ describe('tracked app helpers', () => {
 
   it('derives the update state from the stored tags and asset', () => {
     const app = buildTrackedApp(repo, 'windows', '', 'v1.0.0', 1000)
-    expect(trackedAppStatus(app)).toEqual({ state: 'unknown', hasAsset: false })
+    expect(trackedAppStatus(app)).toEqual({ state: 'unknown', hasAsset: false, suppressed: null })
     expect(trackedAppStatus({ ...app, latestTag: 'v1.1.0', latestAssetUrl: 'https://example.com/a.exe' }))
-      .toEqual({ state: 'update-available', hasAsset: true })
+      .toEqual({ state: 'update-available', hasAsset: true, suppressed: null })
     expect(trackedAppStatus({ ...app, latestTag: 'v1.0.0', latestAssetUrl: 'https://example.com/a.exe' }).state)
       .toBe('up-to-date')
+  })
+
+  it('reports ignored checks and skipped releases without losing the version state', () => {
+    const app = buildTrackedApp(repo, 'linux', '', 'v1.0.0', 1000)
+    const latest = { ...app, latestTag: 'v1.2.0', latestAssetUrl: 'https://example.com/a.deb' }
+    expect(trackedAppStatus({ ...latest, updateCheckEnabled: false }).suppressed).toBe('ignored')
+    expect(trackedAppStatus({ ...latest, skippedTag: 'v1.2.0' }).suppressed).toBe('skipped')
+    expect(trackedAppStatus({ ...latest, skippedTag: 'v1.0.0' }).suppressed).toBeNull()
   })
 })
