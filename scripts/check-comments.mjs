@@ -12617,6 +12617,7 @@ const allowed = new Map([
     "/** Dragging an empty stretch of a lane draws a ghost, then files a new card on those dates. */",
     "// Escape backs out of whatever is open; Delete takes the selected bar off the schedule rather than",
     "// deleting the card, because the card is still real work — only its dates were wrong.",
+    "// The overview owns the dependency picture; the planner opens on conflicts and effort instead.",
   ]],
   ["src/client/features/project/views/KanbanView.test.tsx", [
     "// The ghost and the line are painted on the next frame, not on the event itself.",
@@ -12637,7 +12638,7 @@ const allowed = new Map([
     "/* a stored value that is not a JSON array reads as plain text below */",
   ]],
   ["src/client/features/project/views/TimelineView.tsx", [
-    "/**\n * The timeline: the whole schedule at a glance, read-only.\n *\n * It answers \"what runs when, and what holds what\" — so it draws every dated card, the blocking edges\n * between them and today's line, and it pans under the pointer. Changing a date is the Gantt's job;\n * keeping that split means a reader scrolling the overview cannot move a task by accident.\n */",
+    "/**\n * The timeline: the whole schedule at a glance, read-only.\n *\n * One row per card, in the board's own parent/child order — not grouped into lanes, because the\n * question here is \"what runs when, and what holds what\", and a lane band answers a different one.\n * The axis is headed twice (month over every day), blocking edges are drawn between the bars, and a\n * strip under the canvas shows where the viewport sits in the whole range. Changing a date is the\n * Gantt's job; keeping that split means scrolling the overview cannot move a task by accident.\n */",
   ]],
   ["src/client/features/project/views/card-face.tsx", [
     "/**\n * What a card looks like on a surface: cover, title, the properties the view chose to show, its\n * badges and its subtask progress. The board, the list and the day panel all draw the same face, so\n * a card is recognisable when the reader moves between them.\n */",
@@ -12647,6 +12648,10 @@ const allowed = new Map([
     "/** The column the axis opens on; re-centred whenever the axis itself changes, not on every render. */",
     "// An axis that opens three weeks before the work starts reads as empty. Land on today once per",
     "// axis, then leave the reader's scrolling alone.",
+    "/** `double` heads the axis with a month band over every day; `single` is one planning row with hours. */",
+    "/** A whole-range strip under the canvas: the overview's own way of saying where the viewport sits. */",
+    "/* A month wider than the viewport would scroll its own name off screen. */",
+    "/* Below ~14px a day cannot hold a label, so the planner heads whole months instead. */",
   ]],
   ["src/client/features/project/views/schedule-parts.tsx", [
     "/**\n * The pieces both schedule views draw with: the dependency edges, a bar, and the tray of cards that\n * have no date yet.\n *\n * Edges are orthogonal (out right, down, in from the left) rather than curved, because a curve between\n * two nearby rows hides which end it leaves; the reference's elbow reads at a glance even when twenty\n * edges cross.\n */",
@@ -30767,6 +30772,9 @@ const allowed = new Map([
     "/* ══ List ════════════════════════════════════════════════════════════════════ */",
     "/* ══ Chart & Dashboard ═══════════════════════════════════════════════════════ */",
     "/* ══ Collection ══════════════════════════════════════════════════════════════ */",
+    "/* ══ The two schedule surfaces are deliberately not the same picture ══════════\n   The overview heads its axis twice and carries a whole-range strip; the planner\n   heads it once with hour ticks and carries a settings drawer instead of a row of\n   checkboxes. Row and bar heights differ so the rhythm reads differently at a glance. */",
+    "/* ── Overview strip: where the viewport sits in the whole range ─────────────── */",
+    "/* ── Planner settings drawer ────────────────────────────────────────────────── */",
   ]],
   ["src/client/styles/properties.css", [
     "/* The preview pane can be far narrower than the window, so the stack point is measured on the panel. */",

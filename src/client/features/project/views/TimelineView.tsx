@@ -1,35 +1,35 @@
 /**
  * The timeline: the whole schedule at a glance, read-only.
  *
- * It answers "what runs when, and what holds what" — so it draws every dated card, the blocking edges
- * between them and today's line, and it pans under the pointer. Changing a date is the Gantt's job;
- * keeping that split means a reader scrolling the overview cannot move a task by accident.
+ * One row per card, in the board's own parent/child order — not grouped into lanes, because the
+ * question here is "what runs when, and what holds what", and a lane band answers a different one.
+ * The axis is headed twice (month over every day), blocking edges are drawn between the bars, and a
+ * strip under the canvas shows where the viewport sits in the whole range. Changing a date is the
+ * Gantt's job; keeping that split means scrolling the overview cannot move a task by accident.
  */
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react'
 import { Clock, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectScheduleScale, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
-import { projectCardColor } from '@shared/project/option-color'
+import { projectCardColor, projectOptionCssColor } from '@shared/project/option-color'
 import {
   PROJECT_TIMELINE_COLUMN_PX,
   projectCardDays,
-  projectCardProgress,
-  projectScheduleRows,
   projectTimelineBar,
   projectTimelineDays,
   projectTimelineFitScale,
+  projectTimelineRows,
   projectTimelineWindow,
 } from '@shared/project/timeline-layout'
-import { t } from '../../../lib/i18n'
+import { t, useLocale } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox } from '../../../components/form'
-import { SelectMenu } from '../../../components/select-menu'
 import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
 import { DependencyEdges, RowToggle, ScheduleBar, UnscheduledTray, type BarGeometry } from './schedule-parts'
 
-const ROW_H = 36
-const BAR_H = 22
+const ROW_H = 34
+const BAR_H = 18
 const SCALES: ProjectScheduleScale[] = ['day', 'week', 'month', 'quarter']
 
 export interface TimelineProps {
@@ -45,7 +45,8 @@ export interface TimelineProps {
 }
 
 export function TimelineView(props: TimelineProps): ReactElement {
-  const { cards, properties, links, fields, subtasksByParent } = props
+  const { cards, properties, links, fields } = props
+  const locale = useLocale()
   const propertyId = projectViewPropertyId(fields.dateDisplayPropertyId) ?? properties.find((property) => property.type === 'date')?.id
   const scale = fields.scheduleScale ?? 'day'
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
@@ -63,19 +64,14 @@ export function TimelineView(props: TimelineProps): ReactElement {
   const axisWindow = useMemo(() => projectTimelineWindow(ranges, today), [ranges, today])
   const days = useMemo(() => projectTimelineDays(axisWindow, today), [axisWindow, today])
   const columnPx = PROJECT_TIMELINE_COLUMN_PX[scale]
-  const rows = useMemo(
-    () => projectScheduleRows(dated.map((entry) => entry.card), { groupById: fields.scheduleGroupById, properties, collapsed, colorOf }),
-    [dated, fields.scheduleGroupById, properties, collapsed, colorOf],
-  )
+  const rows = useMemo(() => projectTimelineRows(dated.map((entry) => entry.card), collapsed), [dated, collapsed])
   const daysByCard = useMemo(() => new Map(dated.map((entry) => [entry.card.id, entry.days])), [dated])
   const geometry = useMemo(() => {
     const map = new Map<string, BarGeometry>()
     rows.forEach((row, index) => {
-      if (!row.card) return
       const range = daysByCard.get(row.card.id)
       if (!range) return
-      const bar = projectTimelineBar({ from: range.start, to: range.end }, axisWindow)
-      map.set(row.card.id, { ...bar, row: index })
+      map.set(row.card.id, { ...projectTimelineBar({ from: range.start, to: range.end }, axisWindow), row: index })
     })
     return map
   }, [rows, daysByCard, axisWindow])
@@ -83,8 +79,8 @@ export function TimelineView(props: TimelineProps): ReactElement {
   const showDeps = fields.scheduleShowDependencies !== false
   const showWeekends = fields.scheduleShowWeekends !== false
   const showToday = fields.scheduleShowToday !== false
-  const groupable = properties.filter((property) => property.type === 'select' || property.type === 'person')
   const todayIndex = days.findIndex((day) => day.today)
+  const statusProperty = properties.find((property) => property.type === 'select')
 
   const jumpToday = (): void => {
     const node = viewport.current
@@ -102,18 +98,15 @@ export function TimelineView(props: TimelineProps): ReactElement {
     else next.add(id)
     return next
   })
-
-  const legend = useMemo(() => {
-    const property = properties.find((entry) => entry.id === fields.scheduleGroupById)
-    if (!property) return []
-    return property.options.map((option) => ({
-      key: option.id,
-      label: option.value,
-      color: projectCardColor({ values: { [property.id]: option.id } }, properties),
-    }))
-  }, [properties, fields.scheduleGroupById])
-
   const bindViewport = useCallback((node: HTMLDivElement | null) => { viewport.current = node }, [])
+
+  const legend = useMemo(() => (statusProperty?.options ?? []).map((option) => ({
+    key: option.id,
+    label: option.value,
+    color: projectOptionCssColor(option.color) ?? 'var(--text-quaternary)',
+  })), [statusProperty])
+
+  const shortDay = (stamp: number): string => new Date(stamp).toLocaleDateString(locale, { month: 'numeric', day: 'numeric' })
 
   return (
     <ViewShell data-view="timeline">
@@ -121,8 +114,9 @@ export function TimelineView(props: TimelineProps): ReactElement {
         icon={<Clock size={15} aria-hidden="true" />}
         title={t('project.view.timeline')}
         count={dated.length}
-        note={t('project.view.timeline_hint')}
+        note={t('project.view.timeline_role')}
       >
+        <span className="pv-head-note tabular">{ranges.length > 0 ? `${shortDay(axisWindow.start)} – ${shortDay(axisWindow.end)}` : ''}</span>
         <Button size="sm" variant="secondary" onClick={jumpToday}>{t('project.view.today')}</Button>
         <Button size="sm" variant="ghost" icon={<Maximize2 size={13} />} onClick={() => props.onPatchFields({ scheduleScale: projectTimelineFitScale(ranges, viewport.current?.clientWidth ?? 900) })}>
           {t('project.view.auto_fit')}
@@ -140,14 +134,6 @@ export function TimelineView(props: TimelineProps): ReactElement {
           <IconButton label={t('project.view.zoom_out')} size="sm" disabled={scale === 'quarter'} onClick={() => zoom(1)}><ZoomOut size={14} /></IconButton>
         </span>
         <span className="pv-bar-sep" aria-hidden="true" />
-        <SelectMenu
-          className="w-36"
-          size="sm"
-          value={fields.scheduleGroupById ?? ''}
-          label={t('project.view.group_lanes')}
-          onChange={(value) => props.onPatchFields({ scheduleGroupById: value })}
-          options={[{ value: '', label: t('project.view.group_lanes') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
-        />
         <Checkbox label={t('project.view.show_dependencies')} checked={showDeps} onChange={(checked) => props.onPatchFields({ scheduleShowDependencies: checked })} />
         <Checkbox label={t('project.view.show_weekends')} checked={showWeekends} onChange={(checked) => props.onPatchFields({ scheduleShowWeekends: checked })} />
         <Checkbox label={t('project.view.show_today_line')} checked={showToday} onChange={(checked) => props.onPatchFields({ scheduleShowToday: checked })} />
@@ -166,6 +152,7 @@ export function TimelineView(props: TimelineProps): ReactElement {
           columnPx={columnPx}
           rowCount={rows.length}
           rowHeight={ROW_H}
+          axis="double"
           corner={t('project.board.title_column')}
           showToday={showToday}
           showWeekends={showWeekends}
@@ -173,55 +160,44 @@ export function TimelineView(props: TimelineProps): ReactElement {
           onViewport={bindViewport}
           focusColumn={todayIndex}
           emptyHint={t('project.view.no_dates')}
+          minimap={{ bars: [...geometry.entries()].map(([id, place]) => ({ id, left: place.left, width: place.width, color: colorOf(rows[place.row]!.card) })) }}
           overlay={() => showDeps
             ? <DependencyEdges links={links} geometry={geometry} rowHeight={ROW_H} columnPx={columnPx} width={days.length * columnPx} height={rows.length * ROW_H} />
             : null}
           renderLeftRow={(index) => {
             const row = rows[index]!
-            if (row.kind === 'lane') {
-              return (
-                <div key={row.id} className="pv-sched-lanehead" style={{ top: `${index * ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties}>
-                  <RowToggle collapsed={collapsed.has(row.id)} label={row.label || t('project.view.no_value')} onToggle={() => toggle(row.id)} />
-                  <span className="min-w-0 flex-1 truncate">{row.label || t('project.view.no_value')}</span>
-                  <span className="pv-head-count">{row.childCount}</span>
-                </div>
-              )
-            }
-            const card = row.card!
+            const range = daysByCard.get(row.card.id)!
             return (
-              <div key={row.id} className="pv-sched-rowhead" style={{ top: `${index * ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }} data-schedule-row={card.id}>
+              <div key={row.card.id} className="pv-sched-rowhead" style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }} data-schedule-row={row.card.id}>
                 {row.childCount > 0
-                  ? <RowToggle collapsed={collapsed.has(card.id)} label={t('project.card.expand_subtasks')} onToggle={() => toggle(card.id)} />
+                  ? <RowToggle collapsed={collapsed.has(row.card.id)} label={t('project.card.expand_subtasks')} onToggle={() => toggle(row.card.id)} />
                   : <span className="size-6 shrink-0" aria-hidden="true" />}
-                <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: row.color }} aria-hidden="true" />
-                <button type="button" className="pv-sched-rowtitle" onClick={() => props.onOpenCard(card.id)}>{card.title || t('project.board.untitled_card')}</button>
+                <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(row.card) }} aria-hidden="true" />
+                <button type="button" className="pv-sched-rowtitle" onClick={() => props.onOpenCard(row.card.id)}>{row.card.title || t('project.board.untitled_card')}</button>
+                <span className="shrink-0 text-[length:var(--text-10)] tabular text-[var(--text-quaternary)]">{shortDay(range.start)}–{shortDay(range.end)}</span>
               </div>
             )
           }}
           renderRow={(index) => {
             const row = rows[index]!
-            if (row.kind === 'lane') {
-              return <div key={row.id} className="pv-sched-laneband" style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties} aria-hidden="true" />
-            }
-            const card = row.card!
-            const place = geometry.get(card.id)!
+            const place = geometry.get(row.card.id)!
             return (
               <ScheduleBar
-                key={card.id}
-                card={card}
-                color={row.color}
+                key={row.card.id}
+                card={row.card}
+                color={colorOf(row.card)}
                 left={place.left * columnPx}
                 width={place.width * columnPx}
                 top={index * ROW_H + (ROW_H - BAR_H) / 2}
                 height={BAR_H}
-                done={isDone(card)}
-                progress={projectCardProgress(card, subtasksByParent.get(card.id) ?? [], isDone)}
+                done={isDone(row.card)}
+                progress={0}
                 conflict={false}
                 selected={false}
                 draggable={false}
                 dragging={false}
                 milestone={false}
-                onOpen={() => props.onOpenCard(card.id)}
+                onOpen={() => props.onOpenCard(row.card.id)}
               />
             )
           }}

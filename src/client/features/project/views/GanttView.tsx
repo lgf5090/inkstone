@@ -7,7 +7,7 @@
  * status palette, which is the thing a reader actually means by "make this one green".
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { CalendarRange, Maximize2, Trash2, ZoomIn, ZoomOut } from 'lucide-react'
+import { CalendarRange, Maximize2, Plus, Settings2, Trash2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectScheduleScale, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectCardColor, projectOptionCssColor } from '@shared/project/option-color'
@@ -36,8 +36,8 @@ import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
 import { DependencyEdges, RowToggle, ScheduleBar, UnscheduledTray, type BarGeometry } from './schedule-parts'
 
-const ROW_H = 36
-const BAR_H = 22
+const ROW_H = 40
+const BAR_H = 24
 const SCALES: ProjectScheduleScale[] = ['day', 'week', 'month', 'quarter']
 
 export interface GanttProps {
@@ -72,6 +72,7 @@ export function GanttView(props: GanttProps): ReactElement {
   const [renaming, setRenaming] = useState<{ id: string, value: string } | null>(null)
   const [palette, setPalette] = useState<{ id: string, x: number, y: number } | null>(null)
   const [showTray, setShowTray] = useState(true)
+  const [showSettings, setShowSettings] = useState(false)
   const viewport = useRef<HTMLDivElement | null>(null)
   const today = Date.now()
   const colorOf = useCallback((card: ProjectCard) => projectCardColor(card, properties), [properties])
@@ -108,11 +109,17 @@ export function GanttView(props: GanttProps): ReactElement {
     return map
   }, [rows, daysByCard, axisWindow])
 
-  const showDeps = fields.scheduleShowDependencies !== false
+  // The overview owns the dependency picture; the planner opens on conflicts and effort instead.
+  const showDeps = fields.scheduleShowDependencies === true
   const showWeekends = fields.scheduleShowWeekends !== false
   const showToday = fields.scheduleShowToday !== false
   const todayIndex = days.findIndex((day) => day.today)
   const groupable = properties.filter((property) => property.type === 'select' || property.type === 'person')
+  const effortProperty = properties.find((property) => property.type === 'number')
+  const laneEffort = (laneKey: string): number => (effortProperty
+    ? dated.filter((entry) => (entry.card.values[fields.scheduleGroupById ?? statusProperty?.id ?? ''] ?? '') === laneKey)
+      .reduce((sum, entry) => sum + (Number(entry.card.values[effortProperty.id]) || 0), 0)
+    : 0)
 
   const writeRange = (cardId: string, from: number, to: number): void => {
     if (!propertyId) return
@@ -284,8 +291,13 @@ export function GanttView(props: GanttProps): ReactElement {
         icon={<CalendarRange size={15} aria-hidden="true" />}
         title={t('project.view.gantt')}
         count={dated.length}
-        note={planning ? t('project.view.gantt_hint') : undefined}
+        note={t('project.view.gantt_role')}
       >
+        {planning && (
+          <Button size="sm" variant="primary" icon={<Plus size={13} />} onClick={() => { void createOnSpan('', Math.max(0, todayIndex), Math.max(0, todayIndex)) }}>
+            {t('project.view.new_schedule')}
+          </Button>
+        )}
         {conflicts.size > 0 && (
           <span className="rounded-[var(--r-full)] bg-[var(--danger-soft)] px-2 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--danger)]" role="status">
             {t('project.view.conflicts', { count: conflicts.size })}
@@ -295,6 +307,9 @@ export function GanttView(props: GanttProps): ReactElement {
         <Button size="sm" variant="ghost" icon={<Maximize2 size={13} />} onClick={() => props.onPatchFields({ scheduleScale: projectTimelineFitScale(ranges, viewport.current?.clientWidth ?? 900) })}>
           {t('project.view.auto_fit')}
         </Button>
+        <IconButton label={t('project.view.gantt_settings')} size="sm" active={showSettings} aria-expanded={showSettings} onClick={() => setShowSettings((value) => !value)}>
+          <Settings2 size={15} />
+        </IconButton>
       </ViewHead>
       <ViewToolbar>
         <Seg
@@ -317,9 +332,7 @@ export function GanttView(props: GanttProps): ReactElement {
           onChange={(value) => props.onPatchFields({ scheduleGroupById: value })}
           options={[{ value: '', label: t('project.view.no_value') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
         />
-        <Checkbox label={t('project.view.show_dependencies')} checked={showDeps} onChange={(checked) => props.onPatchFields({ scheduleShowDependencies: checked })} />
-        <Checkbox label={t('project.view.show_weekends')} checked={showWeekends} onChange={(checked) => props.onPatchFields({ scheduleShowWeekends: checked })} />
-        <Checkbox label={t('project.view.show_today_line')} checked={showToday} onChange={(checked) => props.onPatchFields({ scheduleShowToday: checked })} />
+        <span className="pv-head-note">{t('project.view.gantt_hint')}</span>
         {unscheduled.length > 0 && (
           <span className="pv-bar-spacer">
             <Button size="sm" variant="ghost" onClick={() => setShowTray((value) => !value)}>
@@ -335,7 +348,9 @@ export function GanttView(props: GanttProps): ReactElement {
           columnPx={columnPx}
           rowCount={rows.length}
           rowHeight={ROW_H}
-          corner={t('project.board.title_column')}
+          axis="single"
+          hourTicks={scale === 'day'}
+          corner={t('project.view.gantt_lanes')}
           showToday={showToday}
           showWeekends={showWeekends}
           drawEnabled={planning}
@@ -364,9 +379,10 @@ export function GanttView(props: GanttProps): ReactElement {
             const row = rows[index]!
             if (row.kind === 'lane') {
               return (
-                <div key={row.id} className="pv-sched-lanehead" style={{ top: `${index * ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties}>
+                <div key={row.id} className="pv-sched-lanehead" style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties}>
                   <RowToggle collapsed={collapsed.has(row.id)} label={row.label || t('project.view.no_value')} onToggle={() => toggle(row.id)} />
                   <span className="min-w-0 flex-1 truncate">{row.label || t('project.view.no_value')}</span>
+                  {effortProperty && <span className="pv-lane-sum">{t('project.view.lane_effort', { value: laneEffort(row.laneKey) })}</span>}
                   <span className="pv-head-count">{row.childCount}</span>
                 </div>
               )
@@ -377,7 +393,7 @@ export function GanttView(props: GanttProps): ReactElement {
                 key={row.id}
                 className="pv-sched-rowhead"
                 data-selected={selected === card.id}
-                style={{ top: `${index * ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }}
+                style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }}
                 data-schedule-row={card.id}
               >
                 {row.childCount > 0
@@ -465,6 +481,29 @@ export function GanttView(props: GanttProps): ReactElement {
           />
         )}
       </div>
+      {showSettings && (
+        <div className="pv-drawer" role="group" aria-label={t('project.view.gantt_settings')} data-gantt-settings="">
+          <div className="pv-drawer-row">
+            <span className="pv-bar-label">{t('project.view.scale')}</span>
+            <Seg
+              value={scale}
+              label={t('project.view.scale')}
+              onChange={(next) => props.onPatchFields({ scheduleScale: next })}
+              options={SCALES.map((entry) => ({ value: entry, label: t(`project.view.scale_${entry}` as Parameters<typeof t>[0]) }))}
+            />
+          </div>
+          <Checkbox label={t('project.view.show_today_line')} checked={showToday} onChange={(checked) => props.onPatchFields({ scheduleShowToday: checked })} />
+          <Checkbox label={t('project.view.show_weekends')} checked={showWeekends} onChange={(checked) => props.onPatchFields({ scheduleShowWeekends: checked })} />
+          <Checkbox label={t('project.view.show_dependencies')} checked={showDeps} onChange={(checked) => props.onPatchFields({ scheduleShowDependencies: checked })} />
+          <p className="pv-drawer-hint">{t('project.view.gantt_hint')}</p>
+          <div className="pv-drawer-foot">
+            <Button size="sm" variant="ghost" onClick={() => props.onPatchFields({ scheduleScale: 'day', scheduleShowToday: true, scheduleShowWeekends: true, scheduleShowDependencies: false })}>
+              {t('project.view.reset_schedule')}
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setShowSettings(false)}>{t('common.close')}</Button>
+          </div>
+        </div>
+      )}
       {palette && statusProperty && (
         <div className="pv-palette" style={{ left: `${palette.x}px`, top: `${palette.y}px` }} role="menu" aria-label={t('project.view.set_status')} data-bar-palette="">
           {statusProperty.options.map((option) => (

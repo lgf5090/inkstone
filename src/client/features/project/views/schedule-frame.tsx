@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import type { TimelineDay } from '@shared/project/timeline-layout'
-import { useLocale } from '../../../lib/i18n'
+import { t, useLocale } from '../../../lib/i18n'
 
 const BUFFER_ROWS = 6
 const HEAD_BUFFER_PX = 400
@@ -31,6 +31,11 @@ export interface ScheduleFrameProps {
   onViewport?: (node: HTMLDivElement | null) => void
   /** The column the axis opens on; re-centred whenever the axis itself changes, not on every render. */
   focusColumn?: number
+  /** `double` heads the axis with a month band over every day; `single` is one planning row with hours. */
+  axis?: 'double' | 'single'
+  hourTicks?: boolean
+  /** A whole-range strip under the canvas: the overview's own way of saying where the viewport sits. */
+  minimap?: { bars: readonly { id: string, left: number, width: number, color: string }[] }
   emptyHint?: string
 }
 
@@ -42,6 +47,8 @@ export function ScheduleFrame(props: ScheduleFrameProps): ReactElement {
   const [size, setSize] = useState({ width: 900, height: 600 })
   const totalWidth = days.length * columnPx
   const totalHeight = rowCount * rowHeight
+  const axis = props.axis ?? 'double'
+  const headHeight = axis === 'double' ? 48 : 34
 
   const measure = useCallback(() => {
     const node = scroller.current
@@ -116,24 +123,43 @@ export function ScheduleFrame(props: ScheduleFrameProps): ReactElement {
 
   return (
     <div className="pv-sched" data-schedule-frame="">
-      <div className="pv-sched-head">
-        <div className="pv-sched-corner">{props.corner}</div>
+      <div className="pv-sched-head" data-axis={axis} style={{ height: `${headHeight}px` }}>
+        <div className="pv-sched-corner" style={{ height: `${headHeight}px` }}>{props.corner}</div>
         <div className="pv-sched-headclip">
-          <div className="pv-sched-headinner" style={{ width: `${totalWidth}px`, transform: `translateX(${-offset.left}px)` }}>
-            {visibleMonths.map((month) => (
-              <div key={`${month.label}-${month.left}`} className="pv-sched-month" style={{ left: `${month.left}px`, width: `${month.width}px` }}>{month.label}</div>
-            ))}
-            {visibleDays.map((day, index) => (
-              <div
-                key={day.stamp}
-                className="pv-sched-unit"
-                data-today={day.today}
-                data-weekend={day.weekend}
-                style={{ left: `${(firstDay + index) * columnPx}px`, width: `${columnPx}px` }}
-              >
-                {columnPx >= 22 ? new Date(day.stamp).getDate() : day.monthStart ? new Date(day.stamp).getDate() : ''}
+          <div className="pv-sched-headinner" style={{ width: `${totalWidth}px`, height: `${headHeight}px`, transform: `translateX(${-offset.left}px)` }}>
+            {axis === 'double' && visibleMonths.map((month) => (
+              <div key={`${month.label}-${month.left}`} className="pv-sched-month" style={{ left: `${month.left}px`, width: `${month.width}px` }}>
+                {/* A month wider than the viewport would scroll its own name off screen. */}
+                <span style={{ marginLeft: `${Math.max(0, offset.left - month.left)}px` }}>{month.label}</span>
               </div>
             ))}
+            {/* Below ~14px a day cannot hold a label, so the planner heads whole months instead. */}
+            {axis === 'single' && columnPx < 14 && visibleMonths.map((month) => (
+              <div key={`m-${month.label}-${month.left}`} className="pv-sched-unit" data-axis="single" style={{ left: `${month.left}px`, width: `${month.width}px`, justifyContent: 'flex-start', paddingLeft: '6px' }}>
+                {month.label}
+              </div>
+            ))}
+            {(axis === 'double' || columnPx >= 14) && visibleDays.map((day, index) => {
+              const date = new Date(day.stamp)
+              const label = axis === 'double'
+                ? (columnPx >= 22 || day.monthStart ? String(date.getDate()) : '')
+                : (columnPx >= 34 ? `${date.getMonth() + 1}/${date.getDate()} ${date.toLocaleDateString(locale, { weekday: 'short' })}` : columnPx >= 14 ? String(date.getDate()) : (day.monthStart ? `${date.getMonth() + 1}/${date.getDate()}` : ''))
+              return (
+                <div
+                  key={day.stamp}
+                  className="pv-sched-unit"
+                  data-axis={axis}
+                  data-today={day.today}
+                  data-weekend={day.weekend}
+                  style={{ left: `${(firstDay + index) * columnPx}px`, width: `${columnPx}px` }}
+                >
+                  {label}
+                  {props.hourTicks && columnPx >= 34 && [0.25, 0.5, 0.75].map((fraction) => (
+                    <span key={fraction} className="pv-sched-tick" style={{ left: `${fraction * 100}%` }} aria-hidden="true" />
+                  ))}
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>
@@ -160,7 +186,7 @@ export function ScheduleFrame(props: ScheduleFrameProps): ReactElement {
             props.onCanvasPointerDown(event, { column: Math.floor(x / columnPx), row: Math.floor(y / rowHeight) })
           }}
         >
-          <div className="pv-sched-canvas" style={{ width: `${totalWidth}px`, height: `${Math.max(totalHeight, size.height)}px` }}>
+          <div className="pv-sched-canvas" id="pv-sched-canvas" style={{ width: `${totalWidth}px`, height: `${Math.max(totalHeight, size.height)}px` }}>
             {showWeekends && visibleDays.map((day, index) => day.weekend
               ? <div key={`w-${day.stamp}`} className="pv-sched-weekend" style={{ left: `${(firstDay + index) * columnPx}px`, width: `${columnPx}px` }} aria-hidden="true" />
               : null)}
@@ -180,6 +206,46 @@ export function ScheduleFrame(props: ScheduleFrameProps): ReactElement {
           </div>
         </div>
       </div>
+      {props.minimap && totalWidth > 0 && (
+        <div
+          className="pv-minimap"
+          role="scrollbar"
+          aria-controls="pv-sched-canvas"
+          aria-orientation="horizontal"
+          aria-valuenow={Math.round((offset.left / Math.max(1, totalWidth - size.width)) * 100)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={t('project.view.minimap')}
+          tabIndex={0}
+          onPointerDown={(event) => {
+            const node = scroller.current
+            if (!node) return
+            const rect = event.currentTarget.getBoundingClientRect()
+            node.scrollLeft = ((event.clientX - rect.left) / rect.width) * totalWidth - size.width / 2
+            measure()
+          }}
+          onKeyDown={(event) => {
+            const node = scroller.current
+            if (!node) return
+            if (event.key === 'ArrowLeft') { event.preventDefault(); node.scrollLeft -= size.width / 2; measure() }
+            else if (event.key === 'ArrowRight') { event.preventDefault(); node.scrollLeft += size.width / 2; measure() }
+          }}
+        >
+          {props.minimap.bars.map((bar) => (
+            <span
+              key={bar.id}
+              className="pv-minimap-bar"
+              style={{ left: `${(bar.left / days.length) * 100}%`, width: `${Math.max(0.4, (bar.width / days.length) * 100)}%`, backgroundColor: bar.color }}
+              aria-hidden="true"
+            />
+          ))}
+          <span
+            className="pv-minimap-window"
+            style={{ left: `${(offset.left / totalWidth) * 100}%`, width: `${Math.min(100, (size.width / totalWidth) * 100)}%` }}
+            aria-hidden="true"
+          />
+        </div>
+      )}
     </div>
   )
 }

@@ -12,7 +12,7 @@ import { isImeComposing } from '../../../lib/ime'
 import { Input } from '../../../components/form'
 
 export function ViewShell({ children, ...rest }: { children: ReactNode, 'data-view': string }): ReactElement {
-  return <div className="pv pv-scroll" data-view={rest['data-view']}>{children}</div>
+  return <div className="pv pv-scroll relative" data-view={rest['data-view']}>{children}</div>
 }
 
 export function ViewHead({ icon, title, count, note, children }: {

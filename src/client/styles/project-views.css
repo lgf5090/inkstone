@@ -1619,3 +1619,100 @@
     transform: none;
   }
 }
+/* ══ The two schedule surfaces are deliberately not the same picture ══════════
+   The overview heads its axis twice and carries a whole-range strip; the planner
+   heads it once with hour ticks and carries a settings drawer instead of a row of
+   checkboxes. Row and bar heights differ so the rhythm reads differently at a glance. */
+.pv-sched-head[data-axis='single'] {
+  background: var(--bg-sunken);
+}
+.pv-sched-unit[data-axis='single'] {
+  top: 0;
+  height: 34px;
+  font-size: var(--text-11);
+}
+.pv-sched-unit[data-axis='double'] {
+  top: 24px;
+}
+.pv-sched-tick {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 5px;
+  background: var(--border-default);
+}
+.pv-lane-sum {
+  flex-shrink: 0;
+  padding: 0 var(--sp-1-5);
+  border-radius: var(--r-xs);
+  background: color-mix(in oklab, var(--pv-lane-color, var(--accent)) 16%, transparent);
+  font-size: var(--text-10);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--pv-ink-2);
+}
+
+/* ── Overview strip: where the viewport sits in the whole range ─────────────── */
+.pv-minimap {
+  position: relative;
+  height: 26px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--pv-hairline);
+  background: var(--bg-sunken);
+  cursor: pointer;
+}
+.pv-minimap:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.pv-minimap-bar {
+  position: absolute;
+  top: 9px;
+  height: 8px;
+  min-width: 2px;
+  border-radius: var(--r-2);
+  opacity: 0.75;
+}
+.pv-minimap-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-xs);
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+}
+
+/* ── Planner settings drawer ────────────────────────────────────────────────── */
+.pv-drawer {
+  position: absolute;
+  top: 96px;
+  right: var(--sp-4);
+  z-index: 20;
+  display: flex;
+  width: 268px;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-pop);
+}
+.pv-drawer-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.pv-drawer-hint {
+  margin: 0;
+  font-size: var(--text-11);
+  line-height: 1.5;
+  color: var(--pv-ink-3);
+}
+.pv-drawer-foot {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid var(--pv-hairline);
+  padding-top: var(--sp-2);
+}

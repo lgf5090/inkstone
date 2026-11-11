@@ -367,4 +367,12 @@ export const EN_US_PROJECT = {
     "project.dashboard.act_updated": "Updated",
     "project.dashboard.act_deleted": "Deleted",
     "project.dashboard.act_reminder": "Due soon",
+    "project.view.minimap": "Overview strip",
+    "project.view.timeline_role": "Overview · read-only, drag the canvas to pan",
+    "project.view.gantt_role": "Planning · drag, resize and draw",
+    "project.view.gantt_settings": "Schedule settings",
+    "project.view.gantt_lanes": "Lane",
+    "project.view.new_schedule": "New scheduled card",
+    "project.view.lane_effort": "{value} h",
+    "project.view.reset_schedule": "Reset",
 } as const

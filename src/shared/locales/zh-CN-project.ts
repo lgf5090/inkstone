@@ -367,6 +367,14 @@ export const ZH_CN_PROJECT = {
     "project.dashboard.act_updated": "更新",
     "project.dashboard.act_deleted": "删除",
     "project.dashboard.act_reminder": "即将到期",
+    "project.view.minimap": "全程缩略轴",
+    "project.view.timeline_role": "总览 · 只读，拖拽画布平移",
+    "project.view.gantt_role": "排期 · 可拖动、拉伸、绘制",
+    "project.view.gantt_settings": "排期设置",
+    "project.view.gantt_lanes": "泳道",
+    "project.view.new_schedule": "新建排期",
+    "project.view.lane_effort": "{value} 工时",
+    "project.view.reset_schedule": "恢复默认",
 } as const
 
 /** zh strings for the built-in board templates' demo content, keyed by the English source string. */

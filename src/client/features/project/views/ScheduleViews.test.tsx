@@ -79,15 +79,29 @@ describe('the timeline reads', () => {
     expect(props.onPatchFields).toHaveBeenCalledWith({ scheduleScale: 'week' })
   })
 
-  it('bands the rows into lanes and folds a lane away', async () => {
+  it('lists one row per card in board order, never a lane band', async () => {
     await mountTimeline([sprint, card('Shipped', new Date(2026, 10, 11), undefined, 'o2')], { scheduleGroupById: 'ps' })
-    const lanes = [...view.container.querySelectorAll('.pv-sched-lanehead')].map((node) => node.textContent)
-    expect(lanes.some((label) => label?.includes('Open'))).toBe(true)
-    expect(view.container.querySelector('[data-schedule-row="Sprint"]')).not.toBeNull()
-    const toggle = view.container.querySelector<HTMLButtonElement>('.pv-sched-lanehead button')!
+    expect(view.container.querySelectorAll('.pv-sched-lanehead')).toHaveLength(0)
+    expect([...view.container.querySelectorAll('[data-schedule-row]')].map((node) => node.getAttribute('data-schedule-row'))).toEqual(['Sprint', 'Shipped'])
+    expect(view.container.querySelector('.pv-sched-head')?.getAttribute('data-axis')).toBe('double')
+  })
+
+  it('carries a whole-range strip showing where the viewport sits', async () => {
+    await mountTimeline([sprint])
+    const strip = view.container.querySelector('.pv-minimap')!
+    expect(strip).not.toBeNull()
+    expect(strip.querySelectorAll('.pv-minimap-bar')).toHaveLength(1)
+    expect(strip.querySelector('.pv-minimap-window')).not.toBeNull()
+  })
+
+  it('folds a parent away and takes its children with it', async () => {
+    const parent = card('Parent', new Date(2026, 10, 10))
+    const child = { ...card('Child', new Date(2026, 10, 12)), parentId: 'Parent' }
+    await mountTimeline([parent, child])
+    expect(view.container.querySelector('[data-schedule-row="Child"]')).not.toBeNull()
+    const toggle = view.container.querySelector<HTMLButtonElement>(`[data-schedule-row="Parent"] button[aria-label]`)!
     await act(async () => { toggle.click() })
-    expect(view.container.querySelector('[data-schedule-row="Sprint"]')).toBeNull()
-    expect(view.container.querySelector('[data-schedule-row="Shipped"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-schedule-row="Child"]')).toBeNull()
   })
 
   it('draws the blocking edge as an elbow between the two bars', async () => {
@@ -201,6 +215,39 @@ describe('the gantt writes', () => {
     await act(async () => { pointer('pointerup', 100) })
     await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })) })
     expect(props.onPatchCard).toHaveBeenCalledWith('Sprint', { values: { pd: null } })
+  })
+
+  it('bands rows into lanes, sums lane effort and heads the axis once', async () => {
+    const withEffort: ProjectProperty[] = [...properties, { id: 'pn', name: 'Hours', type: 'number', options: [] }]
+    const a = { ...sprint, values: { ...sprint.values, pn: '8' } }
+    const b = { ...card('Shipped', new Date(2026, 10, 11), undefined, 'o2'), values: { ps: 'o2', pd: card('Shipped', new Date(2026, 10, 11)).values.pd!, pn: '5' } }
+    await act(async () => {
+      view = renderElement(createElement(GanttView, {
+        cards: [a, b], boardId: 'b1', properties: withEffort, links, fields: fields({ scheduleGroupById: 'ps' }),
+        subtasksByParent: new Map(), canEdit: true, onOpenCard: vi.fn(), onPatchCard: vi.fn(), onPatchFields: vi.fn(), onRefresh: vi.fn(),
+      }))
+    })
+    expect(view.container.querySelector('.pv-sched-head')?.getAttribute('data-axis')).toBe('single')
+    expect(view.container.querySelector('.pv-minimap')).toBeNull()
+    const sums = [...view.container.querySelectorAll('.pv-lane-sum')].map((node) => node.textContent)
+    expect(sums).toEqual([t('project.view.lane_effort', { value: 8 }), t('project.view.lane_effort', { value: 5 }), t('project.view.lane_effort', { value: 0 })])
+    const toggle = view.container.querySelector<HTMLButtonElement>('.pv-sched-lanehead button')!
+    await act(async () => { toggle.click() })
+    expect(view.container.querySelector('[data-schedule-row="Sprint"]')).toBeNull()
+    expect(view.container.querySelector('[data-schedule-row="Shipped"]')).not.toBeNull()
+  })
+
+  it('opens on conflicts rather than arrows, and keeps its switches in a drawer', async () => {
+    const props = await mountGantt([sprint])
+    expect(view.container.querySelector('[data-schedule-dependencies]')).toBeNull()
+    expect(view.container.querySelector('[data-gantt-settings]')).toBeNull()
+    const gear = view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.view.gantt_settings')}"]`)!
+    await act(async () => { gear.click() })
+    const drawer = view.container.querySelector('[data-gantt-settings]')!
+    expect(drawer.querySelectorAll('[role="checkbox"]')).toHaveLength(3)
+    const deps = [...drawer.querySelectorAll<HTMLElement>('[role="checkbox"]')][2]!
+    await act(async () => { deps.click() })
+    expect(props.onPatchFields).toHaveBeenCalledWith({ scheduleShowDependencies: true })
   })
 
   it('offers a viewer no handles and no drawing', async () => {
