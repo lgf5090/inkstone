@@ -146,7 +146,7 @@ export const ZH_CN_PROJECT = {
     "project.view.group_by": "分组依据",
     "project.view.sort": "排序",
     "project.view.filter": "过滤",
-    "project.view.properties": "属性",
+    "project.view.properties": "显示哪些属性",
     "project.view.add_sort": "添加排序",
     "project.view.add_filter": "添加过滤",
     "project.view.asc": "升序",
@@ -416,6 +416,7 @@ export const ZH_CN_PROJECT = {
     "project.boards.layout": "看板形态",
     "project.boards.layout_list": "列表",
     "project.boards.layout_cards": "卡片",
+    "project.card.no_done_field": "该看板没有可用于勾选的状态或复选框字段",
 } as const
 
 /** zh strings for the built-in board templates' demo content, keyed by the English source string. */

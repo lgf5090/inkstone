@@ -142,17 +142,17 @@ export function ChartView(props: ChartProps): ReactElement {
           onChange={(value) => props.onPatchFields({ chartCalculation: value as ProjectCalculation })}
           options={calcOptions.map((option) => ({ value: option, label: t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0]) }))}
         />
-        {calculation !== 'count' && (
-          <SelectMenu
-            className="w-36"
-            size="sm"
-            value={measureProperty?.id ?? ''}
-            label={t('project.view.chart_property')}
-            disabled={!props.canEdit}
-            onChange={(value) => props.onPatchFields({ chartPropertyId: value })}
-            options={properties.map((property) => ({ value: property.id, label: property.name }))}
-          />
-        )}
+        {/* Always reachable: "sum" only appears once a numeric property is the measure, so hiding
+            this picker until the measure changed made the two controls wait on each other. */}
+        <SelectMenu
+          className="w-36"
+          size="sm"
+          value={measureProperty?.id ?? ''}
+          label={t('project.view.chart_property')}
+          disabled={!props.canEdit}
+          onChange={(value) => props.onPatchFields({ chartPropertyId: value, chartCalculation: 'count' })}
+          options={properties.map((property) => ({ value: property.id, label: property.name }))}
+        />
       </ViewToolbar>
       {series.length === 0
         ? <ViewEmpty title={t('project.board.empty_cards')} hint={t('project.view.chart_empty')} />

@@ -8,7 +8,8 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ArrowUpDown, BarChart3, Calendar, CalendarRange, Clock, Copy, Download, Eye, Filter, FolderOpen, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Pencil, Plus, RotateCcw, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
-import { emptyProjectViewFields, projectViewPropertyId, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
+import { emptyProjectViewFields, projectCanMarkDone, projectDonePatch, projectViewPropertyId, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
+import { projectParentDonePatches } from '@shared/project/hierarchy'
 import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badges'
 import { matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
@@ -235,20 +236,18 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const badgesFor = (cardId: string): ProjectCardBadges => badgesByCard.get(cardId) ?? { description: false, comments: 0, checked: 0, checkboxes: 0 }
   const coverFor = publicView ? undefined : (cardId: string): string | null => coverByCard.get(cardId) ?? null
 
-  const doneLabel = t('project.card.done_label').toLowerCase()
+  /**
+   * One writer for every tick in the app, so the list, the board's checklist and the card menu cannot
+   * disagree about which option "done" is. A parent then follows its children.
+   */
   const toggleCardDone = async (card: ProjectCard, checked: boolean): Promise<void> => {
-    const statusProperty = bundle.properties.find((property) => property.type === 'select')
-    if (statusProperty && statusProperty.options.length > 0) {
-      const doneOption = statusProperty.options.find((entry) => {
-        const value = entry.value.toLowerCase()
-        return value === doneLabel || /done|complete|finished/i.test(value)
-      })
-      const todoOption = statusProperty.options.find((entry) => entry !== doneOption) ?? statusProperty.options[0]
-      await onPatchCard(card.id, { values: { [statusProperty.id]: checked ? (doneOption?.id ?? null) : (todoOption?.id ?? null) } })
-      return
+    const values = projectDonePatch(bundle.properties, checked)
+    if (!values) return
+    await onPatchCard(card.id, { values })
+    const after: ProjectCard[] = bundle.cards.map((entry) => (entry.id === card.id ? { ...entry, values: { ...entry.values, ...values } as Record<string, string> } : entry))
+    for (const patch of projectParentDonePatches(after, bundle.properties, card.id)) {
+      await onPatchCard(patch.id, { values: patch.values })
     }
-    const checkboxProperty = bundle.properties.find((property) => property.type === 'checkbox')
-    if (checkboxProperty) await onPatchCard(card.id, { values: { [checkboxProperty.id]: checked ? 'true' : 'false' } })
   }
 
   const handleAddSubtask = async (parentCardId: string): Promise<void> => {
@@ -403,6 +402,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     onAddSubtask: handleAddSubtask,
     starredCards,
     pinnedCards,
+    canMarkDone: projectCanMarkDone(bundle.properties),
     descriptionFor: (cardId: string) => descriptionByCard.get(cardId) ?? '',
   }
 
@@ -439,7 +439,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       case 'gallery':
         return <GalleryView cards={cards} properties={bundle.properties} chipProperties={columns} fields={fields} badgesFor={badgesFor} coverFor={coverFor} canEdit={canEdit} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onPatchFields={patchFields} onAddCard={addCardInColumn} />
       case 'list':
-        return <ListView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} badgesFor={badgesFor} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onDeleteCard={onDeleteCard} onPatchCard={onPatchCard} onPatchFields={patchFields} onAddCard={addCardInColumn} />
+        return <ListView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} canMarkDone={projectCanMarkDone(bundle.properties)} badgesFor={badgesFor} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onDeleteCard={onDeleteCard} onPatchCard={onPatchCard} onPatchFields={patchFields} onAddCard={addCardInColumn} />
       case 'board':
         return fields.swimlaneBy
           ? <Swimlanes cards={cards} properties={bundle.properties} fields={fields} kanbanProps={kanbanProps} />

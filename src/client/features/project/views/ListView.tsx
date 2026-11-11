@@ -29,6 +29,7 @@ export interface ListProps {
   properties: ProjectProperty[]
   fields: ProjectViewFields
   canEdit: boolean
+  canMarkDone?: boolean
   badgesFor: (cardId: string) => ProjectCardBadges
   onOpenCard: (id: string) => void
   onCardContextMenu: (event: MouseEvent, card: ProjectCard) => void
@@ -41,7 +42,7 @@ export interface ListProps {
 }
 
 export function ListView(props: ListProps): ReactElement {
-  const { cards, properties, fields, canEdit } = props
+  const { cards, properties, fields, canEdit, canMarkDone = true } = props
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [renaming, setRenaming] = useState<{ id: string, value: string } | null>(null)
   const [columnsOpen, setColumnsOpen] = useState(false)
@@ -166,7 +167,8 @@ export function ListView(props: ListProps): ReactElement {
             role="checkbox"
             aria-checked={done}
             aria-label={card.title || t('project.board.untitled_card')}
-            disabled={!canEdit}
+            disabled={!canEdit || !canMarkDone}
+            title={canMarkDone ? undefined : t('project.card.no_done_field')}
             onClick={() => { void props.onToggleCardDone(card, !done) }}
           >
             {done && <Check size={11} aria-hidden="true" />}

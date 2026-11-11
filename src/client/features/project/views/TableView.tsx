@@ -80,8 +80,12 @@ export function TableView(props: TableProps): ReactElement {
   }
   const reorderColumn = (sourceId: string, targetId: string): void => {
     if (!canEdit || sourceId === targetId) return
-    const ids = columns.map((property) => property.id).filter((id) => id !== sourceId)
-    const at = ids.indexOf(targetId)
+    // Same rule as the board's columns: a drag to the right lands after the column it was dropped on,
+    // so moving one step is a move rather than a no-op.
+    const order = columns.map((property) => property.id)
+    const forwards = order.indexOf(sourceId) < order.indexOf(targetId)
+    const ids = order.filter((id) => id !== sourceId)
+    const at = ids.indexOf(targetId) + (forwards ? 1 : 0)
     props.onPatchFields({ visiblePropertyIds: [...ids.slice(0, at), sourceId, ...ids.slice(at)] })
   }
   const toggleGroup = (key: string): void => {

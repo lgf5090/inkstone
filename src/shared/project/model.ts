@@ -373,6 +373,52 @@ export function isProjectCardDone(card: ProjectCard, properties: readonly Projec
   return false
 }
 
+/**
+ * The option a board means by "done", and the one it falls back to when a card is reopened.
+ *
+ * The reader (`isProjectCardDone`) and every writer have to agree on this, or a checkbox can clear a
+ * status it cannot set: an English-only writer on a board whose options are named in Chinese finds no
+ * done option and writes null, so the tick never sticks.
+ */
+export function projectDoneOption(properties: readonly ProjectProperty[]): { property: ProjectProperty, option: ProjectPropertyOption } | null {
+  for (const property of properties) {
+    if (property.type !== 'select') continue
+    const option = property.options.find((entry) => CARD_DONE_PATTERN.test(entry.value))
+    if (option) return { property, option }
+  }
+  return null
+}
+
+/** The state a reopened card goes back to: the first option that is not the done one. */
+export function projectOpenOption(property: ProjectProperty, doneOptionId: string): ProjectPropertyOption | null {
+  return property.options.find((entry) => entry.id !== doneOptionId) ?? null
+}
+
+/**
+ * The property write that ticks or unticks a card, or null when the board cannot express it.
+ *
+ * A select board writes the option; a checkbox board writes the boolean; a board with neither has no
+ * tick to offer, and saying so lets the caller hide the control instead of writing a value that does
+ * nothing.
+ */
+export function projectDonePatch(
+  properties: readonly ProjectProperty[],
+  done: boolean,
+): Record<string, string | null> | null {
+  const target = projectDoneOption(properties)
+  if (target) {
+    const open = projectOpenOption(target.property, target.option.id)
+    return { [target.property.id]: done ? target.option.id : (open?.id ?? null) }
+  }
+  const checkbox = properties.find((property) => property.type === 'checkbox')
+  return checkbox ? { [checkbox.id]: done ? 'true' : 'false' } : null
+}
+
+/** Whether the board has any way to mark a card done, so a tick is only offered when it can work. */
+export function projectCanMarkDone(properties: readonly ProjectProperty[]): boolean {
+  return projectDonePatch(properties, true) !== null
+}
+
 export interface ProjectView {
   id: string
   boardId: string

@@ -42,6 +42,7 @@ export interface KanbanProps {
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
   onRenameGroupOption: (propertyId: string, optionId: string, value: string) => Promise<void>
   onSetGroupOptionColor: (propertyId: string, optionId: string, color: string) => Promise<void>
+  canMarkDone?: boolean
   starredCards: string[]
   pinnedCards: string[]
   descriptionFor: (cardId: string) => string
@@ -185,7 +186,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
   onColumnDragOver: (key: string | null) => void
   onColumnDrop: (key: string) => void
 }): ReactElement {
-  const { canEdit, subtasksByParent, selected } = props
+  const { canEdit, subtasksByParent, selected, canMarkDone = true } = props
   const label = columnKey === '' ? t('project.view.no_value') : projectOptionLabel(groupProperty!, columnKey)
   const color = (groupProperty && columnKey !== ''
     ? projectOptionCssColor(groupProperty.options.find((option) => option.id === columnKey)?.color ?? '')
@@ -363,7 +364,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
                               parentId={card.id}
                               subtasks={subtasks}
                               properties={properties}
-                              canEdit={canEdit}
+                              canEdit={canEdit && canMarkDone}
                               colorOf={colorOf}
                               onOpenCard={props.onOpenCard}
                               onToggleDone={(entry, checked) => { void props.onToggleCardDone(entry, checked) }}

@@ -12527,6 +12527,7 @@ const allowed = new Map([
     "// A card's blurb is its first content block; a board that keeps notes in a text property instead",
     "// still gets one, so the rich card and the day panel are not blank on half the boards out there.",
     "// The three keys a reader reaches for on a board: find, add, back out of a selection.",
+    "/**\n   * One writer for every tick in the app, so the list, the board's checklist and the card menu cannot\n   * disagree about which option \"done\" is. A parent then follows its children.\n   */",
   ]],
   ["src/client/features/project/CardBadges.tsx", [
     "/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */",
@@ -12620,6 +12621,7 @@ const allowed = new Map([
   ["src/client/features/project/views/ChartView.tsx", [
     "/**\n * The chart: one distribution, chosen by the reader.\n *\n * The reference draws a fixed bar chart of the first select property. This one lets the reader pick the\n * shape, the grouping and the measure, because \"how many per status\" and \"how much effort per person\"\n * are the same picture with different axes — and a chart that cannot answer the second is decoration.\n */",
     "/**\n * A canvas cannot read a CSS custom property, and chart.js's own parser does not know `oklch`, so an\n * option colour handed over as `var(--kanban-tag-blue-fg)` paints black. Resolve the variable, then\n * let a 1×1 context normalise whatever colour space it names into the rgba the chart understands.\n */",
+    "/* Always reachable: \"sum\" only appears once a numeric property is the measure, so hiding\n            this picker until the measure changed made the two controls wait on each other. */",
   ]],
   ["src/client/features/project/views/CollectionView.tsx", [
     "/**\n * The collection: every file the board carries, as a shelf rather than a list of filenames.\n *\n * An image shows itself; everything else shows its kind. Search and the category chips narrow the\n * shelf, and a file that belongs to a card opens that card, because \"where did this come from\" is the\n * question a board's attachments actually raise.\n */",
@@ -12662,6 +12664,8 @@ const allowed = new Map([
   ["src/client/features/project/views/TableView.tsx", [
     "/**\n * The table: every property in a column, edited where it is read.\n *\n * The head and the title column are both frozen, so a wide board keeps its bearings while it scrolls\n * sideways. A cell is a button until it is clicked, then it is the editor for that property type —\n * one click to edit rather than a mode the reader has to discover.\n */",
     "/* a stored value that is not a JSON array reads as plain text below */",
+    "// Same rule as the board's columns: a drag to the right lands after the column it was dropped on,",
+    "// so moving one step is a move rather than a no-op.",
   ]],
   ["src/client/features/project/views/TimelineView.tsx", [
     "/**\n * The timeline: the whole schedule at a glance, read-only.\n *\n * One row per card, in the board's own parent/child order — not grouped into lanes, because the\n * question here is \"what runs when, and what holds what\", and a lane band answers a different one.\n * The axis is headed twice (month over every day), blocking edges are drawn between the bars, and a\n * strip under the canvas shows where the viewport sits in the whole range. Changing a date is the\n * Gantt's job; keeping that split means scrolling the overview cannot move a task by accident.\n */",
@@ -32605,6 +32609,10 @@ const allowed = new Map([
     "/** Calendar reader: no `to` means the range covers exactly the `from` day. */",
     "/**\n * The same value moved to a new start: `to` travels the same distance, so editing a start day cannot\n * silently shorten a range to a single day. `includeTime`/`timeZone` ride along because they decide\n * which of the two conversions above every reader applies.\n */",
   ]],
+  ["src/shared/project/hierarchy.ts", [
+    "/**\n * Keeping a parent's tick in step with its children.\n *\n * A parent with subtasks is done when every subtask is done — that is what the fraction on its row\n * already claims. Ticking the last child therefore ticks the parent, and reopening one child reopens\n * the parent, all the way up. A card with no children is never touched: its tick is the reader's own.\n */",
+    "/**\n * The ancestor writes a child's new state implies, nearest parent first.\n *\n * `cards` is the board as it will read after the child's own write, so the caller passes the child\n * with its new values already applied. Each ancestor is judged against the state the walk has just\n * decided for its own children, which is what makes a three-level tree settle in one pass.\n */",
+  ]],
   ["src/shared/project/importers.ts", [
     "/**\n * The six external importers (G-1…G-6) as pure converters: each parses its system's export into the\n * same archive lines the server importer reads, so there is exactly one trust boundary. Lists /\n * sections / columns become a single select property; rows become cards carrying that property, and\n * free text becomes a text content block. G-7's packing is the shared archive envelope itself.\n */",
   ]],
@@ -32654,6 +32662,10 @@ const allowed = new Map([
     "// form (U+672A / U+6CA1 / U+4E0D in front of it) out of the match.",
     "/**\n * A view's optional property pick, read as \"unset\" when it is blank.\n *\n * A cleared picker is stored as `''`, not omitted: the server merges a patch over the saved fields,\n * so an absent key means \"leave alone\" and `undefined` could never turn a grouping back off.\n */",
     "/** The board draws its cards as a compact line or as a full card; the reader flips it per view. */",
+    "/**\n * The option a board means by \"done\", and the one it falls back to when a card is reopened.\n *\n * The reader (`isProjectCardDone`) and every writer have to agree on this, or a checkbox can clear a\n * status it cannot set: an English-only writer on a board whose options are named in Chinese finds no\n * done option and writes null, so the tick never sticks.\n */",
+    "/** The state a reopened card goes back to: the first option that is not the done one. */",
+    "/**\n * The property write that ticks or unticks a card, or null when the board cannot express it.\n *\n * A select board writes the option; a checkbox board writes the boolean; a board with neither has no\n * tick to offer, and saying so lets the caller hide the control instead of writing a value that does\n * nothing.\n */",
+    "/** Whether the board has any way to mark a card done, so a tick is only offered when it can work. */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",

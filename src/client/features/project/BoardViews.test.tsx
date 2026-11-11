@@ -746,3 +746,77 @@ describe('clearing a picker (the merge keeps absent keys)', () => {
     expect(view.container.querySelector('[data-calendar-day] [data-project-card="c1"]')).not.toBeNull()
   })
 })
+
+describe('the tick works on a board named in Chinese (R7-1)', () => {
+  const zhBundle = (): ProjectBoardBundle => {
+    const base = bundle()
+    base.properties = [
+      { id: 'ps', name: '\u72b6\u6001', type: 'select', options: [{ id: 'todo', value: '\u5f85\u529e', color: '' }, { id: 'doing', value: '\u8fdb\u884c\u4e2d', color: '' }, { id: 'done', value: '\u5df2\u5b8c\u6210', color: '' }] },
+    ]
+    base.views = [{ id: 'vl', boardId: 'b1', title: 'List', viewType: 'list', fields: emptyProjectViewFields(), position: 0, ...stamps }]
+    base.cards = [
+      { id: 'p', boardId: 'b1', parentId: '', title: 'Parent', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'doing' }, ...stamps },
+      { id: 'k1', boardId: 'b1', parentId: 'p', title: 'Kid one', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'done' }, ...stamps },
+      { id: 'k2', boardId: 'b1', parentId: 'p', title: 'Kid two', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'doing' }, ...stamps },
+    ]
+    return base
+  }
+
+  async function mountZh(onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>) {
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, {
+        bundle: zhBundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(),
+        onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(),
+        onActiveViewChange: vi.fn(), onPatchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined),
+        onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined),
+        onRefresh: vi.fn().mockResolvedValue(undefined),
+      }))
+    })
+  }
+
+  it('ticks an open card to the done option instead of clearing its status', async () => {
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    await mountZh(onPatchCard)
+    const tick = view.container.querySelector<HTMLButtonElement>('[data-project-card="p"] .pv-check')!
+    expect(tick.getAttribute('aria-checked')).toBe('false')
+    await act(async () => { tick.click() })
+    expect(onPatchCard).toHaveBeenCalledWith('p', { values: { ps: 'done' } })
+  })
+
+  it('unticks a done card back to the first open option, never to null', async () => {
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    await mountZh(onPatchCard)
+    const expander = view.container.querySelector<HTMLButtonElement>(`[data-project-card="p"] button[aria-label="${t('project.card.expand_subtasks')}"]`)!
+    await act(async () => { expander.click() })
+    const tick = view.container.querySelector<HTMLButtonElement>('[data-project-card="k1"] .pv-check')!
+    expect(tick.getAttribute('aria-checked')).toBe('true')
+    await act(async () => { tick.click() })
+    expect(onPatchCard).toHaveBeenCalledWith('k1', { values: { ps: 'todo' } })
+  })
+
+  it('ticks the parent once its last open child is ticked', async () => {
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    await mountZh(onPatchCard)
+    const expander = view.container.querySelector<HTMLButtonElement>(`[data-project-card="p"] button[aria-label="${t('project.card.expand_subtasks')}"]`)!
+    await act(async () => { expander.click() })
+    const child = view.container.querySelector<HTMLButtonElement>('[data-project-card="k2"] .pv-check')!
+    await act(async () => { child.click() })
+    expect(onPatchCard).toHaveBeenCalledWith('k2', { values: { ps: 'done' } })
+    expect(onPatchCard).toHaveBeenCalledWith('p', { values: { ps: 'done' } })
+  })
+
+  it('offers no tick at all on a board that cannot store one', async () => {
+    const base = zhBundle()
+    base.properties = [{ id: 'pt', name: 'Notes', type: 'text', options: [] }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, {
+        bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(),
+        onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(),
+        onActiveViewChange: vi.fn(), onPatchCard: vi.fn(), onAddGroupOption: vi.fn().mockResolvedValue(undefined),
+        onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined),
+        onRefresh: vi.fn().mockResolvedValue(undefined),
+      }))
+    })
+    expect(view.container.querySelector<HTMLButtonElement>('.pv-check')!.disabled).toBe(true)
+  })
+})

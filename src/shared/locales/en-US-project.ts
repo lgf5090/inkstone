@@ -146,7 +146,7 @@ export const EN_US_PROJECT = {
     "project.view.group_by": "Group by",
     "project.view.sort": "Sort",
     "project.view.filter": "Filter",
-    "project.view.properties": "Properties",
+    "project.view.properties": "Properties shown",
     "project.view.add_sort": "Add sort",
     "project.view.add_filter": "Add filter",
     "project.view.asc": "Ascending",
@@ -416,4 +416,5 @@ export const EN_US_PROJECT = {
     "project.boards.layout": "Board layout",
     "project.boards.layout_list": "List",
     "project.boards.layout_cards": "Cards",
+    "project.card.no_done_field": "This board has no status or checkbox field to tick",
 } as const
