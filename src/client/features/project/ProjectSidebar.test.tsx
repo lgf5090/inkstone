@@ -15,6 +15,9 @@ vi.mock('./api', () => ({
   setCategoryBoardHidden: vi.fn(),
   reorderProjectCategories: vi.fn(),
   reorderCategoryBoards: vi.fn(),
+  renameProjectBoard: vi.fn(),
+  patchProjectBoard: vi.fn(),
+  projectBoardExportUrl: vi.fn((id: string, format: string) => `/export/${id}.${format}`),
 }))
 
 const stamps = { ownerId: 'u1', type: 'P' as const, minimumRole: '' as const, description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0, role: 'admin' as const }
@@ -203,5 +206,42 @@ describe('the rebuilt sidebar (R4-4)', () => {
     const row = document.body.querySelector('[data-sidebar-board="b1"]')!
     expect(row.textContent).toContain('7')
     expect(row.querySelector(`[aria-label="${t('project.board.cards_count', { count: 7 })}"]`)).not.toBeNull()
+  })
+})
+
+describe('the nested tree reads as a tree', () => {
+  it('indents a board one level deeper than the folder holding it', async () => {
+    vi.mocked(api.fetchProjectCategories).mockResolvedValue({
+      categories: [
+        { id: 'cat1', userId: 'u1', name: 'Work', type: 'custom', collapsed: false, sortOrder: 0, createAt: 1, updateAt: 1, deleteAt: 0 },
+        { id: 'cat2', userId: 'u1', name: 'Work/Release', type: 'custom', collapsed: false, sortOrder: 1, createAt: 1, updateAt: 1, deleteAt: 0 },
+      ],
+      categoryBoards: [{ categoryId: 'cat2', boardId: 'b1', hidden: false, position: 0 }],
+    })
+    await mount()
+    // The board also appears under "recently edited"; the filed copy is the one inside the tree.
+    const copies = [...view.container.querySelectorAll('[data-sidebar-board="b1"]')]
+    const filed = copies.map((node) => (node.parentElement as HTMLElement).style.paddingLeft).filter(Boolean)
+    expect(filed).toEqual(['28px'])
+    const headers = [...view.container.querySelectorAll('section > div[style]')].map((node) => (node as HTMLElement).style.paddingLeft)
+    expect(headers).toEqual(['0px', '14px'])
+  })
+
+  it('offers rename, icon and the export pair on a board right click', async () => {
+    await mount()
+    const entry = view.container.querySelector('[data-sidebar-board="b2"]')!
+    await act(async () => { entry.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })) })
+    const labels = [...document.querySelectorAll('[role^="menuitem"]')].map((node) => node.textContent)
+    expect(labels).toContain(t('project.boards.rename'))
+    expect(labels).toContain(t('project.sidebar.change_icon'))
+    expect(labels).toContain(t('project.sidebar.export_csv'))
+    expect(labels).toContain(t('project.sidebar.export_archive'))
+    expect(labels).toContain(t('project.sidebar.move_to_folder'))
+  })
+
+  it('lists the recently edited boards above the tree', async () => {
+    await mount()
+    const headings = [...view.container.querySelectorAll('section > div')].map((node) => node.textContent)
+    expect(headings.some((text) => text === t('project.sidebar.recent'))).toBe(true)
   })
 })

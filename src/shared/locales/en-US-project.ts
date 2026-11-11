@@ -413,4 +413,7 @@ export const EN_US_PROJECT = {
     "project.sidebar.recent": "Recently edited",
     "project.sidebar.export_csv": "Export CSV",
     "project.sidebar.open_board": "Open board",
+    "project.boards.layout": "Board layout",
+    "project.boards.layout_list": "List",
+    "project.boards.layout_cards": "Cards",
 } as const

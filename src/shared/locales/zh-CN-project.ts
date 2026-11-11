@@ -413,6 +413,9 @@ export const ZH_CN_PROJECT = {
     "project.sidebar.recent": "最近编辑",
     "project.sidebar.export_csv": "导出 CSV",
     "project.sidebar.open_board": "打开看板",
+    "project.boards.layout": "看板形态",
+    "project.boards.layout_list": "列表",
+    "project.boards.layout_cards": "卡片",
 } as const
 
 /** zh strings for the built-in board templates' demo content, keyed by the English source string. */

@@ -646,7 +646,10 @@ function CategoryTreeItem({
       </div>
       {!isCollapsed && (
         <div className="mt-0.5 space-y-0.5">
-          {node.boards.map(({ board, edge }) => renderBoard(board, edge))}
+          {/* A board sits one level deeper than the folder holding it, or the tree reads flat. */}
+          <div className="space-y-0.5" style={{ paddingLeft: `${(node.depth + 1) * 14}px` }}>
+            {node.boards.map(({ board, edge }) => renderBoard(board, edge))}
+          </div>
           {node.children.map((child) => (
             <CategoryTreeItem
               key={child.id}

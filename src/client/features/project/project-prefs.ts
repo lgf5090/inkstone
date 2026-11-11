@@ -92,3 +92,20 @@ export function readPinnedCardsPref(boardId: string): string[] {
 export function writePinnedCardsPref(boardId: string, cardIds: string[]): void {
   writeArrayPref(PINNED_CARDS_KEY + boardId, cardIds)
 }
+
+const BOARD_LIST_LAYOUT_KEY = 'inkstone.project.boardListLayout'
+
+/** The board list remembers whether the reader left it as rows or as cards. */
+export function readBoardListLayoutPref(): 'list' | 'cards' {
+  try {
+    return localStorage.getItem(BOARD_LIST_LAYOUT_KEY) === 'cards' ? 'cards' : 'list'
+  } catch { /* storage unavailable: rows are the default */
+    return 'list'
+  }
+}
+
+export function writeBoardListLayoutPref(layout: 'list' | 'cards'): void {
+  try {
+    localStorage.setItem(BOARD_LIST_LAYOUT_KEY, layout)
+  } catch { /* best-effort: a blocked storage loses the preference, not the boards */ }
+}

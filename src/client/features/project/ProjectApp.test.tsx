@@ -17,6 +17,11 @@ vi.mock('./api', () => ({
   createProjectCard: vi.fn(),
   deleteProjectCard: vi.fn(),
   patchProjectCard: vi.fn(),
+  patchProjectBoard: vi.fn(),
+  projectBoardExportUrl: vi.fn((id: string, format: string) => `/export/${id}.${format}`),
+  saveBoardAsTemplate: vi.fn(),
+  createBoardFromTemplate: vi.fn(),
+  fetchProjectCategories: vi.fn().mockResolvedValue({ categories: [], categoryBoards: [] }),
 }))
 
 const board: ProjectBoardSummary = {
@@ -103,5 +108,65 @@ describe('the project container', () => {
     expect(api.fetchProjectBoards).toHaveBeenCalledTimes(2)
     expect(rows()).toHaveLength(1)
     expect(text()).not.toContain(t('project.boards.load_failed'))
+  })
+})
+describe('the board list card view', () => {
+  beforeEach(() => { localStorage.clear() })
+  afterEach(() => { localStorage.clear() })
+
+  async function mountList(): Promise<void> {
+    useProjectStore.setState({ boards: [{ ...board, description: 'what this board is for', cardCount: 7 }], boardsStatus: 'ready', boardsError: null })
+    await act(async () => { view = renderElement(createElement(ProjectApp)) })
+  }
+
+  it('starts as rows and switches to tiles that carry the board metadata', async () => {
+    await mountList()
+    expect(view.container.querySelector('[data-board-cards]')).toBeNull()
+    expect(view.container.querySelector('li[data-project-board]')).not.toBeNull()
+    const cards = [...view.container.querySelectorAll<HTMLButtonElement>('.pv-seg-btn')].find((button) => button.textContent === t('project.boards.layout_cards'))!
+    await act(async () => { cards.click() })
+    const tile = view.container.querySelector('[data-board-cards] [data-project-board]')!
+    expect(tile).not.toBeNull()
+    expect(tile.textContent).toContain('A board')
+    expect(tile.textContent).toContain('what this board is for')
+    expect(tile.textContent).toContain(t('project.board.cards_count', { count: 7 }))
+    expect(view.container.querySelector('li[data-project-board]')).toBeNull()
+  })
+
+  it('remembers the choice across a remount', async () => {
+    await mountList()
+    const cards = [...view.container.querySelectorAll<HTMLButtonElement>('.pv-seg-btn')].find((button) => button.textContent === t('project.boards.layout_cards'))!
+    await act(async () => { cards.click() })
+    view.unmount()
+    await mountList()
+    expect(view.container.querySelector('[data-board-cards]')).not.toBeNull()
+  })
+
+  it('offers rename on a right click in either shape', async () => {
+    await mountList()
+    const row = view.container.querySelector('li[data-project-board]')!
+    await act(async () => { row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })) })
+    expect([...document.querySelectorAll('[role^="menuitem"]')].map((node) => node.textContent)).toContain(t('project.boards.rename'))
+    await act(async () => { document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
+    const cards = [...view.container.querySelectorAll<HTMLButtonElement>('.pv-seg-btn')].find((button) => button.textContent === t('project.boards.layout_cards'))!
+    await act(async () => { cards.click() })
+    const tile = view.container.querySelector('[data-board-cards] [data-project-board]')!
+    await act(async () => { tile.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })) })
+    const labels = [...document.querySelectorAll('[role^="menuitem"]')].map((node) => node.textContent)
+    expect(labels).toContain(t('project.boards.rename'))
+    expect(labels).toContain(t('project.sidebar.pin'))
+    expect(labels).toContain(t('project.sidebar.export_csv'))
+  })
+
+  it('gives each board a stable plate colour of its own', async () => {
+    useProjectStore.setState({
+      boards: [{ ...board, id: 'a'.repeat(27) }, { ...board, id: 'b'.repeat(27) }, { ...board, id: 'c'.repeat(27) }],
+      boardsStatus: 'ready', boardsError: null,
+    })
+    localStorage.setItem('inkstone.project.boardListLayout', 'cards')
+    await act(async () => { view = renderElement(createElement(ProjectApp)) })
+    const tints = [...view.container.querySelectorAll('.pv-tile-placeholder')].map((node) => (node as HTMLElement).style.getPropertyValue('--pv-card-color'))
+    expect(tints.every((tint) => tint.startsWith('var(--kanban-tag-'))).toBe(true)
+    expect(new Set(tints).size).toBeGreaterThan(1)
   })
 })

@@ -12541,14 +12541,24 @@ const allowed = new Map([
   ["src/client/features/project/MembersDialog.tsx", [
     "/**\n * Who is on this board, and what they may do.\n *\n * The role model, the person properties and the mention notifications all key on membership, so\n * without this screen a \"shared\" board is a board of one. The server owns the two refusals that\n * matter — the last admin cannot be demoted or removed, and the roster is capped — so the dialog\n * reports what the server said rather than guessing at either rule.\n */",
   ]],
+  ["src/client/features/project/ProjectApp.tsx", [
+    "/**\n * A board has no colour field, so its plate borrows one from the tag palette by id: stable across\n * reloads, and different enough that a wall of boards is not one flat wash.\n */",
+    "// FNV-1a plus an avalanche step: a plain rolling sum put ids that differ in one character on the",
+    "// same swatch, which is exactly the case a wall of sibling boards hits.",
+    "/** The same board as a tile: icon, blurb, size and last edit, with the row's whole menu behind it. */",
+  ]],
   ["src/client/features/project/ProjectSharePage.tsx", [
     "/**\n * A shared board, as a stranger reads it.\n *\n * The slug and the passcode are the whole capability — there is no session on this page, so every byte\n * comes from the one public answer. The board is drawn by the same views a member sees with editing\n * off, rather than by a second renderer that could drift from what the owner previewed; the member-only\n * reads (dependencies, exports, attachments) are not offered because they would answer 401.\n */",
     "// A refusal is the passcode's answer, not a broken page: the server hands over no board at all",
     "// until the gate is passed, so treating it as \"gone\" would hide the one control that gets in.",
   ]],
+  ["src/client/features/project/ProjectSidebar.test.tsx", [
+    "// The board also appears under \"recently edited\"; the filed copy is the one inside the tree.",
+  ]],
   ["src/client/features/project/ProjectSidebar.tsx", [
     "/* best-effort: an unreadable category list leaves the board list usable */",
     "/* best-effort: the highlight is optional */",
+    "/* A board sits one level deeper than the folder holding it, or the tree reads flat. */",
   ]],
   ["src/client/features/project/PropertyValueEditor.test.tsx", [
     "/**\n * The date cell has to agree with the module's own conversion (§6.6) in the reader's own zone: the day\n * the picker files is the day the table cell, the date filter and the timeline read back. The editor\n * once did its own UTC arithmetic, which filed local midnight and read back a day early east of UTC.\n *\n * The zone is switched per case rather than assumed, because the defect is invisible in UTC — the\n * machine's own zone is not a fixture.\n */",
@@ -12584,6 +12594,9 @@ const allowed = new Map([
     "/* storage unavailable: fall back to the open default */",
     "/* best-effort: remembering the toggle is optional */",
     "/** Card pins and stars are per board: a card id means nothing on another one. */",
+    "/** The board list remembers whether the reader left it as rows or as cards. */",
+    "/* storage unavailable: rows are the default */",
+    "/* best-effort: a blocked storage loses the preference, not the boards */",
   ]],
   ["src/client/features/project/sidebar-drag.ts", [
     "/**\n * What a drop on the category tree means.\n *\n * The tree is drawn from slash-separated names, so \"nest under\" is a rename of the dragged category\n * and everything below it, while \"place beside\" is a reorder. Both are decided here rather than in\n * the component because the two failure modes are silent: a target that is not a real category used\n * to splice at -1 and land the row second-from-last, and a nest that forgot the descendants left them\n * pointing at a path that no longer exists.\n */",
