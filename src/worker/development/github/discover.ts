@@ -15,6 +15,7 @@ import type {
 } from '@shared/development/github/types'
 import { githubJson } from './github-http'
 import { normalizeLatestStableRelease, searchRepositoriesByQuery } from './github-repos'
+import { ApiError } from '../../lib/errors'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const VERIFY_CONCURRENCY = 8
@@ -48,6 +49,7 @@ interface QualifiedPool {
   exhausted: boolean
   verifyBudget: number
   checked: number
+  failed: number
   scanned: number
   total: number
   expiresAt: number
@@ -178,19 +180,19 @@ async function verifyItem(
   item: GithubDiscoverItem,
   platform: GithubDiscoverQuery['platform'],
   token: string | null,
-): Promise<GithubDiscoverItem> {
+): Promise<{ item: GithubDiscoverItem; ok: boolean }> {
   const parsed = item.repo.fullName.split('/')
-  if (parsed.length !== 2) return item
+  if (parsed.length !== 2) return { item, ok: false }
   try {
     const { data } = await githubJson<unknown[]>(
       `/repos/${encodeURIComponent(parsed[0]!)}/${encodeURIComponent(parsed[1]!)}/releases?per_page=5`,
       { token, timeoutMs: GITHUB_DETAIL_TIMEOUT_MS },
     )
     const release = normalizeLatestStableRelease(Array.isArray(data) ? data : [])
-    return { ...item, release: release ? summarizeRelease(release, platform) : null }
+    return { item: { ...item, release: release ? summarizeRelease(release, platform) : null }, ok: true }
   } catch (error) {
     console.warn('[inkstone] GitHub release verification failed for', item.repo.fullName, error)
-    return item
+    return { item, ok: false }
   }
 }
 
@@ -245,6 +247,7 @@ function initialPool(): QualifiedPool {
     exhausted: false,
     verifyBudget: MAX_VERIFY_PER_REQUEST,
     checked: 0,
+    failed: 0,
     scanned: 0,
     total: 0,
     expiresAt: Date.now() + DISCOVER_CACHE_TTL_MS,
@@ -291,9 +294,16 @@ async function ensurePool(
     pool.verifyBudget -= head.length
     const checked = await mapWithConcurrency(head, VERIFY_CONCURRENCY, (item) => verifyItem(item, query.platform, token))
     pool.checked += checked.length
-    for (const item of checked) {
-      if (keepsItem(item, query, tracked)) pool.items.push(item)
+    for (const result of checked) {
+      if (!result.ok) {
+        pool.failed += 1
+        continue
+      }
+      if (keepsItem(result.item, query, tracked)) pool.items.push(result.item)
     }
+  }
+  if (pool.items.length === 0 && pool.checked > 0 && pool.failed === pool.checked) {
+    throw new ApiError(502, 'github_upstream', 'GitHub release lookup failed for every candidate')
   }
   if (query.sort !== 'best-match' && query.query.trim()) {
     pool.items = sortedCandidates(pool.items, query)
@@ -332,7 +342,7 @@ export async function discoverRepositories(
     const head = verified ? initial.slice(0, DISCOVER_VERIFY_LIMIT) : []
     const tail = initial.slice(head.length)
     const checkedItems = verified
-      ? await mapWithConcurrency(head, VERIFY_CONCURRENCY, (item) => verifyItem(item, query.platform, token))
+      ? (await mapWithConcurrency(head, VERIFY_CONCURRENCY, (item) => verifyItem(item, query.platform, token))).map((result) => result.item)
       : []
     const combined = [...checkedItems, ...tail]
     const filtered = tracked && (query.tracked !== 'any' || query.updateStatus !== 'any')
