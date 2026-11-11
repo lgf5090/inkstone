@@ -130,7 +130,7 @@ export function ChartView(props: ChartProps): ReactElement {
           value={groupProperty?.id ?? ''}
           label={t('project.view.group_by')}
           disabled={!props.canEdit}
-          onChange={(value) => props.onPatchFields({ chartGroupById: value || undefined })}
+          onChange={(value) => props.onPatchFields({ chartGroupById: value })}
           options={groupable.map((property) => ({ value: property.id, label: property.name }))}
         />
         <SelectMenu
@@ -149,7 +149,7 @@ export function ChartView(props: ChartProps): ReactElement {
             value={measureProperty?.id ?? ''}
             label={t('project.view.chart_property')}
             disabled={!props.canEdit}
-            onChange={(value) => props.onPatchFields({ chartPropertyId: value || undefined })}
+            onChange={(value) => props.onPatchFields({ chartPropertyId: value })}
             options={properties.map((property) => ({ value: property.id, label: property.name }))}
           />
         )}

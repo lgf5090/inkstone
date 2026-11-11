@@ -252,6 +252,16 @@ export type ProjectScheduleScale = (typeof PROJECT_SCHEDULE_SCALES)[number]
 export const PROJECT_CHART_TYPES = ['bar', 'line', 'pie', 'doughnut'] as const
 export type ProjectChartType = (typeof PROJECT_CHART_TYPES)[number]
 
+/**
+ * A view's optional property pick, read as "unset" when it is blank.
+ *
+ * A cleared picker is stored as `''`, not omitted: the server merges a patch over the saved fields,
+ * so an absent key means "leave alone" and `undefined` could never turn a grouping back off.
+ */
+export function projectViewPropertyId(value: string | undefined): string | undefined {
+  return value ? value : undefined
+}
+
 export function emptyProjectViewFields(): ProjectViewFields {
   return {
     sortOptions: [],

@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { CalendarRange, Maximize2, Trash2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectScheduleScale, ProjectViewFields } from '@shared/project/model'
-import { isProjectCardDone } from '@shared/project/model'
+import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectCardColor, projectOptionCssColor } from '@shared/project/option-color'
 import { projectDayToStamp } from '@shared/project/date'
 import {
@@ -62,7 +62,7 @@ interface DragState {
 
 export function GanttView(props: GanttProps): ReactElement {
   const { cards, properties, links, fields, subtasksByParent, canEdit } = props
-  const propertyId = fields.dateDisplayPropertyId ?? properties.find((property) => property.type === 'date')?.id
+  const propertyId = projectViewPropertyId(fields.dateDisplayPropertyId) ?? properties.find((property) => property.type === 'date')?.id
   const statusProperty = properties.find((property) => property.type === 'select')
   const scale = fields.scheduleScale ?? 'day'
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
@@ -314,7 +314,7 @@ export function GanttView(props: GanttProps): ReactElement {
           value={fields.scheduleGroupById ?? statusProperty?.id ?? ''}
           label={t('project.view.group_lanes')}
           disabled={!canEdit}
-          onChange={(value) => props.onPatchFields({ scheduleGroupById: value || undefined })}
+          onChange={(value) => props.onPatchFields({ scheduleGroupById: value })}
           options={[{ value: '', label: t('project.view.no_value') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
         />
         <Checkbox label={t('project.view.show_dependencies')} checked={showDeps} onChange={(checked) => props.onPatchFields({ scheduleShowDependencies: checked })} />

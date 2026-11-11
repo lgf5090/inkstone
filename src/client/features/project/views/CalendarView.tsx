@@ -9,7 +9,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import type { ProjectCalendarMode, ProjectCard, ProjectProperty } from '@shared/project/model'
-import { isProjectCardDone } from '@shared/project/model'
+import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectDayToStamp } from '@shared/project/date'
 import { projectCardDays } from '@shared/project/timeline-layout'
 import { projectCalendarDayChips, projectCalendarDayRoles, projectCalendarOverdue, projectCalendarRibbons, projectCalendarWeekSpans } from '@shared/project/calendar-layout'
@@ -52,7 +52,7 @@ export function CalendarView(props: CalendarProps): ReactElement {
   const locale = useLocale()
   const prefs = useCalendarDisplayPrefs()
   const weekStart = resolveWeekStart(prefs.weekStart, locale)
-  const propertyId = datePropertyId ?? properties.find((property) => property.type === 'date')?.id
+  const propertyId = projectViewPropertyId(datePropertyId) ?? properties.find((property) => property.type === 'date')?.id
   const [anchor, setAnchor] = useState(() => new Date())
   const [selected, setSelected] = useState<string | null>(null)
   const [dropDay, setDropDay] = useState<string | null>(null)

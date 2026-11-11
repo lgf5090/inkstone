@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { Activity, AlertTriangle, CalendarClock, CheckCircle2, LayoutDashboard, Loader, Users } from 'lucide-react'
 import type { ProjectActivityEntry, ProjectCard, ProjectProperty } from '@shared/project/model'
-import { isProjectCardDone } from '@shared/project/model'
+import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectCardDays } from '@shared/project/timeline-layout'
 import { projectOptionCssColor } from '@shared/project/option-color'
 import { t, useLocale } from '../../../lib/i18n'
@@ -58,7 +58,7 @@ export function DashboardView(props: DashboardProps): ReactElement {
   const locale = useLocale()
   const [activity, setActivity] = useState<ProjectActivityEntry[]>([])
   const [focus, setFocus] = useState<'overdue' | 'soon' | null>(null)
-  const propertyId = props.datePropertyId ?? properties.find((property) => property.type === 'date')?.id
+  const propertyId = projectViewPropertyId(props.datePropertyId) ?? properties.find((property) => property.type === 'date')?.id
   const statusProperty = properties.find((property) => property.type === 'select')
   const personProperty = properties.find((property) => property.type === 'person' || property.type === 'multiPerson')
 

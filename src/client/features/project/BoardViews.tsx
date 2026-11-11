@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ArrowUpDown, BarChart3, Calendar, CalendarRange, CheckSquare, Clock, Copy, Download, Eye, FileText, Filter, FolderOpen, LayoutDashboard, LayoutGrid, Link2, List, ListTodo, MoreHorizontal, Pencil, Plus, RotateCcw, SlidersHorizontal, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
-import { emptyProjectViewFields, isProjectCardDone, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
+import { emptyProjectViewFields, isProjectCardDone, projectViewPropertyId, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badges'
 import { matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
@@ -361,7 +361,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       case 'collection':
         return <CollectionView boardId={bundle.board.id} canEdit={canEdit} onOpenCard={onOpenCard} />
       case 'dashboard':
-        return <DashboardView boardId={bundle.board.id} cards={cards} properties={bundle.properties} datePropertyId={fields.dateDisplayPropertyId} onOpenCard={onOpenCard} />
+        return <DashboardView boardId={bundle.board.id} cards={cards} properties={bundle.properties} datePropertyId={projectViewPropertyId(fields.dateDisplayPropertyId)} onOpenCard={onOpenCard} />
       case 'chart':
         return <ChartView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} onPatchFields={patchFields} />
       case 'calendar':
@@ -370,7 +370,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             cards={cards}
             boardId={bundle.board.id}
             properties={bundle.properties}
-            datePropertyId={fields.dateDisplayPropertyId}
+            datePropertyId={projectViewPropertyId(fields.dateDisplayPropertyId)}
             mode={fields.calendarMode ?? 'month'}
             onModeChange={(mode) => patchFields({ calendarMode: mode })}
             canEdit={canEdit}
@@ -480,7 +480,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               value={fields.dateDisplayPropertyId ?? ''}
               label={t('project.view.display_by')}
               disabled={!canEdit}
-              onChange={(value) => patchFields({ dateDisplayPropertyId: value || undefined })}
+              onChange={(value) => patchFields({ dateDisplayPropertyId: value })}
               options={[{ value: '', label: t('project.view.display_by') }, ...dateProperties.map((property) => ({ value: property.id, label: property.name }))]}
             />
           )}
@@ -491,7 +491,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               value={fields.groupById ?? ''}
               label={t('project.view.group_by')}
               disabled={!canEdit}
-              onChange={(value) => patchFields({ groupById: value || undefined })}
+              onChange={(value) => patchFields({ groupById: value })}
               options={[{ value: '', label: t('project.view.group_by') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
             />
           )}
@@ -502,7 +502,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               value={fields.swimlaneBy ?? ''}
               label={t('project.view.swimlane')}
               disabled={!canEdit}
-              onChange={(value) => patchFields({ swimlaneBy: value || undefined })}
+              onChange={(value) => patchFields({ swimlaneBy: value })}
               options={[{ value: '', label: t('project.view.swimlane') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
             />
           )}

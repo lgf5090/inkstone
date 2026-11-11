@@ -32615,6 +32615,7 @@ const allowed = new Map([
     "// A board's \"done\" column is named by whoever made the board, so the reader recognises the word in",
     "// the languages the interface ships: U+5B8C U+6210 is \"finished\". The lookbehind keeps the negated",
     "// form (U+672A / U+6CA1 / U+4E0D in front of it) out of the match.",
+    "/**\n * A view's optional property pick, read as \"unset\" when it is blank.\n *\n * A cleared picker is stored as `''`, not omitted: the server merges a patch over the saved fields,\n * so an absent key means \"leave alone\" and `undefined` could never turn a grouping back off.\n */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",

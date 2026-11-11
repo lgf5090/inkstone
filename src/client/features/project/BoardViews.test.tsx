@@ -720,3 +720,31 @@ describe('the column header stays readable (R4-1)', () => {
     expect(onPatch).toHaveBeenCalledWith('v2', { fields: { kanbanCalculations: { o1: { calculation: 'countNotEmpty', propertyId: 'ps' } } } })
   })
 })
+
+describe('clearing a picker (the merge keeps absent keys)', () => {
+  it('stores an empty swimlane rather than omitting it, so the lanes actually turn off', async () => {
+    const onPatchView = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>().mockResolvedValue(undefined)
+    const base = bundle()
+    base.views = [{ ...base.views[1]!, fields: { ...emptyProjectViewFields(), groupById: 'ps', swimlaneBy: 'ps' } }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+    expect(view.container.querySelectorAll('[data-swimlane]').length).toBeGreaterThan(0)
+    const trigger = view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.view.swimlane')}"]`)!
+    await act(async () => { trigger.click() })
+    const blank = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((row) => row.textContent === t('project.view.swimlane'))!
+    await act(async () => { blank.click() })
+    expect(onPatchView).toHaveBeenCalledWith('v2', { fields: { swimlaneBy: '' } })
+  })
+
+  it('falls back to the first date property when display-by is cleared', async () => {
+    const base = bundle()
+    base.properties = [...base.properties, { id: 'pd', name: 'Due', type: 'date', options: [] }]
+    base.cards = [{ ...base.cards[0]!, values: { ps: 'o1', pd: JSON.stringify({ from: projectDayToStamp(new Date()) }) } }]
+    base.views = [{ ...base.views[0]!, id: 'vc', viewType: 'calendar', fields: { ...emptyProjectViewFields(), dateDisplayPropertyId: '' } }]
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    })
+    expect(view.container.querySelector('[data-calendar-day] [data-project-card="c1"]')).not.toBeNull()
+  })
+})

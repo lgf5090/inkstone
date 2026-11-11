@@ -8,7 +8,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react'
 import { Clock, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectScheduleScale, ProjectViewFields } from '@shared/project/model'
-import { isProjectCardDone } from '@shared/project/model'
+import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectCardColor } from '@shared/project/option-color'
 import {
   PROJECT_TIMELINE_COLUMN_PX,
@@ -46,7 +46,7 @@ export interface TimelineProps {
 
 export function TimelineView(props: TimelineProps): ReactElement {
   const { cards, properties, links, fields, subtasksByParent } = props
-  const propertyId = fields.dateDisplayPropertyId ?? properties.find((property) => property.type === 'date')?.id
+  const propertyId = projectViewPropertyId(fields.dateDisplayPropertyId) ?? properties.find((property) => property.type === 'date')?.id
   const scale = fields.scheduleScale ?? 'day'
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [showTray, setShowTray] = useState(true)
@@ -145,7 +145,7 @@ export function TimelineView(props: TimelineProps): ReactElement {
           size="sm"
           value={fields.scheduleGroupById ?? ''}
           label={t('project.view.group_lanes')}
-          onChange={(value) => props.onPatchFields({ scheduleGroupById: value || undefined })}
+          onChange={(value) => props.onPatchFields({ scheduleGroupById: value })}
           options={[{ value: '', label: t('project.view.group_lanes') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
         />
         <Checkbox label={t('project.view.show_dependencies')} checked={showDeps} onChange={(checked) => props.onPatchFields({ scheduleShowDependencies: checked })} />
