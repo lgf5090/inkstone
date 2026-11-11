@@ -1,3 +1,5 @@
+import type { GithubDiscoverRelease, GithubRelease } from './types'
+
 export type GithubAssetPlatform = 'android' | 'windows' | 'macos' | 'linux'
 
 export const GITHUB_ASSET_PLATFORMS: readonly GithubAssetPlatform[] = ['android', 'windows', 'macos', 'linux']
@@ -5,6 +7,14 @@ export const GITHUB_ASSET_PLATFORMS: readonly GithubAssetPlatform[] = ['android'
 export type GithubPlatformFilter = 'all' | GithubAssetPlatform
 
 export const GITHUB_PLATFORM_FILTERS: readonly GithubPlatformFilter[] = ['all', ...GITHUB_ASSET_PLATFORMS]
+
+export const GITHUB_PLATFORM_TOPICS: Record<GithubPlatformFilter, string | null> = {
+  all: null,
+  android: 'android',
+  windows: 'desktop',
+  macos: 'macos',
+  linux: 'linux',
+}
 
 const PLATFORM_SUFFIXES: readonly { platform: GithubAssetPlatform; suffixes: readonly string[] }[] = [
   { platform: 'android', suffixes: ['.apk', '.aab', '.apks'] },
@@ -80,4 +90,21 @@ export function updateState(latestTag: string, installedTag: string): GithubUpda
   const result = compareVersions(latestTag, installedTag)
   if (result === null) return 'unknown'
   return result > 0 ? 'update-available' : 'up-to-date'
+}
+
+export function summarizeRelease(release: GithubRelease, platform: GithubPlatformFilter): GithubDiscoverRelease {
+  const platforms = releasePlatforms(release.assets.map((asset) => asset.name))
+  const recommended = platform === 'all'
+    ? release.assets.find((asset) => assetPlatform(asset.name) !== null) ?? release.assets[0] ?? null
+    : pickReleaseAsset(release.assets, platform)
+  return {
+    tagName: release.tagName,
+    name: release.name,
+    publishedAt: release.publishedAt,
+    htmlUrl: release.htmlUrl,
+    assetCount: release.assets.length,
+    downloadCount: release.assets.reduce((sum, asset) => sum + asset.downloadCount, 0),
+    platforms,
+    recommendedAsset: recommended,
+  }
 }

@@ -138,6 +138,7 @@ export const GithubMirrorListSchema = z.object({
 export const GithubCollectionInputSchema = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().max(500).default(''),
+  parentId: z.string().max(100).nullable().optional(),
   repoIds: z.array(z.string().regex(/^[0-9]{1,20}$/)).max(MAX_COLLECTION_REPOS).default([]),
 })
 
@@ -186,10 +187,37 @@ export const GithubGistListQuerySchema = z.object({
   account: z.string().min(1).max(100).optional(),
 })
 
+const DISCOVER_CATEGORY = z.enum(['all', 'ai', 'privacy', 'networking', 'media', 'social', 'reading', 'tools'])
+
 export const GithubDiscoverQuerySchema = z.object({
   chart: z.enum(['trending', 'releases', 'popular']).default('trending'),
   platform: z.enum(['all', 'android', 'windows', 'macos', 'linux']).default('all'),
   topic: z.string().max(50).regex(/^(?:[a-z0-9][a-z0-9-]{0,49})?$/).default(''),
+  category: DISCOVER_CATEGORY.default('all'),
+  q: z.string().max(256).default(''),
+  language: z.string().max(64).default(''),
+  updated: z.enum(['any', 'week', 'month', 'year']).default('any'),
+  tracked: z.enum(['any', 'tracked', 'untracked']).default('any'),
+  installer: z.enum(['0', '1']).default('0'),
+  update_status: z.enum(['any', 'available', 'latest']).default('any'),
+  sort: z.enum(['stars', 'forks', 'updated', 'best-match']).default('stars'),
+  order: z.enum(['asc', 'desc']).default('desc'),
+  page: z.coerce.number().int().min(1).max(20).default(1),
+  per_page: z.coerce.number().int().min(1).max(50).default(20),
+})
+
+export const GithubStoreSearchQuerySchema = z.object({
+  q: z.string().min(1).max(256),
+  platform: z.enum(['all', 'android', 'windows', 'macos', 'linux']).default('all'),
+  topic: z.string().max(50).regex(/^(?:[a-z0-9][a-z0-9-]{0,49})?$/).default(''),
+  category: DISCOVER_CATEGORY.default('all'),
+  language: z.string().max(64).default(''),
+  updated: z.enum(['any', 'week', 'month', 'year']).default('any'),
+  tracked: z.enum(['any', 'tracked', 'untracked']).default('any'),
+  installer: z.enum(['0', '1']).default('0'),
+  update_status: z.enum(['any', 'available', 'latest']).default('any'),
+  sort: z.enum(['stars', 'forks', 'updated', 'best-match']).default('best-match'),
+  order: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).max(20).default(1),
   per_page: z.coerce.number().int().min(1).max(50).default(20),
 })
@@ -205,6 +233,8 @@ export const GithubTrackedAppInputSchema = z.object({
   assetPattern: z.string().max(MAX_ASSET_PATTERN).default(''),
   installedTag: z.string().max(100).default(''),
   installedAt: z.number().int().nonnegative().optional(),
+  updateCheckEnabled: z.boolean().optional(),
+  skippedTag: z.string().max(100).optional(),
 })
 
 export const GithubAppsCheckSchema = z.object({

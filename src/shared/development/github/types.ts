@@ -67,6 +67,7 @@ export interface GithubCollection {
   id: string
   name: string
   description: string
+  parentId: string | null
   repoIds: string[]
   createdAt: number
   updatedAt: number
@@ -347,11 +348,35 @@ export interface GithubBootstrap {
 }
 
 export type GithubDiscoverChart = 'trending' | 'releases' | 'popular'
+export type GithubDiscoverCategory = 'all' | 'ai' | 'privacy' | 'networking' | 'media' | 'social' | 'reading' | 'tools'
+export type GithubUpdatedRange = 'any' | 'week' | 'month' | 'year'
+export type GithubTrackedFilter = 'any' | 'tracked' | 'untracked'
+export type GithubUpdateFilter = 'any' | 'available' | 'latest'
 
-export interface GithubDiscoverQuery {
+export interface GithubStoreFilters {
+  language: string
+  updated: GithubUpdatedRange
+  tracked: GithubTrackedFilter
+  installerOnly: boolean
+  updateStatus: GithubUpdateFilter
+}
+
+export const DEFAULT_STORE_FILTERS: GithubStoreFilters = {
+  language: '',
+  updated: 'any',
+  tracked: 'any',
+  installerOnly: false,
+  updateStatus: 'any',
+}
+
+export interface GithubDiscoverQuery extends GithubStoreFilters {
   chart: GithubDiscoverChart
   platform: GithubPlatformFilter
   topic: string
+  category: GithubDiscoverCategory
+  query: string
+  sort: GithubSortKey
+  order: GithubOrder
   page: number
   perPage: number
 }
@@ -376,9 +401,12 @@ export interface GithubDiscoverResult {
   chart: GithubDiscoverChart
   platform: GithubPlatformFilter
   topic: string
+  category: GithubDiscoverCategory
+  query: string
   page: number
   perPage: number
   total: number
+  hasNext: boolean
   items: GithubDiscoverItem[]
   verified: boolean
   checked: number
@@ -394,6 +422,8 @@ export interface GithubTrackedApp {
   assetPattern: string
   installedTag: string
   installedAt: number
+  updateCheckEnabled: boolean
+  skippedTag: string
   latestTag: string
   latestAssetName: string
   latestAssetUrl: string
@@ -437,6 +467,41 @@ export const GITHUB_DISCOVER_CHARTS: { value: GithubDiscoverChart; labelKey: Mes
   { value: 'trending', labelKey: 'development.github.store.chart.trending' },
   { value: 'releases', labelKey: 'development.github.store.chart.releases' },
   { value: 'popular', labelKey: 'development.github.store.chart.popular' },
+]
+
+export const GITHUB_DISCOVER_CATEGORIES: {
+  value: GithubDiscoverCategory
+  labelKey: MessageKey
+  topics: readonly string[]
+  queryTopic: string | null
+}[] = [
+  { value: 'all', labelKey: 'development.github.store.category.all', topics: [], queryTopic: null },
+  { value: 'ai', labelKey: 'development.github.store.category.ai', topics: ['ai'], queryTopic: 'ai' },
+  { value: 'privacy', labelKey: 'development.github.store.category.privacy', topics: ['privacy', 'security', 'encryption', 'vpn'], queryTopic: 'privacy' },
+  { value: 'networking', labelKey: 'development.github.store.category.networking', topics: ['networking', 'browser', 'messaging', 'proxy', 'dns'], queryTopic: 'networking' },
+  { value: 'media', labelKey: 'development.github.store.category.media', topics: ['audio', 'video', 'photo', 'media', 'music'], queryTopic: 'media' },
+  { value: 'social', labelKey: 'development.github.store.category.social', topics: ['social'], queryTopic: 'social' },
+  { value: 'reading', labelKey: 'development.github.store.category.reading', topics: ['reader', 'notes', 'markdown'], queryTopic: 'reader' },
+  { value: 'tools', labelKey: 'development.github.store.category.tools', topics: ['launcher', 'backup', 'self-hosted', 'developer-tools', 'cli'], queryTopic: 'self-hosted' },
+]
+
+export const GITHUB_UPDATED_OPTIONS: { value: GithubUpdatedRange; labelKey: MessageKey }[] = [
+  { value: 'any', labelKey: 'development.github.store.updated.any' },
+  { value: 'week', labelKey: 'development.github.store.updated.week' },
+  { value: 'month', labelKey: 'development.github.store.updated.month' },
+  { value: 'year', labelKey: 'development.github.store.updated.year' },
+]
+
+export const GITHUB_TRACKED_OPTIONS: { value: GithubTrackedFilter; labelKey: MessageKey }[] = [
+  { value: 'any', labelKey: 'development.github.store.tracked.any' },
+  { value: 'tracked', labelKey: 'development.github.store.tracked.only' },
+  { value: 'untracked', labelKey: 'development.github.store.tracked.none' },
+]
+
+export const GITHUB_UPDATE_FILTER_OPTIONS: { value: GithubUpdateFilter; labelKey: MessageKey }[] = [
+  { value: 'any', labelKey: 'development.github.store.update_status.any' },
+  { value: 'available', labelKey: 'development.github.store.update_status.available' },
+  { value: 'latest', labelKey: 'development.github.store.update_status.latest' },
 ]
 
 export const GITHUB_DISCOVER_TOPICS: { value: string; labelKey: MessageKey }[] = [
