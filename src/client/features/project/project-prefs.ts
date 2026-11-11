@@ -72,3 +72,23 @@ export function writeSidebarOpenPref(open: boolean): void {
     localStorage.setItem(SIDEBAR_OPEN_KEY, open ? '1' : '0')
   } catch { /* best-effort: remembering the toggle is optional */ }
 }
+
+const STARRED_CARDS_KEY = 'inkstone.project.starredCards.'
+const PINNED_CARDS_KEY = 'inkstone.project.pinnedCards.'
+
+/** Card pins and stars are per board: a card id means nothing on another one. */
+export function readStarredCardsPref(boardId: string): string[] {
+  return readArrayPref(STARRED_CARDS_KEY + boardId)
+}
+
+export function writeStarredCardsPref(boardId: string, cardIds: string[]): void {
+  writeArrayPref(STARRED_CARDS_KEY + boardId, cardIds)
+}
+
+export function readPinnedCardsPref(boardId: string): string[] {
+  return readArrayPref(PINNED_CARDS_KEY + boardId)
+}
+
+export function writePinnedCardsPref(boardId: string, cardIds: string[]): void {
+  writeArrayPref(PINNED_CARDS_KEY + boardId, cardIds)
+}

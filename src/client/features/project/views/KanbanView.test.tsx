@@ -34,6 +34,7 @@ async function mount(cards: ProjectCard[], extra: Partial<ProjectViewFields> = {
     subtasksByParent, canEdit: true, selected: [], onSelectClick: vi.fn(), onOpenCard: vi.fn(), onDeleteCard: vi.fn(),
     onPatchCard: vi.fn().mockResolvedValue(undefined), onPatchFields: vi.fn(), onAddCard: vi.fn().mockResolvedValue(undefined),
     onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined),
+    onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), starredCards: [], pinnedCards: [], descriptionFor: () => '',
     onCardContextMenu: vi.fn(), onToggleCardDone: vi.fn().mockResolvedValue(undefined), onAddSubtask: vi.fn().mockResolvedValue(undefined),
   }
   await act(async () => { view = renderElement(createElement(KanbanView, props)) })
@@ -120,7 +121,8 @@ describe('cards on the board', () => {
         badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }),
         subtasksByParent: new Map(), canEdit: false, selected: [], onSelectClick: vi.fn(), onOpenCard: vi.fn(),
         onDeleteCard: vi.fn(), onPatchCard: vi.fn(), onPatchFields: vi.fn(), onAddCard: vi.fn(),
-        onAddGroupOption: vi.fn(), onRenameGroupOption: vi.fn(), onCardContextMenu: vi.fn(),
+        onAddGroupOption: vi.fn(), onRenameGroupOption: vi.fn(), onSetGroupOptionColor: vi.fn(),
+        starredCards: [], pinnedCards: [], descriptionFor: () => '', onCardContextMenu: vi.fn(),
         onToggleCardDone: vi.fn(), onAddSubtask: vi.fn(),
       }))
     })
@@ -151,5 +153,93 @@ describe('dragging within a column', () => {
     expect(props.onPatchFields).toHaveBeenCalledWith({ cardOrder: ['b', 'c', 'a'] })
     expect(props.onPatchCard).not.toHaveBeenCalled()
     expect(document.querySelector('.pv-ghost')).toBeNull()
+  })
+})
+describe('the two card layouts', () => {
+  it('draws a compact line by default and a full card when the view says so', async () => {
+    await mount([card('a')])
+    expect(view.container.querySelector('[data-layout="compact"]')).not.toBeNull()
+    expect(view.container.querySelector('.pv-card-desc')).toBeNull()
+    view.unmount()
+    const props = await mount([card('a')], { boardLayout: 'card' })
+    expect(view.container.querySelector('[data-layout="card"]')).not.toBeNull()
+    expect(props).toBeTruthy()
+  })
+
+  it('shows the blurb and the pin/star marks only on the full card', async () => {
+    const cards = [card('a')]
+    const subtasksByParent = new Map<string, ProjectCard[]>()
+    await act(async () => {
+      view = renderElement(createElement(KanbanView, {
+        cards, properties, fields: { ...emptyProjectViewFields(), groupById: 'ps', boardLayout: 'card' },
+        badgesFor: () => ({ description: true, comments: 2, checked: 0, checkboxes: 0 }),
+        subtasksByParent, canEdit: true, selected: [], onSelectClick: vi.fn(), onOpenCard: vi.fn(),
+        onDeleteCard: vi.fn(), onPatchCard: vi.fn(), onPatchFields: vi.fn(), onAddCard: vi.fn(),
+        onAddGroupOption: vi.fn(), onRenameGroupOption: vi.fn(), onSetGroupOptionColor: vi.fn(),
+        starredCards: ['a'], pinnedCards: ['a'], descriptionFor: () => 'a short blurb',
+        onCardContextMenu: vi.fn(), onToggleCardDone: vi.fn(), onAddSubtask: vi.fn(),
+      }))
+    })
+    expect(view.container.querySelector('.pv-card-desc')?.textContent).toBe('a short blurb')
+    expect(view.container.querySelector(`[aria-label="${t('project.card.pin')}"]`)).not.toBeNull()
+    expect(view.container.querySelector(`[aria-label="${t('project.card.favorite')}"]`)).not.toBeNull()
+  })
+
+  it('floats a pinned card to the top of its own column', async () => {
+    const cards = [card('a'), card('b'), card('c')]
+    await act(async () => {
+      view = renderElement(createElement(KanbanView, {
+        cards, properties, fields: { ...emptyProjectViewFields(), groupById: 'ps' },
+        badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }),
+        subtasksByParent: new Map(), canEdit: true, selected: [], onSelectClick: vi.fn(), onOpenCard: vi.fn(),
+        onDeleteCard: vi.fn(), onPatchCard: vi.fn(), onPatchFields: vi.fn(), onAddCard: vi.fn(),
+        onAddGroupOption: vi.fn(), onRenameGroupOption: vi.fn(), onSetGroupOptionColor: vi.fn(),
+        starredCards: [], pinnedCards: ['c'], descriptionFor: () => '',
+        onCardContextMenu: vi.fn(), onToggleCardDone: vi.fn(), onAddSubtask: vi.fn(),
+      }))
+    })
+    const ids = [...columns()[0]!.querySelectorAll('[data-drag-id]')].map((node) => node.getAttribute('data-drag-id'))
+    expect(ids).toEqual(['c', 'a', 'b'])
+  })
+})
+
+describe('the column menu and reorder', () => {
+  it('offers rename, colour, collapse and hide on a right click', async () => {
+    await mount([card('a')])
+    await act(async () => { columns()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })) })
+    const rows = [...document.querySelectorAll('[role^="menuitem"]')].map((node) => node.textContent)
+    expect(rows).toEqual([
+      t('project.view.new_card_here'),
+      t('project.view.rename_group'),
+      t('project.view.column_color'),
+      t('project.view.collapse_column'),
+      t('project.view.hide_column'),
+    ])
+  })
+
+  it('writes the picked colour back to the option', async () => {
+    const props = await mount([card('a')])
+    await act(async () => { columns()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })) })
+    const colour = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find((node) => node.textContent === t('project.view.column_color'))!
+    await act(async () => { colour.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+    const red = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find((node) => node.textContent === 'Red')!
+    await act(async () => { red.click() })
+    expect(props.onSetGroupOptionColor).toHaveBeenCalledWith('ps', 'o1', 'propColorRed')
+  })
+
+  it('persists a dragged column order including the empty bucket key', async () => {
+    const props = await mount([card('a')])
+    const before = columns()
+    const transfer = { data: {} as Record<string, string>, types: ['text/plain'], setData(k: string, v: string) { this.data[k] = v }, getData(k: string) { return this.data[k] } }
+    const fire = (node: Element, type: string): void => {
+      const event = new Event(type, { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'dataTransfer', { value: transfer })
+      node.dispatchEvent(event)
+    }
+    await act(async () => { fire(before[0]!.querySelector('.pv-col-head')!, 'dragstart') })
+    await act(async () => { fire(before[1]!, 'dragover') })
+    expect(before[1]!.querySelector('.pv-col-head')!.getAttribute('data-drop-target')).toBe('true')
+    await act(async () => { fire(before[1]!, 'drop') })
+    expect(props.onPatchFields).toHaveBeenCalledWith({ columnOrder: ['o2', 'o1', ''] })
   })
 })

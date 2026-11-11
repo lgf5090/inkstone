@@ -12524,6 +12524,9 @@ const allowed = new Map([
     "/** Swimlanes stack one board per option of a second property, each with its own columns. */",
     "// These surfaces carry their own \"add the first card\" affordance, so an empty board must still draw",
     "// them: replacing them with a blank state leaves a new board with no way to start from that tab.",
+    "// A card's blurb is its first content block; a board that keeps notes in a text property instead",
+    "// still gets one, so the rich card and the day panel are not blank on half the boards out there.",
+    "// The three keys a reader reaches for on a board: find, add, back out of a selection.",
   ]],
   ["src/client/features/project/CardBadges.tsx", [
     "/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */",
@@ -12564,6 +12567,10 @@ const allowed = new Map([
     "/** The stranger's read: no session, the slug and passcode are the whole capability. */",
     "/** The staleness question a poller asks before paying for the whole bundle. */",
   ]],
+  ["src/client/features/project/card-menu.tsx", [
+    "/**\n * The card's right-click menu, built once so the board, the table, the list and the gallery all offer\n * the same actions.\n *\n * A menu that only opens and deletes is a menu the reader stops using. The edits they reach for most —\n * rename, status, priority, a date — belong here as one click each, with the destructive action last\n * and behind a separator.\n */",
+    "/** The colour swatches an option can wear, as a submenu the column and tag menus share. */",
+  ]],
   ["src/client/features/project/project-icon.ts", [
     "/**\n * A-9/A-10: board & card icons. The random-icon preference is a local toggle; when on, newly created\n * boards/cards get a random emoji from the shared catalog so lists stay scannable without manual picking.\n */",
     "/* best-effort: the preference is optional */",
@@ -12576,6 +12583,7 @@ const allowed = new Map([
     "/** Open unless the reader explicitly closed it: a board page without its tree is the rarer choice. */",
     "/* storage unavailable: fall back to the open default */",
     "/* best-effort: remembering the toggle is optional */",
+    "/** Card pins and stars are per board: a card id means nothing on another one. */",
   ]],
   ["src/client/features/project/sidebar-drag.ts", [
     "/**\n * What a drop on the category tree means.\n *\n * The tree is drawn from slash-separated names, so \"nest under\" is a rename of the dragged category\n * and everything below it, while \"place beside\" is a reorder. Both are decided here rather than in\n * the component because the two failure modes are silent: a target that is not a real category used\n * to splice at -1 and land the row second-from-last, and a nest that forgot the descendants left them\n * pointing at a path that no longer exists.\n */",
@@ -12627,6 +12635,9 @@ const allowed = new Map([
     "/**\n * The board: one column per group option, cards dragged between and within them.\n *\n * Dragging is pointer-based (see use-drag-sort) so a finger works the same as a mouse, and the drop\n * writes two things: the card's group value when it crossed a column, and the view's manual card\n * order when it landed between two cards. The reference keeps those as one gesture; splitting them\n * made a reorder inside a column silently do nothing.\n */",
     "/** Column keys in the reader's order: the property's options, then the ungrouped bucket. */",
     "/**\n * The column's title row: name, summary and one menu.\n *\n * The name is a button so a double click renames the option itself — the column and every card wearing\n * that option change together, which is what renaming a status means.\n */",
+    "// A pinned card leads its column without leaving it: the pin is a marker, not a second bucket.",
+    "// Dragging rightwards lands the column after the one it was dropped on; leftwards, before it.",
+    "// Inserting always before would make a one-step drag to the right a no-op.",
   ]],
   ["src/client/features/project/views/ListView.tsx", [
     "/**\n * The list: the whole board as a dense, checkable outline.\n *\n * It is the view for working through a board rather than looking at it, so the round check is first,\n * the title is one line, and the properties trail behind it. A double click renames in place and a\n * click on the priority chip walks it to the next level — the two edits the reference's task list\n * lets you make without opening anything. Rows drag to reorder within their group.\n */",
@@ -32629,6 +32640,7 @@ const allowed = new Map([
     "// the languages the interface ships: U+5B8C U+6210 is \"finished\". The lookbehind keeps the negated",
     "// form (U+672A / U+6CA1 / U+4E0D in front of it) out of the match.",
     "/**\n * A view's optional property pick, read as \"unset\" when it is blank.\n *\n * A cleared picker is stored as `''`, not omitted: the server merges a patch over the saved fields,\n * so an absent key means \"leave alone\" and `undefined` could never turn a grouping back off.\n */",
+    "/** The board draws its cards as a compact line or as a full card; the reader flips it per view. */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",
@@ -32683,6 +32695,7 @@ const allowed = new Map([
     "/**\n * A batch is one D1 transaction, so its size is bounded rather than left to the caller: an unbounded\n * array would let one request hold the database for as long as it likes.\n */",
     "// zod's string max counts code points, not UTF-16 units, which is the unit the reference's ceiling is",
     "// written in: a title of 16383 emoji is 32766 units but 16383 characters, and it has to be accepted.",
+    "// The ungrouped bucket's key is the empty string, so a list that can name a column has to accept it.",
   ]],
   ["src/shared/project/view-eval.test.ts", [
     "// Within half a day of the target, the open window says neither before nor after.",

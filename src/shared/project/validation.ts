@@ -7,6 +7,7 @@
 import { z } from 'zod'
 import { isProjectId, PROJECT_LIMITS } from './limits'
 import {
+  PROJECT_BOARD_LAYOUTS,
   PROJECT_BOARD_TYPES,
   PROJECT_CALCULATIONS,
   PROJECT_CALENDAR_MODES,
@@ -80,6 +81,8 @@ export const ProjectKanbanCalculationSchema = z.object({
 })
 
 const idList = z.array(z.string().min(1).max(64)).max(PROJECT_LIMITS.cardsPerBoard)
+// The ungrouped bucket's key is the empty string, so a list that can name a column has to accept it.
+const optionKeyList = z.array(z.string().max(64)).max(PROJECT_LIMITS.cardsPerBoard)
 
 export const ProjectViewFieldsSchema = z.object({
   groupById: z.string().max(64).optional(),
@@ -89,8 +92,8 @@ export const ProjectViewFieldsSchema = z.object({
   wipLimits: z.record(z.string().max(64), z.number().int().min(0)).optional(),
   sortOptions: z.array(ProjectSortOptionSchema).max(PROJECT_LIMITS.propertiesPerBoard),
   visiblePropertyIds: idList,
-  visibleOptionIds: idList,
-  hiddenOptionIds: idList,
+  visibleOptionIds: optionKeyList,
+  hiddenOptionIds: optionKeyList,
   collapsedOptionIds: z.array(z.string().max(64)).max(PROJECT_LIMITS.cardsPerBoard),
   filter: ProjectFilterGroupSchema,
   cardOrder: idList,
@@ -100,8 +103,9 @@ export const ProjectViewFieldsSchema = z.object({
   defaultTemplateId: z.string().max(64),
   galleryShowTitle: z.boolean().optional(),
   galleryShowBadges: z.boolean().optional(),
-  columnOrder: idList.optional(),
+  columnOrder: optionKeyList.optional(),
   galleryCardSize: z.enum(PROJECT_GALLERY_SIZES).optional(),
+  boardLayout: z.enum(PROJECT_BOARD_LAYOUTS).optional(),
   calendarMode: z.enum(PROJECT_CALENDAR_MODES).optional(),
   scheduleScale: z.enum(PROJECT_SCHEDULE_SCALES).optional(),
   scheduleGroupById: z.string().max(64).optional(),

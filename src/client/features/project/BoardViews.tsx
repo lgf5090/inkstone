@@ -6,9 +6,9 @@
  * bars, tiles — is the view's own business.
  */
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
-import { ArrowUpDown, BarChart3, Calendar, CalendarRange, CheckSquare, Clock, Copy, Download, Eye, FileText, Filter, FolderOpen, LayoutDashboard, LayoutGrid, Link2, List, ListTodo, MoreHorizontal, Pencil, Plus, RotateCcw, SlidersHorizontal, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
+import { ArrowUpDown, BarChart3, Calendar, CalendarRange, Clock, Copy, Download, Eye, Filter, FolderOpen, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Pencil, Plus, RotateCcw, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
-import { emptyProjectViewFields, isProjectCardDone, projectViewPropertyId, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
+import { emptyProjectViewFields, projectViewPropertyId, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badges'
 import { matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
@@ -16,10 +16,13 @@ import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
-import { Menu, prompt, submenuFor, type MenuItem } from '../../components/overlay'
+import { Menu, prompt, type MenuItem } from '../../components/overlay'
 import { PropertiesModal, SortModal } from './ViewSettingsModals'
 import { FilterModal } from './FilterEditor'
 import { optionDot } from './CardBadges'
+import { buildCardMenu } from './card-menu'
+import { readPinnedCardsPref, readStarredCardsPref, writePinnedCardsPref, writeStarredCardsPref } from './project-prefs'
+import { Seg } from './views/shell'
 import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, projectBoardExportUrl, projectFileUrl } from './api'
 import { KanbanView } from './views/KanbanView'
 import { TableView } from './views/TableView'
@@ -105,12 +108,13 @@ interface BoardViewsProps {
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
   onRenameGroupOption: (propertyId: string, optionId: string, value: string) => Promise<void>
+  onSetGroupOptionColor: (propertyId: string, optionId: string, color: string) => Promise<void>
   onRefresh: () => Promise<void>
   /** A public reader has no session: the member-only reads and exports would answer 401, so they are not offered. */
   publicView?: boolean
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onAddGroupOption, onRenameGroupOption, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
   useEffect(() => { setActiveId(readLastViewId(bundle.board.id)) }, [bundle.board.id])
   const selectView = (id: string): void => {
@@ -130,6 +134,18 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const [contextPoint, setContextPoint] = useState<{ x: number, y: number } | null>(null)
   const [contextItems, setContextItems] = useState<MenuItem[]>([])
   const lastIndex = useRef<number | null>(null)
+  const [starredCards, setStarredCards] = useState<string[]>(() => readStarredCardsPref(bundle.board.id))
+  const [pinnedCards, setPinnedCards] = useState<string[]>(() => readPinnedCardsPref(bundle.board.id))
+  useEffect(() => {
+    setStarredCards(readStarredCardsPref(bundle.board.id))
+    setPinnedCards(readPinnedCardsPref(bundle.board.id))
+  }, [bundle.board.id])
+  const toggleCardFlag = (kind: 'star' | 'pin', cardId: string): void => {
+    const read = kind === 'star' ? starredCards : pinnedCards
+    const next = read.includes(cardId) ? read.filter((id) => id !== cardId) : [...read, cardId]
+    if (kind === 'star') { setStarredCards(next); writeStarredCardsPref(bundle.board.id, next) }
+    else { setPinnedCards(next); writePinnedCardsPref(bundle.board.id, next) }
+  }
 
   useEffect(() => {
     if (publicView) return
@@ -187,13 +203,23 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     return map
   }, [bundle.contents])
 
+  // A card's blurb is its first content block; a board that keeps notes in a text property instead
+  // still gets one, so the rich card and the day panel are not blank on half the boards out there.
   const descriptionByCard = useMemo(() => {
     const map = new Map<string, string>()
     for (const block of bundle.contents) {
       if (block.type === 'text' && block.title.trim() && !map.has(block.cardId)) map.set(block.cardId, block.title.trim())
     }
+    const textProperties = bundle.properties.filter((property) => property.type === 'text')
+    for (const card of bundle.cards) {
+      if (map.has(card.id)) continue
+      for (const property of textProperties) {
+        const value = card.values[property.id]?.trim()
+        if (value) { map.set(card.id, value); break }
+      }
+    }
     return map
-  }, [bundle.contents])
+  }, [bundle.contents, bundle.cards, bundle.properties])
 
   const subtasksByParent = useMemo(() => {
     const map = new Map<string, ProjectCard[]>()
@@ -248,27 +274,25 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     }
   }
 
-  const buildCardContextMenu = (card: ProjectCard): MenuItem[] => {
-    const isDone = isProjectCardDone(card, bundle.properties)
-    const groupProperty = bundle.properties.find((property) => property.id === fields.groupById)
-    const items: MenuItem[] = [
-      { id: 'open', label: t('project.card.open'), icon: <FileText size={14} />, onSelect: () => onOpenCard(card.id) },
-      { id: 'toggle-done', label: isDone ? t('project.card.mark_undone') : t('project.card.mark_done'), icon: <CheckSquare size={14} />, disabled: !canEdit, onSelect: () => { void toggleCardDone(card, !isDone) } },
-      { id: 'add-subtask', label: t('project.card.add_subtask'), icon: <ListTodo size={14} />, disabled: !canEdit, onSelect: () => { void handleAddSubtask(card.id) } },
-    ]
-    if (groupProperty && canEdit && groupProperty.options.length > 0) {
-      const moveOptions: MenuItem[] = groupProperty.options.map((option) => ({
-        id: `opt-${option.id}`,
-        label: option.value,
-        onSelect: () => { void onPatchCard(card.id, { values: { [groupProperty.id]: option.id } }) },
-      }))
-      items.push({ id: 'move-group', label: t('project.card.move_to_column'), icon: <SlidersHorizontal size={14} />, subItems: moveOptions, submenu: submenuFor(moveOptions) })
-    }
-    items.push({ id: 'duplicate', label: t('project.card.duplicate'), icon: <Copy size={14} />, separatorBefore: true, disabled: !canEdit, onSelect: () => { void duplicateProjectCard(card.id).then(onRefresh) } })
-    items.push({ id: 'copy-link', label: t('project.card.copy_link'), icon: <Link2 size={14} />, disabled: publicView, onSelect: () => { void handleCopyLink(card.id) } })
-    items.push({ id: 'delete', label: t('project.board.delete_card'), icon: <Trash2 size={14} />, separatorBefore: true, tone: 'danger', disabled: !canEdit, onSelect: () => onDeleteCard(card.id) })
-    return items
-  }
+  const buildCardContextMenu = (card: ProjectCard): MenuItem[] => buildCardMenu({
+    card,
+    properties: bundle.properties,
+    groupById: fields.groupById,
+    datePropertyId: fields.dateDisplayPropertyId,
+    canEdit,
+    publicView,
+    starred: starredCards.includes(card.id),
+    pinned: pinnedCards.includes(card.id),
+    onOpen: onOpenCard,
+    onPatchCard,
+    onAddSubtask: handleAddSubtask,
+    onDuplicate: (id) => { void duplicateProjectCard(id).then(onRefresh) },
+    onCopyLink: (id) => { void handleCopyLink(id) },
+    onDelete: onDeleteCard,
+    onToggleDone: toggleCardDone,
+    onToggleStar: (id) => toggleCardFlag('star', id),
+    onTogglePin: (id) => toggleCardFlag('pin', id),
+  })
 
   const onCardContextMenu = (event: MouseEvent, card: ProjectCard): void => {
     event.preventDefault()
@@ -308,6 +332,29 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   }
   const batchProperties = bundle.properties.filter((property) => property.type === 'select')
   const batchProperty = batchProperties.find((property) => property.id === batchPropertyId)
+
+  // The three keys a reader reaches for on a board: find, add, back out of a selection.
+  const searchRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable) return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (event.key === '/') {
+        const field = searchRef.current?.querySelector('input')
+        if (field) { event.preventDefault(); field.focus() }
+      } else if (event.key === 'n' && canEdit) {
+        event.preventDefault()
+        void prompt({ title: t('project.board.new_card'), confirmLabel: t('common.save') }).then((name) => {
+          if (name && name.trim()) void addCardInColumn(name.trim(), '')
+        })
+      } else if (event.key === 'Escape') {
+        setSelected([])
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [canEdit, bundle.board.id])
 
   const hiddenCount = bundle.cards.length - filtered.length
   const columns = fields.visiblePropertyIds.length
@@ -350,9 +397,13 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     onAddCard: addCardInColumn,
     onAddGroupOption,
     onRenameGroupOption,
+    onSetGroupOptionColor,
     onCardContextMenu,
     onToggleCardDone: toggleCardDone,
     onAddSubtask: handleAddSubtask,
+    starredCards,
+    pinnedCards,
+    descriptionFor: (cardId: string) => descriptionByCard.get(cardId) ?? '',
   }
 
   const renderView = (): ReactElement => {
@@ -466,7 +517,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         )}
       </div>
       {active && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5">
+        <div ref={searchRef} className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5">
           <Input
             className="w-44 min-w-0"
             value={search}
@@ -494,6 +545,17 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               disabled={!canEdit}
               onChange={(value) => patchFields({ groupById: value })}
               options={[{ value: '', label: t('project.view.group_by') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
+            />
+          )}
+          {viewType === 'board' && (
+            <Seg
+              value={fields.boardLayout ?? 'compact'}
+              label={t('project.view.board_layout')}
+              onChange={(next) => patchFields({ boardLayout: next })}
+              options={[
+                { value: 'compact', label: t('project.view.layout_compact') },
+                { value: 'card', label: t('project.view.layout_card') },
+              ]}
             />
           )}
           {viewType === 'board' && (

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
-import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, Pin, Plus, Settings2, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
+import { ChevronDown, ChevronRight, Clock, Copy, Download, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, Pin, Plus, Settings2, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { setLocale, t, useLocale } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
-import { confirm, Menu, prompt, type MenuItem } from '../../components/overlay'
+import { confirm, Menu, Modal, prompt, submenuFor, type MenuItem } from '../../components/overlay'
+import { EmojiPicker } from '../emoji/EmojiPicker'
 import { useUi } from '../../store/ui'
 import { useProjectStore } from './store'
 import { readRandomIconPref, writeRandomIconPref } from './project-icon'
@@ -27,6 +28,9 @@ import {
   reorderCategoryBoards,
   reorderProjectCategories,
   setCategoryBoardHidden,
+  patchProjectBoard,
+  projectBoardExportUrl,
+  renameProjectBoard,
 } from './api'
 
 const LAST_BOARD_KEY = 'inkstone.project.lastBoard'
@@ -125,6 +129,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   const [contextLabel, setContextLabel] = useState<string>('')
   const [collapsedMap, setCollapsedMap] = useState<Map<string, boolean>>(new Map())
   const [width, setWidth] = useState(readSidebarWidthPref)
+  const [iconBoard, setIconBoard] = useState<string | null>(null)
 
   const settingsAnchor = useRef<HTMLButtonElement>(null)
   const locale = useLocale()
@@ -179,6 +184,11 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       .filter((b): b is ProjectBoardSummary => b !== undefined && matches(b))
   }, [pinnedIds, boards, matches])
 
+  const recentBoards = useMemo(() => [...boards]
+    .filter((board) => matches(board))
+    .sort((left, right) => right.updateAt - left.updateAt)
+    .slice(0, 5), [boards, matches])
+
   const starredBoards = useMemo(() => {
     return starredIds
       .map((id) => boards.find((b) => b.id === id))
@@ -204,10 +214,24 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
     const isPinned = pinnedIds.includes(board.id)
     const isStarred = starredIds.includes(board.id)
     const items: MenuItem[] = [
+      { id: 'open', label: t('project.sidebar.open_board'), icon: <SquareKanban size={14} />, onSelect: () => navigateToPath(`/project/boards/${board.id}`) },
+      {
+        id: 'rename',
+        label: t('project.boards.rename'),
+        icon: <Pencil size={14} />,
+        onSelect: () => {
+          void guard(async () => {
+            const name = await prompt({ title: t('project.boards.rename_title'), defaultValue: board.title, confirmLabel: t('common.save') })
+            if (name !== null && name.trim()) { await renameProjectBoard(board.id, name.trim()); await useProjectStore.getState().ensureBoards() }
+          })
+        },
+      },
+      { id: 'icon', label: t('project.sidebar.change_icon'), icon: <Smile size={14} />, onSelect: () => setIconBoard(board.id) },
       {
         id: 'pin',
         label: isPinned ? t('project.sidebar.unpin') : t('project.sidebar.pin'),
         icon: <Pin size={14} className={isPinned ? 'text-[var(--accent)]' : undefined} />,
+        separatorBefore: true,
         onSelect: () => togglePinBoard(board.id),
       },
       {
@@ -222,17 +246,16 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
         id: 'hide',
         label: edge.hidden ? t('project.sidebar.unhide') : t('project.sidebar.hide'),
         icon: edge.hidden ? <Eye size={15} /> : <EyeOff size={15} />,
-        separatorBefore: true,
         onSelect: () => { void guard(async () => { await setCategoryBoardHidden(edge.categoryId, board.id, !edge.hidden) }) },
       })
     }
-    for (const category of categories) {
-      if (edge?.categoryId === category.id) continue
-      items.push({
-        id: `move-${category.id}`,
-        label: `${t('project.sidebar.move_to')}: ${category.name}`,
-        onSelect: () => { void guard(async () => { await addBoardToCategory(category.id, board.id) }) },
-      })
+    const targets = categories.filter((category) => category.id !== edge?.categoryId).map((category) => ({
+      id: `move-${category.id}`,
+      label: category.name,
+      onSelect: () => { void guard(async () => { await addBoardToCategory(category.id, board.id) }) },
+    }))
+    if (targets.length > 0) {
+      items.push({ id: 'move', label: t('project.sidebar.move_to_folder'), icon: <FolderPlus size={14} />, separatorBefore: true, subItems: targets, submenu: submenuFor(targets) })
     }
     items.push({
       id: 'copy',
@@ -241,10 +264,13 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       separatorBefore: true,
       onSelect: () => { void guard(async () => { const copy = await useProjectStore.getState().copyBoard(board.id); navigateToPath(`/project/boards/${copy.id}`) }) },
     })
+    items.push({ id: 'export-csv', label: t('project.sidebar.export_csv'), icon: <Download size={14} />, onSelect: () => { window.open(projectBoardExportUrl(board.id, 'csv'), '_blank') } })
+    items.push({ id: 'export-archive', label: t('project.sidebar.export_archive'), icon: <Download size={14} />, onSelect: () => { window.open(projectBoardExportUrl(board.id, 'archive'), '_blank') } })
     items.push({
       id: 'delete',
       label: t('common.delete'),
       icon: <Trash2 size={15} />,
+      separatorBefore: true,
       tone: 'danger',
       onSelect: () => {
         void guard(async () => {
@@ -496,6 +522,18 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           </section>
         )}
 
+        {recentBoards.length > 0 && (
+          <section className="mb-2">
+            <div className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+              <Clock size={12} className="shrink-0" />
+              <span>{t('project.sidebar.recent')}</span>
+            </div>
+            <ul className="mt-0.5 space-y-0.5">
+              {recentBoards.map((board) => renderBoard(board, edgeForBoard(board.id)))}
+            </ul>
+          </section>
+        )}
+
         {categoryTree.map((node) => (
           <CategoryTreeItem
             key={node.id}
@@ -521,6 +559,15 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
         </section>
       </div>
 
+      {iconBoard && (
+        <Modal open onClose={() => setIconBoard(null)} title={t('project.sidebar.change_icon')} width={420}>
+          <EmojiPicker tone={0} onTone={() => {}} onInsert={(glyph) => {
+            const target = iconBoard
+            setIconBoard(null)
+            void guard(async () => { await patchProjectBoard(target, { icon: glyph }); await useProjectStore.getState().ensureBoards() })
+          }} />
+        </Modal>
+      )}
       {contextPoint && (
         <Menu
           anchor={contextPoint}

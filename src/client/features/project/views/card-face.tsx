@@ -4,7 +4,7 @@
  * a card is recognisable when the reader moves between them.
  */
 import type { ReactElement, ReactNode } from 'react'
-import { GripVertical, ListTodo, Plus, Trash2 } from 'lucide-react'
+import { GripVertical, ListTodo, Pin, Plus, Star, Trash2 } from 'lucide-react'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
@@ -13,7 +13,7 @@ import { IconButton } from '../../../components/primitives'
 import { Checkbox } from '../../../components/form'
 import { CardBadges, CardPropertyChips } from '../CardBadges'
 
-export function CardFace({ card, color, cover, chipProperties, excludePropertyId, badges, density, children }: {
+export function CardFace({ card, color, cover, chipProperties, excludePropertyId, badges, density, description, rich = false, starred, pinned, children }: {
   card: ProjectCard
   color: string
   cover?: string | null
@@ -21,6 +21,10 @@ export function CardFace({ card, color, cover, chipProperties, excludePropertyId
   excludePropertyId?: string
   badges: ProjectCardBadges
   density: 'compact' | 'comfortable' | 'spacious'
+  description?: string
+  rich?: boolean
+  starred?: boolean
+  pinned?: boolean
   children?: ReactNode
 }): ReactElement {
   return (
@@ -30,10 +34,15 @@ export function CardFace({ card, color, cover, chipProperties, excludePropertyId
         <span className="pv-card-dot" style={{ '--pv-card-color': color } as React.CSSProperties} aria-hidden="true" />
         {children}
       </div>
+      {rich && description && <p className="pv-card-desc">{description}</p>}
       {density !== 'compact' && (
-        <CardPropertyChips card={card} properties={chipProperties} excludePropertyId={excludePropertyId} />
+        <CardPropertyChips card={card} properties={chipProperties} excludePropertyId={excludePropertyId} max={rich ? 8 : 4} />
       )}
-      <CardBadges badges={badges} />
+      <span className="flex items-center gap-1.5">
+        <CardBadges badges={badges} />
+        {pinned && <Pin size={11} role="img" aria-label={t('project.card.pin')} className="shrink-0 text-[var(--accent)]" />}
+        {starred && <Star size={11} role="img" aria-label={t('project.card.favorite')} className="shrink-0 fill-[var(--warning)] text-[var(--warning)]" />}
+      </span>
     </>
   )
 }

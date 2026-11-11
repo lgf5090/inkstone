@@ -224,6 +224,15 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     setBundle((current) => (current ? { ...current, properties: result.properties } : current))
   }, [bundle, boardId])
 
+  const setGroupOptionColor = useCallback(async (propertyId: string, optionId: string, color: string) => {
+    if (!bundle) return
+    const properties = bundle.properties.map((property) => (property.id === propertyId
+      ? { ...property, options: property.options.map((option) => (option.id === optionId ? { ...option, color } : option)) }
+      : property))
+    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties })
+    setBundle((current) => (current ? { ...current, properties: result.properties } : current))
+  }, [bundle, boardId])
+
   const setIcon = useCallback(async (icon: string) => {
     await patchProjectBoard(boardId, { icon })
     setBundle((current) => (current ? { ...current, board: { ...current.board, icon } } : current))
@@ -387,6 +396,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         onPatchCard={patchCard}
         onAddGroupOption={addGroupOption}
         onRenameGroupOption={renameGroupOption}
+        onSetGroupOptionColor={setGroupOptionColor}
         onRefresh={refresh}
       />
       </div>

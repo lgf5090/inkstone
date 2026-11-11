@@ -111,6 +111,7 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
         onPatchCard={async () => {}}
         onAddGroupOption={async () => {}}
         onRenameGroupOption={async () => {}}
+        onSetGroupOptionColor={async () => {}}
         onRefresh={async () => {}}
       />
       {openCard && <PublicCardDetail card={openCard} bundle={bundle} onClose={() => setOpenCardId(null)} />}

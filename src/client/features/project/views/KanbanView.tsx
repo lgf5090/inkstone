@@ -7,17 +7,18 @@
  * made a reorder inside a column silently do nothing.
  */
 import { useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
-import { ChevronDown, ChevronRight, EyeOff, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, EyeOff, MoreHorizontal, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ProjectCalculation, ProjectCard, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
-import { projectCardColor, projectOptionCssColor } from '@shared/project/option-color'
+import { projectCardColor, projectOptionCssColor, PROJECT_OPTION_COLORS } from '@shared/project/option-color'
 import { groupProjectCards, projectKanbanDropOrder, projectOptionLabel } from '@shared/project/view-eval'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
-import { Menu, type MenuItem } from '../../../components/overlay'
+import { Menu, submenuFor, type MenuItem } from '../../../components/overlay'
+import { optionColorItems } from '../card-menu'
 import { isImeComposing } from '../../../lib/ime'
 import { QuickAdd, ViewShell } from './shell'
 import { CardFace, CardGrip, SubtaskProgress, SubtaskRows } from './card-face'
@@ -40,6 +41,10 @@ export interface KanbanProps {
   onAddCard: (title: string, optionId: string) => Promise<void>
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
   onRenameGroupOption: (propertyId: string, optionId: string, value: string) => Promise<void>
+  onSetGroupOptionColor: (propertyId: string, optionId: string, color: string) => Promise<void>
+  starredCards: string[]
+  pinnedCards: string[]
+  descriptionFor: (cardId: string) => string
   onCardContextMenu: (event: MouseEvent, card: ProjectCard) => void
   onToggleCardDone: (card: ProjectCard, done: boolean) => Promise<void>
   onAddSubtask: (parentId: string) => Promise<void>
@@ -69,7 +74,10 @@ export function KanbanView(props: KanbanProps): ReactElement {
   const allIds = useMemo(() => new Set(cards.map((card) => card.id)), [cards])
   const columns = keys.map((key) => {
     const bucket = groups.get(key) ?? []
-    return { key, cards: bucket.filter((card) => !card.parentId || !allIds.has(card.parentId)) }
+    const roots = bucket.filter((card) => !card.parentId || !allIds.has(card.parentId))
+    // A pinned card leads its column without leaving it: the pin is a marker, not a second bucket.
+    const pinned = roots.filter((card) => props.pinnedCards.includes(card.id))
+    return { key, cards: [...pinned, ...roots.filter((card) => !props.pinnedCards.includes(card.id))] }
   })
   const chipProperties = fields.visiblePropertyIds.length
     ? fields.visiblePropertyIds.map((id) => properties.find((property) => property.id === id)).filter((property): property is ProjectProperty => Boolean(property))
@@ -96,6 +104,17 @@ export function KanbanView(props: KanbanProps): ReactElement {
     setAddingGroup(true)
   }
   const [addingGroup, setAddingGroup] = useState(false)
+  const [dragColumn, setDragColumn] = useState<string | null>(null)
+  const [overColumn, setOverColumn] = useState<string | null>(null)
+  const moveColumn = (source: string, target: string): void => {
+    if (source === target) return
+    // Dragging rightwards lands the column after the one it was dropped on; leftwards, before it.
+    // Inserting always before would make a one-step drag to the right a no-op.
+    const forwards = keys.indexOf(source) < keys.indexOf(target)
+    const without = keys.filter((key) => key !== source)
+    const at = without.indexOf(target) + (forwards ? 1 : 0)
+    props.onPatchFields({ columnOrder: [...without.slice(0, at), source, ...without.slice(at)] })
+  }
   const [groupDraft, setGroupDraft] = useState('')
   const submitGroup = async (): Promise<void> => {
     const value = groupDraft.trim()
@@ -117,6 +136,11 @@ export function KanbanView(props: KanbanProps): ReactElement {
           chipProperties={chipProperties}
           colorOf={colorOf}
           drag={drag}
+          dragColumn={dragColumn}
+          overColumn={overColumn}
+          onColumnDragStart={setDragColumn}
+          onColumnDragOver={setOverColumn}
+          onColumnDrop={(target) => { if (dragColumn) moveColumn(dragColumn, target); setDragColumn(null); setOverColumn(null) }}
         />
       ))}
       {canEdit && groupProperty && (
@@ -148,13 +172,18 @@ export function KanbanView(props: KanbanProps): ReactElement {
   )
 }
 
-function KanbanColumn({ columnKey, cards, groupProperty, properties, chipProperties, fields, colorOf, drag, ...props }: KanbanProps & {
+function KanbanColumn({ columnKey, cards, groupProperty, properties, chipProperties, fields, colorOf, drag, dragColumn, overColumn, onColumnDragStart, onColumnDragOver, onColumnDrop, ...props }: KanbanProps & {
   columnKey: string
   cards: ProjectCard[]
   groupProperty: ProjectProperty | undefined
   chipProperties: readonly ProjectProperty[]
   colorOf: (card: ProjectCard) => string
   drag: ReturnType<typeof useDragSort>
+  dragColumn: string | null
+  overColumn: string | null
+  onColumnDragStart: (key: string | null) => void
+  onColumnDragOver: (key: string | null) => void
+  onColumnDrop: (key: string) => void
 }): ReactElement {
   const { canEdit, subtasksByParent, selected } = props
   const label = columnKey === '' ? t('project.view.no_value') : projectOptionLabel(groupProperty!, columnKey)
@@ -170,6 +199,19 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(label)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const [columnMenu, setColumnMenu] = useState<{ x: number, y: number } | null>(null)
+  const layout = fields.boardLayout ?? 'compact'
+  const colorOptions = optionColorItems(['', ...PROJECT_OPTION_COLORS], groupProperty?.options.find((option) => option.id === columnKey)?.color ?? '', (next) => {
+    setColumnMenu(null)
+    if (groupProperty && columnKey !== '') void props.onSetGroupOptionColor(groupProperty.id, columnKey, next)
+  })
+  const columnMenuItems: MenuItem[] = [
+    { id: 'new', label: t('project.view.new_card_here'), icon: <Plus size={14} />, onSelect: () => { setColumnMenu(null); void props.onAddCard(t('project.board.untitled_card'), columnKey) } },
+    { id: 'rename', label: t('project.view.rename_group'), icon: <Pencil size={14} />, onSelect: () => { setColumnMenu(null); setDraft(label); setRenaming(true) } },
+    { id: 'color', label: t('project.view.column_color'), icon: <Palette size={14} />, subItems: colorOptions, submenu: submenuFor(colorOptions) },
+    { id: 'collapse', label: t('project.view.collapse_column'), icon: <ChevronRight size={14} />, separatorBefore: true, onSelect: () => { setColumnMenu(null); toggleCollapse() } },
+    { id: 'hide', label: t('project.view.hide_column'), icon: <EyeOff size={14} />, onSelect: () => { setColumnMenu(null); props.onPatchFields({ hiddenOptionIds: [...fields.hiddenOptionIds, columnKey] }) } },
+  ]
 
   const toggleCollapse = (): void => {
     props.onPatchFields({
@@ -192,6 +234,15 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
       data-collapsed={collapsed}
       data-over={over && !collapsed}
       aria-label={label}
+      onDragOver={(event) => { if (dragColumn) { event.preventDefault(); onColumnDragOver(columnKey) } }}
+      onDragLeave={() => { if (overColumn === columnKey) onColumnDragOver(null) }}
+      onDrop={(event) => { if (dragColumn) { event.preventDefault(); onColumnDrop(columnKey) } }}
+      onContextMenu={(event) => {
+        if (!canEdit || !groupProperty || columnKey === '') return
+        event.preventDefault()
+        event.stopPropagation()
+        setColumnMenu({ x: event.clientX, y: event.clientY })
+      }}
     >
       <span className="pv-col-band" aria-hidden="true" />
       {collapsed
@@ -211,6 +262,10 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
               color={color}
               canEdit={canEdit && Boolean(groupProperty) && columnKey !== ''}
               hideable={canEdit && Boolean(groupProperty) && columnKey !== ''}
+              dragging={dragColumn === columnKey}
+              dropTarget={overColumn === columnKey && dragColumn !== columnKey}
+              onDragStart={() => onColumnDragStart(columnKey)}
+              onDragEnd={() => { onColumnDragStart(null); onColumnDragOver(null) }}
               calc={calc}
               calcOptions={calcProperty ? calculationOptionsFor(calcProperty) : []}
               wip={wip}
@@ -250,6 +305,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
                       data-drag-id={card.id}
                       data-project-card={card.id}
                       data-density={fields.cardSize ?? 'comfortable'}
+                      data-layout={layout}
                       data-selected={selected.includes(card.id)}
                       data-done={isProjectCardDone(card, properties)}
                       data-dragging={drag.draggingId === card.id}
@@ -264,6 +320,10 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
                         excludePropertyId={fields.groupById}
                         badges={props.badgesFor(card.id)}
                         density={fields.cardSize ?? 'comfortable'}
+                        rich={layout === 'card'}
+                        description={props.descriptionFor(card.id)}
+                        starred={props.starredCards.includes(card.id)}
+                        pinned={props.pinnedCards.includes(card.id)}
                       >
                         <button
                           type="button"
@@ -321,6 +381,9 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
             </div>
           </>
         )}
+      {columnMenu && (
+        <Menu anchor={columnMenu} open onClose={() => setColumnMenu(null)} items={columnMenuItems} label={label} />
+      )}
     </section>
   )
 }
@@ -330,7 +393,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
  * The name is a button so a double click renames the option itself — the column and every card wearing
  * that option change together, which is what renaming a status means.
  */
-function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, calcOptions, wip, renaming, draft, onDraft, onRename, onCommit, onCancelRename, onCollapse, onCalc, onWip, onHide }: {
+function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, calcOptions, wip, renaming, draft, dragging, dropTarget, onDragStart, onDragEnd, onDraft, onRename, onCommit, onCancelRename, onCollapse, onCalc, onWip, onHide }: {
   label: string
   count: string | number
   overLimit: boolean
@@ -342,6 +405,10 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
   wip: number | undefined
   renaming: boolean
   draft: string
+  dragging: boolean
+  dropTarget: boolean
+  onDragStart: () => void
+  onDragEnd: () => void
   onDraft: (value: string) => void
   onRename: () => void
   onCommit: () => void
@@ -365,7 +432,14 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
     ...(hideable ? [{ id: 'hide', label: t('project.view.hide_column'), icon: <EyeOff size={14} />, onSelect: () => { setOpen(false); onHide() } }] : []),
   ]
   return (
-    <header className="pv-col-head">
+    <header
+      className="pv-col-head"
+      data-dragging={dragging}
+      data-drop-target={dropTarget}
+      draggable={canEdit}
+      onDragStart={(event) => { event.dataTransfer.setData('text/plain', `column:${label}`); onDragStart() }}
+      onDragEnd={onDragEnd}
+    >
       <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
       {renaming
         ? (

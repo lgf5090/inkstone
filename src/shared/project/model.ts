@@ -227,6 +227,8 @@ export interface ProjectViewFields {
   /** Column ids in the reader's order; an id absent from the property is dropped when read. */
   columnOrder?: string[]
   galleryCardSize?: ProjectGallerySize
+  /** The board draws its cards as a compact line or as a full card; the reader flips it per view. */
+  boardLayout?: ProjectBoardLayout
   calendarMode?: ProjectCalendarMode
   scheduleScale?: ProjectScheduleScale
   scheduleGroupById?: string
@@ -238,6 +240,9 @@ export interface ProjectViewFields {
   chartPropertyId?: string
   chartCalculation?: ProjectCalculation
 }
+
+export const PROJECT_BOARD_LAYOUTS = ['compact', 'card'] as const
+export type ProjectBoardLayout = (typeof PROJECT_BOARD_LAYOUTS)[number]
 
 export const PROJECT_GALLERY_SIZES = ['small', 'medium', 'large'] as const
 export type ProjectGallerySize = (typeof PROJECT_GALLERY_SIZES)[number]
