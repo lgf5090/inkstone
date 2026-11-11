@@ -54,6 +54,7 @@ export function DeveloperDialog({
       title={t('development.github.dev_profile.title')}
       ariaLabel={t('development.github.dev_profile.title')}
       width={620}
+      footer={<Button variant="secondary" onClick={onClose}>{t('common.close')}</Button>}
     >
       {loading && (
         <div className="flex items-center justify-center gap-2 py-10 text-[length:var(--text-12)] text-[var(--text-tertiary)]">

@@ -51,7 +51,7 @@ export function TrackAppDialog({
       description={t('development.github.apps.track_desc')}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
           <Button onClick={() => onSubmit({ platform, assetPattern: pattern, installedTag })}>{t('common.save')}</Button>
         </>
       }
