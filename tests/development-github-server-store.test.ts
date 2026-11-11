@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS } from '../src/worker/development/github/schema'
+import { DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS, DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS } from '../src/worker/development/github/schema'
 import {
   batchUpdateGists,
   batchUpdateRepos,
@@ -52,6 +52,7 @@ let db: D1Database
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  for (const statement of DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS) sqlite.exec(statement)
   db = makeD1(sqlite)
 })
 

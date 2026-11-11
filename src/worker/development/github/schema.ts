@@ -38,6 +38,20 @@ export const DEVELOPMENT_GITHUB_APPS_SCHEMA_STATEMENTS: readonly string[] = [
      ON development_github_tracked_apps(user_id, platform, updated_at DESC)`,
 ]
 
+export const DEVELOPMENT_GITHUB_COLLECTION_PARENT_MIGRATION: readonly string[] = [
+  'ALTER TABLE development_github_collections ADD COLUMN parent_id TEXT',
+]
+
+export const DEVELOPMENT_GITHUB_APPS_SETTINGS_MIGRATION: readonly string[] = [
+  'ALTER TABLE development_github_tracked_apps ADD COLUMN update_check_enabled INTEGER NOT NULL DEFAULT 1',
+  "ALTER TABLE development_github_tracked_apps ADD COLUMN skipped_tag TEXT NOT NULL DEFAULT ''",
+]
+
+export const DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS: readonly string[] = [
+  ...DEVELOPMENT_GITHUB_APPS_SETTINGS_MIGRATION,
+  ...DEVELOPMENT_GITHUB_COLLECTION_PARENT_MIGRATION,
+]
+
 export const DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS development_github_tags (
     user_id    TEXT NOT NULL,
@@ -170,11 +184,11 @@ export const DEVELOPMENT_GITHUB_REQUIRED_INDEXES: readonly string[] = [
 export const DEVELOPMENT_GITHUB_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   development_github_tags: ['user_id', 'id', 'name', 'color', 'parent_id', 'sort_order', 'created_at', 'updated_at'],
   development_github_repos: ['user_id', 'id', 'full_name', 'url', 'data_json', 'tag_ids', 'pinned', 'favorited', 'notes', 'created_at', 'updated_at'],
-  development_github_collections: ['user_id', 'id', 'name', 'description', 'repo_ids', 'created_at', 'updated_at'],
+  development_github_collections: ['user_id', 'id', 'name', 'description', 'parent_id', 'repo_ids', 'created_at', 'updated_at'],
   development_github_gist_tags: ['user_id', 'id', 'name', 'color', 'parent_id', 'sort_order', 'created_at', 'updated_at'],
   development_github_gists: ['user_id', 'id', 'description', 'url', 'data_json', 'tag_ids', 'pinned', 'favorited', 'notes', 'created_at', 'updated_at'],
   development_github_accounts: ['user_id', 'id', 'username', 'avatar_url', 'token_ciphertext', 'created_at', 'updated_at'],
   development_github_mirrors: ['user_id', 'id', 'name', 'url', 'enabled', 'created_at', 'updated_at'],
   development_github_exports: ['user_id', 'id', 'filename', 'format', 'r2_key', 'size', 'created_at'],
-  development_github_tracked_apps: ['user_id', 'id', 'repo_id', 'full_name', 'repo_url', 'owner_avatar_url', 'platform', 'asset_pattern', 'installed_tag', 'installed_at', 'latest_tag', 'latest_asset_name', 'latest_asset_url', 'latest_published_at', 'checked_at', 'created_at', 'updated_at'],
+  development_github_tracked_apps: ['user_id', 'id', 'repo_id', 'full_name', 'repo_url', 'owner_avatar_url', 'platform', 'asset_pattern', 'installed_tag', 'installed_at', 'update_check_enabled', 'skipped_tag', 'latest_tag', 'latest_asset_name', 'latest_asset_url', 'latest_published_at', 'checked_at', 'created_at', 'updated_at'],
 }

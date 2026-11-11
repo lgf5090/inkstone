@@ -11,7 +11,7 @@ import {
   listAccountRecords,
   listAccountViews,
 } from '../src/worker/development/github/accounts'
-import { DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS } from '../src/worker/development/github/schema'
+import { DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS, DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS } from '../src/worker/development/github/schema'
 import { CredentialVault } from '../src/worker/durable/credential-vault'
 import type { Env } from '../src/worker/env'
 import { MAX_ACCOUNTS } from '../src/shared/development/github/limits'
@@ -57,6 +57,7 @@ beforeEach(() => {
   nextLogin = 'octocat'
   sqlite = new DatabaseSync(':memory:')
   for (const statement of DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  for (const statement of DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS) sqlite.exec(statement)
   db = makeD1(sqlite)
   env = testBindings(db, {
     CREDENTIAL_VAULT: testDurableObjectNamespace((request) =>

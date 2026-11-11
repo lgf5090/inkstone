@@ -117,7 +117,7 @@ describe('saved repository filters', () => {
       savedRepo('gamma', { updatedAt: 10 }),
     ]
     const collections = [
-      { id: 'curated', name: 'Curated', description: '', repoIds: ['gamma', 'alpha'], createdAt: 1, updatedAt: 1 },
+      { id: 'curated', name: 'Curated', description: '', parentId: null, repoIds: ['gamma', 'alpha'], createdAt: 1, updatedAt: 1 },
     ]
     expect(filterRepos(repos, 'collection:curated', '', collections).map((repo) => repo.id)).toEqual(['gamma', 'alpha'])
     expect(filterRepos(repos, 'collection:curated', 'BETA', collections)).toEqual([])

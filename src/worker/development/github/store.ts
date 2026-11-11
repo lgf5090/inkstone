@@ -61,6 +61,7 @@ interface CollectionRow {
   id: string
   name: string
   description: string
+  parent_id: string | null
   repo_ids: string
   created_at: number
   updated_at: number
@@ -121,6 +122,7 @@ export interface CollectionUpsert {
   id: string
   name: string
   description: string
+  parentId?: string | null
   repoIds: string[]
   createdAt?: number
 }
@@ -129,7 +131,7 @@ const TAG_COLUMNS = 'id, name, color, parent_id, sort_order, created_at, updated
 const REPO_COLUMNS = 'id, full_name, url, data_json, tag_ids, pinned, favorited, notes, created_at, updated_at'
 const GIST_COLUMNS = 'id, description, url, data_json, tag_ids, pinned, favorited, notes, created_at, updated_at'
 const EXPORT_COLUMNS = 'id, filename, format, r2_key, size, created_at'
-const COLLECTION_COLUMNS = 'id, name, description, repo_ids, created_at, updated_at'
+const COLLECTION_COLUMNS = 'id, name, description, parent_id, repo_ids, created_at, updated_at'
 
 function readJson<T>(raw: string, fallback: T, label: string): T {
   try {
@@ -192,6 +194,7 @@ function toCollection(row: CollectionRow): GithubCollection {
     id: row.id,
     name: row.name,
     description: row.description,
+    parentId: row.parent_id,
     repoIds: readStringArray(row.repo_ids, 'collection repo ids'),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -447,11 +450,12 @@ export async function upsertCollection(
   await db
     .prepare(
       `INSERT INTO development_github_collections
-         (user_id, id, name, description, repo_ids, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         (user_id, id, name, description, parent_id, repo_ids, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
        ON CONFLICT (user_id, id) DO UPDATE SET
          name = excluded.name,
          description = excluded.description,
+         parent_id = excluded.parent_id,
          repo_ids = excluded.repo_ids,
          updated_at = excluded.updated_at`,
     )
@@ -460,6 +464,7 @@ export async function upsertCollection(
       input.id,
       input.name,
       input.description,
+      input.parentId ?? null,
       JSON.stringify(repoIds),
       createdAt,
       now,
@@ -469,6 +474,7 @@ export async function upsertCollection(
     id: input.id,
     name: input.name,
     description: input.description,
+    parentId: input.parentId ?? null,
     repoIds,
     createdAt,
     updatedAt: now,

@@ -11,7 +11,7 @@ import {
   putGistExport,
   readExportObject,
 } from '../src/worker/development/github/r2'
-import { DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS } from '../src/worker/development/github/schema'
+import { DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS, DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS } from '../src/worker/development/github/schema'
 import { findExport, insertExport, listExports } from '../src/worker/development/github/store'
 import { EXPORT_TTL_MS, MAX_EXPORT_BYTES } from '../src/shared/development/github/limits'
 import type { GithubTag, SavedGist } from '../src/shared/development/github/types'
@@ -82,6 +82,7 @@ function tag(): GithubTag {
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  for (const statement of DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS) sqlite.exec(statement)
   db = makeD1(sqlite)
   bucket = testR2Bucket()
   env = testBindings(db, { FILES: bucket })

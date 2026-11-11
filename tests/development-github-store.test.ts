@@ -63,7 +63,7 @@ function repo(id: string, tagIds: string[] = []): SavedGithubRepo {
 }
 
 function collection(id: string, repoIds: string[] = []): GithubCollection {
-  return { id, name: id, description: `${id} description`, repoIds, createdAt: 1, updatedAt: 1 }
+  return { id, name: id, description: `${id} description`, parentId: null, repoIds, createdAt: 1, updatedAt: 1 }
 }
 
 function gist(id: string): SavedGist {

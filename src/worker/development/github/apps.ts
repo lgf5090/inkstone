@@ -12,6 +12,8 @@ interface AppRow {
   asset_pattern: string
   installed_tag: string
   installed_at: number
+  update_check_enabled: number
+  skipped_tag: string
   latest_tag: string
   latest_asset_name: string
   latest_asset_url: string
@@ -31,6 +33,8 @@ export interface TrackedAppUpsert {
   assetPattern: string
   installedTag: string
   installedAt?: number
+  updateCheckEnabled?: boolean
+  skippedTag?: string
 }
 
 export interface TrackedAppCheckPatch {
@@ -42,8 +46,8 @@ export interface TrackedAppCheckPatch {
 }
 
 const APP_COLUMNS = `id, repo_id, full_name, repo_url, owner_avatar_url, platform, asset_pattern,
-  installed_tag, installed_at, latest_tag, latest_asset_name, latest_asset_url, latest_published_at,
-  checked_at, created_at, updated_at`
+  installed_tag, installed_at, update_check_enabled, skipped_tag, latest_tag, latest_asset_name,
+  latest_asset_url, latest_published_at, checked_at, created_at, updated_at`
 
 function toApp(row: AppRow): GithubTrackedApp {
   return {
@@ -56,6 +60,8 @@ function toApp(row: AppRow): GithubTrackedApp {
     assetPattern: row.asset_pattern,
     installedTag: row.installed_tag,
     installedAt: row.installed_at,
+    updateCheckEnabled: row.update_check_enabled !== 0,
+    skippedTag: row.skipped_tag,
     latestTag: row.latest_tag,
     latestAssetName: row.latest_asset_name,
     latestAssetUrl: row.latest_asset_url,
@@ -110,12 +116,14 @@ export async function upsertApp(
   const now = Date.now()
   const createdAt = existing?.createdAt ?? now
   const installedAt = input.installedAt ?? existing?.installedAt ?? now
+  const updateCheckEnabled = input.updateCheckEnabled ?? existing?.updateCheckEnabled ?? true
+  const skippedTag = input.skippedTag ?? existing?.skippedTag ?? ''
   await db
     .prepare(
       `INSERT INTO development_github_tracked_apps
          (user_id, id, repo_id, full_name, repo_url, owner_avatar_url, platform, asset_pattern,
-          installed_tag, installed_at, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+          installed_tag, installed_at, update_check_enabled, skipped_tag, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
        ON CONFLICT (user_id, id) DO UPDATE SET
          repo_id = excluded.repo_id,
          full_name = excluded.full_name,
@@ -125,6 +133,8 @@ export async function upsertApp(
          asset_pattern = excluded.asset_pattern,
          installed_tag = excluded.installed_tag,
          installed_at = excluded.installed_at,
+         update_check_enabled = excluded.update_check_enabled,
+         skipped_tag = excluded.skipped_tag,
          updated_at = excluded.updated_at`,
     )
     .bind(
@@ -138,6 +148,8 @@ export async function upsertApp(
       input.assetPattern,
       input.installedTag,
       installedAt,
+      updateCheckEnabled ? 1 : 0,
+      skippedTag,
       createdAt,
       now,
     )
@@ -152,6 +164,8 @@ export async function upsertApp(
     assetPattern: input.assetPattern,
     installedTag: input.installedTag,
     installedAt,
+    updateCheckEnabled,
+    skippedTag,
     latestTag: existing?.latestTag ?? '',
     latestAssetName: existing?.latestAssetName ?? '',
     latestAssetUrl: existing?.latestAssetUrl ?? '',

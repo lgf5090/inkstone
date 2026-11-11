@@ -151,6 +151,7 @@ describe('GitHub API client', () => {
       id: 'curated',
       name: 'Curated',
       description: 'Picked',
+      parentId: null,
       repoIds: ['1'],
       createdAt: 1,
       updatedAt: 2,
@@ -166,6 +167,7 @@ describe('GitHub API client', () => {
     expect(JSON.parse(String(requestInit(1).body))).toEqual({
       name: 'Curated',
       description: 'Picked',
+      parentId: null,
       repoIds: ['1'],
     })
 

@@ -10,7 +10,7 @@ import {
   upsertApp,
 } from '../src/worker/development/github/apps'
 import { checkAppUpdates } from '../src/worker/development/github/app-updates'
-import { DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS } from '../src/worker/development/github/schema'
+import { DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS, DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS } from '../src/worker/development/github/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 import type { GithubTrackedApp } from '../src/shared/development/github/types'
 
@@ -24,6 +24,7 @@ let db: D1Database
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  for (const statement of DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS) sqlite.exec(statement)
   db = makeD1(sqlite)
 })
 
@@ -57,6 +58,8 @@ function app(now: number): GithubTrackedApp {
     assetPattern: '',
     installedTag: 'v1.0.0',
     installedAt: now,
+    updateCheckEnabled: true,
+    skippedTag: '',
     latestTag: '',
     latestAssetName: '',
     latestAssetUrl: '',

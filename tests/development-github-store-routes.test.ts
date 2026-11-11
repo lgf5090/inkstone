@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS } from '../src/worker/development/github/schema'
+import { DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS, DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS } from '../src/worker/development/github/schema'
 import type { AppBindings, Env } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
 import { developmentGithubRoutes } from '../src/worker/routes/development-github'
@@ -73,6 +73,7 @@ function repoItem(id: number) {
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  for (const statement of DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS) sqlite.exec(statement)
   db = makeD1(sqlite)
   env = testBindings(db)
   app = buildApp()
