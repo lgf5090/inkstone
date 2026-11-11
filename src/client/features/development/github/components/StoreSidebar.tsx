@@ -1,6 +1,6 @@
-import { Compass, Flame, Hash, Laptop, Layers, Monitor, Package, Rocket, Smartphone, Terminal, Trophy } from 'lucide-react'
-import type { GithubDiscoverChart, GithubPlatformFilter } from '@shared/development/github/types'
-import { GITHUB_DISCOVER_TOPICS } from '@shared/development/github/types'
+import { Compass, Flame, Hash, Heart, Laptop, Layers, Monitor, Package, Rocket, Smartphone, Terminal, Trophy } from 'lucide-react'
+import type { GithubDiscoverCategory, GithubDiscoverChart, GithubPlatformFilter } from '@shared/development/github/types'
+import { GITHUB_DISCOVER_CATEGORIES, GITHUB_DISCOVER_TOPICS } from '@shared/development/github/types'
 import { GITHUB_PLATFORM_FILTERS } from '@shared/development/github/platforms'
 import { t } from '../../../../lib/i18n'
 import { Badge } from '../../../../components/primitives'
@@ -41,18 +41,24 @@ export function StoreSidebar({
   onPlatformChange,
   topic,
   onTopicChange,
+  category,
+  onCategoryChange,
   updateCount,
+  favoriteCount,
   filteredCount,
 }: {
-  view: 'discover' | 'apps'
-  onViewChange: (view: 'discover' | 'apps') => void
+  view: 'discover' | 'apps' | 'favorites'
+  onViewChange: (view: 'discover' | 'apps' | 'favorites') => void
   chart: GithubDiscoverChart
   onChartChange: (chart: GithubDiscoverChart) => void
   platform: GithubPlatformFilter
   onPlatformChange: (platform: GithubPlatformFilter) => void
   topic: string
   onTopicChange: (topic: string) => void
+  category: GithubDiscoverCategory
+  onCategoryChange: (category: GithubDiscoverCategory) => void
   updateCount: number
+  favoriteCount: number
   filteredCount?: number
 }) {
   return (
@@ -67,8 +73,27 @@ export function StoreSidebar({
             onClick={() => onViewChange('apps')}
             badge={updateCount > 0 ? <Badge tone="warning" className="shrink-0 tabular">{t('development.github.apps.updates_count', { count: updateCount })}</Badge> : undefined}
           />
+          <SidebarItem
+            icon={<Heart size={14} />}
+            label={t('development.github.store.favorites')}
+            count={favoriteCount}
+            active={view === 'favorites'}
+            onClick={() => onViewChange('favorites')}
+          />
           {view === 'discover' && (
             <>
+              <div className="my-2 border-t border-[var(--border-subtle)]" />
+              <SectionLabel>{t('development.github.store.category.label')}</SectionLabel>
+              {GITHUB_DISCOVER_CATEGORIES.map((entry) => (
+                <SidebarItem
+                  key={entry.value}
+                  icon={<Layers size={13} />}
+                  label={t(entry.labelKey)}
+                  active={category === entry.value}
+                  pressed={category === entry.value}
+                  onClick={() => onCategoryChange(entry.value)}
+                />
+              ))}
               <div className="my-2 border-t border-[var(--border-subtle)]" />
               <SectionLabel>{t('development.github.store.chart.label')}</SectionLabel>
               {(['trending', 'releases', 'popular'] as const).map((value) => (

@@ -1,19 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { GithubDiscoverChart, GithubPlatformFilter, GithubRepo } from '@shared/development/github/types'
-import { GITHUB_DISCOVER_PER_PAGE } from '@shared/development/github/types'
-import { updateState } from '@shared/development/github/platforms'
+import type {
+  GithubDiscoverCategory,
+  GithubDiscoverChart,
+  GithubPlatformFilter,
+  GithubRepo,
+  GithubSortKey,
+  GithubStoreFilters,
+  GithubTrackedApp,
+  SavedGithubRepo,
+} from '@shared/development/github/types'
+import { DEFAULT_STORE_FILTERS, GITHUB_DISCOVER_CATEGORIES, GITHUB_DISCOVER_PER_PAGE } from '@shared/development/github/types'
+import { trackedAppStatus } from '../lib/apps'
 import { t } from '../../../../lib/i18n'
 import { navigateToPath } from '../../../../lib/app-history'
 import { useUi } from '../../../../store/ui'
-import { useGithubDiscover } from '../cache'
+import { useGithubDiscover, useStoreSearch } from '../cache'
 import { useGithubStore } from '../store'
 import { storeAddress, type GithubStoreView } from '../routes'
+import { loadSearchHistory, loadStorePrefs, saveSearchHistory, saveStorePrefs } from '../prefs'
+import { savedRepoFrom } from '../lib/saved-repos'
 import { GithubPanes } from '../GithubPanes'
 import { ModuleTabs, type GithubTab } from './ModuleTabs'
 import { SidebarFooter } from './SidebarFooter'
 import { StoreSidebar } from './StoreSidebar'
 import { DiscoverList } from './DiscoverList'
 import { AppsView } from './AppsView'
+import { FavoritesView } from './FavoritesView'
+import { StoreFiltersDialog } from './StoreFiltersDialog'
 import { RepoDetail } from './RepoDetail'
 
 export function StorePane({
@@ -37,30 +50,90 @@ export function StorePane({
   const repos = useGithubStore((state) => state.repos)
   const mirrors = useGithubStore((state) => state.mirrors)
   const accounts = useGithubStore((state) => state.accounts)
+  const upsertRepo = useGithubStore((state) => state.upsertRepo)
   const deleteApp = useGithubStore((state) => state.deleteApp)
   const checkApps = useGithubStore((state) => state.checkApps)
   const toast = useUi((state) => state.toast)
   const [view, setView] = useState<GithubStoreView>(initialView)
   const [chart, setChart] = useState<GithubDiscoverChart>('trending')
-  const [platform, setPlatform] = useState<GithubPlatformFilter>('all')
+  const [platform, setPlatform] = useState<GithubPlatformFilter>(() => loadStorePrefs().platform)
+  const [category, setCategory] = useState<GithubDiscoverCategory>(() => loadStorePrefs().category)
+  const [sort, setSort] = useState<GithubSortKey>(() => loadStorePrefs().sort)
+  const [filters, setFilters] = useState<GithubStoreFilters>(() => {
+    const prefs = loadStorePrefs()
+    return {
+      language: prefs.language,
+      updated: prefs.updated,
+      tracked: prefs.tracked,
+      installerOnly: prefs.installerOnly,
+      updateStatus: prefs.updateStatus,
+    }
+  })
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [topic, setTopic] = useState('')
+  const [query, setQuery] = useState('')
+  const [draft, setDraft] = useState('')
+  const [history, setHistory] = useState<string[]>(loadSearchHistory)
   const [page, setPage] = useState(1)
   const [selectedRepo, setSelectedRepo] = useState<GithubRepo | null>(null)
   const [checking, setChecking] = useState(false)
 
-  const query = useMemo(() => ({
+  const discoverQuery = useMemo(() => ({
     chart,
     platform,
     topic,
+    category,
+    query: '',
+    sort,
+    order: 'desc' as const,
     page,
     perPage: GITHUB_DISCOVER_PER_PAGE,
-  }), [chart, platform, topic, page])
-  const discover = useGithubDiscover(query, active && view === 'discover')
+    ...filters,
+  }), [category, chart, filters, page, platform, sort, topic])
+  const discover = useGithubDiscover(discoverQuery, active && view === 'discover' && query === '')
+
+  const searchParams = useMemo(() => ({
+    q: query,
+    platform,
+    topic,
+    category,
+    sort,
+    order: 'desc' as const,
+    page,
+    perPage: GITHUB_DISCOVER_PER_PAGE,
+    ...filters,
+  }), [category, filters, page, platform, query, sort, topic])
+  const search = useStoreSearch(searchParams, active && view === 'discover' && query.length >= 2)
+
+  const result = query ? search.data : discover.data
+  const loading = query ? search.loading : discover.loading
+  const error = query ? search.error : discover.error
+  const refetch = query ? search.refetch : discover.refetch
 
   const updateCount = useMemo(
-    () => apps.filter((app) => app.latestTag && updateState(app.latestTag, app.installedTag) === 'update-available').length,
+    () => apps.filter((app) => {
+      const status = trackedAppStatus(app)
+      return app.latestTag && status.state === 'update-available' && !status.suppressed
+    }).length,
     [apps],
   )
+  const favorites = useMemo(() => repos.filter((repo) => repo.favorited), [repos])
+  const favoritedIds = useMemo(() => new Set(favorites.map((repo) => repo.id)), [favorites])
+  const categoryLabel = useMemo(() => {
+    if (category === 'all') return null
+    const entry = GITHUB_DISCOVER_CATEGORIES.find((candidate) => candidate.value === category)
+    return entry ? t(entry.labelKey) : null
+  }, [category])
+
+  const persistPrefs = useCallback((patch: { platform?: GithubPlatformFilter; category?: GithubDiscoverCategory; sort?: GithubSortKey } & Partial<GithubStoreFilters>) => {
+    saveStorePrefs({
+      platform: patch.platform ?? platform,
+      category: patch.category ?? category,
+      sort: patch.sort ?? sort,
+      ...filters,
+      ...patch,
+    })
+  }, [category, filters, platform, sort])
 
   const changeView = useCallback((next: GithubStoreView) => {
     setView(next)
@@ -74,35 +147,99 @@ export function StorePane({
 
   const changeChart = useCallback((next: GithubDiscoverChart) => {
     setChart(next)
+    setQuery('')
+    setDraft('')
     setPage(1)
   }, [])
 
   const changePlatform = useCallback((next: GithubPlatformFilter) => {
     setPlatform(next)
+    persistPrefs({ platform: next })
     setPage(1)
-  }, [])
+  }, [persistPrefs])
+
+  const changeCategory = useCallback((next: GithubDiscoverCategory) => {
+    setCategory(next)
+    persistPrefs({ category: next })
+    setPage(1)
+  }, [persistPrefs])
+
+  const changeSort = useCallback((next: GithubSortKey) => {
+    setSort(next)
+    persistPrefs({ sort: next })
+    setPage(1)
+  }, [persistPrefs])
 
   const changeTopic = useCallback((next: string) => {
     setTopic(next)
     setPage(1)
   }, [])
 
+  const changeFilters = useCallback((patch: Partial<GithubStoreFilters>) => {
+    const next = { ...filters, ...patch }
+    setFilters(next)
+    persistPrefs(next)
+    setPage(1)
+  }, [filters, persistPrefs])
+
+  const clearFilter = useCallback((key: 'platform' | 'topic' | 'category' | keyof GithubStoreFilters) => {
+    if (key === 'platform') { setPlatform('all'); persistPrefs({ platform: 'all' }); setPage(1); return }
+    if (key === 'topic') { setTopic(''); setPage(1); return }
+    if (key === 'category') { setCategory('all'); persistPrefs({ category: 'all' }); setPage(1); return }
+    changeFilters({ [key]: DEFAULT_STORE_FILTERS[key] })
+  }, [changeFilters, persistPrefs])
+
   const clearFilters = useCallback(() => {
     setChart('trending')
     setPlatform('all')
+    setCategory('all')
     setTopic('')
+    setQuery('')
+    setDraft('')
+    setFilters({ ...DEFAULT_STORE_FILTERS })
+    setPage(1)
+    saveStorePrefs({ platform: 'all', category: 'all', sort, ...DEFAULT_STORE_FILTERS })
+  }, [sort])
+
+  const commitSearch = useCallback((value: string) => {
+    const next = value.trim()
+    if (next.length < 2) {
+      toast({ title: t('development.github.store.search_too_short'), tone: 'warning' })
+      return
+    }
+    setQuery(next)
+    setDraft(next)
+    setPage(1)
+    const merged = [next, ...history.filter((entry) => entry.toLowerCase() !== next.toLowerCase())].slice(0, 8)
+    setHistory(merged)
+    saveSearchHistory(merged)
+  }, [history, toast])
+
+  const clearSearch = useCallback(() => {
+    setQuery('')
+    setDraft('')
     setPage(1)
   }, [])
 
+  const pickHistory = useCallback((value: string) => commitSearch(value), [commitSearch])
+
+  const toggleFavorite = useCallback((repo: GithubRepo) => {
+    const existing = useGithubStore.getState().repos.find((entry) => entry.id === String(repo.id))
+    const next: SavedGithubRepo = savedRepoFrom(repo, existing, { favorited: !existing?.favorited })
+    void upsertRepo(next)
+    toast({ title: next.favorited ? t('development.github.store.favorited') : t('development.github.store.unfavorited'), tone: 'success' })
+  }, [toast, upsertRepo])
+
   const runCheck = useCallback(async (ids: string[]) => {
-    if (ids.length === 0) return
+    const enabled = ids.filter((id) => apps.find((app) => app.id === id)?.updateCheckEnabled !== false)
+    if (enabled.length === 0) return
     if (accounts.length === 0) {
       toast({ title: t('development.github.apps.account_required'), tone: 'warning' })
       return
     }
     setChecking(true)
     try {
-      const result = await checkApps(ids)
+      const result = await checkApps(enabled)
       toast({
         title: t('development.github.apps.checked', { checked: result.checked, failed: result.failed.length }),
         ...(result.failed[0] ? { description: result.failed[0].message } : {}),
@@ -117,12 +254,16 @@ export function StorePane({
     } finally {
       setChecking(false)
     }
-  }, [accounts.length, checkApps, toast])
+  }, [accounts.length, apps, checkApps, toast])
 
   const removeApp = useCallback((id: string) => {
     void deleteApp(id)
     toast({ title: t('development.github.apps.removed'), tone: 'success' })
   }, [deleteApp, toast])
+
+  const patchApp = useCallback((app: GithubTrackedApp, patch: Partial<GithubTrackedApp>) => {
+    void useGithubStore.getState().upsertApp({ ...app, ...patch })
+  }, [])
 
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
   const saved = selectedRepo ? repos.find((entry) => entry.id === String(selectedRepo.id)) : undefined
@@ -137,14 +278,18 @@ export function StorePane({
       onPlatformChange={changePlatform}
       topic={topic}
       onTopicChange={changeTopic}
+      category={category}
+      onCategoryChange={changeCategory}
       updateCount={updateCount}
-      filteredCount={discover.data?.total}
+      favoriteCount={favorites.length}
+      filteredCount={query ? search.data?.total : discover.data?.total}
     />
   )
 
   return (
+    <>
     <GithubPanes
-      title={view === 'apps' ? t('development.github.apps.title') : t('development.github.store.title')}
+      title={view === 'apps' ? t('development.github.apps.title') : view === 'favorites' ? t('development.github.store.favorites') : t('development.github.store.title')}
       sidebarHeader={<ModuleTabs value={tab} onChange={onTabChange} />}
       sidebarFooter={<SidebarFooter onOpenAccounts={onOpenAccounts} onOpenMirrors={onOpenMirrors} currentMirrorName={currentMirror?.name} />}
       detailDisabled={!selectedRepo}
@@ -152,22 +297,44 @@ export function StorePane({
       autoHideDetail
       sidebar={sidebar}
       list={({ toggleSidebar }) => (view === 'apps'
-        ? <AppsView apps={apps} checking={checking} mirror={currentMirror} onCheck={(ids) => void runCheck(ids)} onRemove={removeApp} onOpenSidebar={toggleSidebar} onDiscover={() => changeView('discover')} />
-        : (
-          <DiscoverList
-            result={discover.data}
-            loading={discover.loading}
-            error={discover.error}
-            onRetry={() => void discover.refetch()}
-            onRefresh={() => void discover.refetch()}
-            page={page}
-            onPageChange={setPage}
-            onSelectRepo={setSelectedRepo}
-            onClearFilters={clearFilters}
-            onOpenSidebar={toggleSidebar}
-          />
-        ))}
-      detail={<RepoDetail repo={selectedRepo} mirror={currentMirror} notes={saved?.notes ?? ''} />}
+        ? <AppsView apps={apps} checking={checking} mirror={currentMirror} onCheck={(ids) => void runCheck(ids)} onRemove={removeApp} onPatch={patchApp} onOpenSidebar={toggleSidebar} onDiscover={() => changeView('discover')} />
+        : view === 'favorites'
+          ? <FavoritesView favorites={favorites} onOpenRepo={setSelectedRepo} onToggleFavorite={toggleFavorite} onOpenSidebar={toggleSidebar} onDiscover={() => changeView('discover')} />
+          : (
+            <DiscoverList
+              result={result}
+              loading={loading}
+              error={error}
+              onRetry={() => void refetch()}
+              onRefresh={() => void refetch()}
+              page={page}
+              onPageChange={setPage}
+              onSelectRepo={setSelectedRepo}
+              onClearFilters={clearFilters}
+              onOpenSidebar={toggleSidebar}
+              query={query}
+              draft={draft}
+              onDraftChange={setDraft}
+              onSubmitSearch={commitSearch}
+              onClearSearch={clearSearch}
+              history={history}
+              onPickHistory={pickHistory}
+              sort={sort}
+              onSortChange={changeSort}
+              categoryLabel={categoryLabel}
+              favoritedIds={favoritedIds}
+              onToggleFavorite={toggleFavorite}
+              mirrorBase={currentMirror?.url ?? ''}
+              hasNext={result?.hasNext ?? false}
+              filters={filters}
+              onOpenFilters={() => setFiltersOpen(true)}
+              onClearFilter={clearFilter}
+              onClearAllFilters={clearFilters}
+            />
+          ))}
+      detail={<RepoDetail repo={selectedRepo} mirror={currentMirror} notes={saved?.notes ?? ''} favorited={Boolean(saved?.favorited)} onToggleFavorite={toggleFavorite} />}
     />
+    <StoreFiltersDialog open={filtersOpen} onClose={() => setFiltersOpen(false)} filters={filters} onChange={changeFilters} />
+    </>
   )
 }

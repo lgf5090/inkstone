@@ -2,12 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   GistItem,
   GistListResult,
+  GithubDiscoverCategory,
   GithubDiscoverQuery,
   GithubDiscoverResult,
+  GithubOrder,
+  GithubPlatformFilter,
   GithubRepoDetail,
   GithubRepoDetailPart,
   GithubSearchParams,
   GithubSearchResult,
+  GithubSortKey,
+  GithubTrackedFilter,
+  GithubUpdatedRange,
+  GithubUpdateFilter,
 } from '@shared/development/github/types'
 import { githubApi, type RemoteGistType } from './api'
 
@@ -161,8 +168,32 @@ export function useGithubSearch(params: GithubSearchParams, enabled = true): Git
 }
 
 export function useGithubDiscover(params: GithubDiscoverQuery, enabled = true): GithubQuery<GithubDiscoverResult> {
-  const key = cacheKey('discover', params.chart, params.platform, params.topic, params.page, params.perPage)
+  const key = cacheKey(
+    'discover',
+    params.chart,
+    params.platform,
+    params.topic,
+    params.category,
+    params.query,
+    params.language,
+    params.updated,
+    params.tracked,
+    params.installerOnly ? 1 : 0,
+    params.updateStatus,
+    params.sort,
+    params.order,
+    params.page,
+    params.perPage,
+  )
   return useGithubQuery(key, SEARCH_TTL_MS, enabled, (signal) => githubApi.discover(params, signal))
+}
+
+export function useStoreSearch(
+  params: { q: string; platform: GithubPlatformFilter; topic: string; category: GithubDiscoverCategory; sort: GithubSortKey; order: GithubOrder; page: number; perPage: number; language: string; updated: GithubUpdatedRange; tracked: GithubTrackedFilter; installerOnly: boolean; updateStatus: GithubUpdateFilter },
+  enabled = true,
+): GithubQuery<GithubDiscoverResult> {
+  const key = cacheKey('store-search', params.q, params.platform, params.topic, params.category, params.language, params.updated, params.tracked, params.installerOnly ? 1 : 0, params.updateStatus, params.sort, params.order, params.page, params.perPage)
+  return useGithubQuery(key, SEARCH_TTL_MS, enabled, (signal) => githubApi.searchStore(params, signal))
 }
 
 export function useRepoDetail(

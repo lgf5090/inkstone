@@ -11,8 +11,15 @@ import {
   type GithubBootstrap,
   type GithubCollection,
   type GithubDevProfile,
+  type GithubDiscoverCategory,
   type GithubDiscoverQuery,
   type GithubDiscoverResult,
+  type GithubOrder,
+  type GithubPlatformFilter,
+  type GithubSortKey,
+  type GithubTrackedFilter,
+  type GithubUpdatedRange,
+  type GithubUpdateFilter,
   type GithubExportFile,
   type GithubExportFormat,
   type GithubMirrorProbeResult,
@@ -156,6 +163,7 @@ export const githubApi = {
       body: {
         name: collection.name,
         description: collection.description,
+        parentId: collection.parentId,
         repoIds: collection.repoIds,
       },
       signal,
@@ -281,10 +289,41 @@ export const githubApi = {
       chart: params.chart,
       platform: params.platform,
       topic: params.topic,
+      category: params.category,
+      q: params.query,
+      language: params.language,
+      updated: params.updated,
+      tracked: params.tracked,
+      installer: params.installerOnly ? '1' : '0',
+      update_status: params.updateStatus,
+      sort: params.sort,
+      order: params.order,
       page: String(params.page),
       per_page: String(params.perPage),
     })
     return readData(`/discover?${query.toString()}`, { signal })
+  },
+
+  searchStore(
+    params: { q: string; platform: GithubPlatformFilter; topic: string; category: GithubDiscoverCategory; sort: GithubSortKey; order: GithubOrder; page: number; perPage: number; language: string; updated: GithubUpdatedRange; tracked: GithubTrackedFilter; installerOnly: boolean; updateStatus: GithubUpdateFilter },
+    signal?: AbortSignal,
+  ): Promise<GithubDiscoverResult> {
+    const query = new URLSearchParams({
+      q: params.q,
+      platform: params.platform,
+      topic: params.topic,
+      category: params.category,
+      language: params.language,
+      updated: params.updated,
+      tracked: params.tracked,
+      installer: params.installerOnly ? '1' : '0',
+      update_status: params.updateStatus,
+      sort: params.sort,
+      order: params.order,
+      page: String(params.page),
+      per_page: String(params.perPage),
+    })
+    return readData(`/search/store?${query.toString()}`, { signal })
   },
 
   devProfile(login: string, signal?: AbortSignal): Promise<GithubDevProfile> {
@@ -308,6 +347,8 @@ export const githubApi = {
         assetPattern: app.assetPattern,
         installedTag: app.installedTag,
         installedAt: app.installedAt,
+        updateCheckEnabled: app.updateCheckEnabled,
+        skippedTag: app.skippedTag,
       },
       signal,
     }).then((response) => response.app)

@@ -3,7 +3,7 @@ import type { GithubTab } from './components/ModuleTabs'
 const GIST_ID = /^[a-f0-9]{8,64}$/i
 const REPO_SEGMENT = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/
 
-export type GithubStoreView = 'discover' | 'apps'
+export type GithubStoreView = 'discover' | 'apps' | 'favorites'
 
 export interface GithubRoute {
   tab: GithubTab
@@ -30,7 +30,8 @@ export function parseGithubRoute(pathname: string): GithubRoute {
     return { tab: 'gists', repoFullName: null, gistId: id, storeView: 'discover' }
   }
   if (segments[0] === 'store') {
-    return { tab: 'store', repoFullName: null, gistId: null, storeView: segments[1] === 'apps' ? 'apps' : 'discover' }
+    const view = segments[1] === 'apps' ? 'apps' : segments[1] === 'favorites' ? 'favorites' : 'discover'
+    return { tab: 'store', repoFullName: null, gistId: null, storeView: view }
   }
   if (segments[0] === 'repos' && segments.length >= 3) {
     const owner = decodeSegment(segments[1]!)
@@ -58,7 +59,9 @@ export function tabAddress(tab: GithubTab): string {
 }
 
 export function storeAddress(view: GithubStoreView): string {
-  return view === 'apps' ? '/development/github/store/apps' : '/development/github/store'
+  if (view === 'apps') return '/development/github/store/apps'
+  if (view === 'favorites') return '/development/github/store/favorites'
+  return '/development/github/store'
 }
 
 export function parseRepoInput(value: string): string | null {

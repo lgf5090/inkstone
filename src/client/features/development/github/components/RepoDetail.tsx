@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Calendar, Code2, Copy, Download, Edit3, ExternalLink, FileText, GitBranch, Globe, History, Package, PackagePlus, Save, Scale, Sparkles, Star, Tag as TagIcon, Terminal, User } from 'lucide-react'
+import { AlertCircle, Calendar, Code2, Copy, Download, Edit3, ExternalLink, FileText, GitBranch, Globe, Heart, History, Package, PackagePlus, Save, Scale, Sparkles, Star, Tag as TagIcon, Terminal, User } from 'lucide-react'
 import type { GithubMirrorSource, GithubRelease, GithubReleaseAsset, GithubRepo } from '@shared/development/github/types'
 import { assetPlatform } from '@shared/development/github/platforms'
 import { t } from '../../../../lib/i18n'
@@ -16,6 +16,7 @@ import { useRepoDetail } from '../cache'
 import { useGithubStore } from '../store'
 import { buildTrackedApp } from '../lib/apps'
 import { buildMirrorDownloadUrl, formatNumber, formatDate, formatFileSize } from '../lib/format'
+import { detectDevicePlatform } from '../lib/device'
 import { getLanguageColor } from '../lib/languages'
 import { renderGithubReadme } from '../lib/readme'
 import { GithubAvatar } from './GithubAvatar'
@@ -99,12 +100,13 @@ function AssetPicker({ assets, value, onChange, mirrorBase }: { assets: GithubRe
   )
 }
 
-export function RepoDetail({ repo, mirror, notes, onUpdateNotes, onOpenRepo }: { repo: GithubRepo | null; mirror: GithubMirrorSource | undefined; notes: string; onUpdateNotes?: (notes: string) => void; onOpenRepo?: (repo: GithubRepo) => void }) {
+export function RepoDetail({ repo, mirror, notes, favorited = false, onToggleFavorite, onUpdateNotes, onOpenRepo }: { repo: GithubRepo | null; mirror: GithubMirrorSource | undefined; notes: string; favorited?: boolean; onToggleFavorite?: (repo: GithubRepo) => void; onUpdateNotes?: (notes: string) => void; onOpenRepo?: (repo: GithubRepo) => void }) {
   const overview = useRepoDetail(repo?.fullName ?? null, repo?.defaultBranch, OVERVIEW_PARTS)
   const [metaRequested, setMetaRequested] = useState(false)
   const meta = useRepoDetail(metaRequested ? repo?.fullName ?? null : null, repo?.defaultBranch, META_PARTS)
   const [releaseIndex, setReleaseIndex] = useState(0)
   const [assetName, setAssetName] = useState('')
+  const devicePlatform = useMemo(() => detectDevicePlatform(), [])
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesDraft, setNotesDraft] = useState(notes)
   const [cloneOpen, setCloneOpen] = useState(false)
@@ -143,6 +145,14 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes, onOpenRepo }: {
       loaded: [...(overview.data.loaded ?? []), ...(meta.data.loaded ?? [])],
     }
   }, [overview.data, meta.data])
+  const releaseTag = detail?.releases[releaseIndex]?.tagName ?? ''
+  useEffect(() => {
+    const current = detail?.releases[releaseIndex]
+    if (!current) return
+    const preferred = (devicePlatform ? current.assets.find((asset) => assetPlatform(asset.name) === devicePlatform) : undefined) ?? current.assets[0]
+    setAssetName(preferred?.name ?? '')
+  }, [releaseTag, devicePlatform, releaseIndex])
+
   const metaLoaded = !detail?.loaded || detail.loaded.includes('branches')
   const branchNames = detail?.branchNames ?? []
   const tagNames = detail?.tagNames ?? []
@@ -174,6 +184,17 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes, onOpenRepo }: {
   const currentAsset = release?.assets.find((asset) => asset.name === assetName) ?? release?.assets[0]
   const mirrorBase = mirror?.url ?? ''
   const mirrorPage = mirrorBase ? buildMirrorDownloadUrl(mirrorBase, repo.url) : ''
+  const downloadUrl = currentAsset ? buildMirrorDownloadUrl(mirrorBase, currentAsset.downloadUrl) : ''
+  const downloadPlatform = currentAsset ? assetPlatform(currentAsset.name) : null
+  const installHint = !currentAsset
+    ? t('development.github.store.no_asset_hint')
+    : !devicePlatform
+      ? t('development.github.store.download_hint_unknown')
+      : !downloadPlatform
+        ? t('development.github.store.download_hint_unknown_format')
+        : downloadPlatform === devicePlatform
+          ? t('development.github.store.download_hint_match', { platform: platformLabel(devicePlatform) })
+          : t('development.github.store.download_hint_other', { asset: platformLabel(downloadPlatform), device: platformLabel(devicePlatform) })
   const readmeFailed = detail.warnings.some((warning) => warning.source === 'readme')
   const submitTrack = async (values: TrackAppValues) => {
     const app = buildTrackedApp(repo, values.platform, values.assetPattern, values.installedTag)
@@ -246,6 +267,12 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes, onOpenRepo }: {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
+            {onToggleFavorite && (
+              <Button variant="secondary" size="sm" aria-pressed={favorited} onClick={() => onToggleFavorite(repo)}>
+                <Heart size={12} className={favorited ? 'fill-[var(--accent)] text-[var(--accent)]' : ''} />
+                {favorited ? t('development.github.store.unfavorite') : t('development.github.store.favorite')}
+              </Button>
+            )}
             <Button variant="secondary" size="sm" onClick={() => setDeveloperOpen(true)}><User size={12} />{t('development.github.dev_profile.open')}</Button>
             <Button variant="secondary" size="sm" onClick={() => setTrackOpen(true)}><PackagePlus size={12} />{t('development.github.apps.track')}</Button>
             <Button variant="secondary" size="sm" onClick={startAiSummary}><Sparkles size={12} />{t('development.github.repos.ai_summary')}</Button>
@@ -305,6 +332,25 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes, onOpenRepo }: {
         {detail.releases.length === 0 ? <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{detail.warnings.some((warning) => warning.source === 'releases') ? t('development.github.repos.releases_failed') : t('development.github.repos.no_releases')}</p> : (
           <div className="space-y-2">
             <ReleaseMenu releases={detail.releases} index={releaseIndex} onChange={(index) => { setReleaseIndex(index); setAssetName(detail.releases[index]?.assets[0]?.name ?? '') }} />
+            {release && (
+              <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5">
+                {currentAsset ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="sm" onClick={() => window.open(downloadUrl, '_blank', 'noopener,noreferrer')}>
+                        <Download size={12} />
+                        {t('development.github.store.download_asset_short', { format: currentAsset.name.includes('.') ? currentAsset.name.slice(currentAsset.name.lastIndexOf('.') + 1).toUpperCase() : '' })}
+                      </Button>
+                      <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-secondary)]" title={currentAsset.name}>{currentAsset.name}</span>
+                      <span className="shrink-0 text-[length:var(--text-10)] tabular-nums text-[var(--text-quaternary)]">{formatFileSize(currentAsset.size)}</span>
+                      {downloadPlatform && <span className="shrink-0 rounded-full border border-[var(--border-subtle)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{platformLabel(downloadPlatform)}</span>}
+                    </div>
+                    <p className="mt-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{installHint}</p>
+                    <p className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.github.store.download_note')}</p>
+                  </>
+                ) : <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{installHint}</p>}
+              </div>
+            )}
             {release && <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2.5"><div className="flex items-center gap-2 text-[length:var(--text-11)]"><a href={release.htmlUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-[var(--accent)] hover:underline">{release.name || release.tagName}</a><span className="text-[var(--text-tertiary)]">{t('development.github.repos.published_at', { date: formatDate(release.publishedAt) })}</span>{release.assets.length > 0 && <span className="text-[var(--text-quaternary)]">{t('development.github.store.downloads', { count: formatNumber(release.assets.reduce((sum, asset) => sum + asset.downloadCount, 0)) })}</span>}</div>{release.body && <pre className="mt-1.5 max-h-28 overflow-y-auto whitespace-pre-wrap break-words text-[length:var(--text-11)] text-[var(--text-tertiary)]">{release.body.length > RELEASE_BODY_PREVIEW_CHARS ? `${release.body.slice(0, RELEASE_BODY_PREVIEW_CHARS)}...` : release.body}</pre>}</div>}
             {release && release.assets.length > 0 ? <AssetPicker assets={release.assets} value={currentAsset?.name ?? ''} onChange={setAssetName} mirrorBase={mirrorBase} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-3 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.repos.no_assets')}</p>}
             {release && release.assets.length > 0 && <div className="text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{t('development.github.repos.all_assets', { count: release.assets.length })}</div>}

@@ -2,11 +2,15 @@ import {
   DEFAULT_GIST_PREFS,
   DEFAULT_GITHUB_MIRRORS,
   DEFAULT_GITHUB_PREFS,
+  DEFAULT_STORE_FILTERS,
   type GistListViewMode,
   type GistPrefs,
+  type GithubDiscoverCategory,
   type GithubOrder,
+  type GithubPlatformFilter,
   type GithubPrefs,
   type GithubSortKey,
+  type GithubStoreFilters,
   type GithubTimeRange,
 } from '@shared/development/github/types'
 
@@ -21,6 +25,23 @@ const SEARCH_HISTORY_KEY = `${PREFIX}.search-history`
 const SEARCH_HISTORY_LIMIT = 8
 const RECENT_REPOS_KEY = `${PREFIX}.recent-repos`
 const RECENT_REPOS_LIMIT = 8
+const STORE_KEY = `${PREFIX}.store`
+
+export interface StorePrefs extends GithubStoreFilters {
+  platform: GithubPlatformFilter
+  category: GithubDiscoverCategory
+  sort: GithubSortKey
+}
+
+export const DEFAULT_STORE_PREFS: StorePrefs = {
+  platform: 'all',
+  category: 'all',
+  sort: 'stars',
+  ...DEFAULT_STORE_FILTERS,
+}
+
+const STORE_PLATFORMS: readonly GithubPlatformFilter[] = ['all', 'android', 'windows', 'macos', 'linux']
+const STORE_CATEGORIES: readonly GithubDiscoverCategory[] = ['all', 'ai', 'privacy', 'networking', 'media', 'social', 'reading', 'tools']
 
 export interface RecentRepoRef {
   fullName: string
@@ -246,4 +267,23 @@ export function recordRecentRepo(fullName: string, avatarUrl: string): RecentRep
 export function clearRecentRepos(): RecentRepoRef[] {
   writeJson(RECENT_REPOS_KEY, [])
   return []
+}
+
+export function loadStorePrefs(): StorePrefs {
+  const parsed = readJson(STORE_KEY)
+  if (!parsed) return { ...DEFAULT_STORE_PREFS }
+  return {
+    platform: oneOf(parsed.platform, STORE_PLATFORMS, DEFAULT_STORE_PREFS.platform),
+    category: oneOf(parsed.category, STORE_CATEGORIES, DEFAULT_STORE_PREFS.category),
+    sort: oneOf(parsed.sort, SORTS, DEFAULT_STORE_PREFS.sort),
+    language: typeof parsed.language === 'string' ? parsed.language.slice(0, 64) : DEFAULT_STORE_PREFS.language,
+    updated: oneOf(parsed.updated, ['any', 'week', 'month', 'year'] as const, DEFAULT_STORE_PREFS.updated),
+    tracked: oneOf(parsed.tracked, ['any', 'tracked', 'untracked'] as const, DEFAULT_STORE_PREFS.tracked),
+    installerOnly: parsed.installerOnly === true,
+    updateStatus: oneOf(parsed.updateStatus, ['any', 'available', 'latest'] as const, DEFAULT_STORE_PREFS.updateStatus),
+  }
+}
+
+export function saveStorePrefs(prefs: StorePrefs): void {
+  writeJson(STORE_KEY, prefs)
 }
