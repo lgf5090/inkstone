@@ -14,9 +14,13 @@ export interface ListPaneControls {
   detailDisabled: boolean
 }
 
+export interface SidebarPaneControls {
+  closeSidebar: () => void
+}
+
 export interface GithubPanesProps {
   title: string
-  sidebar: ReactNode
+  sidebar: ReactNode | ((controls: SidebarPaneControls) => ReactNode)
   sidebarHeader?: ReactNode
   sidebarFooter?: ReactNode
   list: ReactNode | ((controls: ListPaneControls) => ReactNode)
@@ -93,13 +97,14 @@ export function GithubPanes({
 
   const controls: ListPaneControls = { toggleSidebar, toggleDetail, detailDisabled }
   const listContent = typeof list === 'function' ? list(controls) : list
+  const sidebarContent = typeof sidebar === 'function' ? sidebar({ closeSidebar: () => setSidebarDrawer(false) }) : sidebar
 
   const tabsBar = sidebarHeader ? <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2" data-testid="github-module-tabs">{sidebarHeader}</div> : null
 
   const sidebarColumn = (
     <div className="flex h-full min-h-0 flex-col">
       {tabsBar}
-      <div className="min-h-0 flex-1 overflow-hidden">{sidebar}</div>
+      <div className="min-h-0 flex-1 overflow-hidden">{sidebarContent}</div>
       {sidebarFooter && <div className="shrink-0 border-t border-[var(--border-subtle)]">{sidebarFooter}</div>}
     </div>
   )

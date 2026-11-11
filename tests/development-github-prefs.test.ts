@@ -14,6 +14,7 @@ import {
   loadRecentRepos,
   loadRepoPrefs,
   loadSearchHistory,
+  loadSectionView,
   recordRecentRepo,
   saveCurrentMirrorId,
   saveGistPrefs,
@@ -21,6 +22,7 @@ import {
   saveLayoutPrefs,
   saveRepoPrefs,
   saveSearchHistory,
+  saveSectionView,
 } from '../src/client/features/development/github/prefs'
 
 beforeEach(() => {
@@ -100,5 +102,17 @@ describe('GitHub local preferences', () => {
     expect(loadRecentRepos()[0]?.fullName).toBe('owner/r9')
     expect(clearRecentRepos()).toEqual([])
     expect(loadRecentRepos()).toEqual([])
+  })
+
+  it('remembers the list or grid layout of apps and favourites separately', () => {
+    expect(loadSectionView('apps')).toBe('list')
+    expect(loadSectionView('favorites')).toBe('list')
+    saveSectionView('apps', 'grid')
+    expect(loadSectionView('apps')).toBe('grid')
+    expect(loadSectionView('favorites')).toBe('list')
+    saveSectionView('favorites', 'grid')
+    expect(loadSectionView('favorites')).toBe('grid')
+    localStorage.setItem('inkstone.development.github.store-view.apps', 'table')
+    expect(loadSectionView('apps')).toBe('list')
   })
 })

@@ -46,6 +46,7 @@ export function StoreSidebar({
   updateCount,
   favoriteCount,
   filteredCount,
+  onNavigate,
 }: {
   view: 'discover' | 'apps' | 'favorites'
   onViewChange: (view: 'discover' | 'apps' | 'favorites') => void
@@ -60,17 +61,22 @@ export function StoreSidebar({
   updateCount: number
   favoriteCount: number
   filteredCount?: number
+  onNavigate?: () => void
 }) {
+  const go = (action: () => void) => () => {
+    action()
+    onNavigate?.()
+  }
   return (
     <aside className="flex h-full min-w-0 flex-col overflow-hidden bg-[var(--bg-sunken)]" data-slot="store-sidebar">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <div className="space-y-1 p-2">
-          <SidebarItem icon={<Compass size={14} />} label={t('development.github.store.discover')} count={filteredCount} active={view === 'discover'} onClick={() => onViewChange('discover')} />
+          <SidebarItem icon={<Compass size={14} />} label={t('development.github.store.discover')} count={filteredCount} active={view === 'discover'} onClick={go(() => onViewChange('discover'))} />
           <SidebarItem
             icon={<Package size={14} />}
             label={t('development.github.store.my_apps')}
             active={view === 'apps'}
-            onClick={() => onViewChange('apps')}
+            onClick={go(() => onViewChange('apps'))}
             badge={updateCount > 0 ? <Badge tone="warning" className="shrink-0 tabular">{t('development.github.apps.updates_count', { count: updateCount })}</Badge> : undefined}
           />
           <SidebarItem
@@ -78,7 +84,7 @@ export function StoreSidebar({
             label={t('development.github.store.favorites')}
             count={favoriteCount}
             active={view === 'favorites'}
-            onClick={() => onViewChange('favorites')}
+            onClick={go(() => onViewChange('favorites'))}
           />
           {view === 'discover' && (
             <>
@@ -91,7 +97,7 @@ export function StoreSidebar({
                   label={t(entry.labelKey)}
                   active={category === entry.value}
                   pressed={category === entry.value}
-                  onClick={() => onCategoryChange(entry.value)}
+                  onClick={go(() => onCategoryChange(entry.value))}
                 />
               ))}
               <div className="my-2 border-t border-[var(--border-subtle)]" />
@@ -103,7 +109,7 @@ export function StoreSidebar({
                   label={t(`development.github.store.chart.${value}` as Parameters<typeof t>[0])}
                   active={chart === value}
                   pressed={chart === value}
-                  onClick={() => onChartChange(value)}
+                  onClick={go(() => onChartChange(value))}
                 />
               ))}
               <div className="my-2 border-t border-[var(--border-subtle)]" />
@@ -115,12 +121,12 @@ export function StoreSidebar({
                   label={platformLabel(value)}
                   active={platform === value}
                   pressed={platform === value}
-                  onClick={() => onPlatformChange(value)}
+                  onClick={go(() => onPlatformChange(value))}
                 />
               ))}
               <div className="my-2 border-t border-[var(--border-subtle)]" />
               <SectionLabel>{t('development.github.store.topic.label')}</SectionLabel>
-              <SidebarItem icon={<Layers size={13} />} label={t('development.github.store.topic.all')} active={topic === ''} pressed={topic === ''} onClick={() => onTopicChange('')} />
+              <SidebarItem icon={<Layers size={13} />} label={t('development.github.store.topic.all')} active={topic === ''} pressed={topic === ''} onClick={go(() => onTopicChange(''))} />
               {GITHUB_DISCOVER_TOPICS.map((entry) => (
                 <SidebarItem
                   key={entry.value}
@@ -128,7 +134,7 @@ export function StoreSidebar({
                   label={t(entry.labelKey)}
                   active={topic === entry.value}
                   pressed={topic === entry.value}
-                  onClick={() => onTopicChange(topic === entry.value ? '' : entry.value)}
+                  onClick={go(() => onTopicChange(topic === entry.value ? '' : entry.value))}
                 />
               ))}
             </>

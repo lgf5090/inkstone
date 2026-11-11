@@ -19,12 +19,16 @@ export function DiscoverCard({
   favorited,
   onToggleFavorite,
   onSelectRepo,
+  onContextMenu,
+  onContextKeyDown,
   mirrorBase,
 }: {
   item: GithubDiscoverItem
   favorited: boolean
   onToggleFavorite: () => void
   onSelectRepo: () => void
+  onContextMenu?: (event: React.MouseEvent) => void
+  onContextKeyDown?: (event: React.KeyboardEvent) => void
   mirrorBase: string
 }) {
   const versionAnchor = useRef<HTMLButtonElement>(null)
@@ -52,11 +56,13 @@ export function DiscoverCard({
 
   return (
     <div
+      onContextMenu={onContextMenu}
       className="group relative flex h-full min-h-[124px] w-full flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5 pr-9 text-left transition-[border-color,background-color] duration-[var(--dur-fast)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-raised)]"
     >
       <button
         type="button"
         onClick={onSelectRepo}
+        onKeyDown={onContextKeyDown}
         aria-label={item.repo.fullName}
         className="absolute inset-0 rounded-[var(--r-md)] focus-visible:shadow-[var(--shadow-ring-focus)] focus-visible:outline-none"
       />
@@ -88,7 +94,7 @@ export function DiscoverCard({
           </>
         ) : <span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.github.store.no_release')}</span>}
       </span>
-      <span className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pr-6 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+      <span className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pr-16 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
         <span className="inline-flex items-center gap-1 tabular-nums"><Star size={10} />{formatNumber(item.repo.stargazersCount)}</span>
         {item.repo.language && <span>{item.repo.language}</span>}
         {release && release.downloadCount > 0 && <span className="inline-flex items-center gap-1 tabular-nums"><Download size={10} />{formatNumber(release.downloadCount)}</span>}

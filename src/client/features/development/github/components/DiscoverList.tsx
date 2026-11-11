@@ -1,5 +1,5 @@
 import { AlertCircle, PanelLeft, RefreshCw, ShieldCheck, X } from 'lucide-react'
-import type { GithubDiscoverResult, GithubRepo, GithubSortKey, GithubStoreFilters } from '@shared/development/github/types'
+import type { GithubDiscoverItem, GithubDiscoverResult, GithubRepo, GithubSortKey, GithubStoreFilters } from '@shared/development/github/types'
 import { GITHUB_DISCOVER_TOPICS, GITHUB_TRACKED_OPTIONS, GITHUB_UPDATED_OPTIONS, GITHUB_UPDATE_FILTER_OPTIONS } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { Button, IconButton, Spinner } from '../../../../components/primitives'
@@ -48,6 +48,8 @@ export function DiscoverList({
   onOpenFilters,
   onClearFilter,
   onClearAllFilters,
+  onCardContextMenu,
+  onCardContextKeyDown,
 }: {
   result: GithubDiscoverResult | null
   loading: boolean
@@ -77,6 +79,8 @@ export function DiscoverList({
   onOpenFilters: () => void
   onClearFilter: (key: 'platform' | 'topic' | 'category' | keyof GithubStoreFilters) => void
   onClearAllFilters: () => void
+  onCardContextMenu: (item: GithubDiscoverItem, event: React.MouseEvent) => void
+  onCardContextKeyDown: (item: GithubDiscoverItem, event: React.KeyboardEvent) => void
 }) {
   const showEmpty = Boolean(result && result.items.length === 0)
   const updatedLabel = t(GITHUB_UPDATED_OPTIONS.find((option) => option.value === filters.updated)?.labelKey ?? 'development.github.store.updated.any')
@@ -178,6 +182,8 @@ export function DiscoverList({
                   favorited={favoritedIds.has(String(item.repo.id))}
                   onToggleFavorite={() => onToggleFavorite(item.repo)}
                   onSelectRepo={() => onSelectRepo(item.repo)}
+                  onContextMenu={(event) => onCardContextMenu(item, event)}
+                  onContextKeyDown={(event) => onCardContextKeyDown(item, event)}
                   mirrorBase={mirrorBase}
                 />
               </li>

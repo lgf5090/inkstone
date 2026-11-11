@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Copy, Download, ExternalLink, PackagePlus } from 'lucide-react'
 import type {
+  GithubAssetPlatform,
   GithubDiscoverCategory,
   GithubDiscoverChart,
+  GithubDiscoverItem,
   GithubPlatformFilter,
   GithubRepo,
   GithubSortKey,
@@ -10,16 +13,19 @@ import type {
   SavedGithubRepo,
 } from '@shared/development/github/types'
 import { DEFAULT_STORE_FILTERS, GITHUB_DISCOVER_CATEGORIES, GITHUB_DISCOVER_PER_PAGE } from '@shared/development/github/types'
-import { trackedAppStatus } from '../lib/apps'
+import { trackedAppStatus, buildTrackedApp } from '../lib/apps'
 import { t } from '../../../../lib/i18n'
+import { copyText } from '../../../../lib/clipboard'
 import { navigateToPath } from '../../../../lib/app-history'
 import { useUi } from '../../../../store/ui'
+import { Menu, useContextMenu, type MenuItem } from '../../../../components/overlay'
 import { useGithubDiscover, useStoreSearch } from '../cache'
 import { useGithubStore } from '../store'
 import { storeAddress, type GithubStoreView } from '../routes'
-import { loadSearchHistory, loadStorePrefs, saveSearchHistory, saveStorePrefs } from '../prefs'
+import { loadSearchHistory, loadSectionView, loadStorePrefs, saveSearchHistory, saveSectionView, saveStorePrefs, type GithubSectionView } from '../prefs'
 import { savedRepoFrom } from '../lib/saved-repos'
-import { GithubPanes } from '../GithubPanes'
+import { buildMirrorDownloadUrl } from '../lib/format'
+import { GithubPanes, type SidebarPaneControls } from '../GithubPanes'
 import { ModuleTabs, type GithubTab } from './ModuleTabs'
 import { SidebarFooter } from './SidebarFooter'
 import { StoreSidebar } from './StoreSidebar'
@@ -27,7 +33,10 @@ import { DiscoverList } from './DiscoverList'
 import { AppsView } from './AppsView'
 import { FavoritesView } from './FavoritesView'
 import { StoreFiltersDialog } from './StoreFiltersDialog'
+import { TrackAppDialog, type TrackAppValues } from './TrackAppDialog'
 import { RepoDetail } from './RepoDetail'
+
+const ORIGIN = { x: 0, y: 0 }
 
 export function StorePane({
   tab,
@@ -51,6 +60,7 @@ export function StorePane({
   const mirrors = useGithubStore((state) => state.mirrors)
   const accounts = useGithubStore((state) => state.accounts)
   const upsertRepo = useGithubStore((state) => state.upsertRepo)
+  const upsertApp = useGithubStore((state) => state.upsertApp)
   const deleteApp = useGithubStore((state) => state.deleteApp)
   const checkApps = useGithubStore((state) => state.checkApps)
   const toast = useUi((state) => state.toast)
@@ -77,6 +87,11 @@ export function StorePane({
   const [page, setPage] = useState(1)
   const [selectedRepo, setSelectedRepo] = useState<GithubRepo | null>(null)
   const [checking, setChecking] = useState(false)
+  const [appsView, setAppsView] = useState<GithubSectionView>(() => loadSectionView('apps'))
+  const [favoritesView, setFavoritesView] = useState<GithubSectionView>(() => loadSectionView('favorites'))
+  const cardMenu = useContextMenu()
+  const [cardTarget, setCardTarget] = useState<GithubDiscoverItem | null>(null)
+  const [trackTarget, setTrackTarget] = useState<{ repo: GithubRepo; platform: GithubAssetPlatform; tag: string } | null>(null)
 
   const discoverQuery = useMemo(() => ({
     chart,
@@ -266,9 +281,102 @@ export function StorePane({
   }, [])
 
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
+
+  const changeAppsView = useCallback((next: GithubSectionView) => {
+    setAppsView(next)
+    saveSectionView('apps', next)
+  }, [])
+
+  const changeFavoritesView = useCallback((next: GithubSectionView) => {
+    setFavoritesView(next)
+    saveSectionView('favorites', next)
+  }, [])
+
+  const copyValue = useCallback(async (value: string) => {
+    const ok = await copyText(value)
+    toast({ title: ok ? t('development.github.sidebar.copied') : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' })
+  }, [toast])
+
+  const openCardMenu = useCallback((item: GithubDiscoverItem, event: React.MouseEvent) => {
+    setCardTarget(item)
+    ;(event.currentTarget as HTMLElement).querySelector<HTMLElement>('button[aria-label]')?.focus({ preventScroll: true })
+    cardMenu.onContextMenu(event)
+  }, [cardMenu])
+
+  const openCardMenuAt = useCallback((item: GithubDiscoverItem, event: React.KeyboardEvent) => {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+    event.preventDefault()
+    setCardTarget(item)
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    cardMenu.openAt({ x: rect.left + 12, y: rect.top + 12 })
+  }, [cardMenu])
+
+  const beginTrack = useCallback((repo: GithubRepo, platform: GithubAssetPlatform = 'windows', tag = '') => {
+    setTrackTarget({ repo, platform, tag })
+  }, [])
+
+  const submitTrack = useCallback(async (values: TrackAppValues) => {
+    if (!trackTarget) return
+    const app = buildTrackedApp(trackTarget.repo, values.platform, values.assetPattern, values.installedTag)
+    try {
+      await upsertApp(app)
+    } catch (error) {
+      toast({
+        title: t('development.github.apps.save_failed'),
+        description: error instanceof Error ? error.message : undefined,
+        tone: 'danger',
+      })
+      return
+    }
+    setTrackTarget(null)
+    toast({ title: t('development.github.apps.saved', { name: trackTarget.repo.fullName }), tone: 'success' })
+    if (accounts.length === 0) return
+    try {
+      const result = await checkApps([app.id])
+      if (result.failed.length > 0) toast({ title: t('development.github.apps.check_failed'), description: result.failed[0]?.message, tone: 'warning' })
+    } catch (error) {
+      toast({ title: t('development.github.apps.check_failed'), description: error instanceof Error ? error.message : undefined, tone: 'warning' })
+    }
+  }, [accounts.length, checkApps, toast, trackTarget, upsertApp])
+
+  const cardDownloadUrl = cardTarget?.release?.recommendedAsset
+    ? buildMirrorDownloadUrl(currentMirror?.url ?? '', cardTarget.release.recommendedAsset.downloadUrl)
+    : ''
+  const cardTracked = Boolean(cardTarget && apps.some((app) => app.id === String(cardTarget.repo.id)))
+  const cardMenuItems: MenuItem[] = cardTarget ? [
+    { id: 'open', label: t('development.github.store.menu.open_detail'), onSelect: () => setSelectedRepo(cardTarget.repo) },
+    { id: 'github', label: t('development.github.store.menu.open_github'), icon: <ExternalLink size={13} />, onSelect: () => window.open(cardTarget.repo.url, '_blank', 'noopener,noreferrer') },
+    {
+      id: 'download',
+      label: t('development.github.store.menu.download'),
+      icon: <Download size={13} />,
+      disabled: !cardDownloadUrl,
+      reason: cardDownloadUrl ? undefined : t('development.github.store.no_asset_hint'),
+      onSelect: () => { if (cardDownloadUrl) window.open(cardDownloadUrl, '_blank', 'noopener,noreferrer') },
+    },
+    { id: 'copy-name', label: t('development.github.store.menu.copy_name'), icon: <Copy size={13} />, separatorBefore: true, onSelect: () => void copyValue(cardTarget.repo.fullName) },
+    { id: 'copy-link', label: t('development.github.store.menu.copy_link'), icon: <Copy size={13} />, onSelect: () => void copyValue(cardTarget.repo.url) },
+    {
+      id: 'favorite',
+      label: favoritedIds.has(String(cardTarget.repo.id)) ? t('development.github.store.unfavorite') : t('development.github.store.favorite'),
+      checked: favoritedIds.has(String(cardTarget.repo.id)),
+      onSelect: () => toggleFavorite(cardTarget.repo),
+    },
+    {
+      id: 'track',
+      label: cardTracked ? t('development.github.store.menu.tracked') : t('development.github.store.menu.track'),
+      icon: <PackagePlus size={13} />,
+      disabled: cardTracked,
+      onSelect: () => {
+        const platform = cardTarget.release?.platforms[0]
+        beginTrack(cardTarget.repo, platform, cardTarget.release?.tagName ?? '')
+      },
+    },
+  ] : []
+
   const saved = selectedRepo ? repos.find((entry) => entry.id === String(selectedRepo.id)) : undefined
 
-  const sidebar = (
+  const sidebar = ({ closeSidebar }: SidebarPaneControls) => (
     <StoreSidebar
       view={view}
       onViewChange={changeView}
@@ -283,6 +391,7 @@ export function StorePane({
       updateCount={updateCount}
       favoriteCount={favorites.length}
       filteredCount={query ? search.data?.total : discover.data?.total}
+      onNavigate={closeSidebar}
     />
   )
 
@@ -297,9 +406,9 @@ export function StorePane({
       autoHideDetail
       sidebar={sidebar}
       list={({ toggleSidebar }) => (view === 'apps'
-        ? <AppsView apps={apps} checking={checking} mirror={currentMirror} onCheck={(ids) => void runCheck(ids)} onRemove={removeApp} onPatch={patchApp} onOpenSidebar={toggleSidebar} onDiscover={() => changeView('discover')} />
+        ? <AppsView apps={apps} checking={checking} mirror={currentMirror} view={appsView} onViewChange={changeAppsView} onCheck={(ids) => void runCheck(ids)} onRemove={removeApp} onPatch={patchApp} onOpenSidebar={toggleSidebar} onDiscover={() => changeView('discover')} />
         : view === 'favorites'
-          ? <FavoritesView favorites={favorites} onOpenRepo={setSelectedRepo} onToggleFavorite={toggleFavorite} onOpenSidebar={toggleSidebar} onDiscover={() => changeView('discover')} />
+          ? <FavoritesView favorites={favorites} view={favoritesView} onViewChange={changeFavoritesView} onOpenRepo={setSelectedRepo} onToggleFavorite={toggleFavorite} onTrack={(repo) => beginTrack(repo)} onOpenSidebar={toggleSidebar} onDiscover={() => changeView('discover')} />
           : (
             <DiscoverList
               result={result}
@@ -330,11 +439,15 @@ export function StorePane({
               onOpenFilters={() => setFiltersOpen(true)}
               onClearFilter={clearFilter}
               onClearAllFilters={clearFilters}
+              onCardContextMenu={openCardMenu}
+              onCardContextKeyDown={openCardMenuAt}
             />
           ))}
       detail={<RepoDetail repo={selectedRepo} mirror={currentMirror} notes={saved?.notes ?? ''} favorited={Boolean(saved?.favorited)} onToggleFavorite={toggleFavorite} />}
     />
     <StoreFiltersDialog open={filtersOpen} onClose={() => setFiltersOpen(false)} filters={filters} onChange={changeFilters} />
+    <Menu anchor={cardMenu.point ?? ORIGIN} open={cardMenu.point !== null && cardTarget !== null} onClose={() => { cardMenu.close(); setCardTarget(null) }} items={cardMenuItems} align="start" width={220} label={t('development.github.common.menu')} />
+    <TrackAppDialog open={trackTarget !== null} repo={trackTarget?.repo ?? null} release={null} initialPlatform={trackTarget?.platform} initialTag={trackTarget?.tag} onClose={() => setTrackTarget(null)} onSubmit={(values) => void submitTrack(values)} />
     </>
   )
 }

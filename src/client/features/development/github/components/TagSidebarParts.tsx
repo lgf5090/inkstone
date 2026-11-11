@@ -7,9 +7,9 @@ import { IconButton } from '../../../../components/primitives'
 import { buildTagTree, tagCountsWithAncestors, type TagTreeNode } from '../lib/tags'
 import { treeIndent } from '../../../../lib/tree/indent'
 
-export function SidebarItem({ icon, label, count, active, onClick, badge, pressed, onContextMenu }: { icon: ReactNode; label: string; count?: number; active: boolean; onClick: () => void; badge?: ReactNode; pressed?: boolean; onContextMenu?: (event: React.MouseEvent) => void }) {
+export function SidebarItem({ icon, label, count, active, onClick, badge, pressed, onContextMenu, onKeyDown }: { icon: ReactNode; label: string; count?: number; active: boolean; onClick: () => void; badge?: ReactNode; pressed?: boolean; onContextMenu?: (event: React.MouseEvent) => void; onKeyDown?: (event: React.KeyboardEvent) => void }) {
   return (
-    <button type="button" onClick={onClick} onContextMenu={onContextMenu} aria-pressed={pressed} data-active={active || undefined} className={cn('flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-[length:var(--text-12)] transition-colors', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
+    <button type="button" onClick={onClick} onContextMenu={onContextMenu} onKeyDown={onKeyDown} aria-pressed={pressed} data-active={active || undefined} className={cn('flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-[length:var(--text-12)] transition-colors', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
       <span className="shrink-0">{icon}</span>
       <span className="min-w-0 flex-1 truncate text-left">{label}</span>
       {count !== undefined && <span className="shrink-0 rounded-full bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-11)] tabular text-[var(--text-tertiary)]">{count}</span>}
@@ -22,7 +22,7 @@ export function SectionLabel({ children }: { children: ReactNode }) {
   return <p className="px-2 pb-1 text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{children}</p>
 }
 
-function TagTreeItem({ node, selectedView, onSelect, expanded, onToggleExpand, countForTag, depth, onContextMenu }: { node: TagTreeNode<GithubTag>; selectedView: GithubViewId; onSelect: (view: string) => void; expanded: Set<string>; onToggleExpand: (id: string) => void; countForTag: (id: string) => number; depth: number; onContextMenu?: (tag: GithubTag, event: React.MouseEvent) => void }) {
+function TagTreeItem({ node, selectedView, onSelect, expanded, onToggleExpand, countForTag, depth, onContextMenu, onContextKeyDown }: { node: TagTreeNode<GithubTag>; selectedView: GithubViewId; onSelect: (view: string) => void; expanded: Set<string>; onToggleExpand: (id: string) => void; countForTag: (id: string) => number; depth: number; onContextMenu?: (tag: GithubTag, event: React.MouseEvent) => void; onContextKeyDown?: (tag: GithubTag, event: React.KeyboardEvent) => void }) {
   const viewId = `tag:${node.id}`
   const active = selectedView === viewId
   const open = expanded.has(node.id)
@@ -35,23 +35,23 @@ function TagTreeItem({ node, selectedView, onSelect, expanded, onToggleExpand, c
             {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           </IconButton>
         ) : <span className="w-6 shrink-0" />}
-        <button type="button" onClick={() => onSelect(viewId)} onContextMenu={(event) => { event.preventDefault(); onContextMenu?.(node, event) }} data-active={active || undefined} className={cn('flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-md)] px-1.5 py-1.5 text-[length:var(--text-12)] transition-colors', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
+        <button type="button" onClick={() => onSelect(viewId)} onContextMenu={(event) => { event.preventDefault(); onContextMenu?.(node, event) }} onKeyDown={(event) => onContextKeyDown?.(node, event)} data-active={active || undefined} className={cn('flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-md)] px-1.5 py-1.5 text-[length:var(--text-12)] transition-colors', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
           <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.color }} />
           <span className="min-w-0 flex-1 truncate text-left">{node.name}</span>
           <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{countForTag(node.id)}</span>
         </button>
       </div>
-      {hasChildren && open && node.children.map((child) => <TagTreeItem key={child.id} node={child} selectedView={selectedView} onSelect={onSelect} expanded={expanded} onToggleExpand={onToggleExpand} countForTag={countForTag} depth={depth + 1} onContextMenu={onContextMenu} />)}
+      {hasChildren && open && node.children.map((child) => <TagTreeItem key={child.id} node={child} selectedView={selectedView} onSelect={onSelect} expanded={expanded} onToggleExpand={onToggleExpand} countForTag={countForTag} depth={depth + 1} onContextMenu={onContextMenu} onContextKeyDown={onContextKeyDown} />)}
     </div>
   )
 }
 
-export function TagTreeList({ tags, items, selectedView, onSelect, expanded, onToggleExpand, emptyAction, onContextMenu }: { tags: GithubTag[]; items: readonly { tagIds: readonly string[] }[]; selectedView: GithubViewId; onSelect: (view: string) => void; expanded: Set<string>; onToggleExpand: (id: string) => void; emptyAction: () => void; onContextMenu?: (tag: GithubTag, event: React.MouseEvent) => void }) {
+export function TagTreeList({ tags, items, selectedView, onSelect, expanded, onToggleExpand, emptyAction, onContextMenu, onContextKeyDown }: { tags: GithubTag[]; items: readonly { tagIds: readonly string[] }[]; selectedView: GithubViewId; onSelect: (view: string) => void; expanded: Set<string>; onToggleExpand: (id: string) => void; emptyAction: () => void; onContextMenu?: (tag: GithubTag, event: React.MouseEvent) => void; onContextKeyDown?: (tag: GithubTag, event: React.KeyboardEvent) => void }) {
   const tree = useMemo(() => buildTagTree(tags), [tags])
   const counts = useMemo(() => tagCountsWithAncestors(tags, items), [tags, items])
   const countForTag = (id: string) => counts.get(id) ?? 0
   if (tree.length === 0) {
     return <SidebarItem icon={<Plus size={12} />} label={t('development.github.tags.create_first')} active={false} onClick={emptyAction} />
   }
-  return <>{tree.map((node) => <TagTreeItem key={node.id} node={node} selectedView={selectedView} onSelect={onSelect} expanded={expanded} onToggleExpand={onToggleExpand} countForTag={countForTag} depth={0} onContextMenu={onContextMenu} />)}</>
+  return <>{tree.map((node) => <TagTreeItem key={node.id} node={node} selectedView={selectedView} onSelect={onSelect} expanded={expanded} onToggleExpand={onToggleExpand} countForTag={countForTag} depth={0} onContextMenu={onContextMenu} onContextKeyDown={onContextKeyDown} />)}</>
 }

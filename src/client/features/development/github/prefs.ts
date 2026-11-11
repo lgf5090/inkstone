@@ -26,6 +26,9 @@ const SEARCH_HISTORY_LIMIT = 8
 const RECENT_REPOS_KEY = `${PREFIX}.recent-repos`
 const RECENT_REPOS_LIMIT = 8
 const STORE_KEY = `${PREFIX}.store`
+const STORE_VIEW_PREFIX = `${PREFIX}.store-view`
+
+export type GithubSectionView = 'list' | 'grid'
 
 export interface StorePrefs extends GithubStoreFilters {
   platform: GithubPlatformFilter
@@ -286,4 +289,25 @@ export function loadStorePrefs(): StorePrefs {
 
 export function saveStorePrefs(prefs: StorePrefs): void {
   writeJson(STORE_KEY, prefs)
+}
+
+export function loadSectionView(section: 'apps' | 'favorites'): GithubSectionView {
+  const store = storage()
+  if (!store) return 'list'
+  try {
+    return store.getItem(`${STORE_VIEW_PREFIX}.${section}`) === 'grid' ? 'grid' : 'list'
+  } catch (error) {
+    console.warn('[inkstone] GitHub section view could not be read', section, error)
+    return 'list'
+  }
+}
+
+export function saveSectionView(section: 'apps' | 'favorites', view: GithubSectionView): void {
+  const store = storage()
+  if (!store) return
+  try {
+    store.setItem(`${STORE_VIEW_PREFIX}.${section}`, view)
+  } catch (error) {
+    console.warn('[inkstone] GitHub section view could not be saved', section, error)
+  }
 }

@@ -14,34 +14,38 @@ export interface TrackAppValues {
   installedTag: string
 }
 
-function defaultPlatform(release: GithubRelease | null): GithubAssetPlatform {
+function defaultPlatform(release: GithubRelease | null, fallback?: GithubAssetPlatform): GithubAssetPlatform {
   const recommended = release?.assets.find((asset) => assetPlatform(asset.name) !== null) ?? release?.assets[0]
-  return (recommended ? assetPlatform(recommended.name) : null) ?? 'windows'
+  return (recommended ? assetPlatform(recommended.name) : null) ?? fallback ?? 'windows'
 }
 
 export function TrackAppDialog({
   open,
   repo,
   release,
+  initialPlatform,
+  initialTag,
   onClose,
   onSubmit,
 }: {
   open: boolean
   repo: GithubRepo | null
   release: GithubRelease | null
+  initialPlatform?: GithubAssetPlatform
+  initialTag?: string
   onClose: () => void
   onSubmit: (values: TrackAppValues) => void
 }) {
-  const [platform, setPlatform] = useState<GithubAssetPlatform>(() => defaultPlatform(release))
+  const [platform, setPlatform] = useState<GithubAssetPlatform>(() => defaultPlatform(release, initialPlatform))
   const [pattern, setPattern] = useState('')
-  const [installedTag, setInstalledTag] = useState(release?.tagName ?? '')
+  const [installedTag, setInstalledTag] = useState(release?.tagName ?? initialTag ?? '')
 
   useEffect(() => {
     if (!open) return
-    setPlatform(defaultPlatform(release))
+    setPlatform(defaultPlatform(release, initialPlatform))
     setPattern('')
-    setInstalledTag(release?.tagName ?? '')
-  }, [open, release, repo?.id])
+    setInstalledTag(release?.tagName ?? initialTag ?? '')
+  }, [open, release, initialPlatform, initialTag, repo?.id])
 
   return (
     <Modal

@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Clock, Compass, Download, FileText, Layers, Pin, Plus, Settings2, Star, Tag as TagIcon, X } from 'lucide-react'
 import type { GithubCollection, GithubTag, GithubViewId, SavedGithubRepo } from '@shared/development/github/types'
 import { GITHUB_ALL_VIEW, GITHUB_COLLECTION_VIEW_PREFIX, GITHUB_EXPLORE_VIEW, GITHUB_FAV_VIEW, GITHUB_PINNED_VIEW } from '@shared/development/github/types'
@@ -16,7 +16,7 @@ type TreeKind = 'tag' | 'collection'
 interface ContextTarget {
   kind: TreeKind
   id: string
-  anchor: HTMLElement
+  point: { x: number; y: number }
 }
 interface TreeDialog {
   mode: 'rename' | 'move' | 'child'
@@ -24,6 +24,8 @@ interface TreeDialog {
   id?: string
   name: string
 }
+
+const ORIGIN = { x: 0, y: 0 }
 
 function descendants(kind: TreeKind, id: string, tags: GithubTag[], collections: GithubCollection[]): string[] {
   const source: { id: string; parentId: string | null }[] = kind === 'tag' ? tags : collections
@@ -106,12 +108,18 @@ export const RepoSidebar = memo(function RepoSidebar({
   const [dialog, setDialog] = useState<TreeDialog | null>(null)
   const [draft, setDraft] = useState('')
   const [moveTo, setMoveTo] = useState('ROOT')
-  const anchorRef = useRef<HTMLElement | null>(null)
 
   const openContext = (kind: TreeKind, id: string, event: React.MouseEvent) => {
     event.preventDefault()
-    anchorRef.current = event.currentTarget as HTMLElement
-    setContext({ kind, id, anchor: event.currentTarget as HTMLElement })
+    ;(event.currentTarget as HTMLElement).focus({ preventScroll: true })
+    setContext({ kind, id, point: { x: event.clientX, y: event.clientY } })
+  }
+
+  const openContextAt = (kind: TreeKind, id: string, event: React.KeyboardEvent) => {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+    event.preventDefault()
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    setContext({ kind, id, point: { x: rect.left + 12, y: rect.top + 12 } })
   }
 
   const targetTag = context?.kind === 'tag' ? tags.find((tag) => tag.id === context.id) : undefined
@@ -246,6 +254,7 @@ export const RepoSidebar = memo(function RepoSidebar({
               active={selectedView === `${GITHUB_COLLECTION_VIEW_PREFIX}${collection.id}`}
               onClick={() => onSelect(`${GITHUB_COLLECTION_VIEW_PREFIX}${collection.id}`)}
               onContextMenu={(event) => openContext('collection', collection.id, event)}
+              onKeyDown={(event) => openContextAt('collection', collection.id, event)}
             />
           </div>
         </div>
@@ -282,7 +291,7 @@ export const RepoSidebar = memo(function RepoSidebar({
             <SectionLabel>{t('development.github.tags.section')}</SectionLabel>
             <Button variant="ghost" size="sm" className="ml-auto h-6 px-1.5" onClick={onManageTags} title={t('development.github.tags.manage')} aria-label={t('development.github.tags.manage')}><Settings2 size={12} /></Button>
           </div>
-          <TagTreeList tags={tags} items={savedRepos} selectedView={selectedView} onSelect={onSelect} expanded={expanded} onToggleExpand={onToggleExpand} emptyAction={onManageTags} onContextMenu={(tag, event) => openContext('tag', tag.id, event)} />
+          <TagTreeList tags={tags} items={savedRepos} selectedView={selectedView} onSelect={onSelect} expanded={expanded} onToggleExpand={onToggleExpand} emptyAction={onManageTags} onContextMenu={(tag, event) => openContext('tag', tag.id, event)} onContextKeyDown={(tag, event) => openContextAt('tag', tag.id, event)} />
           <div className="my-2 border-t border-[var(--border-subtle)]" />
           <div className="flex items-center gap-1 px-2 pb-1">
             <Layers size={12} className="text-[var(--text-tertiary)]" />
@@ -294,7 +303,7 @@ export const RepoSidebar = memo(function RepoSidebar({
             : renderCollections(null, 0)}
         </div>
       </div>
-      <Menu anchor={anchorRef} open={Boolean(context)} onClose={() => setContext(null)} items={contextItems} align="start" width={210} label={t('development.github.sidebar.menu')} />
+      <Menu anchor={context?.point ?? ORIGIN} open={Boolean(context)} onClose={() => setContext(null)} items={contextItems} align="start" width={210} label={t('development.github.sidebar.menu')} />
       <Modal
         open={Boolean(dialog)}
         onClose={() => setDialog(null)}
