@@ -25,7 +25,7 @@ function ReleaseMeta({ item }: { item: GithubDiscoverItem }) {
   }
   return (
     <>
-      <Badge tone="accent">{release.tagName}</Badge>
+      <Badge tone="neutral">{release.tagName}</Badge>
       {release.platforms.length > 0 && (
         <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">
           {release.platforms.map((platform) => platformLabel(platform)).join(' · ')}
@@ -90,7 +90,7 @@ export function DiscoverList({
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
         {loading && !result ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2" aria-label={t('development.github.common.loading')}>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] gap-2" aria-label={t('development.github.common.loading')}>
             {Array.from({ length: 8 }).map((_, index) => <Skeleton key={index} className="h-[108px] rounded-[var(--r-md)]" />)}
           </div>
         ) : error && !result ? (
@@ -112,7 +112,7 @@ export function DiscoverList({
             />
           </div>
         ) : (
-          <ul className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2">
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] gap-2">
             {result?.items.map((item) => (
               <li key={item.repo.id}>
                 <button
