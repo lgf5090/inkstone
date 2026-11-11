@@ -41,7 +41,6 @@ export function StoreSidebar({
   onPlatformChange,
   topic,
   onTopicChange,
-  appCount,
   updateCount,
   filteredCount,
 }: {
@@ -53,7 +52,6 @@ export function StoreSidebar({
   onPlatformChange: (platform: GithubPlatformFilter) => void
   topic: string
   onTopicChange: (topic: string) => void
-  appCount: number
   updateCount: number
   filteredCount?: number
 }) {
@@ -65,7 +63,6 @@ export function StoreSidebar({
           <SidebarItem
             icon={<Package size={14} />}
             label={t('development.github.store.my_apps')}
-            count={appCount}
             active={view === 'apps'}
             onClick={() => onViewChange('apps')}
             badge={updateCount > 0 ? <Badge tone="warning" className="shrink-0 tabular">{t('development.github.apps.updates_count', { count: updateCount })}</Badge> : undefined}

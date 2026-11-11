@@ -137,7 +137,6 @@ export function StorePane({
       onPlatformChange={changePlatform}
       topic={topic}
       onTopicChange={changeTopic}
-      appCount={apps.length}
       updateCount={updateCount}
       filteredCount={discover.data?.total}
     />
