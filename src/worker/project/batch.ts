@@ -5,7 +5,8 @@
  * D1 batch; the statement count is bounded because D1 caps a batch.
  */
 import { z } from 'zod'
-import type { ProjectBoard } from '@shared/project/model'
+import type { ProjectBoard, ProjectRole } from '@shared/project/model'
+import { projectRoleAtLeast } from '@shared/project/model'
 import { removeContentOrder, type ProjectContentOrder } from '@shared/project/content-order'
 import { ProjectBatchDeleteSchema, ProjectBatchSchema } from '@shared/project/validation'
 import { ApiError } from '../lib/errors'
@@ -31,6 +32,7 @@ export async function batchPatchProjectBoard(
   input: ProjectBatchInput,
   userId: string,
   now: number,
+  role: ProjectRole,
 ): Promise<void> {
   const statements: D1PreparedStatement[] = []
   for (const { id, patch } of input.cards ?? []) {
@@ -47,6 +49,7 @@ export async function batchPatchProjectBoard(
   for (const { id, patch } of input.views ?? []) {
     const view = await getProjectView(db, id)
     if (!view || view.boardId !== board.id || view.deleteAt !== 0) throw ApiError.notFound('View not found')
+    if (view.fields.minimumRole && !projectRoleAtLeast(role, view.fields.minimumRole)) throw ApiError.notFound('View not found')
     statements.push(...viewPatchStatements(db, view, patch, userId, now))
   }
   await commit(db, statements)
@@ -58,6 +61,7 @@ export async function batchDeleteProjectBoard(
   input: ProjectBatchDeleteInput,
   userId: string,
   now: number,
+  role: ProjectRole,
 ): Promise<void> {
   const statements: D1PreparedStatement[] = []
   for (const cardId of input.cardIds) {
@@ -69,6 +73,7 @@ export async function batchDeleteProjectBoard(
   for (const viewId of input.viewIds) {
     const view = await getProjectView(db, viewId)
     if (!view || view.boardId !== board.id || view.deleteAt !== 0) throw ApiError.notFound('View not found')
+    if (view.fields.minimumRole && !projectRoleAtLeast(role, view.fields.minimumRole)) throw ApiError.notFound('View not found')
     statements.push(db.prepare('UPDATE project_views SET delete_at = ?1, modified_by = ?2, update_at = ?1 WHERE id = ?3')
       .bind(now, userId, viewId))
   }

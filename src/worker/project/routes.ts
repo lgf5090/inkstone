@@ -399,16 +399,16 @@ projectRoutes.post('/boards/:id/views', async (c) => {
 })
 
 projectRoutes.patch('/boards/:id/batch', async (c) => {
-  const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
+  const { board, userId, role } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectBatchSchema)
-  await batchPatchProjectBoard(c.env.DB, board, input, userId, Date.now())
+  await batchPatchProjectBoard(c.env.DB, board, input, userId, Date.now(), role)
   return c.json({ ok: true })
 })
 
 projectRoutes.post('/boards/:id/batch-delete', async (c) => {
-  const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
+  const { board, userId, role } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectBatchDeleteSchema)
-  await batchDeleteProjectBoard(c.env.DB, board, input, userId, Date.now())
+  await batchDeleteProjectBoard(c.env.DB, board, input, userId, Date.now(), role)
   return c.json({ ok: true })
 })
 

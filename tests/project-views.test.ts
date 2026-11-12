@@ -94,6 +94,22 @@ describe('creating a view', () => {
 })
 
 describe('reading and patching a view', () => {
+  it('enforces view-level visibility on direct reads, patches and batch writes', async () => {
+    const board = await createBoard('alice', {})
+    const view = await createView('alice', board.id, { title: 'Private', fields: { minimumRole: 'admin' } })
+    addMember(board.id, 'bob', 'viewer')
+    addMember(board.id, 'carol', 'editor')
+    expect((await req('bob', 'GET', `/views/${view.id}`)).status).toBe(404)
+    expect((await req('carol', 'PATCH', `/views/${view.id}`, { title: 'x' })).status).toBe(404)
+    expect((await req('carol', 'DELETE', `/views/${view.id}`)).status).toBe(404)
+    expect((await req('carol', 'POST', `/boards/${board.id}/batch`, { views: [{ id: view.id, patch: { title: 'x' } }] })).status).toBe(404)
+    expect((await req('carol', 'POST', `/boards/${board.id}/batch-delete`, { viewIds: [view.id] })).status).toBe(404)
+    expect((await req('alice', 'GET', `/views/${view.id}`)).status).toBe(200)
+    const reader = ((await (await req('bob', 'GET', `/boards/${board.id}/bundle`)).json()) as { views: ProjectView[], cursor: number })
+    expect(reader.views.map((entry) => entry.id)).not.toContain(view.id)
+    expect(reader.cursor).toBeGreaterThanOrEqual(view.updateAt)
+  })
+
   it('lets a viewer read and merges a partial field patch without dropping the rest', async () => {
     const board = await createBoard('alice', {})
     const view = await createView('alice', board.id, { title: 'V', fields: { columnWidths: { c1: 200 }, cardOrder: ['c1'] } })

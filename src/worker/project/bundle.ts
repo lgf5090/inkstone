@@ -188,9 +188,8 @@ export async function readProjectBoardBundle(
     values[row.property_id] = row.value
   }
   const cards = cardRows.results.map((row) => rowToCard(row, valuesByCard.get(row.id) ?? {}))
-  const views = viewRows.results
-    .map(rowToView)
-    .filter((view) => !view.fields.minimumRole || projectRoleAtLeast(role, view.fields.minimumRole))
+  const allViews = viewRows.results.map(rowToView)
+  const views = allViews.filter((view) => !view.fields.minimumRole || projectRoleAtLeast(role, view.fields.minimumRole))
   const contentsTruncated = contentRows.results.length > PROJECT_LIMITS.bundleContents
   const commentsTruncated = commentRows.results.length > PROJECT_LIMITS.bundleComments
   const contents = contentRows.results.slice(0, PROJECT_LIMITS.bundleContents).map(rowToContent)
@@ -212,7 +211,7 @@ export async function readProjectBoardBundle(
 
   let cursor = board.updateAt
   for (const card of cards) cursor = Math.max(cursor, card.updateAt)
-  for (const view of views) cursor = Math.max(cursor, view.updateAt)
+  for (const view of allViews) cursor = Math.max(cursor, view.updateAt)
   for (const content of contents) cursor = Math.max(cursor, content.updateAt)
   for (const comment of comments) cursor = Math.max(cursor, comment.updateAt)
   for (const member of members) cursor = Math.max(cursor, member.updatedAt)

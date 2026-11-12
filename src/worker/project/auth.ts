@@ -125,7 +125,11 @@ export async function requireView(
   const row = await getProjectViewRow(c.env.DB, viewId)
   if (!row || (!options.allowDeleted && row.delete_at !== 0)) throw ApiError.notFound('View not found')
   const access = await requireBoard(c, row.board_id, required)
-  return { ...access, view: rowToView(row) }
+  const view = rowToView(row)
+  if (view.fields.minimumRole && !projectRoleAtLeast(access.role, view.fields.minimumRole)) {
+    throw ApiError.notFound('View not found')
+  }
+  return { ...access, view }
 }
 
 export interface ProjectContentAccess extends ProjectBoardAccess {
