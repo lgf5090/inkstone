@@ -12795,6 +12795,9 @@ const allowed = new Map([
   ["src/client/features/project/ArchiveDialog.tsx", [
     "/**\n * What this account archived, and the way back.\n *\n * Archiving hides a board from the live list without deleting it, so the rows are still whole. Only\n * the owner archives and restores, the same role the write itself requires.\n */",
   ]],
+  ["src/client/features/project/BatchEditDialog.tsx", [
+    "/** A property a bulk write can actually carry; server stamps and opaque file cells are read-only here. */",
+  ]],
   ["src/client/features/project/BoardPage.tsx", [
     "// Realtime fallback (D-11): the sync hub notifies members on writes, but a tab that misses the",
     "// notification (or a deployment without the DO) still converges via a quiet 30s refetch.",
@@ -12831,6 +12834,10 @@ const allowed = new Map([
     "// bundle rather than waiting for a full remount.",
     "// Every keystroke used to re-match and re-sort the whole board; the box stays immediate while the",
     "// expensive pass trails one frame behind.",
+    "// The account copy wins once it exists; a browser that marked cards before this shipped",
+    "// uploads its local copy the first time the server has nothing.",
+    "/* best-effort migration */",
+    "/* best-effort: local marks keep working offline */",
   ]],
   ["src/client/features/project/CardBadges.tsx", [
     "/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */",
@@ -12839,6 +12846,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/CardDialog.test.tsx", [
     "// jsdom lays nothing out, so the drag reads the bands a real dialog would report.",
+  ]],
+  ["src/client/features/project/CardDialog.tsx", [
+    "/* best-effort: the bundle copy stays on screen */",
   ]],
   ["src/client/features/project/FilterEditor.test.tsx", [
     "/** The row a stored value is offered under: a property name, a join word, or a condition's own label. */",
@@ -12940,6 +12950,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/use-watch.ts", [
     "/**\n * Whether this account is watching one block, and the toggle that changes it.\n *\n * The reminder sweep and the comment notifications both read the subscription rows, so a board with\n * no watchers is a board whose notifications nobody receives. The list is read once per mount and\n * the toggle writes through it, rather than each caller keeping its own copy of the same roster.\n */",
+    "// The board page and the card dialog ask the same question within seconds of each other; the roster",
+    "// is one read until a toggle makes it stale.",
   ]],
   ["src/client/features/project/views/CalendarView.tsx", [
     "/**\n * The calendar: a continuous month grid, spanning cards drawn as one bar across the week, and a day\n * panel that says what the selected day means to each card on it.\n *\n * The grid is a real grid — shared hairlines, no gaps — because a month made of separated tiles reads\n * as a list of boxes rather than as time. Ribbons are placed per week with CSS grid columns, so a\n * five-day task is one bar with one label instead of five fragments.\n */",
@@ -33471,6 +33483,8 @@ const allowed = new Map([
     "/** Hidden from the live list without being deleted; the archive list shows it. */",
     "/** How a card repeats: every N days/weeks/months/years, optionally on chosen weekdays. */",
     "/** A repeating card spawns its next instance when completed; absent is an ordinary card. */",
+    "/** The weakest role that sees this tab; absent means everyone who can read the board. */",
+    "/** Set when the board holds more detail rows than one read carries; open a card for the rest. */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",
@@ -41002,6 +41016,9 @@ const allowed = new Map([
     "// the column) records the version without re-adding it.",
     "// A repeating card stores its rule as JSON; null is an ordinary card. Guarded so a fresh database",
     "// (whose CREATE TABLE already carries the column) records the version without re-adding it.",
+    "// Public links expose comments only after the owner opts in; the default keeps existing shares",
+    "// private. Guarded so a fresh database, whose CREATE TABLE already carries the column, records",
+    "// the version without re-adding it.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -42613,6 +42630,7 @@ const allowed = new Map([
     "/**\n * The trust boundary every board-scoped route crosses. A board the caller cannot see at all answers\n * 404 rather than 403, so a private board's existence never leaks; one they can see but lack the role\n * for answers 403. The effective role folds the owner rule and the open-board minimum in one place.\n */",
     "/**\n * A card-scoped route resolves the board from the card row, then crosses the same board boundary. A\n * card on a board the caller cannot see answers 404, never 403, so the card's existence stays private\n * too. The board itself must be alive even when undeleting a card: a card cannot outlive its board.\n */",
     "/** A view-scoped route resolves its board the same way a card does, crossing the same boundary. */",
+    "/**\n * Ownership is a stronger boundary than the admin role: an admin can run the board day to day, but\n * publishing it, deleting it or turning it into a template changes the owner's property. Those routes\n * cross this instead of `requireBoard(..., 'admin')`.\n */",
   ]],
   ["src/worker/project/batch.ts", [
     "/**\n * Atomic multi-entity writes (§6.3). A drag that moves three cards across a column, or a multi-select\n * delete, must land as one transaction so a half-applied gesture cannot survive. Every target is read\n * and checked for board membership before any statement runs, then all statements commit in a single\n * D1 batch; the statement count is bounded because D1 caps a batch.\n */",
@@ -42685,6 +42703,9 @@ const allowed = new Map([
   ["src/worker/project/permissions.ts", [
     "/**\n * Which boards the sidebar lists, and what the caller may do with each.\n *\n * A board reaches its audience two ways — the account owns it, or a membership row names it — so the\n * list is the union of the two, and a board the caller can no longer read is dropped rather than\n * shown greyed out. The role is resolved here so no caller has to remember the open-board rule.\n */",
   ]],
+  ["src/worker/project/preferences.ts", [
+    "/** Per-reader, per-board card marks. They are a preference, not board content, so they live beside the\n * user in project_settings rather than on the card row. */",
+  ]],
   ["src/worker/project/public-page.ts", [
     "/**\n * The public board's address.\n *\n * `/p` is reserved in `wrangler.toml`'s run_worker_first, so the worker answers it rather than the\n * asset fallback — without this route the reserved path was a 404 and the link the share dialog hands\n * out led nowhere. It serves the app shell and nothing more: a board's title sits behind the same\n * passcode as its cards, so a crawler is told no more than a stranger holding the address.\n */",
   ]],
@@ -42708,6 +42729,7 @@ const allowed = new Map([
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
+    "/** The activity log is a recent-history surface, not an audit archive; keep half a year. */",
   ]],
   ["src/worker/project/schema.ts", [
     "/**\n * The project app's tables, in arrays so a fresh database and a migrated one arrive at the same shape\n * by the same text: `SCHEMA_STATEMENTS` spreads these, and migrations 287-291 apply the very same\n * arrays to a database that predates the app.\n *\n * Boards are shared objects, so a board-scoped row keys on its own id and reaches its audience through\n * `project_board_members`; only the account's own furniture (categories, settings) keys on the account.\n * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.\n */",
@@ -42722,9 +42744,10 @@ const allowed = new Map([
     "// FROM notes, so sharing it would mean editing the notes search write path.",
     "// project_fts is deliberately absent: the boot's column repair replays CREATE TABLE declarations, and",
     "// an fts5 virtual table has none to replay — its columns are changed by rebuilding it, not by ADD COLUMN.",
+    "// The public link is read-only; comments are internal discussion unless the owner opts in.",
   ]],
   ["src/worker/project/search.ts", [
-    "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. This first version matches\n * with LIKE over board and card titles; the reserved project_fts table and pinyin initials are the\n * indexed follow-up (the queue/drain machinery mirrors notes once write-path indexing is wired).\n */",
+    "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. Cards match on their title,\n * their content blocks and their comments; the reserved project_fts table remains the indexed\n * follow-up once the write-path queue is wired.\n */",
   ]],
   ["src/worker/project/shares.ts", [
     "/**\n * Public read-only sharing, modelled on the assistant's share links: a slug is the capability, an\n * optional password hash gates it, and an expiry lapses it. The hash never leaves the server; the\n * management answer carries only `hasPassword`. Reading increments the view counter and returns the\n * board bundle at viewer role, so a shared board exposes exactly what a viewer sees.\n */",
@@ -42745,6 +42768,7 @@ const allowed = new Map([
   ]],
   ["src/worker/project/templates.ts", [
     "/**\n * Templates: the built-in starting points plus the account's own boards saved as templates. Creating\n * from a built-in replays its properties, views and sample cards through the same writers every other\n * create uses; creating from a saved template is a duplicate of that board.\n */",
+    "/**\n * A template is a snapshot, not a state of the live board: the owner keeps working in the original\n * while the copy is what the picker offers. Comments stay behind because they are conversation about\n * the original work, which is why the copy is made without them.\n */",
   ]],
   ["src/worker/project/views.ts", [
     "/**\n * Views: the saved ways of looking at one board's cards. A view's fields arrive partial and are\n * merged over the empty defaults on create and over the stored fields on patch, so a client that\n * only changes the sort never has to resend the column widths. Order is a real column the client\n * drags, and a new view without an explicit position lands after the last one.\n */",
