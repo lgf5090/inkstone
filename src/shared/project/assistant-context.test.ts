@@ -6,7 +6,7 @@ import { buildProjectAssistantFacts, MAX_PROJECT_CONTEXT_CARDS } from './assista
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 function bundle(cardCount: number): ProjectBoardBundle {
   return {
-    board: { id: 'b1', ownerId: 'u1', type: 'P', minimumRole: '', title: 'Roadmap', description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, ...stamps },
+    board: { id: 'b1', ownerId: 'u1', type: 'P', minimumRole: '', title: 'Roadmap', description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, archived: false, ...stamps },
     properties: [{ id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '' }] }],
     views: [{ id: 'v1', boardId: 'b1', title: 'Board', viewType: 'board', fields: { ...emptyProjectViewFields(), groupById: 'ps' }, position: 0, ...stamps }],
     cards: Array.from({ length: cardCount }, (_, i) => ({ id: `c${i}`, boardId: 'b1', parentId: '', title: `Card ${i}`, icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o1' }, ...stamps })),

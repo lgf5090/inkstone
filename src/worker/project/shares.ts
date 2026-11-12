@@ -92,7 +92,7 @@ export async function readPublicProjectShare(db: D1Database, slug: string, passw
   const row = await db.prepare('SELECT * FROM project_shares WHERE slug = ?1').bind(slug).first<ShareRow>()
   if (!row) throw ApiError.notFound('Share not found')
   if (row.expires_at !== null && row.expires_at <= now) throw ApiError.notFound('Share not found')
-  const boardRow = await db.prepare('SELECT * FROM project_boards WHERE id = ?1 AND delete_at = 0').bind(row.board_id).first<{ id: string, owner_id: string, type: string, minimum_role: string, title: string, description: string, icon: string, show_description: number, is_template: number, template_version: number, created_by: string, modified_by: string, create_at: number, update_at: number, delete_at: number }>()
+  const boardRow = await db.prepare('SELECT * FROM project_boards WHERE id = ?1 AND delete_at = 0').bind(row.board_id).first<{ id: string, owner_id: string, type: string, minimum_role: string, title: string, description: string, icon: string, show_description: number, is_template: number, template_version: number, created_by: string, modified_by: string, create_at: number, update_at: number, delete_at: number, archived: number }>()
   if (!boardRow) throw ApiError.notFound('Share not found')
   if (row.password_hash !== null) {
     if (!password) throw ApiError.unauthenticated('An access password is required')
@@ -112,7 +112,7 @@ export async function readPublicProjectShare(db: D1Database, slug: string, passw
     id: boardRow.id, ownerId: boardRow.owner_id, type: boardRow.type as ProjectBoard['type'], minimumRole: boardRow.minimum_role as ProjectBoard['minimumRole'],
     title: boardRow.title, description: boardRow.description, icon: boardRow.icon, showDescription: boardRow.show_description === 1,
     isTemplate: boardRow.is_template === 1, templateVersion: boardRow.template_version, createdBy: boardRow.created_by, modifiedBy: boardRow.modified_by,
-    createAt: boardRow.create_at, updateAt: boardRow.update_at, deleteAt: boardRow.delete_at,
+    createAt: boardRow.create_at, updateAt: boardRow.update_at, deleteAt: boardRow.delete_at, archived: boardRow.archived !== 0,
   }
   return readProjectBoardBundle(db, board, 'viewer')
 }

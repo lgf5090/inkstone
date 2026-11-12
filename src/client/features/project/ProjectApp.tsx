@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { Clock, Copy, Download, MoreHorizontal, Pencil, Pin, Plus, Save, Search, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
+import { Archive, Clock, Copy, Download, MoreHorizontal, Pencil, Pin, Plus, Save, Search, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { ProjectBoardSummary, ProjectRole } from '@shared/project/model'
 import { t, useLocale } from '../../lib/i18n'
@@ -12,6 +12,7 @@ import { useUi } from '../../store/ui'
 import { projectBoardExportUrl, saveBoardAsTemplate } from './api'
 import { useProjectStore } from './store'
 import { BoardPage } from './BoardPage'
+import { ArchiveDialog } from './ArchiveDialog'
 import { ImportDialog } from './ImportDialog'
 import { ProjectSidebar } from './ProjectSidebar'
 import { SearchDialog } from './SearchDialog'
@@ -56,6 +57,7 @@ function BoardList(): ReactElement {
   const [showSearch, setShowSearch] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [showTrash, setShowTrash] = useState(false)
+  const [showArchive, setShowArchive] = useState(false)
   const [layout, setLayout] = useState<'list' | 'cards'>(readBoardListLayoutPref)
   const chooseLayout = (next: 'list' | 'cards'): void => { setLayout(next); writeBoardListLayoutPref(next) }
 
@@ -110,6 +112,7 @@ function BoardList(): ReactElement {
           />
         </span>
         <IconButton label={t('project.search.title')} size="sm" onClick={() => setShowSearch(true)}><Search size={16} /></IconButton>
+        <IconButton label={t('project.archive.title')} size="sm" onClick={() => setShowArchive(true)}><Archive size={16} /></IconButton>
         <IconButton label={t('project.trash.title')} size="sm" onClick={() => setShowTrash(true)}><Trash2 size={16} /></IconButton>
         <IconButton label={t('project.import.title')} size="sm" onClick={() => setShowImport(true)}><Upload size={16} /></IconButton>
         <Button variant="primary" size="sm" icon={<Plus size={15} />} onClick={() => setShowPicker(true)}>
@@ -148,6 +151,7 @@ function BoardList(): ReactElement {
       {showPicker && <TemplatePicker onClose={() => setShowPicker(false)} onPick={(id) => void pickTemplate(id)} />}
       {showSearch && <SearchDialog onClose={() => setShowSearch(false)} />}
       {showTrash && <TrashDialog onClose={() => setShowTrash(false)} onRestored={() => { void loadBoards() }} />}
+      {showArchive && <ArchiveDialog onClose={() => setShowArchive(false)} onRestored={() => { void loadBoards() }} />}
       {showImport && <ImportDialog onClose={() => setShowImport(false)} />}
     </div>
   )
@@ -159,6 +163,7 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit:
   const renameBoard = useProjectStore((state) => state.renameBoard)
   const toast = useUi((state) => state.toast)
   const setBoardIcon = useProjectStore((state) => state.setBoardIcon)
+  const setBoardArchived = useProjectStore((state) => state.setBoardArchived)
   const { pinned, starred, togglePin, toggleStar } = useProjectBoardMarks()
   const [iconOpen, setIconOpen] = useState(false)
   const title = board.title || t('project.boards.untitled')
@@ -212,6 +217,7 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit:
     },
     { id: 'export-csv', label: t('project.sidebar.export_csv'), icon: <Download size={15} />, separatorBefore: true, onSelect: () => { window.open(projectBoardExportUrl(board.id, 'csv'), '_blank') } },
     { id: 'export-archive', label: t('project.sidebar.export_archive'), icon: <Download size={15} />, onSelect: () => { window.open(projectBoardExportUrl(board.id, 'archive'), '_blank') } },
+    { id: 'archive', label: t('project.boards.archive'), icon: <Archive size={15} />, disabled: board.role !== 'admin', onSelect: () => { void guard(async () => { await setBoardArchived(board.id, true) }) } },
     {
       id: 'delete', label: t('project.boards.delete_confirm'), icon: <Trash2 size={15} />, tone: 'danger', separatorBefore: true, disabled: board.role !== 'admin',
       onSelect: () => {

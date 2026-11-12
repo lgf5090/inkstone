@@ -185,6 +185,11 @@ projectRoutes.get('/trash', async (c) => {
   return c.json({ boards: await store(c).deletedBoards() })
 })
 
+/** Archived boards this account owns: hidden from the live list, kept whole for restore. */
+projectRoutes.get('/archived', async (c) => {
+  return c.json({ boards: await store(c).archivedBoards() })
+})
+
 /** Soft-deleted cards on one board, for the same restore panel. */
 projectRoutes.get('/boards/:id/trash', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'admin', { allowDeleted: true })
@@ -362,7 +367,7 @@ projectRoutes.post('/boards/:id/batch-delete', async (c) => {
 
 projectRoutes.patch('/boards/:id', async (c) => {
   const patch = await projectBody(c, ProjectBoardPatchSchema)
-  const required = patch.type !== undefined || patch.minimumRole !== undefined ? 'admin' : 'editor'
+  const required = patch.type !== undefined || patch.minimumRole !== undefined || patch.archived !== undefined ? 'admin' : 'editor'
   const { board } = await requireBoard(c, c.req.param('id'), required)
   return c.json(await patchProjectBoard(c.env.DB, board, patch, projectUserId(c), Date.now()))
 })

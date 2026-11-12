@@ -22,7 +22,7 @@ export class ProjectStore {
       .prepare(
         `SELECT b.*, (SELECT COUNT(*) FROM project_cards c WHERE c.board_id = b.id AND c.delete_at = 0) AS card_count
          FROM project_boards b
-         WHERE b.delete_at = 0 AND b.is_template = 0
+         WHERE b.delete_at = 0 AND b.is_template = 0 AND b.archived = 0
            AND (b.owner_id = ?1
                 OR b.id IN (SELECT board_id FROM project_board_members WHERE user_id = ?1))
          ORDER BY b.update_at DESC`,
@@ -43,6 +43,19 @@ export class ProjectStore {
         `SELECT * FROM project_boards
          WHERE delete_at != 0 AND is_template = 0 AND owner_id = ?1
          ORDER BY delete_at DESC LIMIT 100`,
+      )
+      .bind(this.userId)
+      .all<ProjectBoardRow>()
+    return results.map((row) => ({ ...rowToBoard(row), role: 'admin' as const }))
+  }
+
+  /** Archived boards this account owns: hidden from the live list, kept whole for restore. */
+  async archivedBoards(): Promise<ProjectBoardSummary[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT * FROM project_boards
+         WHERE delete_at = 0 AND archived = 1 AND is_template = 0 AND owner_id = ?1
+         ORDER BY update_at DESC LIMIT 100`,
       )
       .bind(this.userId)
       .all<ProjectBoardRow>()

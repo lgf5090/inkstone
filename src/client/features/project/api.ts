@@ -100,6 +100,11 @@ export async function duplicateProjectCard(id: string): Promise<ProjectCard> {
   return body.card
 }
 
+export async function fetchArchivedBoards(signal?: AbortSignal): Promise<ProjectBoardSummary[]> {
+  const body = await request<{ boards: ProjectBoardSummary[] }>('/api/project/archived', { signal })
+  return body.boards
+}
+
 export async function moveProjectCard(id: string, targetBoardId: string): Promise<ProjectCard> {
   const body = await request<{ card: ProjectCard }>(`/api/project/cards/${encodeURIComponent(id)}/move`, { method: 'POST', body: { targetBoardId } })
   return body.card

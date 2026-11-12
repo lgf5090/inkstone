@@ -295,6 +295,8 @@ export interface ProjectBoard {
   createAt: number
   updateAt: number
   deleteAt: number
+  /** Hidden from the live list without being deleted; the archive list shows it. */
+  archived: boolean
 }
 
 /** A board as the caller sees it: the stored fields plus the role this caller actually holds. */
@@ -320,6 +322,7 @@ export interface ProjectBoardPatch {
   description?: string
   icon?: string
   showDescription?: boolean
+  archived?: boolean
   type?: ProjectBoardType
   minimumRole?: ProjectMinimumRole
   updatedCardProperties?: ProjectProperty[]

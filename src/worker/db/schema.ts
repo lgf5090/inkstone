@@ -4271,6 +4271,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON project_views(board_id, delete_at, position)`,
     ],
   },
+  {
+    // Archiving a board hides it from the live list without deleting it; the column defaults to 0 so
+    // every existing board stays live. Guarded so a fresh database (whose CREATE TABLE already carries
+    // the column) records the version without re-adding it.
+    version: 391,
+    skipIfColumnExists: { table: 'project_boards', column: 'archived' },
+    statements: ['ALTER TABLE project_boards ADD COLUMN archived INTEGER NOT NULL DEFAULT 0'],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

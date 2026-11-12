@@ -19,7 +19,7 @@ function card(id: string): ProjectCard {
 
 function bundle(): ProjectBoardBundle {
   return {
-    board: { id: 'b1', ownerId: 'u1', type: 'P', minimumRole: '', title: 'B', description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, ...stamps },
+    board: { id: 'b1', ownerId: 'u1', type: 'P', minimumRole: '', title: 'B', description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, archived: false, ...stamps },
     properties,
     views: [],
     cards: [card('a'), card('b')],

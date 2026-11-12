@@ -100,7 +100,7 @@ export async function duplicateProjectBoard(
     id: boardId, ownerId: userId, type: source.type, minimumRole: source.minimumRole, title: source.title,
     description: source.description, icon: source.icon, showDescription: source.showDescription,
     isTemplate: false, templateVersion: 0, createdBy: userId, modifiedBy: userId, createAt: now, updateAt: now,
-    deleteAt: 0, role: 'admin',
+    deleteAt: 0, archived: false, role: 'admin',
   }
 }
 

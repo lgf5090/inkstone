@@ -98,6 +98,7 @@ export async function createProjectBoard(
     createAt: now,
     updateAt: now,
     deleteAt: 0,
+    archived: false,
   }
   return { ...board, role: 'admin' }
 }
@@ -124,6 +125,7 @@ export async function patchProjectBoard(
   if (patch.description !== undefined) { sets.push('description = ?'); values.push(patch.description) }
   if (patch.icon !== undefined) { sets.push('icon = ?'); values.push(patch.icon) }
   if (patch.showDescription !== undefined) { sets.push('show_description = ?'); values.push(patch.showDescription ? 1 : 0) }
+  if (patch.archived !== undefined) { sets.push('archived = ?'); values.push(patch.archived ? 1 : 0) }
   if (patch.type !== undefined) { sets.push('type = ?'); values.push(patch.type) }
   if (patch.minimumRole !== undefined) { sets.push('minimum_role = ?'); values.push(patch.minimumRole) }
   values.push(board.id)

@@ -29,6 +29,7 @@ interface ProjectState {
   copyBoard: (id: string) => Promise<ProjectBoardSummary>
   renameBoard: (id: string, title: string) => Promise<void>
   setBoardIcon: (id: string, icon: string) => Promise<void>
+  setBoardArchived: (id: string, archived: boolean) => Promise<void>
 }
 
 function errorMessage(error: unknown): string {
@@ -88,6 +89,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((state) => ({
       boards: state.boards.map((entry) => (entry.id === id ? { ...entry, icon: result.board.icon } : entry)),
     }))
+  },
+
+  async setBoardArchived(id, archived) {
+    await patchProjectBoard(id, { archived })
+    if (archived) set((state) => ({ boards: state.boards.filter((board) => board.id !== id) }))
+    else await get().loadBoards()
   },
 
   async renameBoard(id, title) {

@@ -28,7 +28,7 @@ vi.mock('./api', () => ({
   projectBoardExportUrl: vi.fn((id: string, format: string) => `/export/${id}.${format}`),
 }))
 
-const stamps = { ownerId: 'u1', type: 'P' as const, minimumRole: '' as const, description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0, role: 'admin' as const }
+const stamps = { ownerId: 'u1', type: 'P' as const, minimumRole: '' as const, description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0, archived: false, role: 'admin' as const }
 const boards: ProjectBoardSummary[] = [
   { id: 'b1', title: 'Filed board', cardCount: 7, ...stamps },
   { id: 'b2', title: 'Loose board', ...stamps },

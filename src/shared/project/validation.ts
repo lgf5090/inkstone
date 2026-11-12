@@ -140,6 +140,7 @@ export const ProjectBoardPatchSchema = z.object({
   description: z.string().max(PROJECT_LIMITS.fieldsRunes).optional(),
   icon: icon.optional(),
   showDescription: z.boolean().optional(),
+  archived: z.boolean().optional(),
   type: z.enum(PROJECT_BOARD_TYPES).optional(),
   minimumRole: ProjectMinimumRoleSchema.optional(),
   updatedCardProperties: z.array(ProjectPropertySchema).max(PROJECT_LIMITS.propertiesPerBoard).optional(),

@@ -10,7 +10,7 @@ function fixture(): ProjectBoardBundle {
   return {
     board: {
       id: 'b1', ownerId: 'u1', type: 'P', minimumRole: '', title: 'Roadmap', description: 'Desc',
-      icon: '🗺️', showDescription: true, isTemplate: false, templateVersion: 0, ...stamps,
+      icon: '🗺️', showDescription: true, isTemplate: false, templateVersion: 0, archived: false, ...stamps,
     },
     properties: [
       { id: 'p1', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: 'propColorRed' }] },

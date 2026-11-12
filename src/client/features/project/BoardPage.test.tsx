@@ -22,7 +22,7 @@ const BOARD_ID = 'b'.repeat(27)
 
 function bundle(): ProjectBoardBundle {
   return {
-    board: { id: BOARD_ID, ownerId: 'u1', type: 'P', minimumRole: '', title: 'Roadmap', description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, ...stamps },
+    board: { id: BOARD_ID, ownerId: 'u1', type: 'P', minimumRole: '', title: 'Roadmap', description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, archived: false, ...stamps },
     properties: [{ id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '' }] }],
     views: [
       { id: 'v1', boardId: BOARD_ID, title: 'Table', viewType: 'table', fields: emptyProjectViewFields(), position: 0, ...stamps },

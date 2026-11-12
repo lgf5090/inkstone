@@ -40,6 +40,7 @@ const board: ProjectBoardSummary = {
   createAt: 1,
   updateAt: 1,
   deleteAt: 0,
+  archived: false,
   role: 'admin',
 }
 

@@ -17,6 +17,7 @@ export interface ProjectBoardRow {
   create_at: number
   update_at: number
   delete_at: number
+  archived: number
 }
 
 export interface ProjectMembershipRow {
@@ -41,6 +42,7 @@ export function rowToBoard(row: ProjectBoardRow): ProjectBoard {
     createAt: row.create_at,
     updateAt: row.update_at,
     deleteAt: row.delete_at,
+    archived: row.archived !== 0,
   }
 }
 

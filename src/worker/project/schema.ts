@@ -24,7 +24,8 @@ export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
     modified_by TEXT NOT NULL,
     create_at INTEGER NOT NULL,
     update_at INTEGER NOT NULL,
-    delete_at INTEGER NOT NULL DEFAULT 0
+    delete_at INTEGER NOT NULL DEFAULT 0,
+    archived INTEGER NOT NULL DEFAULT 0
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_boards_owner
      ON project_boards(owner_id, delete_at, update_at DESC)`,
@@ -332,7 +333,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   project_boards: [
     'id', 'owner_id', 'type', 'minimum_role', 'title', 'description', 'icon', 'show_description',
     'is_template', 'template_version', 'created_by', 'modified_by', 'create_at', 'update_at',
-    'delete_at',
+    'delete_at', 'archived',
   ],
   project_board_members: ['board_id', 'user_id', 'role', 'created_at', 'updated_at'],
   project_properties: [

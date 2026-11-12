@@ -62,7 +62,7 @@ export async function importProjectAccountArchive(db: D1Database, userId: string
         id: imported.board.id, ownerId: userId, type: imported.board.type, minimumRole: imported.board.minimumRole as ProjectBoard['minimumRole'],
         title: imported.board.title, description: imported.board.description, icon: imported.board.icon,
         showDescription: imported.board.showDescription, isTemplate: false, templateVersion: 0,
-        createdBy: userId, modifiedBy: userId, createAt: now, updateAt: now, deleteAt: 0,
+        createdBy: userId, modifiedBy: userId, createAt: now, updateAt: now, deleteAt: 0, archived: false,
       },
       properties: imported.properties,
       views: imported.views.map((view) => ({ ...view, boardId: imported.board.id })),
@@ -221,7 +221,7 @@ export async function importProjectBoardArchive(
     id: source.id, ownerId: userId, type: source.type, minimumRole: source.minimumRole as ProjectBoard['minimumRole'],
     title: source.title, description: source.description, icon: source.icon, showDescription: source.showDescription,
     isTemplate: source.isTemplate, templateVersion: source.templateVersion, createdBy: userId, modifiedBy: userId,
-    createAt, updateAt, deleteAt: 0,
+    createAt, updateAt, deleteAt: 0, archived: false,
   }
   return { board: { ...board, role: 'admin' }, skippedMembers }
 }

@@ -12792,6 +12792,9 @@ const allowed = new Map([
     "// The last branch is for `[[#heading]]`, whose target lives in that same datum. A span without one",
     "// is not a wiki link, and the card it used to produce only repeated the note already on screen.",
   ]],
+  ["src/client/features/project/ArchiveDialog.tsx", [
+    "/**\n * What this account archived, and the way back.\n *\n * Archiving hides a board from the live list without deleting it, so the rows are still whole. Only\n * the owner archives and restores, the same role the write itself requires.\n */",
+  ]],
   ["src/client/features/project/BoardPage.tsx", [
     "// Realtime fallback (D-11): the sync hub notifies members on writes, but a tab that misses the",
     "// notification (or a deployment without the DO) still converges via a quiet 30s refetch.",
@@ -33450,6 +33453,7 @@ const allowed = new Map([
     "/** The name a reader sees for a user id, or the id itself when the board has never met them. */",
     "/** The ids a multi-value column holds: a JSON array, or the one bare id an older write left behind. */",
     "/** Everyone the board refers to: members, card authors, comment authors and assigned people. */",
+    "/** Hidden from the live list without being deleted; the archive list shows it. */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",
@@ -40966,6 +40970,9 @@ const allowed = new Map([
     "// CREATE TABLE IF NOT EXISTS leaves an existing constraint alone, so adding 'dashboard' to the",
     "// enum made the write fail with a 500 on every database created before it. Rebuild without the",
     "// duplicate list, carrying every row across unchanged.",
+    "// Archiving a board hides it from the live list without deleting it; the column defaults to 0 so",
+    "// every existing board stays live. Guarded so a fresh database (whose CREATE TABLE already carries",
+    "// the column) records the version without re-adding it.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -42662,6 +42669,7 @@ const allowed = new Map([
     "/** The cheap staleness question: a poller asks this before paying for the whole bundle. */",
     "/** The restore list: soft-deleted boards this account owns, which the live list deliberately hides. */",
     "/** Soft-deleted cards on one board, for the same restore panel. */",
+    "/** Archived boards this account owns: hidden from the live list, kept whole for restore. */",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
@@ -42695,6 +42703,7 @@ const allowed = new Map([
     "/**\n * The project app's reads and writes, in one place so no route file carries SQL.\n *\n * Board-scoped rows key on the board rather than the account, so every query here either names the\n * account explicitly (the boards it owns) or reaches it through the membership table.\n */",
     "/**\n   * Owned boards and boards shared with this account, in one statement: a per-membership lookup\n   * would turn a sidebar of fifty boards into fifty round trips.\n   */",
     "/** Soft-deleted boards this account owns: the restore list, which the live board list excludes. */",
+    "/** Archived boards this account owns: hidden from the live list, kept whole for restore. */",
   ]],
   ["src/worker/project/subscriptions.ts", [
     "/**\n * Following a board or a card. A subscription is the caller's own row keyed by (block, subscriber),\n * so re-following revives a soft-deleted row rather than duplicating it, and unfollowing only ever\n * touches the caller's own subscription. Notification delivery reads these rows separately (D-16).\n */",
@@ -52545,7 +52554,7 @@ const allowed = new Map([
     "// owner's live-session ceiling.",
   ]],
   ["tests/webssh-schema.test.ts", [
-    "// The project tables append 385–390 after this lane's own block.",
+    "// The project tables append 385–391 after this lane's own block.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",

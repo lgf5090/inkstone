@@ -5,7 +5,7 @@ function row(overrides: Partial<ProjectBoardRow> = {}): ProjectBoardRow {
   return {
     id: 'b1', owner_id: 'u1', type: 'P', minimum_role: '', title: 'Roadmap', description: '',
     icon: '', show_description: 0, is_template: 0, template_version: 0,
-    created_by: 'u1', modified_by: 'u1', create_at: 1, update_at: 2, delete_at: 0,
+    created_by: 'u1', modified_by: 'u1', create_at: 1, update_at: 2, delete_at: 0, archived: 0,
     ...overrides,
   }
 }

@@ -12,7 +12,7 @@ const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, de
 
 function bundle(): ProjectBoardBundle {
   return {
-    board: { id: 'b1', ownerId: 'u1', type: 'P', minimumRole: '', title: 'B', description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, ...stamps },
+    board: { id: 'b1', ownerId: 'u1', type: 'P', minimumRole: '', title: 'B', description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, archived: false, ...stamps },
     properties: [
       { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '' }, { id: 'o2', value: 'Done', color: '' }] },
       { id: 'pt', name: 'Notes', type: 'text', options: [] },

@@ -7,7 +7,7 @@ const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 10, updateAt: 20, 
 
 function fixture(): ProjectBoardBundle {
   return {
-    board: { id: 'b1', ownerId: 'u1', type: 'P', minimumRole: '', title: 'Roadmap', description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, ...stamps },
+    board: { id: 'b1', ownerId: 'u1', type: 'P', minimumRole: '', title: 'Roadmap', description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, archived: false, ...stamps },
     properties: [
       { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '' }] },
       { id: 'pp', name: 'Assignee', type: 'person', options: [] },
