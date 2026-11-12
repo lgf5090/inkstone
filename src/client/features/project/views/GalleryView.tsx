@@ -59,6 +59,7 @@ export function GalleryView(props: GalleryProps): ReactElement {
         <Seg
           value={size}
           label={t('project.view.gallery_size')}
+          disabled={!canEdit}
           onChange={(next) => props.onPatchFields({ galleryCardSize: next })}
           options={[
             { value: 'small', label: t('project.view.gallery_small') },
@@ -151,6 +152,12 @@ function GalleryTile({ card, color, cover, chipProperties, showTitle, showBadges
         className="flex flex-col text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         onClick={() => onOpenCard(card.id)}
         onContextMenu={(event) => onCardContextMenu(event, card)}
+        onKeyDown={(event) => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          const rect = event.currentTarget.getBoundingClientRect()
+          event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom }))
+        }}
       >
         {cover
           ? <img src={cover} alt="" className="pv-tile-cover" loading="lazy" />

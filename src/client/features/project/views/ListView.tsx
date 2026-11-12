@@ -17,6 +17,7 @@ import { projectCardDays } from '@shared/project/timeline-layout'
 import { groupProjectCards, projectKanbanDropOrder, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t } from '../../../lib/i18n'
 import { IconButton } from '../../../components/primitives'
+import { Input } from '../../../components/form'
 import { Menu, type MenuItem } from '../../../components/overlay'
 import { isImeComposing } from '../../../lib/ime'
 import { CardBadges, OptionChip } from '../CardBadges'
@@ -179,7 +180,7 @@ export function ListView(props: ListProps): ReactElement {
           <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(card) }} aria-hidden="true" />
           {renaming?.id === card.id
             ? (
-              <input
+              <Input
                 className="pv-list-edit"
                 autoFocus
                 value={renaming.value}
@@ -196,8 +197,17 @@ export function ListView(props: ListProps): ReactElement {
               <button
                 type="button"
                 className="pv-list-title"
+                title={canEdit ? t('project.view.rename_hint') : undefined}
                 onClick={() => props.onOpenCard(card.id)}
                 onDoubleClick={() => { if (canEdit) setRenaming({ id: card.id, value: card.title }) }}
+                onKeyDown={(event) => {
+                  if (canEdit && event.key === 'F2') { event.preventDefault(); setRenaming({ id: card.id, value: card.title }) }
+                  else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                    event.preventDefault()
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom }))
+                  }
+                }}
               >
                 {card.icon && <span className="mr-1" aria-hidden="true">{card.icon}</span>}
                 {card.title || t('project.board.untitled_card')}

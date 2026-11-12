@@ -10,12 +10,13 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { AlertTriangle, CalendarClock, CheckCircle2, LayoutDashboard, Loader, Users } from 'lucide-react'
 import type { ProjectActivityEntry, ProjectCard, ProjectProperty } from '@shared/project/model'
-import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
+import { isProjectCardDone, projectPersonLabel, projectViewPropertyId } from '@shared/project/model'
 import { projectCardDays } from '@shared/project/timeline-layout'
 import { projectOptionCssColor } from '@shared/project/option-color'
 import { projectEffortStats, projectPriorityBuckets, projectPriorityProperty, projectWeeklyCompletions } from '@shared/project/stats'
 import { t, useLocale } from '../../../lib/i18n'
 import { ViewHead, ViewShell } from './shell'
+import { useProjectPeople } from '../people-context'
 import { fetchBoardActivity } from '../api'
 
 const DAY_MS = 86_400_000
@@ -68,6 +69,7 @@ function Panel({ title, children }: { title: string, children: React.ReactNode }
 export function DashboardView(props: DashboardProps): ReactElement {
   const { cards, properties, boardId } = props
   const locale = useLocale()
+  const people = useProjectPeople()
   const [activity, setActivity] = useState<ProjectActivityEntry[]>([])
   const [focus, setFocus] = useState<'overdue' | 'soon' | null>(null)
   const propertyId = projectViewPropertyId(props.datePropertyId) ?? properties.find((property) => property.type === 'date')?.id
@@ -295,7 +297,7 @@ export function DashboardView(props: DashboardProps): ReactElement {
               <ul className="space-y-1.5">
                 {workload.map(([id, count]) => (
                   <li key={id} className="pv-meter">
-                    <span className="pv-meter-label"><Users size={11} aria-hidden="true" className="mr-1 inline" />{id}</span>
+                    <span className="pv-meter-label"><Users size={11} aria-hidden="true" className="mr-1 inline" />{projectPersonLabel(people, id)}</span>
                     <span className="pv-meter-track"><span className="pv-meter-fill" style={{ width: `${cards.length ? Math.round((count / cards.length) * 100) : 0}%` }} /></span>
                     <span className="pv-meter-value">{count}</span>
                   </li>

@@ -157,7 +157,7 @@ function BoardList(): ReactElement {
   )
 }
 
-function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit: boolean, title: string, iconPicker: ReactElement | null } {
+function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], title: string, iconPicker: ReactElement | null } {
   const removeBoard = useProjectStore((state) => state.removeBoard)
   const copyBoard = useProjectStore((state) => state.copyBoard)
   const renameBoard = useProjectStore((state) => state.renameBoard)
@@ -240,7 +240,7 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit:
     )
     : null
 
-  return { items, canEdit, title, iconPicker }
+  return { items, title, iconPicker }
 }
 
 function BoardRow({ board }: { board: ProjectBoardSummary }): ReactElement {
@@ -326,7 +326,7 @@ function BoardCard({ board }: { board: ProjectBoardSummary }): ReactElement {
           </span>
         </span>
       </button>
-      <span className="absolute right-1.5 top-1.5 z-[1] rounded-[var(--r-sm)] bg-[var(--bg-base)]/80 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+      <span className="absolute right-1.5 top-1.5 z-[var(--pv-z-chip)] rounded-[var(--r-sm)] bg-[var(--bg-base)]/80 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         <IconButton ref={anchor} label={t('project.boards.menu_label')} size="sm" onClick={() => setMenuOpen(true)}>
           <MoreHorizontal size={15} />
         </IconButton>

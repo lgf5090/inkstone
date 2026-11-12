@@ -5,10 +5,10 @@
  * switching frequency does not silently reset them. The completed card spawns its next instance from
  * this rule on the server, so the editor only writes the rule itself.
  */
-import type { ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import type { ProjectRecurrence, ProjectRecurrenceFreq } from '@shared/project/model'
 import { t } from '../../lib/i18n'
-import { Checkbox, Input } from '../../components/form'
+import { Checkbox, commitOnEnter, Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 
 const FREQS: readonly ProjectRecurrenceFreq[] = ['daily', 'weekly', 'monthly', 'yearly']
@@ -21,10 +21,21 @@ export function RecurrenceEditor({ value, disabled, onChange }: {
   const freq = value?.freq ?? ''
   const interval = value?.interval ?? 1
   const weekdays = value?.byWeekday ?? []
+  const [intervalDraft, setIntervalDraft] = useState(String(interval))
+  useEffect(() => { setIntervalDraft(String(interval)) }, [interval])
+  const draftInterval = Number.parseInt(intervalDraft, 10)
+  const effectiveInterval = Number.isFinite(draftInterval) && draftInterval >= 1 ? Math.min(365, draftInterval) : interval
+
+  const commitInterval = (): void => {
+    setIntervalDraft(String(effectiveInterval))
+    if (effectiveInterval !== interval) {
+      onChange({ freq: freq as ProjectRecurrenceFreq, interval: effectiveInterval, ...(freq === 'weekly' && weekdays.length > 0 ? { byWeekday: weekdays } : {}) })
+    }
+  }
 
   const withFreq = (next: ProjectRecurrenceFreq): ProjectRecurrence => ({
     freq: next,
-    interval,
+    interval: effectiveInterval,
     ...(next === 'weekly' && weekdays.length > 0 ? { byWeekday: weekdays } : {}),
   })
 
@@ -46,15 +57,13 @@ export function RecurrenceEditor({ value, disabled, onChange }: {
           <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('project.card.recurrence.every')}</span>
           <Input
             className="w-16"
-            value={String(interval)}
+            value={intervalDraft}
             disabled={disabled}
             inputMode="numeric"
             aria-label={t('project.card.recurrence.every')}
-            onChange={(event) => {
-              const parsed = Number.parseInt(event.target.value, 10)
-              const next = Number.isFinite(parsed) && parsed >= 1 ? Math.min(365, parsed) : 1
-              onChange({ freq: freq as ProjectRecurrenceFreq, interval: next, ...(freq === 'weekly' && weekdays.length > 0 ? { byWeekday: weekdays } : {}) })
-            }}
+            onChange={(event) => setIntervalDraft(event.target.value)}
+            onBlur={commitInterval}
+            onKeyDown={(event) => { commitOnEnter(event, commitInterval) }}
           />
           <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t(`project.card.recurrence.unit.${freq}` as Parameters<typeof t>[0])}</span>
         </>
@@ -69,7 +78,7 @@ export function RecurrenceEditor({ value, disabled, onChange }: {
               disabled={disabled}
               onChange={(checked) => {
                 const next = checked ? [...weekdays, weekday].sort((a, b) => a - b) : weekdays.filter((entry) => entry !== weekday)
-                onChange({ freq: 'weekly', interval, ...(next.length > 0 ? { byWeekday: next } : {}) })
+                onChange({ freq: 'weekly', interval: effectiveInterval, ...(next.length > 0 ? { byWeekday: next } : {}) })
               }}
             />
           ))}

@@ -51,11 +51,15 @@ export function TableView(props: TableProps): ReactElement {
   const density = fields.cardSize ?? 'comfortable'
   const rowPad = density === 'compact' ? 'py-0.5' : density === 'spacious' ? 'py-3' : 'py-1.5'
 
-  const page = cards.slice(0, limit)
-  const groups: [string, ProjectCard[]][] = fields.groupById
+  const page = useMemo(() => cards.slice(0, limit), [cards, limit])
+  const groups: [string, ProjectCard[]][] = useMemo(() => (fields.groupById
     ? [...groupProjectCards(page, fields.groupById, bundle.properties).entries()]
-    : [['', page]]
+    : [['', page]]), [page, fields.groupById, bundle.properties])
   const allIds = useMemo(() => new Set(cards.map((card) => card.id)), [cards])
+  const summaries = useMemo(() => new Map(columns.map((property) => [
+    property.id,
+    computeProjectCalculation(cards, property, fields.columnCalculations[property.id] ?? 'count'),
+  ])), [cards, columns, fields.columnCalculations])
 
   const commitWidth = (id: string, width: number): void => {
     props.onPatchFields({ columnWidths: { ...fields.columnWidths, [id]: Math.max(80, Math.round(width)) } })
@@ -167,6 +171,12 @@ export function TableView(props: TableProps): ReactElement {
                 type="button"
                 className={`min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${isProjectCardDone(card, bundle.properties) ? 'text-[var(--text-tertiary)] line-through' : ''}`}
                 onClick={(event) => props.onSelectClick(event, card.id)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+                  event.preventDefault()
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom }))
+                }}
               >
                 {card.icon && <span className="mr-1" aria-hidden="true">{card.icon}</span>}
                 {card.title || t('project.board.untitled_card')}
@@ -318,7 +328,7 @@ export function TableView(props: TableProps): ReactElement {
               const calc = fields.columnCalculations[property.id] ?? 'count'
               return (
                 <td key={property.id} className="px-3">
-                  <span className="mr-2 font-semibold text-[var(--text-primary)]">{computeProjectCalculation(cards, property, calc)}</span>
+                  <span className="mr-2 font-semibold text-[var(--text-primary)]">{summaries.get(property.id)}</span>
                   <SelectMenu
                     className="w-24"
                     size="sm"

@@ -115,6 +115,7 @@ export function ChartView(props: ChartProps): ReactElement {
         <Seg
           value={type}
           label={t('project.view.chart_type')}
+          disabled={!props.canEdit}
           onChange={(next) => props.onPatchFields({ chartType: next })}
           options={[
             { value: 'bar', label: t('project.view.chart_bar') },

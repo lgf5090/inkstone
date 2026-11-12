@@ -247,7 +247,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       tone: 'danger',
       onSelect: () => {
         void guard(async () => {
-          const ok = await confirm({ title: `${t('common.delete')} ${board.title}?`, tone: 'danger', confirmLabel: t('common.delete') })
+          const ok = await confirm({ title: t('project.boards.delete_title', { title: board.title }), tone: 'danger', confirmLabel: t('common.delete') })
           if (!ok) return
           await useProjectStore.getState().removeBoard(board.id)
           // Deleting the board on screen would otherwise leave the reader staring at a dead page.
@@ -316,7 +316,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
         onSelect: () => {
           void guard(async () => {
             const ok = await confirm({
-              title: `${t('common.delete')} ${node.name}?`,
+              title: t('project.sidebar.delete_category', { name: node.name }),
               tone: 'danger',
               confirmLabel: t('common.delete'),
             })
@@ -362,8 +362,8 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   const settingsMenu: MenuItem[] = [
     { id: 'import', label: t('project.sidebar.import_archive'), onSelect: onImport },
     { id: 'export', label: t('project.sidebar.export_archive'), onSelect: () => { window.open('/api/project/export', '_blank') } },
-    { id: 'language', label: `${t('project.sidebar.language')}: ${locale}`, onSelect: () => { void setLocale(locale === 'zh-CN' ? 'en-US' : 'zh-CN') } },
-    { id: 'theme', label: `${t('project.sidebar.theme')}: ${theme}`, onSelect: () => { applyAppearance({ theme: theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light' }) } },
+    { id: 'language', label: `${t('project.sidebar.language')}: ${locale === 'zh-CN' ? t('project.sidebar.language_name_zh') : t('project.sidebar.language_name_en')}`, onSelect: () => { void setLocale(locale === 'zh-CN' ? 'en-US' : 'zh-CN') } },
+    { id: 'theme', label: `${t('project.sidebar.theme')}: ${t(`project.sidebar.theme_${theme}` as Parameters<typeof t>[0])}`, onSelect: () => { applyAppearance({ theme: theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light' }) } },
     { id: 'random-icon', label: `${t('project.sidebar.random_icon')}${randomIcon ? ' ✓' : ''}`, onSelect: () => { const next = !randomIcon; writeRandomIconPref(next); setRandomIcon(next) } },
   ]
 
@@ -627,7 +627,7 @@ function CategoryTreeItem({
           ref={anchor}
           label={node.name}
           size="sm"
-          className="opacity-0 group-hover/cat:opacity-100 transition-opacity"
+          className="opacity-0 group-hover/cat:opacity-100 focus-visible:opacity-100 transition-opacity"
           onClick={() => setMenuOpen(true)}
         >
           <MoreHorizontal size={14} />

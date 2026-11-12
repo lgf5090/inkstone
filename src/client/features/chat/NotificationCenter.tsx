@@ -13,12 +13,14 @@ import type { AssistantNotification } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
+import { navigateToPath } from '../../lib/app-history'
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { Button, IconButton } from '../../components/primitives'
 import { Drawer, Menu, Tooltip, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { taskIdFromNotificationLink } from '../todos/todo-address'
 import { openTaskInTodo } from '../todos/open-task'
+import { projectCardFromNotificationLink } from '../project/notification-link'
 import { snoozeLabel, useTodos } from '../todos/store'
 import { SNOOZE_MINUTES } from '@shared/todos/model'
 import { useAssistant } from './assistant-store'
@@ -151,6 +153,7 @@ function NotificationRow({
   // second case, which is the honest answer rather than a press that goes nowhere.
   const taskId = taskIdFromNotificationLink(notification.link)
   const calendarDate = /^calendar:(\d{4}-\d{2}-\d{2})$/.exec(notification.link ?? '')?.[1]
+  const projectCard = projectCardFromNotificationLink(notification.link)
   const html = useMemo(() => ({ __html: renderMarkdown(notification.body).html }), [notification.body])
   // Only a notice that points at a task can be snoozed: the others have nothing to remind about. The
   // four durations append a reminder and leave the task's own list alone, exactly like the card menu.
@@ -179,9 +182,13 @@ function NotificationRow({
                 window.location.assign(`/calendar?view=day&date=${calendarDate}`)
                 return
               }
+              if (projectCard) {
+                navigateToPath(`/project/boards/${encodeURIComponent(projectCard.boardId)}?card=${encodeURIComponent(projectCard.cardId)}`)
+                return
+              }
               setExpanded((value) => !value)
             }}
-            aria-expanded={taskId || calendarDate ? undefined : expanded}
+            aria-expanded={taskId || calendarDate || projectCard ? undefined : expanded}
             className="min-w-0 flex-1 text-left"
           >
             <p className={cn(
@@ -196,6 +203,9 @@ function NotificationRow({
                 that navigates and a row that expands are different gestures and must not look the same. */}
             {taskId && (
               <p className="mt-0.5 text-[length:var(--text-10-5)] font-medium text-[var(--accent)]">{t('assistant.notifications.open_task')}</p>
+            )}
+            {projectCard && (
+              <p className="mt-0.5 text-[length:var(--text-10-5)] font-medium text-[var(--accent)]">{t('project.card.open')}</p>
             )}
           </button>
           {/* A delivery about a plan can be opened; one from a routine cannot, and the control is not

@@ -55,7 +55,13 @@ export function ImportDialog({ onClose }: { onClose: () => void }): ReactElement
       <div className="space-y-3">
         <label className="block text-[length:var(--text-12)] text-[var(--text-secondary)]">
           {t('project.import.format')}
-          <SelectMenu className="mt-1 w-full" value={format} label={t('project.import.format')} onChange={(value) => setFormat(value as Format)} options={Object.keys(CONVERTERS).map((key) => ({ value: key, label: key }))} />
+          <SelectMenu
+            className="mt-1 w-full"
+            value={format}
+            label={t('project.import.format')}
+            onChange={(value) => setFormat(value as Format)}
+            options={(Object.keys(CONVERTERS) as Format[]).map((key) => ({ value: key, label: t(`project.import.format_${key}` as Parameters<typeof t>[0]) }))}
+          />
         </label>
         <input ref={inputRef} type="file" className="hidden" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
         <Button size="sm" onClick={() => inputRef.current?.click()}>{t('project.import.choose')}</Button>

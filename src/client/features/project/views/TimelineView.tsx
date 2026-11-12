@@ -126,6 +126,7 @@ export function TimelineView(props: TimelineProps): ReactElement {
         <Seg
           value={scale}
           label={t('project.view.scale')}
+          disabled={!props.canEdit}
           onChange={(next) => props.onPatchFields({ scheduleScale: next })}
           options={SCALES.map((entry) => ({ value: entry, label: t(`project.view.scale_${entry}` as Parameters<typeof t>[0]) }))}
         />

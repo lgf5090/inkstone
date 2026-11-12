@@ -200,7 +200,7 @@ export function GanttView(props: GanttProps): ReactElement {
     if (from === undefined || to === undefined) return
     const name = await prompt({
       title: t('project.view.create_card_here'),
-      description: `${new Date(from).toLocaleDateString()} → ${new Date(to).toLocaleDateString()}`,
+      description: `${new Date(from).toLocaleDateString(locale)} → ${new Date(to).toLocaleDateString(locale)}`,
       confirmLabel: t('common.save'),
     })
     if (!name || !name.trim()) return
@@ -317,6 +317,7 @@ export function GanttView(props: GanttProps): ReactElement {
         <Seg
           value={scale}
           label={t('project.view.scale')}
+          disabled={!canEdit}
           onChange={(next) => props.onPatchFields({ scheduleScale: next })}
           options={SCALES.map((entry) => ({ value: entry, label: t(`project.view.scale_${entry}` as Parameters<typeof t>[0]) }))}
         />
@@ -491,6 +492,7 @@ export function GanttView(props: GanttProps): ReactElement {
             <Seg
               value={scale}
               label={t('project.view.scale')}
+              disabled={!canEdit}
               onChange={(next) => props.onPatchFields({ scheduleScale: next })}
               options={SCALES.map((entry) => ({ value: entry, label: t(`project.view.scale_${entry}` as Parameters<typeof t>[0]) }))}
             />

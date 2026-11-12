@@ -17,7 +17,7 @@ import { groupProjectCards, projectKanbanDropOrder, projectOptionLabel } from '@
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
-import { Menu, submenuFor, type MenuItem } from '../../../components/overlay'
+import { Menu, prompt, submenuFor, type MenuItem } from '../../../components/overlay'
 import { optionColorItems } from '../card-menu'
 import { isImeComposing } from '../../../lib/ime'
 import { QuickAdd, ViewShell } from './shell'
@@ -71,19 +71,19 @@ export function kanbanColumnKeys(property: ProjectProperty | undefined, fields: 
 export function KanbanView(props: KanbanProps): ReactElement {
   const { cards, properties, fields, canEdit, selected } = props
   const groupProperty = properties.find((property) => property.id === fields.groupById)
-  const keys = kanbanColumnKeys(groupProperty, fields)
+  const keys = useMemo(() => kanbanColumnKeys(groupProperty, fields), [groupProperty, fields])
   const groups = useMemo(() => groupProjectCards(cards, fields.groupById, properties), [cards, fields.groupById, properties])
   const allIds = useMemo(() => new Set(cards.map((card) => card.id)), [cards])
-  const columns = keys.map((key) => {
+  const columns = useMemo(() => keys.map((key) => {
     const bucket = groups.get(key) ?? []
     const roots = bucket.filter((card) => !card.parentId || !allIds.has(card.parentId))
     // A pinned card leads its column without leaving it: the pin is a marker, not a second bucket.
     const pinned = roots.filter((card) => props.pinnedCards.includes(card.id))
     return { key, cards: [...pinned, ...roots.filter((card) => !props.pinnedCards.includes(card.id))] }
-  })
-  const chipProperties = fields.visiblePropertyIds.length
+  }), [keys, groups, allIds, props.pinnedCards])
+  const chipProperties = useMemo(() => (fields.visiblePropertyIds.length
     ? fields.visiblePropertyIds.map((id) => properties.find((property) => property.id === id)).filter((property): property is ProjectProperty => Boolean(property))
-    : properties
+    : properties), [fields.visiblePropertyIds, properties])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const todayStamp = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
 
@@ -224,7 +224,15 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
     if (groupProperty && columnKey !== '') void props.onSetGroupOptionColor(groupProperty.id, columnKey, next)
   })
   const columnMenuItems: MenuItem[] = [
-    { id: 'new', label: t('project.view.new_card_here'), icon: <Plus size={14} />, onSelect: () => { setColumnMenu(null); void props.onAddCard(t('project.board.untitled_card'), columnKey) } },
+    {
+      id: 'new', label: t('project.view.new_card_here'), icon: <Plus size={14} />,
+      onSelect: () => {
+        setColumnMenu(null)
+        void prompt({ title: t('project.view.new_card_here'), confirmLabel: t('common.save') }).then((name) => {
+          if (name && name.trim()) void props.onAddCard(name.trim(), columnKey)
+        })
+      },
+    },
     { id: 'rename', label: t('project.view.rename_group'), icon: <Pencil size={14} />, onSelect: () => { setColumnMenu(null); setDraft(label); setRenaming(true) } },
     { id: 'color', label: t('project.view.column_color'), icon: <Palette size={14} />, subItems: colorOptions, submenu: submenuFor(colorOptions) },
     { id: 'collapse', label: t('project.view.collapse_column'), icon: <ChevronRight size={14} />, separatorBefore: true, onSelect: () => { setColumnMenu(null); toggleCollapse() } },
@@ -344,6 +352,12 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
                           type="button"
                           className="pv-card-title"
                           onClick={(event) => props.onSelectClick(event, card.id)}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+                            event.preventDefault()
+                            const rect = event.currentTarget.getBoundingClientRect()
+                            event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom }))
+                          }}
                         >
                           {card.icon && <span className="mr-1" aria-hidden="true">{card.icon}</span>}
                           {card.title || t('project.board.untitled_card')}
@@ -478,16 +492,18 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
             }}
           />
         )
-        : (
-          <button
-            type="button"
-            className="pv-col-name"
-            title={canEdit ? t('project.view.rename_group_hint') : label}
-            onClick={() => { if (canEdit) onRename() }}
-          >
-            {label}
-          </button>
-        )}
+        : canEdit
+          ? (
+            <button
+              type="button"
+              className="pv-col-name"
+              title={t('project.view.rename_group_hint')}
+              onClick={onRename}
+            >
+              {label}
+            </button>
+          )
+          : <span className="pv-col-name">{label}</span>}
       <span className="pv-col-count" data-over-limit={overLimit}>{count}</span>
       <IconButton label={t('project.view.collapse_column')} size="sm" onClick={onCollapse}>
         <ChevronDown size={14} />

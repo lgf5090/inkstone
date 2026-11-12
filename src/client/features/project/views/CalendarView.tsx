@@ -193,6 +193,7 @@ export function CalendarView(props: CalendarProps): ReactElement {
         <Seg
           value={mode}
           label={t('project.view.calendar_range')}
+          disabled={!canEdit}
           onChange={props.onModeChange}
           options={[
             { value: 'month', label: t('project.view.calendar_month') },
@@ -313,12 +314,12 @@ function CalendarCell({ cell, mode, today, selected, dropping, bucket, propertie
       data-drop={dropping}
     >
       <button type="button" className="pv-cal-hit" aria-label={cell.key} aria-pressed={selected} onClick={onSelect} />
-      <span className="pv-cal-num relative z-[1]">{cell.day}</span>
+      <span className="pv-cal-num relative z-[var(--pv-z-chip)]">{cell.day}</span>
       {canEdit && (cell.inMonth || mode !== 'month') && (
         <button
           type="button"
           aria-label={t('project.board.new_card')}
-          className="absolute right-1 top-1 z-[3] rounded-[var(--r-xs)] p-0.5 text-[var(--text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] focus-visible:opacity-100 group-hover:opacity-100"
+          className="absolute right-1 top-1 z-[var(--pv-z-today)] rounded-[var(--r-xs)] p-0.5 text-[var(--text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] focus-visible:opacity-100 group-hover:opacity-100"
           onClick={(event) => { event.stopPropagation(); void onQuickAdd(cell.date) }}
         >
           <Plus size={12} aria-hidden="true" />
