@@ -5,13 +5,16 @@
  * D1 batch; the statement count is bounded because D1 caps a batch.
  */
 import { z } from 'zod'
-import type { ProjectBoard, ProjectRole } from '@shared/project/model'
+import type { ProjectBoard, ProjectCard, ProjectRole } from '@shared/project/model'
 import { projectRoleAtLeast } from '@shared/project/model'
 import { removeContentOrder, type ProjectContentOrder } from '@shared/project/content-order'
 import { ProjectBatchDeleteSchema, ProjectBatchSchema } from '@shared/project/validation'
 import { ApiError } from '../lib/errors'
+import type { AppBindings } from '../env'
+import { readBoardProperties } from './boards'
 import { assertProjectParent, cardPatchStatements, getProjectCard } from './cards'
 import { cardOrderStatement, contentPatchStatements, getProjectContent, readCardOrder } from './contents'
+import { applyCardValueEffects } from './enhance'
 import { getProjectView, viewPatchStatements } from './views'
 
 type ProjectBatchInput = z.infer<typeof ProjectBatchSchema>
@@ -33,12 +36,15 @@ export async function batchPatchProjectBoard(
   userId: string,
   now: number,
   role: ProjectRole,
+  env: AppBindings['Bindings'],
 ): Promise<void> {
   const statements: D1PreparedStatement[] = []
+  const valueCards: ProjectCard[] = []
   for (const { id, patch } of input.cards ?? []) {
     const card = await getProjectCard(db, id)
     if (!card || card.boardId !== board.id || card.deleteAt !== 0) throw ApiError.notFound('Card not found')
     if (patch.parentId) await assertProjectParent(db, card, patch.parentId)
+    if (patch.values !== undefined) valueCards.push(card)
     statements.push(...cardPatchStatements(db, card, patch, userId, now))
   }
   for (const { id, patch } of input.contents ?? []) {
@@ -53,6 +59,13 @@ export async function batchPatchProjectBoard(
     statements.push(...viewPatchStatements(db, view, patch, userId, now))
   }
   await commit(db, statements)
+  if (!valueCards.length) return
+  const properties = await readBoardProperties(db, board.id)
+  for (const before of valueCards) {
+    const after = await getProjectCard(db, before.id)
+    if (!after) continue
+    await applyCardValueEffects(db, env, board, before, after, properties, userId, now)
+  }
 }
 
 export async function batchDeleteProjectBoard(

@@ -42679,6 +42679,7 @@ const allowed = new Map([
     "/** A card reads as done when a checkbox property is ticked or its status option names completion. */",
     "/** X-5 card→todo: mirror the card's completion onto its linked task. */",
     "/** X-5 todo→card: mirror a task's completion onto the linked card's checkbox/status property. */",
+    "/**\n * Every writer of card values owes the same follow-up work: the linked todo, the next occurrence of a\n * repeating card, and a notice to anyone newly assigned. Keeping it here stops the single-card and\n * batch routes from drifting apart.\n */",
   ]],
   ["src/worker/project/files.ts", [
     "/**\n * Project attachments (F-8/D-9): bytes live in R2 under a four-segment `project/<category>/<user>/<id>`\n * key, rows in project_attachments. The category segment keeps images/pdf/text apart for browsing and\n * cleanup. Uploads are editor-only; reads follow the board's viewer boundary so a private board's\n * files stay private.\n */",

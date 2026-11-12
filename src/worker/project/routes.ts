@@ -29,8 +29,6 @@ import {
   ProjectViewCreateSchema,
   ProjectViewPatchSchema,
 } from '@shared/project/validation'
-import { isProjectCardDone, projectMultiValueIds } from '@shared/project/model'
-import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit, readFormDataWithinLimit, requestClientIp } from '../lib/request'
@@ -59,7 +57,6 @@ import {
   getProjectCardRow,
   patchProjectCard,
   softDeleteProjectCard,
-  spawnRecurringCard,
   undeleteProjectCard,
 } from './cards'
 import {
@@ -99,8 +96,8 @@ import {
 import { ProjectStore } from './store'
 import { searchProject } from './search'
 import { topProjectBoards } from './insights'
-import { addCardLink, createCardFromTemplate, getCardTodoLink, linkCardTodo, listBoardLinks, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate, syncCardCompletionToTodo, unlinkCardTodo } from './enhance'
-import { notifyProjectAssignment, notifyProjectComment } from './notify'
+import { addCardLink, applyCardValueEffects, createCardFromTemplate, getCardTodoLink, linkCardTodo, listBoardLinks, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate, unlinkCardTodo } from './enhance'
+import { notifyProjectComment } from './notify'
 import { readProjectCardMarks, writeProjectCardMarks } from './preferences'
 import { toICal } from '../subscriptions/calendar'
 import { parseProjectDateValue, projectStampToDay } from '@shared/project/date'
@@ -161,22 +158,6 @@ projectRoutes.use('*', async (c, next) => {
   })
   task.catch((error: unknown) => console.warn('[inkstone] project fan-out failed:', error instanceof Error ? error.message : error))
 })
-
-function newlyAssignedPeople(
-  before: ProjectCard,
-  after: ProjectCard,
-  properties: readonly ProjectProperty[],
-): string[] {
-  const added = new Set<string>()
-  for (const property of properties) {
-    if (property.type !== 'person' && property.type !== 'multiPerson') continue
-    const previous = new Set(projectMultiValueIds(before.values[property.id] ?? ''))
-    for (const id of projectMultiValueIds(after.values[property.id] ?? '')) {
-      if (!previous.has(id)) added.add(id)
-    }
-  }
-  return [...added]
-}
 
 function projectExportFilename(id: string, extension: string): string {
   return `${id.replace(/[^A-Za-z0-9_-]/g, '_')}.${extension}`
@@ -401,7 +382,7 @@ projectRoutes.post('/boards/:id/views', async (c) => {
 projectRoutes.patch('/boards/:id/batch', async (c) => {
   const { board, userId, role } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectBatchSchema)
-  await batchPatchProjectBoard(c.env.DB, board, input, userId, Date.now(), role)
+  await batchPatchProjectBoard(c.env.DB, board, input, userId, Date.now(), role, c.env)
   return c.json({ ok: true })
 })
 
@@ -565,16 +546,7 @@ projectRoutes.patch('/cards/:id', async (c) => {
   const updated = await patchProjectCard(c.env.DB, card, patch, userId, now)
   if (patch.values !== undefined) {
     const properties = await readBoardProperties(c.env.DB, card.boardId)
-    await syncCardCompletionToTodo(c.env.DB, updated, properties, now)
-    if (card.recurrence && isProjectCardDone(updated, properties) && !isProjectCardDone(card, properties)) {
-      await spawnRecurringCard(c.env.DB, board, updated, properties, userId, now)
-    }
-    const assigned = newlyAssignedPeople(card, updated, properties)
-    if (assigned.length) {
-      const notify = notifyProjectAssignment(c.env.DB, c.env, { boardId: board.id, cardId: updated.id, cardTitle: updated.title, actorId: userId, assigneeIds: assigned })
-      notify.catch((error: unknown) => console.warn('[inkstone] project assignment notice failed:', error instanceof Error ? error.message : error))
-      try { c.executionCtx?.waitUntil(notify) } catch { /* no ExecutionContext in tests */ }
-    }
+    await applyCardValueEffects(c.env.DB, c.env, board, card, updated, properties, userId, now)
   }
   return c.json({ card: updated })
 })

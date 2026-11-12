@@ -3,11 +3,14 @@
  * who changed what; the dependency graph is a set of directed 'blocks' edges with cycle detection so
  * a board can never deadlock itself. Both reuse tables created with the core schema.
  */
-import type { ProjectActivityEntry, ProjectBoard, ProjectCard, ProjectCardLink, ProjectCardLinkKind } from '@shared/project/model'
+import type { ProjectActivityEntry, ProjectBoard, ProjectCard, ProjectCardLink, ProjectCardLinkKind, ProjectProperty } from '@shared/project/model'
+import { isProjectCardDone, projectMultiValueIds } from '@shared/project/model'
 import { newProjectId } from '@shared/project/limits'
 import { ApiError } from '../lib/errors'
-import { createProjectCard, getProjectCard } from './cards'
+import type { AppBindings } from '../env'
+import { createProjectCard, getProjectCard, spawnRecurringCard } from './cards'
 import { createProjectContent } from './contents'
+import { notifyProjectAssignment } from './notify'
 
 export type { ProjectActivityEntry, ProjectCardLink }
 
@@ -137,6 +140,52 @@ export async function syncCardCompletionToTodo(db: D1Database, card: ProjectCard
   const done = cardIsDone(card, properties)
   await db.prepare('UPDATE todos_tasks SET status = ?1, completed_at = ?2 WHERE id = ?3 AND user_id = ?4')
     .bind(done ? 'done' : 'todo', done ? now : null, row.todo_id, row.user_id).run()
+}
+
+export function newlyAssignedPeople(
+  before: ProjectCard,
+  after: ProjectCard,
+  properties: readonly ProjectProperty[],
+): string[] {
+  const added = new Set<string>()
+  for (const property of properties) {
+    if (property.type !== 'person' && property.type !== 'multiPerson') continue
+    const previous = new Set(projectMultiValueIds(before.values[property.id] ?? ''))
+    for (const id of projectMultiValueIds(after.values[property.id] ?? '')) {
+      if (!previous.has(id)) added.add(id)
+    }
+  }
+  return [...added]
+}
+
+/**
+ * Every writer of card values owes the same follow-up work: the linked todo, the next occurrence of a
+ * repeating card, and a notice to anyone newly assigned. Keeping it here stops the single-card and
+ * batch routes from drifting apart.
+ */
+export async function applyCardValueEffects(
+  db: D1Database,
+  env: AppBindings['Bindings'],
+  board: ProjectBoard,
+  before: ProjectCard,
+  after: ProjectCard,
+  properties: readonly ProjectProperty[],
+  userId: string,
+  now: number,
+): Promise<void> {
+  await syncCardCompletionToTodo(db, after, properties, now)
+  if (after.recurrence && isProjectCardDone(after, properties) && !isProjectCardDone(before, properties)) {
+    await spawnRecurringCard(db, board, after, properties, userId, now)
+  }
+  const assigned = newlyAssignedPeople(before, after, properties)
+  if (!assigned.length) return
+  try {
+    await notifyProjectAssignment(db, env, {
+      boardId: board.id, cardId: after.id, cardTitle: after.title, actorId: userId, assigneeIds: assigned,
+    })
+  } catch (error) {
+    console.warn('[inkstone] project assignment notice failed:', error instanceof Error ? error.message : error)
+  }
 }
 
 /** X-5 todo→card: mirror a task's completion onto the linked card's checkbox/status property. */

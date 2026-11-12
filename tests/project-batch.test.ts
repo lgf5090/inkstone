@@ -34,7 +34,7 @@ beforeAll(async () => {
 beforeEach(() => {
   sqlite.exec(`DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
     DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_views;
-    DELETE FROM project_card_contents; DELETE FROM project_comments`)
+    DELETE FROM project_card_contents; DELETE FROM project_comments; DELETE FROM chat_notifications`)
 })
 
 const pid = (n: number) => `p${String(n).padStart(26, '0')}`
@@ -97,6 +97,30 @@ describe('batch patch', () => {
     expect(result.cards.find((c) => c.id === b.id)!.title).toBe('B2')
     expect(result.contents[0]!.title).toBe('New')
     expect(result.views[0]!.title).toBe('V2')
+  })
+
+  it('runs completion, recurrence and assignment effects like a single-card patch', async () => {
+    const created = await req('alice', 'POST', '/boards', {
+      title: 'Effects',
+      cardProperties: [
+        { id: pid(2), name: 'Done', type: 'checkbox', options: [] },
+        { id: pid(3), name: 'Owner', type: 'person', options: [] },
+      ],
+    })
+    expect(created.status, await created.clone().text()).toBe(201)
+    const board = ((await created.json()) as { board: ProjectBoard }).board
+    const cardResponse = await req('alice', 'POST', `/boards/${board.id}/cards`, {
+      title: 'Standup', values: { [pid(2)]: 'false' }, recurrence: { freq: 'daily', interval: 1 },
+    })
+    expect(cardResponse.status, await cardResponse.clone().text()).toBe(201)
+    const card = ((await cardResponse.json()) as { card: ProjectCard }).card
+    const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, {
+      cards: [{ id: card.id, patch: { values: { [pid(2)]: 'true', [pid(3)]: 'bob' } } }],
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect((await bundle('alice', board.id)).cards).toHaveLength(2)
+    const notice = sqlite.prepare('SELECT link FROM chat_notifications WHERE user_id = ?').all('bob') as { link: string }[]
+    expect(notice).toEqual([{ link: `project:${board.id}:${card.id}` }])
   })
 
   it('rolls back nothing applied when one target is missing (atomic)', async () => {
