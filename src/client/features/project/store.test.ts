@@ -11,6 +11,7 @@ vi.mock('./api', () => ({
   renameProjectBoard: vi.fn(),
   createBoardFromTemplate: vi.fn(),
   importProjectArchive: vi.fn(),
+  patchProjectBoard: vi.fn(),
 }))
 
 const board: ProjectBoardSummary = {
@@ -152,5 +153,25 @@ describe('every way a board arrives reaches the sidebar list', () => {
     useProjectStore.getState().ensureBoards()
     expect(api.fetchProjectBoards).not.toHaveBeenCalled()
     expect(useProjectStore.getState().boards).toHaveLength(1)
+  })
+})
+
+describe('a board edit reaches the list without a refetch', () => {
+  it('swaps the icon in place', async () => {
+    vi.mocked(api.patchProjectBoard).mockResolvedValue({ board: { ...board, icon: '\u{1F680}' }, properties: [] })
+    vi.mocked(api.fetchProjectBoards).mockClear()
+    useProjectStore.setState({ boards: [board], boardsStatus: 'ready' })
+    await useProjectStore.getState().setBoardIcon(board.id, '\u{1F680}')
+    expect(useProjectStore.getState().boards[0]!.icon).toBe('\u{1F680}')
+    expect(api.fetchProjectBoards).not.toHaveBeenCalled()
+  })
+
+  it('swaps the title in place', async () => {
+    vi.mocked(api.renameProjectBoard).mockResolvedValue({ ...board, title: 'Renamed' })
+    vi.mocked(api.fetchProjectBoards).mockClear()
+    useProjectStore.setState({ boards: [board], boardsStatus: 'ready' })
+    await useProjectStore.getState().renameBoard(board.id, 'Renamed')
+    expect(useProjectStore.getState().boards[0]!.title).toBe('Renamed')
+    expect(api.fetchProjectBoards).not.toHaveBeenCalled()
   })
 })

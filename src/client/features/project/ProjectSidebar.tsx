@@ -28,9 +28,7 @@ import {
   reorderCategoryBoards,
   reorderProjectCategories,
   setCategoryBoardHidden,
-  patchProjectBoard,
   projectBoardExportUrl,
-  renameProjectBoard,
 } from './api'
 
 function errorText(error: unknown): string {
@@ -215,7 +213,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
         onSelect: () => {
           void guard(async () => {
             const name = await prompt({ title: t('project.boards.rename_title'), defaultValue: board.title, confirmLabel: t('common.save') })
-            if (name !== null && name.trim()) { await renameProjectBoard(board.id, name.trim()); await useProjectStore.getState().ensureBoards() }
+            if (name !== null && name.trim()) await useProjectStore.getState().renameBoard(board.id, name.trim())
           })
         },
       },
@@ -560,7 +558,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           <EmojiPicker tone={0} onTone={() => {}} onInsert={(glyph) => {
             const target = iconBoard
             setIconBoard(null)
-            void guard(async () => { await patchProjectBoard(target, { icon: glyph }); await useProjectStore.getState().ensureBoards() })
+            void guard(async () => { await useProjectStore.getState().setBoardIcon(target, glyph) })
           }} />
         </Modal>
       )}

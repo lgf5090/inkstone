@@ -9,7 +9,7 @@ import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
 import { EmojiPicker } from '../emoji/EmojiPicker'
 import { useUi } from '../../store/ui'
-import { patchProjectBoard, projectBoardExportUrl, saveBoardAsTemplate } from './api'
+import { projectBoardExportUrl, saveBoardAsTemplate } from './api'
 import { useProjectStore } from './store'
 import { BoardPage } from './BoardPage'
 import { ImportDialog } from './ImportDialog'
@@ -155,7 +155,7 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit:
   const copyBoard = useProjectStore((state) => state.copyBoard)
   const renameBoard = useProjectStore((state) => state.renameBoard)
   const toast = useUi((state) => state.toast)
-  const loadBoards = useProjectStore((state) => state.loadBoards)
+  const setBoardIcon = useProjectStore((state) => state.setBoardIcon)
   const [pinned, setPinned] = useState(readPinnedBoardsPref)
   const [starred, setStarred] = useState(readStarredBoardsPref)
   const [iconOpen, setIconOpen] = useState(false)
@@ -231,7 +231,7 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit:
       <Modal open onClose={() => setIconOpen(false)} title={t('project.sidebar.change_icon')} width={420}>
         <EmojiPicker tone={0} onTone={() => {}} onInsert={(glyph) => {
           setIconOpen(false)
-          void guard(async () => { await patchProjectBoard(board.id, { icon: glyph }); await loadBoards() })
+          void guard(async () => { await setBoardIcon(board.id, glyph) })
         }} />
       </Modal>
     )
