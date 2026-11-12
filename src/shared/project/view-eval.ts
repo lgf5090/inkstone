@@ -66,7 +66,7 @@ export function projectFilterPrefill(filter: ProjectFilterGroup | undefined): Re
 }
 
 /** Human-readable cell text shared by the table cells and the compact list rows. */
-export function projectPropertyDisplayText(card: ProjectCard, property: ProjectProperty, people?: ProjectPeople): string {
+export function projectPropertyDisplayText(card: ProjectCard, property: ProjectProperty, people?: ProjectPeople, locale?: string): string {
   const raw = card.values[property.id] ?? ''
   switch (property.type) {
     case 'select': return raw ? projectOptionLabel(property, raw) : ''
@@ -78,13 +78,13 @@ export function projectPropertyDisplayText(card: ProjectCard, property: ProjectP
       const range = parseProjectDateValue(raw)
       if (range?.from === undefined) return ''
       const includeTime = range.includeTime === true
-      const from = projectStampToDay(range.from, includeTime).toLocaleDateString()
-      return range.to !== undefined && range.to !== range.from ? `${from} – ${projectStampToDay(range.to, includeTime).toLocaleDateString()}` : from
+      const from = projectStampToDay(range.from, includeTime).toLocaleDateString(locale)
+      return range.to !== undefined && range.to !== range.from ? `${from} – ${projectStampToDay(range.to, includeTime).toLocaleDateString(locale)}` : from
     }
     case 'createdBy': return projectPersonLabel(people, card.createdBy)
     case 'updatedBy': return projectPersonLabel(people, card.modifiedBy)
-    case 'createdTime': return new Date(card.createAt).toLocaleDateString()
-    case 'updatedTime': return new Date(card.updateAt).toLocaleDateString()
+    case 'createdTime': return new Date(card.createAt).toLocaleDateString(locale)
+    case 'updatedTime': return new Date(card.updateAt).toLocaleDateString(locale)
     default: return raw
   }
 }

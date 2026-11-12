@@ -11,7 +11,7 @@ import type { ProjectCard, ProjectGallerySize, ProjectProperty, ProjectViewField
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { projectCardColorResolver } from '@shared/project/option-color'
 import { groupProjectCards, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
-import { t } from '../../../lib/i18n'
+import { t, useLocale } from '../../../lib/i18n'
 import { CardBadges, OptionChip } from '../CardBadges'
 import { useProjectPeople } from '../people-context'
 import { QuickAdd, Seg, ViewHead, ViewShell } from './shell'
@@ -143,6 +143,7 @@ function GalleryTile({ card, color, cover, chipProperties, showTitle, showBadges
   onCardContextMenu: (event: MouseEvent, card: ProjectCard) => void
 }): ReactElement {
   const people = useProjectPeople()
+  const locale = useLocale()
   return (
     <article className="pv-tile" data-gallery-tile={card.id} style={{ '--pv-card-color': color } as React.CSSProperties}>
       <button
@@ -172,7 +173,7 @@ function GalleryTile({ card, color, cover, chipProperties, showTitle, showBadges
             <span key={property.id} className="min-w-0 max-w-full truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
               {property.type === 'select' && card.values[property.id]
                 ? <OptionChip property={property} value={card.values[property.id]!} />
-                : projectPropertyDisplayText(card, property, people)}
+                : projectPropertyDisplayText(card, property, people, locale)}
             </span>
           ))}
           {showBadges && <CardBadges badges={badges} />}

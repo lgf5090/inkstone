@@ -7,6 +7,7 @@ import { navigateToAddress } from '../../lib/app-history'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { useAssistant } from '../chat/assistant-store'
 import { BoardPage } from './BoardPage'
+import { resetProjectSubscriptionCache } from './use-watch'
 import * as api from './api'
 
 vi.mock('./api', async (importOriginal) => ({
@@ -36,6 +37,7 @@ function bundle(): ProjectBoardBundle {
 let view: RenderedElement
 
 beforeEach(async () => {
+  resetProjectSubscriptionCache()
   localStorage.clear()
   vi.clearAllMocks()
   vi.mocked(api.fetchProjectBoardBundle).mockImplementation(async () => bundle())

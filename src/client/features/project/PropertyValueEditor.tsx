@@ -3,6 +3,7 @@ import type { ProjectBoardMember, ProjectCard, ProjectPeople, ProjectProperty } 
 import { projectMultiValueIds, projectPersonLabel } from '@shared/project/model'
 import { moveProjectDateValue, parseProjectDateValue, projectInputToStamp, projectStampToInput } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
+import { useLocale } from '../../lib/i18n'
 import { Avatar } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input } from '../../components/form'
 import { isImeComposing } from '../../lib/ime'
@@ -34,6 +35,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
   const [draft, setDraft] = useState(value)
   useEffect(() => { setDraft(value) }, [value])
   const self = useSession((state) => state.user)
+  const locale = useLocale()
 
   /** The roster plus the reader: an open board lets an editor assign themselves before they join. */
   const directory = useMemo<ProjectPeople>(() => {
@@ -128,7 +130,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
     case 'updatedBy':
     case 'createdTime':
     case 'updatedTime':
-      return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{(card ? projectPropertyDisplayText(card, property, directory) : value) || '—'}</span>
+      return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{(card ? projectPropertyDisplayText(card, property, directory, locale) : value) || '—'}</span>
     default:
       return (
         <Input

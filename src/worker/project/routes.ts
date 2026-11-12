@@ -8,6 +8,7 @@ import {
   ProjectBatchSchema,
   ProjectCardCreateSchema,
   ProjectCardLinkSchema,
+  ProjectCardMarksSchema,
   ProjectCardMoveSchema,
   ProjectCardPatchSchema,
   ProjectCategoryBoardHiddenSchema,
@@ -28,7 +29,8 @@ import {
   ProjectViewCreateSchema,
   ProjectViewPatchSchema,
 } from '@shared/project/validation'
-import { isProjectCardDone } from '@shared/project/model'
+import { isProjectCardDone, projectMultiValueIds } from '@shared/project/model'
+import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit, readFormDataWithinLimit, requestClientIp } from '../lib/request'
@@ -97,7 +99,8 @@ import { ProjectStore } from './store'
 import { searchProject } from './search'
 import { topProjectBoards } from './insights'
 import { addCardLink, createCardFromTemplate, getCardTodoLink, linkCardTodo, listBoardLinks, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate, syncCardCompletionToTodo, unlinkCardTodo } from './enhance'
-import { notifyProjectComment } from './notify'
+import { notifyProjectAssignment, notifyProjectComment } from './notify'
+import { readProjectCardMarks, writeProjectCardMarks } from './preferences'
 import { projectBoardToMarkdown } from '@shared/project/markdown'
 import { deleteProjectAttachment, getProjectAttachment, listBoardAttachments, uploadProjectAttachment, PROJECT_UPLOAD_LIMIT, PROJECT_INLINE_MIMES } from './files'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
@@ -155,6 +158,22 @@ projectRoutes.use('*', async (c, next) => {
   })
   task.catch((error: unknown) => console.warn('[inkstone] project fan-out failed:', error instanceof Error ? error.message : error))
 })
+
+function newlyAssignedPeople(
+  before: ProjectCard,
+  after: ProjectCard,
+  properties: readonly ProjectProperty[],
+): string[] {
+  const added = new Set<string>()
+  for (const property of properties) {
+    if (property.type !== 'person' && property.type !== 'multiPerson') continue
+    const previous = new Set(projectMultiValueIds(before.values[property.id] ?? ''))
+    for (const id of projectMultiValueIds(after.values[property.id] ?? '')) {
+      if (!previous.has(id)) added.add(id)
+    }
+  }
+  return [...added]
+}
 
 function store(c: Context<AppBindings>): ProjectStore {
   return new ProjectStore(c.env.DB, projectUserId(c))
@@ -336,6 +355,18 @@ projectRoutes.get('/boards/:id', async (c) => {
 })
 
 /** The cheap staleness question: a poller asks this before paying for the whole bundle. */
+projectRoutes.get('/boards/:id/card-marks', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ marks: await readProjectCardMarks(c.env.DB, userId, board.id) })
+})
+
+projectRoutes.put('/boards/:id/card-marks', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const marks = await projectBody(c, ProjectCardMarksSchema, JSON_BODY_LIMITS.small)
+  await writeProjectCardMarks(c.env.DB, userId, board.id, marks, Date.now())
+  return c.json({ marks })
+})
+
 projectRoutes.get('/boards/:id/cursor', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
   return c.json({ cursor: await projectBoardCursor(c.env.DB, board) })
@@ -516,6 +547,12 @@ projectRoutes.patch('/cards/:id', async (c) => {
     await syncCardCompletionToTodo(c.env.DB, updated, properties, now)
     if (card.recurrence && isProjectCardDone(updated, properties) && !isProjectCardDone(card, properties)) {
       await spawnRecurringCard(c.env.DB, board, updated, properties, userId, now)
+    }
+    const assigned = newlyAssignedPeople(card, updated, properties)
+    if (assigned.length) {
+      const notify = notifyProjectAssignment(c.env.DB, c.env, { boardId: board.id, cardId: updated.id, cardTitle: updated.title, actorId: userId, assigneeIds: assigned })
+      notify.catch((error: unknown) => console.warn('[inkstone] project assignment notice failed:', error instanceof Error ? error.message : error))
+      try { c.executionCtx?.waitUntil(notify) } catch { /* no ExecutionContext in tests */ }
     }
   }
   return c.json({ card: updated })

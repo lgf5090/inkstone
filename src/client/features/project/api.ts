@@ -12,6 +12,7 @@ import type {
   ProjectBoardSummary,
   ProjectCard,
   ProjectCardLink,
+  ProjectCardMarks,
   ProjectCategory,
   ProjectCategoryBoard,
   ProjectComment,
@@ -49,6 +50,16 @@ export async function duplicateProjectBoard(id: string): Promise<ProjectBoardSum
 export async function renameProjectBoard(id: string, title: string): Promise<ProjectBoard> {
   const body = await request<{ board: ProjectBoard }>(`/api/project/boards/${encodeURIComponent(id)}`, { method: 'PATCH', body: { title } })
   return body.board
+}
+
+export async function fetchProjectCardMarks(boardId: string, signal?: AbortSignal): Promise<ProjectCardMarks> {
+  const body = await request<{ marks: ProjectCardMarks }>(`/api/project/boards/${encodeURIComponent(boardId)}/card-marks`, { signal })
+  return body.marks
+}
+
+export async function saveProjectCardMarks(boardId: string, marks: ProjectCardMarks): Promise<ProjectCardMarks> {
+  const body = await request<{ marks: ProjectCardMarks }>(`/api/project/boards/${encodeURIComponent(boardId)}/card-marks`, { method: 'PUT', body: marks })
+  return body.marks
 }
 
 export async function fetchProjectBoardBundle(id: string, signal?: AbortSignal): Promise<ProjectBoardBundle> {

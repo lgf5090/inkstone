@@ -22,12 +22,11 @@ import { SelectMenu } from '../../components/select-menu'
 import { confirm, Menu, prompt, type MenuItem } from '../../components/overlay'
 import { PropertiesModal, SortModal } from './ViewSettingsModals'
 import { FilterModal } from './FilterEditor'
-import { optionDot } from './CardBadges'
 import { buildCardMenu } from './card-menu'
 import { ProjectPeopleProvider } from './people-context'
 import { readPinnedCardsPref, readStarredCardsPref, writePinnedCardsPref, writeStarredCardsPref } from './project-prefs'
 import { Seg } from './views/shell'
-import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, moveProjectCard, projectBoardExportUrl, projectFileUrl } from './api'
+import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, fetchProjectCardMarks, moveProjectCard, projectBoardExportUrl, projectFileUrl, saveProjectCardMarks } from './api'
 import { KanbanView } from './views/KanbanView'
 import { TableView } from './views/TableView'
 import { GalleryView } from './views/GalleryView'
@@ -39,6 +38,7 @@ import { ChartView } from './views/ChartView'
 import { DashboardView } from './views/DashboardView'
 import { CollectionView } from './views/CollectionView'
 import { ViewEmpty } from './views/shell'
+import { BatchEditDialog } from './BatchEditDialog'
 
 const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   board: 'project.view.board',
@@ -135,22 +135,48 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const [search, setSearch] = useState('')
   const [links, setLinks] = useState<ProjectCardLink[]>([])
   const [selected, setSelected] = useState<string[]>([])
-  const [batchPropertyId, setBatchPropertyId] = useState('')
-  const [batchValue, setBatchValue] = useState('')
+  const [batchOpen, setBatchOpen] = useState(false)
   const [contextPoint, setContextPoint] = useState<{ x: number, y: number } | null>(null)
   const [contextItems, setContextItems] = useState<MenuItem[]>([])
   const lastIndex = useRef<number | null>(null)
   const [starredCards, setStarredCards] = useState<string[]>(() => readStarredCardsPref(bundle.board.id))
   const [pinnedCards, setPinnedCards] = useState<string[]>(() => readPinnedCardsPref(bundle.board.id))
   useEffect(() => {
-    setStarredCards(readStarredCardsPref(bundle.board.id))
-    setPinnedCards(readPinnedCardsPref(bundle.board.id))
-  }, [bundle.board.id])
+    let alive = true
+    const localStarred = readStarredCardsPref(bundle.board.id)
+    const localPinned = readPinnedCardsPref(bundle.board.id)
+    setStarredCards(localStarred)
+    setPinnedCards(localPinned)
+    if (publicView) return
+    fetchProjectCardMarks(bundle.board.id)
+      .then((marks) => {
+        if (!alive) return
+        // The account copy wins once it exists; a browser that marked cards before this shipped
+        // uploads its local copy the first time the server has nothing.
+        const starred = marks.starred.length ? marks.starred : localStarred
+        const pinned = marks.pinned.length ? marks.pinned : localPinned
+        setStarredCards(starred)
+        setPinnedCards(pinned)
+        writeStarredCardsPref(bundle.board.id, starred)
+        writePinnedCardsPref(bundle.board.id, pinned)
+        if ((!marks.starred.length && localStarred.length) || (!marks.pinned.length && localPinned.length)) {
+          void saveProjectCardMarks(bundle.board.id, { starred, pinned }).catch(() => { /* best-effort migration */ })
+        }
+      })
+      .catch(() => { /* best-effort: local marks keep working offline */ })
+    return () => { alive = false }
+  }, [bundle.board.id, publicView])
   const toggleCardFlag = (kind: 'star' | 'pin', cardId: string): void => {
     const read = kind === 'star' ? starredCards : pinnedCards
     const next = read.includes(cardId) ? read.filter((id) => id !== cardId) : [...read, cardId]
+    const starred = kind === 'star' ? next : starredCards
+    const pinned = kind === 'pin' ? next : pinnedCards
     if (kind === 'star') { setStarredCards(next); writeStarredCardsPref(bundle.board.id, next) }
     else { setPinnedCards(next); writePinnedCardsPref(bundle.board.id, next) }
+    if (!publicView) {
+      void saveProjectCardMarks(bundle.board.id, { starred, pinned })
+        .catch(() => { useUi.getState().toast({ title: t('project.card.marks_save_failed'), tone: 'danger' }) })
+    }
   }
 
   // C-23: tabs read alphabetically; the default view stays the board's first by position.
@@ -337,13 +363,15 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     onOpenCard(cardId)
   }
 
-  const runBatch = async (action: () => Promise<void>): Promise<void> => {
+  const runBatch = async (action: () => Promise<void>): Promise<boolean> => {
     try {
       await action()
       setSelected([])
       await onRefresh()
+      return true
     } catch (reason) {
       useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
+      return false
     }
   }
   const batchDelete = async (): Promise<void> => {
@@ -356,12 +384,10 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     if (!ok) return
     await runBatch(() => batchDeleteProjectBoard(bundle.board.id, { cardIds: selected }))
   }
-  const batchApply = async (): Promise<void> => {
-    if (!batchPropertyId) return
-    await runBatch(() => batchPatchProjectBoard(bundle.board.id, { cards: selected.map((id) => ({ id, patch: { values: { [batchPropertyId]: batchValue || null } } })) }))
+  const batchApply = async (values: Record<string, string | null>): Promise<void> => {
+    const ok = await runBatch(() => batchPatchProjectBoard(bundle.board.id, { cards: selected.map((id) => ({ id, patch: { values } })) }))
+    if (ok) setBatchOpen(false)
   }
-  const batchProperties = bundle.properties.filter((property) => property.type === 'select')
-  const batchProperty = batchProperties.find((property) => property.id === batchPropertyId)
 
   // The three keys a reader reaches for on a board: find, add, back out of a selection.
   const searchRef = useRef<HTMLDivElement>(null)
@@ -423,6 +449,10 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     onOpenCard,
     onDeleteCard,
     onPatchCard,
+    onPatchCards: async (ids: readonly string[], values: Record<string, string | null>) => {
+      await batchPatchProjectBoard(bundle.board.id, { cards: ids.map((id) => ({ id, patch: { values } })) })
+      await onRefresh()
+    },
     onPatchFields: patchFields,
     onAddCard: addCardInColumn,
     onAddGroupOption,
@@ -654,11 +684,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--accent-softer)] px-3 py-1.5" role="toolbar" aria-label={t('project.view.selected_count', { count: selected.length })}>
           <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('project.view.selected_count', { count: selected.length })}</span>
           <Button size="sm" variant="ghost" onClick={() => void batchDelete()}>{t('project.view.delete_selected')}</Button>
-          <SelectMenu className="w-32" size="sm" value={batchPropertyId} label={t('project.view.set_property')} onChange={(value) => { setBatchPropertyId(value); setBatchValue('') }} options={[{ value: '', label: t('project.view.set_property') }, ...batchProperties.map((property) => ({ value: property.id, label: property.name }))]} />
-          {batchProperty && (
-            <SelectMenu className="w-32" size="sm" value={batchValue} label={t('project.view.batch_value')} onChange={setBatchValue} options={[{ value: '', label: '—' }, ...batchProperty.options.map((option) => ({ value: option.id, label: option.value, icon: optionDot(option.color) }))]} />
-          )}
-          <Button size="sm" disabled={!batchPropertyId} onClick={() => void batchApply()}>{t('common.save')}</Button>
+          <Button size="sm" onClick={() => setBatchOpen(true)}>{t('project.view.batch_edit', { count: selected.length })}</Button>
           <Button size="sm" variant="ghost" onClick={() => setSelected([])}>{t('project.view.clear_selection')}</Button>
         </div>
       )}
@@ -690,6 +716,16 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} members={bundle.members} people={bundle.people} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
       {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
       {contextPoint && <Menu anchor={contextPoint} open onClose={() => setContextPoint(null)} items={contextItems} />}
+      {batchOpen && (
+        <BatchEditDialog
+          count={selected.length}
+          properties={bundle.properties}
+          members={bundle.members}
+          people={bundle.people}
+          onClose={() => setBatchOpen(false)}
+          onApply={batchApply}
+        />
+      )}
     </div>
   )
 }

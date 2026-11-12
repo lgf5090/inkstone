@@ -7,7 +7,7 @@ import { parseProjectDateValue, projectStampToDay } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import { hasProjectCardBadges } from '@shared/project/badges'
 import { projectOptionCssColor } from '@shared/project/option-color'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import { useProjectPeople } from './people-context'
 
 import { TagPill } from '../../components/TagChip'
@@ -105,6 +105,7 @@ export function CardPropertyChips({ card, properties, excludePropertyId, max = 4
 }): ReactElement | null {
   const today = todayStamp ?? startOfToday()
   const people = useProjectPeople()
+  const locale = useLocale()
   const shown = properties
     .filter((property) => property.id !== excludePropertyId && !PROJECT_PROPERTY_CAPABILITIES[property.type].readOnly && card.values[property.id])
     .slice(0, max)
@@ -122,7 +123,7 @@ export function CardPropertyChips({ card, properties, excludePropertyId, max = 4
             className={`inline-flex max-w-full items-center gap-1 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] ${overdue ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--bg-sunken)] text-[var(--text-secondary)]'}`}
           >
             <Icon size={11} aria-hidden="true" className="shrink-0" />
-            <span className="truncate">{projectPropertyDisplayText(card, property, people)}</span>
+            <span className="truncate">{projectPropertyDisplayText(card, property, people, locale)}</span>
           </span>
         )
       })}

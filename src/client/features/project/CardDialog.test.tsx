@@ -6,6 +6,7 @@ import { renderElement, type RenderedElement } from '../../lib/test-render'
 import * as api from './api'
 import * as overlay from '../../components/overlay'
 import { CardDialog } from './CardDialog'
+import { resetProjectSubscriptionCache } from './use-watch'
 
 vi.mock('./api', () => ({
   patchProjectCard: vi.fn(),
@@ -55,6 +56,7 @@ async function mount(): Promise<void> {
   })
 }
 beforeEach(async () => {
+  resetProjectSubscriptionCache()
   vi.clearAllMocks()
   vi.mocked(api.fetchCardComments).mockResolvedValue([])
   vi.mocked(api.fetchCardLinks).mockResolvedValue([])

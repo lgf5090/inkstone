@@ -15,7 +15,7 @@ import { projectCardColorResolver, projectOptionCssColor } from '@shared/project
 import { projectPriorityProperty } from '@shared/project/stats'
 import { projectCardDays } from '@shared/project/timeline-layout'
 import { groupProjectCards, projectKanbanDropOrder, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
-import { t } from '../../../lib/i18n'
+import { t, useLocale } from '../../../lib/i18n'
 import { IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Menu, type MenuItem } from '../../../components/overlay'
@@ -46,6 +46,7 @@ export interface ListProps {
 export function ListView(props: ListProps): ReactElement {
   const { cards, properties, fields, canEdit, canMarkDone = true } = props
   const people = useProjectPeople()
+  const locale = useLocale()
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [renaming, setRenaming] = useState<{ id: string, value: string } | null>(null)
   const [columnsOpen, setColumnsOpen] = useState(false)
@@ -235,7 +236,7 @@ export function ListView(props: ListProps): ReactElement {
             if (property.type === 'date' && range) {
               return (
                 <span key={property.id} className="shrink-0 text-[length:var(--text-11)] tabular" data-overdue={overdue} style={{ color: overdue ? 'var(--danger)' : 'var(--text-tertiary)' }}>
-                  {projectPropertyDisplayText(card, property, people)}
+                  {projectPropertyDisplayText(card, property, people, locale)}
                 </span>
               )
             }
@@ -243,7 +244,7 @@ export function ListView(props: ListProps): ReactElement {
               <span key={property.id} className="hidden shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)] sm:inline">
                 {property.type === 'select' && card.values[property.id]
                   ? <OptionChip property={property} value={card.values[property.id]!} />
-                  : projectPropertyDisplayText(card, property, people)}
+                  : projectPropertyDisplayText(card, property, people, locale)}
               </span>
             )
           })}

@@ -9,6 +9,8 @@ import { BoardViews } from './BoardViews'
 import * as api from './api'
 import * as overlay from '../../components/overlay'
 
+vi.spyOn(api, 'fetchProjectCardMarks').mockResolvedValue({ starred: [], pinned: [] })
+
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 
 function bundle(): ProjectBoardBundle {

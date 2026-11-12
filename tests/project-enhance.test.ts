@@ -7,6 +7,7 @@ import { CLIENT_HEADER, LEGACY_SESSION_COOKIE } from '../src/shared/constants'
 import type { Env } from '../src/worker/env'
 import type { ProjectBoard, ProjectCard } from '../src/shared/project/model'
 import { syncTodoCompletionToCard } from '../src/worker/project/enhance'
+import { pruneProjectActivity } from '../src/worker/project/scheduler'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -21,11 +22,12 @@ beforeAll(async () => {
   await app.fetch(new Request('http://localhost/api/health'), env)
   const now = Date.now()
   sqlite.prepare(`INSERT INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at) VALUES ('alice','alice','hash','alice','alice','member',?,?)`).run(now, now)
+  sqlite.prepare(`INSERT INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at) VALUES ('bob','bob','hash','bob','Bob','member',?,?)`).run(now, now)
   token = await createSession(env.DB, 'alice')
 })
 
 beforeEach(() => {
-  sqlite.exec(`DELETE FROM project_card_links; DELETE FROM project_activity; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_cards; DELETE FROM project_todo_links; DELETE FROM todos_tasks`)
+  sqlite.exec(`DELETE FROM chat_notifications; DELETE FROM project_card_links; DELETE FROM project_activity; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_cards; DELETE FROM project_todo_links; DELETE FROM todos_tasks`)
 })
 
 async function req(method: string, path: string, body?: unknown): Promise<Response> {
@@ -80,6 +82,35 @@ describe('card templates', () => {
     expect(copy.title).toBe('Alpha')
     const bundle = ((await (await req('GET', `/boards/${board.id}/bundle`)).json()) as { contents: { cardId: string, title: string }[] })
     expect(bundle.contents.some((c) => c.cardId === copy.id && c.title === 'body text')).toBe(true)
+  })
+})
+
+describe('activity retention', () => {
+  it('keeps half a year and removes older rows', async () => {
+    const now = Date.now()
+    const insert = sqlite.prepare('INSERT INTO project_activity (board_id, id, actor_id, type, target_id, summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    insert.run('b1', 'old', 'u1', 'post', '', 'old', now - 200 * 24 * 60 * 60 * 1000)
+    insert.run('b1', 'fresh', 'u1', 'post', '', 'fresh', now)
+    expect(await pruneProjectActivity(env, now)).toBe(1)
+    const left = sqlite.prepare('SELECT id FROM project_activity').all() as { id: string }[]
+    expect(left.map((row) => row.id)).toEqual(['fresh'])
+  })
+})
+
+describe('assignment notices', () => {
+  it('notifies a newly assigned person with a link to the card', async () => {
+    const person = `p${'a'.repeat(26)}`
+    const board = ((await (await req('POST', '/boards', {
+      title: 'Assign',
+      cardProperties: [{ id: person, name: 'Assignee', type: 'person', options: [] }],
+    })).json()) as { board: ProjectBoard }).board
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(board.id, 'bob', 'viewer')
+    const card = ((await (await req('POST', `/boards/${board.id}/cards`, { title: 'Alpha' })).json()) as { card: ProjectCard }).card
+    expect((await req('PATCH', `/cards/${card.id}`, { values: { [person]: 'bob' } })).status).toBe(200)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    const notice = sqlite.prepare('SELECT user_id, link, title FROM chat_notifications WHERE user_id = ?1').get('bob') as { user_id: string, link: string, title: string } | undefined
+    expect(notice).toMatchObject({ user_id: 'bob', link: `project:${board.id}:${card.id}`, title: 'Assigned to Alpha' })
   })
 })
 

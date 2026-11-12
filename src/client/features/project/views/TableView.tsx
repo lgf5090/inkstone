@@ -11,7 +11,7 @@ import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectProper
 import { isProjectCardDone } from '@shared/project/model'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { groupProjectCards, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
-import { t } from '../../../lib/i18n'
+import { t, useLocale } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox } from '../../../components/form'
 import { SelectMenu } from '../../../components/select-menu'
@@ -42,6 +42,7 @@ export interface TableProps {
 
 export function TableView(props: TableProps): ReactElement {
   const { bundle, cards, columns, fields, canEdit, selected, subtasksByParent } = props
+  const locale = useLocale()
   const [limit, setLimit] = useState(PAGE)
   const [editing, setEditing] = useState<{ cardId: string, propertyId: string } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
@@ -121,7 +122,7 @@ export function TableView(props: TableProps): ReactElement {
         }
       } catch { /* a stored value that is not a JSON array reads as plain text below */ }
     }
-    return projectPropertyDisplayText(card, property, bundle.people) || '—'
+    return projectPropertyDisplayText(card, property, bundle.people, locale) || '—'
   }
 
   const renderRow = (card: ProjectCard, index: number, child: boolean): ReactElement => {

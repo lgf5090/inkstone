@@ -2,7 +2,7 @@ import { runAttachmentCleanup } from './attachments/cleanup'
 import { runScheduledBackups } from './backup/scheduler'
 import { runDueAssistantAutomations } from './assistant/scheduler'
 import { sweepTaskReminders } from './assistant/tasks'
-import { sweepProjectReminders } from './project/scheduler'
+import { pruneProjectActivity, sweepProjectReminders } from './project/scheduler'
 import { runPushCatchUp } from './assistant/push-fanout'
 import { purgeExpiredEphemeralConversations, purgeExpiredTodoTrash } from './assistant/store'
 import type { Env } from './env'
@@ -137,6 +137,12 @@ export default {
             console.warn('[inkstone] compare retention failed:', (error as Error).message)
           })
         : Promise.resolve()
+      const projectRetentionTick = new Date(event.scheduledTime).getUTCMinutes() === 0
+        ? pruneProjectActivity(env, event.scheduledTime).catch((error) => {
+            console.warn('[inkstone] project activity retention failed:', (error as Error).message)
+            return 0
+          })
+        : Promise.resolve(0)
       const cloudflareTick = runDueCloudflareTasks(env, event.scheduledTime).catch((error) => {
         console.warn('[inkstone] Cloudflare scheduled tasks failed:', (error as Error).message)
         return null
@@ -159,7 +165,7 @@ export default {
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
+        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
         return
       }
       const drains: Promise<unknown>[] = [

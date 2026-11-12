@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
-import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, Repeat, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
+import { Archive, AtSign, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, Repeat, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectPeople, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone, projectDonePatch, projectPersonLabel } from '@shared/project/model'
 import { moveContentOrder } from '@shared/project/content-order'
@@ -62,6 +62,8 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   const [addOpen, setAddOpen] = useState(false)
   const menuAnchor = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const mentionAnchor = useRef<HTMLButtonElement>(null)
+  const [mentionOpen, setMentionOpen] = useState(false)
   const toast = useUi((state) => state.toast)
   const currentUserId = useSession((state) => state.user?.id)
   const watch = useProjectWatch('card', card.id)
@@ -154,6 +156,27 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   }
 
   useEffect(() => { setTitle(card.title) }, [card.title])
+  useEffect(() => {
+    setBlocks((current) => {
+      const incoming = new Map(contents.map((block) => [block.id, block]))
+      const known = new Set(current.map((block) => block.id))
+      let changed = false
+      const next = current
+        .filter((block) => incoming.has(block.id))
+        .map((block) => {
+          const fresh = incoming.get(block.id)!
+          if (fresh.updateAt === block.updateAt) return block
+          changed = true
+          return fresh
+        })
+      for (const block of contents) {
+        if (known.has(block.id)) continue
+        next.push(block)
+        changed = true
+      }
+      return changed ? next : current
+    })
+  }, [contents])
   useEffect(() => {
     const controller = new AbortController()
     fetchCardComments(card.id, controller.signal)
@@ -620,6 +643,23 @@ export function CardDialog({ card, properties, members, people, contents, siblin
               onChange={(event) => setCommentDraft(event.target.value)}
             />
             <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.card.mention_hint')}</span>
+            <IconButton ref={mentionAnchor} label={t('project.card.mention')} size="sm" onClick={() => setMentionOpen(true)}>
+              <AtSign size={13} />
+            </IconButton>
+            <Menu
+              anchor={mentionAnchor}
+              open={mentionOpen}
+              onClose={() => setMentionOpen(false)}
+              label={t('project.card.mention')}
+              items={members.map((member) => ({
+                id: member.userId,
+                label: projectPersonLabel(people, member.userId),
+                onSelect: () => {
+                  setMentionOpen(false)
+                  setCommentDraft((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}@${projectPersonLabel(people, member.userId)} `)
+                },
+              }))}
+            />
             <Button type="submit" variant="primary" size="sm" disabled={posting || !commentDraft.trim()}>
               {t('project.card.post_comment')}
             </Button>

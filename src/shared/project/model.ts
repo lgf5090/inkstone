@@ -518,6 +518,11 @@ export interface ProjectSubscription {
 }
 
 /** What a signed-in member sees about a board's public link; the hash itself never leaves the server. */
+export interface ProjectCardMarks {
+  starred: string[]
+  pinned: string[]
+}
+
 export interface ProjectShare {
   slug: string
   boardId: string

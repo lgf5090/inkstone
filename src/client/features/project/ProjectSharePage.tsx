@@ -136,7 +136,7 @@ function PublicCardDetail({ card, bundle, onClose }: { card: ProjectCard, bundle
           {bundle.properties.map((property) => (
             <div key={property.id} className="flex items-start gap-3 text-[length:var(--text-13)]">
               <span className="w-28 shrink-0 text-[var(--text-secondary)]">{property.name}</span>
-              <span className="min-w-0 flex-1 text-[var(--text-primary)]">{projectPropertyDisplayText(card, property, bundle.people) || '—'}</span>
+              <span className="min-w-0 flex-1 text-[var(--text-primary)]">{projectPropertyDisplayText(card, property, bundle.people, locale) || '—'}</span>
             </div>
           ))}
         </section>

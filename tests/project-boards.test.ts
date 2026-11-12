@@ -203,6 +203,18 @@ describe('deleting and restoring a board', () => {
   })
 })
 
+describe('per-reader card marks', () => {
+  it('round-trips stars and pins and keeps them per account', async () => {
+    const board = await createBoard('alice', {})
+    addMember(board.id, 'bob', 'viewer')
+    const c1 = `c${'a'.repeat(26)}`
+    const c2 = `c${'b'.repeat(26)}`
+    expect((await req('alice', 'PUT', `/boards/${board.id}/card-marks`, { starred: [c1], pinned: [c2] })).status).toBe(200)
+    expect(await (await req('alice', 'GET', `/boards/${board.id}/card-marks`)).json()).toEqual({ marks: { starred: [c1], pinned: [c2] } })
+    expect(await (await req('bob', 'GET', `/boards/${board.id}/card-marks`)).json()).toEqual({ marks: { starred: [], pinned: [] } })
+  })
+})
+
 describe('board metadata', () => {
   it('counts cards, properties and views', async () => {
     const board = await createBoard('alice', { cardProperties: [prop(1), prop(2)] })

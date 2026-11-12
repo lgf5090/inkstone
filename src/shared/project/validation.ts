@@ -262,6 +262,11 @@ export const ProjectCategoryBoardOrderSchema = z.object({
 
 export const ProjectCategoryBoardHiddenSchema = z.object({ hidden: z.boolean() })
 
+export const ProjectCardMarksSchema = z.object({
+  starred: z.array(projectId).max(PROJECT_LIMITS.cardsPerBoard).default([]),
+  pinned: z.array(projectId).max(PROJECT_LIMITS.cardsPerBoard).default([]),
+})
+
 export const ProjectMemberAddSchema = z.object({
   username: z.string().trim().min(1).max(64),
   role: ProjectRoleSchema,

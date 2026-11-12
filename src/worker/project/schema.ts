@@ -249,6 +249,8 @@ export const PROJECT_ENHANCE_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_activity_board
      ON project_activity(board_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_activity_created
+     ON project_activity(created_at)`,
 
   `CREATE TABLE IF NOT EXISTS project_card_links (
     from_card_id TEXT NOT NULL,
@@ -335,6 +337,7 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_subscriptions_subscriber',
   'idx_project_shares_board',
   'idx_project_activity_board',
+  'idx_project_activity_created',
   'idx_project_card_links_to',
   'idx_project_card_links_board',
   'idx_project_todo_links_todo',

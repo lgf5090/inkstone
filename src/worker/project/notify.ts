@@ -7,6 +7,21 @@ import type { AppBindings } from '../env'
 import { AssistantStore } from '../assistant/store'
 import { projectCommentNotificationTargets } from '@shared/project/mentions'
 
+export async function notifyProjectAssignment(
+  db: D1Database,
+  env: AppBindings['Bindings'],
+  input: { boardId: string, cardId: string, cardTitle: string, actorId: string, assigneeIds: readonly string[] },
+): Promise<void> {
+  for (const assigneeId of new Set(input.assigneeIds)) {
+    if (!assigneeId || assigneeId === input.actorId) continue
+    await new AssistantStore(db, assigneeId, env).createNotification({
+      title: `Assigned to ${input.cardTitle}`.slice(0, 200),
+      body: input.cardTitle,
+      link: `project:${input.boardId}:${input.cardId}`,
+    })
+  }
+}
+
 export async function notifyProjectComment(
   db: D1Database,
   env: AppBindings['Bindings'],
