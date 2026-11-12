@@ -78,6 +78,8 @@ export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_cards_board
      ON project_cards(board_id, delete_at, update_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_cards_board_create
+     ON project_cards(board_id, delete_at, create_at, id)`,
   `CREATE INDEX IF NOT EXISTS idx_project_cards_parent
      ON project_cards(parent_id, delete_at)`,
 
@@ -125,6 +127,8 @@ export const PROJECT_CONTENT_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_contents_card
      ON project_card_contents(card_id, delete_at, position)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_contents_board
+     ON project_card_contents(board_id, delete_at, position, id)`,
 
   `CREATE TABLE IF NOT EXISTS project_comments (
     id TEXT PRIMARY KEY,
@@ -138,6 +142,8 @@ export const PROJECT_CONTENT_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_comments_card
      ON project_comments(card_id, delete_at, create_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_comments_board
+     ON project_comments(board_id, delete_at, create_at, id)`,
 
   `CREATE TABLE IF NOT EXISTS project_categories (
     user_id TEXT NOT NULL,
@@ -253,6 +259,8 @@ export const PROJECT_ENHANCE_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_card_links_to
      ON project_card_links(to_card_id, kind)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_links_board
+     ON project_card_links(board_id)`,
 
   `CREATE TABLE IF NOT EXISTS project_todo_links (
     card_id TEXT NOT NULL,
@@ -311,11 +319,14 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_members_user',
   'idx_project_properties_order',
   'idx_project_cards_board',
+  'idx_project_cards_board_create',
   'idx_project_cards_parent',
   'idx_project_values_property',
   'idx_project_views_board',
   'idx_project_contents_card',
+  'idx_project_contents_board',
   'idx_project_comments_card',
+  'idx_project_comments_board',
   'idx_project_categories_user',
   'idx_project_category_boards_board',
   'idx_project_attachments_card',
@@ -324,6 +335,7 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_shares_board',
   'idx_project_activity_board',
   'idx_project_card_links_to',
+  'idx_project_card_links_board',
   'idx_project_todo_links_todo',
   'idx_project_fts_queue_due',
 ]
