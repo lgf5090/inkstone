@@ -592,7 +592,10 @@ export interface ProjectBoardBundle {
   views: ProjectView[]
   cards: ProjectCard[]
   contents: ProjectContent[]
+  /** Set when the board holds more detail rows than one read carries; open a card for the rest. */
+  contentsTruncated?: boolean
   comments: ProjectComment[]
+  commentsTruncated?: boolean
   members: ProjectBoardMember[]
   /** Everyone the board refers to: members, card authors, comment authors and assigned people. */
   people: ProjectPeople

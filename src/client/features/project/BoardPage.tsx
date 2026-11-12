@@ -492,6 +492,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           contents={bundle.contents.filter((content) => content.cardId === openCard.id)}
           siblings={bundle.cards}
           canEdit={canEdit}
+          detailTruncated={Boolean(bundle.contentsTruncated || bundle.commentsTruncated)}
           onClose={() => setOpenCardId(null)}
           onDelete={(id) => void removeCard(id)}
           onUpdated={(updated) => setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current))}

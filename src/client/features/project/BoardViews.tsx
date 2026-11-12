@@ -675,6 +675,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           </span>
         </div>
       )}
+      {(bundle.contentsTruncated || bundle.commentsTruncated) && (
+        <p className="shrink-0 px-3 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]" role="status">
+          {publicView ? t('project.board.truncated_public') : t('project.board.truncated')}
+        </p>
+      )}
       {hiddenCount > 0 && (
         <p className="shrink-0 px-3 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]" role="status">
           {t('project.view.hidden_count', { count: hiddenCount })}

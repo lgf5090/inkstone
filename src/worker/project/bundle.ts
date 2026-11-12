@@ -15,6 +15,7 @@ import type {
   ProjectView,
 } from '@shared/project/model'
 import { projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
+import { PROJECT_LIMITS } from '@shared/project/limits'
 import { parseProjectRecurrence } from '@shared/project/recurrence'
 import { readBoardProperties } from './boards'
 import { listProjectMembers, listProjectPeople } from './members'
@@ -163,10 +164,10 @@ export async function readProjectBoardBundle(
     ).bind(board.id).all<ValueRow>(),
     db.prepare('SELECT * FROM project_views WHERE board_id = ?1 AND delete_at = 0 ORDER BY position, id')
       .bind(board.id).all<ViewRow>(),
-    db.prepare('SELECT * FROM project_card_contents WHERE board_id = ?1 AND delete_at = 0 ORDER BY position, id')
-      .bind(board.id).all<ContentRow>(),
-    db.prepare('SELECT * FROM project_comments WHERE board_id = ?1 AND delete_at = 0 ORDER BY create_at, id')
-      .bind(board.id).all<CommentRow>(),
+    db.prepare('SELECT * FROM project_card_contents WHERE board_id = ?1 AND delete_at = 0 ORDER BY position, id LIMIT ?2')
+      .bind(board.id, PROJECT_LIMITS.bundleContents + 1).all<ContentRow>(),
+    db.prepare('SELECT * FROM project_comments WHERE board_id = ?1 AND delete_at = 0 ORDER BY create_at, id LIMIT ?2')
+      .bind(board.id, PROJECT_LIMITS.bundleComments + 1).all<CommentRow>(),
   ])
 
   const valuesByCard = new Map<string, Record<string, string>>()
@@ -182,8 +183,10 @@ export async function readProjectBoardBundle(
   const views = viewRows.results
     .map(rowToView)
     .filter((view) => !view.fields.minimumRole || projectRoleAtLeast(role, view.fields.minimumRole))
-  const contents = contentRows.results.map(rowToContent)
-  const comments = commentRows.results.map(rowToComment)
+  const contentsTruncated = contentRows.results.length > PROJECT_LIMITS.bundleContents
+  const commentsTruncated = commentRows.results.length > PROJECT_LIMITS.bundleComments
+  const contents = contentRows.results.slice(0, PROJECT_LIMITS.bundleContents).map(rowToContent)
+  const comments = commentRows.results.slice(0, PROJECT_LIMITS.bundleComments).map(rowToComment)
 
   const personProperties = new Set(properties.filter((property) => property.type === 'person' || property.type === 'multiPerson').map((property) => property.id))
   const userIds = new Set<string>([board.ownerId])
@@ -206,7 +209,11 @@ export async function readProjectBoardBundle(
   for (const comment of comments) cursor = Math.max(cursor, comment.updateAt)
   for (const member of members) cursor = Math.max(cursor, member.updatedAt)
 
-  return { board, properties, views, cards, contents, comments, members, people, role, cursor }
+  return {
+    board, properties, views, cards, contents, comments, members, people, role, cursor,
+    ...(contentsTruncated ? { contentsTruncated } : {}),
+    ...(commentsTruncated ? { commentsTruncated } : {}),
+  }
 }
 /** Advances the board's own stamp; the cursor poll and the sidebar's recency both read it. */
 export async function touchProjectBoard(db: D1Database, boardId: string, now: number): Promise<void> {

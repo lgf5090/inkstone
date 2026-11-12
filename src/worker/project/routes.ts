@@ -40,7 +40,7 @@ import { broadcastProjectChange } from './realtime'
 import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAccountArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireBoardOwner, requireCard, requireComment, requireContent, requireView } from './auth'
 import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
-import { projectBoardCursor, readProjectBoardBundle, touchProjectBoard } from './bundle'
+import { projectBoardCursor, readProjectBoardBundle, rowToComment, rowToContent, touchProjectBoard } from './bundle'
 import {
   addBoardToCategory,
   createProjectCategory,
@@ -537,6 +537,15 @@ projectRoutes.post('/boards/:id/leave', async (c) => {
 projectRoutes.get('/cards/:id', async (c) => {
   const { card } = await requireCard(c, c.req.param('id'), 'viewer')
   return c.json({ card })
+})
+
+projectRoutes.get('/cards/:id/detail', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  const [contents, comments] = await Promise.all([
+    c.env.DB.prepare('SELECT * FROM project_card_contents WHERE card_id = ?1 AND delete_at = 0 ORDER BY position, id').bind(card.id).all<Parameters<typeof rowToContent>[0]>(),
+    c.env.DB.prepare('SELECT * FROM project_comments WHERE card_id = ?1 AND delete_at = 0 ORDER BY create_at, id').bind(card.id).all<Parameters<typeof rowToComment>[0]>(),
+  ])
+  return c.json({ contents: contents.results.map(rowToContent), comments: comments.results.map(rowToComment) })
 })
 
 projectRoutes.patch('/cards/:id', async (c) => {

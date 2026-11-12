@@ -9,7 +9,7 @@ import { Checkbox, commitOnEnter, Input, Textarea } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { confirm, Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
 import { sendForAnswerDetailed } from '../chat/editor-ai'
-import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
+import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardDetail, fetchCardLinks, listBoardFiles, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
 import { RecurrenceEditor } from './RecurrenceEditor'
 import { useBandDrag } from './views/use-band-drag'
@@ -25,6 +25,7 @@ interface CardDialogProps {
   contents: ProjectContent[]
   siblings: ProjectCard[]
   canEdit: boolean
+  detailTruncated?: boolean
   onClose: () => void
   onUpdated: (card: ProjectCard) => void
   onRefresh: () => void
@@ -48,7 +49,7 @@ function ArchivedFile(): ReactElement {
   )
 }
 
-export function CardDialog({ card, properties, members, people, contents, siblings, canEdit, onClose, onUpdated, onRefresh, onDelete, onOpenCard }: CardDialogProps): ReactElement {
+export function CardDialog({ card, properties, members, people, contents, siblings, canEdit, detailTruncated, onClose, onUpdated, onRefresh, onDelete, onOpenCard }: CardDialogProps): ReactElement {
   const [title, setTitle] = useState(card.title)
   const [comments, setComments] = useState<ProjectComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
@@ -157,6 +158,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
 
   useEffect(() => { setTitle(card.title) }, [card.title])
   useEffect(() => {
+    if (detailTruncated) return
     setBlocks((current) => {
       const incoming = new Map(contents.map((block) => [block.id, block]))
       const known = new Set(current.map((block) => block.id))
@@ -176,7 +178,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       }
       return changed ? next : current
     })
-  }, [contents])
+  }, [contents, detailTruncated])
   useEffect(() => {
     const controller = new AbortController()
     fetchCardComments(card.id, controller.signal)
@@ -184,6 +186,18 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       .catch(() => { if (!controller.signal.aborted) setComments([]) })
     return () => controller.abort()
   }, [card.id])
+  useEffect(() => {
+    if (!detailTruncated) return
+    const controller = new AbortController()
+    fetchCardDetail(card.id, controller.signal)
+      .then((detail) => {
+        if (controller.signal.aborted) return
+        setBlocks(detail.contents)
+        setComments(detail.comments)
+      })
+      .catch(() => { /* best-effort: the bundle copy stays on screen */ })
+    return () => controller.abort()
+  }, [card.id, detailTruncated])
 
   const patch = useCallback(async (body: Record<string, unknown>) => {
     const updated = await patchProjectCard(card.id, body)

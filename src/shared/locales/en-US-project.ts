@@ -227,6 +227,8 @@ export const EN_US_PROJECT = {
     "project.card.dependencies": "Dependencies",
     "project.card.add_dependency": "Block by…",
     "project.board.activity": "Activity",
+    "project.board.truncated": "This board has more content than one load carries; open a card for its full body and comments.",
+    "project.board.truncated_public": "This board has more content than one load carries; part of it is not shown here.",
     "project.board.export_md": "Export Markdown",
     "project.board.toggle_sidebar": "Toggle sidebar",
     "project.view.summary": "Summary",

@@ -22,6 +22,8 @@ export const PROJECT_LIMITS = {
   idLength: 27,
   batchOperations: 200,
   searchResults: 50,
+  bundleContents: 2000,
+  bundleComments: 2000,
 } as const
 
 /** The leading character of an id says what it names, the spelling the reference's archives use. */

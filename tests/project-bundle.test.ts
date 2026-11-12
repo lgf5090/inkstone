@@ -155,6 +155,29 @@ describe('reading a whole board', () => {
   })
 })
 
+describe('bounded detail rows', () => {
+  it('caps the board read and lets a card fetch its full body', async () => {
+    const board = await createBoard('alice', {})
+    const created = await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Heavy' })
+    const card = ((await created.json()) as { card: { id: string } }).card
+    const insert = sqlite.prepare(
+      `INSERT INTO project_card_contents (id, card_id, board_id, type, title, fields, position, created_by, modified_by, create_at, update_at)
+       VALUES (?, ?, ?, 'text', 'body', '{}', ?, 'alice', 'alice', 1, 1)`,
+    )
+    sqlite.exec('BEGIN')
+    for (let index = 0; index <= 2000; index += 1) {
+      insert.run(`a${String(index).padStart(26, '0')}`, card.id, board.id, index)
+    }
+    sqlite.exec('COMMIT')
+    const read = await bundle('alice', board.id)
+    expect(read.contents).toHaveLength(2000)
+    expect(read.contentsTruncated).toBe(true)
+    const detail = await req('alice', 'GET', `/cards/${card.id}/detail`)
+    expect(detail.status).toBe(200)
+    expect(((await detail.json()) as { contents: unknown[] }).contents).toHaveLength(2001)
+  })
+})
+
 describe('the staleness cursor', () => {
   it('advances after a child write, including a delete', async () => {
     const board = await createBoard('alice', {})

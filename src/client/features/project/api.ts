@@ -152,6 +152,10 @@ export function projectBoardExportUrl(id: string, kind: 'csv' | 'archive' | 'mar
   return `/api/project/boards/${encodeURIComponent(id)}/${kind}`
 }
 
+export async function fetchCardDetail(cardId: string, signal?: AbortSignal): Promise<{ contents: ProjectContent[], comments: ProjectComment[] }> {
+  return request<{ contents: ProjectContent[], comments: ProjectComment[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/detail`, { signal })
+}
+
 export async function fetchCardComments(cardId: string, signal?: AbortSignal): Promise<ProjectComment[]> {
   const body = await request<{ comments: ProjectComment[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/comments`, { signal })
   return body.comments
