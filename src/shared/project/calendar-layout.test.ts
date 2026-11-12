@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectCard, ProjectProperty } from './model'
-import { projectDayToStamp } from './date'
-import { projectCalendarDayChips, projectCalendarDayRoles, projectCalendarOverdue, projectCalendarRibbons, projectCalendarWeekSpans } from './calendar-layout'
+import { projectDayToStamp, projectStampToDay } from './date'
+import { projectCalendarDayChips, projectCalendarDayRoles, projectCalendarIndex, projectCalendarOverdue, projectCalendarRibbons, projectCalendarWeekSpans } from './calendar-layout'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 const properties: ProjectProperty[] = [
@@ -21,7 +21,7 @@ function card(id: string, from?: number, to?: number, status = 'o1'): ProjectCar
 
 describe('spanning ribbons', () => {
   it('draws one ribbon across every covered day with caps only at the ends', () => {
-    const ribbons = projectCalendarRibbons([card('sprint', day(10), day(12))], 'pd', properties, keys, keyOf)
+    const ribbons = projectCalendarRibbons(projectCalendarIndex([card('sprint', day(10), day(12))], 'pd', keyOf).entries, properties, keys)
     expect([...ribbons.keys()]).toEqual([keyOf(day(10)), keyOf(day(11)), keyOf(day(12))])
     expect(ribbons.get(keyOf(day(10)))![0]).toMatchObject({ lane: 0, start: true, end: false })
     expect(ribbons.get(keyOf(day(11)))![0]).toMatchObject({ lane: 0, start: false, end: false })
@@ -29,46 +29,46 @@ describe('spanning ribbons', () => {
   })
 
   it('keeps a card on the same lane across a week boundary', () => {
-    const ribbons = projectCalendarRibbons([card('long', day(8), day(17))], 'pd', properties, keys, keyOf)
+    const ribbons = projectCalendarRibbons(projectCalendarIndex([card('long', day(8), day(17))], 'pd', keyOf).entries, properties, keys)
     const lanes = [...ribbons.values()].map((list) => list[0]!.lane)
     expect(new Set(lanes).size).toBe(1)
     expect(lanes).toHaveLength(10)
   })
 
   it('stacks overlapping ranges on separate lanes and reuses a freed lane', () => {
-    const ribbons = projectCalendarRibbons([card('a', day(8), day(10)), card('b', day(9), day(11)), card('c', day(12), day(14))], 'pd', properties, keys, keyOf)
+    const ribbons = projectCalendarRibbons(projectCalendarIndex([card('a', day(8), day(10)), card('b', day(9), day(11)), card('c', day(12), day(14))], 'pd', keyOf).entries, properties, keys)
     expect(ribbons.get(keyOf(day(9)))!.map((r) => [r.card.id, r.lane])).toEqual([['a', 0], ['b', 1]])
     expect(ribbons.get(keyOf(day(12)))![0]).toMatchObject({ card: expect.objectContaining({ id: 'c' }), lane: 0 })
   })
 
   it('gives a single-day card no ribbon at all', () => {
-    expect(projectCalendarRibbons([card('one', day(10))], 'pd', properties, keys, keyOf).size).toBe(0)
+    expect(projectCalendarRibbons(projectCalendarIndex([card('one', day(10))], 'pd', keyOf).entries, properties, keys).size).toBe(0)
   })
 
   it('ignores ranges entirely outside the visible grid', () => {
-    expect(projectCalendarRibbons([card('away', day(1), day(3))], 'pd', properties, keys, keyOf).size).toBe(0)
+    expect(projectCalendarRibbons(projectCalendarIndex([card('away', day(1), day(3))], 'pd', keyOf).entries, properties, keys).size).toBe(0)
   })
 
   it('paints the ribbon with the card status colour', () => {
-    const ribbons = projectCalendarRibbons([card('sprint', day(10), day(12))], 'pd', properties, keys, keyOf)
+    const ribbons = projectCalendarRibbons(projectCalendarIndex([card('sprint', day(10), day(12))], 'pd', keyOf).entries, properties, keys)
     expect(ribbons.get(keyOf(day(10)))![0]!.color).toBe('var(--kanban-tag-blue-fg)')
   })
 })
 
 describe('day chips', () => {
   it('names a single-day card on its day and marks it as starting', () => {
-    expect(projectCalendarDayChips([card('one', day(10))], 'pd', keyOf(day(10)), keyOf)).toEqual([{ card: expect.objectContaining({ id: 'one' }), starting: true }])
+    expect(projectCalendarDayChips(projectCalendarIndex([card('one', day(10))], 'pd', keyOf).byDay.get(keyOf(day(10))) ?? [])).toEqual([{ card: expect.objectContaining({ id: 'one' }), starting: true, end: projectStampToDay(day(10)).getTime() }])
   })
 
   it('leaves a spanning card to its ribbon rather than repeating it as a chip', () => {
     const spanning = card('sprint', day(10), day(12))
-    expect(projectCalendarDayChips([spanning], 'pd', keyOf(day(10)), keyOf)).toHaveLength(0)
-    expect(projectCalendarDayChips([spanning], 'pd', keyOf(day(11)), keyOf)).toHaveLength(0)
-    expect(projectCalendarDayChips([spanning], 'pd', keyOf(day(12)), keyOf)).toHaveLength(0)
+    expect(projectCalendarDayChips(projectCalendarIndex([spanning], 'pd', keyOf).byDay.get(keyOf(day(10))) ?? [])).toHaveLength(0)
+    expect(projectCalendarDayChips(projectCalendarIndex([spanning], 'pd', keyOf).byDay.get(keyOf(day(11))) ?? [])).toHaveLength(0)
+    expect(projectCalendarDayChips(projectCalendarIndex([spanning], 'pd', keyOf).byDay.get(keyOf(day(12))) ?? [])).toHaveLength(0)
   })
 
   it('says nothing for an undated card', () => {
-    expect(projectCalendarDayChips([card('none')], 'pd', keyOf(day(10)), keyOf)).toHaveLength(0)
+    expect(projectCalendarDayChips(projectCalendarIndex([card('none')], 'pd', keyOf).byDay.get(keyOf(day(10))) ?? [])).toHaveLength(0)
   })
 })
 
@@ -83,20 +83,20 @@ describe('week spans', () => {
   const weekKeys = keys.slice(0, 7)
 
   it('collapses a card covered days into one bar with the columns it spans', () => {
-    const ribbons = projectCalendarRibbons([card('sprint', day(9), day(11))], 'pd', properties, keys, keyOf)
+    const ribbons = projectCalendarRibbons(projectCalendarIndex([card('sprint', day(9), day(11))], 'pd', keyOf).entries, properties, keys)
     const spans = projectCalendarWeekSpans(weekKeys, ribbons)
     expect(spans).toHaveLength(1)
     expect(spans[0]).toMatchObject({ lane: 0, startCol: 1, endCol: 3, continuesLeft: false, continuesRight: false })
   })
 
   it('leaves a bar square on the edge it runs past', () => {
-    const ribbons = projectCalendarRibbons([card('long', day(1), day(20))], 'pd', properties, keys, keyOf)
+    const ribbons = projectCalendarRibbons(projectCalendarIndex([card('long', day(1), day(20))], 'pd', keyOf).entries, properties, keys)
     const [span] = projectCalendarWeekSpans(weekKeys, ribbons)
     expect(span).toMatchObject({ startCol: 0, endCol: 6, continuesLeft: true, continuesRight: true })
   })
 
   it('keeps two overlapping cards on the lanes the grid gave them', () => {
-    const ribbons = projectCalendarRibbons([card('a', day(8), day(10)), card('b', day(9), day(11))], 'pd', properties, keys, keyOf)
+    const ribbons = projectCalendarRibbons(projectCalendarIndex([card('a', day(8), day(10)), card('b', day(9), day(11))], 'pd', keyOf).entries, properties, keys)
     const spans = projectCalendarWeekSpans(weekKeys, ribbons)
     expect(spans.map((span) => [span.card.id, span.lane])).toEqual([['a', 0], ['b', 1]])
   })
@@ -105,12 +105,12 @@ describe('week spans', () => {
 describe('day roles', () => {
   it('names what the day means to each card it touches', () => {
     const cards = [card('span', day(10), day(12)), card('once', day(11))]
-    expect(projectCalendarDayRoles(cards, 'pd', keyOf(day(10)), keyOf).map((entry) => [entry.card.id, entry.role])).toEqual([['span', 'start']])
-    expect(projectCalendarDayRoles(cards, 'pd', keyOf(day(11)), keyOf).map((entry) => [entry.card.id, entry.role])).toEqual([['span', 'active'], ['once', 'both']])
-    expect(projectCalendarDayRoles(cards, 'pd', keyOf(day(12)), keyOf).map((entry) => [entry.card.id, entry.role])).toEqual([['span', 'due']])
+    expect(projectCalendarDayRoles(projectCalendarIndex(cards, 'pd', keyOf).byDay.get(keyOf(day(10))) ?? [], keyOf(day(10))).map((entry) => [entry.card.id, entry.role])).toEqual([['span', 'start']])
+    expect(projectCalendarDayRoles(projectCalendarIndex(cards, 'pd', keyOf).byDay.get(keyOf(day(11))) ?? [], keyOf(day(11))).map((entry) => [entry.card.id, entry.role])).toEqual([['span', 'active'], ['once', 'both']])
+    expect(projectCalendarDayRoles(projectCalendarIndex(cards, 'pd', keyOf).byDay.get(keyOf(day(12))) ?? [], keyOf(day(12))).map((entry) => [entry.card.id, entry.role])).toEqual([['span', 'due']])
   })
 
   it('says nothing for a day no card covers', () => {
-    expect(projectCalendarDayRoles([card('span', day(10), day(12))], 'pd', keyOf(day(13)), keyOf)).toEqual([])
+    expect(projectCalendarDayRoles(projectCalendarIndex([card('span', day(10), day(12))], 'pd', keyOf).byDay.get(keyOf(day(13))) ?? [], keyOf(day(13)))).toEqual([])
   })
 })

@@ -9,7 +9,7 @@
 import type { ProjectCard, ProjectProperty } from './model'
 import { isProjectCardDone } from './model'
 import { projectOptionCssColor } from './option-color'
-import { projectCardDays } from './timeline-layout'
+import { PROJECT_TIMELINE_DAY_MS as PROJECT_ONE_DAY_MS, projectCardDays } from './timeline-layout'
 
 export const PROJECT_CALENDAR_RIBBON_PX = 4
 
@@ -28,6 +28,15 @@ export function projectCalendarCardColor(card: ProjectCard, properties: readonly
   return (option && projectOptionCssColor(option.color)) ?? 'var(--accent)'
 }
 
+/** One card as the calendar sees it: the days it covers, resolved once. */
+export interface CalendarEntry {
+  card: ProjectCard
+  firstKey: string
+  lastKey: string
+  start: number
+  end: number
+}
+
 /**
  * Ribbons per day key, with a stable lane per card.
  *
@@ -36,22 +45,16 @@ export function projectCalendarCardColor(card: ProjectCard, properties: readonly
  * than one day become ribbons; a single-day card stays a chip.
  */
 export function projectCalendarRibbons(
-  cards: readonly ProjectCard[],
-  propertyId: string | undefined,
+  entries: readonly CalendarEntry[],
   properties: readonly ProjectProperty[],
   dayKeys: readonly string[],
-  keyOf: (stamp: number) => string,
 ): Map<string, CalendarRibbon[]> {
   const visible = new Set(dayKeys)
-  const spans: { card: ProjectCard, from: number, to: number, firstKey: string, lastKey: string }[] = []
-  for (const card of cards) {
-    const days = projectCardDays(card, propertyId)
-    if (!days || days.end <= days.start) continue
-    const firstKey = keyOf(days.start)
-    const lastKey = keyOf(days.end)
-    if (!dayKeys.some((key) => key >= firstKey && key <= lastKey)) continue
-    spans.push({ card, from: days.start, to: days.end, firstKey, lastKey })
-  }
+  const first = dayKeys[0]
+  const last = dayKeys[dayKeys.length - 1]
+  const spans = entries
+    .filter((entry) => entry.end > entry.start && first !== undefined && last !== undefined && entry.lastKey >= first && entry.firstKey <= last)
+    .map((entry) => ({ card: entry.card, from: entry.start, to: entry.end, firstKey: entry.firstKey, lastKey: entry.lastKey }))
   spans.sort((left, right) => left.from - right.from || (right.to - right.from) - (left.to - left.from))
   const laneEnds: string[] = []
   const byDay = new Map<string, CalendarRibbon[]>()
@@ -75,27 +78,59 @@ export function projectCalendarRibbons(
 }
 
 /**
+ * Every dated card, parsed once, bucketed under each day it covers.
+ *
+ * A month grid asks 42 questions of the same card list. Answering each by rescanning every card
+ * re-parses its date JSON and rebuilds three Dates per cell — 3000 cards measured 146ms a frame.
+ * One pass here turns each cell into a map lookup.
+ */
+export function projectCalendarIndex(
+  cards: readonly ProjectCard[],
+  propertyId: string | undefined,
+  keyOf: (stamp: number) => string,
+): { entries: CalendarEntry[], byDay: Map<string, CalendarEntry[]> } {
+  const entries: CalendarEntry[] = []
+  const byDay = new Map<string, CalendarEntry[]>()
+  for (const card of cards) {
+    const days = projectCardDays(card, propertyId)
+    if (!days) continue
+    const entry: CalendarEntry = { card, firstKey: keyOf(days.start), lastKey: keyOf(days.end), start: days.start, end: days.end }
+    entries.push(entry)
+    for (let stamp = days.start; stamp <= days.end; stamp += PROJECT_ONE_DAY_MS) {
+      const key = keyOf(stamp)
+      const list = byDay.get(key)
+      if (list) list.push(entry)
+      else byDay.set(key, [entry])
+    }
+  }
+  return { entries, byDay }
+}
+
+/**
  * The chips a day draws: cards that live on that day alone.
  *
  * A spanning card is named by its ribbon, so repeating it as a chip on its start day said the same
  * thing twice and pushed the single-day cards out of a short cell.
  */
-export function projectCalendarDayChips(
-  cards: readonly ProjectCard[],
-  propertyId: string | undefined,
-  dayKey: string,
-  keyOf: (stamp: number) => string,
-): { card: ProjectCard, starting: boolean }[] {
-  const out: { card: ProjectCard, starting: boolean }[] = []
-  for (const card of cards) {
-    const days = projectCardDays(card, propertyId)
-    if (!days || days.end !== days.start) continue
-    if (keyOf(days.start) !== dayKey) continue
-    out.push({ card, starting: true })
-  }
-  return out
+export function projectCalendarDayChips(bucket: readonly CalendarEntry[]): { card: ProjectCard, starting: boolean, end: number }[] {
+  return bucket.filter((entry) => entry.firstKey === entry.lastKey).map((entry) => ({ card: entry.card, starting: true, end: entry.end }))
 }
 
+export type CalendarDayRole = 'start' | 'due' | 'both' | 'active'
+
+/** Every card the day touches, and what the day means to it — the day panel's own vocabulary. */
+export function projectCalendarDayRoles(bucket: readonly CalendarEntry[], dayKey: string): { card: ProjectCard, role: CalendarDayRole }[] {
+  return bucket.map((entry) => {
+    const starts = dayKey === entry.firstKey
+    const ends = dayKey === entry.lastKey
+    return { card: entry.card, role: starts && ends ? 'both' : starts ? 'start' : ends ? 'due' : 'active' } as { card: ProjectCard, role: CalendarDayRole }
+  })
+}
+
+/** A chip reads as overdue when its range has passed and the card is not done. */
+export function projectCalendarOverdue(card: ProjectCard, properties: readonly ProjectProperty[], endStamp: number, todayStamp: number): boolean {
+  return endStamp < todayStamp && !isProjectCardDone(card, properties)
+}
 export interface CalendarWeekSpan {
   card: ProjectCard
   lane: number
@@ -138,32 +173,4 @@ export function projectCalendarWeekSpans(
     }
   })
   return [...byCard.values()]
-}
-
-export type CalendarDayRole = 'start' | 'due' | 'both' | 'active'
-
-/** Every card the day touches, and what the day means to it — the day panel's own vocabulary. */
-export function projectCalendarDayRoles(
-  cards: readonly ProjectCard[],
-  propertyId: string | undefined,
-  dayKey: string,
-  keyOf: (stamp: number) => string,
-): { card: ProjectCard, role: CalendarDayRole }[] {
-  const out: { card: ProjectCard, role: CalendarDayRole }[] = []
-  for (const card of cards) {
-    const days = projectCardDays(card, propertyId)
-    if (!days) continue
-    const first = keyOf(days.start)
-    const last = keyOf(days.end)
-    if (dayKey < first || dayKey > last) continue
-    const starts = dayKey === first
-    const ends = dayKey === last
-    out.push({ card, role: starts && ends ? 'both' : starts ? 'start' : ends ? 'due' : 'active' })
-  }
-  return out
-}
-
-/** A chip reads as overdue when its range has passed and the card is not done. */
-export function projectCalendarOverdue(card: ProjectCard, properties: readonly ProjectProperty[], endStamp: number, todayStamp: number): boolean {
-  return endStamp < todayStamp && !isProjectCardDone(card, properties)
 }

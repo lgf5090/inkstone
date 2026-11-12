@@ -12,7 +12,7 @@ import type { ProjectCalendarMode, ProjectCard, ProjectProperty } from '@shared/
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectDayToStamp } from '@shared/project/date'
 import { projectCardDays } from '@shared/project/timeline-layout'
-import { projectCalendarDayChips, projectCalendarDayRoles, projectCalendarOverdue, projectCalendarRibbons, projectCalendarWeekSpans } from '@shared/project/calendar-layout'
+import { projectCalendarDayChips, projectCalendarDayRoles, projectCalendarIndex, projectCalendarOverdue, projectCalendarRibbons, projectCalendarWeekSpans, type CalendarEntry } from '@shared/project/calendar-layout'
 import { projectCardColor, projectOptionCssColor } from '@shared/project/option-color'
 import { projectPriorityProperty } from '@shared/project/stats'
 import { t, useLocale } from '../../../lib/i18n'
@@ -88,9 +88,11 @@ export function CalendarView(props: CalendarProps): ReactElement {
   }, [cells, mode])
 
   const dayKeys = useMemo(() => cells.map((cell) => cell.key), [cells])
+  // One parse per card per data change, not one per cell per frame.
+  const index = useMemo(() => projectCalendarIndex(cards, propertyId, keyOf), [cards, propertyId, keyOf])
   const ribbons = useMemo(
-    () => projectCalendarRibbons(cards, propertyId, properties, dayKeys, keyOf),
-    [cards, propertyId, properties, dayKeys, keyOf],
+    () => projectCalendarRibbons(index.entries, properties, dayKeys),
+    [index, properties, dayKeys],
   )
   const spansByWeek = useMemo(
     () => weeks.map((week) => projectCalendarWeekSpans(week.map((cell) => cell.key), ribbons)),
@@ -180,7 +182,7 @@ export function CalendarView(props: CalendarProps): ReactElement {
   }
 
   const weekdays = narrowWeekdayLabels(locale, weekStart)
-  const selectedRoles = selected ? projectCalendarDayRoles(cards, propertyId, selected, keyOf) : []
+  const selectedRoles = selected ? projectCalendarDayRoles(index.byDay.get(selected) ?? [], selected) : []
 
   return (
     <ViewShell data-view="calendar">
@@ -223,11 +225,9 @@ export function CalendarView(props: CalendarProps): ReactElement {
                       today={cell.key === todayKey}
                       selected={selected === cell.key}
                       dropping={dropDay === cell.key}
-                      cards={cards}
-                      propertyId={propertyId}
+                      bucket={index.byDay.get(cell.key) ?? []}
                       properties={properties}
                       colorOf={colorOf}
-                      keyOf={keyOf}
                       todayStamp={todayStamp}
                       canEdit={canEdit && Boolean(propertyId)}
                       onSelect={() => setSelected(selected === cell.key ? null : cell.key)}
@@ -282,17 +282,15 @@ export function CalendarView(props: CalendarProps): ReactElement {
     </ViewShell>
   )
 }
-function CalendarCell({ cell, mode, today, selected, dropping, cards, propertyId, properties, colorOf, keyOf, todayStamp, canEdit, onSelect, onOpenCard, onCardPointerDown, onQuickAdd }: {
+function CalendarCell({ cell, mode, today, selected, dropping, bucket, properties, colorOf, todayStamp, canEdit, onSelect, onOpenCard, onCardPointerDown, onQuickAdd }: {
   cell: Cell
   mode: ProjectCalendarMode
   today: boolean
   selected: boolean
   dropping: boolean
-  cards: readonly ProjectCard[]
-  propertyId: string | undefined
+  bucket: readonly CalendarEntry[]
   properties: readonly ProjectProperty[]
   colorOf: (card: ProjectCard) => string
-  keyOf: (stamp: number) => string
   todayStamp: number
   canEdit: boolean
   onSelect: () => void
@@ -300,7 +298,7 @@ function CalendarCell({ cell, mode, today, selected, dropping, cards, propertyId
   onCardPointerDown: (event: React.PointerEvent, card: ProjectCard) => void
   onQuickAdd: (day: Date) => Promise<void>
 }): ReactElement {
-  const chips = projectCalendarDayChips(cards, propertyId, cell.key, keyOf)
+  const chips = projectCalendarDayChips(bucket)
   const shown = mode === 'month' ? chips.slice(0, MAX_CHIPS) : chips
   const hidden = chips.length - shown.length
   const weekend = cell.date.getDay() === 0 || cell.date.getDay() === 6
@@ -327,8 +325,7 @@ function CalendarCell({ cell, mode, today, selected, dropping, cards, propertyId
         </button>
       )}
       <div className="pv-cal-chips">
-        {shown.map(({ card }) => {
-          const days = projectCardDays(card, propertyId)!
+        {shown.map(({ card, end }) => {
           return (
             <button
               key={card.id}
@@ -337,7 +334,7 @@ function CalendarCell({ cell, mode, today, selected, dropping, cards, propertyId
               data-project-card={card.id}
               data-start="true"
               data-done={isProjectCardDone(card, properties)}
-              data-overdue={projectCalendarOverdue(card, properties, days.end, todayStamp)}
+              data-overdue={projectCalendarOverdue(card, properties, end, todayStamp)}
               style={{ '--pv-card-color': colorOf(card), touchAction: 'none' } as React.CSSProperties}
               onPointerDown={(event) => onCardPointerDown(event, card)}
               onClick={(event) => { event.stopPropagation(); onOpenCard(card.id) }}

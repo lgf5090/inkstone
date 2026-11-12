@@ -12917,6 +12917,7 @@ const allowed = new Map([
     "/**\n * The calendar: a continuous month grid, spanning cards drawn as one bar across the week, and a day\n * panel that says what the selected day means to each card on it.\n *\n * The grid is a real grid — shared hairlines, no gaps — because a month made of separated tiles reads\n * as a list of boxes rather than as time. Ribbons are placed per week with CSS grid columns, so a\n * five-day task is one bar with one label instead of five fragments.\n */",
     "/** Pointer drag onto a day: the same path for a mouse and a finger, unlike native drag-and-drop. */",
     "/** The selected day in full: every card it touches, and whether it starts, ends or runs through it. */",
+    "// One parse per card per data change, not one per cell per frame.",
   ]],
   ["src/client/features/project/views/ChartView.tsx", [
     "/**\n * The chart: one distribution, chosen by the reader.\n *\n * The reference draws a fixed bar chart of the first select property. This one lets the reader pick the\n * shape, the grouping and the measure, because \"how many per status\" and \"how much effort per person\"\n * are the same picture with different axes — and a chart that cannot answer the second is decoration.\n */",
@@ -33334,6 +33335,8 @@ const allowed = new Map([
     "/**\n * The chips a day draws: cards that live on that day alone.\n *\n * A spanning card is named by its ribbon, so repeating it as a chip on its start day said the same\n * thing twice and pushed the single-day cards out of a short cell.\n */",
     "/**\n * One week's ribbons as bars, not as per-day fragments.\n *\n * The lane was decided for the whole grid, so a card keeps its row across the week boundary; here the\n * days it covers inside this week collapse into a single bar with the columns it spans. A bar that\n * runs off either edge is left square on that side, which is how a reader sees \"continues\".\n */",
     "/** Every card the day touches, and what the day means to it — the day panel's own vocabulary. */",
+    "/** One card as the calendar sees it: the days it covers, resolved once. */",
+    "/**\n * Every dated card, parsed once, bucketed under each day it covers.\n *\n * A month grid asks 42 questions of the same card list. Answering each by rescanning every card\n * re-parses its date JSON and rebuilds three Dates per cell — 3000 cards measured 146ms a frame.\n * One pass here turns each cell into a map lookup.\n */",
   ]],
   ["src/shared/project/content-order.ts", [
     "/**\n * A card's reading order. It interleaves content-block ids with comment ids, and a nested array\n * threads comments under one block — an order the per-row position column cannot express, so the\n * card carries it (DV-12). These helpers keep that array honest as blocks and comments come and go:\n * append on create, scrub on delete (including inside threads), and splice on move.\n */",
