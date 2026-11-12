@@ -10,6 +10,7 @@ import { Plus } from 'lucide-react'
 import { t } from '../../../lib/i18n'
 import { isImeComposing } from '../../../lib/ime'
 import { Input } from '../../../components/form'
+import { useUi } from '../../../store/ui'
 
 export function ViewShell({ children, ...rest }: { children: ReactNode, 'data-view': string }): ReactElement {
   return <div className="pv pv-scroll relative" data-view={rest['data-view']}>{children}</div>
@@ -40,11 +41,12 @@ export function ViewToolbar({ children }: { children: ReactNode }): ReactElement
 }
 
 /** A pill row of mutually exclusive choices; `aria-pressed` carries the state a screen reader needs. */
-export function Seg<T extends string>({ value, options, onChange, label }: {
+export function Seg<T extends string>({ value, options, onChange, label, disabled = false }: {
   value: T
   options: readonly { value: T, label: string }[]
   onChange: (value: T) => void
   label: string
+  disabled?: boolean
 }): ReactElement {
   return (
     <div className="pv-seg" role="group" aria-label={label}>
@@ -54,6 +56,7 @@ export function Seg<T extends string>({ value, options, onChange, label }: {
           type="button"
           className="pv-seg-btn"
           aria-pressed={value === option.value}
+          disabled={disabled}
           onClick={() => onChange(option.value)}
         >
           {option.label}
@@ -101,6 +104,8 @@ export function QuickAdd({ label, placeholder, onAdd, className, alwaysOpen = fa
       await onAdd(trimmed)
       setTitle('')
       form.querySelector('input')?.focus()
+    } catch (reason) {
+      useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -131,11 +136,12 @@ export function QuickAdd({ label, placeholder, onAdd, className, alwaysOpen = fa
 }
 
 /** The empty body a view shows when its filter left nothing, with the action that fixes it. */
-export function ViewEmpty({ title, hint }: { title: string, hint?: string }): ReactElement {
+export function ViewEmpty({ title, hint, action }: { title: string, hint?: string, action?: ReactNode }): ReactElement {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
       <p className="text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]">{title}</p>
       {hint && <p className="max-w-sm text-[length:var(--text-12)] text-[var(--text-tertiary)]">{hint}</p>}
+      {action}
     </div>
   )
 }

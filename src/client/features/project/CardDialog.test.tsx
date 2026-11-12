@@ -4,6 +4,7 @@ import type { ProjectCard, ProjectComment, ProjectProperty } from '@shared/proje
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import * as api from './api'
+import * as overlay from '../../components/overlay'
 import { CardDialog } from './CardDialog'
 
 vi.mock('./api', () => ({
@@ -197,10 +198,12 @@ describe('comment edit/delete, paste image, archived placeholder (D-6/D-8/D-11)'
 
   it('deletes own comment through deleteCardComment', async () => {
     vi.mocked(api.deleteCardComment).mockResolvedValue(undefined)
+    const confirmed = vi.spyOn(overlay, 'confirm').mockResolvedValue(true)
     await mountWith([], [ownComment])
     const del = document.body.querySelector(`button[aria-label="${t('common.delete')}"]`) as HTMLButtonElement
     await act(async () => { del.click() })
     expect(api.deleteCardComment).toHaveBeenCalledWith('m1')
+    confirmed.mockRestore()
   })
 
   it('shows an archived placeholder when the image file is gone', async () => {

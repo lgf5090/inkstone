@@ -15,7 +15,7 @@ import { t } from '../../lib/i18n'
 import { Avatar, Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
-import { Modal } from '../../components/overlay'
+import { confirm, Modal } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { useUi } from '../../store/ui'
 import { addBoardMember, fetchBoardMembers, removeBoardMember, setBoardMemberRole } from './api'
@@ -125,7 +125,12 @@ export function MembersDialog({ boardId, minimumRole, boardType, onClose, onBoar
                         label={`${t('project.members.remove')}: ${name}`}
                         size="sm"
                         disabled={busy || (member.role === 'admin' && adminCount <= 1)}
-                        onClick={() => { void guard(() => removeBoardMember(boardId, member.userId)) }}
+                        onClick={() => {
+                          void guard(async () => {
+                            const ok = await confirm({ title: `${t('project.members.remove')}: ${name}`, tone: 'danger', confirmLabel: t('project.members.remove') })
+                            if (ok) await removeBoardMember(boardId, member.userId)
+                          })
+                        }}
                       >
                         <Trash2 size={14} />
                       </IconButton>

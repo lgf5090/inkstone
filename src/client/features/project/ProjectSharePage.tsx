@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import { Lock, SquareKanban } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCard } from '@shared/project/model'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import { ApiError } from '../../lib/api'
 import { Button } from '../../components/primitives'
 import { Input } from '../../components/form'
@@ -112,6 +112,7 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
         onAddGroupOption={async () => {}}
         onRenameGroupOption={async () => {}}
         onSetGroupOptionColor={async () => {}}
+        onCardCreated={() => {}}
         onRefresh={async () => {}}
       />
       {openCard && <PublicCardDetail card={openCard} bundle={bundle} onClose={() => setOpenCardId(null)} />}
@@ -119,6 +120,7 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
   )
 }
 function PublicCardDetail({ card, bundle, onClose }: { card: ProjectCard, bundle: ProjectBoardBundle, onClose: () => void }): ReactElement {
+  const locale = useLocale()
   const parent = card.parentId ? bundle.cards.find((entry) => entry.id === card.parentId) : undefined
   const blocks = bundle.contents.filter((block) => block.cardId === card.id)
   const comments = bundle.comments.filter((comment) => comment.cardId === card.id)
@@ -155,7 +157,7 @@ function PublicCardDetail({ card, bundle, onClose }: { card: ProjectCard, bundle
           <section aria-label={t('project.card.comments')} className="space-y-2">
             {comments.map((comment) => (
               <div key={comment.id} className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2">
-                <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{new Date(comment.createAt).toLocaleDateString()}</p>
+                <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{new Date(comment.createAt).toLocaleDateString(locale)}</p>
                 <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{comment.body}</p>
               </div>
             ))}

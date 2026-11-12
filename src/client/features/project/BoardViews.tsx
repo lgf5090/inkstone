@@ -5,7 +5,7 @@
  * reader who switches tabs is looking at the same set. What a view does with them — columns, cells,
  * bars, tiles — is the view's own business.
  */
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ArrowUpDown, BarChart3, Calendar, CalendarRange, Clock, Copy, Download, Eye, Filter, FolderOpen, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Pencil, Plus, RotateCcw, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, projectCanMarkDone, projectDonePatch, projectViewPropertyId, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
@@ -18,7 +18,7 @@ import { useProjectStore } from './store'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
-import { Menu, prompt, type MenuItem } from '../../components/overlay'
+import { confirm, Menu, prompt, type MenuItem } from '../../components/overlay'
 import { PropertiesModal, SortModal } from './ViewSettingsModals'
 import { FilterModal } from './FilterEditor'
 import { optionDot } from './CardBadges'
@@ -112,12 +112,13 @@ interface BoardViewsProps {
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
   onRenameGroupOption: (propertyId: string, optionId: string, value: string) => Promise<void>
   onSetGroupOptionColor: (propertyId: string, optionId: string, color: string) => Promise<void>
+  onCardCreated: (card: ProjectCard) => void
   onRefresh: () => Promise<void>
   /** A public reader has no session: the member-only reads and exports would answer 401, so they are not offered. */
   publicView?: boolean
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onCardCreated, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
   useEffect(() => { setActiveId(readLastViewId(bundle.board.id)) }, [bundle.board.id])
   const selectView = (id: string): void => {
@@ -151,26 +152,34 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     else { setPinnedCards(next); writePinnedCardsPref(bundle.board.id, next) }
   }
 
-  useEffect(() => {
-    if (publicView) return
-    const controller = new AbortController()
-    fetchBoardLinks(bundle.board.id, controller.signal).then(setLinks).catch(() => { if (!controller.signal.aborted) setLinks([]) })
-    return () => controller.abort()
-  }, [bundle.board.id, publicView])
-
   // C-23: tabs read alphabetically; the default view stays the board's first by position.
   const orderedViews = sortProjectViewsAlphabetically(bundle.views)
   const active = orderedViews.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
   const fields = active?.fields ?? emptyProjectViewFields()
   const viewType = active?.viewType ?? 'table'
+
+  // Only the two dependency-drawing views read links, and a saved dependency must refresh with the
+  // bundle rather than waiting for a full remount.
+  useEffect(() => {
+    if (publicView || (viewType !== 'timeline' && viewType !== 'gantt')) {
+      setLinks([])
+      return
+    }
+    const controller = new AbortController()
+    fetchBoardLinks(bundle.board.id, controller.signal).then(setLinks).catch(() => { if (!controller.signal.aborted) setLinks([]) })
+    return () => controller.abort()
+  }, [bundle.board.id, bundle.cursor, publicView, viewType])
   useEffect(() => { onActiveViewChange(active?.id ?? '') }, [active?.id, onActiveViewChange])
 
   const patchFields = (patch: Partial<ProjectViewFields>): void => {
     if (active) void onPatchView(active.id, { fields: patch })
   }
+  // Every keystroke used to re-match and re-sort the whole board; the box stays immediate while the
+  // expensive pass trails one frame behind.
+  const deferredSearch = useDeferredValue(search)
   const filtered = useMemo(
-    () => bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, search, bundle.properties, bundle.people)),
-    [bundle.cards, fields.filter, bundle.properties, bundle.people, search],
+    () => bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, deferredSearch, bundle.properties, bundle.people)),
+    [bundle.cards, fields.filter, bundle.properties, bundle.people, deferredSearch],
   )
   const sorted = useMemo(() => sortProjectCards(filtered, fields.sortOptions, bundle.properties), [filtered, fields.sortOptions, bundle.properties])
   // The board and the list are manual surfaces: a card the reader dropped stays where it was dropped.
@@ -256,14 +265,14 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const handleAddSubtask = async (parentCardId: string): Promise<void> => {
     const name = await prompt({ title: t('project.card.add_subtask'), confirmLabel: t('project.card.add_subtask') })
     if (name === null || !name.trim()) return
-    await createProjectCard(bundle.board.id, { title: name.trim(), parentId: parentCardId })
-    await onRefresh()
+    const card = await createProjectCard(bundle.board.id, { title: name.trim(), parentId: parentCardId })
+    onCardCreated(card)
   }
 
   const addCardInColumn = async (title: string, optionId: string): Promise<void> => {
     const values = fields.groupById && optionId ? { [fields.groupById]: optionId } : {}
-    await createProjectCard(bundle.board.id, { title, values })
-    await onRefresh()
+    const card = await createProjectCard(bundle.board.id, { title, values })
+    onCardCreated(card)
   }
 
   const handleCopyLink = async (cardId: string): Promise<void> => {
@@ -327,16 +336,28 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     onOpenCard(cardId)
   }
 
+  const runBatch = async (action: () => Promise<void>): Promise<void> => {
+    try {
+      await action()
+      setSelected([])
+      await onRefresh()
+    } catch (reason) {
+      useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
+    }
+  }
   const batchDelete = async (): Promise<void> => {
-    await batchDeleteProjectBoard(bundle.board.id, { cardIds: selected })
-    setSelected([])
-    await onRefresh()
+    const ok = await confirm({
+      title: t('project.view.delete_selected'),
+      description: t('project.view.delete_selected_hint', { count: selected.length }),
+      tone: 'danger',
+      confirmLabel: t('common.delete'),
+    })
+    if (!ok) return
+    await runBatch(() => batchDeleteProjectBoard(bundle.board.id, { cardIds: selected }))
   }
   const batchApply = async (): Promise<void> => {
     if (!batchPropertyId) return
-    await batchPatchProjectBoard(bundle.board.id, { cards: selected.map((id) => ({ id, patch: { values: { [batchPropertyId]: batchValue || null } } })) })
-    setSelected([])
-    await onRefresh()
+    await runBatch(() => batchPatchProjectBoard(bundle.board.id, { cards: selected.map((id) => ({ id, patch: { values: { [batchPropertyId]: batchValue || null } } })) }))
   }
   const batchProperties = bundle.properties.filter((property) => property.type === 'select')
   const batchProperty = batchProperties.find((property) => property.id === batchPropertyId)
@@ -365,9 +386,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   }, [canEdit, bundle.board.id])
 
   const hiddenCount = bundle.cards.length - filtered.length
-  const columns = fields.visiblePropertyIds.length
+  const columns = useMemo(() => (fields.visiblePropertyIds.length
     ? fields.visiblePropertyIds.map((id) => bundle.properties.find((property) => property.id === id)).filter((property): property is ProjectProperty => Boolean(property))
-    : bundle.properties
+    : bundle.properties), [fields.visiblePropertyIds, bundle.properties])
   const groupable = bundle.properties.filter((property) => PROJECT_PROPERTY_CAPABILITIES[property.type].canGroup)
   const dateProperties = bundle.properties.filter((property) => property.type === 'date')
   const showsDateDisplay = viewType === 'calendar' || viewType === 'timeline' || viewType === 'gantt' || viewType === 'dashboard'
@@ -478,7 +499,23 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] px-3 py-1.5" role="tablist" aria-label={t('project.view.add')}>
+      <div
+        className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] px-3 py-1.5"
+        role="tablist"
+        aria-label={t('project.view.tabs')}
+        data-view-tabs=""
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return
+          const ids = orderedViews.map((view) => view.id)
+          const current = active ? ids.indexOf(active.id) : 0
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? ids.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + ids.length) % ids.length
+          const target = orderedViews[next]
+          if (!target) return
+          event.preventDefault()
+          selectView(target.id)
+          document.getElementById(`project-view-tab-${target.id}`)?.focus()
+        }}
+      >
         {orderedViews.map((view) => {
           const TabIcon = VIEW_ICON[view.viewType] ?? Table
           return (
@@ -486,7 +523,10 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               key={view.id}
               type="button"
               role="tab"
+              id={`project-view-tab-${view.id}`}
               aria-selected={active?.id === view.id}
+              aria-controls={`project-view-panel-${view.id}`}
+              tabIndex={active?.id === view.id ? 0 : -1}
               className={`shrink-0 whitespace-nowrap rounded-[var(--r-sm)] px-2 py-1 text-[length:var(--text-12)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active?.id === view.id ? 'bg-[var(--bg-hover)] font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
               onClick={() => selectView(view.id)}
             >
@@ -560,6 +600,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             <Seg
               value={fields.boardLayout ?? 'compact'}
               label={t('project.view.board_layout')}
+              disabled={!canEdit}
               onChange={(next) => patchFields({ boardLayout: next })}
               options={[
                 { value: 'compact', label: t('project.view.layout_compact') },
@@ -613,15 +654,36 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           <Button size="sm" variant="ghost" onClick={() => void batchDelete()}>{t('project.view.delete_selected')}</Button>
           <SelectMenu className="w-32" size="sm" value={batchPropertyId} label={t('project.view.set_property')} onChange={(value) => { setBatchPropertyId(value); setBatchValue('') }} options={[{ value: '', label: t('project.view.set_property') }, ...batchProperties.map((property) => ({ value: property.id, label: property.name }))]} />
           {batchProperty && (
-            <SelectMenu className="w-32" size="sm" value={batchValue} label={t('project.view.filter_value')} onChange={setBatchValue} options={[{ value: '', label: '—' }, ...batchProperty.options.map((option) => ({ value: option.id, label: option.value, icon: optionDot(option.color) }))]} />
+            <SelectMenu className="w-32" size="sm" value={batchValue} label={t('project.view.batch_value')} onChange={setBatchValue} options={[{ value: '', label: '—' }, ...batchProperty.options.map((option) => ({ value: option.id, label: option.value, icon: optionDot(option.color) }))]} />
           )}
           <Button size="sm" disabled={!batchPropertyId} onClick={() => void batchApply()}>{t('common.save')}</Button>
           <Button size="sm" variant="ghost" onClick={() => setSelected([])}>{t('project.view.clear_selection')}</Button>
         </div>
       )}
       {cards.length === 0 && !EMPTY_CAPABLE_VIEWS.has(viewType)
-        ? <ViewEmpty title={t('project.board.empty_cards')} hint={t('project.view.empty_hint')} />
-        : <ProjectPeopleProvider people={bundle.people}>{renderView()}</ProjectPeopleProvider>}
+        ? (
+          <ViewEmpty
+            title={t('project.board.empty_cards')}
+            hint={t('project.view.empty_hint')}
+            action={(search.trim() || fields.filter.filters.length > 0)
+              ? (
+                <Button size="sm" onClick={() => { setSearch(''); patchFields({ filter: emptyProjectViewFields().filter }) }}>
+                  {t('project.view.clear_filters')}
+                </Button>
+              )
+              : undefined}
+          />
+        )
+        : (
+          <div
+            className="flex min-h-0 flex-1 flex-col"
+            role="tabpanel"
+            id={active ? `project-view-panel-${active.id}` : undefined}
+            aria-labelledby={active ? `project-view-tab-${active.id}` : undefined}
+          >
+            <ProjectPeopleProvider people={bundle.people}>{renderView()}</ProjectPeopleProvider>
+          </div>
+        )}
       {active && settings === 'sort' && <SortModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
       {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} members={bundle.members} people={bundle.people} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
       {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}

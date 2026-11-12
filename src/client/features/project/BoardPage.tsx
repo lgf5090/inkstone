@@ -5,7 +5,7 @@ import { projectRoleAtLeast, emptyProjectViewFields } from '@shared/project/mode
 import { projectFilterPrefill } from '@shared/project/view-eval'
 import { buildProjectAssistantFacts } from '@shared/project/assistant-context'
 import type { AssistantPageContext } from '@shared/assistant'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import { navigateToPath, useSearch } from '../../lib/app-history'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
@@ -37,6 +37,13 @@ import { PROJECT_WRITE_TOOL_NAMES } from '@shared/project/assistant-tools'
 
 type Status = 'loading' | 'ready' | 'error' | 'notfound'
 
+const ACTIVITY_VERB: Record<string, Parameters<typeof t>[0]> = {
+  post: 'project.dashboard.act_created',
+  patch: 'project.dashboard.act_updated',
+  delete: 'project.dashboard.act_deleted',
+  reminder: 'project.dashboard.act_reminder',
+}
+
 export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const search = useSearch()
   const [bundle, setBundle] = useState<ProjectBoardBundle | null>(null)
@@ -65,11 +72,17 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [showImport, setShowImport] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpenPref)
   const [activity, setActivity] = useState<ProjectActivityEntry[]>([])
+  const [activityStatus, setActivityStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const locale = useLocale()
 
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const boards = useProjectStore((state) => state.boards)
   const ensureBoards = useProjectStore((state) => state.ensureBoards)
   useEffect(() => { void ensureBoards() }, [ensureBoards])
+  // The sidebar renames and recolours through the store; the open header must read the same copy.
+  const listedBoard = boards.find((entry) => entry.id === boardId)
+  const headerTitle = listedBoard?.title || bundle?.board.title || t('project.boards.untitled')
+  const headerIcon = listedBoard?.icon || bundle?.board.icon
 
   const activeView = bundle?.views.find((v) => v.id === activeViewId) ?? bundle?.views[0]
   const assistantContext = useMemo<AssistantPageContext | null>(() => {
@@ -96,7 +109,10 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
 
   const openActivity = () => {
     setShowActivity(true)
-    fetchBoardActivity(boardId).then(setActivity).catch(() => setActivity([]))
+    setActivityStatus('loading')
+    fetchBoardActivity(boardId)
+      .then((entries) => { setActivity(entries); setActivityStatus('ready') })
+      .catch(() => { setActivity([]); setActivityStatus('error') })
   }
   const exportMarkdown = () => {
     window.open(`/api/project/boards/${encodeURIComponent(boardId)}/markdown`, '_blank')
@@ -170,6 +186,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         redo: async () => { await undeleteProjectCard(card.id); await refresh() },
       })
       setTitle('')
+    } catch (reason) {
+      useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -227,7 +245,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   }, [bundle, boardId])
 
   const setIcon = useCallback(async (icon: string) => {
-    await patchProjectBoard(boardId, { icon })
+    await useProjectStore.getState().setBoardIcon(boardId, icon)
     setBundle((current) => (current ? { ...current, board: { ...current.board, icon } } : current))
   }, [boardId])
 
@@ -273,7 +291,10 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) void undoStack.redo(); else void undoStack.undo() }
       else if (mod && key === 'y') { event.preventDefault(); void undoStack.redo() }
       else if (mod && key === 'd' && openCardId) { event.preventDefault(); void duplicateProjectCard(openCardId).then(refresh) }
-      else if ((event.key === 'Delete' || event.key === 'Backspace') && openCardId) { event.preventDefault(); void removeCard(openCardId) }
+      else if ((event.key === 'Delete' || event.key === 'Backspace') && openCardId && !document.querySelector('[role="dialog"]')) {
+        event.preventDefault()
+        void removeCard(openCardId)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -292,7 +313,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     <div className="flex h-full w-full min-w-0 bg-[var(--bg-base)]" data-project-board-page={boardId}>
       {sidebarOpen && <ProjectSidebar boards={boards} onImport={() => setShowImport(true)} />}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
+        <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
           <IconButton label={t('project.board.back')} size="sm" onClick={() => navigateToPath('/project')}>
             <ArrowLeft size={16} />
           </IconButton>
@@ -305,10 +326,10 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
             <PanelLeft size={16} />
           </IconButton>
           <button type="button" aria-label={t('project.board.change_icon')} className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[length:var(--text-14)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => setIconOpen(true)}>
-            {bundle.board.icon || <SquareKanban size={16} className="text-[var(--accent-on-soft)]" />}
+            {headerIcon || <SquareKanban size={16} className="text-[var(--accent-on-soft)]" />}
           </button>
           <h1 className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-            {bundle.board.title || t('project.boards.untitled')}
+            {headerTitle}
           </h1>
           <span className="ml-auto shrink-0 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {t('project.board.cards_count', { count: bundle.cards.length })}
@@ -369,7 +390,9 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
               placeholder={t('project.card.from_template')}
               onChange={(templateId) => {
                 if (!templateId) return
-                void createCardFromTemplate(boardId, templateId).then((card) => setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current)))
+                void createCardFromTemplate(boardId, templateId)
+                  .then((card) => setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current)))
+                  .catch((reason: unknown) => { useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' }) })
               }}
               options={bundle.cards.filter((card) => card.isTemplate).map((card) => ({ value: card.id, label: card.title }))}
             />
@@ -390,6 +413,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         onAddGroupOption={addGroupOption}
         onRenameGroupOption={renameGroupOption}
         onSetGroupOptionColor={setGroupOptionColor}
+        onCardCreated={(card) => setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current))}
         onRefresh={refresh}
       />
       </div>
@@ -432,14 +456,26 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       )}
       {showActivity && (
         <Modal open onClose={() => setShowActivity(false)} title={t('project.board.activity')} width={480}>
-          <ul className="space-y-2">
-            {activity.map((entry) => (
-              <li key={entry.id} className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
-                <span className="text-[var(--text-tertiary)]">{new Date(entry.createdAt).toLocaleString()}</span> — {entry.summary}
-              </li>
-            ))}
-            {activity.length === 0 && <li className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</li>}
-          </ul>
+          {activityStatus === 'loading'
+            ? <LoadingBlock />
+            : activityStatus === 'error'
+              ? <p className="text-[length:var(--text-12)] text-[var(--danger)]">{t('project.boards.load_failed')}</p>
+              : (
+                <ul className="space-y-2">
+                  {activity.map((entry) => {
+                    const verb = ACTIVITY_VERB[entry.type]
+                    const target = bundle.cards.find((card) => card.id === entry.targetId)
+                    return (
+                      <li key={entry.id} className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                        <span className="text-[var(--text-tertiary)]">{new Date(entry.createdAt).toLocaleString(locale)}</span> — {verb
+                          ? `${t(verb)}${target ? ` ${target.title || t('project.board.untitled_card')}` : ''}`
+                          : entry.summary}
+                      </li>
+                    )
+                  })}
+                  {activity.length === 0 && <li className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</li>}
+                </ul>
+              )}
         </Modal>
       )}
       {openCard && (
