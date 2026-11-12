@@ -6,7 +6,7 @@
  * one click to edit rather than a mode the reader has to discover.
  */
 import { Fragment, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactElement } from 'react'
-import { ChevronDown, ChevronRight, CornerDownRight, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, CornerDownRight, GripVertical, Trash2 } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
@@ -18,6 +18,7 @@ import { SelectMenu } from '../../../components/select-menu'
 import { CardBadges, OptionChip } from '../CardBadges'
 import { PropertyValueEditor } from '../PropertyValueEditor'
 import { QuickAdd } from './shell'
+import { useColumnDrag } from './use-column-drag'
 
 const PAGE = 200
 
@@ -46,6 +47,7 @@ export function TableView(props: TableProps): ReactElement {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [resizing, setResizing] = useState<{ id: string, width: number } | null>(null)
   const grip = useRef<{ id: string, startX: number, startWidth: number } | null>(null)
+  const headRef = useRef<HTMLTableRowElement>(null)
   const density = fields.cardSize ?? 'comfortable'
   const rowPad = density === 'compact' ? 'py-0.5' : density === 'spacious' ? 'py-3' : 'py-1.5'
 
@@ -88,6 +90,14 @@ export function TableView(props: TableProps): ReactElement {
     const at = ids.indexOf(targetId) + (forwards ? 1 : 0)
     props.onPatchFields({ visiblePropertyIds: [...ids.slice(0, at), sourceId, ...ids.slice(at)] })
   }
+  const columnDrag = useColumnDrag({
+    enabled: canEdit,
+    measure: () => [...(headRef.current?.querySelectorAll<HTMLElement>('[data-column-id]') ?? [])].map((node) => {
+      const rect = node.getBoundingClientRect()
+      return { id: node.dataset.columnId ?? '', left: rect.left, right: rect.right }
+    }),
+    onDrop: reorderColumn,
+  })
   const toggleGroup = (key: string): void => {
     props.onPatchFields({
       collapsedOptionIds: fields.collapsedOptionIds.includes(key)
@@ -199,7 +209,7 @@ export function TableView(props: TableProps): ReactElement {
     <div className="pv-table-wrap pv-scroll" data-table="">
       <table className="pv-table">
         <thead>
-          <tr>
+          <tr ref={headRef}>
             {canEdit && (
               <th scope="col" className="w-9 px-2">
                 <Checkbox
@@ -215,17 +225,22 @@ export function TableView(props: TableProps): ReactElement {
                 key={property.id}
                 scope="col"
                 className="relative px-3"
+                data-column-id={property.id}
+                data-drop-target={columnDrag.overId === property.id && columnDrag.draggingId !== property.id}
+                data-dragging={columnDrag.draggingId === property.id}
                 style={{ width: resizing?.id === property.id ? resizing.width : fields.columnWidths[property.id] }}
-                draggable={canEdit}
-                onDragStart={(event) => { event.dataTransfer.setData('text/plain', property.id) }}
-                onDragOver={(event) => { if (canEdit) event.preventDefault() }}
-                onDrop={(event) => {
-                  if (!canEdit) return
-                  event.preventDefault()
-                  const source = event.dataTransfer.getData('text/plain')
-                  if (source) reorderColumn(source, property.id)
-                }}
               >
+                {canEdit && (
+                  <button
+                    type="button"
+                    className="pv-th-grip"
+                    data-column-grip={property.name}
+                    aria-label={t('project.view.drag_column', { title: property.name })}
+                    onPointerDown={(event) => columnDrag.start(event, property.id)}
+                  >
+                    <GripVertical size={11} aria-hidden="true" />
+                  </button>
+                )}
                 {property.name}
                 {canEdit && (
                   <button

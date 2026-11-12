@@ -12805,6 +12805,7 @@ const allowed = new Map([
   ["src/client/features/project/BoardViews.test.tsx", [
     "/** Opens a SelectMenu by its accessible name and reads the rows it offers. */",
     "// jsdom lays nothing out, so the drag engine is given the geometry a real board would have.",
+    "// jsdom lays nothing out, so the drag reads the bands a real table would report.",
   ]],
   ["src/client/features/project/BoardViews.tsx", [
     "/* storage unavailable (private mode): fall back to the first view */",
@@ -12963,6 +12964,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/views/ScheduleViews.test.tsx", [
     "// The axis opens centred on today; start the drag from a known scroll offset.",
+  ]],
+  ["src/client/features/project/views/TableView.test.tsx", [
+    "// jsdom lays nothing out, so the drag reads the bands a real table would report.",
   ]],
   ["src/client/features/project/views/TableView.tsx", [
     "/**\n * The table: every property in a column, edited where it is read.\n *\n * The head and the title column are both frozen, so a wide board keeps its bearings while it scrolls\n * sideways. A cell is a button until it is clicked, then it is the editor for that property type —\n * one click to edit rather than a mode the reader has to discover.\n */",

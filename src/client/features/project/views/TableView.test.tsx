@@ -31,13 +31,13 @@ let view: RenderedElement
 beforeEach(async () => { await initI18n() })
 afterEach(() => { view?.unmount() })
 
-async function mount(fields: Partial<ProjectViewFields> = {}): Promise<Record<string, unknown>> {
+async function mount(fields: Partial<ProjectViewFields> = {}, canEdit = true): Promise<Record<string, unknown>> {
   const props = {
     bundle: bundle(), cards: [card('a'), card('b')],
     columns: fields.visiblePropertyIds?.length
       ? fields.visiblePropertyIds.map((id) => properties.find((property) => property.id === id)!)
       : properties,
-    fields: { ...emptyProjectViewFields(), ...fields }, canEdit: true, selected: [], onSelected: vi.fn(),
+    fields: { ...emptyProjectViewFields(), ...fields }, canEdit, selected: [], onSelected: vi.fn(),
     subtasksByParent: new Map<string, ProjectCard[]>(),
     badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }),
     onSelectClick: vi.fn(), onDeleteCard: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined),
@@ -47,41 +47,90 @@ async function mount(fields: Partial<ProjectViewFields> = {}): Promise<Record<st
   return props as unknown as Record<string, unknown>
 }
 
-function dragColumn(from: number, to: number): void {
-  const heads = [...view.container.querySelectorAll('thead th[draggable="true"]')]
-  const transfer = { data: {} as Record<string, string>, types: ['text/plain'], setData(k: string, v: string) { this.data[k] = v }, getData(k: string) { return this.data[k] } }
-  const fire = (node: Element, type: string): void => {
-    const event = new Event(type, { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'dataTransfer', { value: transfer })
-    node.dispatchEvent(event)
-  }
-  fire(heads[from]!, 'dragstart')
-  fire(heads[to]!, 'dragover')
-  fire(heads[to]!, 'drop')
+function heads(): HTMLElement[] {
+  return [...view.container.querySelectorAll<HTMLElement>('thead th[data-column-id]')]
+}
+
+async function press(from: number, pointerType: string): Promise<void> {
+  const nodes = heads()
+  // jsdom lays nothing out, so the drag reads the bands a real table would report.
+  nodes.forEach((node, index) => {
+    node.getBoundingClientRect = () => ({ left: index * 200, right: index * 200 + 190, top: 0, bottom: 40, width: 190, height: 40, x: index * 200, y: 0, toJSON: () => ({}) })
+  })
+  const grip = nodes[from]!.querySelector<HTMLElement>('[data-column-grip]')!
+  await act(async () => { firePointer('pointerdown', from * 200 + 10, grip, pointerType) })
+}
+
+async function hold(): Promise<void> {
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 260)) })
+}
+
+function firePointer(type: string, x: number, target: EventTarget = window, pointerType = 'mouse', y = 20): void {
+  target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 1, pointerType }))
+}
+
+async function dragColumn(from: number, to: number, pointerType = 'mouse'): Promise<void> {
+  await press(from, pointerType)
+  if (pointerType === 'touch') await hold()
+  await act(async () => { firePointer('pointermove', to * 200 + 100, window, pointerType) })
+  await act(async () => { firePointer('pointerup', to * 200 + 100, window, pointerType) })
 }
 
 describe('dragging a column', () => {
   it('moves it after the column it was dropped on when dragged rightwards', async () => {
     const props = await mount()
-    await act(async () => { dragColumn(0, 1) })
+    await dragColumn(0, 1)
     expect(props.onPatchFields).toHaveBeenCalledWith({ visiblePropertyIds: ['p2', 'p1', 'p3'] })
   })
 
   it('moves it before the target when dragged leftwards', async () => {
     const props = await mount()
-    await act(async () => { dragColumn(2, 0) })
+    await dragColumn(2, 0)
     expect(props.onPatchFields).toHaveBeenCalledWith({ visiblePropertyIds: ['p3', 'p1', 'p2'] })
   })
 
   it('honours a saved column order rather than the property order', async () => {
     const props = await mount({ visiblePropertyIds: ['p3', 'p2', 'p1'] })
-    await act(async () => { dragColumn(0, 1) })
+    await dragColumn(0, 1)
     expect(props.onPatchFields).toHaveBeenCalledWith({ visiblePropertyIds: ['p2', 'p3', 'p1'] })
   })
 
   it('ignores a drop on itself', async () => {
     const props = await mount()
-    await act(async () => { dragColumn(1, 1) })
+    await dragColumn(1, 1)
     expect(props.onPatchFields).not.toHaveBeenCalled()
+  })
+
+  it('marks the column under the pointer while dragging', async () => {
+    await mount()
+    await press(0, 'mouse')
+    await act(async () => { firePointer('pointermove', 300) })
+    expect(heads()[1]!.getAttribute('data-drop-target')).toBe('true')
+    expect(heads()[0]!.getAttribute('data-dragging')).toBe('true')
+    await act(async () => { firePointer('pointerup', 300) })
+    expect(heads()[1]!.getAttribute('data-drop-target')).toBe('false')
+    expect(document.body.classList.contains('pv-dragging')).toBe(false)
+  })
+
+  it('reorders from a finger held on the grip', async () => {
+    const props = await mount()
+    await dragColumn(0, 1, 'touch')
+    expect(props.onPatchFields).toHaveBeenCalledWith({ visiblePropertyIds: ['p2', 'p1', 'p3'] })
+  })
+
+  it('leaves a scrolling finger alone', async () => {
+    const props = await mount()
+    await press(0, 'touch')
+    await act(async () => { firePointer('pointermove', 10, window, 'touch', 80) })
+    await hold()
+    await act(async () => { firePointer('pointermove', 300, window, 'touch') })
+    await act(async () => { firePointer('pointerup', 300, window, 'touch') })
+    expect(props.onPatchFields).not.toHaveBeenCalled()
+  })
+
+  it('offers no grip on a read-only board', async () => {
+    await mount({}, false)
+    expect(heads()).toHaveLength(3)
+    expect(view.container.querySelector('[data-column-grip]')).toBeNull()
   })
 })

@@ -213,13 +213,21 @@ describe('table group rows, collapse, inline edit, column reorder (C-3/C-22)', (
     expect(onPatchCard).toHaveBeenCalledWith('c1', { values: { ps: 'o2' } })
   })
 
-  it('dropping a header reorders visiblePropertyIds', async () => {
+  it('dragging a header reorders visiblePropertyIds', async () => {
     const onPatchView = vi.fn().mockResolvedValue(undefined)
     await mountTable({}, onPatchView, vi.fn().mockResolvedValue(undefined))
-    const headers = [...view.container.querySelectorAll('thead th[draggable="true"]')]
-    const event = new Event('drop', { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'dataTransfer', { value: { getData: () => 'pt' } })
-    await act(async () => { headers[0]!.dispatchEvent(event) })
+    const headers = [...view.container.querySelectorAll<HTMLElement>('thead th[data-column-id]')]
+    // jsdom lays nothing out, so the drag reads the bands a real table would report.
+    headers.forEach((node, index) => {
+      node.getBoundingClientRect = () => ({ left: index * 200, right: index * 200 + 190, top: 0, bottom: 40, width: 190, height: 40, x: index * 200, y: 0, toJSON: () => ({}) })
+    })
+    const grip = headers[1]!.querySelector<HTMLElement>('[data-column-grip]')!
+    const fire = (type: string, x: number, target: EventTarget = window): void => {
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 20, button: 0, pointerId: 1, pointerType: 'mouse' }))
+    }
+    await act(async () => { fire('pointerdown', 210, grip) })
+    await act(async () => { fire('pointermove', 100) })
+    await act(async () => { fire('pointerup', 100) })
     expect(onPatchView).toHaveBeenCalledWith('v1', { fields: { visiblePropertyIds: ['pt', 'ps'] } })
   })
 })
