@@ -9,7 +9,7 @@ import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
 import { EmojiPicker } from '../emoji/EmojiPicker'
 import { useUi } from '../../store/ui'
-import { createBoardFromTemplate, patchProjectBoard, projectBoardExportUrl, saveBoardAsTemplate } from './api'
+import { patchProjectBoard, projectBoardExportUrl, saveBoardAsTemplate } from './api'
 import { useProjectStore } from './store'
 import { BoardPage } from './BoardPage'
 import { ImportDialog } from './ImportDialog'
@@ -46,6 +46,7 @@ function BoardList(): ReactElement {
   const ensureBoards = useProjectStore((state) => state.ensureBoards)
   const loadBoards = useProjectStore((state) => state.loadBoards)
   const addBoard = useProjectStore((state) => state.addBoard)
+  const addBoardFromTemplate = useProjectStore((state) => state.addBoardFromTemplate)
   const toast = useUi((state) => state.toast)
   const locale = useLocale()
   const [showPicker, setShowPicker] = useState(false)
@@ -72,7 +73,7 @@ function BoardList(): ReactElement {
         const board = await addBoard(title.trim())
         navigateToPath(`/project/boards/${board.id}`)
       } else {
-        const board = await createBoardFromTemplate(templateId, locale)
+        const board = await addBoardFromTemplate(templateId, locale)
         navigateToPath(`/project/boards/${board.id}`)
       }
     } catch (reason) {

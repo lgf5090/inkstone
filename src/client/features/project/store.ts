@@ -2,10 +2,12 @@
 import { create } from 'zustand'
 import type { ProjectBoardSummary } from '@shared/project/model'
 import {
+  createBoardFromTemplate,
   createProjectBoard,
   deleteProjectBoard,
   duplicateProjectBoard,
   fetchProjectBoards,
+  importProjectArchive,
   renameProjectBoard,
 } from './api'
 import { readRandomIconPref, randomProjectIcon } from './project-icon'
@@ -19,6 +21,9 @@ interface ProjectState {
   loadBoards: () => Promise<void>
   ensureBoards: () => void
   addBoard: (title: string) => Promise<ProjectBoardSummary>
+  /** Every way a board comes into existence goes through the store, or the sidebar misses it. */
+  addBoardFromTemplate: (templateId: string, locale: string) => Promise<ProjectBoardSummary>
+  addBoardFromArchive: (bytes: Uint8Array) => Promise<ProjectBoardSummary>
   removeBoard: (id: string) => Promise<void>
   copyBoard: (id: string) => Promise<ProjectBoardSummary>
   renameBoard: (id: string, title: string) => Promise<void>
@@ -49,6 +54,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   async addBoard(title) {
     const board = await createProjectBoard(readRandomIconPref() ? { title, icon: await randomProjectIcon() } : { title })
+    set((state) => ({ boards: [board, ...state.boards] }))
+    return board
+  },
+
+  async addBoardFromTemplate(templateId, locale) {
+    const board = await createBoardFromTemplate(templateId, locale)
+    set((state) => ({ boards: [board, ...state.boards] }))
+    return board
+  },
+
+  async addBoardFromArchive(bytes) {
+    const board = await importProjectArchive(bytes)
     set((state) => ({ boards: [board, ...state.boards] }))
     return board
   },

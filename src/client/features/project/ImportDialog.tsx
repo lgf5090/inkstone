@@ -8,7 +8,7 @@ import { Button } from '../../components/primitives'
 import { SelectMenu } from '../../components/select-menu'
 import { Modal } from '../../components/overlay'
 import { useUi } from '../../store/ui'
-import { importProjectArchive } from './api'
+import { useProjectStore } from './store'
 
 const CONVERTERS = {
   trello: importTrello,
@@ -40,7 +40,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }): ReactElement
         'version.json': strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() })),
         [`${boardId}/board.jsonl`]: strToU8(serializeProjectArchiveLines(lines)),
       })
-      const board = await importProjectArchive(bytes)
+      const board = await useProjectStore.getState().addBoardFromArchive(bytes)
       onClose()
       navigateToPath(`/project/boards/${board.id}`)
     } catch (reason) {

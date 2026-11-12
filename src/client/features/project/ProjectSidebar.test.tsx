@@ -5,6 +5,13 @@ import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import * as api from './api'
 import { ProjectSidebar } from './ProjectSidebar'
+import { useProjectStore } from './store'
+import { confirm } from '../../components/overlay'
+
+vi.mock('../../components/overlay', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../components/overlay')>(),
+  confirm: vi.fn(),
+}))
 
 vi.mock('./api', () => ({
   fetchProjectCategories: vi.fn(),
@@ -243,5 +250,37 @@ describe('the nested tree reads as a tree', () => {
     await mount()
     const headings = [...view.container.querySelectorAll('section > div')].map((node) => node.textContent)
     expect(headings.some((text) => text === t('project.sidebar.recent'))).toBe(true)
+  })
+})
+
+describe('the sidebar keeps up with the address and with deletions', () => {
+  it('highlights the board the address names, not one read at mount', async () => {
+    window.history.replaceState({}, '', '/project/boards/b1')
+    await mount()
+    const active = () => [...view.container.querySelectorAll('[data-sidebar-board] [aria-current="true"]')]
+      .map((node) => node.closest('[data-sidebar-board]')!.getAttribute('data-sidebar-board'))
+    expect(active()).toContain('b1')
+    await act(async () => {
+      window.history.replaceState({}, '', '/project/boards/b2')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(active()).toContain('b2')
+    expect(active()).not.toContain('b1')
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('leaves the board it just deleted when that board is on screen', async () => {
+    window.history.replaceState({}, '', '/project/boards/b2')
+    const removeBoard = vi.fn().mockResolvedValue(undefined)
+    useProjectStore.setState({ removeBoard })
+    await mount()
+    const entry = view.container.querySelector('[data-sidebar-board="b2"]')!
+    await act(async () => { entry.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })) })
+    vi.mocked(confirm).mockResolvedValue(true)
+    const del = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find((node) => node.textContent === t('common.delete'))!
+    await act(async () => { del.click() })
+    expect(removeBoard).toHaveBeenCalledWith('b2')
+    expect(window.location.pathname).toBe('/project')
+    window.history.replaceState({}, '', '/')
   })
 })

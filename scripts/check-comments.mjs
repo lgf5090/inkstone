@@ -12797,7 +12797,6 @@ const allowed = new Map([
     "// notification (or a deployment without the DO) still converges via a quiet 30s refetch.",
     "/* best-effort convergence poll: a failed refetch keeps the last good bundle */",
     "/* best-effort: dialog stays usable if the refetch fails */",
-    "/* best-effort: remembering the last board is optional */",
     "// Ask the cheap question first: an unchanged cursor means the copy on screen is still current,",
     "// and a busy board's whole-bundle read is the expensive half of this poll.",
     "/* best-effort wake-up refetch: the interval still converges on its next beat */",
@@ -12853,8 +12852,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/ProjectSidebar.tsx", [
     "/* best-effort: an unreadable category list leaves the board list usable */",
-    "/* best-effort: the highlight is optional */",
     "/* A board sits one level deeper than the folder holding it, or the tree reads flat. */",
+    "// The open board comes from the address, not from a value read once at mount: switching between",
+    "// two boards keeps this sidebar mounted, and a mount-time read would leave the highlight behind.",
+    "// Deleting the board on screen would otherwise leave the reader staring at a dead page.",
   ]],
   ["src/client/features/project/PropertyValueEditor.test.tsx", [
     "/**\n * The date cell has to agree with the module's own conversion (§6.6) in the reader's own zone: the day\n * the picker files is the day the table cell, the date filter and the timeline read back. The editor\n * once did its own UTC arithmetic, which filed local midnight and read back a day early east of UTC.\n *\n * The zone is switched per case rather than assumed, because the defect is invisible in UTC — the\n * machine's own zone is not a fixture.\n */",
@@ -12904,6 +12905,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/store.ts", [
     "/** The project tab's board list: what this account can open, and whether the last read succeeded. */",
+    "/** Every way a board comes into existence goes through the store, or the sidebar misses it. */",
   ]],
   ["src/client/features/project/undo.ts", [
     "/**\n * E-14: a bounded command stack for board mutations. Each command carries an inverse (undo) and a\n * re-apply (redo); pushing a new command clears the redo branch, and switching boards clears both.\n */",

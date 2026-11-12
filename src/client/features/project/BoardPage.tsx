@@ -94,13 +94,6 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     if (id) setOpenCardId(id)
   }, [search])
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('inkstone.project.lastBoard', boardId)
-    } catch { /* best-effort: remembering the last board is optional */
-    }
-  }, [boardId])
-
   const openActivity = () => {
     setShowActivity(true)
     fetchBoardActivity(boardId).then(setActivity).catch(() => setActivity([]))

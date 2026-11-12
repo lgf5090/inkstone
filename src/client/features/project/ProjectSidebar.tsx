@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type
 import { ChevronDown, ChevronRight, Clock, Copy, Download, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, Pin, Plus, Settings2, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { setLocale, t, useLocale } from '../../lib/i18n'
-import { navigateToPath } from '../../lib/app-history'
+import { navigateToPath, usePathname } from '../../lib/app-history'
 import { IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { confirm, Menu, Modal, prompt, submenuFor, type MenuItem } from '../../components/overlay'
@@ -32,16 +32,6 @@ import {
   projectBoardExportUrl,
   renameProjectBoard,
 } from './api'
-
-const LAST_BOARD_KEY = 'inkstone.project.lastBoard'
-
-function readLastBoard(): string | null {
-  try {
-    return localStorage.getItem(LAST_BOARD_KEY)
-  } catch { /* best-effort: the highlight is optional */
-    return null
-  }
-}
 
 function errorText(error: unknown): string {
   return error instanceof Error && error.message ? error.message : String(error)
@@ -119,7 +109,10 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   const [categories, setCategories] = useState<ProjectCategory[]>([])
   const [edges, setEdges] = useState<ProjectCategoryBoard[]>([])
   const [query, setQuery] = useState('')
-  const [lastBoard] = useState(readLastBoard)
+  // The open board comes from the address, not from a value read once at mount: switching between
+  // two boards keeps this sidebar mounted, and a mount-time read would leave the highlight behind.
+  const pathname = usePathname()
+  const lastBoard = /^\/project\/boards\/([^/]+)/.exec(pathname)?.[1] ?? null
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [randomIcon, setRandomIcon] = useState(readRandomIconPref)
   const [pinnedIds, setPinnedIds] = useState<string[]>(readPinnedBoardsPref)
@@ -275,7 +268,10 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       onSelect: () => {
         void guard(async () => {
           const ok = await confirm({ title: `${t('common.delete')} ${board.title}?`, tone: 'danger', confirmLabel: t('common.delete') })
-          if (ok) await useProjectStore.getState().removeBoard(board.id)
+          if (!ok) return
+          await useProjectStore.getState().removeBoard(board.id)
+          // Deleting the board on screen would otherwise leave the reader staring at a dead page.
+          if (pathname === `/project/boards/${board.id}`) navigateToPath('/project')
         })
       },
     })

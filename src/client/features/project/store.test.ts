@@ -9,6 +9,8 @@ vi.mock('./api', () => ({
   deleteProjectBoard: vi.fn(),
   duplicateProjectBoard: vi.fn(),
   renameProjectBoard: vi.fn(),
+  createBoardFromTemplate: vi.fn(),
+  importProjectArchive: vi.fn(),
 }))
 
 const board: ProjectBoardSummary = {
@@ -119,5 +121,36 @@ describe('board mutations keep the list in step', () => {
     vi.mocked(api.renameProjectBoard).mockResolvedValue({ ...board, title: 'Renamed' })
     await useProjectStore.getState().renameBoard(board.id, 'Renamed')
     expect(useProjectStore.getState().boards.find((b) => b.id === board.id)?.title).toBe('Renamed')
+  })
+})
+
+describe('every way a board arrives reaches the sidebar list', () => {
+  it('prepends a board made from a template', async () => {
+    const made = { ...board, id: 't'.repeat(27), title: 'From a template' }
+    vi.mocked(api.createBoardFromTemplate).mockResolvedValue(made)
+    useProjectStore.setState({ boards: [board], boardsStatus: 'ready' })
+    const result = await useProjectStore.getState().addBoardFromTemplate('tpl', 'en-US')
+    expect(result.id).toBe(made.id)
+    expect(useProjectStore.getState().boards.map((entry) => entry.id)).toEqual([made.id, board.id])
+  })
+
+  it('prepends a board imported from an archive', async () => {
+    const made = { ...board, id: 'i'.repeat(27), title: 'Imported' }
+    vi.mocked(api.importProjectArchive).mockResolvedValue(made)
+    useProjectStore.setState({ boards: [board], boardsStatus: 'ready' })
+    const result = await useProjectStore.getState().addBoardFromArchive(new Uint8Array([1]))
+    expect(result.id).toBe(made.id)
+    expect(useProjectStore.getState().boards.map((entry) => entry.id)).toEqual([made.id, board.id])
+  })
+
+  it('does not refetch over a list that already holds the new board', async () => {
+    const made = { ...board, id: 'n'.repeat(27) }
+    vi.mocked(api.createBoardFromTemplate).mockResolvedValue(made)
+    vi.mocked(api.fetchProjectBoards).mockClear()
+    useProjectStore.setState({ boards: [], boardsStatus: 'ready' })
+    await useProjectStore.getState().addBoardFromTemplate('tpl', 'en-US')
+    useProjectStore.getState().ensureBoards()
+    expect(api.fetchProjectBoards).not.toHaveBeenCalled()
+    expect(useProjectStore.getState().boards).toHaveLength(1)
   })
 })
