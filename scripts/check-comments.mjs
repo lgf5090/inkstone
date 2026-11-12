@@ -12804,6 +12804,7 @@ const allowed = new Map([
     "// and a busy board's whole-bundle read is the expensive half of this poll.",
     "/* best-effort wake-up refetch: the interval still converges on its next beat */",
     "// Renaming a column renames the option, so every card wearing it and every other view of it agree.",
+    "// The sidebar renames and recolours through the store; the open header must read the same copy.",
   ]],
   ["src/client/features/project/BoardViews.test.tsx", [
     "/** Opens a SelectMenu by its accessible name and reads the rows it offers. */",
@@ -12826,6 +12827,10 @@ const allowed = new Map([
     "// still gets one, so the rich card and the day panel are not blank on half the boards out there.",
     "// The three keys a reader reaches for on a board: find, add, back out of a selection.",
     "/**\n   * One writer for every tick in the app, so the list, the board's checklist and the card menu cannot\n   * disagree about which option \"done\" is. A parent then follows its children.\n   */",
+    "// Only the two dependency-drawing views read links, and a saved dependency must refresh with the",
+    "// bundle rather than waiting for a full remount.",
+    "// Every keystroke used to re-match and re-sort the whole board; the box stays immediate while the",
+    "// expensive pass trails one frame behind.",
   ]],
   ["src/client/features/project/CardBadges.tsx", [
     "/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */",
@@ -12894,6 +12899,9 @@ const allowed = new Map([
   ["src/client/features/project/card-menu.tsx", [
     "/**\n * The card's right-click menu, built once so the board, the table, the list and the gallery all offer\n * the same actions.\n *\n * A menu that only opens and deletes is a menu the reader stops using. The edits they reach for most —\n * rename, status, priority, a date — belong here as one click each, with the destructive action last\n * and behind a separator.\n */",
     "/** The colour swatches an option can wear, as a submenu the column and tag menus share. */",
+  ]],
+  ["src/client/features/project/notification-link.ts", [
+    "/** The card a project notice points at, or null when the tail is not this app's pair. */",
   ]],
   ["src/client/features/project/people-context.tsx", [
     "/**\n * The board's people directory, for the surfaces that draw a card without holding the bundle.\n *\n * A card face is drawn by the board, the list, the gallery and the day panel, none of which receive\n * the whole bundle; the directory is board-scoped, so it travels as context rather than as a prop on\n * every view in between.\n */",
@@ -33382,6 +33390,7 @@ const allowed = new Map([
   ["src/shared/project/csv.ts", [
     "/**\n * CSV export of a board's cards (§6.5). Columns are the visible properties in board order (not view\n * column order); a calendar view appends its date property if it is not already shown. Two deliberate\n * deviations from the reference are registered in the plan: a UTF-8 BOM so Excel reads Chinese, and\n * header cells escaped like data cells (the reference left them raw, so a comma in a property name\n * broke the file). The reference's `#`→token dance existed only for its data-URI transport; raw CSV\n * keeps `#` literal, which removes that whole class of bug rather than patching it.\n */",
     "// A scalar masquerading as a multi-value falls through to ordinary text.",
+    "/**\n * Spreadsheet apps evaluate a cell whose text starts with `=`, `+`, `-` or `@` even when the field is\n * quoted, so a card title can become a formula. A leading apostrophe is the portable text marker and\n * is hidden by Excel itself; a plain negative number is not a formula and keeps its numeric cell.\n */",
   ]],
   ["src/shared/project/date.test.ts", [
     "// 2026-03-08 is the US spring-forward day; local noon minus the offset must still read back as the 8th.",
@@ -33417,6 +33426,8 @@ const allowed = new Map([
   ]],
   ["src/shared/project/mentions.ts", [
     "/**\n * D-7: who a comment notifies — the members it @mentions plus the subscribers watching the card or\n * board, never the author. Pure so tests can pin the set without a database.\n */",
+    "// A handle is opaque, so a reader mentions the name they see; names may contain spaces and the",
+    "// token above stops at one, which is why the whole body is also checked.",
   ]],
   ["src/shared/project/model.test.ts", [
     "// X-8 deliberately makes number filterable/groupable, unlike the reference.",
@@ -42617,12 +42628,14 @@ const allowed = new Map([
     "/**\n * The whole-board read. The reference made the client page through blocks and stitch them together;\n * every screen that opens a board needs all of it, so this gathers board, properties, views, cards,\n * values, contents, comments and members in one round trip. The cursor is the newest update stamp\n * across them all, which is what a realtime `changed` notification carries so a client knows whether\n * its copy is stale.\n */",
     "// Values are keyed to a card, so a deleted card's values drop out with it rather than lingering.",
     "/**\n * The newest stamp across everything the bundle carries, without reading any of it.\n *\n * The bundle's own cursor is computed from rows it already fetched; a poller only needs the number,\n * so this asks each table for its MAX instead. An unchanged answer means the copy the reader holds\n * is still current and the whole-board read can be skipped.\n */",
+    "/** Advances the board's own stamp; the cursor poll and the sidebar's recency both read it. */",
   ]],
   ["src/worker/project/cards.ts", [
     "/**\n * Cards and their property values. A card is a row plus a bag of values keyed by property id; the\n * value bag lives in its own table so changing one property never rewrites the whole card. Writes\n * land in one D1 batch, and a delete is a stamp so a card can come back with its values intact.\n */",
     "/**\n * A new card counts against the board's ceiling before it is written. The count is a guard against a\n * client flooding creates, not a serialization point: two concurrent creates can both pass it, which\n * is acceptable for a soft DoS ceiling rather than a billed quota.\n */",
     "/**\n * A card patch. A null value deletes that one property's row; a string upserts it. The card's own\n * fields are a sparse update, and the whole thing lands in one batch so a half-applied edit cannot\n * survive. The caller passes the card it already read so the board id need not be looked up again.\n */",
     "/**\n * The next instance of a repeating card, spawned when the current one is completed. The date advances\n * by the rule (from the card's own date, or today when it has none), the tick is reset to open, and\n * the rule travels with the new card so the chain continues. A board with no date property still\n * repeats — the instance simply carries no date.\n */",
+    "/**\n * A parent must be a live card on the same board and must not already sit below this card. Every\n * writer of `parentId` crosses this, including the batch route, so a bulk patch cannot build the\n * cross-board link or the cycle the single-card route refuses.\n */",
   ]],
   ["src/worker/project/categories.ts", [
     "/**\n * The sidebar's furniture: categories and the boards filed under them. These rows belong to the\n * account, not the board, so two people can file the same shared board differently. A board lives in\n * one category at a time — adding it to a new one moves it out of the old — and hiding is a flag on\n * that filing, not on the board itself.\n */",
@@ -42661,6 +42674,7 @@ const allowed = new Map([
     "/** Joining an open board writes the board's minimum role; re-joining never downgrades an existing grant. */",
     "/** D1 caps a statement's bound variables, so a board's people are read in the same chunks as its cards. */",
     "/**\n * The readable face of every user id a board refers to. Only the display name and avatar leave the\n * server: a login handle is a credential half, and a public share link has no business handing it out.\n */",
+    "/** A reader who loses access must stop receiving that board's comment bodies and due reminders. */",
   ]],
   ["src/worker/project/move.ts", [
     "/**\n * Moving a card (and its subtasks) to another board.\n *\n * A card's values key on the source board's property and option ids, which mean nothing on the target.\n * Each used property is matched to the target by name and type; a match reuses the target's property\n * and maps options by their label, while a property the target lacks is created there carrying its\n * options over. Contents and comments travel with the card; the moved root detaches from any parent\n * left behind, and subtasks keep their place under it.\n */",
@@ -42689,6 +42703,8 @@ const allowed = new Map([
     "/** The restore list: soft-deleted boards this account owns, which the live list deliberately hides. */",
     "/** Soft-deleted cards on one board, for the same restore panel. */",
     "/** Archived boards this account owns: hidden from the live list, kept whole for restore. */",
+    "// Every board-scoped write advances the board's stamp, which is the cursor open tabs poll. Child",
+    "// edits, deletes and moves would otherwise leave it behind and a second tab would never converge.",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
