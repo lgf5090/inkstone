@@ -17,6 +17,9 @@
   --pv-bar-h: 22px;
   --pv-col-w: 272px;
   --pv-hairline: var(--border-subtle);
+  /* Dragging flips this once on the body; every grabbable surface reads it, so the drag cursor wins
+     without a specificity war or an override the stylesheet budget would have to carry. */
+  --pv-drag-cursor: grab;
   --pv-ink: var(--text-primary);
   --pv-ink-2: var(--text-secondary);
   --pv-ink-3: var(--text-tertiary);
@@ -358,7 +361,7 @@
   justify-content: center;
   border-radius: var(--r-xs);
   color: var(--text-quaternary);
-  cursor: grab;
+  cursor: var(--pv-drag-cursor);
   opacity: 0;
   touch-action: none;
   transition: opacity 0.12s ease;
@@ -368,7 +371,7 @@
   opacity: 1;
 }
 .pv-card-grip:active {
-  cursor: grabbing;
+  cursor: var(--pv-drag-cursor);
 }
 @media (pointer: coarse) {
   .pv-card-grip {
@@ -419,9 +422,14 @@
   rotate: 1.5deg;
   box-shadow: var(--shadow-pop);
 }
-.pv-dragging,
-.pv-dragging * {
-  cursor: grabbing !important;
+/* `body.` outranks a descendant's own one-class cursor rule, so the drag cursor wins on specificity
+   alone and the stylesheet keeps its zero-override budget. */
+body.pv-dragging {
+  --pv-drag-cursor: grabbing;
+}
+body.pv-dragging,
+body.pv-dragging * {
+  cursor: grabbing;
   user-select: none;
 }
 
@@ -952,11 +960,9 @@
   overflow: auto;
   overflow-anchor: none;
 }
-.pv-sched-scroll[data-pan='true'] {
-  cursor: grab;
-}
+.pv-sched-scroll[data-pan='true'],
 .pv-sched-scroll[data-pan='true']:active {
-  cursor: grabbing;
+  cursor: var(--pv-drag-cursor);
 }
 .pv-sched-scroll[data-draw='true'] .pv-sched-canvas {
   cursor: crosshair;
@@ -1055,14 +1061,11 @@
 .pv-bar[data-selected='true'] {
   box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--accent);
 }
-.pv-bar[data-draggable='true'] {
-  cursor: grab;
-}
+.pv-bar[data-draggable='true'],
 .pv-bar[data-draggable='true']:active {
-  cursor: grabbing;
+  cursor: var(--pv-drag-cursor);
 }
 .pv-bar[data-milestone='true'] {
-  width: var(--pv-bar-h) !important;
   border-radius: var(--r-2);
   rotate: 45deg;
   padding: 0;
@@ -1133,6 +1136,11 @@
   color: var(--pv-ink-3);
   pointer-events: none;
 }
+.pv-rename:focus-visible,
+.pv-list-edit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .pv-rename {
   position: absolute;
   z-index: 6;
@@ -1143,7 +1151,6 @@
   background: var(--bg-base);
   font-size: var(--text-11);
   color: var(--pv-ink);
-  outline: none;
 }
 
 /* ── Floating create menu / colour palette (fixed: never clipped by the canvas) ─ */
@@ -1748,7 +1755,6 @@
   padding: 1px 2px;
   font-size: var(--text-13);
   color: var(--pv-ink);
-  outline: none;
 }
 .pv-prio {
   flex-shrink: 0;

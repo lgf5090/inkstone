@@ -173,7 +173,8 @@ export function TableView(props: TableProps): ReactElement {
                     value={card.values[property.id] ?? ''}
                     members={bundle.members}
                     disabled={false}
-                    onChange={(value) => { void props.onPatchCard(card.id, { values: { [property.id]: value } }); setEditing(null) }}
+                    onChange={(value) => { void (async () => { await props.onPatchCard(card.id, { values: { [property.id]: value } }); setEditing(null) })() }}
+                    onDone={() => setEditing(null)}
                   />
                 )
                 : canEdit

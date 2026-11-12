@@ -15,6 +15,8 @@ interface PropertyValueEditorProps {
   onChange: (value: string | null) => void
   /** The four server-stamped types live on the card, not in `values`, so they need the card to read. */
   card?: ProjectCard
+  /** Called when the reader is finished, whether or not the value changed, so an editor can close. */
+  onDone?: () => void
 }
 
 function readMulti(value: string): string[] {
@@ -33,12 +35,15 @@ function readDateFrom(value: string): string {
   return projectStampToInput(parsed.from, parsed.includeTime === true)
 }
 
-export function PropertyValueEditor({ property, value, members, disabled, onChange, card }: PropertyValueEditorProps): ReactElement {
+export function PropertyValueEditor({ property, value, members, disabled, onChange, card, onDone }: PropertyValueEditorProps): ReactElement {
   const [draft, setDraft] = useState(value)
   useEffect(() => { setDraft(value) }, [value])
 
+  // An unchanged value still ends the edit: without this, Enter and blur on a cell the reader only
+  // looked at left the editor open with no way out.
   const commitText = () => {
     if (draft !== value) onChange(draft === '' ? null : draft)
+    else onDone?.()
   }
 
   switch (property.type) {
@@ -120,7 +125,10 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
           inputMode={property.type === 'number' ? 'decimal' : undefined}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={commitText}
-          onKeyDown={(event) => commitOnEnter(event, commitText)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') { event.preventDefault(); onDone?.(); return }
+            commitOnEnter(event, commitText)
+          }}
         />
       )
   }

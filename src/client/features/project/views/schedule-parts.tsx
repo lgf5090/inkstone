@@ -92,7 +92,9 @@ export function ScheduleBar({ card, color, left, width, top, height, done, progr
       title={tip ?? title}
       style={{
         left: `${left}px`,
-        width: `${width}px`,
+        // A milestone is a diamond of one bar-height, decided here rather than by an !important
+        // fighting the inline width.
+        width: `${milestone ? height : width}px`,
         top: `${top}px`,
         height: `${height}px`,
         opacity: dragging ? 0.7 : undefined,

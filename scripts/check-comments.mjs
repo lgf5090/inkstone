@@ -12569,6 +12569,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/PropertyValueEditor.tsx", [
     "/** The four server-stamped types live on the card, not in `values`, so they need the card to read. */",
+    "/** Called when the reader is finished, whether or not the value changed, so an editor can close. */",
+    "// An unchanged value still ends the edit: without this, Enter and blur on a cell the reader only",
+    "// looked at left the editor open with no way out.",
   ]],
   ["src/client/features/project/TrashDialog.tsx", [
     "/**\n * What this account deleted, and the way back.\n *\n * Deletes are soft everywhere in this app, so the rows are still there — until now nothing listed\n * them, which made a delete permanent in practice. Boards are listed for their owner and cards for\n * a board admin, the same roles the restore routes themselves require.\n */",
@@ -12686,6 +12689,8 @@ const allowed = new Map([
   ["src/client/features/project/views/schedule-parts.tsx", [
     "/**\n * The pieces both schedule views draw with: the dependency edges, a bar, and the tray of cards that\n * have no date yet.\n *\n * Edges are orthogonal (out right, down, in from the left) rather than curved, because a curve between\n * two nearby rows hides which end it leaves; the reference's elbow reads at a glance even when twenty\n * edges cross.\n */",
     "/** Cards with no date: visible, draggable onto the axis, and never silently dropped from the view. */",
+    "// A milestone is a diamond of one bar-height, decided here rather than by an !important",
+    "// fighting the inline width.",
   ]],
   ["src/client/features/project/views/shell.tsx", [
     "/**\n * The frame every project view sits in: a head that names the surface and counts what it shows, a\n * toolbar of controls that change what is drawn, and a body that owns the remaining height.\n *\n * Ten views used to each invent their own padding, border and empty state, so switching tabs moved\n * the whole page. One shell means the tab strip is the only thing that changes.\n */",
@@ -30808,6 +30813,8 @@ const allowed = new Map([
     "/* ── List: the reference's round check, inline rename and cycling priority ───── */",
     "/* ── Report shapes the reference's Stats view draws, in our own tokens ───────── */",
     "/* ── File preview: the reference's right-hand pane, for a cloud attachment ───── */",
+    "/* `body.` outranks a descendant's own one-class cursor rule, so the drag cursor wins on specificity\n   alone and the stylesheet keeps its zero-override budget. */",
+    "/* Dragging flips this once on the body; every grabbable surface reads it, so the drag cursor wins\n     without a specificity war or an override the stylesheet budget would have to carry. */",
   ]],
   ["src/client/styles/properties.css", [
     "/* The preview pane can be far narrower than the window, so the stack point is measured on the panel. */",
