@@ -2,9 +2,11 @@
  * Public read-only sharing, modelled on the assistant's share links: a slug is the capability, an
  * optional password hash gates it, and an expiry lapses it. The hash never leaves the server; the
  * management answer carries only `hasPassword`. Reading increments the view counter and returns the
- * board bundle at viewer role, so a shared board exposes exactly what a viewer sees.
+ * board bundle at viewer role, trimmed to the entities the shared board actually renders: neither the
+ * member roster nor names referenced only by hidden comments travel to an anonymous reader.
  */
 import type { ProjectBoard, ProjectBoardBundle, ProjectShare } from '@shared/project/model'
+import { projectMultiValueIds } from '@shared/project/model'
 import { newSlug } from '../lib/id'
 import { hashPassword, verifyPassword } from '../lib/password'
 import { ApiError } from '../lib/errors'
@@ -119,5 +121,17 @@ export async function readPublicProjectShare(db: D1Database, slug: string, passw
     createAt: boardRow.create_at, updateAt: boardRow.update_at, deleteAt: boardRow.delete_at, archived: boardRow.archived !== 0,
   }
   const bundle = await readProjectBoardBundle(db, board, 'viewer')
-  return { ...bundle, members: [], comments: row.show_comments === 0 ? [] : bundle.comments }
+  const comments = row.show_comments === 0 ? [] : bundle.comments
+  const referenced = new Set<string>()
+  for (const card of bundle.cards) {
+    referenced.add(card.createdBy)
+    referenced.add(card.modifiedBy)
+    for (const property of bundle.properties) {
+      if (property.type !== 'person' && property.type !== 'multiPerson') continue
+      for (const id of projectMultiValueIds(card.values[property.id] ?? '')) referenced.add(id)
+    }
+  }
+  for (const comment of comments) referenced.add(comment.authorId)
+  const people = Object.fromEntries(Object.entries(bundle.people).filter(([id]) => referenced.has(id)))
+  return { ...bundle, members: [], comments, people }
 }

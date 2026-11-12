@@ -68,6 +68,27 @@ describe('public sharing', () => {
     expect((await req('POST', `/api/project/public/${share.slug}`, {}, false)).status).toBe(404)
   })
 
+  it('keeps the member roster and hidden comment authors out of the public people directory', async () => {
+    const board = await makeBoard()
+    const cardRes = await req('POST', `/api/project/boards/${board.id}/cards`, { title: 'Card' })
+    const card = ((await cardRes.json()) as { card: { id: string } }).card
+    sqlite.prepare("INSERT INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at) VALUES ('carol','carol','hash','carol','carol','member',1,1)").run()
+    sqlite.prepare("INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, 'carol', 'viewer', 1, 1)").run(board.id)
+    sqlite.prepare("INSERT INTO project_comments (id, card_id, board_id, author_id, body, create_at, update_at, delete_at) VALUES ('a-hidden', ?, ?, 'carol', 'internal', 1, 1, 0)").run(card.id, board.id)
+    const share = ((await (await req('PUT', `/api/project/boards/${board.id}/share`, {})).json()) as { share: ProjectShare }).share
+    const hidden = ((await (await req('POST', `/api/project/public/${share.slug}`, {}, false)).json()) as ProjectBoardBundle)
+    expect(hidden.members).toEqual([])
+    expect(hidden.comments).toEqual([])
+    expect(Object.keys(hidden.people)).not.toContain('carol')
+    const shown = ((await (await req('PUT', `/api/project/boards/${board.id}/share`, { showComments: true })).json()) as { share: ProjectShare }).share
+    expect(shown.showComments).toBe(true)
+    const internal = ((await (await req('GET', `/api/project/boards/${board.id}/bundle`)).json()) as ProjectBoardBundle)
+    expect(Object.keys(internal.people)).toEqual(expect.arrayContaining(['alice', 'carol']))
+    const visible = ((await (await req('POST', `/api/project/public/${share.slug}`, {}, false)).json()) as ProjectBoardBundle)
+    expect(visible.comments.map((entry) => entry.authorId)).toEqual(['carol'])
+    expect(Object.keys(visible.people)).toContain('carol')
+  })
+
   it('keeps comments off the public page until the owner opts in', async () => {
     const board = await makeBoard()
     const cardRes = await req('POST', `/api/project/boards/${board.id}/cards`, { title: 'Card' })
