@@ -178,6 +178,10 @@ function newlyAssignedPeople(
   return [...added]
 }
 
+function projectExportFilename(id: string, extension: string): string {
+  return `${id.replace(/[^A-Za-z0-9_-]/g, '_')}.${extension}`
+}
+
 function store(c: Context<AppBindings>): ProjectStore {
   return new ProjectStore(c.env.DB, projectUserId(c))
 }
@@ -246,7 +250,7 @@ projectRoutes.get('/boards/:id/markdown', async (c) => {
   const bundle = await readProjectBoardBundle(c.env.DB, board, role)
   const markdown = projectBoardToMarkdown(bundle, c.req.query('groupById'))
   return new Response(markdown, {
-    headers: { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename="${board.id}.md"` },
+    headers: { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename="${projectExportFilename(board.id, 'md')}"` },
   })
 })
 
@@ -470,7 +474,7 @@ projectRoutes.get('/boards/:id/archive', async (c) => {
   return new Response(bytes, {
     headers: {
       'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename="${board.id}.boardarchive"`,
+      'Content-Disposition': `attachment; filename="${projectExportFilename(board.id, 'boardarchive')}"`,
     },
   })
 })
@@ -481,7 +485,7 @@ projectRoutes.get('/boards/:id/csv', async (c) => {
   return new Response(projectBoardToCsv(bundle), {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${board.id}.csv"`,
+      'Content-Disposition': `attachment; filename="${projectExportFilename(board.id, 'csv')}"`,
     },
   })
 })

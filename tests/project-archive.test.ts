@@ -207,6 +207,21 @@ describe('archive import trust boundary', () => {
     expect((await reqRaw('alice', '/boards/import', bytes)).status).toBe(400)
   })
 
+  it('sanitizes export filenames for boards carrying legacy ids', async () => {
+    const id = 'b-legacy"\r\nX-Injected: 1'
+    sqlite.prepare(
+      `INSERT INTO project_boards (id, owner_id, type, minimum_role, title, description, icon,
+        show_description, is_template, template_version, created_by, modified_by, create_at, update_at, delete_at, archived)
+       VALUES (?, 'alice', 'P', '', 'Legacy', '', '', 0, 0, 0, 'alice', 'alice', 1, 1, 0, 0)`,
+    ).run(id)
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(id, 'alice', 'admin')
+    const response = await req('alice', 'GET', `/boards/${encodeURIComponent(id)}/csv`)
+    expect(response.status, await response.clone().text()).toBe(200)
+    const disposition = response.headers.get('Content-Disposition') ?? ''
+    expect(disposition).toBe('attachment; filename="b-legacy___X-Injected__1.csv"')
+  })
+
   it('rejects a ZIP with too many members before decompressing it', async () => {
     const files: Record<string, Uint8Array> = {
       'version.json': strToU8(JSON.stringify({ version: 2, date: 1 })),

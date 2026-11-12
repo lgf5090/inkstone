@@ -100,9 +100,10 @@ export function toICal(events: readonly ICalEvent[], options: { name: string, st
     line('X-WR-CALNAME', escapeText(options.name)),
   ]
   for (const event of events) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(event.day)) continue
     out.push(
       line('BEGIN', 'VEVENT'),
-      line('UID', event.uid),
+      line('UID', escapeText(event.uid)),
       line('DTSTAMP', stamp),
       line('DTSTART;VALUE=DATE', compact(event.day)),
       line('DTEND;VALUE=DATE', compact(nextDay(event.day))),
