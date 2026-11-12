@@ -306,10 +306,10 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
             }
             const prefix = `${node.fullPath}/`
             const descendants = categories.filter((c) => c.name.startsWith(prefix))
-            for (const desc of descendants) {
+            await Promise.all(descendants.map((desc) => {
               const suffix = desc.name.slice(prefix.length)
-              await patchProjectCategory(desc.id, { name: `${newFullPath}/${suffix}` })
-            }
+              return patchProjectCategory(desc.id, { name: `${newFullPath}/${suffix}` })
+            }))
           })
         },
       },
@@ -332,9 +332,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
             }
             const prefix = `${node.fullPath}/`
             const descendants = categories.filter((c) => c.name.startsWith(prefix) && c.type !== 'system')
-            for (const desc of descendants) {
-              await deleteProjectCategory(desc.id)
-            }
+            await Promise.all(descendants.map((desc) => deleteProjectCategory(desc.id)))
           })
         },
       },

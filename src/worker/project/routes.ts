@@ -35,6 +35,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit, readFormDataWithinLimit, requestClientIp } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
+import { consumeAttemptBudget } from '../lib/throttle'
 import { originOf } from '../lib/notify'
 import { broadcastProjectChange } from './realtime'
 import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAccountArchive, importProjectBoardArchive } from './archive'
@@ -196,7 +197,9 @@ projectRoutes.get('/search', async (c) => {
 })
 
 projectRoutes.get('/export', async (c) => {
-  const bytes = await exportProjectAccountArchive(c.env.DB, projectUserId(c))
+  const userId = projectUserId(c)
+  await consumeAttemptBudget(c.env.DB, [{ key: `project-export:${userId}`, maxAttempts: 10, windowMs: 60 * 60 * 1000 }])
+  const bytes = await exportProjectAccountArchive(c.env.DB, userId)
   return new Response(bytes, {
     headers: { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="inkstone-project.zip"' },
   })
@@ -428,6 +431,7 @@ projectRoutes.post('/boards/:id/undelete', async (c) => {
 
 projectRoutes.post('/boards/:id/duplicate', async (c) => {
   const { board, role, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
+  await consumeAttemptBudget(c.env.DB, [{ key: `project-duplicate:${userId}`, maxAttempts: 30, windowMs: 60 * 60 * 1000 }])
   const bundle = await readProjectBoardBundle(c.env.DB, board, role)
   return c.json({ board: await duplicateProjectBoard(c.env.DB, bundle, userId, Date.now()) }, 201)
 })
@@ -484,6 +488,7 @@ projectRoutes.get('/boards/:id/csv', async (c) => {
 
 projectRoutes.post('/boards/import', async (c) => {
   const userId = projectUserId(c)
+  await consumeAttemptBudget(c.env.DB, [{ key: `project-import:${userId}`, maxAttempts: 20, windowMs: 60 * 60 * 1000 }])
   assertDeclaredBodySize(c.req, FORM_BODY_LIMITS.import)
   const bytes = await readBytesWithinLimit(c.req.raw.body, FORM_BODY_LIMITS.import)
   return c.json(await importProjectBoardArchive(c.env.DB, userId, bytes, Date.now()), 201)
@@ -491,6 +496,7 @@ projectRoutes.post('/boards/import', async (c) => {
 
 projectRoutes.post('/boards/import-account', async (c) => {
   const userId = projectUserId(c)
+  await consumeAttemptBudget(c.env.DB, [{ key: `project-import-account:${userId}`, maxAttempts: 10, windowMs: 60 * 60 * 1000 }])
   assertDeclaredBodySize(c.req, FORM_BODY_LIMITS.import)
   const bytes = await readBytesWithinLimit(c.req.raw.body, FORM_BODY_LIMITS.import)
   return c.json({ boards: await importProjectAccountArchive(c.env.DB, userId, bytes, Date.now()) }, 201)
