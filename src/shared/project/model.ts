@@ -21,9 +21,6 @@ export const PROJECT_PROPERTY_TYPES = [
 ] as const
 export type ProjectPropertyType = (typeof PROJECT_PROPERTY_TYPES)[number]
 
-/** The two the reference declares but never registers: `file` has no editor, `unknown` is the fallback. */
-export const PROJECT_UNREGISTERED_PROPERTY_TYPES = ['file', 'unknown'] as const
-
 export const PROJECT_FILTER_VALUE_TYPES = ['none', 'options', 'boolean', 'text', 'date', 'person', 'number'] as const
 export type ProjectFilterValueType = (typeof PROJECT_FILTER_VALUE_TYPES)[number]
 
@@ -107,7 +104,6 @@ export type ProjectCalculation = (typeof PROJECT_CALCULATIONS)[number]
 /** Four the reference draws, then four this port adds; an imported archive only ever names the first four. */
 export const PROJECT_VIEW_TYPES = ['board', 'table', 'gallery', 'calendar', 'list', 'timeline', 'gantt', 'chart', 'dashboard', 'collection'] as const
 export type ProjectViewType = (typeof PROJECT_VIEW_TYPES)[number]
-export const PROJECT_REFERENCE_VIEW_TYPES = ['board', 'table', 'gallery', 'calendar'] as const
 
 export const PROJECT_CONTENT_TYPES = ['text', 'checkbox', 'divider', 'image', 'attachment'] as const
 export type ProjectContentType = (typeof PROJECT_CONTENT_TYPES)[number]
