@@ -14,6 +14,7 @@ import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badge
 import { matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
+import { useProjectStore } from './store'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
@@ -25,7 +26,7 @@ import { buildCardMenu } from './card-menu'
 import { ProjectPeopleProvider } from './people-context'
 import { readPinnedCardsPref, readStarredCardsPref, writePinnedCardsPref, writeStarredCardsPref } from './project-prefs'
 import { Seg } from './views/shell'
-import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, projectBoardExportUrl, projectFileUrl } from './api'
+import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, moveProjectCard, projectBoardExportUrl, projectFileUrl } from './api'
 import { KanbanView } from './views/KanbanView'
 import { TableView } from './views/TableView'
 import { GalleryView } from './views/GalleryView'
@@ -127,6 +128,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const [addOpen, setAddOpen] = useState(false)
   const viewAnchor = useRef<HTMLButtonElement>(null)
   const [viewMenuOpen, setViewMenuOpen] = useState(false)
+  const boards = useProjectStore((state) => state.boards)
   const [settings, setSettings] = useState<'sort' | 'filter' | 'properties' | null>(null)
   const [search, setSearch] = useState('')
   const [links, setLinks] = useState<ProjectCardLink[]>([])
@@ -292,6 +294,12 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     onToggleDone: toggleCardDone,
     onToggleStar: (id) => toggleCardFlag('star', id),
     onTogglePin: (id) => toggleCardFlag('pin', id),
+    moveTargets: boards.filter((board) => board.id !== bundle.board.id && (board.role === 'editor' || board.role === 'admin')).map((board) => ({ id: board.id, title: board.title })),
+    onMove: (id, targetBoardId) => {
+      void moveProjectCard(id, targetBoardId)
+        .then(() => { useUi.getState().toast({ title: t('project.card.moved') }); onRefresh() })
+        .catch((reason: unknown) => { useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' }) })
+    },
   })
 
   const onCardContextMenu = (event: MouseEvent, card: ProjectCard): void => {

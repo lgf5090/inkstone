@@ -100,6 +100,11 @@ export async function duplicateProjectCard(id: string): Promise<ProjectCard> {
   return body.card
 }
 
+export async function moveProjectCard(id: string, targetBoardId: string): Promise<ProjectCard> {
+  const body = await request<{ card: ProjectCard }>(`/api/project/cards/${encodeURIComponent(id)}/move`, { method: 'POST', body: { targetBoardId } })
+  return body.card
+}
+
 export async function createProjectView(boardId: string, viewType: ProjectViewType): Promise<ProjectView> {
   const body = await request<{ view: ProjectView }>(`/api/project/boards/${encodeURIComponent(boardId)}/views`, { method: 'POST', body: { viewType } })
   return body.view

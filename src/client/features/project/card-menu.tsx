@@ -6,7 +6,7 @@
  * rename, status, priority, a date — belong here as one click each, with the destructive action last
  * and behind a separator.
  */
-import { CalendarClock, CheckSquare, Copy, FileText, Link2, ListTodo, Pencil, Pin, Star, Trash2 } from 'lucide-react'
+import { CalendarClock, CheckSquare, Copy, FileText, FolderInput, Link2, ListTodo, Pencil, Pin, Star, Trash2 } from 'lucide-react'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import { projectDayToStamp } from '@shared/project/date'
@@ -34,6 +34,8 @@ export interface CardMenuContext {
   onToggleDone: (card: ProjectCard, done: boolean) => Promise<void>
   onToggleStar: (id: string) => void
   onTogglePin: (id: string) => void
+  moveTargets: readonly { id: string, title: string }[]
+  onMove: (cardId: string, targetBoardId: string) => void
 }
 
 function nextMonday(): Date {
@@ -122,6 +124,10 @@ export function buildCardMenu(ctx: CardMenuContext): MenuItem[] {
 
   items.push({ id: 'add-subtask', label: t('project.card.add_subtask'), icon: <ListTodo size={14} />, disabled: !canEdit, separatorBefore: true, onSelect: () => { void ctx.onAddSubtask(card.id) } })
   items.push({ id: 'duplicate', label: t('project.card.duplicate'), icon: <Copy size={14} />, disabled: !canEdit, onSelect: () => ctx.onDuplicate(card.id) })
+  if (ctx.moveTargets.length > 0) {
+    const targets = ctx.moveTargets.map((board) => ({ id: board.id, label: board.title || t('project.boards.untitled'), onSelect: () => ctx.onMove(card.id, board.id) }))
+    items.push({ id: 'move', label: t('project.card.move_to_board'), icon: <FolderInput size={14} />, disabled: !canEdit, subItems: targets, submenu: submenuFor(targets) })
+  }
   items.push({ id: 'copy-link', label: t('project.card.copy_link'), icon: <Link2 size={14} />, disabled: ctx.publicView, onSelect: () => ctx.onCopyLink(card.id) })
   items.push({ id: 'delete', label: t('project.board.delete_card'), icon: <Trash2 size={14} />, separatorBefore: true, tone: 'danger', disabled: !canEdit, onSelect: () => ctx.onDelete(card.id) })
   return items

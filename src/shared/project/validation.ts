@@ -171,6 +171,8 @@ export const ProjectCardPatchSchema = z.object({
 })
 export type ProjectCardPatchInput = z.infer<typeof ProjectCardPatchSchema>
 
+export const ProjectCardMoveSchema = z.object({ targetBoardId: projectId })
+
 export const ProjectViewCreateSchema = z.object({
   id: projectId.optional(),
   title: title.default(''),

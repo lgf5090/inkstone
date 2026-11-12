@@ -229,6 +229,8 @@ export const EN_US_PROJECT = {
     "project.card.badge_comments": "{count} comments",
     "project.card.badge_tasks": "{checked}/{total} tasks",
     "project.card.duplicate": "Duplicate",
+    "project.card.move_to_board": "Move to board",
+    "project.card.moved": "Card moved",
     "project.card.copy_link": "Copy link",
     "project.card.copy_link_failed": "Could not copy the link",
     "project.card.from_template": "From template",

@@ -42636,6 +42636,9 @@ const allowed = new Map([
     "/** D1 caps a statement's bound variables, so a board's people are read in the same chunks as its cards. */",
     "/**\n * The readable face of every user id a board refers to. Only the display name and avatar leave the\n * server: a login handle is a credential half, and a public share link has no business handing it out.\n */",
   ]],
+  ["src/worker/project/move.ts", [
+    "/**\n * Moving a card (and its subtasks) to another board.\n *\n * A card's values key on the source board's property and option ids, which mean nothing on the target.\n * Each used property is matched to the target by name and type; a match reuses the target's property\n * and maps options by their label, while a property the target lacks is created there carrying its\n * options over. Contents and comments travel with the card; the moved root detaches from any parent\n * left behind, and subtasks keep their place under it.\n */",
+  ]],
   ["src/worker/project/notify.ts", [
     "/**\n * D-7: a comment notifies the members it @mentions and the subscribers watching the card or board.\n * The target set is a pure function so tests can pin it; delivery is best-effort because a refused\n * notice must never refuse the comment itself.\n */",
   ]],

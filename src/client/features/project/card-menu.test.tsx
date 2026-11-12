@@ -41,6 +41,8 @@ function context(overrides: Record<string, unknown> = {}) {
     onToggleDone: vi.fn().mockResolvedValue(undefined),
     onToggleStar: vi.fn(),
     onTogglePin: vi.fn(),
+    moveTargets: [],
+    onMove: vi.fn(),
     ...overrides,
   }
 }
@@ -57,6 +59,19 @@ describe('the card menu', () => {
     ])
     expect(items[items.length - 1]!.tone).toBe('danger')
     expect(items[items.length - 1]!.separatorBefore).toBe(true)
+  })
+
+  it('offers a move-to-board submenu naming the editable boards', () => {
+    const onMove = vi.fn()
+    const items = buildCardMenu(context({ moveTargets: [{ id: 'b2', title: 'Target' }, { id: 'b3', title: '' }], onMove }))
+    const move = byId(items, 'move')
+    expect(move.subItems?.map((entry) => entry.label)).toEqual(['Target', t('project.boards.untitled')])
+    move.subItems![0]!.onSelect!()
+    expect(onMove).toHaveBeenCalledWith('c1', 'b2')
+  })
+
+  it('hides move when there is no other editable board', () => {
+    expect(buildCardMenu(context()).some((item) => item.id === 'move')).toBe(false)
   })
 
   it('renames through the prompt and skips a blank or unchanged name', async () => {

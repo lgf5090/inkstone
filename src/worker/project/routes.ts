@@ -8,6 +8,7 @@ import {
   ProjectBatchSchema,
   ProjectCardCreateSchema,
   ProjectCardLinkSchema,
+  ProjectCardMoveSchema,
   ProjectCardPatchSchema,
   ProjectCategoryBoardHiddenSchema,
   ProjectCategoryBoardOrderSchema,
@@ -71,6 +72,7 @@ import {
   undeleteProjectContent,
 } from './contents'
 import { duplicateProjectBoard, duplicateProjectCard } from './duplicate'
+import { moveProjectCard } from './move'
 import {
   createProjectBoard,
   getProjectBoardRow,
@@ -517,6 +519,13 @@ projectRoutes.post('/cards/:id/undelete', async (c) => {
 projectRoutes.post('/cards/:id/duplicate', async (c) => {
   const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
   return c.json({ card: await duplicateProjectCard(c.env.DB, card, userId, Date.now()) }, 201)
+})
+
+projectRoutes.post('/cards/:id/move', async (c) => {
+  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectCardMoveSchema, JSON_BODY_LIMITS.small)
+  await requireBoard(c, input.targetBoardId, 'editor')
+  return c.json({ card: await moveProjectCard(c.env.DB, card, input.targetBoardId, userId, Date.now()) })
 })
 
 projectRoutes.post('/cards/:id/save-as-template', async (c) => {

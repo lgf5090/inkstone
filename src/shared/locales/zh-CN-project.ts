@@ -229,6 +229,8 @@ export const ZH_CN_PROJECT = {
     "project.card.badge_comments": "{count} 条评论",
     "project.card.badge_tasks": "{checked}/{total} 任务",
     "project.card.duplicate": "复制一份",
+    "project.card.move_to_board": "移动到看板",
+    "project.card.moved": "卡片已移动",
     "project.card.copy_link": "复制链接",
     "project.card.copy_link_failed": "无法复制链接",
     "project.card.from_template": "从模板新建",
