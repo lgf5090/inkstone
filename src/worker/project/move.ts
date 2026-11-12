@@ -144,8 +144,20 @@ export async function moveProjectCard(
   }
 
   const inClause = movedIds.map((_, at) => `?${at + 3}`).join(', ')
+  const pairClause = movedIds.map((_, at) => `?${at + 2}`).join(', ')
   statements.push(db.prepare(`UPDATE project_card_contents SET board_id = ?1, update_at = ?2 WHERE card_id IN (${inClause}) AND delete_at = 0`).bind(targetBoardId, now, ...movedIds))
   statements.push(db.prepare(`UPDATE project_comments SET board_id = ?1, update_at = ?2 WHERE card_id IN (${inClause}) AND delete_at = 0`).bind(targetBoardId, now, ...movedIds))
+  statements.push(db.prepare(`UPDATE project_attachments SET board_id = ?1 WHERE card_id IN (${pairClause})`).bind(targetBoardId, ...movedIds))
+  statements.push(db.prepare(
+    `DELETE FROM project_card_links
+     WHERE board_id = ?1
+       AND (from_card_id IN (${pairClause}) OR to_card_id IN (${pairClause}))
+       AND NOT (from_card_id IN (${pairClause}) AND to_card_id IN (${pairClause}))`,
+  ).bind(card.boardId, ...movedIds))
+  statements.push(db.prepare(
+    `UPDATE project_card_links SET board_id = ?1
+     WHERE board_id = ?2 AND (from_card_id IN (${inClause}) OR to_card_id IN (${inClause}))`,
+  ).bind(targetBoardId, card.boardId, ...movedIds))
 
   for (let index = 0; index < statements.length; index += MOVE_BATCH_SIZE) {
     await db.batch(statements.slice(index, index + MOVE_BATCH_SIZE))

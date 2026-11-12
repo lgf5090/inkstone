@@ -36,7 +36,8 @@ beforeAll(async () => {
 beforeEach(() => {
   sqlite.exec(`DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
     DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_views;
-    DELETE FROM project_card_contents; DELETE FROM project_comments`)
+    DELETE FROM project_card_contents; DELETE FROM project_comments;
+    DELETE FROM project_attachments; DELETE FROM project_card_links`)
 })
 
 async function req(account: Account, method: string, path: string, body?: unknown): Promise<Response> {
@@ -100,6 +101,26 @@ describe('moving a card to another board', () => {
     expect(properties).toHaveLength(1)
     expect(properties[0]).toMatchObject({ name: 'Hours', type: 'number' })
     expect(valuesOf(id('c'))).toEqual({ [properties[0]!.id]: '3.5' })
+  })
+
+  it('moves attachments and internal dependency links, and drops cross-board edges', async () => {
+    const source = await createBoard('alice', 'Source', [])
+    const target = await createBoard('alice', 'Target', [])
+    seedCard(source.id, id('c'))
+    seedCard(source.id, id('e'), { parent_id: id('c') })
+    seedCard(source.id, id('d'))
+    sqlite.prepare(`INSERT INTO project_attachments (id, user_id, board_id, card_id, filename, mime, size, object_key, created_at, updated_at)
+      VALUES (?, 'alice', ?, ?, 'photo.png', 'image/png', 3, 'key', 1, 1)`).run(id('i'), source.id, id('c'))
+    sqlite.prepare(`INSERT INTO project_card_links (from_card_id, to_card_id, kind, board_id, created_at)
+      VALUES (?, ?, 'blocks', ?, 1)`).run(id('c'), id('e'), source.id)
+    sqlite.prepare(`INSERT INTO project_card_links (from_card_id, to_card_id, kind, board_id, created_at)
+      VALUES (?, ?, 'blocks', ?, 1)`).run(id('d'), id('c'), source.id)
+    const response = await req('alice', 'POST', `/cards/${id('c')}/move`, { targetBoardId: target.id })
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect((sqlite.prepare('SELECT board_id FROM project_attachments WHERE id = ?').get(id('i')) as { board_id: string }).board_id).toBe(target.id)
+    const links = sqlite.prepare('SELECT from_card_id, to_card_id, board_id FROM project_card_links').all() as { from_card_id: string, to_card_id: string, board_id: string }[]
+    expect(links).toHaveLength(1)
+    expect(links[0]).toMatchObject({ from_card_id: id('c'), to_card_id: id('e'), board_id: target.id })
   })
 
   it('carries subtasks, contents and comments, and detaches the moved root from a parent left behind', async () => {
