@@ -84,6 +84,7 @@ const idList = z.array(z.string().min(1).max(64)).max(PROJECT_LIMITS.cardsPerBoa
 const optionKeyList = z.array(z.string().max(64)).max(PROJECT_LIMITS.cardsPerBoard)
 
 export const ProjectViewFieldsSchema = z.object({
+  minimumRole: ProjectMinimumRoleSchema.optional(),
   groupById: z.string().max(64).optional(),
   dateDisplayPropertyId: z.string().max(64).optional(),
   cardSize: z.enum(['compact', 'comfortable', 'spacious']).optional(),

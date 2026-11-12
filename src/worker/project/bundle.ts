@@ -14,7 +14,7 @@ import type {
   ProjectRole,
   ProjectView,
 } from '@shared/project/model'
-import { projectMultiValueIds } from '@shared/project/model'
+import { projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
 import { parseProjectRecurrence } from '@shared/project/recurrence'
 import { readBoardProperties } from './boards'
 import { listProjectMembers, listProjectPeople } from './members'
@@ -179,7 +179,9 @@ export async function readProjectBoardBundle(
     values[row.property_id] = row.value
   }
   const cards = cardRows.results.map((row) => rowToCard(row, valuesByCard.get(row.id) ?? {}))
-  const views = viewRows.results.map(rowToView)
+  const views = viewRows.results
+    .map(rowToView)
+    .filter((view) => !view.fields.minimumRole || projectRoleAtLeast(role, view.fields.minimumRole))
   const contents = contentRows.results.map(rowToContent)
   const comments = commentRows.results.map(rowToComment)
 

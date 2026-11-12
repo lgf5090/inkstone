@@ -110,6 +110,29 @@ describe('public sharing', () => {
   })
 })
 
+describe('the calendar feed', () => {
+  it('serves a passwordless share as an ICS document and refuses a protected one', async () => {
+    const due = `p${'d'.repeat(26)}`
+    const created = await req('POST', '/api/project/boards', {
+      title: 'Calendar board',
+      cardProperties: [{ id: due, name: 'Due', type: 'date', options: [] }],
+    })
+    const board = ((await created.json()) as { board: ProjectBoard }).board
+    await req('POST', `/api/project/boards/${board.id}/cards`, { title: 'Ship it', values: { [due]: JSON.stringify({ from: Date.UTC(2026, 10, 20) }) } })
+    const put = await req('PUT', `/api/project/boards/${board.id}/share`, {})
+    const share = ((await put.json()) as { share: ProjectShare }).share
+    const feed = await req('GET', `/api/project/public/${share.slug}/calendar.ics`, undefined, false)
+    expect(feed.status).toBe(200)
+    expect(feed.headers.get('Content-Type')).toContain('text/calendar')
+    const text = await feed.text()
+    expect(text).toContain('BEGIN:VCALENDAR')
+    expect(text).toContain('SUMMARY:Ship it')
+    const protectedShare = await req('PUT', `/api/project/boards/${board.id}/share`, { password: 'secret-pass' })
+    const protectedSlug = ((await protectedShare.json()) as { share: ProjectShare }).share.slug
+    expect((await req('GET', `/api/project/public/${protectedSlug}/calendar.ics`, undefined, false)).status).toBe(401)
+  })
+})
+
 describe('the public gate budget', () => {
   it('locks the slug after the free failures and refuses even the right passcode while locked', async () => {
     const board = await makeBoard()

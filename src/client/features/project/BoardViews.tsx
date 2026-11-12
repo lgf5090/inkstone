@@ -667,9 +667,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             />
             {!publicView && (
               <>
-                <IconButton label={t('project.view.sort')} size="sm" onClick={() => setSettings('sort')}><ArrowUpDown size={15} /></IconButton>
-                <IconButton label={t('project.view.filter')} size="sm" onClick={() => setSettings('filter')}><Filter size={15} /></IconButton>
-                <IconButton label={t('project.view.properties')} size="sm" onClick={() => setSettings('properties')}><Eye size={15} /></IconButton>
+                <IconButton label={t('project.view.sort')} size="sm" disabled={!canEdit} onClick={() => setSettings('sort')}><ArrowUpDown size={15} /></IconButton>
+                <IconButton label={t('project.view.filter')} size="sm" disabled={!canEdit} onClick={() => setSettings('filter')}><Filter size={15} /></IconButton>
+                <IconButton label={t('project.view.properties')} size="sm" disabled={!canEdit} onClick={() => setSettings('properties')}><Eye size={15} /></IconButton>
               </>
             )}
           </span>
@@ -714,7 +714,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         )}
       {active && settings === 'sort' && <SortModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
       {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} members={bundle.members} people={bundle.people} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
-      {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
+      {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
       {contextPoint && <Menu anchor={contextPoint} open onClose={() => setContextPoint(null)} items={contextItems} />}
       {batchOpen && (
         <BatchEditDialog

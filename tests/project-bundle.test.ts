@@ -228,6 +228,17 @@ describe('what a bundle leaves out', () => {
   })
 })
 
+describe('view visibility', () => {
+  it('keeps a role-gated view out of a weaker reader’s bundle', async () => {
+    const board = await createBoard('alice', {})
+    const created = await req('alice', 'POST', `/boards/${board.id}/views`, { title: 'Admins only', viewType: 'table', fields: { minimumRole: 'admin' } })
+    expect(created.status, await created.clone().text()).toBe(201)
+    addMember(board.id, 'bob', 'viewer')
+    expect((await bundle('alice', board.id)).views.map((view) => view.title)).toEqual(['Admins only'])
+    expect((await bundle('bob', board.id)).views).toEqual([])
+  })
+})
+
 describe('who may read a bundle', () => {
   it('lets a viewer member read, hides a private board from a stranger, and requires sign-in', async () => {
     const board = await createBoard('alice', { title: 'Secret' })

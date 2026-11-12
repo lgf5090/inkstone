@@ -64,6 +64,20 @@ export function ShareDialog({ boardId, onClose }: { boardId: string, onClose: ()
                   onChange={(checked) => { void guard(async () => { setShare(await putProjectShare(boardId, { showComments: checked })) }) }}
                 />
                 <div className="flex justify-center rounded-[var(--r-md)] bg-[var(--plate-lightest)] p-3"><QRCodeSVG value={link} size={120} /></div>
+                {!share.hasPassword && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      const feed = `${window.location.origin}/api/project/public/${encodeURIComponent(share.slug)}/calendar.ics`
+                      void navigator.clipboard.writeText(feed)
+                        .then(() => toast({ title: t('project.share.calendar_copied'), tone: 'success' }))
+                        .catch(() => toast({ title: t('project.card.copy_link_failed'), tone: 'danger' }))
+                    }}
+                  >
+                    {t('project.share.calendar')}
+                  </Button>
+                )}
                 <form
                   className="flex items-center gap-2"
                   onSubmit={(event) => {

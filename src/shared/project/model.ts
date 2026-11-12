@@ -202,6 +202,8 @@ export interface ProjectKanbanCalculation {
  * same cards differently, so `cardOrder` lives here and not on the card.
  */
 export interface ProjectViewFields {
+  /** The weakest role that sees this tab; absent means everyone who can read the board. */
+  minimumRole?: ProjectMinimumRole
   groupById?: string
   dateDisplayPropertyId?: string
   cardSize?: 'compact' | 'comfortable' | 'spacious'

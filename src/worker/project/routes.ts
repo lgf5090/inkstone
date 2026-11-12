@@ -101,6 +101,8 @@ import { topProjectBoards } from './insights'
 import { addCardLink, createCardFromTemplate, getCardTodoLink, linkCardTodo, listBoardLinks, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate, syncCardCompletionToTodo, unlinkCardTodo } from './enhance'
 import { notifyProjectAssignment, notifyProjectComment } from './notify'
 import { readProjectCardMarks, writeProjectCardMarks } from './preferences'
+import { toICal } from '../subscriptions/calendar'
+import { parseProjectDateValue, projectStampToDay } from '@shared/project/date'
 import { projectBoardToMarkdown } from '@shared/project/markdown'
 import { deleteProjectAttachment, getProjectAttachment, listBoardAttachments, uploadProjectAttachment, PROJECT_UPLOAD_LIMIT, PROJECT_INLINE_MIMES } from './files'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
@@ -703,6 +705,29 @@ projectRoutes.delete('/subscriptions/:blockId', async (c) => {
 
 /** Public read-only share reader: no session, the slug (plus optional password) is the capability. */
 export const projectPublicRoutes = new Hono<AppBindings>()
+
+projectPublicRoutes.get('/:slug/calendar.ics', async (c) => {
+  const slug = c.req.param('slug').replace(/\.ics$/i, '')
+  const bundle = await readPublicProjectShare(c.env.DB, slug, undefined, Date.now(), requestClientIp(c))
+  const dateProperty = bundle.properties.find((property) => property.type === 'date')
+  const events = dateProperty
+    ? bundle.cards.flatMap((card) => {
+      const parsed = parseProjectDateValue(card.values[dateProperty.id] ?? '')
+      if (parsed?.from === undefined) return []
+      const date = projectStampToDay(parsed.from, parsed.includeTime === true)
+      const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+      return [{ uid: `${card.id}@inkstone.project`, day, title: card.title || c.req.param('slug'), detail: bundle.board.title }]
+    })
+    : []
+  return new Response(toICal(events, { name: bundle.board.title || 'Inkstone board', stamp: Date.now() }), {
+    headers: {
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Robots-Tag': 'noindex',
+    },
+  })
+})
 
 projectPublicRoutes.post('/:slug', async (c) => {
   let password: string | undefined

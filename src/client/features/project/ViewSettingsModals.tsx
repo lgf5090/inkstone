@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
-import type { ProjectProperty, ProjectSortOption, ProjectView, ProjectViewFields } from '@shared/project/model'
+import type { ProjectMinimumRole, ProjectProperty, ProjectSortOption, ProjectView, ProjectViewFields } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox } from '../../components/form'
@@ -10,6 +10,7 @@ import { Modal } from '../../components/overlay'
 interface ModalProps {
   view: ProjectView
   properties: ProjectProperty[]
+  canEdit?: boolean
   onClose: () => void
   onPatch: (fields: Partial<ProjectViewFields>) => Promise<void>
 }
@@ -43,10 +44,11 @@ export function SortModal({ view, properties, onClose, onPatch }: ModalProps): R
   )
 }
 
-export function PropertiesModal({ view, properties, onClose, onPatch }: ModalProps): ReactElement {
+export function PropertiesModal({ view, properties, canEdit = false, onClose, onPatch }: ModalProps): ReactElement {
   const [draft, setDraft] = useState<string[]>(() => (view.fields.visiblePropertyIds.length ? view.fields.visiblePropertyIds : properties.map((p) => p.id)))
+  const [minimumRole, setMinimumRole] = useState<ProjectMinimumRole>(view.fields.minimumRole ?? '')
   return (
-    <Modal open onClose={onClose} title={t('project.view.properties')} width={400} footer={<Footer onClose={onClose} onSave={async () => { await onPatch({ visiblePropertyIds: draft }); onClose() }} />}>
+    <Modal open onClose={onClose} title={t('project.view.properties')} width={400} footer={<Footer onClose={onClose} onSave={async () => { await onPatch(canEdit ? { visiblePropertyIds: draft, minimumRole } : { visiblePropertyIds: draft }); onClose() }} />}>
       <div className="space-y-2">
         {properties.map((property) => (
           <Checkbox
@@ -56,6 +58,24 @@ export function PropertiesModal({ view, properties, onClose, onPatch }: ModalPro
             onChange={(checked) => setDraft((current) => (checked ? [...current, property.id] : current.filter((id) => id !== property.id)))}
           />
         ))}
+        {canEdit && (
+          <label className="flex items-center gap-2 border-t border-[var(--border-subtle)] pt-2">
+            <span className="min-w-0 flex-1 text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('project.view.visibility')}</span>
+            <SelectMenu
+              className="w-36"
+              value={minimumRole}
+              label={t('project.view.visibility')}
+              onChange={(next) => setMinimumRole(next as ProjectMinimumRole)}
+              options={[
+                { value: '', label: t('project.board.minimum_none') },
+                { value: 'viewer', label: t('project.role.viewer') },
+                { value: 'commenter', label: t('project.role.commenter') },
+                { value: 'editor', label: t('project.role.editor') },
+                { value: 'admin', label: t('project.role.admin') },
+              ]}
+            />
+          </label>
+        )}
       </div>
     </Modal>
   )

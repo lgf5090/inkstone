@@ -11,7 +11,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { parseProjectDateValue, projectDayToStamp, projectStampToInput } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
-import { initI18n, t } from '../../lib/i18n'
+import { getLocale, initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
 import { PropertyValueEditor } from './PropertyValueEditor'
 
@@ -174,7 +174,7 @@ describe('the property kinds that had no editor (R3-10)', () => {
     }
     const created: ProjectProperty = { id: 'pct', name: 'Created', type: 'createdTime', options: [] }
     await act(async () => { view = renderElement(createElement(PropertyValueEditor, { property: created, value: '', members: [], disabled: true, onChange: vi.fn(), card })) })
-    expect(view.container.textContent).toBe(new Date(card.createAt).toLocaleDateString())
+    expect(view.container.textContent).toBe(new Date(card.createAt).toLocaleDateString(getLocale()))
     expect(view.container.textContent).not.toBe('—')
   })
 })
