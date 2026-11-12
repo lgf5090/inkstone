@@ -151,6 +151,7 @@ export type ProjectBoardPatchInput = z.infer<typeof ProjectBoardPatchSchema>
 /** A property value is text on the wire; multi-valued types carry a JSON array, as the reference does. */
 const propertyValue = z.string().max(PROJECT_LIMITS.fieldsRunes)
 const valueMap = z.record(projectId, propertyValue)
+  .refine((values) => Object.keys(values).length <= PROJECT_LIMITS.propertiesPerBoard, 'too many values')
 
 export const ProjectRecurrenceSchema = z.object({
   freq: z.enum(['daily', 'weekly', 'monthly', 'yearly']),

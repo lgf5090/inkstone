@@ -114,5 +114,6 @@ export async function readPublicProjectShare(db: D1Database, slug: string, passw
     isTemplate: boardRow.is_template === 1, templateVersion: boardRow.template_version, createdBy: boardRow.created_by, modifiedBy: boardRow.modified_by,
     createAt: boardRow.create_at, updateAt: boardRow.update_at, deleteAt: boardRow.delete_at, archived: boardRow.archived !== 0,
   }
-  return readProjectBoardBundle(db, board, 'viewer')
+  const bundle = await readProjectBoardBundle(db, board, 'viewer')
+  return { ...bundle, members: [] }
 }

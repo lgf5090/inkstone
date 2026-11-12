@@ -155,6 +155,22 @@ describe('reading a whole board', () => {
   })
 })
 
+describe('the staleness cursor', () => {
+  it('advances after a child write, including a delete', async () => {
+    const board = await createBoard('alice', {})
+    const created = await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'C' })
+    expect(created.status, await created.clone().text()).toBe(201)
+    const card = ((await created.json()) as { card: { id: string } }).card
+    const first = await req('alice', 'GET', `/boards/${board.id}/cursor`)
+    const before = ((await first.json()) as { cursor: number }).cursor
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect((await req('alice', 'DELETE', `/cards/${card.id}`)).status).toBe(200)
+    const second = await req('alice', 'GET', `/boards/${board.id}/cursor`)
+    const after = ((await second.json()) as { cursor: number }).cursor
+    expect(after).toBeGreaterThan(before)
+  })
+})
+
 describe('what a bundle leaves out', () => {
   it('drops soft-deleted cards together with their values, and deleted views, contents and comments', async () => {
     const board = await createBoard('alice', {})

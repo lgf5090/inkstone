@@ -54,6 +54,17 @@ describe('CSV export', () => {
     expect(rows[1]).toEqual(['Title, "x"', '#hash #second 中文', '3.5', 'a|b', '{"from":1000}'])
   })
 
+  it('marks cells a spreadsheet would evaluate, while a negative number keeps its numeric cell', () => {
+    const bundle = fixture()
+    bundle.cards[0]!.title = '=HYPERLINK("https://evil.example")'
+    bundle.cards[0]!.values.p2 = '=1+1'
+    const rows = parseCsv(projectBoardToCsv(bundle))
+    expect(rows[1]![0]).toBe('\'=HYPERLINK("https://evil.example")')
+    expect(rows[1]![2]).toBe("'=1+1")
+    bundle.cards[0]!.values.p2 = '-2.5'
+    expect(parseCsv(projectBoardToCsv(bundle))[1]![2]).toBe('-2.5')
+  })
+
   it('starts with a UTF-8 BOM and uses CRLF row endings', () => {
     const csv = projectBoardToCsv(fixture())
     expect(csv.startsWith('\uFEFF')).toBe(true)

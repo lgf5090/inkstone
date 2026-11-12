@@ -132,6 +132,35 @@ export function cardPatchStatements(
   return statements
 }
 
+/**
+ * A parent must be a live card on the same board and must not already sit below this card. Every
+ * writer of `parentId` crosses this, including the batch route, so a bulk patch cannot build the
+ * cross-board link or the cycle the single-card route refuses.
+ */
+export async function assertProjectParent(
+  db: D1Database,
+  card: Pick<ProjectCard, 'id' | 'boardId'>,
+  parentId: string,
+): Promise<void> {
+  if (!parentId) return
+  if (parentId === card.id) throw ApiError.badRequest('A card cannot be its own parent')
+  const parent = await getProjectCardRow(db, parentId)
+  if (!parent || parent.board_id !== card.boardId || parent.delete_at !== 0) {
+    throw ApiError.badRequest('Parent card does not exist on this board')
+  }
+  let currentAncestorId: string | null = parent.parent_id
+  const visited = new Set<string>([card.id, parentId])
+  while (currentAncestorId) {
+    if (currentAncestorId === card.id) {
+      throw ApiError.badRequest('Cyclic parent relationship is not allowed')
+    }
+    if (visited.has(currentAncestorId)) break
+    visited.add(currentAncestorId)
+    const ancestor = await getProjectCardRow(db, currentAncestorId)
+    currentAncestorId = ancestor?.parent_id ?? null
+  }
+}
+
 export async function patchProjectCard(
   db: D1Database,
   card: ProjectCard,
@@ -139,24 +168,7 @@ export async function patchProjectCard(
   userId: string,
   now: number,
 ): Promise<ProjectCard> {
-  if (patch.parentId) {
-    if (patch.parentId === card.id) throw ApiError.badRequest('A card cannot be its own parent')
-    const parent = await getProjectCardRow(db, patch.parentId)
-    if (!parent || parent.board_id !== card.boardId || parent.delete_at !== 0) {
-      throw ApiError.badRequest('Parent card does not exist on this board')
-    }
-    let currentAncestorId: string | null = parent.parent_id
-    const visited = new Set<string>([card.id, patch.parentId])
-    while (currentAncestorId) {
-      if (currentAncestorId === card.id) {
-        throw ApiError.badRequest('Cyclic parent relationship is not allowed')
-      }
-      if (visited.has(currentAncestorId)) break
-      visited.add(currentAncestorId)
-      const ancestor = await getProjectCardRow(db, currentAncestorId)
-      currentAncestorId = ancestor?.parent_id ?? null
-    }
-  }
+  if (patch.parentId) await assertProjectParent(db, card, patch.parentId)
   await db.batch(cardPatchStatements(db, card, patch, userId, now))
   return (await getProjectCard(db, card.id))!
 }

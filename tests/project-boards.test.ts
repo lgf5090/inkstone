@@ -68,6 +68,19 @@ async function createBoard(account: Account, body: Record<string, unknown> = {})
   return ((await response.json()) as { board: ProjectBoard }).board
 }
 
+describe('deleting a property', () => {
+  it('takes the card values that belonged to it', async () => {
+    const board = await createBoard('alice', { cardProperties: [prop(1)] })
+    const created = await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'C', values: { [pid(1)]: 'hello' } })
+    expect(created.status, await created.clone().text()).toBe(201)
+    const card = ((await created.json()) as { card: { id: string } }).card
+    const patched = await req('alice', 'PATCH', `/boards/${board.id}`, { deletedCardProperties: [pid(1)] })
+    expect(patched.status).toBe(200)
+    const left = sqlite.prepare('SELECT COUNT(*) AS n FROM project_card_values WHERE card_id = ?').get(card.id) as { n: number }
+    expect(left.n).toBe(0)
+  })
+})
+
 describe('creating a board', () => {
   it('makes the creator an admin member and stores properties in order', async () => {
     const board = await createBoard('alice', { title: 'Roadmap', icon: '🗺️', cardProperties: [prop(1), prop(2), prop(3)] })

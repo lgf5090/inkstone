@@ -31,14 +31,14 @@ import {
 import { isProjectCardDone } from '@shared/project/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit, requestClientIp } from '../lib/request'
+import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit, readFormDataWithinLimit, requestClientIp } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { originOf } from '../lib/notify'
 import { broadcastProjectChange } from './realtime'
 import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAccountArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireCard, requireComment, requireContent, requireView } from './auth'
 import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
-import { projectBoardCursor, readProjectBoardBundle } from './bundle'
+import { projectBoardCursor, readProjectBoardBundle, touchProjectBoard } from './bundle'
 import {
   addBoardToCategory,
   createProjectCategory,
@@ -141,6 +141,11 @@ projectRoutes.use('*', async (c, next) => {
   }
   if (!boardId) return
   const now = Date.now()
+  // Every board-scoped write advances the board's stamp, which is the cursor open tabs poll. Child
+  // edits, deletes and moves would otherwise leave it behind and a second tab would never converge.
+  await touchProjectBoard(c.env.DB, boardId, now).catch((error: unknown) => {
+    console.warn('[inkstone] project board cursor bump failed:', error instanceof Error ? error.message : error)
+  })
   const actor = c.get('userId') ?? c.get('user')?.id ?? ''
   const record = recordProjectActivity(c.env.DB, boardId, actor, method.toLowerCase(), path.split('/').pop() ?? '', `${method} ${path}`, now)
   record.catch((error: unknown) => console.warn('[inkstone] project activity record failed:', error instanceof Error ? error.message : error))
@@ -253,8 +258,8 @@ projectRoutes.post('/cards/:id/todo-link', async (c) => {
 })
 
 projectRoutes.delete('/cards/:id/todo-link', async (c) => {
-  const { card } = await requireCard(c, c.req.param('id'), 'editor')
-  await unlinkCardTodo(c.env.DB, card.id)
+  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  await unlinkCardTodo(c.env.DB, card.id, userId)
   return c.json({ ok: true })
 })
 
@@ -265,10 +270,10 @@ projectRoutes.get('/boards/:id/files', async (c) => {
 
 projectRoutes.post('/boards/:id/files', async (c) => {
   const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
-  assertDeclaredBodySize(c.req, PROJECT_UPLOAD_LIMIT + 1024 * 1024)
-  const form = await c.req.formData()
+  const form = await readFormDataWithinLimit(c.req, PROJECT_UPLOAD_LIMIT + 1024 * 1024)
   const file = form.get('file')
   if (!(file instanceof File)) throw ApiError.badRequest('A file field is required')
+  if (file.size > PROJECT_UPLOAD_LIMIT) throw ApiError.tooLarge('File too large')
   const bytes = new Uint8Array(await file.arrayBuffer())
   const cardId = typeof form.get('cardId') === 'string' ? (form.get('cardId') as string) : null
   if (cardId) {
@@ -719,6 +724,7 @@ projectRoutes.post('/categories/:id/boards/:boardId', async (c) => {
 
 projectRoutes.put('/categories/:id/boards/:boardId/hidden', async (c) => {
   const input = await projectBody(c, ProjectCategoryBoardHiddenSchema, JSON_BODY_LIMITS.small)
+  await requireBoard(c, c.req.param('boardId'), 'viewer')
   const edge = await setCategoryBoardHidden(c.env.DB, projectUserId(c), c.req.param('id'), c.req.param('boardId'), input.hidden, Date.now())
   return c.json({ categoryBoard: edge })
 })

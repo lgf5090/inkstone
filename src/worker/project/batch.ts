@@ -9,7 +9,7 @@ import type { ProjectBoard } from '@shared/project/model'
 import { removeContentOrder, type ProjectContentOrder } from '@shared/project/content-order'
 import { ProjectBatchDeleteSchema, ProjectBatchSchema } from '@shared/project/validation'
 import { ApiError } from '../lib/errors'
-import { cardPatchStatements, getProjectCard } from './cards'
+import { assertProjectParent, cardPatchStatements, getProjectCard } from './cards'
 import { cardOrderStatement, contentPatchStatements, getProjectContent, readCardOrder } from './contents'
 import { getProjectView, viewPatchStatements } from './views'
 
@@ -36,6 +36,7 @@ export async function batchPatchProjectBoard(
   for (const { id, patch } of input.cards ?? []) {
     const card = await getProjectCard(db, id)
     if (!card || card.boardId !== board.id || card.deleteAt !== 0) throw ApiError.notFound('Card not found')
+    if (patch.parentId) await assertProjectParent(db, card, patch.parentId)
     statements.push(...cardPatchStatements(db, card, patch, userId, now))
   }
   for (const { id, patch } of input.contents ?? []) {

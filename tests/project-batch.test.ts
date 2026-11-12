@@ -109,6 +109,17 @@ describe('batch patch', () => {
     expect((await bundle('alice', board.id)).cards[0]!.title).toBe('A')
   })
 
+  it('refuses a cross-board parent and a parent cycle', async () => {
+    const board = await createBoard('alice')
+    const other = await createBoard('alice')
+    const a = await createCard('alice', board.id, 'A')
+    const b = await createCard('alice', board.id, 'B')
+    const foreign = await createCard('alice', other.id, 'Foreign')
+    expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards: [{ id: a.id, patch: { parentId: foreign.id } }] })).status).toBe(400)
+    expect((await req('alice', 'PATCH', `/cards/${b.id}`, { parentId: a.id })).status).toBe(200)
+    expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards: [{ id: a.id, patch: { parentId: b.id } }] })).status).toBe(400)
+  })
+
   it('refuses a card from another board and a viewer', async () => {
     const board = await createBoard('alice')
     const other = await createBoard('alice')

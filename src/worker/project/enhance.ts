@@ -105,8 +105,8 @@ export async function linkCardTodo(db: D1Database, cardId: string, todoId: strin
   ).bind(cardId, todoId, userId, now).run()
 }
 
-export async function unlinkCardTodo(db: D1Database, cardId: string): Promise<void> {
-  await db.prepare('DELETE FROM project_todo_links WHERE card_id = ?1').bind(cardId).run()
+export async function unlinkCardTodo(db: D1Database, cardId: string, userId: string): Promise<void> {
+  await db.prepare('DELETE FROM project_todo_links WHERE card_id = ?1 AND user_id = ?2').bind(cardId, userId).run()
 }
 
 export async function getCardTodoLink(db: D1Database, cardId: string): Promise<string | null> {

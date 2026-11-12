@@ -206,6 +206,11 @@ export async function readProjectBoardBundle(
 
   return { board, properties, views, cards, contents, comments, members, people, role, cursor }
 }
+/** Advances the board's own stamp; the cursor poll and the sidebar's recency both read it. */
+export async function touchProjectBoard(db: D1Database, boardId: string, now: number): Promise<void> {
+  await db.prepare('UPDATE project_boards SET update_at = ?1 WHERE id = ?2 AND update_at < ?1').bind(now, boardId).run()
+}
+
 /**
  * The newest stamp across everything the bundle carries, without reading any of it.
  *
@@ -214,14 +219,15 @@ export async function readProjectBoardBundle(
  * is still current and the whole-board read can be skipped.
  */
 export async function projectBoardCursor(db: D1Database, board: ProjectBoard): Promise<number> {
-  const queries = [
-    'SELECT MAX(update_at) AS at FROM project_cards WHERE board_id = ?1 AND delete_at = 0',
-    'SELECT MAX(update_at) AS at FROM project_views WHERE board_id = ?1 AND delete_at = 0',
-    'SELECT MAX(update_at) AS at FROM project_card_contents WHERE board_id = ?1 AND delete_at = 0',
-    'SELECT MAX(update_at) AS at FROM project_comments WHERE board_id = ?1 AND delete_at = 0',
-    'SELECT MAX(updated_at) AS at FROM project_board_members WHERE board_id = ?1',
-    'SELECT MAX(updated_at) AS at FROM project_properties WHERE board_id = ?1',
-  ]
-  const rows = await Promise.all(queries.map((sql) => db.prepare(sql).bind(board.id).first<{ at: number | null }>()))
-  return rows.reduce((newest, row) => Math.max(newest, row?.at ?? 0), board.updateAt)
+  const row = await db.prepare(
+    `SELECT MAX(at) AS at FROM (
+       SELECT MAX(update_at) AS at FROM project_cards WHERE board_id = ?1 AND delete_at = 0
+       UNION ALL SELECT MAX(update_at) FROM project_views WHERE board_id = ?1 AND delete_at = 0
+       UNION ALL SELECT MAX(update_at) FROM project_card_contents WHERE board_id = ?1 AND delete_at = 0
+       UNION ALL SELECT MAX(update_at) FROM project_comments WHERE board_id = ?1 AND delete_at = 0
+       UNION ALL SELECT MAX(updated_at) FROM project_board_members WHERE board_id = ?1
+       UNION ALL SELECT MAX(updated_at) FROM project_properties WHERE board_id = ?1
+     )`,
+  ).bind(board.id).first<{ at: number | null }>()
+  return Math.max(board.updateAt, row?.at ?? 0)
 }

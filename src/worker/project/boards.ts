@@ -140,9 +140,11 @@ export async function patchProjectBoard(
     properties = applyProjectPropertyPatch(current, patch.updatedCardProperties ?? [], patch.deletedCardProperties ?? [])
     const kept = new Set(properties.map((property) => property.id))
     for (const property of current) {
-      if (!kept.has(property.id)) {
-        statements.push(db.prepare('DELETE FROM project_properties WHERE board_id = ?1 AND id = ?2').bind(board.id, property.id))
-      }
+      if (kept.has(property.id)) continue
+      statements.push(db.prepare('DELETE FROM project_properties WHERE board_id = ?1 AND id = ?2').bind(board.id, property.id))
+      statements.push(db.prepare(
+        'DELETE FROM project_card_values WHERE property_id = ?1 AND card_id IN (SELECT id FROM project_cards WHERE board_id = ?2)',
+      ).bind(property.id, board.id))
     }
     statements.push(...propertyStatements(db, board.id, properties, now))
   }
