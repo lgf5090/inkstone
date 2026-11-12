@@ -164,10 +164,18 @@ export async function readProjectBoardBundle(
     ).bind(board.id).all<ValueRow>(),
     db.prepare('SELECT * FROM project_views WHERE board_id = ?1 AND delete_at = 0 ORDER BY position, id')
       .bind(board.id).all<ViewRow>(),
-    db.prepare('SELECT * FROM project_card_contents WHERE board_id = ?1 AND delete_at = 0 ORDER BY position, id LIMIT ?2')
-      .bind(board.id, PROJECT_LIMITS.bundleContents + 1).all<ContentRow>(),
-    db.prepare('SELECT * FROM project_comments WHERE board_id = ?1 AND delete_at = 0 ORDER BY create_at, id LIMIT ?2')
-      .bind(board.id, PROJECT_LIMITS.bundleComments + 1).all<CommentRow>(),
+    db.prepare(
+      `SELECT * FROM project_card_contents
+       WHERE board_id = ?1 AND delete_at = 0
+         AND card_id IN (SELECT id FROM project_cards WHERE board_id = ?1 AND delete_at = 0)
+       ORDER BY position, id LIMIT ?2`,
+    ).bind(board.id, PROJECT_LIMITS.bundleContents + 1).all<ContentRow>(),
+    db.prepare(
+      `SELECT * FROM project_comments
+       WHERE board_id = ?1 AND delete_at = 0
+         AND card_id IN (SELECT id FROM project_cards WHERE board_id = ?1 AND delete_at = 0)
+       ORDER BY create_at, id LIMIT ?2`,
+    ).bind(board.id, PROJECT_LIMITS.bundleComments + 1).all<CommentRow>(),
   ])
 
   const valuesByCard = new Map<string, Record<string, string>>()

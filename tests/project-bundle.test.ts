@@ -223,6 +223,30 @@ describe('what a bundle leaves out', () => {
     expect(result.cursor).toBe(Math.max(board.updateAt, 20))
   })
 
+  it('drops live contents and comments whose parent card has been soft-deleted', async () => {
+    const board = await createBoard('alice', {})
+    seedCard(board.id, 'kept')
+    seedCard(board.id, 'deleted', { delete_at: 99 })
+    sqlite.prepare(
+      `INSERT INTO project_card_contents (id, card_id, board_id, type, title, position, created_by, modified_by, create_at, update_at, delete_at)
+       VALUES ('orphan-content', 'deleted', ?, 'text', 'still here', 0, 'alice', 'alice', 1, 1, 0)`,
+    ).run(board.id)
+    sqlite.prepare(
+      `INSERT INTO project_comments (id, card_id, board_id, author_id, body, create_at, update_at, delete_at)
+       VALUES ('orphan-comment', 'deleted', ?, 'alice', 'still here', 1, 1, 0)`,
+    ).run(board.id)
+    sqlite.prepare(
+      `INSERT INTO project_card_contents (id, card_id, board_id, type, created_by, modified_by, create_at, update_at, delete_at)
+       VALUES ('alive-content', 'kept', ?, 'text', 'alice', 'alice', 1, 1, 0)`,
+    ).run(board.id)
+    const result = await bundle('alice', board.id)
+    expect(result.cards.map((card) => card.id)).toEqual(['kept'])
+    expect(result.contents.map((content) => content.id)).toEqual(['alive-content'])
+    expect(result.comments).toEqual([])
+    const csv = await req('alice', 'GET', `/boards/${board.id}/csv`)
+    expect(await csv.text()).not.toContain('still here')
+  })
+
   it('orders views and contents by position and comments by creation', async () => {
     const board = await createBoard('alice', {})
     seedCard(board.id, 'c1')

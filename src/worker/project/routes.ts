@@ -552,8 +552,8 @@ projectRoutes.get('/cards/:id', async (c) => {
 projectRoutes.get('/cards/:id/detail', async (c) => {
   const { card } = await requireCard(c, c.req.param('id'), 'viewer')
   const [contents, comments] = await Promise.all([
-    c.env.DB.prepare('SELECT * FROM project_card_contents WHERE card_id = ?1 AND delete_at = 0 ORDER BY position, id').bind(card.id).all<Parameters<typeof rowToContent>[0]>(),
-    c.env.DB.prepare('SELECT * FROM project_comments WHERE card_id = ?1 AND delete_at = 0 ORDER BY create_at, id').bind(card.id).all<Parameters<typeof rowToComment>[0]>(),
+    c.env.DB.prepare('SELECT * FROM project_card_contents WHERE card_id = ?1 AND board_id = ?2 AND delete_at = 0 ORDER BY position, id').bind(card.id, card.boardId).all<Parameters<typeof rowToContent>[0]>(),
+    c.env.DB.prepare('SELECT * FROM project_comments WHERE card_id = ?1 AND board_id = ?2 AND delete_at = 0 ORDER BY create_at, id').bind(card.id, card.boardId).all<Parameters<typeof rowToComment>[0]>(),
   ])
   return c.json({ contents: contents.results.map(rowToContent), comments: comments.results.map(rowToComment) })
 })
@@ -680,7 +680,7 @@ projectRoutes.post('/contents/:id/move', async (c) => {
 
 projectRoutes.get('/cards/:id/comments', async (c) => {
   const { card } = await requireCard(c, c.req.param('id'), 'viewer')
-  return c.json({ comments: await listCardComments(c.env.DB, card.id) })
+  return c.json({ comments: await listCardComments(c.env.DB, card.id, card.boardId) })
 })
 
 projectRoutes.post('/cards/:id/comments', async (c) => {
