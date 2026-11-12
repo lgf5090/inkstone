@@ -75,4 +75,17 @@ describe('CSV export', () => {
     const rows = parseCsv(projectBoardToCsv(bundle))
     expect(rows[1]).toEqual(['Title, "x"', 'u1', '10'])
   })
+
+  it('names people in person, multiPerson and author columns', () => {
+    const bundle = fixture()
+    bundle.properties = [
+      { id: 'pp', name: 'Assignee', type: 'person', options: [] },
+      { id: 'pm', name: 'Watchers', type: 'multiPerson', options: [] },
+      { id: 'cb', name: 'Created by', type: 'createdBy', options: [] },
+    ]
+    bundle.cards[0]!.values = { pp: 'u2', pm: '["u2","u3"]' }
+    bundle.people = { u1: { id: 'u1', name: 'Uma', avatarUrl: '' }, u2: { id: 'u2', name: 'Uri', avatarUrl: '' }, u3: { id: 'u3', name: 'Ada', avatarUrl: '' } }
+    const rows = parseCsv(projectBoardToCsv(bundle))
+    expect(rows[1]).toEqual(['Title, "x"', 'Uri', 'Uri|Ada', 'Uma'])
+  })
 })

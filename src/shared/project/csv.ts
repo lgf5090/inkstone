@@ -6,7 +6,8 @@
  * broke the file). The reference's `#`→token dance existed only for its data-URI transport; raw CSV
  * keeps `#` literal, which removes that whole class of bug rather than patching it.
  */
-import type { ProjectBoardBundle, ProjectCard, ProjectProperty } from './model'
+import type { ProjectBoardBundle, ProjectCard, ProjectPeople, ProjectProperty } from './model'
+import { projectPersonLabel } from './model'
 
 export interface ProjectCsvOptions {
   visiblePropertyIds?: string[]
@@ -23,15 +24,17 @@ function escapeCell(value: string): string {
   return `"${value.replace(/"/g, '""')}"`
 }
 
-function exportCell(card: ProjectCard, property: ProjectProperty): string {
+function exportCell(card: ProjectCard, property: ProjectProperty, people: ProjectPeople): string {
   const raw = card.values[property.id] ?? ''
   switch (property.type) {
     case 'number':
       return raw
     case 'createdBy':
-      return escapeCell(card.createdBy)
+      return escapeCell(projectPersonLabel(people, card.createdBy))
     case 'updatedBy':
-      return escapeCell(card.modifiedBy)
+      return escapeCell(projectPersonLabel(people, card.modifiedBy))
+    case 'person':
+      return escapeCell(projectPersonLabel(people, raw))
     case 'createdTime':
       return escapeCell(String(card.createAt))
     case 'updatedTime':
@@ -40,7 +43,10 @@ function exportCell(card: ProjectCard, property: ProjectProperty): string {
       if (MULTI_VALUE_TYPES.has(property.type)) {
         try {
           const parsed: unknown = JSON.parse(raw)
-          if (Array.isArray(parsed)) return escapeCell(parsed.map(String).join('|'))
+          if (Array.isArray(parsed)) {
+            const ids = parsed.map(String)
+            return escapeCell((property.type === 'multiPerson' ? ids.map((id) => projectPersonLabel(people, id)) : ids).join('|'))
+          }
         } catch {
           // A scalar masquerading as a multi-value falls through to ordinary text.
         }
@@ -59,7 +65,7 @@ export function projectBoardToCsv(bundle: ProjectBoardBundle, options: ProjectCs
   }
   const header = [options.nameLabel ?? 'Name', ...columns.map((property) => property.name)].map(escapeCell).join(',')
   const rows = bundle.cards.map((card) =>
-    [escapeCell(card.title), ...columns.map((property) => exportCell(card, property))].join(','),
+    [escapeCell(card.title), ...columns.map((property) => exportCell(card, property, bundle.people))].join(','),
   )
   return BOM + [header, ...rows].join(ROW_SEPARATOR) + ROW_SEPARATOR
 }
