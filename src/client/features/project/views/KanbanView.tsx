@@ -69,7 +69,7 @@ export function kanbanColumnKeys(property: ProjectProperty | undefined, fields: 
 }
 
 export function KanbanView(props: KanbanProps): ReactElement {
-  const { cards, properties, fields, canEdit } = props
+  const { cards, properties, fields, canEdit, selected } = props
   const groupProperty = properties.find((property) => property.id === fields.groupById)
   const keys = kanbanColumnKeys(groupProperty, fields)
   const groups = useMemo(() => groupProjectCards(cards, fields.groupById, properties), [cards, fields.groupById, properties])
@@ -88,19 +88,28 @@ export function KanbanView(props: KanbanProps): ReactElement {
   const todayStamp = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
 
   const onDrop = (cardId: string, target: DragDropTarget): void => {
+    const bulk = selected.length > 1 && selected.includes(cardId)
+    const draggedIds = bulk ? cards.filter((card) => selected.includes(card.id)).map((card) => card.id) : [cardId]
     const order = projectKanbanDropOrder({
       columns: columns.map((column) => ({ key: column.key, cardIds: column.cards.map((card) => card.id) })),
       cardOrder: fields.cardOrder,
-      draggedId: cardId,
+      draggedIds,
       target,
     })
     props.onPatchFields({ cardOrder: order })
-    const card = cards.find((entry) => entry.id === cardId)
-    if (groupProperty && card && (card.values[groupProperty.id] ?? '') !== target.zone) {
-      void props.onPatchCard(cardId, { values: { [groupProperty.id]: target.zone === '' ? null : target.zone } })
+    if (!groupProperty) return
+    for (const id of draggedIds) {
+      const card = cards.find((entry) => entry.id === id)
+      if (card && (card.values[groupProperty.id] ?? '') !== target.zone) {
+        void props.onPatchCard(id, { values: { [groupProperty.id]: target.zone === '' ? null : target.zone } })
+      }
     }
   }
-  const drag = useDragSort({ enabled: canEdit, onDrop })
+  const drag = useDragSort({
+    enabled: canEdit,
+    groupOf: (id) => (selected.length > 1 && selected.includes(id) ? selected : [id]),
+    onDrop,
+  })
 
   const addGroup = (): void => {
     if (!groupProperty) return

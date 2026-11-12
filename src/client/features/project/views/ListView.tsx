@@ -83,7 +83,7 @@ export function ListView(props: ListProps): ReactElement {
         cardOrder: projectKanbanDropOrder({
           columns: entries.map(([key, list]) => ({ key, cardIds: list.map((card) => card.id) })),
           cardOrder: fields.cardOrder,
-          draggedId: cardId,
+          draggedIds: [cardId],
           target,
         }),
       })

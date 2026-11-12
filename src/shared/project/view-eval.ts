@@ -284,23 +284,24 @@ export function orderProjectCards(cards: readonly ProjectCard[], cardOrder: read
 export function projectKanbanDropOrder(input: {
   columns: readonly { key: string, cardIds: readonly string[] }[]
   cardOrder: readonly string[]
-  draggedId: string
+  draggedIds: readonly string[]
   target: { zone: string, index: number }
 }): string[] {
-  const { columns, cardOrder, draggedId, target } = input
+  const { columns, cardOrder, draggedIds, target } = input
+  const dragged = new Set(draggedIds)
   const column = columns.find((entry) => entry.key === target.zone)
-  if (!column) return [...cardOrder]
-  const flat = columns.flatMap((entry) => entry.cardIds).filter((id) => id !== draggedId)
-  const landing = column.cardIds.filter((id) => id !== draggedId)
+  if (!column || dragged.size === 0) return [...cardOrder]
+  const flat = columns.flatMap((entry) => entry.cardIds).filter((id) => !dragged.has(id))
+  const landing = column.cardIds.filter((id) => !dragged.has(id))
   const anchor = landing[target.index]
   let at: number
   if (anchor !== undefined) at = flat.indexOf(anchor)
   else if (landing.length > 0) at = flat.indexOf(landing[landing.length - 1]!) + 1
   else {
-    const before = columns.slice(0, columns.indexOf(column)).flatMap((entry) => entry.cardIds).filter((id) => id !== draggedId)
+    const before = columns.slice(0, columns.indexOf(column)).flatMap((entry) => entry.cardIds).filter((id) => !dragged.has(id))
     at = before.length
   }
-  flat.splice(at, 0, draggedId)
+  flat.splice(at, 0, ...draggedIds)
   const visible = new Set(flat)
   return [...flat, ...cardOrder.filter((id) => !visible.has(id))]
 }

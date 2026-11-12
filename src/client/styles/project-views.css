@@ -1999,3 +1999,20 @@ body.pv-dragging * {
     opacity: 0.6;
   }
 }
+.pv-ghost-count {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: var(--text-11);
+  font-weight: 700;
+  box-shadow: var(--shadow-pop);
+}

@@ -13027,6 +13027,7 @@ const allowed = new Map([
     "/**\n * Pointer drag for the board and the list.\n *\n * HTML5 drag-and-drop never fires from a touch, so a board built on `draggable` is a desktop-only\n * board. This walks the same path for mouse, pen and finger: press, cross a small threshold (or hold\n * on touch), then a fixed clone follows the pointer while the real card stays behind as a slot.\n *\n * The drop index is counted in midlines and means \"insert here after the dragged card is removed\",\n * so the caller can splice without a ±1 correction. Geometry is read once at drag start and corrected\n * by scroll deltas, because reading every card's rect on every pointermove forces a layout per frame.\n */",
     "/** Scroll deltas since `measure`, so a cached rect stays honest while the column scrolls. */",
     "// A finger that travels before the hold expires meant to scroll the column, not drag.",
+    "/** The full set travelling together when the pressed card is part of a multi-selection. */",
   ]],
   ["src/client/features/quickadd/bridge.test.ts", [
     "// `mount(undefined)` would take the helper's own default, so the prop is set here directly.",

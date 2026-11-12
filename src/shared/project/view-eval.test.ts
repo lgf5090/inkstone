@@ -222,7 +222,7 @@ describe('manual card order', () => {
     const order = projectKanbanDropOrder({
       columns: [{ key: 'x', cardIds: ['a'] }, { key: 'y', cardIds: ['b', 'c'] }],
       cardOrder: [],
-      draggedId: 'a',
+      draggedIds: ['a'],
       target: { zone: 'y', index: 0 },
     })
     expect(order).toEqual(['a', 'b', 'c'])
@@ -232,7 +232,7 @@ describe('manual card order', () => {
     const order = projectKanbanDropOrder({
       columns: [{ key: 'x', cardIds: ['a', 'b'] }, { key: 'y', cardIds: ['c'] }],
       cardOrder: [],
-      draggedId: 'a',
+      draggedIds: ['a'],
       target: { zone: 'x', index: 1 },
     })
     expect(order).toEqual(['b', 'a', 'c'])
@@ -242,7 +242,7 @@ describe('manual card order', () => {
     const order = projectKanbanDropOrder({
       columns: [{ key: 'x', cardIds: ['a'] }, { key: 'y', cardIds: [] }, { key: 'z', cardIds: ['c'] }],
       cardOrder: [],
-      draggedId: 'c',
+      draggedIds: ['c'],
       target: { zone: 'y', index: 0 },
     })
     expect(order).toEqual(['a', 'c'])
@@ -252,9 +252,29 @@ describe('manual card order', () => {
     const order = projectKanbanDropOrder({
       columns: [{ key: 'x', cardIds: ['a', 'b'] }],
       cardOrder: ['hidden1', 'b', 'hidden2', 'a'],
-      draggedId: 'a',
+      draggedIds: ['a'],
       target: { zone: 'x', index: 0 },
     })
     expect(order).toEqual(['a', 'b', 'hidden1', 'hidden2'])
+  })
+
+  it('moves a selected group together, keeping their relative order', () => {
+    const order = projectKanbanDropOrder({
+      columns: [{ key: 'x', cardIds: ['a', 'b', 'c'] }, { key: 'y', cardIds: ['d'] }],
+      cardOrder: [],
+      draggedIds: ['a', 'c'],
+      target: { zone: 'y', index: 1 },
+    })
+    expect(order).toEqual(['b', 'd', 'a', 'c'])
+  })
+
+  it('a group dropped within its own column lands at the index counted without the group', () => {
+    const order = projectKanbanDropOrder({
+      columns: [{ key: 'x', cardIds: ['a', 'b', 'c', 'd'] }],
+      cardOrder: [],
+      draggedIds: ['a', 'b'],
+      target: { zone: 'x', index: 1 },
+    })
+    expect(order).toEqual(['c', 'a', 'b', 'd'])
   })
 })

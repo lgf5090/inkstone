@@ -41,17 +41,21 @@ const EDGE_SPEED = 14
 
 export function useDragSort(options: {
   enabled: boolean
+  /** The full set travelling together when the pressed card is part of a multi-selection. */
+  groupOf?: (id: string) => readonly string[]
   onDrop: (id: string, target: DragDropTarget) => void
 }): {
   draggingId: string | null
   over: DragDropTarget | null
   start: (event: ReactPointerEvent, id: string) => void
 } {
-  const { enabled, onDrop } = options
+  const { enabled, groupOf, onDrop } = options
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [over, setOver] = useState<DragDropTarget | null>(null)
   const dropRef = useRef(onDrop)
   dropRef.current = onDrop
+  const groupRef = useRef(groupOf)
+  groupRef.current = groupOf
   const session = useRef<{ cleanup: () => void } | null>(null)
 
   useEffect(() => () => { session.current?.cleanup() }, [])
@@ -61,6 +65,7 @@ export function useDragSort(options: {
     const source = (event.currentTarget as HTMLElement).closest('[data-drag-item]') as HTMLElement | null
     const root = (event.currentTarget as HTMLElement).closest('[data-drag-root]') as HTMLElement | null
     if (!source || !root) return
+    const group = new Set(groupRef.current?.(id) ?? [id])
     const touch = event.pointerType === 'touch'
     const startX = event.clientX
     const startY = event.clientY
@@ -117,6 +122,12 @@ export function useDragSort(options: {
       ghost.style.left = '0'
       ghost.style.top = '0'
       ghost.setAttribute('aria-hidden', 'true')
+      if (group.size > 1) {
+        const badge = document.createElement('span')
+        badge.className = 'pv-ghost-count'
+        badge.textContent = String(group.size)
+        ghost.appendChild(badge)
+      }
       document.body.appendChild(ghost)
       document.body.classList.add('pv-dragging')
       setDraggingId(id)
@@ -139,7 +150,7 @@ export function useDragSort(options: {
       const inBand = zones.filter((entry) => x >= entry.left - dx && x <= entry.right - dx)
       const zone = inBand.find((entry) => y >= entry.top - dy && y <= entry.bottom - dy) ?? inBand[0]
       if (!zone) return latest
-      const siblings = items.filter((entry) => entry.zone === zone.key && entry.id !== id)
+      const siblings = items.filter((entry) => entry.zone === zone.key && !group.has(entry.id))
       let index = 0
       for (const entry of siblings) {
         if (y > entry.top - dy + entry.height / 2) index += 1
