@@ -68,6 +68,7 @@ import { isTaskDone } from '@shared/todos/status'
 import { TASK_STATUSES, type TaskPriority, type TaskStatus } from '@shared/assistant'
 import { AssistantStore, TaskRefusal, type TaskQuery } from '../assistant/store'
 import { runIdempotent } from '../mcp/operations'
+import { syncTodoCompletionToCard } from '../project/enhance'
 import { insertFeed, listFeeds, revokeFeed, type OwnFeedRow } from '../todos/feeds'
 import {
   addCounterTick,
@@ -1852,6 +1853,7 @@ todoRoutes.patch('/:id', async (c) => {
       wroteFields ? undefined : expectedRev,
     )) ?? task
   }
+  await syncTodoCompletionToCard(c.env.DB, id, isTaskDone(task.status), Date.now())
   return c.json({ task, ...(next ? { next } : {}) })
 })
 

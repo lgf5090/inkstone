@@ -12,6 +12,7 @@ const EVERY_TAB_ID: Record<AppTabId, true> = {
   clouddrive: true,
   calendar: true,
   todo: true,
+  project: true,
   email: true,
   nav: true,
   chat: true,
@@ -72,6 +73,12 @@ describe('the app tab registry', () => {
     const ids = APP_TABS.map((tab) => tab.id)
     expect(ids[ids.indexOf('youtube') + 1]).toBe('tools')
     expect(ids[ids.indexOf('cloudflare') + 1]).toBe('youtube')
+  })
+
+  it('places the project app directly under the to-do app', () => {
+    const ids = APP_TABS.map((tab) => tab.id)
+    expect(ids[ids.indexOf('todo') + 1]).toBe('project')
+    expect(tabIdForPath('/project/boards/b1')).toBe('project')
   })
 
   it('places Cloud Drive directly above the calendar', () => {

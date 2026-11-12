@@ -20,6 +20,9 @@ vi.mock('./AppShell', () => ({
 vi.mock('../calendar/CalendarApp', () => ({
   CalendarApp: () => createElement('section', { 'data-calendar-app': '' }),
 }))
+vi.mock('../project/ProjectApp', () => ({
+  ProjectApp: () => createElement('section', { 'data-project-app': '' }),
+}))
 
 import { initI18n } from '../../lib/i18n'
 import { useSession } from '../../store/session'
@@ -84,6 +87,15 @@ describe('the tab host', () => {
     expect(view.container.querySelector('[data-calendar-app]')).not.toBeNull()
     expect(placeholderHeading()).toBeNull()
     expect(view.container.querySelectorAll('nav a[href]').length).toBe(APP_TABS.length)
+  })
+
+  it('mounts the project app for its own address, not a placeholder', async () => {
+    view = renderElement(createElement(AppTabHost))
+    await act(async () => { clickTab('/project'); await Promise.resolve() })
+    expect(window.location.pathname).toBe('/project')
+    expect(view.container.querySelector('[data-project-app]')).not.toBeNull()
+    expect(placeholderHeading()).toBeNull()
+    expect(view.container.querySelector('nav a[href="/project"][aria-current="page"]')).not.toBeNull()
   })
 
   it('keeps the sync engine of the account mounted across a tab switch', () => {

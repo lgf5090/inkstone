@@ -15,6 +15,10 @@ export const JSON_BODY_LIMITS = {
   // characters each — the most either route can legitimately be asked to parse.
   attachmentHub: 64 * 1024,
   youtube: 64 * 1024,
+  // A board write can carry the 800000-rune description field (up to four bytes a rune) plus a hundred
+  // property templates, so the coarse body ceiling has to sit above that field's own zod limit rather
+  // than below it — otherwise a legitimate long description is refused as a body before it is parsed.
+  project: 4 * 1024 * 1024,
   profile: 256 * 1024,
   // A whole skill library arriving at once: the ceiling is the number of skills the list route will hand
   // over, times the most a single one may hold. Nothing smaller can refuse a file this app can produce.

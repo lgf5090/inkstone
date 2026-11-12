@@ -304,6 +304,7 @@ interface AssistantState {
   canvasContextOn: boolean
   todoContext: TodoAssistantContext | null
   todoContextOn: boolean
+  projectContext: AssistantPageContext | null
   emailContext: EmailAssistantContext | null
   emailContextOn: boolean
   navContext: NavAssistantContext | null
@@ -325,6 +326,7 @@ interface AssistantState {
   setCanvasContext: (on: boolean) => void
   setTodoContext: (value: TodoAssistantContext | null) => void
   setTodoContextOn: (on: boolean) => void
+  setProjectContext: (value: AssistantPageContext | null) => void
   setEmailContext: (value: EmailAssistantContext | null) => void
   setEmailContextOn: (on: boolean) => void
   setNavContext: (value: NavAssistantContext | null) => void
@@ -1540,6 +1542,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   canvasContextOn: true,
   todoContext: null,
   todoContextOn: true,
+  projectContext: null,
   emailContext: null,
   emailContextOn: true,
   navContext: null,
@@ -2641,6 +2644,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   setPageContextOn: (on) => set({ pageContextOn: on }),
   setTodoContext: (value) => set({ todoContext: value }),
   setTodoContextOn: (on) => set({ todoContextOn: on }),
+  setProjectContext: (value) => set({ projectContext: value }),
   setEmailContext: (value) => set({ emailContext: value }),
   setEmailContextOn: (on) => set({ emailContextOn: on }),
   setNavContext: (value) => set({ navContext: value }),

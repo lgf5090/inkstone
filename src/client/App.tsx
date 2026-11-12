@@ -36,6 +36,9 @@ const ConversationSharePage = lazy(() =>
 const CollectionPage = lazy(() =>
   import('./features/share/CollectionPage').then((module) => ({ default: module.CollectionPage })),
 )
+const ProjectSharePage = lazy(() =>
+  import('./features/project/ProjectSharePage').then((module) => ({ default: module.ProjectSharePage })),
+)
 const MemosPublicApp = lazy(() =>
   import('./features/memos/MemosPublicApp').then((module) => ({ default: module.MemosPublicApp })),
 )
@@ -179,11 +182,15 @@ export function App() {
     const match = /^\/w\/([A-Za-z0-9_-]{20})\/?$/.exec(location.pathname)
     return match?.[1] ?? null
   })
+  const [projectShareSlug] = useState(() => {
+    const match = /^\/p\/([A-Za-z0-9_-]+)/.exec(location.pathname)
+    return match?.[1] ?? null
+  })
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || collectionSlug || musicShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug) return
+    if (shareSlug || conversationShareSlug || collectionSlug || musicShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug || projectShareSlug) return
     void load()
-  }, [load, shareSlug, conversationShareSlug, collectionSlug, musicShareSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, driveRequestSlug, websshReplaySlug])
+  }, [load, shareSlug, conversationShareSlug, collectionSlug, musicShareSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, driveRequestSlug, websshReplaySlug, projectShareSlug])
 
   useEffect(() => watchSystemTheme(), [])
 
@@ -204,16 +211,16 @@ export function App() {
   useEffect(() => installTemplaterCreationTrigger(), [])
 
   useEffect(() => {
-    if ((shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug) || status !== 'loading') return
+    if ((shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug || projectShareSlug) || status !== 'loading') return
     requestOfflineWarmup()
-  }, [shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, websshReplaySlug, status])
+  }, [shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, websshReplaySlug, projectShareSlug, status])
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug || status !== 'loading') dismissBootScreen()
-  }, [status, shareSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, driveRequestSlug, websshReplaySlug])
+    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug || projectShareSlug || status !== 'loading') dismissBootScreen()
+  }, [status, shareSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, driveRequestSlug, websshReplaySlug, projectShareSlug])
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug) return
+    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || driveRequestSlug || websshReplaySlug || projectShareSlug) return
     const timer = window.setTimeout(() => {
       dismissBootScreen()
       // Set whether or not the session has resolved by now: the flag only ever paints while the status is
@@ -221,7 +228,7 @@ export function App() {
       setBootStalled(true)
     }, BOOT_WATCHDOG_MS)
     return () => window.clearTimeout(timer)
-  }, [shareSlug, isPresenter, memoAlwaysPublic, websshReplaySlug])
+  }, [shareSlug, isPresenter, memoAlwaysPublic, websshReplaySlug, projectShareSlug])
 
   if (isPresenter) {
     return (
@@ -301,12 +308,12 @@ export function App() {
     )
   }
 
-  if (shareSlug || conversationShareSlug || collectionSlug) {
+  if (shareSlug || conversationShareSlug || collectionSlug || projectShareSlug) {
     return (
       <>
         <ErrorBoundary>
           <Suspense fallback={<PageFallback />}>
-            {shareSlug ? <SharePage slug={shareSlug} /> : conversationShareSlug ? <ConversationSharePage slug={conversationShareSlug}/> : <CollectionPage slug={collectionSlug!}/>}
+            {shareSlug ? <SharePage slug={shareSlug} /> : conversationShareSlug ? <ConversationSharePage slug={conversationShareSlug}/> : projectShareSlug ? <ProjectSharePage slug={projectShareSlug} /> : <CollectionPage slug={collectionSlug!}/>}
           </Suspense>
         </ErrorBoundary>
         <Toaster />

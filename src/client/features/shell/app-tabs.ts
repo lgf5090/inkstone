@@ -11,7 +11,7 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Cloud, Compass, FileCode2, FileText, HardDrive, Images, ListChecks, Mail, MessageSquare, Music, Newspaper, NotebookPen, PlaySquare, Rss, SquareTerminal, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Cloud, Compass, FileCode2, FileText, HardDrive, Images, ListChecks, Mail, MessageSquare, Music, Newspaper, NotebookPen, PlaySquare, Rss, SquareKanban, SquareTerminal, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
@@ -22,6 +22,7 @@ export type AppTabId =
   | 'clouddrive'
   | 'calendar'
   | 'todo'
+  | 'project'
   | 'email'
   | 'nav'
   | 'chat'
@@ -54,6 +55,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'clouddrive', path: '/clouddrive', labelKey: 'app.tabs.clouddrive', icon: HardDrive },
   { id: 'calendar', path: '/calendar', labelKey: 'app.tabs.calendar', icon: CalendarDays },
   { id: 'todo', path: '/todo', labelKey: 'app.tabs.todo', icon: ListChecks },
+  { id: 'project', path: '/project', labelKey: 'app.tabs.project', icon: SquareKanban },
   { id: 'email', path: '/email', labelKey: 'app.tabs.email', icon: Mail },
   { id: 'chat', path: '/chat', labelKey: 'app.tabs.chat', icon: MessageSquare },
   { id: 'subscriptions', path: '/subscriptions', labelKey: 'app.tabs.subscriptions', icon: Wallet },
@@ -92,6 +94,7 @@ const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
   ['/webssh/', 'webssh'],
   ['/scripts/', 'scriptshub'],
   ['/development/', 'development'],
+  ['/project/', 'project'],
 ]
 
 const TAB_BY_PATH = new Map(APP_TABS.map((tab) => [tab.path, tab.id]))

@@ -233,6 +233,16 @@ import {
   CALENDAR_REQUIRED_TABLES,
   CALENDAR_SCHEMA_STATEMENTS,
 } from '../calendar/schema'
+import {
+  PROJECT_AUX_SCHEMA_STATEMENTS,
+  PROJECT_CONTENT_SCHEMA_STATEMENTS,
+  PROJECT_CORE_SCHEMA_STATEMENTS,
+  PROJECT_ENHANCE_SCHEMA_STATEMENTS,
+  PROJECT_FTS_SCHEMA_STATEMENTS,
+  PROJECT_REQUIRED_COLUMNS,
+  PROJECT_REQUIRED_INDEXES,
+  PROJECT_REQUIRED_TABLES,
+} from '../project/schema'
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
   target_id TEXT NOT NULL,
@@ -836,7 +846,12 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...AI_GATEWAY_ROUTING_SCHEMA_STATEMENTS,
   ...YOUTUBE_SCHEMA_STATEMENTS,
   ...CLOUDDRIVE_SCHEMA_STATEMENTS,
-  ...SCRIPTSHUB_SCHEMA_STATEMENTS,]
+  ...SCRIPTSHUB_SCHEMA_STATEMENTS,
+  ...PROJECT_CORE_SCHEMA_STATEMENTS,
+  ...PROJECT_CONTENT_SCHEMA_STATEMENTS,
+  ...PROJECT_AUX_SCHEMA_STATEMENTS,
+  ...PROJECT_ENHANCE_SCHEMA_STATEMENTS,
+  ...PROJECT_FTS_SCHEMA_STATEMENTS,]
 
 export interface SchemaMigration {
   version: number
@@ -4203,6 +4218,59 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 384,
     statements: DEVELOPMENT_GITHUB_COLLECTION_PARENT_MIGRATION,
   },
+  {
+    // The project tables were numbered 287+ on their own branch; `test` had already spent
+    // 287–384, so they follow it here rather than reusing a version the ledger already holds.
+    version: 385,
+    statements: PROJECT_CORE_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 386,
+    statements: PROJECT_CONTENT_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 387,
+    statements: PROJECT_AUX_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 388,
+    statements: PROJECT_ENHANCE_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 389,
+    statements: PROJECT_FTS_SCHEMA_STATEMENTS,
+  },
+  {
+    // The view type list lives in PROJECT_VIEW_TYPES and is enforced by ProjectViewTypeSchema at the
+    // API boundary. The table used to repeat it as a CHECK, which a new view type could not get past:
+    // CREATE TABLE IF NOT EXISTS leaves an existing constraint alone, so adding 'dashboard' to the
+    // enum made the write fail with a 500 on every database created before it. Rebuild without the
+    // duplicate list, carrying every row across unchanged.
+    version: 390,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS project_views_rebuild (
+         id TEXT PRIMARY KEY,
+         board_id TEXT NOT NULL,
+         title TEXT NOT NULL DEFAULT '',
+         view_type TEXT NOT NULL,
+         fields TEXT NOT NULL DEFAULT '{}',
+         position REAL NOT NULL DEFAULT 0,
+         created_by TEXT NOT NULL,
+         modified_by TEXT NOT NULL,
+         create_at INTEGER NOT NULL,
+         update_at INTEGER NOT NULL,
+         delete_at INTEGER NOT NULL DEFAULT 0
+       )`,
+      `INSERT INTO project_views_rebuild
+         (id, board_id, title, view_type, fields, position, created_by, modified_by, create_at, update_at, delete_at)
+         SELECT id, board_id, title, view_type, fields, position, created_by, modified_by, create_at, update_at, delete_at
+         FROM project_views`,
+      'DROP TABLE project_views',
+      'ALTER TABLE project_views_rebuild RENAME TO project_views',
+      `CREATE INDEX IF NOT EXISTS idx_project_views_board
+         ON project_views(board_id, delete_at, position)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -4293,7 +4361,8 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...YOUTUBE_REQUIRED_COLUMNS,
   ...CLOUDDRIVE_REQUIRED_COLUMNS,
   ...WEBSSH_REQUIRED_COLUMNS,
-  ...SCRIPTSHUB_REQUIRED_COLUMNS,} as const
+  ...SCRIPTSHUB_REQUIRED_COLUMNS,
+  ...PROJECT_REQUIRED_COLUMNS,} as const
 
 export const REQUIRED_TABLES = [
   'app_meta',
@@ -4376,7 +4445,8 @@ export const REQUIRED_TABLES = [
   ...YOUTUBE_REQUIRED_TABLES,
   ...CLOUDDRIVE_REQUIRED_TABLES,
   ...WEBSSH_REQUIRED_TABLES,
-  ...SCRIPTSHUB_REQUIRED_TABLES,] as const
+  ...SCRIPTSHUB_REQUIRED_TABLES,
+  ...PROJECT_REQUIRED_TABLES,] as const
 
 export const REQUIRED_INDEXES = [
   'idx_folders_user',
@@ -4473,7 +4543,8 @@ export const REQUIRED_INDEXES = [
   ...YOUTUBE_REQUIRED_INDEXES,
   ...CLOUDDRIVE_REQUIRED_INDEXES,
   ...WEBSSH_REQUIRED_INDEXES,
-  ...SCRIPTSHUB_REQUIRED_INDEXES,] as const
+  ...SCRIPTSHUB_REQUIRED_INDEXES,
+  ...PROJECT_REQUIRED_INDEXES,] as const
 
 
 const initializationCache = new WeakMap<D1Database, Promise<DatabaseState>>()

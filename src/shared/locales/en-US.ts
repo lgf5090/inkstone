@@ -43,6 +43,7 @@ import { EN_US_DEVELOPMENT_XGET_SETTINGS } from './en-US-development-xget-settin
 import { EN_US_INK } from './en-US-ink';
 import { EN_US_INK_ELEMENTS } from './en-US-ink-elements';
 import { EN_US_INK_SETTINGS } from './en-US-ink-settings';
+import { EN_US_PROJECT } from './en-US-project';
 const CORE_MESSAGES = {
     "template.kanban_sprint_board.name": "Sprint Board",
     "template.kanban_sprint_board.description": "A kanban board with the four columns a sprint actually needs.",
@@ -6567,6 +6568,7 @@ const CORE_MESSAGES_TAIL = {
     "app.tabs.inknote": "Handwriting",
     "app.tabs.calendar": "Calendar",
     "app.tabs.todo": "To-do",
+    "app.tabs.project": "Projects",
     "app.tabs.email": "Mail",
     "app.tabs.nav": "Navigator",
     "app.tabs.chat": "Chat",
@@ -7410,6 +7412,13 @@ const CORE_MESSAGES_TAIL = {
     "assistant.tool.memo_create": "Record a memo",
     "assistant.tool.memo_comment": "Propose a comment",
     "assistant.tool.memo_delete": "Propose deleting memos",
+    "assistant.tool.project_list_boards": "List project boards",
+    "assistant.tool.project_list_cards": "List board cards",
+    "assistant.tool.project_create_card": "Create a project card",
+    "assistant.tool.project_update_card": "Update a project card",
+    "assistant.tool.project_schedule_card": "Schedule a project card",
+    "assistant.tool.project_delete_card": "Propose deleting a project card",
+    "assistant.approval.project_delete_card": "Delete {title}?",
     "assistant.tool.blog_list_posts": "List blog posts",
     "assistant.tool.blog_read_post": "Read a blog post",
     "assistant.tool.blog_create_draft": "Turn a note into a blog draft",
@@ -10929,6 +10938,7 @@ const CORE_MESSAGES_TAIL = {
     ...EN_US_INK,
     ...EN_US_INK_ELEMENTS,
     ...EN_US_INK_SETTINGS,
+    ...EN_US_PROJECT,
 } as const;
 
 const CORE_MESSAGES_ALL: typeof CORE_MESSAGES & typeof CORE_MESSAGES_TAIL = { ...CORE_MESSAGES, ...CORE_MESSAGES_TAIL };
