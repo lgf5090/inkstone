@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { strToU8, unzipSync } from 'fflate'
+import { strToU8, unzipSync, zipSync } from 'fflate'
 import { createApp } from '../src/worker/app'
 import { createSession } from '../src/worker/lib/session-store'
 import { CLIENT_HEADER, LEGACY_SESSION_COOKIE } from '../src/shared/constants'
@@ -110,10 +110,9 @@ describe('archive export and import', () => {
       DELETE FROM project_card_contents; DELETE FROM project_comments`)
     const importResponse = await reqRaw('bob', '/boards/import', bytes)
     expect(importResponse.status, await importResponse.clone().text()).toBe(201)
-    const result = (await importResponse.json()) as { board: ProjectBoard; skippedMembers: string[] }
+    const result = (await importResponse.json()) as { board: ProjectBoard }
     expect(result.board.id).toBe(board.id)
     expect(result.board.ownerId).toBe('bob')
-    expect(result.skippedMembers).toEqual([])
 
     const restored = await bundle('bob', board.id)
     expect(restored.properties).toEqual(original.properties)
@@ -123,7 +122,7 @@ describe('archive export and import', () => {
     expect(restored.comments).toEqual(original.comments)
     expect(restored.board).toMatchObject({ title: 'Roadmap', description: 'Desc', icon: '🗺️', showDescription: true })
     expect(restored.board.ownerId).toBe('bob')
-    expect(restored.members.map((m) => m.userId).sort()).toEqual(['alice', 'bob'])
+    expect(restored.members.map((m) => m.userId)).toEqual(['bob'])
   })
 
   it('refuses to import over an existing board id', async () => {
@@ -160,5 +159,60 @@ describe('archive export and import', () => {
     sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)').run(board.id, 'bob', 'viewer')
     expect((await req('bob', 'GET', `/boards/${board.id}/archive`)).status).toBe(200)
     expect((await req('carol', 'GET', `/boards/${board.id}/archive`)).status).toBe(404)
+  })
+})
+
+function archiveWithLines(boardId: string, lines: unknown[]): Uint8Array {
+  return zipSync({
+    'version.json': strToU8(JSON.stringify({ version: 2, date: 1 })),
+    [`${boardId}/board.jsonl`]: strToU8(lines.map((line) => JSON.stringify(line)).join('\n') + '\n'),
+  })
+}
+
+const boardLine = (id: string): unknown => ({ type: 'board', data: { id, title: 'Imported', cardProperties: [] } })
+const cardBlock = (id: string, boardId: string): unknown => ({
+  type: 'block',
+  data: { id, type: 'card', parentId: boardId, boardId, title: 'Card', fields: {}, createAt: 1, updateAt: 1 },
+})
+
+describe('archive import trust boundary', () => {
+  it('never restores member rows from an uploaded archive', async () => {
+    const bytes = archiveWithLines('b-attack1', [
+      boardLine('b-attack1'),
+      cardBlock('c-attack1', 'b-attack1'),
+      { type: 'boardMember', data: { boardId: 'b-attack1', userId: 'alice', role: 'admin' } },
+      { type: 'boardMember', data: { boardId: 'b-attack1', userId: 'bob', role: 'viewer' } },
+    ])
+    const response = await reqRaw('carol', '/boards/import', bytes)
+    expect(response.status, await response.clone().text()).toBe(201)
+    const members = (await (await req('carol', 'GET', '/boards/b-attack1/members')).json()) as { members: { userId: string }[] }
+    expect(members.members.map((entry) => entry.userId)).toEqual(['carol'])
+  })
+
+  it('rejects content and comments that point at a card outside the archive', async () => {
+    const foreign = {
+      type: 'block',
+      data: { id: 'a-foreign', type: 'text', parentId: 'c-elsewhere', boardId: 'b-attack2', title: 'Injected', fields: {}, createAt: 1, updateAt: 1 },
+    }
+    const bytes = archiveWithLines('b-attack2', [boardLine('b-attack2'), cardBlock('c-attack2', 'b-attack2'), foreign])
+    const response = await reqRaw('alice', '/boards/import', bytes)
+    expect(response.status).toBe(400)
+    expect(sqlite.prepare('SELECT count(*) AS n FROM project_board_members WHERE board_id = ?').get('b-attack2')).toMatchObject({ n: 0 })
+  })
+
+  it('rejects ids that could escape into a header or an iCalendar field', async () => {
+    const bytes = archiveWithLines('b-attack3', [
+      { type: 'board', data: { id: 'b-attack3"\r\nX-Injected: 1', title: 'Bad', cardProperties: [] } },
+    ])
+    expect((await reqRaw('alice', '/boards/import', bytes)).status).toBe(400)
+  })
+
+  it('rejects a ZIP with too many members before decompressing it', async () => {
+    const files: Record<string, Uint8Array> = {
+      'version.json': strToU8(JSON.stringify({ version: 2, date: 1 })),
+      'b-many/board.jsonl': strToU8(`${JSON.stringify(boardLine('b-many'))}\n`),
+    }
+    for (let index = 0; index < 101; index += 1) files[`extra/${index}.txt`] = strToU8('x')
+    expect((await reqRaw('alice', '/boards/import', zipSync(files))).status).toBe(413)
   })
 })

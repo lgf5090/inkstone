@@ -2,12 +2,12 @@
  * The archive transport: a v2 ZIP out, a v2 ZIP or a v1 JSON in. The JSONL mapping itself lives in
  * the shared module so the browser converters and this server agree byte for byte; this file only
  * zips, unzips, and writes the imported rows. Import preserves the archive's ids (so a round trip is
- * field-equal) but the new board belongs to whoever imports it, and members are matched to local
- * accounts rather than trusted blindly.
+ * field-equal) but the new board belongs to whoever imports it. Member rows are deliberately not
+ * restored: an archive is data, not an invitation, and no local account may join a board because an
+ * uploaded file said so.
  */
 import { strFromU8, strToU8, unzipSync, zipSync, type Unzipped } from 'fflate'
 import type { ProjectBoard, ProjectBoardBundle, ProjectBoardSummary, ProjectRole } from '@shared/project/model'
-import { PROJECT_ROLES } from '@shared/project/model'
 import {
   PROJECT_ARCHIVE_VERSION,
   ProjectArchiveBlockSchema,
@@ -22,6 +22,73 @@ import { ApiError } from '../lib/errors'
 import { readProjectBoardBundle } from './bundle'
 import { duplicateProjectBoard } from './duplicate'
 import { ProjectStore } from './store'
+
+const ARCHIVE_MAX_BYTES = 32 * 1024 * 1024
+const ARCHIVE_MAX_FILES = 100
+const ARCHIVE_MAX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+const ARCHIVE_MAX_CONTENTS = 20000
+const ARCHIVE_MAX_COMMENTS = 20000
+const ARCHIVE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+
+function archiveId(value: string, label: string): string {
+  if (!ARCHIVE_ID_PATTERN.test(value)) throw ApiError.badRequest(`${label} has an invalid id`)
+  return value
+}
+
+function assertZipBudget(bytes: Uint8Array): void {
+  if (bytes.length > ARCHIVE_MAX_BYTES) throw ApiError.tooLarge('archive is too large')
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  let eocd = -1
+  for (let at = bytes.length - 22; at >= Math.max(0, bytes.length - 65557 - 22); at -= 1) {
+    if (view.getUint32(at, true) === 0x06054b50) { eocd = at; break }
+  }
+  if (eocd < 0) return
+  const count = view.getUint16(eocd + 10, true)
+  const offset = view.getUint32(eocd + 16, true)
+  if (count === 0xffff || offset === 0xffffffff || count > ARCHIVE_MAX_FILES) throw ApiError.tooLarge('archive has too many files')
+  let at = offset
+  let total = 0
+  for (let index = 0; index < count; index += 1) {
+    if (at + 46 > bytes.length || view.getUint32(at, true) !== 0x02014b50) throw ApiError.badRequest('archive directory is invalid')
+    const compressed = view.getUint32(at + 20, true)
+    const size = view.getUint32(at + 24, true)
+    if (compressed === 0xffffffff || size === 0xffffffff) throw ApiError.tooLarge('zip64 archives are not supported')
+    total += size
+    if (total > ARCHIVE_MAX_UNCOMPRESSED_BYTES) throw ApiError.tooLarge('archive expands beyond the allowed size')
+    at += 46 + view.getUint16(at + 28, true) + view.getUint16(at + 30, true) + view.getUint16(at + 32, true)
+  }
+}
+
+function archiveFiles(bytes: Uint8Array): Unzipped | null {
+  assertZipBudget(bytes)
+  try { return unzipSync(bytes) } catch { return null }
+}
+
+function assertArchiveImport(imported: ReturnType<typeof projectArchiveLinesToImport>): void {
+  archiveId(imported.board.id, 'board')
+  if (imported.cards.length > PROJECT_LIMITS.cardsPerBoard) throw ApiError.conflict('PROJECT_MAX_CARDS_PER_BOARD')
+  if (imported.views.length > PROJECT_LIMITS.viewsPerBoard) throw ApiError.conflict('PROJECT_MAX_VIEWS_PER_BOARD')
+  if (imported.properties.length > PROJECT_LIMITS.propertiesPerBoard) throw ApiError.conflict('PROJECT_MAX_PROPERTIES_PER_BOARD')
+  if (imported.contents.length > ARCHIVE_MAX_CONTENTS || imported.comments.length > ARCHIVE_MAX_COMMENTS) {
+    throw ApiError.tooLarge('archive has too many rows')
+  }
+  const cardIds = new Set<string>()
+  for (const card of imported.cards) {
+    archiveId(card.id, 'card')
+    cardIds.add(card.id)
+    for (const propertyId of Object.keys(card.values)) archiveId(propertyId, 'property value')
+  }
+  for (const property of imported.properties) archiveId(property.id, 'property')
+  for (const view of imported.views) archiveId(view.id, 'view')
+  for (const content of imported.contents) {
+    archiveId(content.id, 'content')
+    if (!cardIds.has(content.cardId)) throw ApiError.badRequest('archive content references an unknown card')
+  }
+  for (const comment of imported.comments) {
+    archiveId(comment.id, 'comment')
+    if (!cardIds.has(comment.cardId)) throw ApiError.badRequest('archive comment references an unknown card')
+  }
+}
 
 export async function exportProjectBoardArchive(
   db: D1Database,
@@ -51,12 +118,14 @@ export async function exportProjectAccountArchive(db: D1Database, userId: string
 
 /** Whole-account import: every board.jsonl in the ZIP becomes a fresh board (ids remapped). */
 export async function importProjectAccountArchive(db: D1Database, userId: string, bytes: Uint8Array, now: number): Promise<ProjectBoardSummary[]> {
-  const files = unzipSync(bytes)
+  const files = archiveFiles(bytes)
+  if (!files) throw ApiError.badRequest('archive is not a ZIP')
   const jsonlNames = Object.keys(files).filter((name) => name.endsWith('board.jsonl'))
   if (jsonlNames.length === 0) throw ApiError.badRequest('archive ZIP has no board.jsonl')
   const created: ProjectBoardSummary[] = []
   for (const name of jsonlNames) {
     const imported = projectArchiveLinesToImport(parseProjectArchiveLines(strFromU8(files[name]!)))
+    assertArchiveImport(imported)
     const bundle: ProjectBoardBundle = {
       board: {
         id: imported.board.id, ownerId: userId, type: imported.board.type, minimumRole: imported.board.minimumRole as ProjectBoard['minimumRole'],
@@ -77,12 +146,7 @@ export async function importProjectAccountArchive(db: D1Database, userId: string
 }
 
 function linesFromArchiveBytes(bytes: Uint8Array): ProjectArchiveLine[] {
-  let files: Unzipped | null = null
-  try {
-    files = unzipSync(bytes)
-  } catch {
-    files = null
-  }
+  const files: Unzipped | null = archiveFiles(bytes)
   if (files) {
     const jsonl = Object.keys(files).find((name) => name.endsWith('board.jsonl'))
     if (!jsonl) throw ApiError.badRequest('archive ZIP has no board.jsonl')
@@ -113,10 +177,7 @@ function linesFromArchiveBytes(bytes: Uint8Array): ProjectArchiveLine[] {
   return lines
 }
 
-export interface ProjectArchiveImportResult {
-  board: ProjectBoardSummary
-  skippedMembers: string[]
-}
+export type ProjectArchiveImportResult = { board: ProjectBoardSummary }
 
 // D1 caps a batch at 1000 statements; a large board can exceed that, so the import runs in chunks.
 const IMPORT_BATCH_SIZE = 500
@@ -128,13 +189,10 @@ export async function importProjectBoardArchive(
   now: number,
 ): Promise<ProjectArchiveImportResult> {
   const imported = projectArchiveLinesToImport(linesFromArchiveBytes(bytes))
+  assertArchiveImport(imported)
   const source = imported.board
-  if (!source.id) throw ApiError.badRequest('archive board has no id')
   const existing = await db.prepare('SELECT id FROM project_boards WHERE id = ?1').bind(source.id).first()
   if (existing) throw ApiError.conflict('board id already exists')
-  if (imported.cards.length > PROJECT_LIMITS.cardsPerBoard) throw ApiError.conflict('PROJECT_MAX_CARDS_PER_BOARD')
-  if (imported.views.length > PROJECT_LIMITS.viewsPerBoard) throw ApiError.conflict('PROJECT_MAX_VIEWS_PER_BOARD')
-  if (imported.properties.length > PROJECT_LIMITS.propertiesPerBoard) throw ApiError.conflict('PROJECT_MAX_PROPERTIES_PER_BOARD')
 
   const createAt = source.createAt || now
   const updateAt = source.updateAt || now
@@ -199,21 +257,6 @@ export async function importProjectBoardArchive(
     ).bind(comment.id, comment.cardId, source.id, comment.authorId || userId, comment.body, comment.createAt || now, comment.updateAt || now))
   }
 
-  const skippedMembers: string[] = []
-  for (const member of imported.members) {
-    if (member.userId === userId) continue
-    const user = await db.prepare('SELECT id FROM users WHERE id = ?1 OR username = ?1 OR login = ?1')
-      .bind(member.userId).first<{ id: string }>()
-    if (!user) {
-      skippedMembers.push(member.userId)
-      continue
-    }
-    const role = (PROJECT_ROLES as readonly string[]).includes(member.role) ? member.role : 'viewer'
-    statements.push(db.prepare(
-      'INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)',
-    ).bind(source.id, user.id, role, now))
-  }
-
   for (let index = 0; index < statements.length; index += IMPORT_BATCH_SIZE) {
     await db.batch(statements.slice(index, index + IMPORT_BATCH_SIZE))
   }
@@ -223,5 +266,5 @@ export async function importProjectBoardArchive(
     isTemplate: source.isTemplate, templateVersion: source.templateVersion, createdBy: userId, modifiedBy: userId,
     createAt, updateAt, deleteAt: 0, archived: false,
   }
-  return { board: { ...board, role: 'admin' }, skippedMembers }
+  return { board: { ...board, role: 'admin' } }
 }

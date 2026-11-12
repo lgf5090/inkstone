@@ -42619,11 +42619,11 @@ const allowed = new Map([
     "/**\n   * Whether this edit's text belongs in the AI index. A lock writes ciphertext, which must not be\n   * embedded; ordinary edits leave this unset and keep the queue statement.\n   */",
   ]],
   ["src/worker/project/archive.ts", [
-    "/**\n * The archive transport: a v2 ZIP out, a v2 ZIP or a v1 JSON in. The JSONL mapping itself lives in\n * the shared module so the browser converters and this server agree byte for byte; this file only\n * zips, unzips, and writes the imported rows. Import preserves the archive's ids (so a round trip is\n * field-equal) but the new board belongs to whoever imports it, and members are matched to local\n * accounts rather than trusted blindly.\n */",
     "// Not a ZIP: the reference's v1 export is a single JSON object with a blocks array.",
     "// D1 caps a batch at 1000 statements; a large board can exceed that, so the import runs in chunks.",
     "/** Whole-account export: one v2 ZIP carrying every readable board's JSONL side by side. */",
     "/** Whole-account import: every board.jsonl in the ZIP becomes a fresh board (ids remapped). */",
+    "/**\n * The archive transport: a v2 ZIP out, a v2 ZIP or a v1 JSON in. The JSONL mapping itself lives in\n * the shared module so the browser converters and this server agree byte for byte; this file only\n * zips, unzips, and writes the imported rows. Import preserves the archive's ids (so a round trip is\n * field-equal) but the new board belongs to whoever imports it. Member rows are deliberately not\n * restored: an archive is data, not an invitation, and no local account may join a board because an\n * uploaded file said so.\n */",
   ]],
   ["src/worker/project/auth.ts", [
     "/** Every project write parses through this, so a rejected field reads the same on every route. */",
@@ -52613,7 +52613,7 @@ const allowed = new Map([
     "// owner's live-session ceiling.",
   ]],
   ["tests/webssh-schema.test.ts", [
-    "// The project tables append 385–392 after this lane's own block.",
+    "// The project tables append 385–393 after this lane's own block.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",
