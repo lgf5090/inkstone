@@ -13,6 +13,7 @@ import { projectParentDonePatches } from '@shared/project/hierarchy'
 import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badges'
 import { matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { t } from '../../lib/i18n'
+import { isImeComposing } from '../../lib/ime'
 import { useUi } from '../../store/ui'
 import { useProjectStore } from './store'
 import { Button, IconButton } from '../../components/primitives'
@@ -505,6 +506,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         aria-label={t('project.view.tabs')}
         data-view-tabs=""
         onKeyDown={(event) => {
+          if (isImeComposing(event)) return
           if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return
           const ids = orderedViews.map((view) => view.id)
           const current = active ? ids.indexOf(active.id) : 0
