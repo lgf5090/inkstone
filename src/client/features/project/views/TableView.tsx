@@ -116,7 +116,7 @@ export function TableView(props: TableProps): ReactElement {
         }
       } catch { /* a stored value that is not a JSON array reads as plain text below */ }
     }
-    return projectPropertyDisplayText(card, property) || '—'
+    return projectPropertyDisplayText(card, property, bundle.people) || '—'
   }
 
   const renderRow = (card: ProjectCard, index: number, child: boolean): ReactElement => {
@@ -182,6 +182,7 @@ export function TableView(props: TableProps): ReactElement {
                     card={card}
                     value={card.values[property.id] ?? ''}
                     members={bundle.members}
+                    people={bundle.people}
                     disabled={false}
                     onChange={(value) => { void (async () => { await props.onPatchCard(card.id, { values: { [property.id]: value } }); setEditing(null) })() }}
                     onDone={() => setEditing(null)}

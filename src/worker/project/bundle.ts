@@ -14,8 +14,9 @@ import type {
   ProjectRole,
   ProjectView,
 } from '@shared/project/model'
+import { projectMultiValueIds } from '@shared/project/model'
 import { readBoardProperties } from './boards'
-import { listProjectMembers } from './members'
+import { listProjectMembers, listProjectPeople } from './members'
 
 export interface CardRow {
   id: string
@@ -179,6 +180,20 @@ export async function readProjectBoardBundle(
   const contents = contentRows.results.map(rowToContent)
   const comments = commentRows.results.map(rowToComment)
 
+  const personProperties = new Set(properties.filter((property) => property.type === 'person' || property.type === 'multiPerson').map((property) => property.id))
+  const userIds = new Set<string>([board.ownerId])
+  for (const member of members) userIds.add(member.userId)
+  for (const card of cards) {
+    userIds.add(card.createdBy)
+    userIds.add(card.modifiedBy)
+    for (const [propertyId, value] of Object.entries(card.values)) {
+      if (!personProperties.has(propertyId)) continue
+      for (const id of projectMultiValueIds(value)) userIds.add(id)
+    }
+  }
+  for (const comment of comments) userIds.add(comment.authorId)
+  const people = await listProjectPeople(db, [...userIds])
+
   let cursor = board.updateAt
   for (const card of cards) cursor = Math.max(cursor, card.updateAt)
   for (const view of views) cursor = Math.max(cursor, view.updateAt)
@@ -186,7 +201,7 @@ export async function readProjectBoardBundle(
   for (const comment of comments) cursor = Math.max(cursor, comment.updateAt)
   for (const member of members) cursor = Math.max(cursor, member.updatedAt)
 
-  return { board, properties, views, cards, contents, comments, members, role, cursor }
+  return { board, properties, views, cards, contents, comments, members, people, role, cursor }
 }
 /**
  * The newest stamp across everything the bundle carries, without reading any of it.

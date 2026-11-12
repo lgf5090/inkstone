@@ -89,6 +89,16 @@ describe('reading the member list', () => {
   it('answers 404 for a board that does not exist', async () => {
     expect((await req('alice', 'GET', '/boards/nope/members')).status).toBe(404)
   })
+
+  it('names each member from their account, without handing out login handles', async () => {
+    addBoard('b1', 'alice')
+    addMember('b1', 'bob', 'viewer')
+    sqlite.prepare("UPDATE users SET name = 'Bobby' WHERE id = 'bob'").run()
+    const response = await req('alice', 'GET', '/boards/b1/members')
+    const { people } = (await response.json()) as { people: Record<string, { id: string, name: string, avatarUrl: string }> }
+    expect(people.bob).toEqual({ id: 'bob', name: 'Bobby', avatarUrl: '' })
+    expect(Object.keys(people.bob ?? {})).toEqual(['id', 'name', 'avatarUrl'])
+  })
 })
 
 describe('adding a member', () => {
@@ -99,19 +109,19 @@ describe('adding a member', () => {
     addMember('b1', 'dave', 'commenter')
     addMember('b1', 'eve', 'viewer')
     for (const account of ['alice', 'bob'] as const) {
-      const response = await req(account, 'POST', '/boards/b1/members', { userId: 'mallory', role: 'viewer' })
+      const response = await req(account, 'POST', '/boards/b1/members', { username: 'mallory', role: 'viewer' })
       expect(response.status, `${account}: ${await response.clone().text()}`).toBe(201)
       sqlite.exec("DELETE FROM project_board_members WHERE user_id = 'mallory'")
     }
     for (const account of ['carol', 'dave', 'eve'] as const) {
-      const response = await req(account, 'POST', '/boards/b1/members', { userId: 'mallory', role: 'viewer' })
+      const response = await req(account, 'POST', '/boards/b1/members', { username: 'mallory', role: 'viewer' })
       expect(response.status, account).toBe(403)
     }
   })
 
   it('returns the created member with its role', async () => {
     addBoard('b1', 'alice')
-    const response = await req('alice', 'POST', '/boards/b1/members', { userId: 'bob', role: 'editor' })
+    const response = await req('alice', 'POST', '/boards/b1/members', { username: 'bob', role: 'editor' })
     expect(response.status).toBe(201)
     const { member } = (await response.json()) as { member: ProjectBoardMember }
     expect(member).toMatchObject({ boardId: 'b1', userId: 'bob', role: 'editor' })
@@ -119,21 +129,29 @@ describe('adding a member', () => {
 
   it('refuses an unknown user with a 404', async () => {
     addBoard('b1', 'alice')
-    const response = await req('alice', 'POST', '/boards/b1/members', { userId: 'ghost', role: 'viewer' })
+    const response = await req('alice', 'POST', '/boards/b1/members', { username: 'ghost', role: 'viewer' })
     expect(response.status).toBe(404)
+  })
+
+  it('finds the account by username regardless of case', async () => {
+    addBoard('b1', 'alice')
+    const response = await req('alice', 'POST', '/boards/b1/members', { username: 'BOB', role: 'editor' })
+    expect(response.status, await response.clone().text()).toBe(201)
+    const { member } = (await response.json()) as { member: ProjectBoardMember }
+    expect(member.userId).toBe('bob')
   })
 
   it('refuses a duplicate grant with a 409 already_member', async () => {
     addBoard('b1', 'alice')
     addMember('b1', 'bob', 'viewer')
-    const response = await req('alice', 'POST', '/boards/b1/members', { userId: 'bob', role: 'editor' })
+    const response = await req('alice', 'POST', '/boards/b1/members', { username: 'bob', role: 'editor' })
     expect(response.status).toBe(409)
     expect((await errorOf(response)).message).toBe('already_member')
   })
 
   it('refuses to grant the owner a membership with a 409 owner_immutable', async () => {
     addBoard('b1', 'alice')
-    const response = await req('alice', 'POST', '/boards/b1/members', { userId: 'alice', role: 'viewer' })
+    const response = await req('alice', 'POST', '/boards/b1/members', { username: 'alice', role: 'viewer' })
     expect(response.status).toBe(409)
     expect((await errorOf(response)).message).toBe('owner_immutable')
   })
@@ -141,14 +159,14 @@ describe('adding a member', () => {
   it('refuses to exceed the member ceiling with a 409 naming the constant', async () => {
     addBoard('b1', 'alice')
     for (let i = 0; i < 50; i += 1) addMember('b1', `filler-${i}`, 'viewer')
-    const response = await req('alice', 'POST', '/boards/b1/members', { userId: 'bob', role: 'viewer' })
+    const response = await req('alice', 'POST', '/boards/b1/members', { username: 'bob', role: 'viewer' })
     expect(response.status).toBe(409)
     expect((await errorOf(response)).message).toBe('PROJECT_MAX_BOARD_MEMBERS')
   })
 
   it('rejects an invalid role and a missing user id with a 400', async () => {
     addBoard('b1', 'alice')
-    expect((await req('alice', 'POST', '/boards/b1/members', { userId: 'bob', role: 'superuser' })).status).toBe(400)
+    expect((await req('alice', 'POST', '/boards/b1/members', { username: 'bob', role: 'superuser' })).status).toBe(400)
     expect((await req('alice', 'POST', '/boards/b1/members', { role: 'viewer' })).status).toBe(400)
   })
 })

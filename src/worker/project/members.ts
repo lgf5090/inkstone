@@ -1,7 +1,9 @@
-import type { ProjectBoard, ProjectBoardMember, ProjectRole } from '@shared/project/model'
+import type { ProjectBoard, ProjectBoardMember, ProjectPeople, ProjectRole } from '@shared/project/model'
 import { effectiveProjectRole } from '@shared/project/model'
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { ApiError } from '../lib/errors'
+import { publicUser } from '../lib/session-info'
+import { rowToUser, USER_COLUMNS } from '../middleware/auth'
 
 interface MemberRow {
   board_id: string
@@ -63,16 +65,45 @@ export async function listProjectMembers(db: D1Database, boardId: string): Promi
   return results.map(toMember)
 }
 
+/** D1 caps a statement's bound variables, so a board's people are read in the same chunks as its cards. */
+const PEOPLE_CHUNK = 90
+
+/**
+ * The readable face of every user id a board refers to. Only the display name and avatar leave the
+ * server: a login handle is a credential half, and a public share link has no business handing it out.
+ */
+export async function listProjectPeople(db: D1Database, userIds: readonly string[]): Promise<ProjectPeople> {
+  const ids = [...new Set(userIds.filter(Boolean))]
+  const people: Record<string, ProjectPeople[string]> = {}
+  for (let index = 0; index < ids.length; index += PEOPLE_CHUNK) {
+    const chunk = ids.slice(index, index + PEOPLE_CHUNK)
+    const placeholders = chunk.map((_, at) => `?${at + 1}`).join(', ')
+    const { results } = await db
+      .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id IN (${placeholders})`)
+      .bind(...chunk)
+      .all<Parameters<typeof rowToUser>[0]>()
+    for (const row of results) {
+      const user = publicUser(rowToUser(row))
+      people[user.id] = { id: user.id, name: user.name, avatarUrl: user.avatarUrl }
+    }
+  }
+  return people
+}
+
 export async function addProjectMember(
   db: D1Database,
   board: ProjectBoard,
-  targetUserId: string,
+  username: string,
   role: ProjectRole,
   now: number,
 ): Promise<ProjectBoardMember> {
+  const account = await db
+    .prepare('SELECT id FROM users WHERE lower(username) = lower(?1) LIMIT 1')
+    .bind(username)
+    .first<{ id: string }>()
+  if (!account) throw ApiError.notFound('User not found')
+  const targetUserId = account.id
   if (targetUserId === board.ownerId) throw ApiError.conflict('owner_immutable')
-  const user = await db.prepare('SELECT id FROM users WHERE id = ?1').bind(targetUserId).first<{ id: string }>()
-  if (!user) throw ApiError.notFound('User not found')
   if (await memberRow(db, board.id, targetUserId)) throw ApiError.conflict('already_member')
   if ((await memberCount(db, board.id)) >= PROJECT_LIMITS.boardMembers) {
     throw ApiError.conflict('PROJECT_MAX_BOARD_MEMBERS')

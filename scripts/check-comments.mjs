@@ -12870,6 +12870,7 @@ const allowed = new Map([
     "/** Called when the reader is finished, whether or not the value changed, so an editor can close. */",
     "// An unchanged value still ends the edit: without this, Enter and blur on a cell the reader only",
     "// looked at left the editor open with no way out.",
+    "/** The roster plus the reader: an open board lets an editor assign themselves before they join. */",
   ]],
   ["src/client/features/project/TrashDialog.tsx", [
     "/**\n * What this account deleted, and the way back.\n *\n * Deletes are soft everywhere in this app, so the rows are still there — until now nothing listed\n * them, which made a delete permanent in practice. Boards are listed for their owner and cards for\n * a board admin, the same roles the restore routes themselves require.\n */",
@@ -12882,6 +12883,9 @@ const allowed = new Map([
   ["src/client/features/project/card-menu.tsx", [
     "/**\n * The card's right-click menu, built once so the board, the table, the list and the gallery all offer\n * the same actions.\n *\n * A menu that only opens and deletes is a menu the reader stops using. The edits they reach for most —\n * rename, status, priority, a date — belong here as one click each, with the destructive action last\n * and behind a separator.\n */",
     "/** The colour swatches an option can wear, as a submenu the column and tag menus share. */",
+  ]],
+  ["src/client/features/project/people-context.tsx", [
+    "/**\n * The board's people directory, for the surfaces that draw a card without holding the bundle.\n *\n * A card face is drawn by the board, the list, the gallery and the day panel, none of which receive\n * the whole bundle; the directory is board-scoped, so it travels as context rather than as a prop on\n * every view in between.\n */",
   ]],
   ["src/client/features/project/project-icon.ts", [
     "/**\n * A-9/A-10: board & card icons. The random-icon preference is a local toggle; when on, newly created\n * boards/cards get a random emoji from the shared catalog so lists stay scannable without manual picking.\n */",
@@ -33431,6 +33435,10 @@ const allowed = new Map([
     "/** The state a reopened card goes back to: the first option that is not the done one. */",
     "/**\n * The property write that ticks or unticks a card, or null when the board cannot express it.\n *\n * A select board writes the option; a checkbox board writes the boolean; a board with neither has no\n * tick to offer, and saying so lets the caller hide the control instead of writing a value that does\n * nothing.\n */",
     "/** Whether the board has any way to mark a card done, so a tick is only offered when it can work. */",
+    "/**\n * A person as the board may name them. Cards, comments and the member roster all key on a user id,\n * which is a 26-character opaque string; this is the readable face of it, resolved once per bundle.\n */",
+    "/** The name a reader sees for a user id, or the id itself when the board has never met them. */",
+    "/** The ids a multi-value column holds: a JSON array, or the one bare id an older write left behind. */",
+    "/** Everyone the board refers to: members, card authors, comment authors and assigned people. */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",
@@ -42613,6 +42621,8 @@ const allowed = new Map([
   ["src/worker/project/members.ts", [
     "/**\n * The reference guards the last admin only in the client; here the server refuses the write that would\n * leave a board with no admin member, because a client check is not a trust boundary.\n */",
     "/** Joining an open board writes the board's minimum role; re-joining never downgrades an existing grant. */",
+    "/** D1 caps a statement's bound variables, so a board's people are read in the same chunks as its cards. */",
+    "/**\n * The readable face of every user id a board refers to. Only the display name and avatar leave the\n * server: a login handle is a credential half, and a public share link has no business handing it out.\n */",
   ]],
   ["src/worker/project/notify.ts", [
     "/**\n * D-7: a comment notifies the members it @mentions and the subscribers watching the card or board.\n * The target set is a pure function so tests can pin it; delivery is best-effort because a refused\n * notice must never refuse the comment itself.\n */",

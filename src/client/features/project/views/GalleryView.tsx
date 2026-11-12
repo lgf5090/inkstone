@@ -13,6 +13,7 @@ import { projectCardColorResolver } from '@shared/project/option-color'
 import { groupProjectCards, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t } from '../../../lib/i18n'
 import { CardBadges, OptionChip } from '../CardBadges'
+import { useProjectPeople } from '../people-context'
 import { QuickAdd, Seg, ViewHead, ViewShell } from './shell'
 
 const TILE_WIDTH: Record<ProjectGallerySize, string> = { small: '160px', medium: '220px', large: '300px' }
@@ -140,6 +141,7 @@ function GalleryTile({ card, color, cover, chipProperties, showTitle, showBadges
   onOpenCard: (id: string) => void
   onCardContextMenu: (event: MouseEvent, card: ProjectCard) => void
 }): ReactElement {
+  const people = useProjectPeople()
   return (
     <article className="pv-tile" data-gallery-tile={card.id} style={{ '--pv-card-color': color } as React.CSSProperties}>
       <button
@@ -163,7 +165,7 @@ function GalleryTile({ card, color, cover, chipProperties, showTitle, showBadges
             <span key={property.id} className="min-w-0 max-w-full truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
               {property.type === 'select' && card.values[property.id]
                 ? <OptionChip property={property} value={card.values[property.id]!} />
-                : projectPropertyDisplayText(card, property)}
+                : projectPropertyDisplayText(card, property, people)}
             </span>
           ))}
           {showBadges && <CardBadges badges={badges} />}

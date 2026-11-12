@@ -29,7 +29,7 @@ function bundle(): ProjectBoardBundle {
       { id: 'v2', boardId: BOARD_ID, title: 'Board', viewType: 'board', fields: { ...emptyProjectViewFields(), groupById: 'ps' }, position: 1, ...stamps },
     ],
     cards: [{ id: 'c1', boardId: BOARD_ID, parentId: '', title: 'Alpha', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o1' }, ...stamps }],
-    contents: [], comments: [], members: [], role: 'admin', cursor: 1,
+    contents: [], comments: [], members: [], people: {}, role: 'admin', cursor: 1,
   }
 }
 

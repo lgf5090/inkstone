@@ -98,6 +98,26 @@ describe('reading a whole board', () => {
     expect(result.cursor).toBe(board.updateAt)
   })
 
+  it('names everyone the board refers to, including an assignee who is not a member', async () => {
+    const person = `p${'a'.repeat(26)}`
+    const many = `q${'b'.repeat(26)}`
+    const board = await createBoard('alice', {
+      cardProperties: [
+        { id: person, name: 'Assignee', type: 'person', options: [] },
+        { id: many, name: 'Watchers', type: 'multiPerson', options: [] },
+      ],
+    })
+    seedCard(board.id, 'c1', {})
+    sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)').run('c1', person, 'carol')
+    sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)').run('c1', many, '["bob"]')
+    sqlite.prepare("UPDATE users SET name = 'Bobby' WHERE id = 'bob'").run()
+    const result = await bundle('alice', board.id)
+    expect(result.members.map((m) => m.userId)).toEqual(['alice'])
+    expect(result.people.alice).toEqual({ id: 'alice', name: 'alice', avatarUrl: '' })
+    expect(result.people.bob).toEqual({ id: 'bob', name: 'Bobby', avatarUrl: '' })
+    expect(result.people.carol).toEqual({ id: 'carol', name: 'carol', avatarUrl: '' })
+  })
+
   it('maps cards with their values, views, contents and comments, and takes the newest stamp as cursor', async () => {
     const board = await createBoard('alice', {})
     sqlite.prepare('UPDATE project_boards SET update_at = 5 WHERE id = ?').run(board.id)

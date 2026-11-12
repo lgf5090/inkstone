@@ -125,7 +125,7 @@ export const EN_US_PROJECT = {
     "project.members.role": "Role",
     "project.members.remove": "Remove member",
     "project.members.add": "Add",
-    "project.members.user_id": "User id",
+    "project.members.username": "Username",
     "project.members.full": "This board has reached its {max}-member limit",
     "project.board.visibility": "Visibility",
     "project.board.private": "Private",

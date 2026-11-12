@@ -26,14 +26,14 @@ function bundle(): ProjectBoardBundle {
       { id: 'c2', boardId: 'b1', parentId: '', title: 'Beta', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o2' }, ...stamps },
       { id: 'c3', boardId: 'b1', parentId: '', title: 'Gamma', icon: '', isTemplate: false, contentOrder: [], values: {}, ...stamps },
     ],
-    contents: [], comments: [], members: [], role: 'admin', cursor: 1,
+    contents: [], comments: [], members: [], people: {}, role: 'admin', cursor: 1,
   }
 }
 
 let view: RenderedElement
-async function mount(): Promise<void> {
+async function mount(custom?: ProjectBoardBundle): Promise<void> {
   await act(async () => {
-    view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    view = renderElement(createElement(BoardViews, { bundle: custom ?? bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
   })
 }
 /** Opens a SelectMenu by its accessible name and reads the rows it offers. */
@@ -826,5 +826,20 @@ describe('the tick works on a board named in Chinese (R7-1)', () => {
       }))
     })
     expect(view.container.querySelector<HTMLButtonElement>('.pv-check')!.disabled).toBe(true)
+  })
+})
+
+describe('naming people on a card', () => {
+  it('draws the assignee chip by account name on the board', async () => {
+    const base = bundle()
+    base.properties = [...base.properties, { id: 'pp', name: 'Assignee', type: 'person', options: [] }]
+    base.cards = [{ ...base.cards[0]!, values: { ps: 'o1', pp: 'u9' } }]
+    base.people = { u9: { id: 'u9', name: 'Ada', avatarUrl: '' } }
+    base.views = [base.views[1]!]
+    await mount(base)
+    const chip = view.container.querySelector('[data-card-properties="c1"]')
+    expect(chip, 'the board drew no property chips').not.toBeNull()
+    expect(chip!.textContent).toContain('Ada')
+    expect(chip!.textContent).not.toContain('u9')
   })
 })

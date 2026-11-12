@@ -125,7 +125,7 @@ export const ZH_CN_PROJECT = {
     "project.members.role": "角色",
     "project.members.remove": "移除成员",
     "project.members.add": "添加",
-    "project.members.user_id": "用户 ID",
+    "project.members.username": "用户名",
     "project.members.full": "该板已达 {max} 名成员上限",
     "project.board.visibility": "可见性",
     "project.board.private": "私有",

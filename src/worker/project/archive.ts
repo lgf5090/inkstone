@@ -69,7 +69,7 @@ export async function importProjectAccountArchive(db: D1Database, userId: string
       cards: imported.cards.map((card) => ({ ...card, parentId: '', boardId: imported.board.id })),
       contents: imported.contents.map((content) => ({ ...content, boardId: imported.board.id })),
       comments: imported.comments.map((comment) => ({ ...comment, boardId: imported.board.id })),
-      members: [], role: 'admin', cursor: now,
+      members: [], people: {}, role: 'admin', cursor: now,
     }
     created.push(await duplicateProjectBoard(db, bundle, userId, now))
   }

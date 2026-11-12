@@ -17,6 +17,7 @@ const properties: ProjectProperty[] = [
   { id: 'pn', name: 'Estimate', type: 'number', options: [] },
 ]
 const members: ProjectBoardMember[] = [{ boardId: 'b1', userId: 'u1', role: 'admin', createdAt: 1, updatedAt: 1 }, { boardId: 'b1', userId: 'u2', role: 'editor', createdAt: 1, updatedAt: 1 }]
+const people = { u1: { id: 'u1', name: 'Uma', avatarUrl: '' }, u2: { id: 'u2', name: 'Uri', avatarUrl: '' } }
 const view: ProjectView = { id: 'v1', boardId: 'b1', title: 'V', viewType: 'table', fields: emptyProjectViewFields(), position: 0, ...stamps }
 
 let viewEl: RenderedElement
@@ -24,7 +25,7 @@ let onPatch: ReturnType<typeof vi.fn<(fields: Partial<ProjectViewFields>) => Pro
 async function mount(fields = view.fields): Promise<void> {
   onPatch = vi.fn<(fields: Partial<ProjectViewFields>) => Promise<void>>().mockResolvedValue(undefined)
   await act(async () => {
-    viewEl = renderElement(createElement(FilterModal, { view: { ...view, fields }, properties, members, canEdit: true, onClose: vi.fn(), onPatch }))
+    viewEl = renderElement(createElement(FilterModal, { view: { ...view, fields }, properties, members, people, canEdit: true, onClose: vi.fn(), onPatch }))
   })
 }
 beforeEach(async () => { await initI18n() })
@@ -141,11 +142,11 @@ describe('typed filter values (C-10/C-11)', () => {
     expect(onPatch).toHaveBeenCalledWith({ filter: { operation: 'and', filters: [{ propertyId: 'ps', condition: 'includes', values: ['o1'] }] } })
   })
 
-  it('offers member checkboxes for a person clause', async () => {
+  it('offers member checkboxes named by account for a person clause', async () => {
     await mount()
     await click(t('project.view.add_filter'))
     await choose(selectIn(clauseRow(), t('project.view.filter')), 'pp')
-    const member = [...clauseRow().querySelectorAll('[role="checkbox"]')].find((node) => node.textContent?.includes('u2')) as HTMLButtonElement
+    const member = [...clauseRow().querySelectorAll('[role="checkbox"]')].find((node) => node.textContent?.includes('Uri')) as HTMLButtonElement
     await act(async () => { member.click() })
     await save()
     expect(onPatch).toHaveBeenCalledWith({ filter: { operation: 'and', filters: [{ propertyId: 'pp', condition: 'includes', values: ['u2'] }] } })

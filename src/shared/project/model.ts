@@ -531,6 +531,36 @@ export interface ProjectAttachment {
 }
 
 /**
+ * A person as the board may name them. Cards, comments and the member roster all key on a user id,
+ * which is a 26-character opaque string; this is the readable face of it, resolved once per bundle.
+ */
+export interface ProjectPerson {
+  id: string
+  name: string
+  avatarUrl: string
+}
+
+export type ProjectPeople = Readonly<Record<string, ProjectPerson>>
+
+/** The name a reader sees for a user id, or the id itself when the board has never met them. */
+export function projectPersonLabel(people: ProjectPeople | undefined, userId: string): string {
+  if (!userId) return ''
+  return people?.[userId]?.name || userId
+}
+
+/** The ids a multi-value column holds: a JSON array, or the one bare id an older write left behind. */
+export function projectMultiValueIds(value: string): string[] {
+  if (!value) return []
+  if (!value.trim().startsWith('[')) return [value]
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.map(String) : []
+  } catch {
+    return []
+  }
+}
+
+/**
  * One board, whole. The reference made the client fetch blocks page by page and assemble them; this
  * reads the board in one round trip because every screen that opens a board needs all of it anyway.
  */
@@ -542,6 +572,8 @@ export interface ProjectBoardBundle {
   contents: ProjectContent[]
   comments: ProjectComment[]
   members: ProjectBoardMember[]
+  /** Everyone the board refers to: members, card authors, comment authors and assigned people. */
+  people: ProjectPeople
   /** The caller's effective role, already resolved against the board's minimum role. */
   role: ProjectRole
   cursor: number

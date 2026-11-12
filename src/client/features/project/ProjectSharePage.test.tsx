@@ -24,7 +24,7 @@ function bundle(): ProjectBoardBundle {
     cards: [{ id: 'c1', boardId: 'b1', parentId: '', title: 'Alpha', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o1' }, ...stamps }],
     contents: [],
     comments: [{ id: 'm1', cardId: 'c1', boardId: 'b1', authorId: 'u1', body: 'A public remark', createAt: 1, updateAt: 1, deleteAt: 0 }],
-    members: [], role: 'viewer', cursor: 1,
+    members: [], people: {}, role: 'viewer', cursor: 1,
   }
 }
 

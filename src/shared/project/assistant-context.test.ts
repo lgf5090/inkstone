@@ -10,7 +10,7 @@ function bundle(cardCount: number): ProjectBoardBundle {
     properties: [{ id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '' }] }],
     views: [{ id: 'v1', boardId: 'b1', title: 'Board', viewType: 'board', fields: { ...emptyProjectViewFields(), groupById: 'ps' }, position: 0, ...stamps }],
     cards: Array.from({ length: cardCount }, (_, i) => ({ id: `c${i}`, boardId: 'b1', parentId: '', title: `Card ${i}`, icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o1' }, ...stamps })),
-    contents: [], comments: [], members: [], role: 'admin', cursor: 1,
+    contents: [], comments: [], members: [], people: {}, role: 'admin', cursor: 1,
   }
 }
 

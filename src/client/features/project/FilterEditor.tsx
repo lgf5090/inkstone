@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
-import type { ProjectBoardMember, ProjectFilterClause, ProjectFilterGroup, ProjectProperty, ProjectView, ProjectViewFields } from '@shared/project/model'
-import { isProjectFilterGroup, PROJECT_CONDITIONS_BY_VALUE_TYPE, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
+import type { ProjectBoardMember, ProjectFilterClause, ProjectFilterGroup, ProjectPeople, ProjectProperty, ProjectView, ProjectViewFields } from '@shared/project/model'
+import { isProjectFilterGroup, projectPersonLabel, PROJECT_CONDITIONS_BY_VALUE_TYPE, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { projectDayToStamp, projectInputToStamp, projectStampToInput } from '@shared/project/date'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
@@ -14,6 +14,7 @@ interface FilterModalProps {
   view: ProjectView
   properties: ProjectProperty[]
   members: ProjectBoardMember[]
+  people: ProjectPeople
   canEdit: boolean
   onClose: () => void
   onPatch: (fields: Partial<ProjectViewFields>) => Promise<void>
@@ -31,10 +32,11 @@ function conditionsFor(property: ProjectProperty | undefined) {
 }
 
 /** The value editor the reference dispatches on `filterValueType`, one branch per kind of clause. */
-function ClauseValue({ clause, property, members, disabled, onChange }: {
+function ClauseValue({ clause, property, members, people, disabled, onChange }: {
   clause: ProjectFilterClause
   property: ProjectProperty | undefined
   members: ProjectBoardMember[]
+  people: ProjectPeople
   disabled: boolean
   onChange: (values: string[]) => void
 }): ReactElement | null {
@@ -44,7 +46,7 @@ function ClauseValue({ clause, property, members, disabled, onChange }: {
   if (valueType === 'options' || valueType === 'person') {
     const choices = valueType === 'options'
       ? (property?.options ?? []).map((option) => ({ id: option.id, label: option.value }))
-      : members.map((member) => ({ id: member.userId, label: member.userId }))
+      : members.map((member) => ({ id: member.userId, label: projectPersonLabel(people, member.userId) }))
     return (
       <div className="flex flex-wrap gap-2" role="group" aria-label={t('project.view.filter_value')}>
         {choices.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</span>}
@@ -91,10 +93,11 @@ function ClauseValue({ clause, property, members, disabled, onChange }: {
   )
 }
 
-function ClauseRow({ clause, properties, members, canEdit, onChange, onDelete }: {
+function ClauseRow({ clause, properties, members, people, canEdit, onChange, onDelete }: {
   clause: ProjectFilterClause
   properties: ProjectProperty[]
   members: ProjectBoardMember[]
+  people: ProjectPeople
   canEdit: boolean
   onChange: (clause: ProjectFilterClause) => void
   onDelete: () => void
@@ -124,16 +127,17 @@ function ClauseRow({ clause, properties, members, canEdit, onChange, onDelete }:
         onChange={(value) => onChange({ ...clause, condition: value as ProjectFilterClause['condition'], values: [] })}
         options={conditionsFor(property).conditions.map((condition) => ({ value: condition, label: t(`project.condition.${condition.toLowerCase()}` as Parameters<typeof t>[0]) }))}
       />
-      <ClauseValue clause={clause} property={property} members={members} disabled={!canEdit} onChange={(values) => onChange({ ...clause, values })} />
+      <ClauseValue clause={clause} property={property} members={members} people={people} disabled={!canEdit} onChange={(values) => onChange({ ...clause, values })} />
       <IconButton label={t('common.delete')} size="sm" disabled={!canEdit} onClick={onDelete}><Trash2 size={14} /></IconButton>
     </div>
   )
 }
 
-function GroupEditor({ group, properties, members, canEdit, depth, onChange, onDelete }: {
+function GroupEditor({ group, properties, members, people, canEdit, depth, onChange, onDelete }: {
   group: ProjectFilterGroup
   properties: ProjectProperty[]
   members: ProjectBoardMember[]
+  people: ProjectPeople
   canEdit: boolean
   depth: number
   onChange: (group: ProjectFilterGroup) => void
@@ -160,8 +164,8 @@ function GroupEditor({ group, properties, members, canEdit, depth, onChange, onD
       {group.filters.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.no_filters')}</p>}
       {group.filters.map((entry, index) => (
         isProjectFilterGroup(entry)
-          ? <GroupEditor key={index} group={entry} properties={properties} members={members} canEdit={canEdit} depth={depth + 1} onChange={(next) => replace(index, next)} onDelete={() => onChange({ ...group, filters: group.filters.filter((_, i) => i !== index) })} />
-          : <ClauseRow key={index} clause={entry} properties={properties} members={members} canEdit={canEdit} onChange={(next) => replace(index, next)} onDelete={() => onChange({ ...group, filters: group.filters.filter((_, i) => i !== index) })} />
+          ? <GroupEditor key={index} group={entry} properties={properties} members={members} people={people} canEdit={canEdit} depth={depth + 1} onChange={(next) => replace(index, next)} onDelete={() => onChange({ ...group, filters: group.filters.filter((_, i) => i !== index) })} />
+          : <ClauseRow key={index} clause={entry} properties={properties} members={members} people={people} canEdit={canEdit} onChange={(next) => replace(index, next)} onDelete={() => onChange({ ...group, filters: group.filters.filter((_, i) => i !== index) })} />
       ))}
       {canEdit && (
         <div className="flex items-center gap-2">
@@ -182,7 +186,7 @@ function GroupEditor({ group, properties, members, canEdit, depth, onChange, onD
   )
 }
 
-export function FilterModal({ view, properties, members, canEdit, onClose, onPatch }: FilterModalProps): ReactElement {
+export function FilterModal({ view, properties, members, people, canEdit, onClose, onPatch }: FilterModalProps): ReactElement {
   const [draft, setDraft] = useState<ProjectFilterGroup>(() => cloneGroup(view.fields.filter))
   const [saving, setSaving] = useState(false)
   const save = async () => {
@@ -205,7 +209,7 @@ export function FilterModal({ view, properties, members, canEdit, onClose, onPat
         <Button variant="primary" disabled={saving || !canEdit} onClick={() => void save()}>{t('common.save')}</Button>
       </>}
     >
-      <GroupEditor group={draft} properties={properties} members={members} canEdit={canEdit} depth={0} onChange={setDraft} />
+      <GroupEditor group={draft} properties={properties} members={members} people={people} canEdit={canEdit} depth={0} onChange={setDraft} />
     </Modal>
   )
 }

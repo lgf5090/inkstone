@@ -25,7 +25,6 @@ import {
 } from './model'
 
 const projectId = z.string().refine(isProjectId, 'invalid id')
-const accountId = z.string().trim().min(1).max(64)
 // zod's string max counts code points, not UTF-16 units, which is the unit the reference's ceiling is
 // written in: a title of 16383 emoji is 32766 units but 16383 characters, and it has to be accepted.
 const title = z.string().max(PROJECT_LIMITS.titleRunes)
@@ -252,7 +251,7 @@ export const ProjectCategoryBoardOrderSchema = z.object({
 export const ProjectCategoryBoardHiddenSchema = z.object({ hidden: z.boolean() })
 
 export const ProjectMemberAddSchema = z.object({
-  userId: accountId,
+  username: z.string().trim().min(1).max(64),
   role: ProjectRoleSchema,
 })
 

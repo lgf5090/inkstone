@@ -49,7 +49,7 @@ let view: RenderedElement
 async function mount(): Promise<void> {
   await act(async () => {
     view = renderElement(createElement(CardDialog, {
-      card, properties, members: [], contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
+      card, properties, members: [], people: {}, contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
     }))
   })
 }
@@ -96,7 +96,7 @@ describe('the card dialog', () => {
     vi.mocked(api.patchCardContent).mockResolvedValue({ ...block, fields: { checked: true } })
     await act(async () => {
       view = renderElement(createElement(CardDialog, {
-        card, properties, members: [], contents: [block], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
+        card, properties, members: [], people: {}, contents: [block], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
       }))
     })
     const checkbox = document.body.querySelector('[data-project-content="a1"] [role="checkbox"]') as HTMLButtonElement
@@ -124,7 +124,7 @@ describe('card actions menu (B-9)', () => {
     vi.mocked(api.duplicateProjectCard).mockResolvedValue({ ...card, id: 'c2' })
     const onRefresh = vi.fn()
     await act(async () => {
-      view = renderElement(createElement(CardDialog, { card, properties, members: [], contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh, onDelete: vi.fn() }))
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], people: {}, contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh, onDelete: vi.fn() }))
     })
     await openMenu()
     await act(async () => { menuItem(t('project.card.duplicate')).click() })
@@ -145,7 +145,7 @@ describe('card actions menu (B-9)', () => {
 
   it('hides duplicate from viewers but keeps copy link', async () => {
     await act(async () => {
-      view = renderElement(createElement(CardDialog, { card, properties, members: [], contents: [], siblings: [], canEdit: false, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], people: {}, contents: [], siblings: [], canEdit: false, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
     })
     await openMenu()
     const labels = [...document.body.querySelectorAll('[role="menuitem"]')].map((entry) => entry.textContent)
@@ -158,7 +158,7 @@ describe('card actions menu (B-9)', () => {
     const onDelete = vi.fn()
     const onClose = vi.fn()
     await act(async () => {
-      view = renderElement(createElement(CardDialog, { card, properties, members: [], contents: [], siblings: [], canEdit: true, onClose, onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete }))
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], people: {}, contents: [], siblings: [], canEdit: true, onClose, onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete }))
     })
     await openMenu()
     await act(async () => { menuItem(t('project.board.delete_card')).click() })
@@ -178,7 +178,7 @@ describe('comment edit/delete, paste image, archived placeholder (D-6/D-8/D-11)'
   async function mountWith(contents: unknown[] = [], comments: unknown[] = []): Promise<void> {
     vi.mocked(api.fetchCardComments).mockResolvedValue(comments as never)
     await act(async () => {
-      view = renderElement(createElement(CardDialog, { card, properties, members: [], contents: contents as never, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], people: {}, contents: contents as never, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
     })
   }
 
@@ -227,7 +227,7 @@ describe('content block reorder (D-1)', () => {
     vi.mocked(api.patchProjectCard).mockResolvedValue({ ...card, contentOrder: ['a2', 'a1'] })
     const blocks = ['a1', 'a2'].map((id) => ({ id, cardId: 'c1', boardId: 'b1', type: 'text' as const, title: id, fields: {}, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }))
     await act(async () => {
-      view = renderElement(createElement(CardDialog, { card: { ...card, contentOrder: ['a1', 'a2'] }, properties, members: [], contents: blocks, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+      view = renderElement(createElement(CardDialog, { card: { ...card, contentOrder: ['a1', 'a2'] }, properties, members: [], people: {}, contents: blocks, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
     })
     const down = document.body.querySelector(`[data-project-content="a1"] button[aria-label="${t('project.card.move_down')}"]`) as HTMLButtonElement
     expect(down).not.toBeNull()
@@ -241,7 +241,7 @@ describe('subtask progress (UI-2)', () => {
     const subtask = { ...card, id: 's1', parentId: 'c1', values: { ps: 'o2' } }
     const open = { ...card, id: 's2', parentId: 'c1', values: { ps: 'o1' } }
     await act(async () => {
-      view = renderElement(createElement(CardDialog, { card, properties, members: [], contents: [], siblings: [subtask, open], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], people: {}, contents: [], siblings: [subtask, open], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
     })
     const bar = document.body.querySelector('[role="progressbar"]')!
     expect(bar.getAttribute('aria-valuenow')).toBe('1')
@@ -254,7 +254,7 @@ describe('subtask progress (UI-2)', () => {
     const onRefresh = vi.fn()
     const open = { ...card, id: 's2', parentId: 'c1', values: { ps: 'o1' } }
     await act(async () => {
-      view = renderElement(createElement(CardDialog, { card, properties, members: [], contents: [], siblings: [open], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh, onDelete: vi.fn() }))
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], people: {}, contents: [], siblings: [open], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh, onDelete: vi.fn() }))
     })
     const checkbox = document.body.querySelector('button[role="checkbox"][aria-label="Card"]') as HTMLButtonElement
     expect(checkbox).not.toBeNull()
@@ -277,7 +277,7 @@ describe('AI card capabilities', () => {
     vi.mocked(api.createProjectCard).mockResolvedValue({ ...card, id: 's-new', parentId: 'c1' })
     const onRefresh = vi.fn()
     await act(async () => {
-      view = renderElement(createElement(CardDialog, { card: { ...card, title: 'Build Landing Page' }, properties, members: [], contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh, onDelete: vi.fn() }))
+      view = renderElement(createElement(CardDialog, { card: { ...card, title: 'Build Landing Page' }, properties, members: [], people: {}, contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh, onDelete: vi.fn() }))
     })
 
     const splitBtn = Array.from(document.body.querySelectorAll('button')).find(
@@ -306,7 +306,7 @@ describe('AI card capabilities', () => {
       view = renderElement(createElement(CardDialog, {
         card: childCard,
         properties,
-        members: [],
+        members: [], people: {},
         contents: [],
         siblings: [grandParent, parentCard, childCard],
         canEdit: true,

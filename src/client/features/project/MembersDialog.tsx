@@ -8,11 +8,11 @@
  */
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import { Trash2, UserPlus } from 'lucide-react'
-import type { ProjectBoardMember, ProjectMinimumRole, ProjectRole } from '@shared/project/model'
-import { PROJECT_ROLES } from '@shared/project/model'
+import type { ProjectBoardMember, ProjectMinimumRole, ProjectPeople, ProjectRole } from '@shared/project/model'
+import { PROJECT_ROLES, projectPersonLabel } from '@shared/project/model'
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { t } from '../../lib/i18n'
-import { Button, IconButton } from '../../components/primitives'
+import { Avatar, Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Modal } from '../../components/overlay'
@@ -34,13 +34,16 @@ export function MembersDialog({ boardId, minimumRole, boardType, onClose, onBoar
   onBoardPatched: (patch: { type?: 'O' | 'P', minimumRole?: ProjectMinimumRole }) => Promise<void>
 }): ReactElement {
   const [members, setMembers] = useState<ProjectBoardMember[] | null>(null)
-  const [userId, setUserId] = useState('')
+  const [people, setPeople] = useState<ProjectPeople>({})
+  const [username, setUsername] = useState('')
   const [role, setRole] = useState<ProjectRole>('editor')
   const [busy, setBusy] = useState(false)
   const toast = useUi((state) => state.toast)
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    setMembers(await fetchBoardMembers(boardId, signal))
+    const result = await fetchBoardMembers(boardId, signal)
+    setMembers(result.members)
+    setPeople(result.people)
   }, [boardId])
 
   useEffect(() => {
@@ -103,28 +106,32 @@ export function MembersDialog({ boardId, minimumRole, boardType, onClose, onBoar
             ? <LoadingBlock />
             : (
               <ul className="space-y-1">
-                {members.map((member) => (
-                  <li key={member.userId} className="flex items-center gap-2" data-board-member={member.userId}>
-                    <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{member.userId}</span>
-                    <SelectMenu
-                      className="w-32"
-                      size="sm"
-                      value={member.role}
-                      label={`${t('project.members.role')}: ${member.userId}`}
-                      disabled={busy || (member.role === 'admin' && adminCount <= 1)}
-                      onChange={(value) => { void guard(() => setBoardMemberRole(boardId, member.userId, value as ProjectRole).then(() => undefined)) }}
-                      options={roleOptions()}
-                    />
-                    <IconButton
-                      label={`${t('project.members.remove')}: ${member.userId}`}
-                      size="sm"
-                      disabled={busy || (member.role === 'admin' && adminCount <= 1)}
-                      onClick={() => { void guard(() => removeBoardMember(boardId, member.userId)) }}
-                    >
-                      <Trash2 size={14} />
-                    </IconButton>
-                  </li>
-                ))}
+                {members.map((member) => {
+                  const name = projectPersonLabel(people, member.userId)
+                  return (
+                    <li key={member.userId} className="flex items-center gap-2" data-board-member={member.userId}>
+                      <Avatar src={people[member.userId]?.avatarUrl} name={name} size={24} />
+                      <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{name}</span>
+                      <SelectMenu
+                        className="w-32"
+                        size="sm"
+                        value={member.role}
+                        label={`${t('project.members.role')}: ${name}`}
+                        disabled={busy || (member.role === 'admin' && adminCount <= 1)}
+                        onChange={(value) => { void guard(() => setBoardMemberRole(boardId, member.userId, value as ProjectRole).then(() => undefined)) }}
+                        options={roleOptions()}
+                      />
+                      <IconButton
+                        label={`${t('project.members.remove')}: ${name}`}
+                        size="sm"
+                        disabled={busy || (member.role === 'admin' && adminCount <= 1)}
+                        onClick={() => { void guard(() => removeBoardMember(boardId, member.userId)) }}
+                      >
+                        <Trash2 size={14} />
+                      </IconButton>
+                    </li>
+                  )
+                })}
               </ul>
             )}
         </section>
@@ -132,14 +139,14 @@ export function MembersDialog({ boardId, minimumRole, boardType, onClose, onBoar
           className="flex items-center gap-2 border-t border-[var(--border-subtle)] pt-3"
           onSubmit={(event) => {
             event.preventDefault()
-            const trimmed = userId.trim()
+            const trimmed = username.trim()
             if (!trimmed) return
-            void guard(async () => { await addBoardMember(boardId, trimmed, role); setUserId('') })
+            void guard(async () => { await addBoardMember(boardId, trimmed, role); setUsername('') })
           }}
         >
-          <Input className="min-w-0 flex-1" value={userId} aria-label={t('project.members.user_id')} placeholder={t('project.members.user_id')} onChange={(event) => setUserId(event.target.value)} />
+          <Input className="min-w-0 flex-1" value={username} aria-label={t('project.members.username')} placeholder={t('project.members.username')} onChange={(event) => setUsername(event.target.value)} />
           <SelectMenu className="w-32" value={role} label={t('project.members.role')} onChange={(value) => setRole(value as ProjectRole)} options={roleOptions()} />
-          <Button type="submit" size="sm" variant="primary" icon={<UserPlus size={14} />} disabled={busy || !userId.trim() || full}>
+          <Button type="submit" size="sm" variant="primary" icon={<UserPlus size={14} />} disabled={busy || !username.trim() || full}>
             {t('project.members.add')}
           </Button>
         </form>

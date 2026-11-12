@@ -20,6 +20,7 @@ import { IconButton } from '../../../components/primitives'
 import { Menu, type MenuItem } from '../../../components/overlay'
 import { isImeComposing } from '../../../lib/ime'
 import { CardBadges, OptionChip } from '../CardBadges'
+import { useProjectPeople } from '../people-context'
 import { CardGrip } from './card-face'
 import { QuickAdd, ViewHead, ViewShell } from './shell'
 import { useDragSort } from './use-drag-sort'
@@ -43,6 +44,7 @@ export interface ListProps {
 
 export function ListView(props: ListProps): ReactElement {
   const { cards, properties, fields, canEdit, canMarkDone = true } = props
+  const people = useProjectPeople()
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [renaming, setRenaming] = useState<{ id: string, value: string } | null>(null)
   const [columnsOpen, setColumnsOpen] = useState(false)
@@ -223,7 +225,7 @@ export function ListView(props: ListProps): ReactElement {
             if (property.type === 'date' && range) {
               return (
                 <span key={property.id} className="shrink-0 text-[length:var(--text-11)] tabular" data-overdue={overdue} style={{ color: overdue ? 'var(--danger)' : 'var(--text-tertiary)' }}>
-                  {projectPropertyDisplayText(card, property)}
+                  {projectPropertyDisplayText(card, property, people)}
                 </span>
               )
             }
@@ -231,7 +233,7 @@ export function ListView(props: ListProps): ReactElement {
               <span key={property.id} className="hidden shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)] sm:inline">
                 {property.type === 'select' && card.values[property.id]
                   ? <OptionChip property={property} value={card.values[property.id]!} />
-                  : projectPropertyDisplayText(card, property)}
+                  : projectPropertyDisplayText(card, property, people)}
               </span>
             )
           })}

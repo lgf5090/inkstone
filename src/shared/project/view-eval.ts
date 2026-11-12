@@ -8,10 +8,11 @@ import type {
   ProjectCard,
   ProjectFilterClause,
   ProjectFilterGroup,
+  ProjectPeople,
   ProjectProperty,
   ProjectSortOption,
 } from './model'
-import { isProjectFilterGroup, PROJECT_TITLE_PROPERTY_ID } from './model'
+import { isProjectFilterGroup, projectPersonLabel, PROJECT_TITLE_PROPERTY_ID } from './model'
 import { parseProjectDateValue, projectStampToDay } from './date'
 
 const HALF_DAY_MS = 12 * 60 * 60 * 1000
@@ -65,12 +66,13 @@ export function projectFilterPrefill(filter: ProjectFilterGroup | undefined): Re
 }
 
 /** Human-readable cell text shared by the table cells and the compact list rows. */
-export function projectPropertyDisplayText(card: ProjectCard, property: ProjectProperty): string {
+export function projectPropertyDisplayText(card: ProjectCard, property: ProjectProperty, people?: ProjectPeople): string {
   const raw = card.values[property.id] ?? ''
   switch (property.type) {
     case 'select': return raw ? projectOptionLabel(property, raw) : ''
     case 'multiSelect': return raw ? asArray(raw).map((id) => projectOptionLabel(property, id)).join(', ') : ''
-    case 'multiPerson': return raw ? asArray(raw).join(', ') : ''
+    case 'person': return projectPersonLabel(people, raw)
+    case 'multiPerson': return raw ? asArray(raw).map((id) => projectPersonLabel(people, id)).join(', ') : ''
     case 'checkbox': return raw === 'true' ? '✓' : ''
     case 'date': {
       const range = parseProjectDateValue(raw)
@@ -79,8 +81,8 @@ export function projectPropertyDisplayText(card: ProjectCard, property: ProjectP
       const from = projectStampToDay(range.from, includeTime).toLocaleDateString()
       return range.to !== undefined && range.to !== range.from ? `${from} – ${projectStampToDay(range.to, includeTime).toLocaleDateString()}` : from
     }
-    case 'createdBy': return card.createdBy
-    case 'updatedBy': return card.modifiedBy
+    case 'createdBy': return projectPersonLabel(people, card.createdBy)
+    case 'updatedBy': return projectPersonLabel(people, card.modifiedBy)
     case 'createdTime': return new Date(card.createAt).toLocaleDateString()
     case 'updatedTime': return new Date(card.updateAt).toLocaleDateString()
     default: return raw
@@ -244,11 +246,12 @@ export function matchProjectViewSearch(
   card: ProjectCard,
   query: string,
   properties: readonly ProjectProperty[],
+  people?: ProjectPeople,
 ): boolean {
   const needle = query.trim().toLowerCase()
   if (!needle) return true
   if (card.title.toLowerCase().includes(needle)) return true
-  return properties.some((property) => projectPropertyDisplayText(card, property).toLowerCase().includes(needle))
+  return properties.some((property) => projectPropertyDisplayText(card, property, people).toLowerCase().includes(needle))
 }
 
 /**

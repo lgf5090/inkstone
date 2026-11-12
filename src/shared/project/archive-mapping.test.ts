@@ -30,6 +30,7 @@ function fixture(): ProjectBoardBundle {
     ],
     comments: [{ id: 'm1', cardId: 'c1', boardId: 'b1', authorId: 'u2', body: 'Nice', createAt: 10, updateAt: 20, deleteAt: 0 }],
     members: [{ boardId: 'b1', userId: 'u1', role: 'admin', createdAt: 10, updatedAt: 20 }],
+    people: { u1: { id: 'u1', name: 'Uma', avatarUrl: '' } },
     role: 'admin',
     cursor: 20,
   }

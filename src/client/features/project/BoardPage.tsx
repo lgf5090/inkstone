@@ -448,6 +448,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           card={openCard}
           properties={bundle.properties}
           members={bundle.members}
+          people={bundle.people}
           contents={bundle.contents.filter((content) => content.cardId === openCard.id)}
           siblings={bundle.cards}
           canEdit={canEdit}

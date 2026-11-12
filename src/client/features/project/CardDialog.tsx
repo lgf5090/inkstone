@@ -1,10 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
 import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
-import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectProperty } from '@shared/project/model'
-import { isProjectCardDone } from '@shared/project/model'
+import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectPeople, ProjectProperty } from '@shared/project/model'
+import { isProjectCardDone, projectPersonLabel } from '@shared/project/model'
 import { moveContentOrder } from '@shared/project/content-order'
 import { t, useLocale } from '../../lib/i18n'
-import { Button, IconButton } from '../../components/primitives'
+import { Avatar, Button, IconButton } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input, Textarea } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
@@ -19,6 +19,7 @@ interface CardDialogProps {
   card: ProjectCard
   properties: ProjectProperty[]
   members: ProjectBoardMember[]
+  people: ProjectPeople
   contents: ProjectContent[]
   siblings: ProjectCard[]
   canEdit: boolean
@@ -45,7 +46,7 @@ function ArchivedFile(): ReactElement {
   )
 }
 
-export function CardDialog({ card, properties, members, contents, siblings, canEdit, onClose, onUpdated, onRefresh, onDelete, onOpenCard }: CardDialogProps): ReactElement {
+export function CardDialog({ card, properties, members, people, contents, siblings, canEdit, onClose, onUpdated, onRefresh, onDelete, onOpenCard }: CardDialogProps): ReactElement {
   const [title, setTitle] = useState(card.title)
   const [comments, setComments] = useState<ProjectComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
@@ -355,6 +356,7 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
                   card={card}
                   value={card.values[property.id] ?? ''}
                   members={members}
+                  people={people}
                   disabled={!canEdit}
                   onChange={(value) => void patch({ values: { [property.id]: value } })}
                 />
@@ -518,7 +520,8 @@ export function CardDialog({ card, properties, members, contents, siblings, canE
             {comments.map((comment) => (
               <li key={comment.id} className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2">
                 <div className="flex items-center gap-2">
-                  <p className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{comment.authorId}</p>
+                  <Avatar src={people[comment.authorId]?.avatarUrl} name={projectPersonLabel(people, comment.authorId)} size={18} />
+                  <p className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{projectPersonLabel(people, comment.authorId)}</p>
                   {canEdit && comment.authorId === currentUserId && editingCommentId !== comment.id && (
                     <>
                       <IconButton label={t('project.card.edit_comment')} size="sm" onClick={() => { setEditingCommentId(comment.id); setEditDraft(comment.body) }}><Pencil size={13} /></IconButton>

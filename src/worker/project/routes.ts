@@ -85,6 +85,7 @@ import {
   joinProjectBoard,
   leaveProjectBoard,
   listProjectMembers,
+  listProjectPeople,
   removeProjectMember,
   setProjectMemberRole,
 } from './members'
@@ -448,13 +449,15 @@ projectRoutes.post('/boards/import-account', async (c) => {
 
 projectRoutes.get('/boards/:id/members', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
-  return c.json({ members: await listProjectMembers(c.env.DB, board.id) })
+  const members = await listProjectMembers(c.env.DB, board.id)
+  const people = await listProjectPeople(c.env.DB, members.map((member) => member.userId))
+  return c.json({ members, people })
 })
 
 projectRoutes.post('/boards/:id/members', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'admin')
   const input = await projectBody(c, ProjectMemberAddSchema, JSON_BODY_LIMITS.small)
-  const member = await addProjectMember(c.env.DB, board, input.userId, input.role, Date.now())
+  const member = await addProjectMember(c.env.DB, board, input.username, input.role, Date.now())
   return c.json({ member }, 201)
 })
 

@@ -90,7 +90,7 @@ describe('the project tool surface (R3-28)', () => {
 
   it('refuses a write from a viewer', async () => {
     const board = await makeBoard()
-    await req('POST', `/boards/${board.id}/members`, { userId: 'bob', role: 'viewer' })
+    await req('POST', `/boards/${board.id}/members`, { username: 'bob', role: 'viewer' })
     await expect(runTool('project_create_card', { boardId: board.id, title: 'Nope' }, 'bob')).rejects.toThrow(/viewer on that board; editor is required/)
   })
 

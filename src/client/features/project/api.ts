@@ -16,6 +16,7 @@ import type {
   ProjectCategoryBoard,
   ProjectComment,
   ProjectContent,
+  ProjectPeople,
   ProjectRole,
   ProjectShare,
   ProjectSubscription,
@@ -309,13 +310,12 @@ export async function deleteProjectFile(id: string): Promise<void> {
 export function projectFileUrl(id: string): string {
   return `/api/project/files/${encodeURIComponent(id)}`
 }
-export async function fetchBoardMembers(boardId: string, signal?: AbortSignal): Promise<ProjectBoardMember[]> {
-  const body = await request<{ members: ProjectBoardMember[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/members`, { signal })
-  return body.members
+export async function fetchBoardMembers(boardId: string, signal?: AbortSignal): Promise<{ members: ProjectBoardMember[], people: ProjectPeople }> {
+  return request<{ members: ProjectBoardMember[], people: ProjectPeople }>(`/api/project/boards/${encodeURIComponent(boardId)}/members`, { signal })
 }
 
-export async function addBoardMember(boardId: string, userId: string, role: ProjectRole): Promise<ProjectBoardMember> {
-  const body = await request<{ member: ProjectBoardMember }>(`/api/project/boards/${encodeURIComponent(boardId)}/members`, { method: 'POST', body: { userId, role } })
+export async function addBoardMember(boardId: string, username: string, role: ProjectRole): Promise<ProjectBoardMember> {
+  const body = await request<{ member: ProjectBoardMember }>(`/api/project/boards/${encodeURIComponent(boardId)}/members`, { method: 'POST', body: { username, role } })
   return body.member
 }
 

@@ -23,7 +23,7 @@ function bundle(): ProjectBoardBundle {
     properties,
     views: [],
     cards: [card('a'), card('b')],
-    contents: [], comments: [], members: [], role: 'admin', cursor: 1,
+    contents: [], comments: [], members: [], people: {}, role: 'admin', cursor: 1,
   }
 }
 

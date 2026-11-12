@@ -1,6 +1,6 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectBoardMember, ProjectMinimumRole } from '@shared/project/model'
+import type { ProjectBoardMember, ProjectMinimumRole, ProjectPeople } from '@shared/project/model'
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
@@ -21,8 +21,9 @@ let view: RenderedElement
 type PatchFn = (patch: { type?: 'O' | 'P', minimumRole?: ProjectMinimumRole }) => Promise<void>
 let onBoardPatched: ReturnType<typeof vi.fn<PatchFn>>
 
-async function mount(members: ProjectBoardMember[], boardType: 'O' | 'P' = 'P'): Promise<void> {
-  vi.mocked(api.fetchBoardMembers).mockResolvedValue(members)
+async function mount(members: ProjectBoardMember[], boardType: 'O' | 'P' = 'P', people?: ProjectPeople): Promise<void> {
+  const directory = people ?? Object.fromEntries(members.map((entry) => [entry.userId, { id: entry.userId, name: entry.userId, avatarUrl: '' }]))
+  vi.mocked(api.fetchBoardMembers).mockResolvedValue({ members, people: directory })
   onBoardPatched = vi.fn<PatchFn>().mockResolvedValue(undefined)
   await act(async () => {
     view = renderElement(createElement(MembersDialog, { boardId: 'b1', boardType, minimumRole: '', onClose: vi.fn(), onBoardPatched }))
@@ -49,10 +50,20 @@ describe('the members dialog (R3-4)', () => {
   it('invites the typed account with the chosen role', async () => {
     vi.mocked(api.addBoardMember).mockResolvedValue(member('carol', 'editor'))
     await mount([member('alice', 'admin')])
-    const field = document.querySelector<HTMLInputElement>(`input[aria-label="${t('project.members.user_id')}"]`)!
+    const field = document.querySelector<HTMLInputElement>(`input[aria-label="${t('project.members.username')}"]`)!
     await act(async () => { setInput(field, 'carol') })
     await act(async () => { field.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
     expect(api.addBoardMember).toHaveBeenCalledWith('b1', 'carol', 'editor')
+  })
+
+  it('names a member by their account name rather than their id', async () => {
+    const id = '01m6sw1750f1zd64a7s11nwz55'
+    await mount([member(id, 'admin')], 'P', { [id]: { id, name: 'Ada', avatarUrl: '' } })
+    const row = document.querySelector(`[data-board-member="${id}"]`)!
+    expect(row.textContent).toContain('Ada')
+    expect(row.textContent).not.toContain(id)
+    expect(document.querySelector(`button[aria-label="${t('project.members.role')}: Ada"]`)).not.toBeNull()
+    expect(document.querySelector(`button[aria-label="${t('project.members.remove')}: Ada"]`)).not.toBeNull()
   })
 
   it('refuses to demote or remove the only admin', async () => {
@@ -72,7 +83,7 @@ describe('the members dialog (R3-4)', () => {
   it('stops inviting once the roster is full', async () => {
     const roster = Array.from({ length: PROJECT_LIMITS.boardMembers }, (_, index) => member(`u${index}`, index === 0 ? 'admin' : 'viewer'))
     await mount(roster)
-    const field = document.querySelector<HTMLInputElement>(`input[aria-label="${t('project.members.user_id')}"]`)!
+    const field = document.querySelector<HTMLInputElement>(`input[aria-label="${t('project.members.username')}"]`)!
     await act(async () => { setInput(field, 'one-too-many') })
     const add = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('project.members.add'))
     expect(add!.disabled, 'a full roster still accepts an invite').toBe(true)
@@ -93,7 +104,7 @@ describe('a refused invite', () => {
   it('surfaces the server refusal instead of failing silently', async () => {
     vi.mocked(api.addBoardMember).mockRejectedValue(new Error('User not found'))
     await mount([member('alice', 'admin')])
-    const field = document.querySelector<HTMLInputElement>(`input[aria-label="${t('project.members.user_id')}"]`)!
+    const field = document.querySelector<HTMLInputElement>(`input[aria-label="${t('project.members.username')}"]`)!
     await act(async () => { setInput(field, 'ghost') })
     await act(async () => { field.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
     const { useUi } = await import('../../store/ui')

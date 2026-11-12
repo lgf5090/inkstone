@@ -43,7 +43,7 @@ function fixture(): ProjectBoardBundle {
       id: 'c1', boardId: 'b1', parentId: '', title: 'Title, "x"', icon: '', isTemplate: false, contentOrder: [],
       values: { p1: '#hash #second 中文', p2: '3.5', p3: '["a","b"]', p4: '{"from":1000}' }, ...stamps,
     }],
-    contents: [], comments: [], members: [], role: 'admin', cursor: 20,
+    contents: [], comments: [], members: [], people: {}, role: 'admin', cursor: 20,
   }
 }
 

@@ -1,10 +1,13 @@
-import { useEffect, useState, type ReactElement } from 'react'
-import type { ProjectBoardMember, ProjectCard, ProjectProperty } from '@shared/project/model'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import type { ProjectBoardMember, ProjectCard, ProjectPeople, ProjectProperty } from '@shared/project/model'
+import { projectMultiValueIds, projectPersonLabel } from '@shared/project/model'
 import { moveProjectDateValue, parseProjectDateValue, projectInputToStamp, projectStampToInput } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
+import { Avatar } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input } from '../../components/form'
 import { isImeComposing } from '../../lib/ime'
 import { SelectMenu } from '../../components/select-menu'
+import { useSession } from '../../store/session'
 import { optionDot } from './CardBadges'
 import { DatePicker } from '../../components/date-picker'
 
@@ -18,16 +21,7 @@ interface PropertyValueEditorProps {
   card?: ProjectCard
   /** Called when the reader is finished, whether or not the value changed, so an editor can close. */
   onDone?: () => void
-}
-
-function readMulti(value: string): string[] {
-  if (!value.trim().startsWith('[')) return value ? [value] : []
-  try {
-    const parsed: unknown = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed.map(String) : []
-  } catch {
-    return []
-  }
+  people?: ProjectPeople
 }
 
 function readDateFrom(value: string): string {
@@ -36,9 +30,28 @@ function readDateFrom(value: string): string {
   return projectStampToInput(parsed.from, parsed.includeTime === true)
 }
 
-export function PropertyValueEditor({ property, value, members, disabled, onChange, card, onDone }: PropertyValueEditorProps): ReactElement {
+export function PropertyValueEditor({ property, value, members, disabled, onChange, card, onDone, people }: PropertyValueEditorProps): ReactElement {
   const [draft, setDraft] = useState(value)
   useEffect(() => { setDraft(value) }, [value])
+  const self = useSession((state) => state.user)
+
+  /** The roster plus the reader: an open board lets an editor assign themselves before they join. */
+  const directory = useMemo<ProjectPeople>(() => {
+    if (!self || people?.[self.id]) return people ?? {}
+    return { ...people, [self.id]: { id: self.id, name: self.name, avatarUrl: self.avatarUrl } }
+  }, [people, self])
+  const candidates = useMemo(() => {
+    const ids = members.map((member) => member.userId)
+    if (self && !ids.includes(self.id)) ids.push(self.id)
+    return ids
+  }, [members, self])
+
+  const personFace = (userId: string): ReactElement => (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <Avatar src={directory[userId]?.avatarUrl} name={projectPersonLabel(directory, userId)} size={18} />
+      <span className="truncate">{projectPersonLabel(directory, userId)}</span>
+    </span>
+  )
 
   // An unchanged value still ends the edit: without this, Enter and blur on a cell the reader only
   // looked at left the editor open with no way out.
@@ -53,7 +66,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
         <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: '—' }, ...property.options.map((option) => ({ value: option.id, label: option.value, icon: optionDot(option.color) }))]} />
       )
     case 'multiSelect': {
-      const selected = readMulti(value)
+      const selected = projectMultiValueIds(value)
       return (
         <div className="flex flex-wrap gap-2">
           {property.options.map((option) => (
@@ -72,18 +85,18 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
       )
     }
     case 'multiPerson': {
-      const selected = readMulti(value)
+      const selected = projectMultiValueIds(value)
       return (
         <div className="flex flex-wrap gap-2">
-          {members.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</span>}
-          {members.map((member) => (
+          {candidates.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</span>}
+          {candidates.map((userId) => (
             <Checkbox
-              key={member.userId}
-              label={member.userId}
-              checked={selected.includes(member.userId)}
+              key={userId}
+              label={personFace(userId)}
+              checked={selected.includes(userId)}
               disabled={disabled}
               onChange={(checked) => {
-                const next = checked ? [...selected, member.userId] : selected.filter((id) => id !== member.userId)
+                const next = checked ? [...selected, userId] : selected.filter((id) => id !== userId)
                 onChange(next.length ? JSON.stringify(next) : null)
               }}
             />
@@ -109,13 +122,13 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
       )
     case 'person':
       return (
-        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: '—' }, ...members.map((member) => ({ value: member.userId, label: member.userId }))]} />
+        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: '—' }, ...candidates.map((userId) => ({ value: userId, label: projectPersonLabel(directory, userId), icon: <Avatar src={directory[userId]?.avatarUrl} name={projectPersonLabel(directory, userId)} size={18} /> }))]} />
       )
     case 'createdBy':
     case 'updatedBy':
     case 'createdTime':
     case 'updatedTime':
-      return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{(card ? projectPropertyDisplayText(card, property) : value) || '—'}</span>
+      return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{(card ? projectPropertyDisplayText(card, property, directory) : value) || '—'}</span>
     default:
       return (
         <Input

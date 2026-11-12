@@ -22,6 +22,7 @@ import { PropertiesModal, SortModal } from './ViewSettingsModals'
 import { FilterModal } from './FilterEditor'
 import { optionDot } from './CardBadges'
 import { buildCardMenu } from './card-menu'
+import { ProjectPeopleProvider } from './people-context'
 import { readPinnedCardsPref, readStarredCardsPref, writePinnedCardsPref, writeStarredCardsPref } from './project-prefs'
 import { Seg } from './views/shell'
 import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, projectBoardExportUrl, projectFileUrl } from './api'
@@ -166,8 +167,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     if (active) void onPatchView(active.id, { fields: patch })
   }
   const filtered = useMemo(
-    () => bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, search, bundle.properties)),
-    [bundle.cards, fields.filter, bundle.properties, search],
+    () => bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, search, bundle.properties, bundle.people)),
+    [bundle.cards, fields.filter, bundle.properties, bundle.people, search],
   )
   const sorted = useMemo(() => sortProjectCards(filtered, fields.sortOptions, bundle.properties), [filtered, fields.sortOptions, bundle.properties])
   // The board and the list are manual surfaces: a card the reader dropped stays where it was dropped.
@@ -612,9 +613,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       )}
       {cards.length === 0 && !EMPTY_CAPABLE_VIEWS.has(viewType)
         ? <ViewEmpty title={t('project.board.empty_cards')} hint={t('project.view.empty_hint')} />
-        : renderView()}
+        : <ProjectPeopleProvider people={bundle.people}>{renderView()}</ProjectPeopleProvider>}
       {active && settings === 'sort' && <SortModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
-      {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} members={bundle.members} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
+      {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} members={bundle.members} people={bundle.people} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
       {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
       {contextPoint && <Menu anchor={contextPoint} open onClose={() => setContextPoint(null)} items={contextItems} />}
     </div>
