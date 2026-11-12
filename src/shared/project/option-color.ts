@@ -30,23 +30,33 @@ export function projectOptionCssColor(color: string): string | null {
 }
 
 /**
- * The colour a card wears on every surface: its first single-select value's colour, else the accent.
+ * A colour lookup that resolves each option once instead of once per card.
  *
- * One rule for the board dot, the calendar ribbon, the schedule bar and the gallery placeholder, so a
- * card is the same colour wherever the reader meets it. `select` only — a multi-select card has no
- * single colour to wear, and picking its first tag would change with tag order.
+ * A board draws the same card's colour three or four times a frame (dot, bar, progress, chip) and a
+ * thousand cards each walk every select property's option list to find it. Pre-resolving the options
+ * turns each card into one map read.
  */
-export function projectCardColor(
-  card: { values: Record<string, string> },
+export function projectCardColorResolver(
   properties: readonly { id: string, type: string, options: readonly { id: string, color: string }[] }[],
-): string {
-  for (const property of properties) {
-    if (property.type !== 'select') continue
-    const raw = card.values[property.id]
-    if (!raw) continue
-    const option = property.options.find((entry) => entry.id === raw)
-    const css = option ? projectOptionCssColor(option.color) : null
-    if (css) return css
+): (card: { values: Record<string, string> }) => string {
+  const selects = properties
+    .filter((property) => property.type === 'select')
+    .map((property) => {
+      const byId = new Map<string, string>()
+      for (const option of property.options) {
+        const css = projectOptionCssColor(option.color)
+        if (css) byId.set(option.id, css)
+      }
+      return { id: property.id, byId }
+    })
+    .filter((entry) => entry.byId.size > 0)
+  return (card) => {
+    for (const select of selects) {
+      const raw = card.values[select.id]
+      if (!raw) continue
+      const css = select.byId.get(raw)
+      if (css) return css
+    }
+    return 'var(--accent)'
   }
-  return 'var(--accent)'
 }

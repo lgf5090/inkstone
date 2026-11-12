@@ -5,11 +5,11 @@
  * board of text-only cards reads as a set of things instead of a set of placeholders. Subtasks fold
  * under their parent tile: listing them beside it made a three-step task read as four unrelated cards.
  */
-import { useState, type MouseEvent, type ReactElement } from 'react'
+import { useMemo, useState, type MouseEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, CornerDownRight, LayoutGrid, ListTodo, SquareKanban } from 'lucide-react'
 import type { ProjectCard, ProjectGallerySize, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
-import { projectCardColor } from '@shared/project/option-color'
+import { projectCardColorResolver } from '@shared/project/option-color'
 import { groupProjectCards, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t } from '../../../lib/i18n'
 import { CardBadges, OptionChip } from '../CardBadges'
@@ -50,7 +50,7 @@ export function GalleryView(props: GalleryProps): ReactElement {
   const entries: [string, ProjectCard[]][] = groupProperty
     ? [...groupProperty.options.map((option) => option.id), ''].map((key) => [key, groups.get(key) ?? []])
     : [...groups.entries()]
-  const colorOf = (card: ProjectCard): string => projectCardColor(card, properties)
+  const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
 
   return (
     <ViewShell data-view="gallery">

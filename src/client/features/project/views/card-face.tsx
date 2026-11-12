@@ -13,7 +13,7 @@ import { IconButton } from '../../../components/primitives'
 import { Checkbox } from '../../../components/form'
 import { CardBadges, CardPropertyChips } from '../CardBadges'
 
-export function CardFace({ card, color, cover, chipProperties, excludePropertyId, badges, density, description, rich = false, starred, pinned, children }: {
+export function CardFace({ card, color, cover, chipProperties, excludePropertyId, badges, density, description, rich = false, starred, pinned, todayStamp, children }: {
   card: ProjectCard
   color: string
   cover?: string | null
@@ -23,6 +23,7 @@ export function CardFace({ card, color, cover, chipProperties, excludePropertyId
   density: 'compact' | 'comfortable' | 'spacious'
   description?: string
   rich?: boolean
+  todayStamp?: number
   starred?: boolean
   pinned?: boolean
   children?: ReactNode
@@ -36,7 +37,7 @@ export function CardFace({ card, color, cover, chipProperties, excludePropertyId
       </div>
       {rich && description && <p className="pv-card-desc">{description}</p>}
       {density !== 'compact' && (
-        <CardPropertyChips card={card} properties={chipProperties} excludePropertyId={excludePropertyId} max={rich ? 8 : 4} />
+        <CardPropertyChips card={card} properties={chipProperties} excludePropertyId={excludePropertyId} max={rich ? 8 : 4} todayStamp={todayStamp} />
       )}
       <span className="flex items-center gap-1.5">
         <CardBadges badges={badges} />

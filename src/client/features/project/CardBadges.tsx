@@ -11,6 +11,12 @@ import { t } from '../../lib/i18n'
 
 import { TagPill } from '../../components/TagChip'
 
+function startOfToday(): number {
+  const day = new Date()
+  day.setHours(0, 0, 0, 0)
+  return day.getTime()
+}
+
 export function OptionChip({ property, value }: { property: ProjectProperty, value: string }): ReactElement | null {
   const option = property.options.find((entry) => entry.id === value)
   if (!option) return null
@@ -74,13 +80,11 @@ const PROPERTY_ICONS: Partial<Record<ProjectProperty['type'], LucideIcon>> = {
 }
 
 /** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */
-function isOverdue(card: ProjectCard, property: ProjectProperty, properties: readonly ProjectProperty[]): boolean {
+function isOverdue(card: ProjectCard, property: ProjectProperty, properties: readonly ProjectProperty[], todayStamp: number): boolean {
   const value = parseProjectDateValue(card.values[property.id] ?? '')
   if (value?.from === undefined) return false
   if (isProjectCardDone(card, properties)) return false
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return projectStampToDay(value.to ?? value.from, value.includeTime === true).getTime() < today.getTime()
+  return projectStampToDay(value.to ?? value.from, value.includeTime === true).getTime() < todayStamp
 }
 
 /**
@@ -90,12 +94,15 @@ function isOverdue(card: ProjectCard, property: ProjectProperty, properties: rea
  * repeated here as chips — the group's own property is left out because the column already says it.
  * Only set values are drawn: an empty chip per property would bury the title it is meant to support.
  */
-export function CardPropertyChips({ card, properties, excludePropertyId, max = 4 }: {
+export function CardPropertyChips({ card, properties, excludePropertyId, max = 4, todayStamp }: {
   card: ProjectCard
   properties: readonly ProjectProperty[]
   excludePropertyId?: string
   max?: number
+  /** One midnight for the whole board, so a thousand chips do not each build a Date. */
+  todayStamp?: number
 }): ReactElement | null {
+  const today = todayStamp ?? startOfToday()
   const shown = properties
     .filter((property) => property.id !== excludePropertyId && !PROJECT_PROPERTY_CAPABILITIES[property.type].readOnly && card.values[property.id])
     .slice(0, max)
@@ -105,7 +112,7 @@ export function CardPropertyChips({ card, properties, excludePropertyId, max = 4
       {shown.map((property) => {
         if (property.type === 'select') return <OptionChip key={property.id} property={property} value={card.values[property.id]!} />
         const Icon = PROPERTY_ICONS[property.type] ?? Type
-        const overdue = property.type === 'date' && isOverdue(card, property, properties)
+        const overdue = property.type === 'date' && isOverdue(card, property, properties, today)
         return (
           <span
             key={property.id}

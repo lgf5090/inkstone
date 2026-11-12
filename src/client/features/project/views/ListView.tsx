@@ -11,7 +11,7 @@ import { Check, ChevronDown, ChevronRight, CornerDownRight, List, Plus, Trash2 }
 import type { ProjectCard, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
-import { projectCardColor, projectOptionCssColor } from '@shared/project/option-color'
+import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
 import { projectPriorityProperty } from '@shared/project/stats'
 import { projectCardDays } from '@shared/project/timeline-layout'
 import { groupProjectCards, projectKanbanDropOrder, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
@@ -49,6 +49,7 @@ export function ListView(props: ListProps): ReactElement {
   const columnsAnchor = useRef<HTMLButtonElement>(null)
   const today = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
   const priorityProperty = useMemo(() => projectPriorityProperty(properties), [properties])
+  const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const dateProperty = useMemo(() => properties.find((property) => property.type === 'date'), [properties])
   const shown = useMemo(() => {
     const picked = fields.visiblePropertyIds.map((id) => properties.find((property) => property.id === id)).filter((property): property is ProjectProperty => Boolean(property))
@@ -173,7 +174,7 @@ export function ListView(props: ListProps): ReactElement {
           >
             {done && <Check size={11} aria-hidden="true" />}
           </button>
-          <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: projectCardColor(card, properties) }} aria-hidden="true" />
+          <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(card) }} aria-hidden="true" />
           {renaming?.id === card.id
             ? (
               <input

@@ -12826,6 +12826,7 @@ const allowed = new Map([
   ["src/client/features/project/CardBadges.tsx", [
     "/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */",
     "/**\n * The row a board card wears under its title.\n *\n * A kanban card has to be readable without opening it, so the properties the view already shows are\n * repeated here as chips — the group's own property is left out because the column already says it.\n * Only set values are drawn: an empty chip per property would bury the title it is meant to support.\n */",
+    "/** One midnight for the whole board, so a thousand chips do not each build a Date. */",
   ]],
   ["src/client/features/project/FilterEditor.test.tsx", [
     "/** The row a stored value is offered under: a property name, a join word, or a condition's own label. */",
@@ -33392,7 +33393,6 @@ const allowed = new Map([
   ["src/shared/project/model.ts", [
     "/**\n * The project app's vocabulary: what a board, a card, a property and a view are, spelled once for the\n * server that stores them and the client that draws them.\n *\n * The shapes follow Focalboard's block model rather than inventing a new one, because an archive\n * exported there has to import here field for field. Where this port deliberately differs, the\n * reason is stated at the declaration.\n */",
     "/** Ordered weakest to strongest: a member's effective role is the stronger of two of these. */",
-    "/** The two the reference declares but never registers: `file` has no editor, `unknown` is the fallback. */",
     "/** Which conditions a value type offers, and the one a new clause starts on. */",
     "/**\n * What each property type can do, read off the reference's own registrations rather than assumed.\n * Two entries surprise a reader who guesses: `number` is not filterable there, and the two\n * server-written author fields are both filterable and groupable despite being read-only.\n */",
     "/** The 21 summaries a column or a kanban column header can show, in the reference's own order. */",
@@ -33428,7 +33428,7 @@ const allowed = new Map([
     "/** The picker's ramp, in the reference's own spelling and order. `''` is the no-colour slot. */",
     "/** The palette name a stored colour names, or `''` for none — including the reference's `propColorDefault`. */",
     "/** The CSS colour a chip's text and dot are painted in, or `null` when the option carries no colour. */",
-    "/**\n * The colour a card wears on every surface: its first single-select value's colour, else the accent.\n *\n * One rule for the board dot, the calendar ribbon, the schedule bar and the gallery placeholder, so a\n * card is the same colour wherever the reader meets it. `select` only — a multi-select card has no\n * single colour to wear, and picking its first tag would change with tag order.\n */",
+    "/**\n * A colour lookup that resolves each option once instead of once per card.\n *\n * A board draws the same card's colour three or four times a frame (dot, bar, progress, chip) and a\n * thousand cards each walk every select property's option list to find it. Pre-resolving the options\n * turns each card into one map read.\n */",
   ]],
   ["src/shared/project/property-patch.ts", [
     "/**\n * The reference's cardProperties patch, step for step (board.go Patch): a whole-object replacement\n * matched by id, where a never-seen id is appended rather than inserted, and a deletion leaves the\n * survivors in their original relative order. Entries without a string id are skipped, not rejected.\n *\n * One guard the reference lacks: a deleted id leaves the order list immediately, so an id both deleted\n * and re-added in the same patch lands at the end exactly once. The reference keeps the deleted id in\n * the order list and would emit it twice; here a property id is a primary key, so a duplicate cannot be\n * stored and the order list must not name it twice.\n */",

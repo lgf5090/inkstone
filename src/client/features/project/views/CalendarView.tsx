@@ -13,7 +13,7 @@ import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectDayToStamp } from '@shared/project/date'
 import { projectCardDays } from '@shared/project/timeline-layout'
 import { projectCalendarDayChips, projectCalendarDayRoles, projectCalendarIndex, projectCalendarOverdue, projectCalendarRibbons, projectCalendarWeekSpans, type CalendarEntry } from '@shared/project/calendar-layout'
-import { projectCardColor, projectOptionCssColor } from '@shared/project/option-color'
+import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
 import { projectPriorityProperty } from '@shared/project/stats'
 import { t, useLocale } from '../../../lib/i18n'
 import { buildMonthGridCells } from '../../../components/calendar-grids'
@@ -62,7 +62,7 @@ export function CalendarView(props: CalendarProps): ReactElement {
   const todayKey = dateKey(new Date())
   const todayStamp = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
   const keyOf = useCallback((stamp: number) => dateKey(new Date(stamp)), [])
-  const colorOf = useCallback((card: ProjectCard) => projectCardColor(card, properties), [properties])
+  const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
 
   const cells: Cell[] = useMemo(() => {
     if (mode === 'month') {

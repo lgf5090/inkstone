@@ -12,7 +12,7 @@ import type { ProjectCalculation, ProjectCard, ProjectProperty, ProjectViewField
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
-import { projectCardColor, projectOptionCssColor, PROJECT_OPTION_COLORS } from '@shared/project/option-color'
+import { projectCardColorResolver, projectOptionCssColor, PROJECT_OPTION_COLORS } from '@shared/project/option-color'
 import { groupProjectCards, projectKanbanDropOrder, projectOptionLabel } from '@shared/project/view-eval'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
@@ -83,7 +83,8 @@ export function KanbanView(props: KanbanProps): ReactElement {
   const chipProperties = fields.visiblePropertyIds.length
     ? fields.visiblePropertyIds.map((id) => properties.find((property) => property.id === id)).filter((property): property is ProjectProperty => Boolean(property))
     : properties
-  const colorOf = (card: ProjectCard): string => projectCardColor(card, properties)
+  const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
+  const todayStamp = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
 
   const onDrop = (cardId: string, target: DragDropTarget): void => {
     const order = projectKanbanDropOrder({
@@ -136,6 +137,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
           groupProperty={groupProperty}
           chipProperties={chipProperties}
           colorOf={colorOf}
+          todayStamp={todayStamp}
           drag={drag}
           dragColumn={dragColumn}
           overColumn={overColumn}
@@ -173,12 +175,13 @@ export function KanbanView(props: KanbanProps): ReactElement {
   )
 }
 
-function KanbanColumn({ columnKey, cards, groupProperty, properties, chipProperties, fields, colorOf, drag, dragColumn, overColumn, onColumnDragStart, onColumnDragOver, onColumnDrop, ...props }: KanbanProps & {
+function KanbanColumn({ columnKey, cards, groupProperty, properties, chipProperties, fields, colorOf, todayStamp, drag, dragColumn, overColumn, onColumnDragStart, onColumnDragOver, onColumnDrop, ...props }: KanbanProps & {
   columnKey: string
   cards: ProjectCard[]
   groupProperty: ProjectProperty | undefined
   chipProperties: readonly ProjectProperty[]
   colorOf: (card: ProjectCard) => string
+  todayStamp: number
   drag: ReturnType<typeof useDragSort>
   dragColumn: string | null
   overColumn: string | null
@@ -321,6 +324,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
                         excludePropertyId={fields.groupById}
                         badges={props.badgesFor(card.id)}
                         density={fields.cardSize ?? 'comfortable'}
+                        todayStamp={todayStamp}
                         rich={layout === 'card'}
                         description={props.descriptionFor(card.id)}
                         starred={props.starredCards.includes(card.id)}

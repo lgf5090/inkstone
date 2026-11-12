@@ -11,7 +11,7 @@ import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react
 import { Clock, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectScheduleScale, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
-import { projectCardColor, projectOptionCssColor } from '@shared/project/option-color'
+import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
 import {
   PROJECT_TIMELINE_COLUMN_PX,
   projectCardDays,
@@ -53,7 +53,7 @@ export function TimelineView(props: TimelineProps): ReactElement {
   const [showTray, setShowTray] = useState(true)
   const viewport = useRef<HTMLDivElement | null>(null)
   const today = Date.now()
-  const colorOf = useCallback((card: ProjectCard) => projectCardColor(card, properties), [properties])
+  const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const isDone = useCallback((card: ProjectCard) => isProjectCardDone(card, properties), [properties])
 
   const dated = useMemo(() => cards

@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { CalendarRange, Maximize2, Plus, Settings2, Trash2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectScheduleScale, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
-import { projectCardColor, projectOptionCssColor } from '@shared/project/option-color'
+import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
 import { projectDayToStamp } from '@shared/project/date'
 import {
   PROJECT_TIMELINE_COLUMN_PX,
@@ -76,7 +76,7 @@ export function GanttView(props: GanttProps): ReactElement {
   const [showSettings, setShowSettings] = useState(false)
   const viewport = useRef<HTMLDivElement | null>(null)
   const today = Date.now()
-  const colorOf = useCallback((card: ProjectCard) => projectCardColor(card, properties), [properties])
+  const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const isDone = useCallback((card: ProjectCard) => isProjectCardDone(card, properties), [properties])
   const planning = canEdit && Boolean(propertyId)
 
