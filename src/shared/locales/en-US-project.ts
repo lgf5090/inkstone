@@ -417,4 +417,5 @@ export const EN_US_PROJECT = {
     "project.boards.layout_list": "List",
     "project.boards.layout_cards": "Cards",
     "project.card.no_done_field": "This board has no status or checkbox field to tick",
+    "project.view.drag_column": "Drag to reorder {title}",
 } as const

@@ -7,7 +7,7 @@
  * made a reorder inside a column silently do nothing.
  */
 import { useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
-import { ChevronDown, ChevronRight, EyeOff, MoreHorizontal, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, EyeOff, GripVertical, MoreHorizontal, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ProjectCalculation, ProjectCard, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
@@ -23,6 +23,7 @@ import { isImeComposing } from '../../../lib/ime'
 import { QuickAdd, ViewShell } from './shell'
 import { CardFace, CardGrip, SubtaskProgress, SubtaskRows } from './card-face'
 import { useDragSort, type DragDropTarget } from './use-drag-sort'
+import { useColumnDrag } from './use-column-drag'
 
 export interface KanbanProps {
   cards: ProjectCard[]
@@ -106,8 +107,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
     setAddingGroup(true)
   }
   const [addingGroup, setAddingGroup] = useState(false)
-  const [dragColumn, setDragColumn] = useState<string | null>(null)
-  const [overColumn, setOverColumn] = useState<string | null>(null)
+  const boardRef = useRef<HTMLDivElement>(null)
   const moveColumn = (source: string, target: string): void => {
     if (source === target) return
     // Dragging rightwards lands the column after the one it was dropped on; leftwards, before it.
@@ -117,6 +117,14 @@ export function KanbanView(props: KanbanProps): ReactElement {
     const at = without.indexOf(target) + (forwards ? 1 : 0)
     props.onPatchFields({ columnOrder: [...without.slice(0, at), source, ...without.slice(at)] })
   }
+  const columnDrag = useColumnDrag({
+    enabled: canEdit,
+    measure: () => [...(boardRef.current?.querySelectorAll<HTMLElement>('[data-kanban-column]') ?? [])].map((node) => {
+      const rect = node.getBoundingClientRect()
+      return { id: node.dataset.kanbanColumn ?? '', left: rect.left, right: rect.right }
+    }),
+    onDrop: moveColumn,
+  })
   const [groupDraft, setGroupDraft] = useState('')
   const submitGroup = async (): Promise<void> => {
     const value = groupDraft.trim()
@@ -127,7 +135,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
 
   return (
     <ViewShell data-view="board">
-    <div className="pv-board pv-scroll" data-drag-root="" data-kanban="">
+    <div ref={boardRef} className="pv-board pv-scroll" data-drag-root="" data-kanban="">
       {columns.map((column) => (
         <KanbanColumn
           key={column.key || 'none'}
@@ -139,11 +147,9 @@ export function KanbanView(props: KanbanProps): ReactElement {
           colorOf={colorOf}
           todayStamp={todayStamp}
           drag={drag}
-          dragColumn={dragColumn}
-          overColumn={overColumn}
-          onColumnDragStart={setDragColumn}
-          onColumnDragOver={setOverColumn}
-          onColumnDrop={(target) => { if (dragColumn) moveColumn(dragColumn, target); setDragColumn(null); setOverColumn(null) }}
+          dragColumn={columnDrag.draggingId}
+          overColumn={columnDrag.overId}
+          onColumnDragStart={(event) => columnDrag.start(event, column.key)}
         />
       ))}
       {canEdit && groupProperty && (
@@ -175,7 +181,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
   )
 }
 
-function KanbanColumn({ columnKey, cards, groupProperty, properties, chipProperties, fields, colorOf, todayStamp, drag, dragColumn, overColumn, onColumnDragStart, onColumnDragOver, onColumnDrop, ...props }: KanbanProps & {
+function KanbanColumn({ columnKey, cards, groupProperty, properties, chipProperties, fields, colorOf, todayStamp, drag, dragColumn, overColumn, onColumnDragStart, ...props }: KanbanProps & {
   columnKey: string
   cards: ProjectCard[]
   groupProperty: ProjectProperty | undefined
@@ -185,9 +191,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
   drag: ReturnType<typeof useDragSort>
   dragColumn: string | null
   overColumn: string | null
-  onColumnDragStart: (key: string | null) => void
-  onColumnDragOver: (key: string | null) => void
-  onColumnDrop: (key: string) => void
+  onColumnDragStart: (event: React.PointerEvent) => void
 }): ReactElement {
   const { canEdit, subtasksByParent, selected, canMarkDone = true } = props
   const label = columnKey === '' ? t('project.view.no_value') : projectOptionLabel(groupProperty!, columnKey)
@@ -238,9 +242,6 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
       data-collapsed={collapsed}
       data-over={over && !collapsed}
       aria-label={label}
-      onDragOver={(event) => { if (dragColumn) { event.preventDefault(); onColumnDragOver(columnKey) } }}
-      onDragLeave={() => { if (overColumn === columnKey) onColumnDragOver(null) }}
-      onDrop={(event) => { if (dragColumn) { event.preventDefault(); onColumnDrop(columnKey) } }}
       onContextMenu={(event) => {
         if (!canEdit || !groupProperty || columnKey === '') return
         event.preventDefault()
@@ -268,8 +269,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
               hideable={canEdit && Boolean(groupProperty) && columnKey !== ''}
               dragging={dragColumn === columnKey}
               dropTarget={overColumn === columnKey && dragColumn !== columnKey}
-              onDragStart={() => onColumnDragStart(columnKey)}
-              onDragEnd={() => { onColumnDragStart(null); onColumnDragOver(null) }}
+              onGripDown={onColumnDragStart}
               calc={calc}
               calcOptions={calcProperty ? calculationOptionsFor(calcProperty) : []}
               wip={wip}
@@ -398,7 +398,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
  * The name is a button so a double click renames the option itself — the column and every card wearing
  * that option change together, which is what renaming a status means.
  */
-function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, calcOptions, wip, renaming, draft, dragging, dropTarget, onDragStart, onDragEnd, onDraft, onRename, onCommit, onCancelRename, onCollapse, onCalc, onWip, onHide }: {
+function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, calcOptions, wip, renaming, draft, dragging, dropTarget, onGripDown, onDraft, onRename, onCommit, onCancelRename, onCollapse, onCalc, onWip, onHide }: {
   label: string
   count: string | number
   overLimit: boolean
@@ -412,8 +412,7 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
   draft: string
   dragging: boolean
   dropTarget: boolean
-  onDragStart: () => void
-  onDragEnd: () => void
+  onGripDown: (event: React.PointerEvent) => void
   onDraft: (value: string) => void
   onRename: () => void
   onCommit: () => void
@@ -441,10 +440,18 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
       className="pv-col-head"
       data-dragging={dragging}
       data-drop-target={dropTarget}
-      draggable={canEdit}
-      onDragStart={(event) => { event.dataTransfer.setData('text/plain', `column:${label}`); onDragStart() }}
-      onDragEnd={onDragEnd}
     >
+      {canEdit && (
+        <button
+          type="button"
+          className="pv-col-grip"
+          data-column-grip={label}
+          aria-label={t('project.view.drag_column', { title: label })}
+          onPointerDown={onGripDown}
+        >
+          <GripVertical size={12} aria-hidden="true" />
+        </button>
+      )}
       <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
       {renaming
         ? (

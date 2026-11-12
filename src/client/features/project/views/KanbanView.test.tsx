@@ -230,16 +230,18 @@ describe('the column menu and reorder', () => {
   it('persists a dragged column order including the empty bucket key', async () => {
     const props = await mount([card('a')])
     const before = columns()
-    const transfer = { data: {} as Record<string, string>, types: ['text/plain'], setData(k: string, v: string) { this.data[k] = v }, getData(k: string) { return this.data[k] } }
-    const fire = (node: Element, type: string): void => {
-      const event = new Event(type, { bubbles: true, cancelable: true })
-      Object.defineProperty(event, 'dataTransfer', { value: transfer })
-      node.dispatchEvent(event)
+    // jsdom lays nothing out, so the drag reads the bands a real board would report.
+    before.forEach((node, index) => {
+      node.getBoundingClientRect = () => ({ left: index * 300, right: index * 300 + 280, top: 0, bottom: 600, width: 280, height: 600, x: index * 300, y: 0, toJSON: () => ({}) })
+    })
+    const grip = before[0]!.querySelector<HTMLElement>('[data-column-grip]')!
+    const fire = (type: string, x: number, target: EventTarget = window): void => {
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 20, button: 0, pointerId: 1, pointerType: 'mouse' }))
     }
-    await act(async () => { fire(before[0]!.querySelector('.pv-col-head')!, 'dragstart') })
-    await act(async () => { fire(before[1]!, 'dragover') })
+    await act(async () => { fire('pointerdown', 20, grip) })
+    await act(async () => { fire('pointermove', 340) })
     expect(before[1]!.querySelector('.pv-col-head')!.getAttribute('data-drop-target')).toBe('true')
-    await act(async () => { fire(before[1]!, 'drop') })
+    await act(async () => { fire('pointerup', 340) })
     expect(props.onPatchFields).toHaveBeenCalledWith({ columnOrder: ['o2', 'o1', ''] })
   })
 })

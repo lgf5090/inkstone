@@ -417,6 +417,7 @@ export const ZH_CN_PROJECT = {
     "project.boards.layout_list": "列表",
     "project.boards.layout_cards": "卡片",
     "project.card.no_done_field": "该看板没有可用于勾选的状态或复选框字段",
+    "project.view.drag_column": "拖动以调整 {title} 的位置",
 } as const
 
 /** zh strings for the built-in board templates' demo content, keyed by the English source string. */

@@ -12947,6 +12947,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/views/KanbanView.test.tsx", [
     "// The ghost and the line are painted on the next frame, not on the event itself.",
+    "// jsdom lays nothing out, so the drag reads the bands a real board would report.",
   ]],
   ["src/client/features/project/views/KanbanView.tsx", [
     "/**\n * The board: one column per group option, cards dragged between and within them.\n *\n * Dragging is pointer-based (see use-drag-sort) so a finger works the same as a mouse, and the drop\n * writes two things: the card's group value when it crossed a column, and the view's manual card\n * order when it landed between two cards. The reference keeps those as one gesture; splitting them\n * made a reorder inside a column silently do nothing.\n */",
@@ -12996,6 +12997,10 @@ const allowed = new Map([
     "/** A pill row of mutually exclusive choices; `aria-pressed` carries the state a screen reader needs. */",
     "/**\n * The inline \"add a card\" control every collection surface offers.\n *\n * It stays a button until pressed so a column of twenty cards is not twenty open text fields, and it\n * keeps focus after a submit so typing three cards in a row is three Enters rather than six clicks.\n */",
     "/** The empty body a view shows when its filter left nothing, with the action that fixes it. */",
+  ]],
+  ["src/client/features/project/views/use-column-drag.ts", [
+    "/**\n * Reordering columns by pointer, so a finger works the same as a mouse.\n *\n * HTML5 drag-and-drop never fires from a touch, which left the board's and the table's column order\n * desktop-only. This reads the header rectangles once at press, follows the pointer, and reports the\n * column it is over; the caller decides what a drop means.\n */",
+    "/** Header elements in their drawn order, read at press so scrolling mid-drag stays honest. */",
   ]],
   ["src/client/features/project/views/use-drag-sort.ts", [
     "/**\n * Pointer drag for the board and the list.\n *\n * HTML5 drag-and-drop never fires from a touch, so a board built on `draggable` is a desktop-only\n * board. This walks the same path for mouse, pen and finger: press, cross a small threshold (or hold\n * on touch), then a fixed clone follows the pointer while the real card stays behind as a slot.\n *\n * The drop index is counted in midlines and means \"insert here after the dragged card is removed\",\n * so the caller can splice without a ±1 correction. Geometry is read once at drag start and corrected\n * by scroll deltas, because reading every card's rect on every pointermove forces a layout per frame.\n */",

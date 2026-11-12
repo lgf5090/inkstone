@@ -1929,3 +1929,27 @@ body.pv-dragging * {
 .pv-col-head[data-drop-target='true'] {
   box-shadow: inset 3px 0 0 var(--accent);
 }
+
+.pv-col-grip {
+  display: flex;
+  width: 14px;
+  height: 18px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-xs);
+  color: var(--text-quaternary);
+  cursor: var(--pv-drag-cursor);
+  opacity: 0;
+  touch-action: none;
+  transition: opacity 0.12s ease;
+}
+.pv-col-head:hover .pv-col-grip,
+.pv-col-grip:focus-visible {
+  opacity: 1;
+}
+@media (pointer: coarse) {
+  .pv-col-grip {
+    opacity: 0.6;
+  }
+}
