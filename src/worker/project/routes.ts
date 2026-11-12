@@ -36,7 +36,7 @@ import { requireAuth } from '../middleware/auth'
 import { originOf } from '../lib/notify'
 import { broadcastProjectChange } from './realtime'
 import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAccountArchive, importProjectBoardArchive } from './archive'
-import { projectBody, projectUserId, requireBoard, requireCard, requireComment, requireContent, requireView } from './auth'
+import { projectBody, projectUserId, requireBoard, requireBoardOwner, requireCard, requireComment, requireContent, requireView } from './auth'
 import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
 import { projectBoardCursor, readProjectBoardBundle, touchProjectBoard } from './bundle'
 import {
@@ -374,19 +374,21 @@ projectRoutes.post('/boards/:id/batch-delete', async (c) => {
 
 projectRoutes.patch('/boards/:id', async (c) => {
   const patch = await projectBody(c, ProjectBoardPatchSchema)
-  const required = patch.type !== undefined || patch.minimumRole !== undefined || patch.archived !== undefined ? 'admin' : 'editor'
-  const { board } = await requireBoard(c, c.req.param('id'), required)
+  const ownerOnly = patch.type !== undefined || patch.minimumRole !== undefined || patch.archived !== undefined
+  const { board } = ownerOnly
+    ? await requireBoardOwner(c, c.req.param('id'))
+    : await requireBoard(c, c.req.param('id'), 'editor')
   return c.json(await patchProjectBoard(c.env.DB, board, patch, projectUserId(c), Date.now()))
 })
 
 projectRoutes.delete('/boards/:id', async (c) => {
-  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  const { board, userId } = await requireBoardOwner(c, c.req.param('id'))
   await softDeleteProjectBoard(c.env.DB, board.id, userId, Date.now())
   return c.json({ ok: true })
 })
 
 projectRoutes.post('/boards/:id/undelete', async (c) => {
-  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin', { allowDeleted: true })
+  const { board, userId } = await requireBoardOwner(c, c.req.param('id'), { allowDeleted: true })
   await undeleteProjectBoard(c.env.DB, board.id, userId, Date.now())
   return c.json({ board: await getProjectBoardRow(c.env.DB, board.id) })
 })
@@ -398,24 +400,24 @@ projectRoutes.post('/boards/:id/duplicate', async (c) => {
 })
 
 projectRoutes.post('/boards/:id/save-as-template', async (c) => {
-  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
-  await saveBoardAsTemplate(c.env.DB, board.id, Date.now())
-  return c.json({ ok: true })
+  const { board, userId } = await requireBoardOwner(c, c.req.param('id'))
+  const template = await saveBoardAsTemplate(c.env.DB, board.id, userId, Date.now())
+  return c.json({ template }, 201)
 })
 
 projectRoutes.get('/boards/:id/share', async (c) => {
-  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  const { board, userId } = await requireBoardOwner(c, c.req.param('id'))
   return c.json({ share: await getProjectShare(c.env.DB, board.id, userId) })
 })
 
 projectRoutes.put('/boards/:id/share', async (c) => {
-  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  const { board, userId } = await requireBoardOwner(c, c.req.param('id'))
   const input = await projectBody(c, ProjectSharePutSchema, JSON_BODY_LIMITS.small)
   return c.json({ share: await putProjectShare(c.env.DB, board, userId, input, Date.now()) })
 })
 
 projectRoutes.delete('/boards/:id/share', async (c) => {
-  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  const { board, userId } = await requireBoardOwner(c, c.req.param('id'))
   await deleteProjectShare(c.env.DB, board.id, userId)
   return c.json({ ok: true })
 })

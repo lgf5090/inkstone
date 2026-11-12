@@ -26,7 +26,7 @@ async function mount(members: ProjectBoardMember[], boardType: 'O' | 'P' = 'P', 
   vi.mocked(api.fetchBoardMembers).mockResolvedValue({ members, people: directory })
   onBoardPatched = vi.fn<PatchFn>().mockResolvedValue(undefined)
   await act(async () => {
-    view = renderElement(createElement(MembersDialog, { boardId: 'b1', boardType, minimumRole: '', onClose: vi.fn(), onBoardPatched }))
+    view = renderElement(createElement(MembersDialog, { boardId: 'b1', boardType, minimumRole: '', canManageVisibility: true, onClose: vi.fn(), onBoardPatched }))
   })
 }
 

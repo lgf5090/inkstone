@@ -18,6 +18,7 @@ interface ShareRow {
   password_hash: string | null
   expires_at: number | null
   views: number
+  show_comments: number
   created_at: number
 }
 
@@ -28,6 +29,7 @@ function rowToShare(row: ShareRow): ProjectShare {
     hasPassword: row.password_hash !== null,
     expiresAt: row.expires_at,
     views: row.views,
+    showComments: row.show_comments !== 0,
     createdAt: row.created_at,
   }
 }
@@ -41,7 +43,7 @@ export async function putProjectShare(
   db: D1Database,
   board: ProjectBoard,
   userId: string,
-  input: { password?: string | null, expiresAt?: number | null },
+  input: { password?: string | null, expiresAt?: number | null, showComments?: boolean },
   now: number,
 ): Promise<ProjectShare> {
   const existing = await db.prepare('SELECT * FROM project_shares WHERE board_id = ?1 AND user_id = ?2').bind(board.id, userId).first<ShareRow>()
@@ -49,15 +51,17 @@ export async function putProjectShare(
   if (input.password === null) passwordHash = null
   else if (input.password !== undefined) passwordHash = await hashPassword(input.password)
   const expiresAt = input.expiresAt === undefined ? (existing?.expires_at ?? null) : input.expiresAt
+  const showComments = input.showComments === undefined ? (existing?.show_comments ?? 0) : (input.showComments ? 1 : 0)
   if (existing) {
-    await db.prepare('UPDATE project_shares SET password_hash = ?1, expires_at = ?2 WHERE slug = ?3').bind(passwordHash, expiresAt, existing.slug).run()
-    return rowToShare({ ...existing, password_hash: passwordHash, expires_at: expiresAt })
+    await db.prepare('UPDATE project_shares SET password_hash = ?1, expires_at = ?2, show_comments = ?3 WHERE slug = ?4')
+      .bind(passwordHash, expiresAt, showComments, existing.slug).run()
+    return rowToShare({ ...existing, password_hash: passwordHash, expires_at: expiresAt, show_comments: showComments })
   }
   const slug = newSlug()
   await db.prepare(
-    'INSERT INTO project_shares (slug, board_id, user_id, password_hash, expires_at, views, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)',
-  ).bind(slug, board.id, userId, passwordHash, expiresAt, now).run()
-  return { slug, boardId: board.id, hasPassword: passwordHash !== null, expiresAt, views: 0, createdAt: now }
+    'INSERT INTO project_shares (slug, board_id, user_id, password_hash, expires_at, views, show_comments, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)',
+  ).bind(slug, board.id, userId, passwordHash, expiresAt, showComments, now).run()
+  return { slug, boardId: board.id, hasPassword: passwordHash !== null, expiresAt, views: 0, showComments: showComments !== 0, createdAt: now }
 }
 
 export async function deleteProjectShare(db: D1Database, boardId: string, userId: string): Promise<void> {
@@ -115,5 +119,5 @@ export async function readPublicProjectShare(db: D1Database, slug: string, passw
     createAt: boardRow.create_at, updateAt: boardRow.update_at, deleteAt: boardRow.delete_at, archived: boardRow.archived !== 0,
   }
   const bundle = await readProjectBoardBundle(db, board, 'viewer')
-  return { ...bundle, members: [] }
+  return { ...bundle, members: [], comments: row.show_comments === 0 ? [] : bundle.comments }
 }

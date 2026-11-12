@@ -3,7 +3,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import type { ProjectShare } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
-import { Input } from '../../components/form'
+import { Checkbox, Input } from '../../components/form'
 import { confirm, Modal } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { useUi } from '../../store/ui'
@@ -58,6 +58,11 @@ export function ShareDialog({ boardId, onClose }: { boardId: string, onClose: ()
                   </Button>
                 </div>
                 <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.share.views', { count: share.views })}</p>
+                <Checkbox
+                  label={t('project.share.show_comments')}
+                  checked={share.showComments}
+                  onChange={(checked) => { void guard(async () => { setShare(await putProjectShare(boardId, { showComments: checked })) }) }}
+                />
                 <div className="flex justify-center rounded-[var(--r-md)] bg-[var(--plate-lightest)] p-3"><QRCodeSVG value={link} size={120} /></div>
                 <form
                   className="flex items-center gap-2"

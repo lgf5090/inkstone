@@ -74,6 +74,21 @@ export async function requireBoard(
   return { board, role, userId }
 }
 
+/**
+ * Ownership is a stronger boundary than the admin role: an admin can run the board day to day, but
+ * publishing it, deleting it or turning it into a template changes the owner's property. Those routes
+ * cross this instead of `requireBoard(..., 'admin')`.
+ */
+export async function requireBoardOwner(
+  c: Context<AppBindings>,
+  boardId: string,
+  options: { allowDeleted?: boolean } = {},
+): Promise<ProjectBoardAccess> {
+  const access = await requireBoard(c, boardId, 'admin', options)
+  if (access.board.ownerId !== access.userId) throw ApiError.forbidden()
+  return access
+}
+
 export interface ProjectCardAccess extends ProjectBoardAccess {
   card: ProjectCard
 }

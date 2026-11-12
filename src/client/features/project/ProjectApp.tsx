@@ -165,9 +165,11 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], title: s
   const setBoardIcon = useProjectStore((state) => state.setBoardIcon)
   const setBoardArchived = useProjectStore((state) => state.setBoardArchived)
   const { pinned, starred, togglePin, toggleStar } = useProjectBoardMarks()
+  const currentUserId = useSession((state) => state.user?.id)
   const [iconOpen, setIconOpen] = useState(false)
   const title = board.title || t('project.boards.untitled')
   const canEdit = board.role === 'editor' || board.role === 'admin'
+  const isOwner = board.ownerId === currentUserId
 
   const guard = async (action: () => Promise<void>) => {
     try {
@@ -212,14 +214,14 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], title: s
       },
     },
     {
-      id: 'save-template', label: t('project.templates.save_as'), icon: <Save size={15} />, disabled: board.role !== 'admin',
-      onSelect: () => { void guard(async () => { await saveBoardAsTemplate(board.id) }) },
+      id: 'save-template', label: t('project.templates.save_as'), icon: <Save size={15} />, disabled: !isOwner,
+      onSelect: () => { void guard(async () => { await saveBoardAsTemplate(board.id); useUi.getState().toast({ title: t('project.templates.saved'), tone: 'success' }) }) },
     },
     { id: 'export-csv', label: t('project.sidebar.export_csv'), icon: <Download size={15} />, separatorBefore: true, onSelect: () => { window.open(projectBoardExportUrl(board.id, 'csv'), '_blank') } },
     { id: 'export-archive', label: t('project.sidebar.export_archive'), icon: <Download size={15} />, onSelect: () => { window.open(projectBoardExportUrl(board.id, 'archive'), '_blank') } },
-    { id: 'archive', label: t('project.boards.archive'), icon: <Archive size={15} />, disabled: board.role !== 'admin', onSelect: () => { void guard(async () => { await setBoardArchived(board.id, true) }) } },
+    { id: 'archive', label: t('project.boards.archive'), icon: <Archive size={15} />, disabled: !isOwner, onSelect: () => { void guard(async () => { await setBoardArchived(board.id, true) }) } },
     {
-      id: 'delete', label: t('project.boards.delete_confirm'), icon: <Trash2 size={15} />, tone: 'danger', separatorBefore: true, disabled: board.role !== 'admin',
+      id: 'delete', label: t('project.boards.delete_confirm'), icon: <Trash2 size={15} />, tone: 'danger', separatorBefore: true, disabled: !isOwner,
       onSelect: () => {
         void guard(async () => {
           const ok = await confirm({ title: t('project.boards.delete_title', { title }), description: t('project.boards.delete_description'), tone: 'danger', confirmLabel: t('project.boards.delete_confirm') })

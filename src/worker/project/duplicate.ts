@@ -32,6 +32,7 @@ export async function duplicateProjectBoard(
   bundle: ProjectBoardBundle,
   userId: string,
   now: number,
+  options: { includeComments?: boolean } = {},
 ): Promise<ProjectBoardSummary> {
   const source = bundle.board
   const boardId = newProjectId('board')
@@ -87,11 +88,13 @@ export async function duplicateProjectBoard(
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9, ?9, 0)`,
     ).bind(contentMap.get(content.id)!, remapId(cardMap, content.cardId), boardId, content.type, content.title, JSON.stringify(content.fields), content.position, userId, now))
   }
-  for (const comment of bundle.comments) {
-    statements.push(db.prepare(
-      `INSERT INTO project_comments (id, card_id, board_id, author_id, body, create_at, update_at, delete_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 0)`,
-    ).bind(commentMap.get(comment.id)!, remapId(cardMap, comment.cardId), boardId, comment.authorId, comment.body, now))
+  if (options.includeComments !== false) {
+    for (const comment of bundle.comments) {
+      statements.push(db.prepare(
+        `INSERT INTO project_comments (id, card_id, board_id, author_id, body, create_at, update_at, delete_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 0)`,
+      ).bind(commentMap.get(comment.id)!, remapId(cardMap, comment.cardId), boardId, comment.authorId, comment.body, now))
+    }
   }
   for (let index = 0; index < statements.length; index += COPY_BATCH_SIZE) {
     await db.batch(statements.slice(index, index + COPY_BATCH_SIZE))

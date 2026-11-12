@@ -191,6 +191,16 @@ describe('deleting and restoring a board', () => {
     await req('alice', 'DELETE', `/boards/${board.id}`)
     expect((await req('bob', 'POST', `/boards/${board.id}/undelete`)).status).toBe(403)
   })
+
+  it('keeps publishing, archiving, deleting and restoring owner-only even for an admin', async () => {
+    const board = await createBoard('alice', {})
+    addMember(board.id, 'bob', 'admin')
+    expect((await req('bob', 'PATCH', `/boards/${board.id}`, { type: 'O', minimumRole: 'viewer' })).status).toBe(403)
+    expect((await req('bob', 'PATCH', `/boards/${board.id}`, { archived: true })).status).toBe(403)
+    expect((await req('bob', 'DELETE', `/boards/${board.id}`)).status).toBe(403)
+    await req('alice', 'DELETE', `/boards/${board.id}`)
+    expect((await req('bob', 'POST', `/boards/${board.id}/undelete`)).status).toBe(403)
+  })
 })
 
 describe('board metadata', () => {

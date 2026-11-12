@@ -68,6 +68,35 @@ describe('public sharing', () => {
     expect((await req('POST', `/api/project/public/${share.slug}`, {}, false)).status).toBe(404)
   })
 
+  it('keeps comments off the public page until the owner opts in', async () => {
+    const board = await makeBoard()
+    const cardRes = await req('POST', `/api/project/boards/${board.id}/cards`, { title: 'Card' })
+    const card = ((await cardRes.json()) as { card: { id: string } }).card
+    expect((await req('POST', `/api/project/cards/${card.id}/comments`, { body: 'internal note' })).status).toBe(201)
+    const put = await req('PUT', `/api/project/boards/${board.id}/share`, {})
+    const share = ((await put.json()) as { share: ProjectShare }).share
+    expect(share.showComments).toBe(false)
+    const hidden = ((await (await req('POST', `/api/project/public/${share.slug}`, {}, false)).json()) as ProjectBoardBundle)
+    expect(hidden.comments).toEqual([])
+    const shown = await req('PUT', `/api/project/boards/${board.id}/share`, { showComments: true })
+    expect(((await shown.json()) as { share: ProjectShare }).share.showComments).toBe(true)
+    const visible = ((await (await req('POST', `/api/project/public/${share.slug}`, {}, false)).json()) as ProjectBoardBundle)
+    expect(visible.comments.map((comment) => comment.body)).toEqual(['internal note'])
+  })
+
+  it('refuses a non-owner admin the share controls', async () => {
+    const board = await makeBoard()
+    sqlite.prepare('INSERT INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('bob', 'bob', 'hash', 'bob', 'bob', 'member', 1, Date.now())
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(board.id, 'bob', 'admin')
+    const bobToken = await createSession(env.DB, 'bob')
+    const response = await app.fetch(new Request(`http://localhost/api/project/boards/${board.id}/share`, {
+      method: 'PUT', headers: { Cookie: `${LEGACY_SESSION_COOKIE}=${bobToken}`, [CLIENT_HEADER]: '1', 'Content-Type': 'application/json' }, body: '{}',
+    }), env)
+    expect(response.status).toBe(403)
+  })
+
   it('gates a password-protected share and lapses an expired one', async () => {
     const board = await makeBoard()
     const put = await req('PUT', `/api/project/boards/${board.id}/share`, { password: 'secret-pass' })

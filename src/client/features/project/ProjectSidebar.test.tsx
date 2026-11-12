@@ -42,10 +42,14 @@ beforeEach(async () => {
     categories: [{ id: 'cat1', userId: 'u1', name: 'Work', type: 'custom', collapsed: false, sortOrder: 0, createAt: 1, updateAt: 1, deleteAt: 0 }],
     categoryBoards: [{ categoryId: 'cat1', boardId: 'b1', hidden: false, position: 0 }],
   })
+  useSession.setState({
+    user: { id: 'u1', login: 'u1', username: 'u1', name: 'u1', avatarUrl: '', role: 'member', createdAt: 1 },
+  })
   await initI18n()
 })
 afterEach(() => {
   view?.unmount()
+  useSession.setState({ user: null })
   useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: [], starredBoards: [] } } }))
 })
 

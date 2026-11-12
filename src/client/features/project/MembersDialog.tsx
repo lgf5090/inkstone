@@ -26,10 +26,11 @@ const MINIMUM_ROLE_OPTIONS = () => [
   ...roleOptions(),
 ]
 
-export function MembersDialog({ boardId, minimumRole, boardType, onClose, onBoardPatched }: {
+export function MembersDialog({ boardId, minimumRole, boardType, canManageVisibility, onClose, onBoardPatched }: {
   boardId: string
   minimumRole: ProjectMinimumRole
   boardType: 'O' | 'P'
+  canManageVisibility: boolean
   onClose: () => void
   onBoardPatched: (patch: { type?: 'O' | 'P', minimumRole?: ProjectMinimumRole }) => Promise<void>
 }): ReactElement {
@@ -74,7 +75,7 @@ export function MembersDialog({ boardId, minimumRole, boardType, onClose, onBoar
   return (
     <Modal open onClose={onClose} title={t('project.members.title')} width={520}>
       <div className="space-y-4" data-board-members={boardId}>
-        <section aria-label={t('project.board.visibility')} className="space-y-2">
+        {canManageVisibility && <section aria-label={t('project.board.visibility')} className="space-y-2">
           <div className="flex items-center gap-2">
             <span className="w-28 shrink-0 text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('project.board.visibility')}</span>
             <SelectMenu
@@ -97,7 +98,7 @@ export function MembersDialog({ boardId, minimumRole, boardType, onClose, onBoar
               />
             </div>
           )}
-        </section>
+        </section>}
         <section aria-label={t('project.members.title')} className="space-y-2">
           <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {t('project.members.count', { count: members?.length ?? 0, max: PROJECT_LIMITS.boardMembers })}

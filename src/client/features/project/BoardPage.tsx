@@ -22,6 +22,7 @@ import type { SkinTone } from '@shared/types'
 import { EmojiPicker } from '../emoji/EmojiPicker'
 import { randomProjectIcon, readRandomIconPref } from './project-icon'
 import { readSidebarOpenPref, writeSidebarOpenPref } from './project-prefs'
+import { useSession } from '../../store/session'
 import { useProjectStore } from './store'
 import { ProjectSidebar } from './ProjectSidebar'
 import { ImportDialog } from './ImportDialog'
@@ -76,6 +77,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const locale = useLocale()
 
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const currentUserId = useSession((state) => state.user?.id)
   const boards = useProjectStore((state) => state.boards)
   const ensureBoards = useProjectStore((state) => state.ensureBoards)
   useEffect(() => { void ensureBoards() }, [ensureBoards])
@@ -307,6 +309,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   }
 
   const canEdit = projectRoleAtLeast(bundle.role, 'editor')
+  const isOwner = bundle.board.ownerId === currentUserId
   const openCard = bundle.cards.find((card) => card.id === openCardId) ?? null
 
   return (
@@ -325,7 +328,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           >
             <PanelLeft size={16} />
           </IconButton>
-          <button type="button" aria-label={t('project.board.change_icon')} className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[length:var(--text-14)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => setIconOpen(true)}>
+          <button type="button" aria-label={t('project.board.change_icon')} disabled={!canEdit} className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[length:var(--text-14)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:opacity-50" onClick={() => setIconOpen(true)}>
             {headerIcon || <SquareKanban size={16} className="text-[var(--accent-on-soft)]" />}
           </button>
           <h1 className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
@@ -340,14 +343,14 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
             </IconButton>
           )}
           {bundle.role === 'admin' && (
-            <>
-              <IconButton label={t('project.members.title')} size="sm" onClick={() => setShowMembers(true)}>
-                <Users size={16} />
-              </IconButton>
-              <IconButton label={t('project.share.title')} size="sm" onClick={() => setShowShare(true)}>
-                <Share2 size={16} />
-              </IconButton>
-            </>
+            <IconButton label={t('project.members.title')} size="sm" onClick={() => setShowMembers(true)}>
+              <Users size={16} />
+            </IconButton>
+          )}
+          {isOwner && (
+            <IconButton label={t('project.share.title')} size="sm" onClick={() => setShowShare(true)}>
+              <Share2 size={16} />
+            </IconButton>
           )}
           <IconButton label={boardWatch.watching ? t('project.watch.off') : t('project.watch.on')} size="sm" active={boardWatch.watching} onClick={() => { void boardWatch.toggle() }}><Bell size={16} /></IconButton>
           {bundle.role === 'admin' && (
@@ -436,6 +439,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           boardId={boardId}
           boardType={bundle.board.type}
           minimumRole={bundle.board.minimumRole}
+          canManageVisibility={isOwner}
           onClose={() => setShowMembers(false)}
           onBoardPatched={async (patch) => {
             const result = await patchProjectBoard(boardId, patch)

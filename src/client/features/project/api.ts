@@ -192,8 +192,9 @@ export async function createBoardFromTemplate(templateId: string, locale = ''): 
   return body.board
 }
 
-export async function saveBoardAsTemplate(id: string): Promise<void> {
-  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(id)}/save-as-template`, { method: 'POST', body: {} })
+export async function saveBoardAsTemplate(id: string): Promise<ProjectBoardSummary> {
+  const body = await request<{ template: ProjectBoardSummary }>(`/api/project/boards/${encodeURIComponent(id)}/save-as-template`, { method: 'POST', body: {} })
+  return body.template
 }
 
 export async function fetchProjectCategories(signal?: AbortSignal): Promise<{ categories: ProjectCategory[], categoryBoards: ProjectCategoryBoard[] }> {
@@ -238,7 +239,7 @@ export async function getProjectShare(boardId: string): Promise<ProjectShare | n
   return body.share
 }
 
-export async function putProjectShare(boardId: string, input: { password?: string | null, expiresAt?: number | null }): Promise<ProjectShare> {
+export async function putProjectShare(boardId: string, input: { password?: string | null, expiresAt?: number | null, showComments?: boolean }): Promise<ProjectShare> {
   const body = await request<{ share: ProjectShare }>(`/api/project/boards/${encodeURIComponent(boardId)}/share`, { method: 'PUT', body: input })
   return body.share
 }

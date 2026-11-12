@@ -277,6 +277,7 @@ export const ProjectSubscriptionCreateSchema = z.object({
 export const ProjectSharePutSchema = z.object({
   password: z.string().min(4).max(128).nullable().optional(),
   expiresAt: stamp.nullable().optional(),
+  showComments: z.boolean().optional(),
 })
 
 export const ProjectCardLinkSchema = z.object({

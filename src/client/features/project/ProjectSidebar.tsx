@@ -8,6 +8,7 @@ import { Input } from '../../components/form'
 import { confirm, Menu, Modal, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { EmojiPicker } from '../emoji/EmojiPicker'
 import { useUi } from '../../store/ui'
+import { useSession } from '../../store/session'
 import { useProjectStore } from './store'
 import { readRandomIconPref, writeRandomIconPref } from './project-icon'
 import { categoryDropZone, planCategoryDrop } from './sidebar-drag'
@@ -117,6 +118,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   const [iconBoard, setIconBoard] = useState<string | null>(null)
 
   const settingsAnchor = useRef<HTMLButtonElement>(null)
+  const currentUserId = useSession((state) => state.user?.id)
   const locale = useLocale()
   const theme = useUi((state) => state.theme)
   const applyAppearance = useUi((state) => state.applyAppearance)
@@ -186,12 +188,15 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   const boardMenu = (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined): MenuItem[] => {
     const isPinned = pinnedIds.includes(board.id)
     const isStarred = starredIds.includes(board.id)
+    const isEditor = board.role === 'editor' || board.role === 'admin'
+    const isOwner = board.ownerId === currentUserId
     const items: MenuItem[] = [
       { id: 'open', label: t('project.sidebar.open_board'), icon: <SquareKanban size={14} />, onSelect: () => navigateToPath(`/project/boards/${board.id}`) },
       {
         id: 'rename',
         label: t('project.boards.rename'),
         icon: <Pencil size={14} />,
+        disabled: !isEditor,
         onSelect: () => {
           void guard(async () => {
             const name = await prompt({ title: t('project.boards.rename_title'), defaultValue: board.title, confirmLabel: t('common.save') })
@@ -199,7 +204,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           })
         },
       },
-      { id: 'icon', label: t('project.sidebar.change_icon'), icon: <Smile size={14} />, onSelect: () => setIconBoard(board.id) },
+      { id: 'icon', label: t('project.sidebar.change_icon'), icon: <Smile size={14} />, disabled: !isEditor, onSelect: () => setIconBoard(board.id) },
       {
         id: 'pin',
         label: isPinned ? t('project.sidebar.unpin') : t('project.sidebar.pin'),
@@ -245,6 +250,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       icon: <Trash2 size={15} />,
       separatorBefore: true,
       tone: 'danger',
+      disabled: !isOwner,
       onSelect: () => {
         void guard(async () => {
           const ok = await confirm({ title: t('project.boards.delete_title', { title: board.title }), tone: 'danger', confirmLabel: t('common.delete') })

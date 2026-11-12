@@ -524,6 +524,7 @@ export interface ProjectShare {
   hasPassword: boolean
   expiresAt: number | null
   views: number
+  showComments: boolean
   createdAt: number
 }
 

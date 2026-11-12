@@ -4286,6 +4286,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'project_cards', column: 'recurrence' },
     statements: ['ALTER TABLE project_cards ADD COLUMN recurrence TEXT'],
   },
+  {
+    // Public links expose comments only after the owner opts in; the default keeps existing shares
+    // private. Guarded so a fresh database, whose CREATE TABLE already carries the column, records
+    // the version without re-adding it.
+    version: 393,
+    skipIfColumnExists: { table: 'project_shares', column: 'show_comments' },
+    statements: ['ALTER TABLE project_shares ADD COLUMN show_comments INTEGER NOT NULL DEFAULT 0'],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

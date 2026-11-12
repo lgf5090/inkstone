@@ -34,8 +34,18 @@ export async function listProjectTemplates(db: D1Database, userId: string, local
   return [...builtIn, ...own]
 }
 
-export async function saveBoardAsTemplate(db: D1Database, boardId: string, now: number): Promise<void> {
-  await db.prepare('UPDATE project_boards SET is_template = 1, update_at = ?1 WHERE id = ?2').bind(now, boardId).run()
+/**
+ * A template is a snapshot, not a state of the live board: the owner keeps working in the original
+ * while the copy is what the picker offers. Comments stay behind because they are conversation about
+ * the original work, which is why the copy is made without them.
+ */
+export async function saveBoardAsTemplate(db: D1Database, boardId: string, userId: string, now: number): Promise<ProjectBoardSummary> {
+  const source = await getProjectBoardRow(db, boardId)
+  if (!source) throw ApiError.notFound('Board not found')
+  const bundle = await readProjectBoardBundle(db, source, 'admin')
+  const copy = await duplicateProjectBoard(db, bundle, userId, now, { includeComments: false })
+  await db.prepare('UPDATE project_boards SET is_template = 1, update_at = ?1 WHERE id = ?2').bind(now, copy.id).run()
+  return { ...copy, isTemplate: true }
 }
 
 export async function createBoardFromTemplate(
