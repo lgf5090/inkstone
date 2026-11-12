@@ -3,9 +3,12 @@
  * value bag lives in its own table so changing one property never rewrites the whole card. Writes
  * land in one D1 batch, and a delete is a stamp so a card can come back with its values intact.
  */
-import type { ProjectBoard, ProjectCard } from '@shared/project/model'
+import type { ProjectBoard, ProjectCard, ProjectProperty } from '@shared/project/model'
+import { projectDonePatch } from '@shared/project/model'
 import { newProjectId, PROJECT_LIMITS } from '@shared/project/limits'
 import type { ProjectCardCreateInput, ProjectCardPatchInput } from '@shared/project/validation'
+import { advanceProjectDay, serializeProjectRecurrence } from '@shared/project/recurrence'
+import { moveProjectDateValue, parseProjectDateValue, projectDayToStamp, projectStampToDay } from '@shared/project/date'
 import { ApiError } from '../lib/errors'
 import { rowToCard, type CardRow, type ValueRow } from './bundle'
 
@@ -72,10 +75,10 @@ export async function createProjectCard(
   await db.batch([
     db.prepare(
       `INSERT INTO project_cards
-         (id, board_id, parent_id, title, icon, is_template, content_order, created_by, modified_by,
+         (id, board_id, parent_id, title, icon, is_template, content_order, recurrence, created_by, modified_by,
           create_at, update_at, delete_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?7, ?8, ?8, 0)`,
-    ).bind(id, board.id, input.parentId, input.title, input.icon, input.isTemplate ? 1 : 0, userId, now),
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?8, ?8, ?9, ?9, 0)`,
+    ).bind(id, board.id, input.parentId, input.title, input.icon, input.isTemplate ? 1 : 0, input.recurrence ? serializeProjectRecurrence(input.recurrence) : null, userId, now),
     ...valueStatements(db, id, input.values, now),
   ])
   return {
@@ -87,6 +90,7 @@ export async function createProjectCard(
     isTemplate: input.isTemplate,
     contentOrder: [],
     values: input.values,
+    recurrence: input.recurrence ?? null,
     createdBy: userId,
     modifiedBy: userId,
     createAt: now,
@@ -108,11 +112,12 @@ export function cardPatchStatements(
   now: number,
 ): D1PreparedStatement[] {
   const sets: string[] = ['modified_by = ?', 'update_at = ?']
-  const values: (string | number)[] = [userId, now]
+  const values: (string | number | null)[] = [userId, now]
   if (patch.title !== undefined) { sets.push('title = ?'); values.push(patch.title) }
   if (patch.icon !== undefined) { sets.push('icon = ?'); values.push(patch.icon) }
   if (patch.parentId !== undefined) { sets.push('parent_id = ?'); values.push(patch.parentId) }
   if (patch.contentOrder !== undefined) { sets.push('content_order = ?'); values.push(JSON.stringify(patch.contentOrder)) }
+  if (patch.recurrence !== undefined) { sets.push('recurrence = ?'); values.push(patch.recurrence ? serializeProjectRecurrence(patch.recurrence) : null) }
   values.push(card.id)
   const statements: D1PreparedStatement[] = [
     db.prepare(`UPDATE project_cards SET ${sets.join(', ')} WHERE id = ?`).bind(...values),
@@ -154,6 +159,42 @@ export async function patchProjectCard(
   }
   await db.batch(cardPatchStatements(db, card, patch, userId, now))
   return (await getProjectCard(db, card.id))!
+}
+
+/**
+ * The next instance of a repeating card, spawned when the current one is completed. The date advances
+ * by the rule (from the card's own date, or today when it has none), the tick is reset to open, and
+ * the rule travels with the new card so the chain continues. A board with no date property still
+ * repeats — the instance simply carries no date.
+ */
+export async function spawnRecurringCard(
+  db: D1Database,
+  board: ProjectBoard,
+  card: ProjectCard,
+  properties: readonly ProjectProperty[],
+  userId: string,
+  now: number,
+): Promise<ProjectCard | null> {
+  if (!card.recurrence) return null
+  const values = { ...card.values }
+  const dateProperty = properties.find((property) => property.type === 'date')
+  if (dateProperty) {
+    const current = parseProjectDateValue(values[dateProperty.id] ?? '')
+    const includeTime = current?.includeTime === true
+    const baseDay = current?.from !== undefined ? projectStampToDay(current.from, includeTime) : projectStampToDay(now)
+    const nextStamp = projectDayToStamp(advanceProjectDay(baseDay, card.recurrence), includeTime)
+    values[dateProperty.id] = JSON.stringify(moveProjectDateValue(current ?? {}, nextStamp))
+  }
+  const open = projectDonePatch(properties, false)
+  if (open) Object.assign(values, open)
+  return createProjectCard(db, board, userId, {
+    parentId: '',
+    title: card.title,
+    icon: card.icon,
+    isTemplate: false,
+    values,
+    recurrence: card.recurrence,
+  }, now)
 }
 
 export async function softDeleteProjectCard(db: D1Database, cardId: string, userId: string, now: number): Promise<void> {

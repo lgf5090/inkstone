@@ -12880,6 +12880,9 @@ const allowed = new Map([
     "// looked at left the editor open with no way out.",
     "/** The roster plus the reader: an open board lets an editor assign themselves before they join. */",
   ]],
+  ["src/client/features/project/RecurrenceEditor.tsx", [
+    "/**\n * The card's repeat rule: a frequency, a step, and (for weekly) the weekdays it lands on.\n *\n * Choosing \"does not repeat\" clears the rule; any other choice keeps the current step and weekdays so\n * switching frequency does not silently reset them. The completed card spawns its next instance from\n * this rule on the server, so the editor only writes the rule itself.\n */",
+  ]],
   ["src/client/features/project/TrashDialog.tsx", [
     "/**\n * What this account deleted, and the way back.\n *\n * Deletes are soft everywhere in this app, so the rows are still there — until now nothing listed\n * them, which made a delete permanent in practice. Boards are listed for their owner and cards for\n * a board admin, the same roles the restore routes themselves require.\n */",
   ]],
@@ -33455,6 +33458,8 @@ const allowed = new Map([
     "/** The ids a multi-value column holds: a JSON array, or the one bare id an older write left behind. */",
     "/** Everyone the board refers to: members, card authors, comment authors and assigned people. */",
     "/** Hidden from the live list without being deleted; the archive list shows it. */",
+    "/** How a card repeats: every N days/weeks/months/years, optionally on chosen weekdays. */",
+    "/** A repeating card spawns its next instance when completed; absent is an ordinary card. */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",
@@ -33465,6 +33470,16 @@ const allowed = new Map([
   ]],
   ["src/shared/project/property-patch.ts", [
     "/**\n * The reference's cardProperties patch, step for step (board.go Patch): a whole-object replacement\n * matched by id, where a never-seen id is appended rather than inserted, and a deletion leaves the\n * survivors in their original relative order. Entries without a string id are skipped, not rejected.\n *\n * One guard the reference lacks: a deleted id leaves the order list immediately, so an id both deleted\n * and re-added in the same patch lands at the end exactly once. The reference keeps the deleted id in\n * the order list and would emit it twice; here a property id is a primary key, so a duplicate cannot be\n * stored and the order list must not name it twice.\n */",
+  ]],
+  ["src/shared/project/recurrence.test.ts", [
+    "// 2026-01-05 is a Monday (1); the next chosen weekday is Friday (5).",
+    "// Friday (5) with weekdays [1,3]: next is Monday of the week after next (interval 2).",
+  ]],
+  ["src/shared/project/recurrence.ts", [
+    "/**\n * Recurring cards: the rule and the next date, as pure functions.\n *\n * A card carries a rule instead of a redundant \"is recurring\" flag. Completing it consumes the rule\n * once and spawns the next instance with its date advanced. The arithmetic runs on the calendar's\n * year/month/day through UTC so a DST switch cannot move the day, and monthly/yearly clamp to the\n * month's last day (1/31 → 2/28) rather than overflowing into the next month.\n */",
+    "/** Read a stored rule, dropping anything malformed; null means an ordinary, non-recurring card. */",
+    "/**\n * The next calendar day after `day` under the rule. `day` is the local midnight the reader sees;\n * the returned Date is likewise a local midnight, ready for the date writer to store.\n */",
+    "// Jump to the first selected weekday of the next interval-week, counting weeks from Sunday.",
   ]],
   ["src/shared/project/stats.test.ts", [
     "// 2026-11-11 is a Wednesday; its week starts Monday the 9th.",
@@ -40974,6 +40989,8 @@ const allowed = new Map([
     "// Archiving a board hides it from the live list without deleting it; the column defaults to 0 so",
     "// every existing board stays live. Guarded so a fresh database (whose CREATE TABLE already carries",
     "// the column) records the version without re-adding it.",
+    "// A repeating card stores its rule as JSON; null is an ordinary card. Guarded so a fresh database",
+    "// (whose CREATE TABLE already carries the column) records the version without re-adding it.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -42605,6 +42622,7 @@ const allowed = new Map([
     "/**\n * Cards and their property values. A card is a row plus a bag of values keyed by property id; the\n * value bag lives in its own table so changing one property never rewrites the whole card. Writes\n * land in one D1 batch, and a delete is a stamp so a card can come back with its values intact.\n */",
     "/**\n * A new card counts against the board's ceiling before it is written. The count is a guard against a\n * client flooding creates, not a serialization point: two concurrent creates can both pass it, which\n * is acceptable for a soft DoS ceiling rather than a billed quota.\n */",
     "/**\n * A card patch. A null value deletes that one property's row; a string upserts it. The card's own\n * fields are a sparse update, and the whole thing lands in one batch so a half-applied edit cannot\n * survive. The caller passes the card it already read so the board id need not be looked up again.\n */",
+    "/**\n * The next instance of a repeating card, spawned when the current one is completed. The date advances\n * by the rule (from the card's own date, or today when it has none), the tick is reset to open, and\n * the rule travels with the new card so the chain continues. A board with no date property still\n * repeats — the instance simply carries no date.\n */",
   ]],
   ["src/worker/project/categories.ts", [
     "/**\n * The sidebar's furniture: categories and the boards filed under them. These rows belong to the\n * account, not the board, so two people can file the same shared board differently. A board lives in\n * one category at a time — adding it to a new one moves it out of the old — and hiding is a flag on\n * that filing, not on the board itself.\n */",
@@ -52555,7 +52573,7 @@ const allowed = new Map([
     "// owner's live-session ceiling.",
   ]],
   ["tests/webssh-schema.test.ts", [
-    "// The project tables append 385–391 after this lane's own block.",
+    "// The project tables append 385–392 after this lane's own block.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",

@@ -152,6 +152,12 @@ export type ProjectBoardPatchInput = z.infer<typeof ProjectBoardPatchSchema>
 const propertyValue = z.string().max(PROJECT_LIMITS.fieldsRunes)
 const valueMap = z.record(projectId, propertyValue)
 
+export const ProjectRecurrenceSchema = z.object({
+  freq: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
+  interval: z.number().int().min(1).max(365).default(1),
+  byWeekday: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+})
+
 export const ProjectCardCreateSchema = z.object({
   id: projectId.optional(),
   parentId: projectId.default(''),
@@ -159,6 +165,7 @@ export const ProjectCardCreateSchema = z.object({
   icon: icon.default(''),
   isTemplate: z.boolean().default(false),
   values: valueMap.default({}),
+  recurrence: ProjectRecurrenceSchema.nullable().optional(),
 })
 export type ProjectCardCreateInput = z.infer<typeof ProjectCardCreateSchema>
 
@@ -169,6 +176,7 @@ export const ProjectCardPatchSchema = z.object({
   contentOrder: z.array(z.union([projectId, z.array(projectId).max(64)]))
     .max(PROJECT_LIMITS.contentsPerCard).optional(),
   values: z.record(projectId, z.union([propertyValue, z.null()])).optional(),
+  recurrence: ProjectRecurrenceSchema.nullable().optional(),
 })
 export type ProjectCardPatchInput = z.infer<typeof ProjectCardPatchSchema>
 

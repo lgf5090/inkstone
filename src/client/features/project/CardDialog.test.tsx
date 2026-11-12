@@ -404,3 +404,30 @@ describe('the two-pane card detail (R3-26)', () => {
     expect(document.body.textContent).toContain(t('project.card.comments_empty'))
   })
 })
+
+describe('the recurrence editor', () => {
+  it('writes a weekly rule when the reader picks weekly', async () => {
+    vi.mocked(api.patchProjectCard).mockResolvedValue({ ...card, recurrence: { freq: 'weekly', interval: 1 } })
+    await mount()
+    const trigger = document.body.querySelector<HTMLButtonElement>(`[data-card-recurrence] button[aria-label="${t('project.card.recurrence')}"]`)!
+    expect(trigger).not.toBeNull()
+    await act(async () => { trigger.click() })
+    const weekly = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((row) => row.textContent === t('project.card.recurrence.weekly'))!
+    await act(async () => { weekly.click() })
+    expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { recurrence: { freq: 'weekly', interval: 1 } })
+  })
+
+  it('clears the rule when the reader picks does-not-repeat', async () => {
+    vi.mocked(api.patchProjectCard).mockResolvedValue({ ...card, recurrence: null })
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, {
+        card: { ...card, recurrence: { freq: 'daily', interval: 1 } }, properties, members: [], people: {}, contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
+      }))
+    })
+    const trigger = document.body.querySelector<HTMLButtonElement>(`[data-card-recurrence] button[aria-label="${t('project.card.recurrence')}"]`)!
+    await act(async () => { trigger.click() })
+    const none = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((row) => row.textContent === t('project.card.recurrence.none'))!
+    await act(async () => { none.click() })
+    expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { recurrence: null })
+  })
+})

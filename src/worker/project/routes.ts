@@ -28,6 +28,7 @@ import {
   ProjectViewCreateSchema,
   ProjectViewPatchSchema,
 } from '@shared/project/validation'
+import { isProjectCardDone } from '@shared/project/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit, requestClientIp } from '../lib/request'
@@ -55,6 +56,7 @@ import {
   getProjectCardRow,
   patchProjectCard,
   softDeleteProjectCard,
+  spawnRecurringCard,
   undeleteProjectCard,
 } from './cards'
 import {
@@ -498,13 +500,16 @@ projectRoutes.get('/cards/:id', async (c) => {
 })
 
 projectRoutes.patch('/cards/:id', async (c) => {
-  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  const { card, board, userId } = await requireCard(c, c.req.param('id'), 'editor')
   const patch = await projectBody(c, ProjectCardPatchSchema)
-  const updated = await patchProjectCard(c.env.DB, card, patch, userId, Date.now())
+  const now = Date.now()
+  const updated = await patchProjectCard(c.env.DB, card, patch, userId, now)
   if (patch.values !== undefined) {
-    const { results } = await c.env.DB.prepare('SELECT id, type, options FROM project_properties WHERE board_id = ?1').bind(card.boardId).all<{ id: string, type: string, options: string }>()
-    const properties = results.map((p) => ({ id: p.id, type: p.type, options: JSON.parse(p.options) as { id: string, value: string }[] }))
-    await syncCardCompletionToTodo(c.env.DB, updated, properties, Date.now())
+    const properties = await readBoardProperties(c.env.DB, card.boardId)
+    await syncCardCompletionToTodo(c.env.DB, updated, properties, now)
+    if (card.recurrence && isProjectCardDone(updated, properties) && !isProjectCardDone(card, properties)) {
+      await spawnRecurringCard(c.env.DB, board, updated, properties, userId, now)
+    }
   }
   return c.json({ card: updated })
 })

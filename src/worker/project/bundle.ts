@@ -15,6 +15,7 @@ import type {
   ProjectView,
 } from '@shared/project/model'
 import { projectMultiValueIds } from '@shared/project/model'
+import { parseProjectRecurrence } from '@shared/project/recurrence'
 import { readBoardProperties } from './boards'
 import { listProjectMembers, listProjectPeople } from './members'
 
@@ -26,6 +27,7 @@ export interface CardRow {
   icon: string
   is_template: number
   content_order: string
+  recurrence: string | null
   created_by: string
   modified_by: string
   create_at: number
@@ -88,6 +90,7 @@ export function rowToCard(row: CardRow, values: Record<string, string>): Project
     icon: row.icon,
     isTemplate: row.is_template === 1,
     contentOrder: JSON.parse(row.content_order) as ProjectCard['contentOrder'],
+    recurrence: parseProjectRecurrence(row.recurrence),
     values,
     createdBy: row.created_by,
     modifiedBy: row.modified_by,

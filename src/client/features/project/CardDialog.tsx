@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
-import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
+import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, Repeat, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectPeople, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone, projectPersonLabel } from '@shared/project/model'
 import { moveContentOrder } from '@shared/project/content-order'
@@ -11,6 +11,7 @@ import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
 import { sendForAnswerDetailed } from '../chat/editor-ai'
 import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
+import { RecurrenceEditor } from './RecurrenceEditor'
 import { useBandDrag } from './views/use-band-drag'
 import { useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
@@ -377,6 +378,10 @@ export function CardDialog({ card, properties, members, people, contents, siblin
               </div>
             </div>
           ))}
+        </section>
+        <section aria-label={t('project.card.recurrence')} className="space-y-2">
+          <SectionHeading icon={Repeat} label={t('project.card.recurrence')} />
+          <RecurrenceEditor value={card.recurrence} disabled={!canEdit} onChange={(rule) => void patch({ recurrence: rule })} />
         </section>
         <section aria-label={t('project.card.content')} className="space-y-2" onPaste={(event) => void pasteImage(event)}>
           <div className="flex items-center gap-2">

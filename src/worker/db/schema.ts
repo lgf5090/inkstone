@@ -4279,6 +4279,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'project_boards', column: 'archived' },
     statements: ['ALTER TABLE project_boards ADD COLUMN archived INTEGER NOT NULL DEFAULT 0'],
   },
+  {
+    // A repeating card stores its rule as JSON; null is an ordinary card. Guarded so a fresh database
+    // (whose CREATE TABLE already carries the column) records the version without re-adding it.
+    version: 392,
+    skipIfColumnExists: { table: 'project_cards', column: 'recurrence' },
+    statements: ['ALTER TABLE project_cards ADD COLUMN recurrence TEXT'],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

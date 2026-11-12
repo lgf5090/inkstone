@@ -4,7 +4,7 @@
  * a card is recognisable when the reader moves between them.
  */
 import type { ReactElement, ReactNode } from 'react'
-import { GripVertical, ListTodo, Pin, Plus, Star, Trash2 } from 'lucide-react'
+import { GripVertical, ListTodo, Pin, Plus, Repeat, Star, Trash2 } from 'lucide-react'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
@@ -43,6 +43,7 @@ export function CardFace({ card, color, cover, chipProperties, excludePropertyId
         <CardBadges badges={badges} />
         {pinned && <Pin size={11} role="img" aria-label={t('project.card.pin')} className="shrink-0 text-[var(--accent)]" />}
         {starred && <Star size={11} role="img" aria-label={t('project.card.favorite')} className="shrink-0 fill-[var(--warning)] text-[var(--warning)]" />}
+        {card.recurrence && <Repeat size={11} role="img" aria-label={t('project.card.recurrence')} className="shrink-0 text-[var(--text-tertiary)]" />}
       </span>
     </>
   )

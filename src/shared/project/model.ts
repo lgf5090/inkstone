@@ -329,6 +329,15 @@ export interface ProjectBoardPatch {
   deletedCardProperties?: string[]
 }
 
+export type ProjectRecurrenceFreq = 'daily' | 'weekly' | 'monthly' | 'yearly'
+
+/** How a card repeats: every N days/weeks/months/years, optionally on chosen weekdays. */
+export interface ProjectRecurrence {
+  freq: ProjectRecurrenceFreq
+  interval: number
+  byWeekday?: number[]
+}
+
 export interface ProjectCard {
   id: string
   boardId: string
@@ -339,6 +348,8 @@ export interface ProjectCard {
   /** Content and comment ids in reading order; a nested array threads comments under one block. */
   contentOrder: (string | string[])[]
   values: Record<string, string>
+  /** A repeating card spawns its next instance when completed; absent is an ordinary card. */
+  recurrence?: ProjectRecurrence | null
   createdBy: string
   modifiedBy: string
   createAt: number
