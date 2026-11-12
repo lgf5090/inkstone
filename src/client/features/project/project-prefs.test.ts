@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { DEFAULT_SETTINGS } from '@shared/constants'
+import { useSession } from '../../store/session'
+import { installTestGlobals } from '../../lib/test-render'
 import {
   PROJECT_SIDEBAR_DEFAULT_WIDTH,
   PROJECT_SIDEBAR_MAX_WIDTH,
   PROJECT_SIDEBAR_MIN_WIDTH,
+  migrateProjectBoardMarks,
   readSidebarOpenPref,
   readSidebarWidthPref,
   writeSidebarOpenPref,
@@ -39,6 +43,43 @@ describe('project-prefs', () => {
   it('handles invalid JSON gracefully', () => {
     localStorage.setItem('inkstone.project.pinnedBoards', 'not json')
     expect(readPinnedBoardsPref()).toEqual([])
+  })
+})
+
+describe('moving board marks into the account', () => {
+  function signIn(pinnedBoards: string[] = [], starredBoards: string[] = []): void {
+    useSession.setState({ status: 'authed', settings: { ...DEFAULT_SETTINGS, project: { pinnedBoards, starredBoards } } })
+  }
+
+  beforeEach(() => { installTestGlobals(); localStorage.clear() })
+  afterEach(() => {
+    localStorage.clear()
+    useSession.setState({ status: 'anonymous', settings: DEFAULT_SETTINGS })
+  })
+
+  it('moves local marks into an empty account and clears the local keys', () => {
+    signIn()
+    writePinnedBoardsPref(['b1'])
+    writeStarredBoardsPref(['b2'])
+    migrateProjectBoardMarks()
+    expect(useSession.getState().settings.project).toEqual({ pinnedBoards: ['b1'], starredBoards: ['b2'] })
+    expect(localStorage.getItem('inkstone.project.pinnedBoards')).toBeNull()
+    expect(localStorage.getItem('inkstone.project.starredBoards')).toBeNull()
+  })
+
+  it('never overwrites a mark already synced from another device', () => {
+    signIn(['remote'], [])
+    writePinnedBoardsPref(['local'])
+    migrateProjectBoardMarks()
+    expect(useSession.getState().settings.project.pinnedBoards).toEqual(['remote'])
+  })
+
+  it('does nothing before the reader is signed in', () => {
+    useSession.setState({ status: 'anonymous', settings: DEFAULT_SETTINGS })
+    writePinnedBoardsPref(['b1'])
+    migrateProjectBoardMarks()
+    expect(useSession.getState().settings.project.pinnedBoards).toEqual([])
+    expect(localStorage.getItem('inkstone.project.pinnedBoards')).not.toBeNull()
   })
 })
 

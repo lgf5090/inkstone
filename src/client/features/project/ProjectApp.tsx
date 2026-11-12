@@ -17,7 +17,8 @@ import { ProjectSidebar } from './ProjectSidebar'
 import { SearchDialog } from './SearchDialog'
 import { TemplatePicker } from './TemplatePicker'
 import { TrashDialog } from './TrashDialog'
-import { readBoardListLayoutPref, readPinnedBoardsPref, readStarredBoardsPref, writeBoardListLayoutPref, writePinnedBoardsPref, writeStarredBoardsPref } from './project-prefs'
+import { migrateProjectBoardMarks, readBoardListLayoutPref, useProjectBoardMarks, writeBoardListLayoutPref } from './project-prefs'
+import { useSession } from '../../store/session'
 import { PROJECT_OPTION_COLORS, projectOptionCssColor } from '@shared/project/option-color'
 import { Seg } from './views/shell'
 
@@ -34,6 +35,8 @@ function errorText(error: unknown): string {
 
 export function ProjectApp(): ReactElement {
   const pathname = usePathname()
+  const sessionStatus = useSession((state) => state.status)
+  useEffect(() => { if (sessionStatus === 'authed') migrateProjectBoardMarks() }, [sessionStatus])
   const match = /^\/project\/boards\/([^/]+)/.exec(pathname)
   if (match) return <BoardPage boardId={decodeURIComponent(match[1]!)} />
   return <BoardList />
@@ -156,16 +159,10 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit:
   const renameBoard = useProjectStore((state) => state.renameBoard)
   const toast = useUi((state) => state.toast)
   const setBoardIcon = useProjectStore((state) => state.setBoardIcon)
-  const [pinned, setPinned] = useState(readPinnedBoardsPref)
-  const [starred, setStarred] = useState(readStarredBoardsPref)
+  const { pinned, starred, togglePin, toggleStar } = useProjectBoardMarks()
   const [iconOpen, setIconOpen] = useState(false)
   const title = board.title || t('project.boards.untitled')
   const canEdit = board.role === 'editor' || board.role === 'admin'
-  const toggle = (kind: 'pin' | 'star'): void => {
-    const read = kind === 'pin' ? pinned : starred
-    const next = read.includes(board.id) ? read.filter((id) => id !== board.id) : [...read, board.id]
-    if (kind === 'pin') { setPinned(next); writePinnedBoardsPref(next) } else { setStarred(next); writeStarredBoardsPref(next) }
-  }
 
   const guard = async (action: () => Promise<void>) => {
     try {
@@ -183,13 +180,13 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit:
       label: pinned.includes(board.id) ? t('project.sidebar.unpin') : t('project.sidebar.pin'),
       icon: <Pin size={15} className={pinned.includes(board.id) ? 'text-[var(--accent)]' : undefined} />,
       separatorBefore: true,
-      onSelect: () => toggle('pin'),
+      onSelect: () => togglePin(board.id),
     },
     {
       id: 'star',
       label: starred.includes(board.id) ? t('project.sidebar.unfavorite') : t('project.sidebar.favorite'),
       icon: <Star size={15} className={starred.includes(board.id) ? 'fill-[var(--warning)] text-[var(--warning)]' : undefined} />,
-      onSelect: () => toggle('star'),
+      onSelect: () => toggleStar(board.id),
     },
     {
       id: 'rename', label: t('project.boards.rename'), icon: <Pencil size={15} />, separatorBefore: true, disabled: !canEdit,

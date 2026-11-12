@@ -632,6 +632,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
     focus: DEFAULT_TODO_FOCUS,
     workday: DEFAULT_TODO_WORKDAY,
   },
+  project: {
+    pinnedBoards: [],
+    starredBoards: [],
+  },
 }
 
 /** The choices the templater section offers, spelled once so the merge and the panel cannot drift. */
@@ -1067,6 +1071,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   const dataview = asRecord(src.dataview)
   const rss = asRecord(src.rss)
   const todo = asRecord(src.todo)
+  const project = asRecord(src.project)
 
   // the linter section is a nested record, so it is rebuilt from the reader's blob rather than
   // patched onto a default: an unknown rule or an oversized option has to be dropped, not stored
@@ -1091,6 +1096,8 @@ export function mergeSettings(partial: unknown): UserSettings {
   // wrote, with no error anywhere to say it happened.
   base.todo.focus = todoFocusSettings(todo.focus)
   base.todo.workday = todoWorkdaySettings(todo.workday)
+  base.project.pinnedBoards = projectBoardIds(project.pinnedBoards)
+  base.project.starredBoards = projectBoardIds(project.starredBoards)
 
   base.appearance.theme = enumValue(appearance.theme, THEMES, base.appearance.theme)
   base.appearance.language = enumValue(
@@ -1743,6 +1750,23 @@ function savedTodoFilters(value: unknown): SavedTodoFilter[] {
   return out
 }
 
+/** The board marks one account may keep; a mark naming a board that no longer exists is dropped by the reader. */
+const PROJECT_BOARD_MARKS_MAX = 200
+
+function projectBoardIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const id = typeof item === 'string' ? item.trim().slice(0, 64) : ''
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+    if (out.length >= PROJECT_BOARD_MARKS_MAX) break
+  }
+  return out
+}
+
 function halfStepInRange(value: unknown, range: readonly [number, number], fallback: number): number {
   const clamped = numberInRange(value, range[0], range[1], fallback)
   return Math.round(clamped * 2) / 2
@@ -2133,6 +2157,10 @@ function cloneDefaultSettings(): UserSettings {
         flowtime: { ...DEFAULT_TODO_FOCUS.flowtime },
       },
       workday: { ...DEFAULT_TODO_WORKDAY },
+    },
+    project: {
+      pinnedBoards: [...DEFAULT_SETTINGS.project.pinnedBoards],
+      starredBoards: [...DEFAULT_SETTINGS.project.starredBoards],
     },
   }
 }

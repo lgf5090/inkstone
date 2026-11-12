@@ -13,13 +13,7 @@ import { readRandomIconPref, writeRandomIconPref } from './project-icon'
 import { categoryDropZone, planCategoryDrop } from './sidebar-drag'
 import { useBandDrag, type BandDragState } from './views/use-band-drag'
 import { isImeComposing } from '../../lib/ime'
-import { PROJECT_SIDEBAR_MAX_WIDTH, PROJECT_SIDEBAR_MIN_WIDTH, readSidebarWidthPref, writeSidebarWidthPref } from './project-prefs'
-import {
-  readPinnedBoardsPref,
-  readStarredBoardsPref,
-  writePinnedBoardsPref,
-  writeStarredBoardsPref,
-} from './project-prefs'
+import { PROJECT_SIDEBAR_MAX_WIDTH, PROJECT_SIDEBAR_MIN_WIDTH, readSidebarWidthPref, useProjectBoardMarks, writeSidebarWidthPref } from './project-prefs'
 import {
   addBoardToCategory,
   createProjectCategory,
@@ -114,8 +108,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   const lastBoard = /^\/project\/boards\/([^/]+)/.exec(pathname)?.[1] ?? null
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [randomIcon, setRandomIcon] = useState(readRandomIconPref)
-  const [pinnedIds, setPinnedIds] = useState<string[]>(readPinnedBoardsPref)
-  const [starredIds, setStarredIds] = useState<string[]>(readStarredBoardsPref)
+  const { pinned: pinnedIds, starred: starredIds, togglePin: togglePinBoard, toggleStar: toggleStarBoard } = useProjectBoardMarks()
   const [contextPoint, setContextPoint] = useState<{ x: number, y: number } | null>(null)
   const [contextItems, setContextItems] = useState<MenuItem[]>([])
   const [contextLabel, setContextLabel] = useState<string>('')
@@ -138,18 +131,6 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
 
   const guard = async (action: () => Promise<void>) => {
     try { await action(); await reload() } catch (reason) { toast({ title: errorText(reason), tone: 'danger' }) }
-  }
-
-  const togglePinBoard = (boardId: string) => {
-    const next = pinnedIds.includes(boardId) ? pinnedIds.filter((id) => id !== boardId) : [...pinnedIds, boardId]
-    setPinnedIds(next)
-    writePinnedBoardsPref(next)
-  }
-
-  const toggleStarBoard = (boardId: string) => {
-    const next = starredIds.includes(boardId) ? starredIds.filter((id) => id !== boardId) : [...starredIds, boardId]
-    setStarredIds(next)
-    writeStarredBoardsPref(next)
   }
 
   const matches = useCallback((board: ProjectBoardSummary) => board.title.toLowerCase().includes(query.trim().toLowerCase()), [query])

@@ -627,6 +627,16 @@ export interface UserSettings {
   rss: RssSettings
   templater: TemplaterSettings
   todo: TodoSettings
+  project: ProjectSettings
+}
+
+/**
+ * The project app's per-reader board marks. They live in the account settings rather than in one
+ * browser's storage so a pin or a favourite follows the reader to the next device.
+ */
+export interface ProjectSettings {
+  pinnedBoards: string[]
+  starredBoards: string[]
 }
 
 /**

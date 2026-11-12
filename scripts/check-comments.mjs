@@ -12908,6 +12908,9 @@ const allowed = new Map([
     "/** The board list remembers whether the reader left it as rows or as cards. */",
     "/* storage unavailable: rows are the default */",
     "/* best-effort: a blocked storage loses the preference, not the boards */",
+    "/**\n * The reader's board marks, kept in the account settings so they follow the reader across devices.\n * The toggle reads the live store rather than a captured list, so two quick clicks cannot lose one.\n */",
+    "/**\n * Move marks a reader kept in this browser's storage into the account, once. Only an empty account\n * slot is filled, so a mark already synced from another device is never overwritten by a stale local\n * one; the local keys are cleared either way so the move is not attempted again.\n */",
+    "/* best-effort: a blocked storage leaves the keys for the next mount to move */",
   ]],
   ["src/client/features/project/sidebar-drag.ts", [
     "/**\n * What a drop on the category tree means.\n *\n * The tree is drawn from slash-separated names, so \"nest under\" is a rename of the dragged category\n * and everything below it, while \"place beside\" is a reorder. Both are decided here rather than in\n * the component because the two failure modes are silent: a target that is not a real category used\n * to splice at -1 and land the row second-from-last, and a nest that forgot the descendants left them\n * pointing at a path that no longer exists.\n */",
@@ -32646,6 +32649,7 @@ const allowed = new Map([
     "// A lock timeout of zero would lock the note before it could be read, and a very long one would",
     "// leave an unlocked note readable for a whole working day; the panel offers minutes, the reader",
     "// stores minutes, and the clamp is the one rule both obey.",
+    "/** The board marks one account may keep; a mark naming a board that no longer exists is dropped by the reader. */",
   ]],
   ["src/shared/crypto/index.ts", [
     "/** The shared sealed-text surface: every consumer imports from here, never from a private path. */",
@@ -35232,6 +35236,7 @@ const allowed = new Map([
     "/** Minutes an unlocked note stays readable before it locks again. */",
     "/**\n   * True when `title` and `content` are client-sealed envelopes rather than readable text.\n   *\n   * The server sets this on every row it sends; it is optional because a shell snapshot persisted\n   * before locks existed has no such key, and an absent value means the ordinary plaintext note.\n   * Search, AI indexing, shares and the assistant stop reading the note while it is true.\n   */",
     "/**\n   * The client sealed (true) or opened (false) this note's title and content.\n   *\n   * When true the server stores the two strings as ciphertext envelopes and strips every index and\n   * public projection that would have exposed the text; when false the strings are plaintext again\n   * and the ordinary derivation resumes. Absent on an encrypted note refuses a plaintext write.\n   */",
+    "/**\n * The project app's per-reader board marks. They live in the account settings rather than in one\n * browser's storage so a pin or a favourite follows the reader to the next device.\n */",
   ]],
   ["src/shared/web-search-engines.ts", [
     "/** How the vendor wants its key presented on the wire. */",

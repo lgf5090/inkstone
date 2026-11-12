@@ -1,5 +1,54 @@
+import { useSession } from '../../store/session'
+
 const PINNED_BOARDS_KEY = 'inkstone.project.pinnedBoards'
 const STARRED_BOARDS_KEY = 'inkstone.project.starredBoards'
+
+/**
+ * The reader's board marks, kept in the account settings so they follow the reader across devices.
+ * The toggle reads the live store rather than a captured list, so two quick clicks cannot lose one.
+ */
+export function useProjectBoardMarks(): {
+  pinned: string[]
+  starred: string[]
+  togglePin: (boardId: string) => void
+  toggleStar: (boardId: string) => void
+} {
+  const pinned = useSession((state) => state.settings.project.pinnedBoards)
+  const starred = useSession((state) => state.settings.project.starredBoards)
+  const togglePin = (boardId: string): void => {
+    const current = useSession.getState().settings.project.pinnedBoards
+    const next = current.includes(boardId) ? current.filter((id) => id !== boardId) : [...current, boardId]
+    useSession.getState().updateSettings({ project: { pinnedBoards: next } })
+  }
+  const toggleStar = (boardId: string): void => {
+    const current = useSession.getState().settings.project.starredBoards
+    const next = current.includes(boardId) ? current.filter((id) => id !== boardId) : [...current, boardId]
+    useSession.getState().updateSettings({ project: { starredBoards: next } })
+  }
+  return { pinned, starred, togglePin, toggleStar }
+}
+
+/**
+ * Move marks a reader kept in this browser's storage into the account, once. Only an empty account
+ * slot is filled, so a mark already synced from another device is never overwritten by a stale local
+ * one; the local keys are cleared either way so the move is not attempted again.
+ */
+export function migrateProjectBoardMarks(): void {
+  const state = useSession.getState()
+  if (state.status !== 'authed') return
+  const pinned = readPinnedBoardsPref()
+  const starred = readStarredBoardsPref()
+  if (pinned.length === 0 && starred.length === 0) return
+  const current = state.settings.project
+  const patch: { pinnedBoards?: string[], starredBoards?: string[] } = {}
+  if (pinned.length > 0 && current.pinnedBoards.length === 0) patch.pinnedBoards = pinned
+  if (starred.length > 0 && current.starredBoards.length === 0) patch.starredBoards = starred
+  try {
+    localStorage.removeItem(PINNED_BOARDS_KEY)
+    localStorage.removeItem(STARRED_BOARDS_KEY)
+  } catch { /* best-effort: a blocked storage leaves the keys for the next mount to move */ }
+  if (Object.keys(patch).length > 0) state.updateSettings({ project: patch })
+}
 
 function readArrayPref(key: string): string[] {
   try {

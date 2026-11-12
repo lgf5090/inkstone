@@ -7,6 +7,7 @@ import * as api from './api'
 import { ProjectSidebar } from './ProjectSidebar'
 import { useProjectStore } from './store'
 import { confirm } from '../../components/overlay'
+import { useSession } from '../../store/session'
 
 vi.mock('../../components/overlay', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../components/overlay')>(),
@@ -43,7 +44,10 @@ beforeEach(async () => {
   })
   await initI18n()
 })
-afterEach(() => { view?.unmount() })
+afterEach(() => {
+  view?.unmount()
+  useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: [], starredBoards: [] } } }))
+})
 
 async function mount() {
   await act(async () => { view = renderElement(createElement(ProjectSidebar, { boards, onImport: vi.fn() })) })
@@ -148,8 +152,7 @@ describe('the project sidebar', () => {
   })
 
   it('renders pinned and favorites sections when preferences are present', async () => {
-    localStorage.setItem('inkstone.project.pinnedBoards', JSON.stringify(['b1']))
-    localStorage.setItem('inkstone.project.starredBoards', JSON.stringify(['b2']))
+    useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: ['b1'], starredBoards: ['b2'] } } }))
     await mount()
     const text = view.container.textContent ?? ''
     expect(text).toContain(t('project.sidebar.pinned'))
@@ -187,6 +190,17 @@ describe('the project sidebar', () => {
     const menuItems = [...document.body.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent ?? '')
     expect(menuItems.some((item) => item.includes(t('project.sidebar.pin')))).toBe(true)
     expect(menuItems.some((item) => item.includes(t('project.sidebar.favorite')))).toBe(true)
+  })
+
+  it('pinning a board writes the mark into the account settings', async () => {
+    await mount()
+    const boardEl = document.body.querySelector('[data-sidebar-board="b1"]')!
+    await act(async () => { boardEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 })) })
+    const pin = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent?.includes(t('project.sidebar.pin')))!
+    await act(async () => { pin.click() })
+    expect(useSession.getState().settings.project.pinnedBoards).toEqual(['b1'])
+    expect(localStorage.getItem('inkstone.project.pinnedBoards')).toBeNull()
+    expect(view.container.textContent).toContain(t('project.sidebar.pinned'))
   })
 
   it('opens category menu with new subcategory, rename and delete on more button click', async () => {
