@@ -1,9 +1,9 @@
 /**
- * Reordering columns by pointer, so a finger works the same as a mouse.
+ * Reordering a row of bands by pointer, so a finger works the same as a mouse.
  *
- * HTML5 drag-and-drop never fires from a touch, which left the board's and the table's column order
- * desktop-only. This reads the header rectangles once at press, follows the pointer, and reports the
- * column it is over; the caller decides what a drop means.
+ * HTML5 drag-and-drop never fires from a touch, which left column and content-block order
+ * desktop-only. This reads the band rectangles once at press, follows the pointer along one axis,
+ * and reports the band it is over; the caller decides what a drop means.
  */
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
@@ -11,19 +11,22 @@ const THRESHOLD = 4
 const HOLD_MS = 220
 const SLOP = 8
 
-export interface ColumnDragState {
+export interface BandDragState {
   draggingId: string | null
   overId: string | null
   start: (event: ReactPointerEvent, id: string) => void
 }
 
-export function useColumnDrag(options: {
+export function useBandDrag(options: {
   enabled: boolean
-  /** Header elements in their drawn order, read at press so scrolling mid-drag stays honest. */
-  measure: () => { id: string, left: number, right: number }[]
-  onDrop: (sourceId: string, targetId: string) => void
-}): ColumnDragState {
-  const { enabled, measure, onDrop } = options
+  /** Which way the bands run: columns across, content blocks down. */
+  axis: 'x' | 'y'
+  /** Band elements in their drawn order, read at press so scrolling mid-drag stays honest. */
+  measure: () => { id: string, from: number, to: number }[]
+  /** The release point, for callers whose drop means more than "over this band" (nest vs beside). */
+  onDrop: (sourceId: string, targetId: string, point: { x: number, y: number }) => void
+}): BandDragState {
+  const { enabled, axis, measure, onDrop } = options
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
   const dropRef = useRef(onDrop)
@@ -39,7 +42,7 @@ export function useColumnDrag(options: {
     const touch = event.pointerType === 'touch'
     const startX = event.clientX
     const startY = event.clientY
-    let bands: { id: string, left: number, right: number }[] = []
+    let bands: { id: string, from: number, to: number }[] = []
     let begun = false
     let latest: string | null = null
     let hold: number | null = null
@@ -51,7 +54,7 @@ export function useColumnDrag(options: {
       setDraggingId(id)
       document.body.classList.add('pv-dragging')
     }
-    const over = (x: number): string | null => bands.find((band) => x >= band.left && x <= band.right)?.id ?? null
+    const over = (at: number): string | null => bands.find((band) => at >= band.from && at <= band.to)?.id ?? null
 
     const move = (moveEvent: PointerEvent): void => {
       if (!begun) {
@@ -62,13 +65,13 @@ export function useColumnDrag(options: {
         begin()
       }
       moveEvent.preventDefault()
-      const next = over(moveEvent.clientX)
+      const next = over(axis === 'x' ? moveEvent.clientX : moveEvent.clientY)
       if (next !== latest) { latest = next; setOverId(next) }
     }
-    const up = (): void => {
+    const up = (upEvent: PointerEvent): void => {
       const target = begun ? latest : null
       cleanup()
-      if (target && target !== id) dropRef.current(id, target)
+      if (target && target !== id) dropRef.current(id, target, { x: upEvent.clientX, y: upEvent.clientY })
     }
     const key = (keyEvent: KeyboardEvent): void => { if (keyEvent.key === 'Escape') cleanup() }
 
@@ -92,7 +95,7 @@ export function useColumnDrag(options: {
     window.addEventListener('pointercancel', cleanup)
     window.addEventListener('keydown', key)
     if (touch) hold = window.setTimeout(() => { hold = null; begin() }, HOLD_MS)
-  }, [enabled])
+  }, [enabled, axis])
 
   return { draggingId, overId, start }
 }

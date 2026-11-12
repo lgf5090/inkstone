@@ -49,6 +49,29 @@ async function mount() {
   await act(async () => { view = renderElement(createElement(ProjectSidebar, { boards, onImport: vi.fn() })) })
 }
 
+function rows(): HTMLElement[] {
+  return [...document.body.querySelectorAll<HTMLElement>('[data-sidebar-drop]')]
+}
+
+async function dragRow(source: string, target: string, releaseOffset = 14, pointerType = 'mouse'): Promise<void> {
+  const all = rows()
+  // jsdom lays nothing out, so the drag reads the bands a real sidebar would report.
+  all.forEach((node, index) => {
+    node.getBoundingClientRect = () => ({ left: 0, right: 240, top: index * 30, bottom: index * 30 + 28, width: 240, height: 28, x: 0, y: index * 30, toJSON: () => ({}) })
+  })
+  const grips = [...document.body.querySelectorAll<HTMLElement>(`[data-sidebar-grip="${source}"]`)]
+  const grip = grips[grips.length - 1]!
+  const targetIndex = all.findIndex((node) => node.dataset.sidebarDrop === target)
+  const fire = (type: string, y: number, eventTarget: EventTarget = window): void => {
+    eventTarget.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: 20, clientY: y, button: 0, pointerId: 1, pointerType }))
+  }
+  await act(async () => { fire('pointerdown', 10, grip) })
+  if (pointerType === 'touch') await act(async () => { await new Promise((resolve) => setTimeout(resolve, 260)) })
+  await act(async () => { fire('pointermove', targetIndex * 30 + releaseOffset) })
+  await act(async () => { fire('pointerup', targetIndex * 30 + releaseOffset) })
+}
+
+
 describe('sidebar drag reorder (E-1/A-12)', () => {
   it('dropping a board on another persists the new category order', async () => {
     vi.mocked(api.fetchProjectCategories).mockResolvedValue({
@@ -57,11 +80,15 @@ describe('sidebar drag reorder (E-1/A-12)', () => {
     })
     vi.mocked(api.reorderCategoryBoards).mockResolvedValue(undefined)
     await mount()
-    const target = document.body.querySelector('[data-sidebar-board="b1"]')!
-    const event = new Event('drop', { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'dataTransfer', { value: { types: ['text/plain'], getData: () => 'board:b2' } })
-    await act(async () => { target.dispatchEvent(event) })
+    await dragRow('board:b2', 'board:b1')
     expect(api.reorderCategoryBoards).toHaveBeenCalledWith('cat1', ['b2', 'b1'])
+  })
+
+  it('a finger held on a board grip files it into the folder it is released on', async () => {
+    vi.mocked(api.addBoardToCategory).mockResolvedValue({ categoryId: 'cat1', boardId: 'b2', hidden: false, position: 1 })
+    await mount()
+    await dragRow('board:b2', 'category:cat1', 14, 'touch')
+    expect(api.addBoardToCategory).toHaveBeenCalledWith('cat1', 'b2')
   })
 })
 
@@ -91,10 +118,10 @@ describe('find-board keyboard navigation (E-8)', () => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
     await act(async () => { setter.call(input, 'board'); input.dispatchEvent(new Event('input', { bubbles: true })) })
     await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })) })
-    expect(document.body.querySelector('[data-sidebar-board="b1"] button')!.className).toContain('ring-2')
+    expect(document.body.querySelector('[data-sidebar-board="b1"] button:not([data-sidebar-grip])')!.className).toContain('ring-2')
     await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
     expect(input.value).toBe('')
-    expect(document.body.querySelector('[data-sidebar-board="b1"] button')!.className).not.toContain('ring-2')
+    expect(document.body.querySelector('[data-sidebar-board="b1"] button:not([data-sidebar-grip])')!.className).not.toContain('ring-2')
   })
 })
 
@@ -174,27 +201,46 @@ describe('the project sidebar', () => {
   })
 })
 describe('dropping onto a category (R3-8)', () => {
-  function categorySection(): HTMLElement {
-    const button = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((node) => node.textContent === 'Work')
-    expect(button, 'no Work category row').toBeDefined()
-    return button!.closest('section')!
-  }
-
   it('files a loose board into the category it was dropped on', async () => {
     vi.mocked(api.addBoardToCategory).mockResolvedValue({ categoryId: 'cat1', boardId: 'b2', hidden: false, position: 1 })
     await mount()
-    const event = new Event('drop', { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'dataTransfer', { value: { types: ['text/plain'], getData: () => 'board:b2' } })
-    await act(async () => { categorySection().dispatchEvent(event) })
+    await dragRow('board:b2', 'category:cat1')
     expect(api.addBoardToCategory).toHaveBeenCalledWith('cat1', 'b2')
   })
 
   it('does not re-file a board already in that category', async () => {
     await mount()
-    const event = new Event('drop', { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'dataTransfer', { value: { types: ['text/plain'], getData: () => 'board:b1' } })
-    await act(async () => { categorySection().dispatchEvent(event) })
+    await dragRow('board:b1', 'category:cat1')
     expect(api.addBoardToCategory).not.toHaveBeenCalled()
+  })
+})
+
+describe('dragging a category onto another', () => {
+  async function mountTwo(): Promise<void> {
+    vi.mocked(api.fetchProjectCategories).mockResolvedValue({
+      categories: [
+        { id: 'cat1', userId: 'u1', name: 'Work', type: 'custom', collapsed: false, sortOrder: 0, createAt: 1, updateAt: 1, deleteAt: 0 },
+        { id: 'cat2', userId: 'u1', name: 'Home', type: 'custom', collapsed: false, sortOrder: 1, createAt: 1, updateAt: 1, deleteAt: 0 },
+      ],
+      categoryBoards: [],
+    })
+    await mount()
+  }
+
+  it('releasing on the middle nests the dragged folder under the target', async () => {
+    vi.mocked(api.patchProjectCategory).mockResolvedValue(undefined as never)
+    await mountTwo()
+    await dragRow('category:cat2', 'category:cat1', 14)
+    expect(api.patchProjectCategory).toHaveBeenCalledWith('cat2', { name: 'Work/Home' })
+    expect(api.reorderProjectCategories).not.toHaveBeenCalled()
+  })
+
+  it('releasing on the top edge places the dragged folder before the target', async () => {
+    vi.mocked(api.reorderProjectCategories).mockResolvedValue(undefined)
+    await mountTwo()
+    await dragRow('category:cat2', 'category:cat1', 2)
+    expect(api.reorderProjectCategories).toHaveBeenCalledWith(['cat2', 'cat1'])
+    expect(api.patchProjectCategory).not.toHaveBeenCalled()
   })
 })
 

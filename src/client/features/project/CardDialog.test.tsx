@@ -234,6 +234,43 @@ describe('content block reorder (D-1)', () => {
     await act(async () => { down.click() })
     expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { contentOrder: ['a2', 'a1'] })
   })
+
+  async function mountBlocks(): Promise<void> {
+    vi.mocked(api.patchProjectCard).mockResolvedValue({ ...card, contentOrder: ['a2', 'a1'] })
+    const blocks = ['a1', 'a2'].map((id) => ({ id, cardId: 'c1', boardId: 'b1', type: 'text' as const, title: id, fields: {}, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }))
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card: { ...card, contentOrder: ['a1', 'a2'] }, properties, members: [], people: {}, contents: blocks, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+    })
+  }
+
+  async function dragBlock(from: string, to: string, pointerType = 'mouse'): Promise<void> {
+    const rows = [...document.body.querySelectorAll<HTMLElement>('[data-content-id]')]
+    // jsdom lays nothing out, so the drag reads the bands a real dialog would report.
+    rows.forEach((node, index) => {
+      node.getBoundingClientRect = () => ({ left: 0, right: 400, top: index * 60, bottom: index * 60 + 50, width: 400, height: 50, x: 0, y: index * 60, toJSON: () => ({}) })
+    })
+    const grip = document.body.querySelector<HTMLElement>(`[data-content-grip="${from}"]`)!
+    const fire = (type: string, y: number, target: EventTarget = window): void => {
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: 20, clientY: y, button: 0, pointerId: 1, pointerType }))
+    }
+    const at = (id: string): number => rows.findIndex((node) => node.dataset.contentId === id) * 60
+    await act(async () => { fire('pointerdown', at(from) + 10, grip) })
+    if (pointerType === 'touch') await act(async () => { await new Promise((resolve) => setTimeout(resolve, 260)) })
+    await act(async () => { fire('pointermove', at(to) + 25) })
+    await act(async () => { fire('pointerup', at(to) + 25) })
+  }
+
+  it('dragging a block down lands it after the block it was dropped on', async () => {
+    await mountBlocks()
+    await dragBlock('a1', 'a2')
+    expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { contentOrder: ['a2', 'a1'] })
+  })
+
+  it('a finger held on the grip drags a block up', async () => {
+    await mountBlocks()
+    await dragBlock('a2', 'a1', 'touch')
+    expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { contentOrder: ['a2', 'a1'] })
+  })
 })
 
 describe('subtask progress (UI-2)', () => {

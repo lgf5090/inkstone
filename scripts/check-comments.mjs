@@ -12829,6 +12829,9 @@ const allowed = new Map([
     "/**\n * The row a board card wears under its title.\n *\n * A kanban card has to be readable without opening it, so the properties the view already shows are\n * repeated here as chips — the group's own property is left out because the column already says it.\n * Only set values are drawn: an empty chip per property would bury the title it is meant to support.\n */",
     "/** One midnight for the whole board, so a thousand chips do not each build a Date. */",
   ]],
+  ["src/client/features/project/CardDialog.test.tsx", [
+    "// jsdom lays nothing out, so the drag reads the bands a real dialog would report.",
+  ]],
   ["src/client/features/project/FilterEditor.test.tsx", [
     "/** The row a stored value is offered under: a property name, a join word, or a condition's own label. */",
   ]],
@@ -12851,6 +12854,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/ProjectSidebar.test.tsx", [
     "// The board also appears under \"recently edited\"; the filed copy is the one inside the tree.",
+    "// jsdom lays nothing out, so the drag reads the bands a real sidebar would report.",
   ]],
   ["src/client/features/project/ProjectSidebar.tsx", [
     "/* best-effort: an unreadable category list leaves the board list usable */",
@@ -12858,6 +12862,7 @@ const allowed = new Map([
     "// The open board comes from the address, not from a value read once at mount: switching between",
     "// two boards keeps this sidebar mounted, and a mount-time read would leave the highlight behind.",
     "// Deleting the board on screen would otherwise leave the reader staring at a dead page.",
+    "/**\n   * One pointer drag for the whole tree. Rows carry a `board:`/`category:` payload, so a drop reads\n   * the pair: a board onto a folder files it, a board onto a board reorders within that folder, and a\n   * folder onto a folder nests or places beside depending on which third of the row was released.\n   */",
   ]],
   ["src/client/features/project/PropertyValueEditor.test.tsx", [
     "/**\n * The date cell has to agree with the module's own conversion (§6.6) in the reader's own zone: the day\n * the picker files is the day the table cell, the date filter and the timeline read back. The editor\n * once did its own UTC arithmetic, which filed local midnight and read back a day early east of UTC.\n *\n * The zone is switched per case rather than assumed, because the defect is invisible in UTC — the\n * machine's own zone is not a fixture.\n */",
@@ -13006,9 +13011,11 @@ const allowed = new Map([
     "/**\n * The inline \"add a card\" control every collection surface offers.\n *\n * It stays a button until pressed so a column of twenty cards is not twenty open text fields, and it\n * keeps focus after a submit so typing three cards in a row is three Enters rather than six clicks.\n */",
     "/** The empty body a view shows when its filter left nothing, with the action that fixes it. */",
   ]],
-  ["src/client/features/project/views/use-column-drag.ts", [
-    "/**\n * Reordering columns by pointer, so a finger works the same as a mouse.\n *\n * HTML5 drag-and-drop never fires from a touch, which left the board's and the table's column order\n * desktop-only. This reads the header rectangles once at press, follows the pointer, and reports the\n * column it is over; the caller decides what a drop means.\n */",
-    "/** Header elements in their drawn order, read at press so scrolling mid-drag stays honest. */",
+  ["src/client/features/project/views/use-band-drag.ts", [
+    "/**\n * Reordering a row of bands by pointer, so a finger works the same as a mouse.\n *\n * HTML5 drag-and-drop never fires from a touch, which left column and content-block order\n * desktop-only. This reads the band rectangles once at press, follows the pointer along one axis,\n * and reports the band it is over; the caller decides what a drop means.\n */",
+    "/** Which way the bands run: columns across, content blocks down. */",
+    "/** Band elements in their drawn order, read at press so scrolling mid-drag stays honest. */",
+    "/** The release point, for callers whose drop means more than \"over this band\" (nest vs beside). */",
   ]],
   ["src/client/features/project/views/use-drag-sort.ts", [
     "/**\n * Pointer drag for the board and the list.\n *\n * HTML5 drag-and-drop never fires from a touch, so a board built on `draggable` is a desktop-only\n * board. This walks the same path for mouse, pen and finger: press, cross a small threshold (or hold\n * on touch), then a fixed clone follows the pointer while the real card stays behind as a slot.\n *\n * The drop index is counted in midlines and means \"insert here after the dragged card is removed\",\n * so the caller can splice without a ±1 correction. Geometry is read once at drag start and corrected\n * by scroll deltas, because reading every card's rect on every pointermove forces a layout per frame.\n */",

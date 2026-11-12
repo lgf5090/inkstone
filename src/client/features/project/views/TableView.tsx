@@ -18,7 +18,7 @@ import { SelectMenu } from '../../../components/select-menu'
 import { CardBadges, OptionChip } from '../CardBadges'
 import { PropertyValueEditor } from '../PropertyValueEditor'
 import { QuickAdd } from './shell'
-import { useColumnDrag } from './use-column-drag'
+import { useBandDrag } from './use-band-drag'
 
 const PAGE = 200
 
@@ -90,11 +90,12 @@ export function TableView(props: TableProps): ReactElement {
     const at = ids.indexOf(targetId) + (forwards ? 1 : 0)
     props.onPatchFields({ visiblePropertyIds: [...ids.slice(0, at), sourceId, ...ids.slice(at)] })
   }
-  const columnDrag = useColumnDrag({
+  const columnDrag = useBandDrag({
     enabled: canEdit,
+    axis: 'x',
     measure: () => [...(headRef.current?.querySelectorAll<HTMLElement>('[data-column-id]') ?? [])].map((node) => {
       const rect = node.getBoundingClientRect()
-      return { id: node.dataset.columnId ?? '', left: rect.left, right: rect.right }
+      return { id: node.dataset.columnId ?? '', from: rect.left, to: rect.right }
     }),
     onDrop: reorderColumn,
   })

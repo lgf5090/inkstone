@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
-import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
+import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectPeople, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone, projectPersonLabel } from '@shared/project/model'
 import { moveContentOrder } from '@shared/project/content-order'
@@ -11,6 +11,7 @@ import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
 import { sendForAnswerDetailed } from '../chat/editor-ai'
 import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
+import { useBandDrag } from './views/use-band-drag'
 import { useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
 import { useProjectWatch } from './use-watch'
@@ -222,6 +223,19 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     const flat = newOrder.flat()
     setBlocks((current) => [...current].sort((a, b) => flat.indexOf(a.id) - flat.indexOf(b.id)))
   }
+  const blocksRef = useRef<HTMLDivElement>(null)
+  const blockDrag = useBandDrag({
+    enabled: canEdit,
+    axis: 'y',
+    measure: () => [...(blocksRef.current?.querySelectorAll<HTMLElement>('[data-content-id]') ?? [])].map((node) => {
+      const rect = node.getBoundingClientRect()
+      return { id: node.dataset.contentId ?? '', from: rect.top, to: rect.bottom }
+    }),
+    onDrop: (source, target) => {
+      const forwards = blocks.findIndex((block) => block.id === source) < blocks.findIndex((block) => block.id === target)
+      void reorderBlock(source, target, forwards ? 'after' : 'before')
+    },
+  })
   const moveBlock = (block: ProjectContent, direction: 'up' | 'down') => {
     const ids = blocks.map((entry) => entry.id)
     const index = ids.indexOf(block.id)
@@ -375,22 +389,27 @@ export function CardDialog({ card, properties, members, people, contents, siblin
             )}
           </div>
           {blocks.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</p>}
-          <div className="space-y-2">
+          <div className="space-y-2" ref={blocksRef}>
             {blocks.map((block) => (
               <div
                 key={block.id}
                 className="flex items-start gap-2"
                 data-project-content={block.id}
-                draggable={canEdit}
-                onDragStart={(event) => { event.dataTransfer.setData('text/plain', block.id) }}
-                onDragOver={(event) => { if (canEdit) event.preventDefault() }}
-                onDrop={(event) => {
-                  if (!canEdit) return
-                  event.preventDefault()
-                  const source = event.dataTransfer.getData('text/plain')
-                  if (source && source !== block.id) void reorderBlock(source, block.id, 'before')
-                }}
+                data-content-id={block.id}
+                data-drop-target={blockDrag.overId === block.id && blockDrag.draggingId !== block.id}
+                data-dragging={blockDrag.draggingId === block.id}
               >
+                {canEdit && (
+                  <button
+                    type="button"
+                    className="pv-block-grip"
+                    data-content-grip={block.id}
+                    aria-label={t('project.card.drag_block', { title: block.title || t('project.card.checkbox_block') })}
+                    onPointerDown={(event) => blockDrag.start(event, block.id)}
+                  >
+                    <GripVertical size={13} aria-hidden="true" />
+                  </button>
+                )}
                 <div className="min-w-0 flex-1">
                   {block.type === 'checkbox'
                     ? <Checkbox label={block.title || t('project.card.checkbox_block')} checked={block.fields.checked === true} disabled={!canEdit} onChange={(checked) => void toggleBlock(block, checked)} />

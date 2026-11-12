@@ -23,7 +23,7 @@ import { isImeComposing } from '../../../lib/ime'
 import { QuickAdd, ViewShell } from './shell'
 import { CardFace, CardGrip, SubtaskProgress, SubtaskRows } from './card-face'
 import { useDragSort, type DragDropTarget } from './use-drag-sort'
-import { useColumnDrag } from './use-column-drag'
+import { useBandDrag } from './use-band-drag'
 
 export interface KanbanProps {
   cards: ProjectCard[]
@@ -117,11 +117,12 @@ export function KanbanView(props: KanbanProps): ReactElement {
     const at = without.indexOf(target) + (forwards ? 1 : 0)
     props.onPatchFields({ columnOrder: [...without.slice(0, at), source, ...without.slice(at)] })
   }
-  const columnDrag = useColumnDrag({
+  const columnDrag = useBandDrag({
     enabled: canEdit,
+    axis: 'x',
     measure: () => [...(boardRef.current?.querySelectorAll<HTMLElement>('[data-kanban-column]') ?? [])].map((node) => {
       const rect = node.getBoundingClientRect()
-      return { id: node.dataset.kanbanColumn ?? '', left: rect.left, right: rect.right }
+      return { id: node.dataset.kanbanColumn ?? '', from: rect.left, to: rect.right }
     }),
     onDrop: moveColumn,
   })

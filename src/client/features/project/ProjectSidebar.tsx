@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
-import { ChevronDown, ChevronRight, Clock, Copy, Download, Eye, EyeOff, FolderPlus, MoreHorizontal, Pencil, Pin, Plus, Settings2, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
+import { ChevronDown, ChevronRight, Clock, Copy, Download, Eye, EyeOff, FolderPlus, GripVertical, MoreHorizontal, Pencil, Pin, Plus, Settings2, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { setLocale, t, useLocale } from '../../lib/i18n'
 import { navigateToPath, usePathname } from '../../lib/app-history'
@@ -11,6 +11,7 @@ import { useUi } from '../../store/ui'
 import { useProjectStore } from './store'
 import { readRandomIconPref, writeRandomIconPref } from './project-icon'
 import { categoryDropZone, planCategoryDrop } from './sidebar-drag'
+import { useBandDrag, type BandDragState } from './views/use-band-drag'
 import { isImeComposing } from '../../lib/ime'
 import { PROJECT_SIDEBAR_MAX_WIDTH, PROJECT_SIDEBAR_MIN_WIDTH, readSidebarWidthPref, writeSidebarWidthPref } from './project-prefs'
 import {
@@ -366,8 +367,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       focused={visibleBoards[highlight]?.id === board.id}
       isPinned={pinnedIds.includes(board.id)}
       isStarred={starredIds.includes(board.id)}
-      onDragStart={(event) => { event.dataTransfer.setData('text/plain', `board:${board.id}`) }}
-      onDrop={(event) => dropBoard(event, edge?.categoryId ?? '', board.id)}
+      drag={sidebarDrag}
       onContextMenu={(event) => {
         event.preventDefault()
         event.stopPropagation()
@@ -386,21 +386,38 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
     { id: 'random-icon', label: `${t('project.sidebar.random_icon')}${randomIcon ? ' ✓' : ''}`, onSelect: () => { const next = !randomIcon; writeRandomIconPref(next); setRandomIcon(next) } },
   ]
 
-  const dropOnCategory = (event: DragEvent, node: CategoryTreeNode) => {
-    const src = event.dataTransfer.getData('text/plain')
-    const targetId = node.category?.id
-    if (!targetId) return
-    if (src.startsWith('board:')) {
-      event.preventDefault()
-      const boardId = src.slice('board:'.length)
-      if (edges.some((edge) => edge.boardId === boardId && edge.categoryId === targetId)) return
-      void guard(async () => { await addBoardToCategory(targetId, boardId) })
+  const asideRef = useRef<HTMLElement>(null)
+
+  /**
+   * One pointer drag for the whole tree. Rows carry a `board:`/`category:` payload, so a drop reads
+   * the pair: a board onto a folder files it, a board onto a board reorders within that folder, and a
+   * folder onto a folder nests or places beside depending on which third of the row was released.
+   */
+  const dropSidebarRow = (source: string, target: string, point: { x: number, y: number }) => {
+    if (source.startsWith('board:')) {
+      const boardId = source.slice('board:'.length)
+      if (target.startsWith('category:')) {
+        const categoryId = target.slice('category:'.length)
+        if (edges.some((edge) => edge.boardId === boardId && edge.categoryId === categoryId)) return
+        void guard(async () => { await addBoardToCategory(categoryId, boardId) })
+        return
+      }
+      if (!target.startsWith('board:')) return
+      const targetId = target.slice('board:'.length)
+      const categoryId = edgeForBoard(targetId)?.categoryId ?? ''
+      if (!categoryId || boardId === targetId) return
+      const ids = edges.filter((e) => e.categoryId === categoryId).sort((a, b) => a.position - b.position).map((e) => e.boardId).filter((id) => id !== boardId)
+      const at = ids.indexOf(targetId)
+      if (at < 0) return
+      ids.splice(at, 0, boardId)
+      void guard(async () => { await reorderCategoryBoards(categoryId, ids) })
       return
     }
-    if (!src.startsWith('category:')) return
-    event.preventDefault()
-    const box = event.currentTarget.getBoundingClientRect()
-    const plan = planCategoryDrop(categories, src.slice('category:'.length), targetId, categoryDropZone(event.clientY - box.top, box.height))
+    if (!source.startsWith('category:') || !target.startsWith('category:')) return
+    const row = asideRef.current?.querySelector<HTMLElement>(`[data-sidebar-drop="${target}"]`)
+    if (!row) return
+    const box = row.getBoundingClientRect()
+    const plan = planCategoryDrop(categories, source.slice('category:'.length), target.slice('category:'.length), categoryDropZone(point.y - box.top, box.height))
     if (!plan) return
     void guard(async () => {
       if (plan.kind === 'reorder') await reorderProjectCategories(plan.ids)
@@ -408,18 +425,15 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
     })
   }
 
-  const dropBoard = (event: DragEvent, categoryId: string, targetId: string) => {
-    const src = event.dataTransfer.getData('text/plain')
-    if (!src.startsWith('board:') || !categoryId) return
-    event.preventDefault()
-    const source = src.slice('board:'.length)
-    if (source === targetId) return
-    const ids = edges.filter((e) => e.categoryId === categoryId).sort((a, b) => a.position - b.position).map((e) => e.boardId).filter((id) => id !== source)
-    const at = ids.indexOf(targetId)
-    if (at < 0) return
-    ids.splice(at, 0, source)
-    void guard(async () => { await reorderCategoryBoards(categoryId, ids) })
-  }
+  const sidebarDrag = useBandDrag({
+    enabled: true,
+    axis: 'y',
+    measure: () => [...(asideRef.current?.querySelectorAll<HTMLElement>('[data-sidebar-drop]') ?? [])].map((node) => {
+      const rect = node.getBoundingClientRect()
+      return { id: node.dataset.sidebarDrop ?? '', from: rect.top, to: rect.bottom }
+    }),
+    onDrop: dropSidebarRow,
+  })
 
   const toggleCollapseNode = (node: CategoryTreeNode) => {
     if (node.category) {
@@ -436,7 +450,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   }
 
   return (
-    <aside className="relative flex shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]" style={{ width: `${width}px` }} aria-label={t('project.title')}>
+    <aside ref={asideRef} className="relative flex shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]" style={{ width: `${width}px` }} aria-label={t('project.title')}>
       <button
         type="button"
         role="separator"
@@ -543,7 +557,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
               setContextPoint({ x: event.clientX, y: event.clientY })
             }}
             renderBoard={renderBoard}
-            dropOnCategory={dropOnCategory}
+            drag={sidebarDrag}
           />
         ))}
 
@@ -582,7 +596,7 @@ function CategoryTreeItem({
   categoryMenu,
   onContextMenu,
   renderBoard,
-  dropOnCategory,
+  drag,
 }: {
   node: CategoryTreeNode
   collapsedMap: Map<string, boolean>
@@ -590,28 +604,35 @@ function CategoryTreeItem({
   categoryMenu: (node: CategoryTreeNode) => MenuItem[]
   onContextMenu: (event: ReactMouseEvent, node: CategoryTreeNode) => void
   renderBoard: (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => ReactElement
-  dropOnCategory: (event: DragEvent, node: CategoryTreeNode) => void
+  drag: BandDragState
 }): ReactElement {
+  const payload = node.category ? `category:${node.category.id}` : null
   const isCollapsed = node.category ? node.category.collapsed : (collapsedMap.get(node.id) ?? false)
   const indent = node.depth * 14
   const anchor = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
-    <section
-      className="mb-1"
-      onDragOver={(event) => { if (event.dataTransfer.types.includes('text/plain')) event.preventDefault() }}
-      onDrop={(event) => dropOnCategory(event, node)}
-    >
+    <section className="mb-1">
       <div
         className="group/cat flex items-center gap-1"
         style={{ paddingLeft: `${indent}px` }}
-        draggable={Boolean(node.category)}
-        onDragStart={(event) => {
-          if (node.category) event.dataTransfer.setData('text/plain', `category:${node.category.id}`)
-        }}
+        data-sidebar-drop={payload ?? undefined}
+        data-drop-target={payload !== null && drag.overId === payload && drag.draggingId !== payload}
+        data-dragging={payload !== null && drag.draggingId === payload}
         onContextMenu={(event) => onContextMenu(event, node)}
       >
+        {payload && (
+          <button
+            type="button"
+            className="pv-side-grip"
+            data-sidebar-grip={payload}
+            aria-label={t('project.sidebar.drag_row', { title: node.name })}
+            onPointerDown={(event) => drag.start(event, payload)}
+          >
+            <GripVertical size={12} aria-hidden="true" />
+          </button>
+        )}
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-1 rounded-[var(--r-sm)] px-1 py-1 text-left text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
@@ -653,7 +674,7 @@ function CategoryTreeItem({
               categoryMenu={categoryMenu}
               onContextMenu={onContextMenu}
               renderBoard={renderBoard}
-              dropOnCategory={dropOnCategory}
+              drag={drag}
             />
           ))}
         </div>
@@ -670,8 +691,7 @@ function BoardEntry({
   focused,
   isPinned,
   isStarred,
-  onDragStart,
-  onDrop,
+  drag,
   onContextMenu,
 }: {
   board: ProjectBoardSummary
@@ -681,22 +701,30 @@ function BoardEntry({
   focused: boolean
   isPinned?: boolean
   isStarred?: boolean
-  onDragStart: (event: DragEvent) => void
-  onDrop: (event: DragEvent) => void
+  drag: BandDragState
   onContextMenu?: (event: ReactMouseEvent) => void
 }): ReactElement {
+  const payload = `board:${board.id}`
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   return (
     <li
       className={`group/board flex items-center gap-1 ${edge?.hidden ? 'opacity-50' : ''}`}
       data-sidebar-board={board.id}
-      draggable
-      onDragStart={onDragStart}
-      onDragOver={(event) => { if (event.dataTransfer.types.includes('text/plain')) event.preventDefault() }}
-      onDrop={onDrop}
+      data-sidebar-drop={payload}
+      data-drop-target={drag.overId === payload && drag.draggingId !== payload}
+      data-dragging={drag.draggingId === payload}
       onContextMenu={onContextMenu}
     >
+      <button
+        type="button"
+        className="pv-side-grip"
+        data-sidebar-grip={payload}
+        aria-label={t('project.sidebar.drag_row', { title: board.title || t('project.boards.untitled') })}
+        onPointerDown={(event) => drag.start(event, payload)}
+      >
+        <GripVertical size={12} aria-hidden="true" />
+      </button>
       <button
         type="button"
         aria-current={active ? 'true' : undefined}
