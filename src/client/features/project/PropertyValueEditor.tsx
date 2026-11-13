@@ -129,10 +129,10 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
       return (
         <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: '—' }, ...candidates.map((userId) => ({ value: userId, label: projectPersonLabel(directory, userId), icon: <Avatar src={directory[userId]?.avatarUrl} name={projectPersonLabel(directory, userId)} size={18} /> }))]} />
       )
-    case 'createdBy':
-    case 'updatedBy':
     case 'formula':
       return <span className="text-[length:var(--text-12)] text-[var(--text-secondary)] tabular">{value || '—'}</span>
+    case 'createdBy':
+    case 'updatedBy':
     case 'createdTime':
     case 'updatedTime':
       return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{(card ? projectPropertyDisplayText(card, property, directory, locale) : value) || '—'}</span>

@@ -124,6 +124,12 @@ describe('reading a whole board', () => {
     sqlite.prepare('UPDATE project_board_members SET updated_at = 5 WHERE board_id = ?').run(board.id)
     seedCard(board.id, 'c1', { title: 'First', icon: '🎯', content_order: '["a1",["a2"]]', update_at: 50 })
     seedCard(board.id, 'c2', { title: 'Second', update_at: 30 })
+    for (const id of ['p1', 'p2']) {
+      sqlite.prepare(
+        `INSERT INTO project_properties (board_id, id, name, type, options, position, created_at, updated_at)
+         VALUES (?, ?, ?, 'text', '[]', 0, 1, 1)`,
+      ).run(board.id, id, id)
+    }
     sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)')
       .run('c1', 'p1', 'hello')
     sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)')

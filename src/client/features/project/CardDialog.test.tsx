@@ -10,6 +10,10 @@ import { resetProjectSubscriptionCache } from './use-watch'
 
 vi.mock('./api', () => ({
   patchProjectCard: vi.fn(),
+  fetchCardTime: vi.fn().mockResolvedValue([]),
+  startCardTimer: vi.fn(),
+  stopCardTimer: vi.fn(),
+  deleteCardTime: vi.fn(),
   fetchCardComments: vi.fn(),
   createCardComment: vi.fn(),
   createCardContent: vi.fn(),

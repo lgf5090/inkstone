@@ -63,7 +63,7 @@ describe('property input', () => {
 
   it('refuses a type the vocabulary does not name', () => {
     expect(ProjectPropertySchema.safeParse({
-      id: newProjectId('property'), name: 'x', type: 'formula', options: [],
+      id: newProjectId('property'), name: 'x', type: 'notAType', options: [],
     }).success).toBe(false)
   })
 })
