@@ -223,6 +223,7 @@ export const EN_US_PROJECT = {
     "project.card.ai_split_failed": "Failed to generate subtasks",
     "project.card.ai_summarize": "Summarize with AI",
     "project.card.ai_summarizing": "Summarizing…",
+    "project.card.overdue": "Overdue",
     "project.card.ai_summarize_failed": "Failed to summarize card",
     "project.card.ai_summary_heading": "AI Summary",
     "project.card.collapse_subtasks": "Collapse subtasks",

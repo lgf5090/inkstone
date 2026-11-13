@@ -235,8 +235,9 @@ export function ListView(props: ListProps): ReactElement {
             }
             if (property.type === 'date' && range) {
               return (
-                <span key={property.id} className="shrink-0 text-[length:var(--text-11)] tabular" data-overdue={overdue} style={{ color: overdue ? 'var(--danger)' : 'var(--text-tertiary)' }}>
+                <span key={property.id} className="shrink-0 text-[length:var(--text-11)] tabular" data-overdue={overdue} title={overdue ? t('project.card.overdue') : undefined} style={{ color: overdue ? 'var(--danger)' : 'var(--text-tertiary)' }}>
                   {projectPropertyDisplayText(card, property, people, locale)}
+                  {overdue && <span className="sr-only"> {t('project.card.overdue')}</span>}
                 </span>
               )
             }

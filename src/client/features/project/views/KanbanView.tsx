@@ -517,7 +517,7 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
               type="button"
               className="pv-col-name"
               title={t('project.view.rename_group_hint')}
-              onClick={onRename}
+              onDoubleClick={onRename}
             >
               {label}
             </button>

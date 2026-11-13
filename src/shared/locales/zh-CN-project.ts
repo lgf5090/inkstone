@@ -223,6 +223,7 @@ export const ZH_CN_PROJECT = {
     "project.card.ai_split_failed": "拆解子任务失败",
     "project.card.ai_summarize": "AI 总结卡片",
     "project.card.ai_summarizing": "正在总结…",
+    "project.card.overdue": "已逾期",
     "project.card.ai_summarize_failed": "AI 总结卡片失败",
     "project.card.ai_summary_heading": "AI 总结",
     "project.card.collapse_subtasks": "收起子任务",

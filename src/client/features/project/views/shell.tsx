@@ -69,7 +69,7 @@ export function Seg<T extends string>({ value, options, onChange, label, disable
 export function Legend({ items }: { items: readonly { key: string, label: string, color: string, title?: string }[] }): ReactElement | null {
   if (items.length === 0) return null
   return (
-    <div className="pv-legend pv-scroll" aria-label={t('project.view.legend')}>
+    <div className="pv-legend pv-scroll" role="group" aria-label={t('project.view.legend')}>
       {items.map((item) => (
         <span key={item.key} className="pv-legend-item" title={item.title ?? item.label}>
           <span className="pv-legend-swatch" style={{ backgroundColor: item.color }} aria-hidden="true" />

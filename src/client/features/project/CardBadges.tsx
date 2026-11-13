@@ -48,17 +48,17 @@ export function CardBadges({ badges, subtaskCount = 0, subtaskDone = 0 }: { badg
         <FileText size={13} role="img" aria-label={t('project.card.badge_description')} />
       )}
       {badges.comments > 0 && (
-        <span className="flex items-center gap-0.5" aria-label={t('project.card.badge_comments', { count: badges.comments })}>
+        <span role="img" className="flex items-center gap-0.5" aria-label={t('project.card.badge_comments', { count: badges.comments })}>
           <MessageSquare size={13} aria-hidden="true" />{badges.comments}
         </span>
       )}
       {badges.checkboxes > 0 && (
-        <span className="flex items-center gap-0.5" aria-label={t('project.card.badge_tasks', { checked: badges.checked, total: badges.checkboxes })}>
+        <span role="img" className="flex items-center gap-0.5" aria-label={t('project.card.badge_tasks', { checked: badges.checked, total: badges.checkboxes })}>
           <CheckSquare size={13} aria-hidden="true" />{badges.checked}/{badges.checkboxes}
         </span>
       )}
       {hasSubtasks && (
-        <span className="flex items-center gap-0.5 text-[var(--accent)] font-medium" aria-label={t('project.card.subtask_progress')}>
+        <span role="img" className="flex items-center gap-0.5 text-[var(--accent)] font-medium" aria-label={t('project.card.subtask_progress')}>
           <ListTodo size={13} aria-hidden="true" />{subtaskDone}/{subtaskCount}
         </span>
       )}
@@ -124,6 +124,7 @@ export function CardPropertyChips({ card, properties, excludePropertyId, max = 4
           >
             <Icon size={11} aria-hidden="true" className="shrink-0" />
             <span className="truncate">{projectPropertyDisplayText(card, property, people, locale)}</span>
+            {overdue && <span className="sr-only"> {t('project.card.overdue')}</span>}
           </span>
         )
       })}

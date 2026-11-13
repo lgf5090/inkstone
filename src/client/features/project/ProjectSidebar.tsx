@@ -6,6 +6,7 @@ import { navigateToPath, usePathname } from '../../lib/app-history'
 import { IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { confirm, Menu, Modal, prompt, submenuFor, type MenuItem } from '../../components/overlay'
+import type { SkinTone } from '@shared/types'
 import { EmojiPicker } from '../emoji/EmojiPicker'
 import { useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
@@ -116,6 +117,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   const [collapsedMap, setCollapsedMap] = useState<Map<string, boolean>>(new Map())
   const [width, setWidth] = useState(readSidebarWidthPref)
   const [iconBoard, setIconBoard] = useState<string | null>(null)
+  const [iconTone, setIconTone] = useState<SkinTone>(0)
 
   const settingsAnchor = useRef<HTMLButtonElement>(null)
   const currentUserId = useSession((state) => state.user?.id)
@@ -554,7 +556,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
 
       {iconBoard && (
         <Modal open onClose={() => setIconBoard(null)} title={t('project.sidebar.change_icon')} width={420}>
-          <EmojiPicker tone={0} onTone={() => {}} onInsert={(glyph) => {
+          <EmojiPicker tone={iconTone} onTone={setIconTone} onInsert={(glyph) => {
             const target = iconBoard
             setIconBoard(null)
             void guard(async () => { await useProjectStore.getState().setBoardIcon(target, glyph) })

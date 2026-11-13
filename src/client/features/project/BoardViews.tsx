@@ -396,6 +396,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       const target = event.target as HTMLElement
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable) return
       if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (document.querySelector('[role="dialog"], [role="menu"]')) return
       if (event.key === '/') {
         const field = searchRef.current?.querySelector('input')
         if (field) { event.preventDefault(); field.focus() }
@@ -557,7 +558,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               role="tab"
               id={`project-view-tab-${view.id}`}
               aria-selected={active?.id === view.id}
-              aria-controls={`project-view-panel-${view.id}`}
+              aria-controls={active?.id === view.id ? `project-view-panel-${view.id}` : undefined}
               tabIndex={active?.id === view.id ? 0 : -1}
               className={`shrink-0 whitespace-nowrap rounded-[var(--r-sm)] px-2 py-1 text-[length:var(--text-12)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active?.id === view.id ? 'bg-[var(--bg-hover)] font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
               onClick={() => selectView(view.id)}
@@ -720,7 +721,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       {active && settings === 'sort' && <SortModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
       {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} members={bundle.members} people={bundle.people} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
       {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
-      {contextPoint && <Menu anchor={contextPoint} open onClose={() => setContextPoint(null)} items={contextItems} />}
+      {contextPoint && <Menu anchor={contextPoint} open onClose={() => setContextPoint(null)} items={contextItems} label={t('project.card.menu')} />}
       {batchOpen && (
         <BatchEditDialog
           count={selected.length}

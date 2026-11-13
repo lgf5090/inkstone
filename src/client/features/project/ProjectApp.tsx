@@ -7,6 +7,7 @@ import { navigateToPath, usePathname } from '../../lib/app-history'
 import { Button, IconButton } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
+import type { SkinTone } from '@shared/types'
 import { EmojiPicker } from '../emoji/EmojiPicker'
 import { useUi } from '../../store/ui'
 import { projectBoardExportUrl, saveBoardAsTemplate } from './api'
@@ -167,6 +168,7 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], title: s
   const { pinned, starred, togglePin, toggleStar } = useProjectBoardMarks()
   const currentUserId = useSession((state) => state.user?.id)
   const [iconOpen, setIconOpen] = useState(false)
+  const [iconTone, setIconTone] = useState<SkinTone>(0)
   const title = board.title || t('project.boards.untitled')
   const canEdit = board.role === 'editor' || board.role === 'admin'
   const isOwner = board.ownerId === currentUserId
@@ -234,7 +236,7 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], title: s
   const iconPicker = iconOpen
     ? (
       <Modal open onClose={() => setIconOpen(false)} title={t('project.sidebar.change_icon')} width={420}>
-        <EmojiPicker tone={0} onTone={() => {}} onInsert={(glyph) => {
+        <EmojiPicker tone={iconTone} onTone={setIconTone} onInsert={(glyph) => {
           setIconOpen(false)
           void guard(async () => { await setBoardIcon(board.id, glyph) })
         }} />

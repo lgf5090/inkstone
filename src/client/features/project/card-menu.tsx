@@ -11,7 +11,7 @@ import type { ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
 import { projectDayToStamp } from '@shared/project/date'
 import { projectPriorityProperty } from '@shared/project/stats'
-import { projectOptionCssColor } from '@shared/project/option-color'
+import { projectOptionColorName, projectOptionCssColor } from '@shared/project/option-color'
 import { t } from '../../lib/i18n'
 import { prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { optionDot } from './CardBadges'
@@ -137,7 +137,7 @@ export function buildCardMenu(ctx: CardMenuContext): MenuItem[] {
 export function optionColorItems(colors: readonly string[], current: string, onPick: (color: string) => void): MenuItem[] {
   return colors.map((color) => ({
     id: `color-${color || 'none'}`,
-    label: color ? color.replace('propColor', '') : t('project.view.no_value'),
+    label: color ? t(`project.color.${projectOptionColorName(color)}` as Parameters<typeof t>[0]) : t('project.props.option_no_color'),
     icon: <span aria-hidden="true" className="size-3 rounded-full" style={{ backgroundColor: projectOptionCssColor(color) ?? 'var(--text-quaternary)' }} />,
     checked: current === color,
     onSelect: () => onPick(color),
