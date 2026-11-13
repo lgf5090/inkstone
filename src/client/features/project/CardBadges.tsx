@@ -85,7 +85,7 @@ function isOverdue(card: ProjectCard, property: ProjectProperty, properties: rea
   const value = parseProjectDateValue(card.values[property.id] ?? '')
   if (value?.from === undefined) return false
   if (isProjectCardDone(card, properties)) return false
-  return projectStampToDay(value.to ?? value.from, value.includeTime === true).getTime() < todayStamp
+  return projectStampToDay(value.to ?? value.from, value.includeTime === true, value.timeZone).getTime() < todayStamp
 }
 
 /**

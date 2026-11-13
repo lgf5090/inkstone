@@ -32,8 +32,8 @@ export function projectCardDays(card: ProjectCard, propertyId: string | undefine
   const value = parseProjectDateValue(card.values[propertyId] ?? '')
   if (value?.from === undefined) return null
   const includeTime = value.includeTime === true
-  const start = projectStampToDay(value.from, includeTime).getTime()
-  const end = value.to === undefined ? start : projectStampToDay(value.to, includeTime).getTime()
+  const start = projectStampToDay(value.from, includeTime, value.timeZone).getTime()
+  const end = value.to === undefined ? start : projectStampToDay(value.to, includeTime, value.timeZone).getTime()
   return { start, end: Math.max(start, end) }
 }
 

@@ -9,7 +9,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
-import { parseProjectDateValue, projectDayToStamp, projectStampToInput } from '@shared/project/date'
+import { parseProjectDateValue, projectDateValue, projectDayToStamp, projectStampToInput, projectTimeZoneName } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import { getLocale, initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
@@ -48,7 +48,7 @@ async function pickDay(value: string, day: string): Promise<string | null> {
 
 function readBack(raw: string): string {
   const parsed = parseProjectDateValue(raw)!
-  return projectStampToInput(parsed.from!, parsed.includeTime === true)
+  return projectStampToInput(parsed.from!, parsed.includeTime === true, parsed.timeZone)
 }
 
 describe.each(ZONES)('the date cell in %s', (zone) => {
@@ -133,7 +133,7 @@ describe('the editor and the table cell agree', () => {
       process.env.TZ = zone
       const start = JSON.stringify({ from: projectDayToStamp(new Date(2026, 10, 10)) })
       const filed = await pickDay(start, '15')
-      const canonical = JSON.stringify({ from: projectDayToStamp(new Date(2026, 10, 15)) })
+      const canonical = JSON.stringify(projectDateValue(new Date(2026, 10, 15), { timeZone: projectTimeZoneName() }))
       expect(tableText(filed!), `editor and table disagree in ${zone}`).toBe(tableText(canonical))
       view.unmount()
     }

@@ -10,7 +10,7 @@ import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import type { ProjectCalendarMode, ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
-import { projectDayToStamp } from '@shared/project/date'
+import { parseProjectDateValue, projectDateValue, projectTimeZoneName } from '@shared/project/date'
 import { projectCardDays } from '@shared/project/timeline-layout'
 import { projectCalendarDayChips, projectCalendarDayRoles, projectCalendarIndex, projectCalendarOverdue, projectCalendarRibbons, projectCalendarWeekSpans, type CalendarEntry } from '@shared/project/calendar-layout'
 import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
@@ -135,10 +135,12 @@ export function CalendarView(props: CalendarProps): ReactElement {
   const reschedule = (cardId: string, day: Date): void => {
     if (!propertyId) return
     const range = dragRef.current
-    const stamp = projectDayToStamp(day)
+    const card = props.cards.find((entry) => entry.id === cardId)
+    const timeZone = (card ? parseProjectDateValue(card.values[propertyId] ?? '')?.timeZone : undefined) ?? projectTimeZoneName()
+    const stamp = projectDateValue(day, { timeZone }).from!
     const value = range && range.to > range.from
-      ? { from: stamp, to: stamp + (range.to - range.from) }
-      : { from: stamp }
+      ? { from: stamp, to: stamp + (range.to - range.from), timeZone }
+      : { from: stamp, timeZone }
     void props.onPatchCard(cardId, { values: { [propertyId]: JSON.stringify(value) } })
   }
 
@@ -177,7 +179,7 @@ export function CalendarView(props: CalendarProps): ReactElement {
     if (!propertyId) return
     const name = await prompt({ title: t('project.board.new_card'), confirmLabel: t('common.save') })
     if (!name || !name.trim()) return
-    await createProjectCard(props.boardId, { title: name.trim(), values: { [propertyId]: JSON.stringify({ from: projectDayToStamp(day) }) } })
+    await createProjectCard(props.boardId, { title: name.trim(), values: { [propertyId]: JSON.stringify(projectDateValue(day, { timeZone: projectTimeZoneName() })) } })
     void props.onRefresh?.()
   }
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import type { ProjectBoardMember, ProjectCard, ProjectPeople, ProjectProperty } from '@shared/project/model'
 import { projectMultiValueIds, projectPersonLabel } from '@shared/project/model'
-import { moveProjectDateValue, parseProjectDateValue, projectInputToStamp, projectStampToInput } from '@shared/project/date'
+import { moveProjectDateValue, parseProjectDateValue, projectInputToStamp, projectStampToInput, projectTimeZoneName } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import { useLocale } from '../../lib/i18n'
 import { Avatar } from '../../components/primitives'
@@ -28,7 +28,7 @@ interface PropertyValueEditorProps {
 function readDateFrom(value: string): string {
   const parsed = parseProjectDateValue(value)
   if (parsed?.from === undefined) return ''
-  return projectStampToInput(parsed.from, parsed.includeTime === true)
+  return projectStampToInput(parsed.from, parsed.includeTime === true, parsed.timeZone)
 }
 
 export function PropertyValueEditor({ property, value, members, disabled, onChange, card, onDone, people }: PropertyValueEditorProps): ReactElement {
@@ -116,9 +116,12 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
           value={readDateFrom(value)}
           onChange={(raw) => {
             const current = parseProjectDateValue(value)
-            const from = raw ? projectInputToStamp(raw, current?.includeTime === true) : null
+            const timeZone = current?.timeZone ?? projectTimeZoneName()
+            const from = raw ? projectInputToStamp(raw, current?.includeTime === true, timeZone) : null
             if (from === null) { onChange(null); return }
-            onChange(JSON.stringify(moveProjectDateValue(current ?? {}, from)))
+            const next = moveProjectDateValue(current ?? {}, from)
+            next.timeZone ??= timeZone
+            onChange(JSON.stringify(next))
           }}
         />
       )

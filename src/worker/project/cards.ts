@@ -193,8 +193,9 @@ export async function spawnRecurringCard(
   if (dateProperty) {
     const current = parseProjectDateValue(values[dateProperty.id] ?? '')
     const includeTime = current?.includeTime === true
-    const baseDay = current?.from !== undefined ? projectStampToDay(current.from, includeTime) : projectStampToDay(now)
-    const nextStamp = projectDayToStamp(advanceProjectDay(baseDay, card.recurrence), includeTime)
+    const timeZone = current?.timeZone
+    const baseDay = current?.from !== undefined ? projectStampToDay(current.from, includeTime, timeZone) : projectStampToDay(now, false, timeZone)
+    const nextStamp = projectDayToStamp(advanceProjectDay(baseDay, card.recurrence), includeTime, timeZone)
     values[dateProperty.id] = JSON.stringify(moveProjectDateValue(current ?? {}, nextStamp))
   }
   const open = projectDonePatch(properties, false)

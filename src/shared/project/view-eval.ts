@@ -78,8 +78,8 @@ export function projectPropertyDisplayText(card: ProjectCard, property: ProjectP
       const range = parseProjectDateValue(raw)
       if (range?.from === undefined) return ''
       const includeTime = range.includeTime === true
-      const from = projectStampToDay(range.from, includeTime).toLocaleDateString(locale)
-      return range.to !== undefined && range.to !== range.from ? `${from} – ${projectStampToDay(range.to, includeTime).toLocaleDateString(locale)}` : from
+      const from = projectStampToDay(range.from, includeTime, range.timeZone).toLocaleDateString(locale)
+      return range.to !== undefined && range.to !== range.from ? `${from} – ${projectStampToDay(range.to, includeTime, range.timeZone).toLocaleDateString(locale)}` : from
     }
     case 'createdBy': return projectPersonLabel(people, card.createdBy)
     case 'updatedBy': return projectPersonLabel(people, card.modifiedBy)
@@ -309,7 +309,7 @@ export function projectGroupLabel(
     case 'date': {
       const range = parseProjectDateValue(key)
       if (range?.from === undefined) return key
-      return projectStampToDay(range.from, range.includeTime === true).toLocaleDateString(locale)
+      return projectStampToDay(range.from, range.includeTime === true, range.timeZone).toLocaleDateString(locale)
     }
     default:
       return key

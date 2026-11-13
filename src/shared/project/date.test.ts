@@ -4,6 +4,7 @@ import {
   moveProjectDateValue,
   parseProjectDateValue,
   projectCalendarRangeToValue,
+  projectDateValue,
   projectDayToStamp,
   projectInputToStamp,
   projectStampToDay,
@@ -123,5 +124,21 @@ describe('moving a value to a new start day', () => {
     const moved = moveProjectDateValue({ from: 1000, to: 2000, includeTime: true, timeZone: 'Asia/Shanghai' }, 5000)
     expect(moved).toEqual({ from: 5000, to: 6000, includeTime: true, timeZone: 'Asia/Shanghai' })
     expect(moveProjectDateValue({ from: 1000, includeTime: false }, 5000)).toEqual({ from: 5000 })
+  })
+})
+
+describe('recording the zone a day was picked in', () => {
+  it('stores noon in that zone and reads the same calendar day back', () => {
+    const value = projectDateValue(new Date(2026, 10, 15), { timeZone: 'Pacific/Auckland' })
+    expect(value.timeZone).toBe('Pacific/Auckland')
+    expect(projectStampToInput(value.from!, false, value.timeZone)).toBe('2026-11-15')
+    expect(projectStampToInput(value.from!, false, 'UTC')).toBe('2026-11-14')
+  })
+
+  it('uses the offset in force on the picked day, not today\'s', () => {
+    const summer = projectDateValue(new Date(2026, 0, 15), { timeZone: 'America/New_York' }).from!
+    const winter = projectDateValue(new Date(2026, 6, 15), { timeZone: 'America/New_York' }).from!
+    expect(new Date(summer).getUTCHours()).toBe(17)
+    expect(new Date(winter).getUTCHours()).toBe(16)
   })
 })

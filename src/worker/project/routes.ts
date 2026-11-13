@@ -705,7 +705,7 @@ projectPublicRoutes.get('/:slug/calendar.ics', async (c) => {
     ? bundle.cards.flatMap((card) => {
       const parsed = parseProjectDateValue(card.values[dateProperty.id] ?? '')
       if (parsed?.from === undefined) return []
-      const date = projectStampToDay(parsed.from, parsed.includeTime === true)
+      const date = projectStampToDay(parsed.from, parsed.includeTime === true, parsed.timeZone)
       const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
       return [{ uid: `${card.id}@inkstone.project`, day, title: card.title || c.req.param('slug'), detail: bundle.board.title }]
     })

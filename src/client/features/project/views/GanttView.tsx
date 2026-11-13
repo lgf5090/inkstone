@@ -11,7 +11,7 @@ import { CalendarRange, Maximize2, Plus, Settings2, Trash2, ZoomIn, ZoomOut } fr
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectScheduleScale, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
-import { projectDayToStamp } from '@shared/project/date'
+import { projectDateValue, projectTimeZoneName } from '@shared/project/date'
 import {
   PROJECT_TIMELINE_COLUMN_PX,
   PROJECT_TIMELINE_DAY_MS,
@@ -124,7 +124,7 @@ export function GanttView(props: GanttProps): ReactElement {
 
   const writeRange = (cardId: string, from: number, to: number): void => {
     if (!propertyId) return
-    const value = to === from ? { from: projectDayToStamp(new Date(from)) } : { from: projectDayToStamp(new Date(from)), to: projectDayToStamp(new Date(to)) }
+    const value = projectDateValue(new Date(from), { to: to === from ? undefined : new Date(to), timeZone: projectTimeZoneName() })
     void props.onPatchCard(cardId, { values: { [propertyId]: JSON.stringify(value) } })
   }
 
@@ -206,7 +206,7 @@ export function GanttView(props: GanttProps): ReactElement {
     if (!name || !name.trim()) return
     const groupProperty = properties.find((property) => property.id === (fields.scheduleGroupById ?? statusProperty?.id))
     const values: Record<string, string> = {
-      [propertyId]: JSON.stringify(to === from ? { from: projectDayToStamp(new Date(from)) } : { from: projectDayToStamp(new Date(from)), to: projectDayToStamp(new Date(to)) }),
+      [propertyId]: JSON.stringify(projectDateValue(new Date(from), { to: to === from ? undefined : new Date(to), timeZone: projectTimeZoneName() })),
     }
     if (groupProperty && laneKey) values[groupProperty.id] = laneKey
     await createProjectCard(props.boardId, { title: name.trim(), values })
