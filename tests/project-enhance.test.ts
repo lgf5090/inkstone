@@ -67,6 +67,15 @@ describe('activity and markdown', () => {
     expect(md).toContain('### Alpha')
     expect(md).toContain('### Beta')
   })
+
+  it('records the board and affected entity id on each write', async () => {
+    const { board, a } = await setup()
+    await req('PATCH', `/cards/${a.id}`, { title: 'Alpha2' })
+    const activity = ((await (await req('GET', `/boards/${board.id}/activity`)).json()) as { activity: { targetId: string, summary: string }[] }).activity
+    expect(activity.length).toBeGreaterThan(0)
+    expect(activity.every((entry) => entry.summary.includes(`board=${board.id}`))).toBe(true)
+    expect(activity.some((entry) => entry.targetId === a.id)).toBe(true)
+  })
 })
 
 describe('card templates', () => {

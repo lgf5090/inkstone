@@ -134,15 +134,18 @@ projectRoutes.use('*', async (c, next) => {
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS' || !c.res.ok) return
   const path = c.req.path
   let boardId: string | undefined
+  let targetId = ''
   const boardMatch = /^\/api\/project\/boards\/([^/]+)(?:\/|$)/.exec(path)
   if (boardMatch && boardMatch[1] !== 'import' && boardMatch[1] !== 'from-template') {
     boardId = boardMatch[1]
+    targetId = boardMatch[1]
   } else {
     const child = /^\/api\/project\/(cards|views|contents|comments)\/([^/]+)/.exec(path)
     if (child) {
       const table = { cards: 'project_cards', views: 'project_views', contents: 'project_card_contents', comments: 'project_comments' }[child[1] as 'cards' | 'views' | 'contents' | 'comments']
       const row = await c.env.DB.prepare(`SELECT board_id FROM ${table} WHERE id = ?1`).bind(child[2]).first<{ board_id: string }>()
       boardId = row?.board_id
+      targetId = child[2]
     }
   }
   if (!boardId) return
@@ -153,7 +156,19 @@ projectRoutes.use('*', async (c, next) => {
     console.warn('[inkstone] project board cursor bump failed:', error instanceof Error ? error.message : error)
   })
   const actor = c.get('userId') ?? c.get('user')?.id ?? ''
-  const record = recordProjectActivity(c.env.DB, boardId, actor, method.toLowerCase(), path.split('/').pop() ?? '', `${method} ${path}`, now)
+  if ((c.res.headers.get('content-type') ?? '').includes('application/json')) {
+    const payload = await c.res.clone().json().catch((error: unknown) => {
+      console.warn('[inkstone] project activity response read failed:', error instanceof Error ? error.message : error)
+      return null
+    }) as Record<string, unknown> | null
+    for (const value of Object.values(payload ?? {})) {
+      if (value && typeof value === 'object' && typeof (value as { id?: unknown }).id === 'string') {
+        targetId = (value as { id: string }).id
+        break
+      }
+    }
+  }
+  const record = recordProjectActivity(c.env.DB, boardId, actor, method.toLowerCase(), targetId, `${method} ${path} board=${boardId} target=${targetId}`, now)
   record.catch((error: unknown) => console.warn('[inkstone] project activity record failed:', error instanceof Error ? error.message : error))
   const task = broadcastProjectChange(c.env, boardId, now, originOf(c), (t) => {
     // Best-effort: the test harness fetches without an ExecutionContext, whose getter throws.
