@@ -524,6 +524,12 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   // lead the key with. Minted by `newSlug()` (worker/lib/id.ts), the same unguessable 20-character
   // generator the note and conversation shares were verified on; management binds user_id.
   ['project_shares', 'newSlug(), unguessable; public read by slug alone'],
+  ['ai_gateway_keys', 'id is a crypto-random newId(); management reads bind user_id'],
+  ['ai_gateway_key_usage', 'composite (key_id, day) on an account-owned key; every read binds user_id'],
+  ['ai_gateway_requests', 'id is a crypto-random newId(); log reads bind user_id'],
+  ['ai_gateway_reconcile_snapshots', 'id is a crypto-random newId(); every read binds user_id'],
+  ['ai_gateway_responses', 'id is a crypto-random newId(); reads and deletes bind user_id'],
+  ['ai_gateway_media', 'id is a crypto-random newId(); cleanup reads bind user_id'],
 ])
 
 /** The tables that carry a `user_id` column yet key on something else. */
