@@ -598,4 +598,7 @@ export const EN_US_PROJECT = {
     "project.sprint.chart_label": "Burndown: {total} cards in scope, {completed} completed",
     "project.sprint.load_failed": "Could not load sprints",
     "project.sprint.invalid_dates": "The end date must not precede the start date",
+    "project.offline.queued": "You are offline. The change is saved locally and will sync when the connection returns.",
+    "project.offline.pending": "{count} pending changes",
+    "project.offline.replay_failed": "A queued change could not be synced: {message}",
 } as const

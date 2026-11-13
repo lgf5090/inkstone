@@ -598,6 +598,9 @@ export const ZH_CN_PROJECT = {
     "project.sprint.chart_label": "燃尽图：范围内 {total} 张卡片，已完成 {completed} 张",
     "project.sprint.load_failed": "迭代加载失败",
     "project.sprint.invalid_dates": "结束日期不能早于开始日期",
+    "project.offline.queued": "当前离线，改动已保存在本地，恢复网络后会自动同步。",
+    "project.offline.pending": "{count} 项待同步",
+    "project.offline.replay_failed": "待同步改动无法提交：{message}",
 } as const
 
 /** zh strings for the built-in board templates' demo content, keyed by the English source string. */

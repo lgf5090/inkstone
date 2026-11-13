@@ -48,6 +48,7 @@ import { broadcastProjectChange } from './realtime'
 import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAccountArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireBoardOwner, requireCard, requireComment, requireContent, requireView } from './auth'
 import { projectWebhookEvent } from '@shared/project/integrations'
+import { readProjectWriteReceipt, storeProjectWriteReceipt } from './idempotency'
 import {
   createProjectApiToken, listProjectApiTokens, projectTokenFromAuthorization,
   revokeProjectApiToken, verifyProjectApiToken,
@@ -196,6 +197,32 @@ projectRoutes.use('*', async (c, next) => {
 })
 
 projectRoutes.use('*', requireAuth)
+
+/**
+ * A queued offline write replays under the key it was minted with. Returning the stored answer before
+ * the route runs also keeps the cursor bump, activity row and webhook delivery from firing twice.
+ */
+projectRoutes.use('*', async (c, next) => {
+  const key = c.req.header('Idempotency-Key')
+  const method = c.req.method.toUpperCase()
+  if (!key || !/^[A-Za-z0-9_-]{8,64}$/.test(key) || method === 'GET' || method === 'HEAD') {
+    await next()
+    return
+  }
+  const userId = projectUserId(c)
+  const stored = await readProjectWriteReceipt(c.env.DB, userId, key)
+  if (stored) {
+    return new Response(stored.body, {
+      status: stored.status,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  await next()
+  if (!c.res.ok || !(c.res.headers.get('content-type') ?? '').includes('application/json')) return
+  const body = await c.res.clone().text()
+  if (body.length > 64 * 1024) return
+  await storeProjectWriteReceipt(c.env.DB, userId, key, c.res.status, body, Date.now())
+})
 
 /**
  * After any successful board-scoped write, tell every member's sync hub so open boards refetch. The

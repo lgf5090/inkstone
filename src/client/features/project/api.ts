@@ -1,6 +1,8 @@
 /** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */
 import { CLIENT_HEADER } from '@shared/constants'
-import { request } from '../../lib/api'
+import { ApiError, request as baseRequest, type RequestOptions } from '../../lib/api'
+import { t } from '../../lib/i18n'
+import { enqueueProjectWrite } from './offline-outbox'
 import type {
   ProjectActivityEntry,
   ProjectAttachment,
@@ -33,6 +35,32 @@ import type { ProjectRelationBackReference, ProjectRelationOption } from '@share
 import type { ProjectAutomation, ProjectAutomationAction, ProjectAutomationCondition, ProjectAutomationTrigger } from '@shared/project/automation'
 import type { ProjectSprint, ProjectSprintBurndown, ProjectSprintStatus } from '@shared/project/stats'
 import type { ProjectBoardCreateInput, ProjectCardCreateInput } from '@shared/project/validation'
+
+/**
+ * Every request in this module passes through one door, so an edit made without a network is kept in
+ * the outbox instead of being lost. Reads, uploads and the anonymous share reader are excluded: the
+ * first two have nothing to replay, and the third is a POST that reads rather than writes.
+ */
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  try {
+    return await baseRequest<T>(path, options)
+  } catch (error) {
+    const method = (options.method ?? 'GET').toUpperCase()
+    const queueable = method !== 'GET' && method !== 'HEAD' && options.formData === undefined
+      && !path.includes('/public/')
+    if (queueable && error instanceof ApiError && (error.isOffline || error.status >= 500)) {
+      let queued = false
+      try {
+        await enqueueProjectWrite(path, method, options.body)
+        queued = true
+      } catch (cause) {
+        console.warn('[inkstone] project offline queue enqueue failed:', cause)
+      }
+      if (queued) throw new Error(t('project.offline.queued'))
+    }
+    throw error
+  }
+}
 
 export async function fetchProjectBoards(signal?: AbortSignal): Promise<ProjectBoardSummary[]> {
   const body = await request<{ boards: ProjectBoardSummary[] }>('/api/project/boards', { signal })

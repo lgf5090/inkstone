@@ -8,6 +8,8 @@ import type { AssistantPageContext } from '@shared/assistant'
 import { t, useLocale } from '../../lib/i18n'
 import { navigateToPath, useSearch } from '../../lib/app-history'
 import { createRefreshQueue } from '../../lib/refresh-queue'
+import { PROJECT_OUTBOX_CHANGED_EVENT, PROJECT_OUTBOX_FLUSHED_EVENT } from '../../lib/runtime'
+import { pendingProjectWrites } from './offline-outbox'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
 import { useUi } from '../../store/ui'
@@ -71,6 +73,24 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     [boardId],
   )
   useEffect(() => { undoStack.clear() }, [boardId, undoStack])
+  const [pendingWrites, setPendingWrites] = useState(0)
+  useEffect(() => {
+    let alive = true
+    const read = (): void => {
+      void pendingProjectWrites()
+        .then((count) => { if (alive) setPendingWrites(count) })
+        .catch((cause: unknown) => { console.warn('[inkstone] project outbox count failed:', cause) })
+    }
+    const onFlushed = (): void => { read(); void refresh() }
+    read()
+    window.addEventListener(PROJECT_OUTBOX_CHANGED_EVENT, read)
+    window.addEventListener(PROJECT_OUTBOX_FLUSHED_EVENT, onFlushed)
+    return () => {
+      alive = false
+      window.removeEventListener(PROJECT_OUTBOX_CHANGED_EVENT, read)
+      window.removeEventListener(PROJECT_OUTBOX_FLUSHED_EVENT, onFlushed)
+    }
+  }, [refresh])
   const [showProps, setShowProps] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
@@ -375,6 +395,11 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           <h1 className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
             {headerTitle}
           </h1>
+          {pendingWrites > 0 && (
+            <span role="status" className="shrink-0 rounded-[var(--r-sm)] bg-[var(--accent-soft)] px-2 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+              {t('project.offline.pending', { count: pendingWrites })}
+            </span>
+          )}
           <span className="ml-auto shrink-0 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {t('project.board.cards_count', { count: bundle.cards.length })}
           </span>

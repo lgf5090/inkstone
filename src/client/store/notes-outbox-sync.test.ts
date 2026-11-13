@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   create: vi.fn(),
   linkMention: vi.fn(),
+  replayProject: vi.fn(),
 }))
 
 vi.mock('../lib/db', async (importOriginal) => {
@@ -52,6 +53,8 @@ vi.mock('../lib/db', async (importOriginal) => {
     },
   }
 })
+
+vi.mock('../features/project/offline-outbox', () => ({ replayProjectOutboxItem: mocks.replayProject }))
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<{ api: Record<string, unknown> }>('../lib/api')
@@ -92,6 +95,7 @@ beforeEach(() => {
   mocks.get.mockReset()
   mocks.create.mockReset()
   mocks.linkMention.mockReset()
+  mocks.replayProject.mockReset()
   mocks.queue = [{
     id: `patch:${CLIENT_ID}:${note.id}`,
     clientId: CLIENT_ID,
@@ -123,5 +127,21 @@ describe('a queue row written before the outbox carried an entity', () => {
     expect(mocks.queue).toHaveLength(0)
     expect(useNotes.getState().contents[note.id]).toBe('offline edit')
     expect(useNotes.getState().notes[note.id]!.rev).toBe(2)
+  })
+})
+
+describe('a queued project write', () => {
+  it('is handed to the project module and removed from the shared queue', async () => {
+    mocks.queue = [{
+      id: 'pw_1', clientId: CLIENT_ID, writeId: 'pw_1', entity: 'project', entityId: 'b1',
+      payload: { path: '/api/project/cards/c1', method: 'PATCH', body: {} },
+      attempts: 0, createdAt: 1,
+    }]
+    mocks.replayProject.mockResolvedValue({ status: 'done' })
+    await useNotes.getState().replayPending()
+    expect(mocks.replayProject).toHaveBeenCalledTimes(1)
+    expect(mocks.replayProject.mock.calls[0]![0]).toMatchObject({ entity: 'project', writeId: 'pw_1' })
+    expect(mocks.queue).toHaveLength(0)
+    expect(mocks.patch).not.toHaveBeenCalled()
   })
 })

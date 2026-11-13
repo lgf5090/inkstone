@@ -12,6 +12,7 @@ import {
   PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
   PROJECT_INTEGRATION_SCHEMA_STATEMENTS,
   PROJECT_SPRINT_SCHEMA_STATEMENTS,
+  PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS,
   PROJECT_REQUIRED_COLUMNS,
   PROJECT_REQUIRED_INDEXES,
   PROJECT_REQUIRED_TABLES,
@@ -26,6 +27,7 @@ const PROJECT_STATEMENTS = [
   ...PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
   ...PROJECT_INTEGRATION_SCHEMA_STATEMENTS,
   ...PROJECT_SPRINT_SCHEMA_STATEMENTS,
+  ...PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS,
 ]
 
 let sqlite: DatabaseSync
@@ -95,7 +97,7 @@ describe('the project tables', () => {
     // The project block follows the ledger the rest of the app already spent, so it is found by the
     // statements it carries rather than by a version number another feature may claim first.
     const projectMigrations = SCHEMA_MIGRATIONS.filter((entry) => entry.statements.some((statement) => PROJECT_STATEMENTS.includes(statement)))
-    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 397, 398, 401, 402])
+    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 397, 398, 401, 402, 403])
     for (const entry of projectMigrations) migrated.exec(entry.statements.join(';'))
 
     const shape = (db: DatabaseSync): string[] =>

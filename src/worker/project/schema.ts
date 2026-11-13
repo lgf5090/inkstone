@@ -417,6 +417,20 @@ export const PROJECT_SPRINT_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_sprint_cards(sprint_id, board_id)`,
 ]
 
+/** A replayed offline write must not create a second card. The receipt is scoped to the account. */
+export const PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_write_receipts (
+    user_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    status INTEGER NOT NULL,
+    body TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, key)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_write_receipts_created
+     ON project_write_receipts(created_at)`,
+]
+
 export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_boards',
   'project_board_members',
@@ -444,6 +458,7 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_webhook_deliveries',
   'project_sprints',
   'project_sprint_cards',
+  'project_write_receipts',
 ]
 
 export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
@@ -480,6 +495,7 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_webhook_deliveries_due',
   'idx_project_sprints_board',
   'idx_project_sprint_cards_sprint',
+  'idx_project_write_receipts_created',
 ]
 
 export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -541,4 +557,5 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
     'created_by', 'created_at', 'updated_at', 'delete_at',
   ],
   project_sprint_cards: ['card_id', 'sprint_id', 'board_id', 'added_at'],
+  project_write_receipts: ['user_id', 'key', 'status', 'body', 'created_at'],
 }

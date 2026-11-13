@@ -124,6 +124,7 @@ function bootWorker(options: { language?: string } = {}) {
 
   return {
     push: () => dispatch('push', pushEvent()),
+    sync: (tag: string) => dispatch('sync', { tag }),
     clickNotification: (entry: Shown) => dispatch('notificationclick', { notification: entry }),
     shown,
     posted,
@@ -133,6 +134,18 @@ function bootWorker(options: { language?: string } = {}) {
     listenerTypes: () => [...listeners.keys()],
   }
 }
+
+describe('the worker’s background sync pass', () => {
+  it('wakes open clients for the project outbox tag and ignores other tags', async () => {
+    const worker = bootWorker()
+    worker.addWindow('https://note.test/project')
+    expect(worker.listenerTypes()).toContain('sync')
+    expect(await worker.sync('unrelated-tag')).toBe(0)
+    expect(worker.posted).toEqual([])
+    expect(await worker.sync('inkstone-project-outbox')).toBe(1)
+    expect(worker.posted).toEqual([{ type: 'PROJECT_OUTBOX_SYNC' }])
+  })
+})
 
 describe('the worker’s push handling', () => {
   it('listens for push and notificationclick, and never reads the payload', async () => {

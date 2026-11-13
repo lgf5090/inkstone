@@ -4,6 +4,7 @@ import { runDueAssistantAutomations } from './assistant/scheduler'
 import { sweepTaskReminders } from './assistant/tasks'
 import { pruneProjectActivity, sweepProjectReminders } from './project/scheduler'
 import { drainProjectWebhookDeliveries } from './project/webhooks'
+import { pruneProjectWriteReceipts } from './project/idempotency'
 import { runPushCatchUp } from './assistant/push-fanout'
 import { purgeExpiredEphemeralConversations, purgeExpiredTodoTrash } from './assistant/store'
 import type { Env } from './env'
@@ -189,6 +190,7 @@ export default {
             runAttachmentCleanup(env),
             purgeExpiredMcpOperations(env.DB),
             purgeExpiredOperationalData(env.DB),
+            pruneProjectWriteReceipts(env.DB, event.scheduledTime),
             purgeRevokedMcpApiKeys(env.DB),
             purgeExpiredEphemeralConversations(env.DB, env),
             purgeExpiredTodoTrash(env.DB),

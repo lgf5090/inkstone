@@ -3,6 +3,7 @@ import { CLIENT_HEADER } from '@shared/constants'
 import { TASK_STATUSES, type TaskStatus } from '@shared/assistant'
 import type { RealtimeMessage, TodosSyncResponse } from '@shared/types'
 import { CLIENT_ID } from './api'
+import { PROJECT_OUTBOX_SYNC_EVENT } from './runtime'
 import { createBroadcast, localDb, type BroadcastPayload } from './db'
 import { applyTodoSync } from '../features/todos/store'
 import { acknowledgeOutboxBaseAdvanced, acknowledgeOutboxResult, useNotes } from '../store/notes'
@@ -69,6 +70,7 @@ export class SyncEngine {
     window.addEventListener('focus', this.onFocus)
     window.addEventListener('online', this.onOnline)
     window.addEventListener('offline', this.onOffline)
+    window.addEventListener(PROJECT_OUTBOX_SYNC_EVENT, this.onProjectOutboxSync)
     window.addEventListener('pagehide', this.onPageHide)
     this.startPolling()
     // The first task delta is asked for beside the note bootstrap rather than behind it: the board a
@@ -82,6 +84,7 @@ export class SyncEngine {
     window.removeEventListener('focus', this.onFocus)
     window.removeEventListener('online', this.onOnline)
     window.removeEventListener('offline', this.onOffline)
+    window.removeEventListener(PROJECT_OUTBOX_SYNC_EVENT, this.onProjectOutboxSync)
     window.removeEventListener('pagehide', this.onPageHide)
     window.clearInterval(this.pollTimer)
     window.clearInterval(this.heartbeatTimer)
@@ -439,6 +442,13 @@ export class SyncEngine {
 
   private onOffline = () => {
     useNotes.getState().setOnline(false)
+  }
+
+  /** The service worker's Background Sync pass reaches an open tab as a DOM event, not an online event. */
+  private onProjectOutboxSync = () => {
+    void useNotes.getState().replayPending().catch((error: unknown) => {
+      console.warn('[inkstone] background sync replay failed:', error)
+    })
   }
 
 

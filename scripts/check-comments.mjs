@@ -12910,6 +12910,7 @@ const allowed = new Map([
     "/** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */",
     "/** The stranger's read: no session, the slug and passcode are the whole capability. */",
     "/** The staleness question a poller asks before paying for the whole bundle. */",
+    "/**\n * Every request in this module passes through one door, so an edit made without a network is kept in\n * the outbox instead of being lost. Reads, uploads and the anonymous share reader are excluded: the\n * first two have nothing to replay, and the third is a POST that reads rather than writes.\n */",
   ]],
   ["src/client/features/project/card-menu.tsx", [
     "/**\n * The card's right-click menu, built once so the board, the table, the list and the gallery all offer\n * the same actions.\n *\n * A menu that only opens and deletes is a menu the reader stops using. The edits they reach for most —\n * rename, status, priority, a date — belong here as one click each, with the destructive action last\n * and behind a separator.\n */",
@@ -12917,6 +12918,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/notification-link.ts", [
     "/** The card a project notice points at, or null when the tail is not this app's pair. */",
+  ]],
+  ["src/client/features/project/offline-outbox.ts", [
+    "/**\n * Project writes that failed on the network are kept in the account's IndexedDB outbox and replayed\n * in order. The queued row's write id becomes the server's Idempotency-Key, so a create whose answer\n * was lost cannot be repeated by the replay. A permanent refusal is announced and then dropped —\n * keeping it forever would retry a request the server has already rejected.\n */",
+    "/** Ask the service worker for a Background Sync pass in case the tab is closed before it reconnects. */",
   ]],
   ["src/client/features/project/people-context.tsx", [
     "/**\n * The board's people directory, for the surfaces that draw a card without holding the bundle.\n *\n * A card face is drawn by the board, the list, the gallery and the day panel, none of which receive\n * the whole bundle; the directory is board-scoped, so it travels as context rather than as a prop on\n * every view in between.\n */",
@@ -28102,6 +28107,9 @@ const allowed = new Map([
     "/** OPML outlines, flattened: every `outline` that carries an `xmlUrl` is one subscription. */",
     "/**\n * Subscriptions as one OPML 2.0 document, with the folder nesting written back the way it was\n * read. A reader who exports from this app and imports into another — or the other way round —\n * should get the same tree, not a shelf named \"Front end / Reading\".\n */",
   ]],
+  ["src/client/lib/runtime.ts", [
+    "/** Events and the Background Sync tag shared by the service worker, sync engine and project pages. */",
+  ]],
   ["src/client/lib/sanitize-svg.ts", [
     "/**\n * Making a diagram's SVG safe to put into the page.\n *\n * Three surfaces inject markup this app did not write: the Mermaid block a note renders, a diagram\n * the reader pasted into the text-to-diagram dialog, and a stencil preview whose SVG was rendered\n * elsewhere and stored in a library manifest the server hands back. All three arrive as an SVG string\n * and all three reach the DOM through `innerHTML` or `dangerouslySetInnerHTML`, so all three come\n * through this one pass. An SVG is a document that can carry a script and an event handler exactly as\n * HTML can, and none of these surfaces may trust where its markup came from.\n *\n * The config is the one the Mermaid renderer has always used — the shared document config with the two\n * tags a diagram needs added back — rather than a profile written for SVG alone: Mermaid labels its\n * nodes with HTML held in a `<foreignObject>`, so a profile whose tag list is only SVG would keep the\n * picture and drop the text drawn on it.\n *\n * `style` is the one thing a document pipeline would forbid that a diagram cannot lose — Mermaid and\n * the drawing engine both paint with inline styles and a `<style>` block inside the SVG — and\n * DOMPurify sanitises the declarations themselves rather than trusting them, so it is kept.\n */",
     "// Layered on the shared document config so its forbidden tag and attribute lists keep applying to",
@@ -28158,6 +28166,7 @@ const allowed = new Map([
     "// The queue is replayed as soon as the browser says the network is back; waiting for the first",
     "// poll would leave a task the reader already ticked off still queued.",
     "/**\n * The smallest shape the task merge reads before trusting a page.\n *\n * The route is this app's own, but a proxy error page or a half-written response must not be folded\n * into the listing: an id, a title and a status are what the merge decides on. The status is read\n * against `TASK_STATUSES` rather than a list written here, because a page holding one row the guard\n * does not know is not a bad page — it is a whole pull thrown away, and the only sign is a warning in\n * a console nobody opens. That is how `cancelled` sat unsyncable across devices for a full card.\n */",
+    "/** The service worker's Background Sync pass reaches an open tab as a DOM event, not an online event. */",
   ]],
   ["src/client/lib/tag-tree.test.ts", [
     "// The level a row belongs to is its parent's children, so \"toggle this level\" has to",
@@ -31211,6 +31220,8 @@ const allowed = new Map([
     "// Any write queued while the create was in flight is now a patch against the",
     "// revision the server just made. Without this it replays as a create, and the",
     "// idempotent create answers with the old body and drops the newer text.",
+    "// Project writes are handed to the module that owns their HTTP shape; the note store only",
+    "// owns the queue's lease, the completion bookkeeping and the decision to stop when offline.",
   ]],
   ["src/client/store/pinned-windows.ts", [
     "/**\n * How long a pinned window is left flashing after a link jumps to it.\n *\n * This is not a taste value: it is the duration of `pinned-window-flash` in `prose.css`, and the flag\n * that carries the class has to outlive the animation that reads it — a shorter value clips the flash\n * off mid-fade, a longer one leaves a card that no longer looks targeted still claiming to be.\n */",
@@ -42736,6 +42747,9 @@ const allowed = new Map([
     "/**\n * Project attachments (F-8/D-9): bytes live in R2 under a four-segment `project/<category>/<user>/<id>`\n * key, rows in project_attachments. The category segment keeps images/pdf/text apart for browsing and\n * cleanup. Uploads are editor-only; reads follow the board's viewer boundary so a private board's\n * files stay private.\n */",
     "/** Mimes safe to render inline in this origin; everything else downloads as an opaque blob. */",
   ]],
+  ["src/worker/project/idempotency.ts", [
+    "/**\n * Receipts for writes carrying an `Idempotency-Key`. An offline client replays a queued write with\n * the key it minted before the network failed; if the first attempt reached the database but its\n * answer did not reach the browser, the replay must get that same answer rather than a second card.\n */",
+  ]],
   ["src/worker/project/insights.ts", [
     "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.\n */",
   ]],
@@ -42789,6 +42803,7 @@ const allowed = new Map([
     "/** A reader's landing tab follows the account, so another device opens the same view. */",
     "/**\n * Machine clients authenticate with a hashed, board-scoped token instead of a cookie. Setting\n * `userId` lets every existing route reuse `requireBoard`; the scope and board checks below are the\n * extra boundaries a token needs, and the management endpoints stay session-only so a token can\n * never mint another token or add an outbound target.\n */",
     "/** Account-level machine credentials; the plaintext secret is returned once, at creation only. */",
+    "/**\n * A queued offline write replays under the key it was minted with. Returning the stored answer before\n * the route runs also keeps the cursor bump, activity row and webhook delivery from firing twice.\n */",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
@@ -42808,6 +42823,7 @@ const allowed = new Map([
     "/**\n * Per-property settings that are not part of the column list: which board a relation points at, a\n * formula, or which roles may read and edit the property. Kept beside `project_properties` so the\n * hot property table's shape does not change for every new capability.\n */",
     "/** Machine credentials and outbound deliveries. Token bytes are never stored; only their SHA-256. */",
     "/** Iterations own cards through an edge table, so a card can move between sprints without an ALTER. */",
+    "/** A replayed offline write must not create a second card. The receipt is scoped to the account. */",
   ]],
   ["src/worker/project/search.ts", [
     "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. Cards match on their title,\n * their content blocks, their comments and their property values. The scan is bounded by the number of\n * readable boards and the result limit, so no index table is needed to keep it correct.\n */",

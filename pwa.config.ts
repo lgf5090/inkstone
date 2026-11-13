@@ -327,6 +327,15 @@ self.addEventListener('message', (event) => {
   }
 })
 
+// A queued project write survives a closed tab. The worker never replays it itself — /api/ is
+// deliberately network-only — it wakes an open client, which owns the IndexedDB queue and the replay.
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'inkstone-project-outbox') return
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    for (const client of clients) client.postMessage({ type: 'PROJECT_OUTBOX_SYNC' })
+  }))
+})
+
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys()
