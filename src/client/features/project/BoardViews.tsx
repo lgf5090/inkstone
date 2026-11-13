@@ -198,8 +198,18 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   }, [bundle.board.id, bundle.cursor, publicView, viewType])
   useEffect(() => { onActiveViewChange(active?.id ?? '') }, [active?.id, onActiveViewChange])
 
+  const viewPatchQueue = useRef<Promise<void>>(Promise.resolve())
+  const enqueueViewPatch = (viewId: string, patch: ProjectViewPatch): Promise<void> => {
+    const task = viewPatchQueue.current
+      .then(() => onPatchView(viewId, patch))
+      .catch((error: unknown) => {
+        useUi.getState().toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
+      })
+    viewPatchQueue.current = task
+    return task
+  }
   const patchFields = (patch: Partial<ProjectViewFields>): void => {
-    if (active) void onPatchView(active.id, { fields: patch })
+    if (active) void enqueueViewPatch(active.id, { fields: patch })
   }
   // Every keystroke used to re-match and re-sort the whole board; the box stays immediate while the
   // expensive pass trails one frame behind.
@@ -426,7 +436,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const renameView = (): void => {
     if (!active) return
     void prompt({ title: t('project.view.rename'), defaultValue: active.title, confirmLabel: t('common.save') }).then((name) => {
-      if (name !== null) void onPatchView(active.id, { title: name.trim() })
+      if (name !== null) void enqueueViewPatch(active.id, { title: name.trim() })
     })
   }
   const viewMenu: MenuItem[] = active ? [
@@ -718,9 +728,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             <ProjectPeopleProvider people={bundle.people}>{renderView()}</ProjectPeopleProvider>
           </div>
         )}
-      {active && settings === 'sort' && <SortModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
-      {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} members={bundle.members} people={bundle.people} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
-      {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => onPatchView(active.id, { fields: next })} />}
+      {active && settings === 'sort' && <SortModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => enqueueViewPatch(active.id, { fields: next })} />}
+      {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} members={bundle.members} people={bundle.people} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => enqueueViewPatch(active.id, { fields: next })} />}
+      {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => enqueueViewPatch(active.id, { fields: next })} />}
       {contextPoint && <Menu anchor={contextPoint} open onClose={() => setContextPoint(null)} items={contextItems} label={t('project.card.menu')} />}
       {batchOpen && (
         <BatchEditDialog

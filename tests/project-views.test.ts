@@ -7,6 +7,7 @@ import { CLIENT_HEADER, LEGACY_SESSION_COOKIE } from '../src/shared/constants'
 import type { Env } from '../src/worker/env'
 import type { ProjectBoard, ProjectView } from '../src/shared/project/model'
 import { emptyProjectViewFields } from '../src/shared/project/model'
+import { mergeProjectViewFields } from '../src/worker/project/views'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -143,5 +144,19 @@ describe('deleting, restoring and duplicating a view', () => {
     expect(copy.viewType).toBe('gallery')
     expect(copy.fields.cardOrder).toEqual(['c1'])
     expect(copy.position).toBe(1)
+  })
+})
+
+describe('merging view fields by key', () => {
+  it('overwrites the supplied keys, removes those set to undefined and keeps the rest', () => {
+    const base = { ...emptyProjectViewFields(), columnWidths: { c1: 200 }, cardOrder: ['c1'] }
+    const merged = mergeProjectViewFields(base, { cardOrder: ['c2'], columnWidths: undefined })
+    expect(merged.cardOrder).toEqual(['c2'])
+    expect(merged.columnWidths).toBeUndefined()
+    expect(merged.sortOptions).toEqual(base.sortOptions)
+    const second = mergeProjectViewFields(base, { visiblePropertyIds: ['c3'] })
+    expect(second.columnWidths).toEqual({ c1: 200 })
+    expect(second.cardOrder).toEqual(['c1'])
+    expect(second.visiblePropertyIds).toEqual(['c3'])
   })
 })

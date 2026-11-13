@@ -233,6 +233,23 @@ describe('table group rows, collapse, inline edit, column reorder (C-3/C-22)', (
     await act(async () => { fire('pointerup', 100) })
     expect(onPatchView).toHaveBeenCalledWith('v1', { fields: { visiblePropertyIds: ['pt', 'ps'] } })
   })
+
+  it('serializes rapid view patches so the second waits for the first', async () => {
+    let finishFirst: (() => void) | undefined
+    const firstCall = new Promise<void>((resolve) => { finishFirst = resolve })
+    const events: string[] = []
+    const onPatchView = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>()
+      .mockImplementationOnce(async () => { events.push('first:start'); await firstCall; events.push('first:end') })
+      .mockImplementation(async () => { events.push('second') })
+    await mountTable({}, onPatchView, vi.fn().mockResolvedValue(undefined))
+    const grip = view.container.querySelector<HTMLElement>(`[role="separator"][aria-label="${t('project.view.resize_column')}"]`)!
+    const press = (): void => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) }
+    await act(async () => { press(); press() })
+    expect(events).toEqual(['first:start'])
+    finishFirst!()
+    await act(async () => { await firstCall })
+    expect(events).toEqual(['first:start', 'first:end', 'second'])
+  })
 })
 
 describe('multi-select and batch delete (B-10)', () => {

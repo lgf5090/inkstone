@@ -4,7 +4,7 @@
  * only changes the sort never has to resend the column widths. Order is a real column the client
  * drags, and a new view without an explicit position lands after the last one.
  */
-import type { ProjectView } from '@shared/project/model'
+import type { ProjectView, ProjectViewFields } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
 import { newProjectId, PROJECT_LIMITS } from '@shared/project/limits'
 import type { ProjectViewCreateInput, ProjectViewPatchInput } from '@shared/project/validation'
@@ -54,6 +54,16 @@ export async function createProjectView(
   }
 }
 
+export function mergeProjectViewFields(base: ProjectViewFields, patch: Partial<ProjectViewFields>): ProjectViewFields {
+  const merged = { ...base }
+  for (const [key, value] of Object.entries(patch)) {
+    const target = merged as Record<string, unknown>
+    if (value === undefined) delete target[key]
+    else target[key] = value
+  }
+  return merged
+}
+
 export function viewPatchStatements(
   db: D1Database,
   view: ProjectView,
@@ -68,7 +78,7 @@ export function viewPatchStatements(
   if (patch.position !== undefined) { sets.push('position = ?'); values.push(patch.position) }
   if (patch.fields !== undefined) {
     sets.push('fields = ?')
-    values.push(JSON.stringify({ ...view.fields, ...patch.fields }))
+    values.push(JSON.stringify(mergeProjectViewFields(view.fields, patch.fields)))
   }
   values.push(view.id)
   return [db.prepare(`UPDATE project_views SET ${sets.join(', ')} WHERE id = ?`).bind(...values)]
