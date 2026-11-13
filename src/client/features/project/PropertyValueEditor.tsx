@@ -131,6 +131,8 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
       )
     case 'createdBy':
     case 'updatedBy':
+    case 'formula':
+      return <span className="text-[length:var(--text-12)] text-[var(--text-secondary)] tabular">{value || '—'}</span>
     case 'createdTime':
     case 'updatedTime':
       return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{(card ? projectPropertyDisplayText(card, property, directory, locale) : value) || '—'}</span>

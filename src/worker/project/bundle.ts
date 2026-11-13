@@ -15,6 +15,7 @@ import type {
   ProjectView,
 } from '@shared/project/model'
 import { projectPropertyVisibleTo } from '@shared/project/property-config'
+import { evaluateProjectFormula } from '@shared/project/formula'
 import { projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { parseProjectRecurrence } from '@shared/project/recurrence'
@@ -198,6 +199,24 @@ export async function readProjectBoardBundle(
     }
     return rowToCard(row, kept)
   })
+  const formulaProperties = visibleProperties.filter((property) => property.type === 'formula' && property.config?.expression)
+  if (formulaProperties.length > 0) {
+    for (const card of cards) {
+      const byName = new Map<string, string>()
+      for (const property of visibleProperties) {
+        if (property.type === 'formula') continue
+        const value = card.values[property.id] ?? ''
+        byName.set(property.name.trim().toLowerCase(), value)
+        byName.set(property.id.toLowerCase(), value)
+      }
+      for (const property of formulaProperties) {
+        const result = evaluateProjectFormula(property.config!.expression!, byName)
+        card.values[property.id] = result
+        byName.set(property.name.trim().toLowerCase(), result)
+        byName.set(property.id.toLowerCase(), result)
+      }
+    }
+  }
   const allViews = viewRows.results.map(rowToView)
   const views = allViews.filter((view) => !view.fields.minimumRole || projectRoleAtLeast(role, view.fields.minimumRole))
   const contentsTruncated = contentRows.results.length > PROJECT_LIMITS.bundleContents

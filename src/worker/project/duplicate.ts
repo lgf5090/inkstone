@@ -81,6 +81,7 @@ export async function duplicateProjectBoard(
        VALUES (?1, ?2, ?3, ?4)`,
     ).bind(boardId, property.id, serializeProjectPropertyConfig(property.config), now))
   })
+  const formulaIds = new Set(bundle.properties.filter((property) => property.type === 'formula').map((property) => property.id))
   for (const card of bundle.cards) {
     const id = cardMap.get(card.id)!
     statements.push(db.prepare(
@@ -93,6 +94,7 @@ export async function duplicateProjectBoard(
       card.recurrence ? serializeProjectRecurrence(card.recurrence) : null, userId, now,
     ))
     for (const [propertyId, value] of Object.entries(card.values)) {
+      if (formulaIds.has(propertyId)) continue
       statements.push(db.prepare(
         'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4)',
       ).bind(id, propertyId, value, now))

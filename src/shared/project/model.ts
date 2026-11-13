@@ -17,7 +17,7 @@ export type ProjectMinimumRole = '' | ProjectRole
 
 export const PROJECT_PROPERTY_TYPES = [
   'text', 'number', 'select', 'multiSelect', 'date', 'person', 'multiPerson', 'file',
-  'checkbox', 'url', 'email', 'phone', 'createdTime', 'createdBy', 'updatedTime', 'updatedBy', 'unknown',
+  'checkbox', 'url', 'email', 'phone', 'formula', 'createdTime', 'createdBy', 'updatedTime', 'updatedBy', 'unknown',
 ] as const
 export type ProjectPropertyType = (typeof PROJECT_PROPERTY_TYPES)[number]
 
@@ -85,6 +85,7 @@ export const PROJECT_PROPERTY_CAPABILITIES: Readonly<Record<ProjectPropertyType,
   url: EDITABLE_TEXT,
   email: EDITABLE_TEXT,
   phone: EDITABLE_TEXT,
+  formula: { canFilter: false, filterValueType: 'none', canGroup: false, readOnly: true },
   createdTime: SERVER_STAMP,
   createdBy: SERVER_AUTHOR,
   updatedTime: SERVER_STAMP,

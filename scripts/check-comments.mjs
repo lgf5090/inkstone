@@ -33429,6 +33429,9 @@ const allowed = new Map([
     "/** Reader: a stored stamp becomes the calendar day it was picked on, in the zone it was picked in. */",
     "/**\n * The value a writer stores: a day, an optional end day and the zone they were picked in. Keeping the\n * zone on the value rather than on the request is what lets a board opened in another country show the\n * same day the author saw.\n */",
   ]],
+  ["src/shared/project/formula.ts", [
+    "/**\n * The formula property: a small arithmetic language over the card's other properties.\n *\n * Deliberately not JavaScript. A board is shared, and an expression typed by one member runs in\n * everyone's browser and in the server's exports, so the grammar is a fixed set of operators and\n * functions with no property access, no assignment and no host objects. A reference is written\n * `{Property name}`, which is what the column header shows, and an unknown name is zero rather than an\n * error so a renamed property degrades instead of blanking the column.\n */",
+  ]],
   ["src/shared/project/hierarchy.ts", [
     "/**\n * Keeping a parent's tick in step with its children.\n *\n * A parent with subtasks is done when every subtask is done — that is what the fraction on its row\n * already claims. Ticking the last child therefore ticks the parent, and reopening one child reopens\n * the parent, all the way up. A card with no children is never touched: its tick is the reader's own.\n */",
     "/**\n * The ancestor writes a child's new state implies, nearest parent first.\n *\n * `cards` is the board as it will read after the child's own write, so the caller passes the child\n * with its new values already applied. Each ancestor is judged against the state the walk has just\n * decided for its own children, which is what makes a three-level tree settle in one pass.\n */",

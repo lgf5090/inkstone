@@ -128,6 +128,24 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
                 </div>
               </div>
             )}
+            {property.type === 'formula' && (
+              <div className="space-y-1 pl-1">
+                <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.props.expression')}</p>
+                <Input
+                  className="w-full font-mono"
+                  value={property.config?.expression ?? ''}
+                  placeholder={t('project.props.expression_hint')}
+                  aria-label={`${t('project.props.expression')}: ${property.name}`}
+                  onChange={(event) => {
+                    const expression = event.target.value.trim() ? event.target.value : undefined
+                    const config = { ...property.config, expression }
+                    if (!expression) delete config.expression
+                    update(property.id, { config: Object.keys(config).length ? config : undefined })
+                  }}
+                />
+                <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('project.props.expression_help')}</p>
+              </div>
+            )}
             <details className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1">
               <summary className="cursor-pointer text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.props.access')}</summary>
               <div className="mt-1.5 space-y-1">
