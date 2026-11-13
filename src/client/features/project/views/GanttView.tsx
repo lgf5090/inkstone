@@ -128,6 +128,15 @@ export function GanttView(props: GanttProps): ReactElement {
     void props.onPatchCard(cardId, { values: { [propertyId]: JSON.stringify(value) } })
   }
 
+  const shiftRange = (cardId: string, mode: 'start' | 'end', delta: number): void => {
+    const range = daysByCard.get(cardId)
+    if (!range) return
+    const shift = delta * PROJECT_TIMELINE_DAY_MS
+    const from = mode === 'start' ? Math.min(range.end, range.start + shift) : range.start
+    const to = mode === 'end' ? Math.max(from, range.end + shift) : range.end
+    writeRange(cardId, from, to)
+  }
+
   /** One pointer path for moving a bar and for pulling either of its ends. */
   const startBarDrag = (event: React.PointerEvent, card: ProjectCard, mode: DragState['mode']): void => {
     if (!planning || event.button !== 0) return
@@ -155,10 +164,7 @@ export function GanttView(props: GanttProps): ReactElement {
         writeRange(card.id, next.from, next.to)
         return
       }
-      const shift = columns * PROJECT_TIMELINE_DAY_MS
-      const from = mode === 'start' ? Math.min(range.end, range.start + shift) : range.start
-      const to = mode === 'end' ? Math.max(from, range.end + shift) : range.end
-      writeRange(card.id, from, to)
+      shiftRange(card.id, mode, columns)
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
@@ -360,6 +366,7 @@ export function GanttView(props: GanttProps): ReactElement {
           onViewport={bindViewport}
           focusColumn={todayIndex}
           onCanvasPointerDown={startDraw}
+          onCanvasCreate={planning ? () => { void createOnSpan('', Math.max(0, todayIndex), Math.max(0, todayIndex)) } : undefined}
           emptyHint={planning ? t('project.view.draw_hint') : t('project.view.no_dates')}
           canvasExtra={draft
             ? (
@@ -423,14 +430,15 @@ export function GanttView(props: GanttProps): ReactElement {
             const width = Math.max(columnPx, (place.width - growStart + growEnd) * columnPx)
             const range = daysByCard.get(card.id)!
             const milestone = range.start === range.end && scale !== 'day'
+            const barTop = index * GANTT_ROW_H + (GANTT_ROW_H - GANTT_BAR_H) / 2
             return (
-              <div key={card.id}>
+              <div key={card.id} className="pv-bar-slot">
                 <ScheduleBar
                   card={card}
                   color={row.color}
                   left={left}
                   width={width}
-                  top={index * GANTT_ROW_H + (GANTT_ROW_H - GANTT_BAR_H) / 2}
+                  top={barTop}
                   height={GANTT_BAR_H}
                   done={isDone(card)}
                   progress={projectCardProgress(card, subtasksByParent.get(card.id) ?? [], isDone)}
@@ -449,14 +457,39 @@ export function GanttView(props: GanttProps): ReactElement {
                     setSelected(card.id)
                     setPalette({ id: card.id, x: Math.min(event.clientX, window.innerWidth - 240), y: Math.min(event.clientY, window.innerHeight - 120) })
                   }}
-                >
-                  {planning && !milestone && (
-                    <>
-                      <span className="pv-bar-handle" data-side="start" data-bar-handle="start" onPointerDown={(event) => startBarDrag(event, card, 'start')} />
-                      <span className="pv-bar-handle" data-side="end" data-bar-handle="end" onPointerDown={(event) => startBarDrag(event, card, 'end')} />
-                    </>
-                  )}
-                </ScheduleBar>
+                />
+                {planning && !milestone && (
+                  <>
+                    <button
+                      type="button"
+                      className="pv-bar-handle"
+                      data-side="start"
+                      data-bar-handle="start"
+                      aria-label={t('project.view.handle_start', { title: card.title || t('project.board.untitled_card') })}
+                      style={{ left: `${left}px`, top: `${barTop}px`, height: `${GANTT_BAR_H}px` }}
+                      onPointerDown={(event) => startBarDrag(event, card, 'start')}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                        event.preventDefault()
+                        shiftRange(card.id, 'start', event.key === 'ArrowRight' ? 1 : -1)
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="pv-bar-handle"
+                      data-side="end"
+                      data-bar-handle="end"
+                      aria-label={t('project.view.handle_end', { title: card.title || t('project.board.untitled_card') })}
+                      style={{ left: `${left + width - 8}px`, top: `${barTop}px`, height: `${GANTT_BAR_H}px` }}
+                      onPointerDown={(event) => startBarDrag(event, card, 'end')}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                        event.preventDefault()
+                        shiftRange(card.id, 'end', event.key === 'ArrowRight' ? 1 : -1)
+                      }}
+                    />
+                  </>
+                )}
                 {renaming?.id === card.id && (
                   <Input
                     className="pv-rename"

@@ -38,6 +38,7 @@ export interface ScheduleFrameProps {
   overlay?: (visible: { first: number, last: number }) => ReactNode
   canvasExtra?: ReactNode
   onCanvasPointerDown?: (event: React.PointerEvent, context: { column: number, row: number }) => void
+  onCanvasCreate?: () => void
   onViewport?: (node: HTMLDivElement | null) => void
   /** The column the axis opens on; re-centred whenever the axis itself changes, not on every render. */
   focusColumn?: number
@@ -210,7 +211,19 @@ export function ScheduleFrame(props: ScheduleFrameProps): ReactElement {
             props.onCanvasPointerDown(event, { column: Math.floor(x / columnPx), row: Math.floor(y / rowHeight) })
           }}
         >
-          <div className="pv-sched-canvas" id="pv-sched-canvas" style={{ width: `${totalWidth}px`, height: `${Math.max(totalHeight, size.height)}px` }}>
+          <div
+            className="pv-sched-canvas"
+            id="pv-sched-canvas"
+            role={props.onCanvasCreate ? 'group' : undefined}
+            tabIndex={props.onCanvasCreate ? 0 : undefined}
+            aria-label={props.onCanvasCreate ? t('project.view.canvas_create') : undefined}
+            style={{ width: `${totalWidth}px`, height: `${Math.max(totalHeight, size.height)}px` }}
+            onKeyDown={(event) => {
+              if (!props.onCanvasCreate || event.target !== event.currentTarget || event.key !== 'Enter') return
+              event.preventDefault()
+              props.onCanvasCreate()
+            }}
+          >
             {showWeekends && visibleDays.map((day, index) => day.weekend
               ? <div key={`w-${day.stamp}`} className="pv-sched-weekend" style={{ left: `${(firstDay + index) * columnPx}px`, width: `${columnPx}px` }} aria-hidden="true" />
               : null)}

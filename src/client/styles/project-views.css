@@ -1140,20 +1140,16 @@ body.pv-dragging * {
 }
 .pv-bar-handle {
   position: absolute;
-  top: 0;
-  bottom: 0;
   z-index: var(--pv-z-ribbon);
   width: 8px;
+  border: 0;
+  padding: 0;
+  background: transparent;
   cursor: ew-resize;
   touch-action: none;
 }
-.pv-bar-handle[data-side='start'] {
-  left: 0;
-}
-.pv-bar-handle[data-side='end'] {
-  right: 0;
-}
-.pv-bar:hover .pv-bar-handle {
+.pv-bar-slot:hover .pv-bar-handle,
+.pv-bar-handle:focus-visible {
   background: color-mix(in oklab, var(--accent-contrast) 30%, transparent);
 }
 .pv-bar-outside {
