@@ -7,6 +7,7 @@ import { buildProjectAssistantFacts } from '@shared/project/assistant-context'
 import type { AssistantPageContext } from '@shared/assistant'
 import { t, useLocale } from '../../lib/i18n'
 import { navigateToPath, useSearch } from '../../lib/app-history'
+import { createRefreshQueue } from '../../lib/refresh-queue'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
 import { useUi } from '../../store/ui'
@@ -59,9 +60,16 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [iconOpen, setIconOpen] = useState(false)
   const [iconTone, setIconTone] = useState<SkinTone>(0)
   const [undoStack] = useState(() => createUndoStack())
-  const refresh = useCallback(async () => {
-    setBundle(await fetchProjectBoardBundle(boardId))
-  }, [boardId])
+  const refreshBoard = useRef(boardId)
+  refreshBoard.current = boardId
+  const refresh = useMemo(
+    () => createRefreshQueue(
+      () => fetchProjectBoardBundle(boardId),
+      (result) => setBundle(result),
+      () => refreshBoard.current === boardId,
+    ),
+    [boardId],
+  )
   useEffect(() => { undoStack.clear() }, [boardId, undoStack])
   const [showProps, setShowProps] = useState(false)
   const [showShare, setShowShare] = useState(false)

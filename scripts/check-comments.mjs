@@ -28058,6 +28058,9 @@ const allowed = new Map([
     "// No WebCrypto at all: still monotonic-unique inside this tab, never predictable",
     "// across tabs the way Math.random() was.",
   ]],
+  ["src/client/lib/refresh-queue.ts", [
+    "/**\n * One reader, at most one request in flight, at most one trailing read.\n *\n * A page that refetches after every write can have two reads in flight at once, and the slower one\n * may land last with an older snapshot. Serialising alone would not help either: a burst of writes\n * deserves one trailing read, not one read each. This keeps the newest result and drops the rest.\n */",
+  ]],
   ["src/client/lib/rss/feed.test.ts", [
     "// The nesting is the point: an export that flattens front-end/articles into one folder name",
     "// is a file that quietly rebuilds a reader's library wrong.",
