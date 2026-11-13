@@ -106,6 +106,7 @@ import { deleteProjectAttachment, getProjectAttachment, listBoardAttachments, up
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
 import { projectStatistics } from './statistics'
 import { listProjectMyTasks } from './my-tasks'
+import { deleteTimeEntry, listCardTime, startCardTime, stopCardTime } from './time'
 import { createBoardFromTemplate, listProjectTemplates, saveBoardAsTemplate } from './templates'
 import { listProjectSubscriptions, subscribeProject, unsubscribeProject } from './subscriptions'
 import {
@@ -250,6 +251,28 @@ projectRoutes.post('/cards/:id/links', async (c) => {
   const input = await projectBody(c, ProjectCardLinkSchema, JSON_BODY_LIMITS.small)
   await addCardLink(c.env.DB, board.id, card.id, input.toCardId, input.kind, Date.now())
   return c.json({ ok: true }, 201)
+})
+
+projectRoutes.get('/cards/:id/time', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ entries: await listCardTime(c.env.DB, card.id) })
+})
+
+projectRoutes.post('/cards/:id/time/start', async (c) => {
+  const { card, board } = await requireCard(c, c.req.param('id'), 'editor')
+  const entry = await startCardTime(c.env.DB, { boardId: board.id, cardId: card.id, userId: projectUserId(c) }, Date.now())
+  return c.json({ entry }, 201)
+})
+
+projectRoutes.post('/cards/:id/time/stop', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  return c.json({ entry: await stopCardTime(c.env.DB, card.id, projectUserId(c), Date.now()) })
+})
+
+projectRoutes.delete('/cards/:id/time/:entryId', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  await deleteTimeEntry(c.env.DB, card.id, c.req.param('entryId'))
+  return c.json({ ok: true })
 })
 
 projectRoutes.delete('/cards/:id/links/:toId', async (c) => {

@@ -12,6 +12,7 @@ import { sendForAnswerDetailed } from '../chat/editor-ai'
 import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardDetail, fetchCardLinks, listBoardFiles, moveCardContent, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
 import { RecurrenceEditor } from './RecurrenceEditor'
+import { CardTimeTracker } from './CardTimeTracker'
 import { useBandDrag } from './views/use-band-drag'
 import { useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
@@ -617,6 +618,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
         </section>
       </div>
       <div className="min-w-0 flex-1 space-y-2 border-t border-[var(--border-subtle)] pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0">
+        <CardTimeTracker cardId={card.id} canEdit={canEdit} />
         <section aria-label={t('project.card.comments')} className="space-y-2">
           <SectionHeading icon={MessageSquare} label={t('project.card.comments')} />
           {comments.length === 0 && (

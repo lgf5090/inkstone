@@ -33499,6 +33499,7 @@ const allowed = new Map([
     "/** Set when the board holds more detail rows than one read carries; open a card for the rest. */",
     "/** Carried only by an import path that already has the edges; a board read leaves it undefined. */",
     "/** One row of the cross-board \"my tasks\" list: the card, its board and its earliest date. */",
+    "/** A worked interval on a card; `endedAt` null while the timer runs. */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",
@@ -41036,6 +41037,8 @@ const allowed = new Map([
     "// Public links expose comments only after the owner opts in; the default keeps existing shares",
     "// private. Guarded so a fresh database, whose CREATE TABLE already carries the column, records",
     "// the version without re-adding it.",
+    "// Time tracking writes its own intervals rather than a running total, so a correction is a row",
+    "// edit and two people timing the same card cannot overwrite each other.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -42768,6 +42771,7 @@ const allowed = new Map([
     "// project_fts is deliberately absent: the boot's column repair replays CREATE TABLE declarations, and",
     "// an fts5 virtual table has none to replay — its columns are changed by rebuilding it, not by ADD COLUMN.",
     "// The public link is read-only; comments are internal discussion unless the owner opts in.",
+    "/** One row per worked interval on a card; `ended_at` null means the timer is still running. */",
   ]],
   ["src/worker/project/search.ts", [
     "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. Cards match on their title,\n * their content blocks and their comments; the reserved project_fts table remains the indexed\n * follow-up once the write-path queue is wired.\n */",
@@ -42792,6 +42796,9 @@ const allowed = new Map([
   ["src/worker/project/templates.ts", [
     "/**\n * Templates: the built-in starting points plus the account's own boards saved as templates. Creating\n * from a built-in replays its properties, views and sample cards through the same writers every other\n * create uses; creating from a saved template is a duplicate of that board.\n */",
     "/**\n * A template is a snapshot, not a state of the live board: the owner keeps working in the original\n * while the copy is what the picker offers. Comments stay behind because they are conversation about\n * the original work, which is why the copy is made without them.\n */",
+  ]],
+  ["src/worker/project/time.ts", [
+    "/**\n * Time tracking as intervals rather than a counter: starting writes a row, stopping stamps its end,\n * so a correction is an edit and two people timing one card never overwrite each other. Only the\n * person who started a running timer may stop it; a board editor may remove any row.\n */",
   ]],
   ["src/worker/project/views.ts", [
     "/**\n * Views: the saved ways of looking at one board's cards. A view's fields arrive partial and are\n * merged over the empty defaults on create and over the stored fields on patch, so a client that\n * only changes the sort never has to resend the column widths. Order is a real column the client\n * drags, and a new view without an explicit position lands after the last one.\n */",
@@ -52636,7 +52643,7 @@ const allowed = new Map([
     "// owner's live-session ceiling.",
   ]],
   ["tests/webssh-schema.test.ts", [
-    "// The project tables append 385–393 after this lane's own block.",
+    "// The project tables append 385–394 after this lane's own block.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",

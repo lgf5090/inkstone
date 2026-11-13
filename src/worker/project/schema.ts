@@ -236,6 +236,24 @@ export const PROJECT_AUX_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
 ]
 
+/** One row per worked interval on a card; `ended_at` null means the timer is still running. */
+export const PROJECT_TIME_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_time_entries (
+    id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    card_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_time_card
+     ON project_time_entries(card_id, started_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_time_user
+     ON project_time_entries(user_id, ended_at)`,
+]
+
 export const PROJECT_ENHANCE_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS project_activity (
     board_id TEXT NOT NULL,
@@ -312,6 +330,7 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_activity',
   'project_card_links',
   'project_todo_links',
+  'project_time_entries',
   'project_fts_queue',
   'project_fts',
 ]

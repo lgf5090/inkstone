@@ -519,6 +519,7 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   ['project_board_members', 'composite (board_id, user_id) on newProjectId() boards'],
   ['project_todo_links', 'composite (card_id, todo_id) on newProjectId() cards; the unique index on todo_id keeps one card per todo'],
   ['project_attachments', 'id is a 27-character newProjectId(); every read binds user_id'],
+  ['project_time_entries', 'id is a 27-character newProjectId(); every read binds the card, which belongs to one board'],
   // Public by slug, and the link is the capability: a reader who is not signed in has no account to
   // lead the key with. Minted by `newSlug()` (worker/lib/id.ts), the same unguessable 20-character
   // generator the note and conversation shares were verified on; management binds user_id.

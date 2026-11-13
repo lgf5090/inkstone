@@ -238,6 +238,7 @@ import {
   PROJECT_CONTENT_SCHEMA_STATEMENTS,
   PROJECT_CORE_SCHEMA_STATEMENTS,
   PROJECT_ENHANCE_SCHEMA_STATEMENTS,
+  PROJECT_TIME_SCHEMA_STATEMENTS,
   PROJECT_FTS_SCHEMA_STATEMENTS,
   PROJECT_REQUIRED_COLUMNS,
   PROJECT_REQUIRED_INDEXES,
@@ -851,6 +852,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...PROJECT_CONTENT_SCHEMA_STATEMENTS,
   ...PROJECT_AUX_SCHEMA_STATEMENTS,
   ...PROJECT_ENHANCE_SCHEMA_STATEMENTS,
+  ...PROJECT_TIME_SCHEMA_STATEMENTS,
   ...PROJECT_FTS_SCHEMA_STATEMENTS,]
 
 export interface SchemaMigration {
@@ -4293,6 +4295,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 393,
     skipIfColumnExists: { table: 'project_shares', column: 'show_comments' },
     statements: ['ALTER TABLE project_shares ADD COLUMN show_comments INTEGER NOT NULL DEFAULT 0'],
+  },
+  {
+    // Time tracking writes its own intervals rather than a running total, so a correction is a row
+    // edit and two people timing the same card cannot overwrite each other.
+    version: 394,
+    statements: PROJECT_TIME_SCHEMA_STATEMENTS,
   },
 ]
 

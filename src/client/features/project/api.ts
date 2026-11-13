@@ -14,6 +14,7 @@ import type {
   ProjectCardLink,
   ProjectCardMarks,
   ProjectMyTask,
+  ProjectTimeEntry,
   ProjectCategory,
   ProjectCategoryBoard,
   ProjectComment,
@@ -37,6 +38,25 @@ export async function fetchProjectBoards(signal?: AbortSignal): Promise<ProjectB
 export async function fetchMyProjectTasks(signal?: AbortSignal): Promise<ProjectMyTask[]> {
   const body = await request<{ tasks: ProjectMyTask[] }>('/api/project/my-tasks', { signal })
   return body.tasks
+}
+
+export async function fetchCardTime(cardId: string, signal?: AbortSignal): Promise<ProjectTimeEntry[]> {
+  const body = await request<{ entries: ProjectTimeEntry[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/time`, { signal })
+  return body.entries
+}
+
+export async function startCardTimer(cardId: string): Promise<ProjectTimeEntry> {
+  const body = await request<{ entry: ProjectTimeEntry }>(`/api/project/cards/${encodeURIComponent(cardId)}/time/start`, { method: 'POST', body: {} })
+  return body.entry
+}
+
+export async function stopCardTimer(cardId: string): Promise<ProjectTimeEntry | null> {
+  const body = await request<{ entry: ProjectTimeEntry | null }>(`/api/project/cards/${encodeURIComponent(cardId)}/time/stop`, { method: 'POST', body: {} })
+  return body.entry
+}
+
+export async function deleteCardTime(cardId: string, entryId: string): Promise<void> {
+  await request(`/api/project/cards/${encodeURIComponent(cardId)}/time/${encodeURIComponent(entryId)}`, { method: 'DELETE' })
 }
 
 export async function createProjectBoard(input: Partial<ProjectBoardCreateInput>): Promise<ProjectBoardSummary> {

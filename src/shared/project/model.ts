@@ -123,6 +123,18 @@ export interface ProjectCardLink {
   kind: ProjectCardLinkKind
 }
 
+/** A worked interval on a card; `endedAt` null while the timer runs. */
+export interface ProjectTimeEntry {
+  id: string
+  boardId: string
+  cardId: string
+  userId: string
+  note: string
+  startedAt: number
+  endedAt: number | null
+  createdAt: number
+}
+
 /** One row of the cross-board "my tasks" list: the card, its board and its earliest date. */
 export interface ProjectMyTask {
   cardId: string

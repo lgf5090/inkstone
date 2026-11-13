@@ -38,6 +38,7 @@ export const PROJECT_ID_PREFIXES = {
   property: 'p',
   share: 'k',
   activity: 'e',
+  time: 'd',
   unknown: '7',
 } as const
 
