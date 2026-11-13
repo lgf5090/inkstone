@@ -382,7 +382,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
                           {card.title || t('project.board.untitled_card')}
                         </button>
                         {canEdit && (
-                          <IconButton label={t('project.board.delete_card')} size="sm" className="opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100" onClick={() => props.onDeleteCard(card.id)}>
+                          <IconButton label={t('project.board.delete_card')} size="sm" className="opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100" data-touch-reveal="" onClick={() => props.onDeleteCard(card.id)}>
                             <Trash2 size={12} />
                           </IconButton>
                         )}

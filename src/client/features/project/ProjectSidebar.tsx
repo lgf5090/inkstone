@@ -631,7 +631,7 @@ function CategoryTreeItem({
           ref={anchor}
           label={node.name}
           size="sm"
-          className="opacity-0 group-hover/cat:opacity-100 focus-visible:opacity-100 transition-opacity"
+          className="opacity-0 group-hover/cat:opacity-100 focus-visible:opacity-100 transition-opacity" data-touch-reveal=""
           onClick={() => setMenuOpen(true)}
         >
           <MoreHorizontal size={14} />

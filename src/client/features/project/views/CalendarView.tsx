@@ -319,7 +319,7 @@ function CalendarCell({ cell, mode, today, selected, dropping, bucket, propertie
         <button
           type="button"
           aria-label={t('project.board.new_card')}
-          className="absolute right-1 top-1 z-[var(--pv-z-today)] rounded-[var(--r-xs)] p-0.5 text-[var(--text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] focus-visible:opacity-100 group-hover:opacity-100"
+          className="absolute right-1 top-1 z-[var(--pv-z-today)] rounded-[var(--r-xs)] p-0.5 text-[var(--text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] focus-visible:opacity-100 group-hover:opacity-100" data-touch-reveal=""
           onClick={(event) => { event.stopPropagation(); void onQuickAdd(cell.date) }}
         >
           <Plus size={12} aria-hidden="true" />

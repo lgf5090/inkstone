@@ -124,7 +124,10 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     }
   }
 
+  const [aiSummarizing, setAiSummarizing] = useState(false)
   const summarizeCardWithAi = async () => {
+    if (aiSummarizing) return
+    setAiSummarizing(true)
     try {
       const parts = [
         `Card title: ${card.title}`,
@@ -141,6 +144,8 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       }
     } catch {
       toast({ title: t('project.card.ai_summarize_failed'), tone: 'danger' })
+    } finally {
+      setAiSummarizing(false)
     }
   }
 
@@ -414,7 +419,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
             items={[
               ...(canEdit ? [
                 { id: 'duplicate', label: t('project.card.duplicate'), icon: <Copy size={15} />, onSelect: () => { void duplicateCard() } },
-                { id: 'ai-summarize', label: t('project.card.ai_summarize'), icon: <Sparkles size={15} />, onSelect: () => { void summarizeCardWithAi() } },
+                { id: 'ai-summarize', label: t(aiSummarizing ? 'project.card.ai_summarizing' : 'project.card.ai_summarize'), icon: <Sparkles size={15} />, disabled: aiSummarizing, onSelect: () => { void summarizeCardWithAi() } },
               ] : []),
               { id: 'copy-link', label: t('project.card.copy_link'), icon: <Link2 size={15} />, onSelect: () => { void copyLink() } },
               ...(canEdit ? [{ id: 'delete', label: t('project.board.delete_card'), icon: <Trash2 size={15} />, tone: 'danger' as const, separatorBefore: true, onSelect: () => { onClose(); onDelete(card.id) } }] : []),
@@ -546,7 +551,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
                     <IconButton
                       label={t('common.delete')}
                       size="sm"
-                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100" data-touch-reveal=""
                       onClick={() => {
                         onDelete(subtask.id)
                       }}

@@ -384,6 +384,10 @@
   .pv-card-grip {
     opacity: 0.6;
   }
+
+  [data-touch-reveal] {
+    opacity: 1;
+  }
 }
 
 /* A subtask checklist reads as a bar before it reads as a fraction. */

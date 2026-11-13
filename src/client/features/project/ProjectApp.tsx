@@ -328,7 +328,7 @@ function BoardCard({ board }: { board: ProjectBoardSummary }): ReactElement {
           </span>
         </span>
       </button>
-      <span className="absolute right-1.5 top-1.5 z-[var(--pv-z-chip)] rounded-[var(--r-sm)] bg-[var(--bg-base)]/80 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+      <span className="absolute right-1.5 top-1.5 z-[var(--pv-z-chip)] rounded-[var(--r-sm)] bg-[var(--bg-base)]/80 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100" data-touch-reveal="">
         <IconButton ref={anchor} label={t('project.boards.menu_label')} size="sm" onClick={() => setMenuOpen(true)}>
           <MoreHorizontal size={15} />
         </IconButton>

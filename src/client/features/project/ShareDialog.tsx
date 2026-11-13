@@ -16,14 +16,23 @@ function errorText(error: unknown): string {
 export function ShareDialog({ boardId, onClose }: { boardId: string, onClose: () => void }): ReactElement {
   const [share, setShare] = useState<ProjectShare | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [failed, setFailed] = useState(false)
   const [password, setPassword] = useState('')
   const toast = useUi((state) => state.toast)
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoaded(false)
+    setFailed(false)
     getProjectShare(boardId)
       .then((result) => { setShare(result); setLoaded(true) })
-      .catch(() => setLoaded(true))
-  }, [boardId])
+      .catch((reason: unknown) => {
+        setFailed(true)
+        setLoaded(true)
+        toast({ title: errorText(reason), tone: 'danger' })
+      })
+  }, [boardId, toast])
+
+  useEffect(load, [load])
 
   const guard = useCallback(async (action: () => Promise<void>) => {
     try { await action() } catch (reason) { toast({ title: errorText(reason), tone: 'danger' }) }
@@ -35,14 +44,21 @@ export function ShareDialog({ boardId, onClose }: { boardId: string, onClose: ()
     <Modal open onClose={onClose} title={t('project.share.title')} width={480}>
       {!loaded
         ? <LoadingBlock />
-        : !share
+        : failed
           ? (
               <div className="space-y-3">
-                <p className="text-[length:var(--text-13)] text-[var(--text-secondary)]">{t('project.share.not_shared')}</p>
-                <Button variant="primary" onClick={() => void guard(async () => { setShare(await putProjectShare(boardId, {})) })}>{t('project.share.enable')}</Button>
+                <p role="alert" className="text-[length:var(--text-13)] text-[var(--danger)]">{t('project.common.load_failed')}</p>
+                <Button size="sm" onClick={load}>{t('project.common.retry')}</Button>
               </div>
             )
-          : (
+          : !share
+            ? (
+                <div className="space-y-3">
+                  <p className="text-[length:var(--text-13)] text-[var(--text-secondary)]">{t('project.share.not_shared')}</p>
+                  <Button variant="primary" onClick={() => void guard(async () => { setShare(await putProjectShare(boardId, {})) })}>{t('project.share.enable')}</Button>
+                </div>
+              )
+            : (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Input className="min-w-0 flex-1" readOnly value={link} aria-label={t('project.share.link')} />

@@ -250,10 +250,10 @@ export function ListView(props: ListProps): ReactElement {
           })}
           {canEdit && (
             <>
-              <IconButton label={t('project.card.add_subtask')} size="sm" className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100" onClick={() => { void props.onAddSubtask(card.id) }}>
+              <IconButton label={t('project.card.add_subtask')} size="sm" className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100" data-touch-reveal="" onClick={() => { void props.onAddSubtask(card.id) }}>
                 <Plus size={13} />
               </IconButton>
-              <IconButton label={t('project.board.delete_card')} size="sm" className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100" onClick={() => props.onDeleteCard(card.id)}>
+              <IconButton label={t('project.board.delete_card')} size="sm" className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100" data-touch-reveal="" onClick={() => props.onDeleteCard(card.id)}>
                 <Trash2 size={13} />
               </IconButton>
             </>
