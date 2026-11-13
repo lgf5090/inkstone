@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, Clock, Copy, Download, Eye, EyeOff, FolderPlus, GripVertical, MoreHorizontal, Pencil, Pin, Plus, Settings2, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { setLocale, t, useLocale } from '../../lib/i18n'
@@ -15,6 +15,7 @@ import { readRandomIconPref, writeRandomIconPref } from './project-icon'
 import { categoryDropZone, planCategoryDrop } from './sidebar-drag'
 import { useBandDrag, type BandDragState } from './views/use-band-drag'
 import { isImeComposing } from '../../lib/ime'
+import { useEvent } from '../../lib/hooks'
 import { PROJECT_SIDEBAR_MAX_WIDTH, PROJECT_SIDEBAR_MIN_WIDTH, readSidebarWidthPref, useProjectBoardMarks, writeSidebarWidthPref } from './project-prefs'
 import {
   addBoardToCategory,
@@ -51,6 +52,13 @@ export function buildCategoryTree(
   const roots: CategoryTreeNode[] = []
   const nodeMap = new Map<string, CategoryTreeNode>()
   const sortedCategories = [...categories].sort((a, b) => a.sortOrder - b.sortOrder)
+  const boardsById = new Map(boards.map((board) => [board.id, board]))
+  const edgesByCategory = new Map<string, ProjectCategoryBoard[]>()
+  for (const edge of edges) {
+    const list = edgesByCategory.get(edge.categoryId)
+    if (list) list.push(edge)
+    else edgesByCategory.set(edge.categoryId, [edge])
+  }
 
   for (const cat of sortedCategories) {
     const segments = cat.name.split('/').map((s) => s.trim()).filter(Boolean)
@@ -83,14 +91,11 @@ export function buildCategoryTree(
       }
 
       if (isLeaf) {
-        const catEdges = edges
-          .filter((e) => e.categoryId === cat.id)
-          .sort((a, b) => a.position - b.position)
-        node.boards = catEdges
-          .map((edge) => ({ board: boards.find((b) => b.id === edge.boardId)!, edge }))
-          .filter((entry): entry is { board: ProjectBoardSummary; edge: ProjectCategoryBoard } =>
-            Boolean(entry.board) && matches(entry.board),
-          )
+        const catEdges = [...(edgesByCategory.get(cat.id) ?? [])].sort((a, b) => a.position - b.position)
+        node.boards = catEdges.flatMap((edge) => {
+          const board = boardsById.get(edge.boardId)
+          return board && matches(board) ? [{ board, edge }] : []
+        })
       }
 
       currentSiblings = node.children
@@ -139,6 +144,21 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
 
   const matches = useCallback((board: ProjectBoardSummary) => board.title.toLowerCase().includes(query.trim().toLowerCase()), [query])
   const filedIds = useMemo(() => new Set(edges.map((edge) => edge.boardId)), [edges])
+  const boardsById = useMemo(() => new Map(boards.map((board) => [board.id, board])), [boards])
+  const edgesByCategory = useMemo(() => {
+    const map = new Map<string, ProjectCategoryBoard[]>()
+    for (const edge of edges) {
+      const list = map.get(edge.categoryId)
+      if (list) list.push(edge)
+      else map.set(edge.categoryId, [edge])
+    }
+    return map
+  }, [edges])
+  const edgeByBoard = useMemo(() => {
+    const map = new Map<string, ProjectCategoryBoard>()
+    for (const edge of edges) if (!map.has(edge.boardId)) map.set(edge.boardId, edge)
+    return map
+  }, [edges])
   const unfiled = useMemo(() => boards.filter((board) => !filedIds.has(board.id) && matches(board)), [boards, filedIds, matches])
   const [highlight, setHighlight] = useState(-1)
 
@@ -146,14 +166,15 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
 
   const visibleBoards = useMemo(() => {
     const fromCategories = categories.flatMap((category) =>
-      edges
-        .filter((edge) => edge.categoryId === category.id)
+      [...(edgesByCategory.get(category.id) ?? [])]
         .sort((a, b) => a.position - b.position)
-        .map((edge) => boards.find((board) => board.id === edge.boardId))
-        .filter((board): board is ProjectBoardSummary => Boolean(board) && matches(board!)),
+        .flatMap((edge) => {
+          const board = boardsById.get(edge.boardId)
+          return board && matches(board) ? [board] : []
+        }),
     )
     return [...fromCategories, ...unfiled]
-  }, [categories, edges, boards, unfiled, matches])
+  }, [categories, edgesByCategory, boardsById, unfiled, matches])
 
   const pinnedBoards = useMemo(() => {
     return pinnedIds
@@ -342,26 +363,39 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
     return items
   }
 
-  const edgeForBoard = (boardId: string) => edges.find((e) => e.boardId === boardId)
+  const buildBoardMenu = useEvent((board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => boardMenu(board, edge))
+  const buildCategoryMenu = useEvent((node: CategoryTreeNode) => categoryMenu(node))
+  const openBoardContext = useEvent((event: ReactMouseEvent, board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setContextItems(boardMenu(board, edge))
+    setContextLabel(board.title || t('project.boards.untitled'))
+    setContextPoint({ x: event.clientX, y: event.clientY })
+  })
+  const openCategoryContext = useEvent((event: ReactMouseEvent, node: CategoryTreeNode) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setContextItems(categoryMenu(node))
+    setContextLabel(node.name)
+    setContextPoint({ x: event.clientX, y: event.clientY })
+  })
+
+  const edgeForBoard = (boardId: string) => edgeByBoard.get(boardId)
 
   const renderBoard = (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => (
     <BoardEntry
       key={board.id}
       board={board}
       edge={edge}
-      items={boardMenu(board, edge)}
       active={board.id === lastBoard}
       focused={visibleBoards[highlight]?.id === board.id}
       isPinned={pinnedIds.includes(board.id)}
       isStarred={starredIds.includes(board.id)}
-      drag={sidebarDrag}
-      onContextMenu={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        setContextItems(boardMenu(board, edge))
-        setContextLabel(board.title || t('project.boards.untitled'))
-        setContextPoint({ x: event.clientX, y: event.clientY })
-      }}
+      isDropTarget={sidebarDrag.overId === `board:${board.id}` && sidebarDrag.draggingId !== `board:${board.id}`}
+      isDragging={sidebarDrag.draggingId === `board:${board.id}`}
+      buildItems={buildBoardMenu}
+      onDragStart={sidebarDrag.start}
+      onContextMenu={openBoardContext}
     />
   )
 
@@ -385,7 +419,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       const boardId = source.slice('board:'.length)
       if (target.startsWith('category:')) {
         const categoryId = target.slice('category:'.length)
-        if (edges.some((edge) => edge.boardId === boardId && edge.categoryId === categoryId)) return
+        if ((edgesByCategory.get(categoryId) ?? []).some((edge) => edge.boardId === boardId)) return
         void guard(async () => { await addBoardToCategory(categoryId, boardId) })
         return
       }
@@ -393,7 +427,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       const targetId = target.slice('board:'.length)
       const categoryId = edgeForBoard(targetId)?.categoryId ?? ''
       if (!categoryId || boardId === targetId) return
-      const ids = edges.filter((e) => e.categoryId === categoryId).sort((a, b) => a.position - b.position).map((e) => e.boardId).filter((id) => id !== boardId)
+      const ids = [...(edgesByCategory.get(categoryId) ?? [])].sort((a, b) => a.position - b.position).map((e) => e.boardId).filter((id) => id !== boardId)
       const at = ids.indexOf(targetId)
       if (at < 0) return
       ids.splice(at, 0, boardId)
@@ -437,7 +471,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   }
 
   return (
-    <aside ref={asideRef} className="relative flex shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]" style={{ width: `${width}px` }} aria-label={t('project.title')}>
+    <aside ref={asideRef} className="relative flex shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]" style={{ '--pv-sidebar-w': `${width}px`, width: 'var(--pv-sidebar-w)' } as React.CSSProperties} aria-label={t('project.title')}>
       <button
         type="button"
         role="separator"
@@ -458,14 +492,17 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           const startWidth = width
           const target = event.currentTarget
           target.setPointerCapture(event.pointerId)
+          let latest = startWidth
           const move = (moveEvent: PointerEvent) => {
             const next = Math.min(PROJECT_SIDEBAR_MAX_WIDTH, Math.max(PROJECT_SIDEBAR_MIN_WIDTH, startWidth + moveEvent.clientX - startX))
-            setWidth(next)
+            latest = next
+            asideRef.current?.style.setProperty('--pv-sidebar-w', `${next}px`)
           }
           const up = () => {
             target.removeEventListener('pointermove', move)
             target.removeEventListener('pointerup', up)
-            setWidth((current) => { writeSidebarWidthPref(current); return current })
+            setWidth(latest)
+            writeSidebarWidthPref(latest)
           }
           target.addEventListener('pointermove', move)
           target.addEventListener('pointerup', up)
@@ -535,14 +572,8 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
             node={node}
             collapsedMap={collapsedMap}
             onToggleCollapse={toggleCollapseNode}
-            categoryMenu={categoryMenu}
-            onContextMenu={(event, targetNode) => {
-              event.preventDefault()
-              event.stopPropagation()
-              setContextItems(categoryMenu(targetNode))
-              setContextLabel(targetNode.name)
-              setContextPoint({ x: event.clientX, y: event.clientY })
-            }}
+            buildCategoryMenu={buildCategoryMenu}
+            onContextMenu={openCategoryContext}
             renderBoard={renderBoard}
             drag={sidebarDrag}
           />
@@ -580,7 +611,7 @@ function CategoryTreeItem({
   node,
   collapsedMap,
   onToggleCollapse,
-  categoryMenu,
+  buildCategoryMenu,
   onContextMenu,
   renderBoard,
   drag,
@@ -588,7 +619,7 @@ function CategoryTreeItem({
   node: CategoryTreeNode
   collapsedMap: Map<string, boolean>
   onToggleCollapse: (node: CategoryTreeNode) => void
-  categoryMenu: (node: CategoryTreeNode) => MenuItem[]
+  buildCategoryMenu: (node: CategoryTreeNode) => MenuItem[]
   onContextMenu: (event: ReactMouseEvent, node: CategoryTreeNode) => void
   renderBoard: (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => ReactElement
   drag: BandDragState
@@ -642,7 +673,7 @@ function CategoryTreeItem({
           anchor={anchor}
           open={menuOpen}
           onClose={() => setMenuOpen(false)}
-          items={categoryMenu(node)}
+          items={menuOpen ? buildCategoryMenu(node) : []}
           label={node.name}
         />
       </div>
@@ -658,7 +689,7 @@ function CategoryTreeItem({
               node={child}
               collapsedMap={collapsedMap}
               onToggleCollapse={onToggleCollapse}
-              categoryMenu={categoryMenu}
+              buildCategoryMenu={buildCategoryMenu}
               onContextMenu={onContextMenu}
               renderBoard={renderBoard}
               drag={drag}
@@ -670,45 +701,50 @@ function CategoryTreeItem({
   )
 }
 
-function BoardEntry({
+const BoardEntry = memo(function BoardEntry({
   board,
   edge,
-  items,
   active,
   focused,
   isPinned,
   isStarred,
-  drag,
+  isDropTarget,
+  isDragging,
+  buildItems,
+  onDragStart,
   onContextMenu,
 }: {
   board: ProjectBoardSummary
   edge: ProjectCategoryBoard | undefined
-  items: MenuItem[]
   active: boolean
   focused: boolean
   isPinned?: boolean
   isStarred?: boolean
-  drag: BandDragState
-  onContextMenu?: (event: ReactMouseEvent) => void
+  isDropTarget: boolean
+  isDragging: boolean
+  buildItems: (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => MenuItem[]
+  onDragStart: (event: React.PointerEvent, id: string) => void
+  onContextMenu: (event: ReactMouseEvent, board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => void
 }): ReactElement {
   const payload = `board:${board.id}`
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
+  const items = open ? buildItems(board, edge) : []
   return (
     <li
       className={`group/board flex items-center gap-1 ${edge?.hidden ? 'opacity-50' : ''}`}
       data-sidebar-board={board.id}
       data-sidebar-drop={payload}
-      data-drop-target={drag.overId === payload && drag.draggingId !== payload}
-      data-dragging={drag.draggingId === payload}
-      onContextMenu={onContextMenu}
+      data-drop-target={isDropTarget}
+      data-dragging={isDragging}
+      onContextMenu={(event) => onContextMenu(event, board, edge)}
     >
       <button
         type="button"
         className="pv-side-grip"
         data-sidebar-grip={payload}
         aria-label={t('project.sidebar.drag_row', { title: board.title || t('project.boards.untitled') })}
-        onPointerDown={(event) => drag.start(event, payload)}
+        onPointerDown={(event) => onDragStart(event, payload)}
       >
         <GripVertical size={12} aria-hidden="true" />
       </button>
@@ -730,14 +766,10 @@ function BoardEntry({
         {isPinned && <Pin size={11} className="shrink-0 text-[var(--accent)]" />}
         {isStarred && <Star size={11} className="shrink-0 fill-[var(--warning)] text-[var(--warning)]" />}
       </button>
-      {items.length > 0 && (
-        <>
-          <IconButton ref={anchor} label={t('project.boards.menu_label')} size="sm" onClick={() => setOpen(true)}>
-            <MoreHorizontal size={13} />
-          </IconButton>
-          <Menu anchor={anchor} open={open} onClose={() => setOpen(false)} items={items} label={t('project.boards.menu_label')} />
-        </>
-      )}
+      <IconButton ref={anchor} label={t('project.boards.menu_label')} size="sm" onClick={() => setOpen(true)}>
+        <MoreHorizontal size={13} />
+      </IconButton>
+      <Menu anchor={anchor} open={open} onClose={() => setOpen(false)} items={items} label={t('project.boards.menu_label')} />
     </li>
   )
-}
+})
