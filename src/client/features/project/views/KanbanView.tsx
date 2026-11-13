@@ -80,13 +80,16 @@ export function KanbanView(props: KanbanProps): ReactElement {
     [groupProperty, fields, groups],
   )
   const allIds = useMemo(() => new Set(cards.map((card) => card.id)), [cards])
+  const selectedSet = useMemo(() => new Set(selected), [selected])
+  const starredSet = useMemo(() => new Set(props.starredCards), [props.starredCards])
+  const pinnedSet = useMemo(() => new Set(props.pinnedCards), [props.pinnedCards])
   const columns = useMemo(() => keys.map((key) => {
     const bucket = groups.get(key) ?? []
     const roots = bucket.filter((card) => !card.parentId || !allIds.has(card.parentId))
     // A pinned card leads its column without leaving it: the pin is a marker, not a second bucket.
-    const pinned = roots.filter((card) => props.pinnedCards.includes(card.id))
-    return { key, cards: [...pinned, ...roots.filter((card) => !props.pinnedCards.includes(card.id))] }
-  }), [keys, groups, allIds, props.pinnedCards])
+    const pinned = roots.filter((card) => pinnedSet.has(card.id))
+    return { key, cards: [...pinned, ...roots.filter((card) => !pinnedSet.has(card.id))] }
+  }), [keys, groups, allIds, pinnedSet])
   const chipProperties = useMemo(() => (fields.visiblePropertyIds.length
     ? fields.visiblePropertyIds.map((id) => properties.find((property) => property.id === id)).filter((property): property is ProjectProperty => Boolean(property))
     : properties), [fields.visiblePropertyIds, properties])
@@ -94,8 +97,8 @@ export function KanbanView(props: KanbanProps): ReactElement {
   const todayStamp = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
 
   const onDrop = (cardId: string, target: DragDropTarget): void => {
-    const bulk = selected.length > 1 && selected.includes(cardId)
-    const draggedIds = bulk ? cards.filter((card) => selected.includes(card.id)).map((card) => card.id) : [cardId]
+    const bulk = selected.length > 1 && selectedSet.has(cardId)
+    const draggedIds = bulk ? cards.filter((card) => selectedSet.has(card.id)).map((card) => card.id) : [cardId]
     const order = projectKanbanDropOrder({
       columns: columns.map((column) => ({ key: column.key, cardIds: column.cards.map((card) => card.id) })),
       cardOrder: fields.cardOrder,
@@ -115,7 +118,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
   }
   const drag = useDragSort({
     enabled: canEdit,
-    groupOf: (id) => (selected.length > 1 && selected.includes(id) ? selected : [id]),
+    groupOf: (id) => (selected.length > 1 && selectedSet.has(id) ? selected : [id]),
     onDrop,
   })
 
@@ -168,6 +171,9 @@ export function KanbanView(props: KanbanProps): ReactElement {
           dragColumn={columnDrag.draggingId}
           overColumn={columnDrag.overId}
           onColumnDragStart={(event) => columnDrag.start(event, column.key)}
+          selectedSet={selectedSet}
+          starredSet={starredSet}
+          pinnedSet={pinnedSet}
         />
       ))}
       {canEdit && groupProperty && (
@@ -210,8 +216,11 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
   dragColumn: string | null
   overColumn: string | null
   onColumnDragStart: (event: React.PointerEvent) => void
+  selectedSet: ReadonlySet<string>
+  starredSet: ReadonlySet<string>
+  pinnedSet: ReadonlySet<string>
 }): ReactElement {
-  const { canEdit, subtasksByParent, selected, canMarkDone = true } = props
+  const { canEdit, subtasksByParent, selectedSet, starredSet, pinnedSet, canMarkDone = true } = props
   const people = useProjectPeople()
   const locale = useLocale()
   const label = columnKey === '' ? t('project.view.no_value') : projectGroupLabel(groupProperty, columnKey, people, locale)
@@ -338,7 +347,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
                       data-project-card={card.id}
                       data-density={fields.cardSize ?? 'comfortable'}
                       data-layout={layout}
-                      data-selected={selected.includes(card.id)}
+                      data-selected={selectedSet.has(card.id)}
                       data-done={isProjectCardDone(card, properties)}
                       data-dragging={drag.draggingId === card.id}
                       style={{ '--pv-card-color': colorOf(card) } as React.CSSProperties}
@@ -355,8 +364,8 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
                         todayStamp={todayStamp}
                         rich={layout === 'card'}
                         description={props.descriptionFor(card.id)}
-                        starred={props.starredCards.includes(card.id)}
-                        pinned={props.pinnedCards.includes(card.id)}
+                        starred={starredSet.has(card.id)}
+                        pinned={pinnedSet.has(card.id)}
                       >
                         <button
                           type="button"

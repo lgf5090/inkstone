@@ -71,7 +71,7 @@ export function useDragSort(options: {
     const startY = event.clientY
     let begun = false
     let ghost: HTMLElement | null = null
-    let items: ItemRect[] = []
+    let itemsByZone = new Map<string, ItemRect[]>()
     let zones: ZoneRect[] = []
     let scrollers: HTMLElement[] = []
     let scrollBase: { top: number, left: number }[] = []
@@ -90,13 +90,13 @@ export function useDragSort(options: {
         const rect = el.getBoundingClientRect()
         return { key: el.dataset.dragZone ?? '', el, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
       })
-      items = []
+      itemsByZone = new Map()
       for (const zone of zones) {
         const cards = [...zone.el.querySelectorAll<HTMLElement>('[data-drag-item]')]
-        cards.forEach((el, index) => {
+        itemsByZone.set(zone.key, cards.map((el, index) => {
           const rect = el.getBoundingClientRect()
-          items.push({ id: el.dataset.dragId ?? '', zone: zone.key, top: rect.top, height: rect.height, index })
-        })
+          return { id: el.dataset.dragId ?? '', zone: zone.key, top: rect.top, height: rect.height, index }
+        }))
       }
       scrollers = []
       let node: HTMLElement | null = root
@@ -150,7 +150,7 @@ export function useDragSort(options: {
       const inBand = zones.filter((entry) => x >= entry.left - dx && x <= entry.right - dx)
       const zone = inBand.find((entry) => y >= entry.top - dy && y <= entry.bottom - dy) ?? inBand[0]
       if (!zone) return latest
-      const siblings = items.filter((entry) => entry.zone === zone.key && !group.has(entry.id))
+      const siblings = (itemsByZone.get(zone.key) ?? []).filter((entry) => !group.has(entry.id))
       let index = 0
       for (const entry of siblings) {
         if (y > entry.top - dy + entry.height / 2) index += 1
@@ -161,17 +161,17 @@ export function useDragSort(options: {
     const paint = (): void => {
       frame = 0
       if (ghost) ghost.style.transform = `translate3d(${lastX - offsetX}px, ${lastY - offsetY}px, 0)`
+      const next = resolve(lastX, lastY)
+      if (next && (next.zone !== latest?.zone || next.index !== latest?.index)) {
+        latest = next
+        setOver(next)
+      }
       for (const el of scrollers) {
         const rect = el.getBoundingClientRect()
         if (lastY < rect.top + EDGE) el.scrollTop -= EDGE_SPEED
         else if (lastY > rect.bottom - EDGE) el.scrollTop += EDGE_SPEED
         if (lastX < rect.left + EDGE) el.scrollLeft -= EDGE_SPEED
         else if (lastX > rect.right - EDGE) el.scrollLeft += EDGE_SPEED
-      }
-      const next = resolve(lastX, lastY)
-      if (next && (next.zone !== latest?.zone || next.index !== latest?.index)) {
-        latest = next
-        setOver(next)
       }
       if (begun) frame = requestAnimationFrame(paint)
     }

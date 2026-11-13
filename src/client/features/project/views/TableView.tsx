@@ -42,6 +42,7 @@ export interface TableProps {
 
 export function TableView(props: TableProps): ReactElement {
   const { bundle, cards, columns, fields, canEdit, selected, subtasksByParent } = props
+  const selectedSet = useMemo(() => new Set(selected), [selected])
   const locale = useLocale()
   const [limit, setLimit] = useState(PAGE)
   const [editing, setEditing] = useState<{ cardId: string, propertyId: string } | null>(null)
@@ -133,7 +134,7 @@ export function TableView(props: TableProps): ReactElement {
       <Fragment key={card.id}>
         <tr
           data-project-card={card.id}
-          data-selected={selected.includes(card.id)}
+          data-selected={selectedSet.has(card.id)}
           data-child={child}
           className={rowPad}
           onContextMenu={(event) => props.onCardContextMenu(event, card)}
@@ -142,7 +143,7 @@ export function TableView(props: TableProps): ReactElement {
             <td className="w-9 px-2">
               <Checkbox
                 ariaLabel={card.title || t('project.board.untitled_card')}
-                checked={selected.includes(card.id)}
+                checked={selectedSet.has(card.id)}
                 onChange={(checked) => props.onSelected(checked ? [...selected, card.id] : selected.filter((id) => id !== card.id))}
               />
             </td>
@@ -227,7 +228,7 @@ export function TableView(props: TableProps): ReactElement {
               <th scope="col" className="w-9 px-2">
                 <Checkbox
                   ariaLabel={t('project.view.select_all')}
-                  checked={cards.length > 0 && cards.every((card) => selected.includes(card.id))}
+                  checked={cards.length > 0 && cards.every((card) => selectedSet.has(card.id))}
                   onChange={(checked) => props.onSelected(checked ? cards.map((card) => card.id) : [])}
                 />
               </th>
