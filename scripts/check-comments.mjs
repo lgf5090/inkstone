@@ -41049,6 +41049,9 @@ const allowed = new Map([
     "// edit and two people timing the same card cannot overwrite each other.",
     "// Relation targets, formulas and role restrictions live beside the property rather than in four",
     "// nullable columns that only one property type uses.",
+    "// The project FTS tables were declared but never written or read: search scans the live rows with",
+    "// LIKE. Removing the declarations leaves old databases carrying two empty tables, so the ledger",
+    "// spends a version dropping them rather than leaving a shape a fresh boot no longer has.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -42779,16 +42782,12 @@ const allowed = new Map([
     "// No Category.sorting column: the reference declares it but never reads or writes it, so order is",
     "// carried entirely by project_category_boards.position.",
     "// No subscriber type column: the reference's `channel` subscribers have no counterpart here.",
-    "// Its own queue rather than notes' fts_index_queue: that table keys on note_id and its drain reads",
-    "// FROM notes, so sharing it would mean editing the notes search write path.",
-    "// project_fts is deliberately absent: the boot's column repair replays CREATE TABLE declarations, and",
-    "// an fts5 virtual table has none to replay — its columns are changed by rebuilding it, not by ADD COLUMN.",
     "// The public link is read-only; comments are internal discussion unless the owner opts in.",
     "/** One row per worked interval on a card; `ended_at` null means the timer is still running. */",
     "/**\n * Per-property settings that are not part of the column list: which board a relation points at, a\n * formula, or which roles may read and edit the property. Kept beside `project_properties` so the\n * hot property table's shape does not change for every new capability.\n */",
   ]],
   ["src/worker/project/search.ts", [
-    "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. Cards match on their title,\n * their content blocks and their comments; the reserved project_fts table remains the indexed\n * follow-up once the write-path queue is wired.\n */",
+    "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. Cards match on their title,\n * their content blocks, their comments and their property values. The scan is bounded by the number of\n * readable boards and the result limit, so no index table is needed to keep it correct.\n */",
   ]],
   ["src/worker/project/shares.ts", [
     "/**\n * The passcode ledger, keyed per surface.\n *\n * The note share and the collection directory budget the same gate with the same numbers; a project's\n * public answer is wider than either — the whole board bundle — so an unbudgeted slug would be the\n * cheapest of the three to walk. The namespace is its own so probing a board can never lock a note's\n * reader out, and the budgets match so no surface is the soft one.\n */",

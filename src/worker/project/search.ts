@@ -1,8 +1,8 @@
 /**
  * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any
  * matching, so a private board's titles never leak through a search hit. Cards match on their title,
- * their content blocks and their comments; the reserved project_fts table remains the indexed
- * follow-up once the write-path queue is wired.
+ * their content blocks, their comments and their property values. The scan is bounded by the number of
+ * readable boards and the result limit, so no index table is needed to keep it correct.
  */
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { ProjectStore } from './store'

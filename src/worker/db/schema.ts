@@ -242,7 +242,6 @@ import {
   PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
   PROJECT_TIME_SCHEMA_STATEMENTS,
   PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS,
-  PROJECT_FTS_SCHEMA_STATEMENTS,
   PROJECT_REQUIRED_COLUMNS,
   PROJECT_REQUIRED_INDEXES,
   PROJECT_REQUIRED_TABLES,
@@ -858,8 +857,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...PROJECT_RELATION_SCHEMA_STATEMENTS,
   ...PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
   ...PROJECT_TIME_SCHEMA_STATEMENTS,
-  ...PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS,
-  ...PROJECT_FTS_SCHEMA_STATEMENTS,]
+  ...PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS,]
 
 export interface SchemaMigration {
   version: number
@@ -4245,10 +4243,6 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: PROJECT_ENHANCE_SCHEMA_STATEMENTS,
   },
   {
-    version: 389,
-    statements: PROJECT_FTS_SCHEMA_STATEMENTS,
-  },
-  {
     // The view type list lives in PROJECT_VIEW_TYPES and is enforced by ProjectViewTypeSchema at the
     // API boundary. The table used to repeat it as a CHECK, which a new view type could not get past:
     // CREATE TABLE IF NOT EXISTS leaves an existing constraint alone, so adding 'dashboard' to the
@@ -4330,6 +4324,17 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 399,
     skipIfColumnExists: { table: 'project_cards', column: 'completed_at' },
     statements: ['ALTER TABLE project_cards ADD COLUMN completed_at INTEGER'],
+  },
+  {
+    // The project FTS tables were declared but never written or read: search scans the live rows with
+    // LIKE. Removing the declarations leaves old databases carrying two empty tables, so the ledger
+    // spends a version dropping them rather than leaving a shape a fresh boot no longer has.
+    version: 400,
+    statements: [
+      'DROP INDEX IF EXISTS idx_project_fts_queue_due',
+      'DROP TABLE IF EXISTS project_fts_queue',
+      'DROP TABLE IF EXISTS project_fts',
+    ],
   },
 ]
 

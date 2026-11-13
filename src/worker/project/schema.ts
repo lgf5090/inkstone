@@ -343,24 +343,6 @@ export const PROJECT_AUTOMATION_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_automations(board_id, enabled)`,
 ]
 
-// Its own queue rather than notes' fts_index_queue: that table keys on note_id and its drain reads
-// FROM notes, so sharing it would mean editing the notes search write path.
-export const PROJECT_FTS_SCHEMA_STATEMENTS: readonly string[] = [
-  `CREATE VIRTUAL TABLE IF NOT EXISTS project_fts USING fts5(
-    board_id, card_id, user_id, title, body,
-    tokenize = "unicode61 remove_diacritics 2"
-  )`,
-  `CREATE TABLE IF NOT EXISTS project_fts_queue (
-    user_id TEXT NOT NULL,
-    card_id TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK (kind IN ('upsert','delete')),
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (user_id, card_id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_project_fts_queue_due
-     ON project_fts_queue(user_id, created_at, card_id)`,
-]
-
 export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_boards',
   'project_board_members',
@@ -383,8 +365,6 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_automations',
   'project_time_entries',
   'project_property_configs',
-  'project_fts_queue',
-  'project_fts',
 ]
 
 export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
@@ -416,11 +396,8 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_card_relations_to',
   'idx_project_card_relations_board',
   'idx_project_automations_board',
-  'idx_project_fts_queue_due',
 ]
 
-// project_fts is deliberately absent: the boot's column repair replays CREATE TABLE declarations, and
-// an fts5 virtual table has none to replay — its columns are changed by rebuilding it, not by ADD COLUMN.
 export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   project_boards: [
     'id', 'owner_id', 'type', 'minimum_role', 'title', 'description', 'icon', 'show_description',
@@ -469,5 +446,4 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   project_todo_links: ['card_id', 'todo_id', 'user_id', 'created_at'],
   project_card_relations: ['board_id', 'from_card_id', 'to_card_id', 'property_id', 'created_at'],
   project_automations: ['id', 'board_id', 'trigger', 'condition', 'action', 'enabled', 'created_by', 'created_at', 'updated_at'],
-  project_fts_queue: ['user_id', 'card_id', 'kind', 'created_at'],
 }

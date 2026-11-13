@@ -10,7 +10,6 @@ import {
   PROJECT_ENHANCE_SCHEMA_STATEMENTS,
   PROJECT_RELATION_SCHEMA_STATEMENTS,
   PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
-  PROJECT_FTS_SCHEMA_STATEMENTS,
   PROJECT_REQUIRED_COLUMNS,
   PROJECT_REQUIRED_INDEXES,
   PROJECT_REQUIRED_TABLES,
@@ -23,7 +22,6 @@ const PROJECT_STATEMENTS = [
   ...PROJECT_ENHANCE_SCHEMA_STATEMENTS,
   ...PROJECT_RELATION_SCHEMA_STATEMENTS,
   ...PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
-  ...PROJECT_FTS_SCHEMA_STATEMENTS,
 ]
 
 let sqlite: DatabaseSync
@@ -93,14 +91,16 @@ describe('the project tables', () => {
     // The project block follows the ledger the rest of the app already spent, so it is found by the
     // statements it carries rather than by a version number another feature may claim first.
     const projectMigrations = SCHEMA_MIGRATIONS.filter((entry) => entry.statements.some((statement) => PROJECT_STATEMENTS.includes(statement)))
-    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 389, 397, 398])
+    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 397, 398])
     for (const entry of projectMigrations) migrated.exec(entry.statements.join(';'))
 
     const shape = (db: DatabaseSync): string[] =>
       (db.prepare(`SELECT name, sql FROM sqlite_master WHERE name LIKE 'project_%' ORDER BY name`).all() as Array<{ name: string; sql: string | null }>)
         .map((row) => `${row.name}: ${row.sql}`)
     expect(shape(migrated)).toEqual(shape(sqlite))
-    expect(shape(migrated).length).toBeGreaterThan(PROJECT_REQUIRED_TABLES.length)
+    for (const table of PROJECT_REQUIRED_TABLES) {
+      expect(shape(migrated).some((row) => row.startsWith(`${table}: `))).toBe(true)
+    }
   })
 
   it('key each row the way a board-scoped lookup reads it', () => {
@@ -115,7 +115,7 @@ describe('the project tables', () => {
     expect(primaryKey('project_activity')).toEqual(['board_id', 'id'])
     expect(primaryKey('project_card_links')).toEqual(['from_card_id', 'to_card_id', 'kind'])
     expect(primaryKey('project_todo_links')).toEqual(['card_id', 'todo_id'])
-    expect(primaryKey('project_fts_queue')).toEqual(['user_id', 'card_id'])
+    expect(primaryKey('project_time_entries')).toEqual(['id'])
   })
 
   it('start a board private, undeleted and empty without being told', () => {
@@ -163,7 +163,8 @@ describe('the project tables', () => {
        VALUES ('c1', 'c2', 'duplicates', 'b1', 1)`,
     ).run()).toThrow()
     expect(() => sqlite.prepare(
-      `INSERT INTO project_fts_queue (user_id, card_id, kind, created_at) VALUES ('u1', 'c1', 'reindex', 1)`,
+      `INSERT INTO project_attachments (id, user_id, board_id, filename, mime, size, storage, object_key, created_at, updated_at)
+       VALUES ('i1', 'u1', 'b1', 'a.png', 'image/png', 1, 's3', 'k', 1, 1)`,
     ).run()).toThrow()
   })
 
@@ -191,13 +192,10 @@ describe('the project tables', () => {
     sqlite.prepare(link).run('c1', 't2')
   })
 
-  it('index a card body and find it again by a word inside it', () => {
-    sqlite.prepare(
-      `INSERT INTO project_fts (board_id, card_id, user_id, title, body) VALUES (?, ?, ?, ?, ?)`,
-    ).run('b1', 'c1', 'u1', 'Roadmap', 'ship the exporter')
-    const rows = sqlite.prepare(
-      `SELECT card_id FROM project_fts WHERE project_fts MATCH ? AND user_id = ?`,
-    ).all('exporter', 'u1') as Array<{ card_id: string }>
-    expect(rows.map((row) => row.card_id)).toEqual(['c1'])
+  it('leave no full-text index tables behind now that search reads the live rows', () => {
+    const tables = names('table')
+    expect(tables.has('project_fts')).toBe(false)
+    expect(tables.has('project_fts_queue')).toBe(false)
+    expect(names('index').has('idx_project_fts_queue_due')).toBe(false)
   })
 })
