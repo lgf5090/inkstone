@@ -25,6 +25,7 @@ import {
   PROJECT_VIEW_TYPES,
 } from './model'
 import { PROJECT_TOKEN_SCOPES, PROJECT_WEBHOOK_EVENTS } from './integrations'
+import { PROJECT_SPRINT_STATUSES } from './stats'
 
 const projectId = z.string().refine(isProjectId, 'invalid id')
 // zod's string max counts code points, not UTF-16 units, which is the unit the reference's ceiling is
@@ -227,6 +228,24 @@ export type ProjectWebhookCreateInput = z.infer<typeof ProjectWebhookCreateSchem
 
 export const ProjectWebhookPatchSchema = ProjectWebhookCreateSchema.partial()
 export type ProjectWebhookPatchInput = z.infer<typeof ProjectWebhookPatchSchema>
+
+export const ProjectSprintCreateSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  goal: z.string().max(1000).optional(),
+  startAt: stamp,
+  endAt: stamp,
+  status: z.enum(PROJECT_SPRINT_STATUSES).optional(),
+}).refine((value) => value.endAt >= value.startAt, { message: 'endAt must not precede startAt' })
+export type ProjectSprintCreateInput = z.infer<typeof ProjectSprintCreateSchema>
+
+export const ProjectSprintPatchSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  goal: z.string().max(1000).optional(),
+  startAt: stamp.optional(),
+  endAt: stamp.optional(),
+  status: z.enum(PROJECT_SPRINT_STATUSES).optional(),
+})
+export type ProjectSprintPatchInput = z.infer<typeof ProjectSprintPatchSchema>
 
 export const ProjectViewCreateSchema = z.object({
   id: projectId.optional(),

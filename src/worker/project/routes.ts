@@ -21,6 +21,8 @@ import {
   ProjectCommentPatchSchema,
   ProjectDefaultViewPutSchema,
   ProjectApiTokenCreateSchema,
+  ProjectSprintCreateSchema,
+  ProjectSprintPatchSchema,
   ProjectWebhookCreateSchema,
   ProjectWebhookPatchSchema,
   ProjectContentCreateSchema,
@@ -54,6 +56,10 @@ import {
   createProjectWebhook, deleteProjectWebhook, deliverProjectWebhook,
   enqueueProjectWebhookEvents, listProjectWebhooks, patchProjectWebhook,
 } from './webhooks'
+import {
+  createProjectSprint, deleteProjectSprint, getProjectSprint, listProjectSprints,
+  patchProjectSprint, readSprintDetail, setCardSprint,
+} from './sprints'
 import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
 import { projectBoardCursor, readProjectBoardBundle, rowToComment, rowToContent, touchProjectBoard } from './bundle'
 import {
@@ -661,6 +667,58 @@ projectRoutes.patch('/boards/:id/webhooks/:hookId', async (c) => {
 projectRoutes.delete('/boards/:id/webhooks/:hookId', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'admin')
   await deleteProjectWebhook(c.env.DB, board.id, c.req.param('hookId'))
+  return c.json({ ok: true })
+})
+
+projectRoutes.get('/boards/:id/sprints', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ sprints: await listProjectSprints(c.env.DB, board.id) })
+})
+
+projectRoutes.post('/boards/:id/sprints', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectSprintCreateSchema, JSON_BODY_LIMITS.small)
+  return c.json({ sprint: await createProjectSprint(c.env.DB, board.id, userId, input, Date.now()) }, 201)
+})
+
+projectRoutes.get('/boards/:id/sprints/:sprintId', async (c) => {
+  const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const detail = await readSprintDetail(c.env.DB, board, role, c.req.param('sprintId'), Date.now())
+  if (!detail) throw ApiError.notFound('Sprint not found')
+  return c.json(detail)
+})
+
+projectRoutes.patch('/boards/:id/sprints/:sprintId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectSprintPatchSchema, JSON_BODY_LIMITS.small)
+  const sprint = await patchProjectSprint(c.env.DB, board.id, c.req.param('sprintId'), input, Date.now())
+  if (!sprint) throw ApiError.notFound('Sprint not found')
+  return c.json({ sprint })
+})
+
+projectRoutes.delete('/boards/:id/sprints/:sprintId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'editor')
+  await deleteProjectSprint(c.env.DB, board.id, c.req.param('sprintId'), Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.put('/boards/:id/sprints/:sprintId/cards/:cardId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'editor')
+  const sprintId = c.req.param('sprintId')
+  const sprint = await getProjectSprint(c.env.DB, board.id, sprintId)
+  if (!sprint) throw ApiError.notFound('Sprint not found')
+  const cardId = c.req.param('cardId')
+  const card = await getProjectCardRow(c.env.DB, cardId)
+  if (!card || card.board_id !== board.id || card.delete_at !== 0) throw ApiError.notFound('Card not found')
+  await setCardSprint(c.env.DB, board.id, cardId, sprintId, Date.now())
+  return c.json({ ok: true })
+})
+
+projectRoutes.delete('/boards/:id/sprints/:sprintId/cards/:cardId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'editor')
+  const sprint = await getProjectSprint(c.env.DB, board.id, c.req.param('sprintId'))
+  if (!sprint) throw ApiError.notFound('Sprint not found')
+  await setCardSprint(c.env.DB, board.id, c.req.param('cardId'), null, Date.now())
   return c.json({ ok: true })
 })
 

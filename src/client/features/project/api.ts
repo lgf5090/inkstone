@@ -31,6 +31,7 @@ import type {
 import type { ProjectContentCreateInput, ProjectContentPatchInput } from '@shared/project/validation'
 import type { ProjectRelationBackReference, ProjectRelationOption } from '@shared/project/relation'
 import type { ProjectAutomation, ProjectAutomationAction, ProjectAutomationCondition, ProjectAutomationTrigger } from '@shared/project/automation'
+import type { ProjectSprint, ProjectSprintBurndown, ProjectSprintStatus } from '@shared/project/stats'
 import type { ProjectBoardCreateInput, ProjectCardCreateInput } from '@shared/project/validation'
 
 export async function fetchProjectBoards(signal?: AbortSignal): Promise<ProjectBoardSummary[]> {
@@ -547,4 +548,49 @@ export async function patchProjectWebhook(boardId: string, id: string, patch: { 
 
 export async function deleteProjectWebhook(boardId: string, id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export interface ProjectSprintInput {
+  name: string
+  goal?: string
+  startAt: number
+  endAt: number
+  status?: ProjectSprintStatus
+}
+
+export async function fetchProjectSprints(boardId: string, signal?: AbortSignal): Promise<ProjectSprint[]> {
+  const body = await request<{ sprints: ProjectSprint[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints`, { signal })
+  return body.sprints
+}
+
+export async function createProjectSprint(boardId: string, input: ProjectSprintInput): Promise<ProjectSprint> {
+  const body = await request<{ sprint: ProjectSprint }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints`, { method: 'POST', body: input })
+  return body.sprint
+}
+
+export async function patchProjectSprint(boardId: string, id: string, patch: Partial<ProjectSprintInput>): Promise<ProjectSprint> {
+  const body = await request<{ sprint: ProjectSprint }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
+  return body.sprint
+}
+
+export async function deleteProjectSprint(boardId: string, id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export interface ProjectSprintDetail {
+  sprint: ProjectSprint
+  cards: ProjectCard[]
+  burndown: ProjectSprintBurndown
+}
+
+export async function fetchProjectSprintDetail(boardId: string, sprintId: string, signal?: AbortSignal): Promise<ProjectSprintDetail> {
+  return request<ProjectSprintDetail>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints/${encodeURIComponent(sprintId)}`, { signal })
+}
+
+export async function assignCardToSprint(boardId: string, sprintId: string, cardId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints/${encodeURIComponent(sprintId)}/cards/${encodeURIComponent(cardId)}`, { method: 'PUT' })
+}
+
+export async function removeCardFromSprint(boardId: string, sprintId: string, cardId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints/${encodeURIComponent(sprintId)}/cards/${encodeURIComponent(cardId)}`, { method: 'DELETE' })
 }

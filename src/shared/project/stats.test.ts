@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectCard, ProjectProperty } from './model'
-import { projectEffortStats, projectPriorityBuckets, projectPriorityProperty, projectWeeklyCompletions } from './stats'
+import { projectEffortStats, projectPriorityBuckets, projectPriorityProperty, projectSprintBurndown, projectWeeklyCompletions, type ProjectSprint } from './stats'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, deleteAt: 0 }
 const status: ProjectProperty = { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'open', value: 'Open', color: '' }, { id: 'done', value: 'Done', color: '' }] }
@@ -52,6 +52,37 @@ describe('weekly completions', () => {
 
   it('returns empty weeks rather than dropping them when nothing was finished', () => {
     expect(projectWeeklyCompletions([card('open', { ps: 'open' }, day(10))], [status], today, 3).map((week) => week.count)).toEqual([0, 0, 0])
+  })
+})
+
+describe('sprint burndown', () => {
+  const sprint: ProjectSprint = {
+    id: 'r1', boardId: 'b1', name: 'Sprint 1', goal: '',
+    startAt: new Date(2026, 10, 9).getTime(), endAt: new Date(2026, 10, 12).getTime(),
+    status: 'active', createdBy: 'u1', createdAt: 1, updatedAt: 1,
+  }
+  const today = new Date(2026, 10, 11, 12).getTime()
+  const day = (d: number): number => new Date(2026, 10, d, 10).getTime()
+
+  it('draws an ideal line to zero and an actual line that drops on the completion day', () => {
+    const cards = [
+      { ...card('a', { ps: 'done' }), completedAt: day(10) },
+      card('b', { ps: 'open' }),
+    ]
+    const result = projectSprintBurndown(cards, [status], sprint, today)
+    expect(result.total).toBe(2)
+    expect(result.points).toHaveLength(4)
+    expect(result.points.map((point) => point.ideal)).toEqual([2, 1.3, 0.7, 0])
+    expect(result.points.map((point) => point.remaining)).toEqual([2, 1, 1, 1])
+    expect(result.completed).toBe(1)
+    expect(result.velocity).toBe(0.33)
+  })
+
+  it('bounds a sprint that runs longer than a quarter', () => {
+    const long = { ...sprint, endAt: new Date(2027, 5, 1).getTime() }
+    const result = projectSprintBurndown([], [status], long, today)
+    expect(result.points).toHaveLength(92)
+    expect(result.velocity).toBe(0)
   })
 })
 

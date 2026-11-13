@@ -13008,6 +13008,9 @@ const allowed = new Map([
   ["src/client/features/project/views/ScheduleViews.test.tsx", [
     "// The axis opens centred on today; start the drag from a known scroll offset.",
   ]],
+  ["src/client/features/project/views/SprintView.tsx", [
+    "/**\n * Iterations: one scope of cards, an ideal line and the line the board actually drew. The SVG is\n * named for a reader and backed by a table of the same numbers, so the chart is not the only way to\n * read the burn-down.\n */",
+  ]],
   ["src/client/features/project/views/TableView.test.tsx", [
     "// jsdom lays nothing out, so the drag reads the bands a real table would report.",
   ]],
@@ -31502,7 +31505,6 @@ const allowed = new Map([
     "/* The printed page is the design canvas, and every sheet stamps these with its own numbers on\n   `[data-deck-print]`. They are declared here as well so a page drawn before that style lands — or a\n   reader with the sheet's stylesheet blocked — gets a page of the right shape rather than a zero-wide\n   one, and so the token gate can see a definition for a name the sheet writes from a template. */",
   ]],
   ["src/client/styles/project-views.css", [
-    "/**\n * The project planning surfaces: board, table, gallery, calendar, list, timeline, gantt, chart,\n * dashboard and collection. One visual language for all ten — hairline grids on a sunken canvas,\n * colour carried by the card's own option rather than by decoration, and a sticky head that never\n * scrolls away from the rows it labels.\n *\n * Every colour, radius and step comes from tokens.css; the only literals here are geometry that\n * belongs to a view (row height, frozen column width) and is named once at the top.\n */",
     "/* Geometry every project surface shares. Declared at the root rather than on `.pv` so a fragment\n   rendered outside a shell — a swimlane's board, a portal'd bar — still resolves its own steps. */",
     "/* ── Scrollbars: the surface draws its own, in its own palette ───────────────── */",
     "/* ── View head: what the reader is looking at, and how much of it ────────────── */",
@@ -31535,6 +31537,7 @@ const allowed = new Map([
     "/* ── File preview: the reference's right-hand pane, for a cloud attachment ───── */",
     "/* `body.` outranks a descendant's own one-class cursor rule, so the drag cursor wins on specificity\n   alone and the stylesheet keeps its zero-override budget. */",
     "/* Dragging flips this once on the body; every grabbable surface reads it, so the drag cursor wins\n     without a specificity war or an override the stylesheet budget would have to carry. */",
+    "/**\n * The project planning surfaces: board, table, gallery, calendar, list, timeline, gantt, chart,\n * dashboard, collection and sprint. One visual language for all eleven — hairline grids on a sunken canvas,\n * colour carried by the card's own option rather than by decoration, and a sticky head that never\n * scrolls away from the rows it labels.\n *\n * Every colour, radius and step comes from tokens.css; the only literals here are geometry that\n * belongs to a view (row height, frozen column width) and is named once at the top.\n */",
   ]],
   ["src/client/styles/properties.css", [
     "/* The preview pane can be far narrower than the window, so the stack point is measured on the panel. */",
@@ -33550,6 +33553,8 @@ const allowed = new Map([
     "/** The select property whose options read as priority levels, if the board has one. */",
     "/**\n * Cards finished in each of the last `weeks` weeks, oldest first.\n *\n * \"Finished\" is the done test the whole app uses, dated by the card's last edit — the only timestamp\n * a card carries that can stand in for a completion time.\n */",
     "/** Sum, mean and peak of a numeric property — the reference's time panel, over whatever the board measures. */",
+    "/** A sprint longer than a quarter gets no more than one point per day, so the chart stays bounded. */",
+    "/**\n * Scope, ideal line and actual line for one iteration. A card counts as finished on the day its\n * `completedAt` fell; older cards that predate that column fall back to the same update stamp the\n * four-week trend uses, so a board imported from an archive still draws a line.\n */",
   ]],
   ["src/shared/project/templates.ts", [
     "/**\n * The built-in board templates, rewritten as starting points rather than copied verbatim: each carries\n * its property set, its views and a couple of sample cards so a new board is immediately usable. Ids\n * are stable 27-character slugs so re-instantiating a template never collides with a live board's ids\n * (the importer assigns fresh ids anyway).\n */",
@@ -42802,6 +42807,7 @@ const allowed = new Map([
     "/** One row per worked interval on a card; `ended_at` null means the timer is still running. */",
     "/**\n * Per-property settings that are not part of the column list: which board a relation points at, a\n * formula, or which roles may read and edit the property. Kept beside `project_properties` so the\n * hot property table's shape does not change for every new capability.\n */",
     "/** Machine credentials and outbound deliveries. Token bytes are never stored; only their SHA-256. */",
+    "/** Iterations own cards through an edge table, so a card can move between sprints without an ALTER. */",
   ]],
   ["src/worker/project/search.ts", [
     "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. Cards match on their title,\n * their content blocks, their comments and their property values. The scan is bounded by the number of\n * readable boards and the result limit, so no index table is needed to keep it correct.\n */",
@@ -42809,6 +42815,10 @@ const allowed = new Map([
   ["src/worker/project/shares.ts", [
     "/**\n * The passcode ledger, keyed per surface.\n *\n * The note share and the collection directory budget the same gate with the same numbers; a project's\n * public answer is wider than either — the whole board bundle — so an unbudgeted slug would be the\n * cheapest of the three to walk. The namespace is its own so probing a board can never lock a note's\n * reader out, and the budgets match so no surface is the soft one.\n */",
     "/**\n * Public read-only sharing, modelled on the assistant's share links: a slug is the capability, an\n * optional password hash gates it, and an expiry lapses it. The hash never leaves the server; the\n * management answer carries only `hasPassword`. Reading increments the view counter and returns the\n * board bundle at viewer role, trimmed to the entities the shared board actually renders: neither the\n * member roster nor names referenced only by hidden comments travel to an anonymous reader.\n */",
+  ]],
+  ["src/worker/project/sprints.ts", [
+    "/**\n * Iterations are board-owned, but a card's membership is an edge: moving a card between sprints is\n * one upsert, and deleting a sprint leaves its cards on the board rather than deleting work.\n */",
+    "/** Scope and both burndown lines come from the same bundle the other views were handed. */",
   ]],
   ["src/worker/project/statistics.ts", [
     "/**\n * Personal statistics: how many boards this account can see and how many cards live on them. The\n * reference reported site-wide counts; a self-hosted instance only needs the caller's own. Visibility\n * is the same rule the board list uses, so the two never disagree about what counts.\n */",

@@ -105,7 +105,7 @@ export const PROJECT_CALCULATIONS = [
 export type ProjectCalculation = (typeof PROJECT_CALCULATIONS)[number]
 
 /** Four the reference draws, then four this port adds; an imported archive only ever names the first four. */
-export const PROJECT_VIEW_TYPES = ['board', 'table', 'gallery', 'calendar', 'list', 'timeline', 'gantt', 'chart', 'dashboard', 'collection'] as const
+export const PROJECT_VIEW_TYPES = ['board', 'table', 'gallery', 'calendar', 'list', 'timeline', 'gantt', 'chart', 'dashboard', 'collection', 'sprint'] as const
 export type ProjectViewType = (typeof PROJECT_VIEW_TYPES)[number]
 
 export const PROJECT_CONTENT_TYPES = ['text', 'checkbox', 'divider', 'image', 'attachment'] as const

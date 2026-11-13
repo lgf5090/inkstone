@@ -77,6 +77,85 @@ export function projectWeeklyCompletions(
   return buckets
 }
 
+export const PROJECT_SPRINT_STATUSES = ['planned', 'active', 'completed'] as const
+export type ProjectSprintStatus = (typeof PROJECT_SPRINT_STATUSES)[number]
+
+export interface ProjectSprint {
+  id: string
+  boardId: string
+  name: string
+  goal: string
+  startAt: number
+  endAt: number
+  status: ProjectSprintStatus
+  createdBy: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ProjectSprintBurndownPoint {
+  day: number
+  dayLabel: string
+  ideal: number
+  remaining: number
+  completed: number
+}
+
+export interface ProjectSprintBurndown {
+  total: number
+  completed: number
+  remaining: number
+  velocity: number
+  points: ProjectSprintBurndownPoint[]
+}
+
+/** A sprint longer than a quarter gets no more than one point per day, so the chart stays bounded. */
+const SPRINT_MAX_DAYS = 92
+
+function dayStart(stamp: number): number {
+  const date = new Date(stamp)
+  date.setHours(0, 0, 0, 0)
+  return date.getTime()
+}
+
+/**
+ * Scope, ideal line and actual line for one iteration. A card counts as finished on the day its
+ * `completedAt` fell; older cards that predate that column fall back to the same update stamp the
+ * four-week trend uses, so a board imported from an archive still draws a line.
+ */
+export function projectSprintBurndown(
+  cards: readonly ProjectCard[],
+  properties: readonly ProjectProperty[],
+  sprint: ProjectSprint,
+  today: number,
+): ProjectSprintBurndown {
+  const start = dayStart(sprint.startAt)
+  const end = dayStart(sprint.endAt)
+  const span = Math.max(1, Math.min(SPRINT_MAX_DAYS, Math.round((end - start) / DAY_MS) + 1))
+  const total = cards.length
+  const finishedAt = cards.map((card) => isProjectCardDone(card, properties) ? (card.completedAt ?? card.updateAt) : null)
+  const points: ProjectSprintBurndownPoint[] = Array.from({ length: span }, (_, index) => {
+    const day = start + index * DAY_MS
+    const completed = finishedAt.filter((at) => at !== null && at < day + DAY_MS).length
+    return {
+      day,
+      dayLabel: new Date(day).toISOString().slice(0, 10),
+      ideal: Math.round(total * (1 - index / Math.max(1, span - 1)) * 10) / 10,
+      remaining: total - completed,
+      completed,
+    }
+  })
+  const elapsed = Math.max(1, Math.min(span, Math.round((dayStart(today) - start) / DAY_MS) + 1))
+  const completed = points[elapsed - 1]?.completed ?? 0
+  return {
+    total,
+    completed,
+    remaining: total - completed,
+    velocity: Math.round((completed / elapsed) * 100) / 100,
+    points,
+  }
+}
+
 export interface ProjectEffortStats {
   total: number
   average: number

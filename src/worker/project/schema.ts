@@ -389,6 +389,34 @@ export const PROJECT_INTEGRATION_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_webhook_deliveries(status, next_attempt_at)`,
 ]
 
+/** Iterations own cards through an edge table, so a card can move between sprints without an ALTER. */
+export const PROJECT_SPRINT_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_sprints (
+    id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    goal TEXT NOT NULL DEFAULT '',
+    start_at INTEGER NOT NULL,
+    end_at INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('planned','active','completed')),
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    delete_at INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_sprints_board
+     ON project_sprints(board_id, delete_at, start_at)`,
+
+  `CREATE TABLE IF NOT EXISTS project_sprint_cards (
+    card_id TEXT PRIMARY KEY,
+    sprint_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    added_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_sprint_cards_sprint
+     ON project_sprint_cards(sprint_id, board_id)`,
+]
+
 export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_boards',
   'project_board_members',
@@ -414,6 +442,8 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_api_tokens',
   'project_webhooks',
   'project_webhook_deliveries',
+  'project_sprints',
+  'project_sprint_cards',
 ]
 
 export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
@@ -448,6 +478,8 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_api_tokens_user',
   'idx_project_webhooks_board',
   'idx_project_webhook_deliveries_due',
+  'idx_project_sprints_board',
+  'idx_project_sprint_cards_sprint',
 ]
 
 export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -504,4 +536,9 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
     'id', 'webhook_id', 'board_id', 'event', 'payload', 'attempts', 'next_attempt_at',
     'status', 'last_error', 'created_at',
   ],
+  project_sprints: [
+    'id', 'board_id', 'name', 'goal', 'start_at', 'end_at', 'status',
+    'created_by', 'created_at', 'updated_at', 'delete_at',
+  ],
+  project_sprint_cards: ['card_id', 'sprint_id', 'board_id', 'added_at'],
 }

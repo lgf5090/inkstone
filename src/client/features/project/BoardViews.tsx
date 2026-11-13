@@ -6,7 +6,7 @@
  * bars, tiles — is the view's own business.
  */
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
-import { ArrowUpDown, BarChart3, Calendar, CalendarRange, Clock, Copy, Download, Eye, Filter, FolderOpen, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Pencil, Plus, RotateCcw, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
+import { ArrowUpDown, BarChart3, Calendar, CalendarRange, Clock, Copy, Download, Eye, Filter, FolderOpen, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Pencil, Plus, RotateCcw, SquareKanban, Table, Target, Trash2, type LucideIcon } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, projectCanMarkDone, projectDonePatch, projectViewPropertyId, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { projectParentDonePatches } from '@shared/project/hierarchy'
@@ -38,6 +38,7 @@ import { GanttView } from './views/GanttView'
 import { ChartView } from './views/ChartView'
 import { DashboardView } from './views/DashboardView'
 import { CollectionView } from './views/CollectionView'
+import { SprintView } from './views/SprintView'
 import { ViewEmpty } from './views/shell'
 import { BatchEditDialog } from './BatchEditDialog'
 
@@ -52,6 +53,7 @@ const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   chart: 'project.view.chart',
   dashboard: 'project.view.dashboard',
   collection: 'project.view.collection',
+  sprint: 'project.view.sprint',
 }
 
 const VIEW_ICON: Record<string, LucideIcon> = {
@@ -65,6 +67,7 @@ const VIEW_ICON: Record<string, LucideIcon> = {
   chart: BarChart3,
   dashboard: LayoutDashboard,
   collection: FolderOpen,
+  sprint: Target,
 }
 
 // Templates ship canonical English titles; treat them as defaults so a zh UI localizes them
@@ -72,6 +75,7 @@ const VIEW_ICON: Record<string, LucideIcon> = {
 const VIEW_DEFAULT_TITLE: Record<string, string> = {
   board: 'Board', table: 'Table', gallery: 'Gallery', calendar: 'Calendar', list: 'List',
   timeline: 'Timeline', gantt: 'Gantt', chart: 'Chart', dashboard: 'Dashboard', collection: 'Collection',
+  sprint: 'Sprint',
 }
 
 function viewTabLabel(view: { title: string, viewType: string }): string {
@@ -81,7 +85,7 @@ function viewTabLabel(view: { title: string, viewType: string }): string {
 
 // These surfaces carry their own "add the first card" affordance, so an empty board must still draw
 // them: replacing them with a blank state leaves a new board with no way to start from that tab.
-const EMPTY_CAPABLE_VIEWS = new Set(['board', 'gallery', 'list', 'calendar', 'chart', 'collection'])
+const EMPTY_CAPABLE_VIEWS = new Set(['board', 'gallery', 'list', 'calendar', 'chart', 'collection', 'sprint'])
 
 const LAST_VIEW_KEY = 'inkstone.project.lastView.'
 const EMPTY_BADGES: ProjectCardBadges = { description: false, comments: 0, checked: 0, checkboxes: 0 }
@@ -521,6 +525,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     switch (viewType) {
       case 'collection':
         return <CollectionView boardId={bundle.board.id} canEdit={canEdit} onOpenCard={onOpenCard} />
+      case 'sprint':
+        return <SprintView boardId={bundle.board.id} cards={cards} canEdit={canEdit} onOpenCard={onOpenCard} />
       case 'dashboard':
         return <DashboardView boardId={bundle.board.id} cards={cards} properties={bundle.properties} datePropertyId={projectViewPropertyId(fields.dateDisplayPropertyId)} onOpenCard={onOpenCard} />
       case 'chart':
