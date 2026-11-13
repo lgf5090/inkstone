@@ -36,8 +36,8 @@ import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
 import { DependencyEdges, RowToggle, ScheduleBar, UnscheduledTray, type BarGeometry } from './schedule-parts'
 
-const ROW_H = 40
-const BAR_H = 24
+const GANTT_ROW_H = 40
+const GANTT_BAR_H = 24
 const SCALES: ProjectScheduleScale[] = ['day', 'week', 'month', 'quarter']
 
 export interface GanttProps {
@@ -350,7 +350,7 @@ export function GanttView(props: GanttProps): ReactElement {
           days={days}
           columnPx={columnPx}
           rowCount={rows.length}
-          rowHeight={ROW_H}
+          rowHeight={GANTT_ROW_H}
           axis="single"
           hourTicks={scale === 'day'}
           corner={t('project.view.gantt_lanes')}
@@ -369,20 +369,20 @@ export function GanttView(props: GanttProps): ReactElement {
                 style={{
                   left: `${Math.min(draft.from, draft.to) * columnPx}px`,
                   width: `${(Math.abs(draft.to - draft.from) + 1) * columnPx}px`,
-                  top: `${draft.row * ROW_H + (ROW_H - BAR_H) / 2}px`,
+                  top: `${draft.row * GANTT_ROW_H + (GANTT_ROW_H - GANTT_BAR_H) / 2}px`,
                 }}
                 aria-hidden="true"
               />
             )
             : null}
           overlay={() => showDeps
-            ? <DependencyEdges links={links} geometry={geometry} rowHeight={ROW_H} columnPx={columnPx} width={days.length * columnPx} height={rows.length * ROW_H} />
+            ? <DependencyEdges links={links} geometry={geometry} rowHeight={GANTT_ROW_H} columnPx={columnPx} width={days.length * columnPx} height={rows.length * GANTT_ROW_H} />
             : null}
           renderLeftRow={(index) => {
             const row = rows[index]!
             if (row.kind === 'lane') {
               return (
-                <div key={row.id} className="pv-sched-lanehead" style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties}>
+                <div key={row.id} className="pv-sched-lanehead" style={{ top: `${index * GANTT_ROW_H}px`, height: `${GANTT_ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties}>
                   <RowToggle collapsed={collapsed.has(row.id)} label={row.label || t('project.view.no_value')} onToggle={() => toggle(row.id)} />
                   <span className="min-w-0 flex-1 truncate">{row.label || t('project.view.no_value')}</span>
                   {effortProperty && <span className="pv-lane-sum">{t('project.view.lane_effort', { value: laneEffort(row.laneKey) })}</span>}
@@ -396,7 +396,7 @@ export function GanttView(props: GanttProps): ReactElement {
                 key={row.id}
                 className="pv-sched-rowhead"
                 data-selected={selected === card.id}
-                style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }}
+                style={{ top: `${index * GANTT_ROW_H}px`, height: `${GANTT_ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }}
                 data-schedule-row={card.id}
               >
                 {row.childCount > 0
@@ -411,7 +411,7 @@ export function GanttView(props: GanttProps): ReactElement {
           renderRow={(index) => {
             const row = rows[index]!
             if (row.kind === 'lane') {
-              return <div key={row.id} className="pv-sched-laneband" style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties} aria-hidden="true" />
+              return <div key={row.id} className="pv-sched-laneband" style={{ top: `${index * GANTT_ROW_H}px`, height: `${GANTT_ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties} aria-hidden="true" />
             }
             const card = row.card!
             const place = geometry.get(card.id)!
@@ -430,8 +430,8 @@ export function GanttView(props: GanttProps): ReactElement {
                   color={row.color}
                   left={left}
                   width={width}
-                  top={index * ROW_H + (ROW_H - BAR_H) / 2}
-                  height={BAR_H}
+                  top={index * GANTT_ROW_H + (GANTT_ROW_H - GANTT_BAR_H) / 2}
+                  height={GANTT_BAR_H}
                   done={isDone(card)}
                   progress={projectCardProgress(card, subtasksByParent.get(card.id) ?? [], isDone)}
                   conflict={conflicts.has(card.id)}
@@ -460,7 +460,7 @@ export function GanttView(props: GanttProps): ReactElement {
                 {renaming?.id === card.id && (
                   <Input
                     className="pv-rename"
-                    style={{ left: `${left}px`, width: `${Math.max(160, width)}px`, top: `${index * ROW_H + (ROW_H - BAR_H) / 2}px` }}
+                    style={{ left: `${left}px`, width: `${Math.max(160, width)}px`, top: `${index * GANTT_ROW_H + (GANTT_ROW_H - GANTT_BAR_H) / 2}px` }}
                     autoFocus
                     value={renaming.value}
                     aria-label={t('project.view.rename_card')}

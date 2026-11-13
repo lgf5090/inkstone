@@ -12,10 +12,19 @@
    rendered outside a shell — a swimlane's board, a portal'd bar — still resolves its own steps. */
 :root {
   --pv-row-h: 36px;
+  --pv-row-h-list: 34px;
+  --pv-axis-h: 34px;
   --pv-left-w: 248px;
   --pv-head-h: 48px;
   --pv-bar-h: 22px;
   --pv-col-w: 272px;
+  --pv-cover-h: 92px;
+  --pv-swimlane-h: 420px;
+  --pv-dur-tint: 0.12s;
+  --pv-dur-hover: 0.1s;
+  --pv-dur-move: 0.2s;
+  --pv-dur-grow: 0.25s;
+  --pv-dur-settle: 0.3s;
   --pv-hairline: var(--border-subtle);
   /* Dragging flips this once on the body; every grabbable surface reads it, so the drag cursor wins
      without a specificity war or an override the stylesheet budget would have to carry. */
@@ -142,7 +151,7 @@
   font-size: var(--text-11);
   font-weight: 500;
   color: var(--pv-ink-2);
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--pv-dur-tint) ease, color var(--pv-dur-tint) ease;
 }
 .pv-seg-btn:hover {
   color: var(--pv-ink);
@@ -208,7 +217,7 @@
   border: 1px solid var(--pv-hairline);
   border-radius: var(--r-md);
   background: var(--bg-base);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color var(--pv-dur-tint) ease, box-shadow var(--pv-dur-tint) ease;
 }
 .pv-col:has(.pv-drop-line) {
   border-color: var(--accent);
@@ -303,7 +312,7 @@
   border-radius: var(--r-sm);
   background: var(--bg-base);
   padding: var(--sp-2);
-  transition: border-color 0.12s ease, transform 0.12s ease;
+  transition: border-color var(--pv-dur-tint) ease, transform var(--pv-dur-tint) ease;
 }
 .pv-card::before,
 .pv-card::after {
@@ -312,7 +321,7 @@
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--pv-dur-tint) ease;
 }
 .pv-card::before {
   box-shadow: var(--shadow-xs);
@@ -359,7 +368,7 @@
 }
 .pv-card-cover {
   width: calc(100% + var(--sp-4));
-  height: 92px;
+  height: var(--pv-cover-h);
   margin: calc(-1 * var(--sp-2)) calc(-1 * var(--sp-2)) 0;
   border-radius: calc(var(--r-sm) - 1px) calc(var(--r-sm) - 1px) 0 0;
   object-fit: cover;
@@ -403,7 +412,7 @@
   cursor: var(--pv-drag-cursor);
   opacity: 0;
   touch-action: none;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--pv-dur-tint) ease;
 }
 .pv-card:hover .pv-card-grip,
 .pv-card-grip:focus-visible {
@@ -434,7 +443,7 @@
   height: 100%;
   border-radius: var(--r-full);
   background: var(--pv-card-color, var(--accent));
-  transition: width 0.2s ease;
+  transition: width var(--pv-dur-move) ease;
 }
 
 /* ── Drag: the insertion line and the clone that follows the pointer ─────────── */
@@ -493,7 +502,7 @@ body.pv-dragging * {
   border-radius: var(--r-sm);
   font-size: var(--text-12);
   color: var(--pv-ink-3);
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--pv-dur-tint) ease, color var(--pv-dur-tint) ease;
 }
 .pv-quickadd-btn:hover {
   background: var(--bg-hover);
@@ -589,7 +598,7 @@ body.pv-dragging * {
   border-bottom: 1px solid var(--pv-hairline);
   padding: var(--sp-1);
   background: var(--bg-base);
-  transition: background 0.12s ease;
+  transition: background var(--pv-dur-tint) ease;
 }
 .pv-cal-cell:last-child {
   border-right: none;
@@ -660,7 +669,7 @@ body.pv-dragging * {
   text-align: left;
   font-size: var(--text-11);
   color: var(--pv-ink);
-  transition: background 0.12s ease;
+  transition: background var(--pv-dur-tint) ease;
 }
 .pv-cal-chip:hover {
   background: var(--bg-hover);
@@ -792,7 +801,7 @@ body.pv-dragging * {
   padding: var(--sp-2);
   background: var(--bg-base);
   text-align: left;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color var(--pv-dur-tint) ease, box-shadow var(--pv-dur-tint) ease;
 }
 .pv-daycard:hover {
   border-color: var(--border-strong);
@@ -1089,7 +1098,7 @@ body.pv-dragging * {
   font-size: var(--text-11);
   color: var(--accent-contrast);
   cursor: pointer;
-  transition: filter 0.12s ease;
+  transition: filter var(--pv-dur-tint) ease;
 }
 .pv-bar:hover {
   filter: brightness(1.08);
@@ -1246,7 +1255,7 @@ body.pv-dragging * {
   height: 18px;
   border: 1px solid color-mix(in oklab, var(--text-primary) 12%, transparent);
   border-radius: var(--r-full);
-  transition: transform 0.12s ease;
+  transition: transform var(--pv-dur-tint) ease;
 }
 .pv-palette-swatch:hover {
   transform: scale(1.15);
@@ -1376,7 +1385,7 @@ body.pv-dragging * {
   border: 1px solid var(--pv-hairline);
   border-radius: var(--r-md);
   background: var(--bg-base);
-  transition: border-color 0.12s ease, transform 0.12s ease;
+  transition: border-color var(--pv-dur-tint) ease, transform var(--pv-dur-tint) ease;
 }
 .pv-tile::before,
 .pv-tile::after {
@@ -1385,7 +1394,7 @@ body.pv-dragging * {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--pv-dur-tint) ease;
 }
 .pv-tile::before {
   box-shadow: var(--shadow-xs);
@@ -1406,7 +1415,7 @@ body.pv-dragging * {
 }
 .pv-tile-cover {
   width: 100%;
-  height: var(--pv-cover-h, 120px);
+  height: var(--pv-cover-h);
   border-radius: calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0 0;
   object-fit: cover;
   background: var(--bg-sunken);
@@ -1414,7 +1423,7 @@ body.pv-dragging * {
 .pv-tile-placeholder {
   display: flex;
   width: 100%;
-  height: var(--pv-cover-h, 120px);
+  height: var(--pv-cover-h);
   align-items: center;
   justify-content: center;
   border-radius: calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0 0;
@@ -1450,7 +1459,7 @@ body.pv-dragging * {
   border-radius: var(--r-md);
   font-size: var(--text-12);
   color: var(--pv-ink-3);
-  transition: border-color 0.12s ease, color 0.12s ease;
+  transition: border-color var(--pv-dur-tint) ease, color var(--pv-dur-tint) ease;
 }
 .pv-tile-add:hover {
   border-color: var(--accent);
@@ -1477,12 +1486,12 @@ body.pv-dragging * {
   display: flex;
   content-visibility: auto;
   contain-intrinsic-size: auto 40px;
-  min-height: 34px;
+  min-height: var(--pv-row-h-list);
   align-items: center;
   gap: var(--sp-2);
   border-bottom: 1px solid var(--pv-hairline);
   padding: 0 var(--sp-3);
-  transition: background 0.1s ease;
+  transition: background var(--pv-dur-hover) ease;
 }
 .pv-list-row:hover {
   background: var(--bg-hover);
@@ -1613,7 +1622,7 @@ body.pv-dragging * {
   height: 100%;
   border-radius: var(--r-full);
   background: var(--pv-meter-color, var(--accent));
-  transition: width 0.25s ease;
+  transition: width var(--pv-dur-grow) ease;
 }
 .pv-meter-value {
   width: 44px;
@@ -1661,7 +1670,7 @@ body.pv-dragging * {
   border: 1px solid var(--pv-hairline);
   border-radius: var(--r-md);
   background: var(--bg-base);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color var(--pv-dur-tint) ease, box-shadow var(--pv-dur-tint) ease;
 }
 .pv-file:hover {
   border-color: var(--accent);
@@ -1704,7 +1713,7 @@ body.pv-dragging * {
 }
 .pv-sched-unit[data-axis='single'] {
   top: 0;
-  height: 34px;
+  height: var(--pv-axis-h);
   font-size: var(--text-11);
 }
 .pv-sched-unit[data-axis='double'] {
@@ -1803,7 +1812,7 @@ body.pv-dragging * {
   border: 2px solid var(--border-default);
   border-radius: var(--r-full);
   color: var(--accent-contrast);
-  transition: border-color 0.12s ease, background 0.12s ease;
+  transition: border-color var(--pv-dur-tint) ease, background var(--pv-dur-tint) ease;
 }
 .pv-check:hover:not(:disabled) {
   border-color: var(--accent);
@@ -1832,7 +1841,7 @@ body.pv-dragging * {
   font-size: var(--text-11);
   font-weight: 600;
   color: var(--pv-prio-color, var(--accent));
-  transition: transform 0.12s ease;
+  transition: transform var(--pv-dur-tint) ease;
 }
 .pv-prio:hover:not(:disabled) {
   transform: scale(1.06);
@@ -1870,7 +1879,7 @@ body.pv-dragging * {
   background: var(--bg-sunken);
 }
 .pv-stack-seg {
-  transition: width 0.3s ease;
+  transition: width var(--pv-dur-settle) ease;
 }
 .pv-prio-tile {
   display: flex;
@@ -1909,7 +1918,7 @@ body.pv-dragging * {
   min-height: 2px;
   border-radius: var(--r-xs) var(--r-xs) 0 0;
   background: var(--accent);
-  transition: height 0.3s ease;
+  transition: height var(--pv-dur-settle) ease;
 }
 .pv-upcoming {
   display: flex;
@@ -1921,7 +1930,7 @@ body.pv-dragging * {
   padding: var(--sp-1) var(--sp-2);
   text-align: left;
   font-size: var(--text-12);
-  transition: background 0.12s ease;
+  transition: background var(--pv-dur-tint) ease;
 }
 .pv-upcoming:hover {
   background: var(--bg-hover);
@@ -2010,7 +2019,7 @@ body.pv-dragging * {
   cursor: var(--pv-drag-cursor);
   opacity: 0;
   touch-action: none;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--pv-dur-tint) ease;
 }
 .pv-col-head:hover .pv-col-grip,
 .pv-col-grip:focus-visible {
@@ -2030,7 +2039,7 @@ body.pv-dragging * {
   cursor: var(--pv-drag-cursor);
   opacity: 0;
   touch-action: none;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--pv-dur-tint) ease;
 }
 .pv-th-grip {
   margin-right: 2px;

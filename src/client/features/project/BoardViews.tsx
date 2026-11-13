@@ -790,7 +790,7 @@ function Swimlanes({ cards, properties, fields, kanbanProps }: {
               <span className="min-w-0 flex-1 truncate">{key === '' ? t('project.view.no_value') : projectGroupLabel(laneProperty, key, people, locale)}</span>
               <span className="pv-head-count">{laneCards.length}</span>
             </h3>
-            <div className="flex h-[420px]">
+            <div className="flex h-[var(--pv-swimlane-h)]">
               <KanbanView cards={laneCards} {...kanbanProps} />
             </div>
           </section>

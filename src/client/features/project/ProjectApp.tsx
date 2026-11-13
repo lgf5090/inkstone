@@ -320,7 +320,7 @@ function BoardCard({ board }: { board: ProjectBoardSummary }): ReactElement {
         className="flex flex-col text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         onClick={() => navigateToPath(`/project/boards/${board.id}`)}
       >
-        <span className="pv-tile-placeholder" aria-hidden="true" style={{ '--pv-cover-h': '92px', '--pv-card-color': boardTint(board.id) } as React.CSSProperties}>
+        <span className="pv-tile-placeholder" aria-hidden="true" style={{ '--pv-card-color': boardTint(board.id) } as React.CSSProperties}>
           {board.icon || <SquareKanban size={26} className="text-[var(--text-quaternary)]" />}
         </span>
         <span className="pv-tile-body">

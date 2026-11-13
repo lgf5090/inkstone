@@ -28,8 +28,8 @@ import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
 import { DependencyEdges, RowToggle, ScheduleBar, UnscheduledTray, type BarGeometry } from './schedule-parts'
 
-const ROW_H = 34
-const BAR_H = 18
+const TIMELINE_ROW_H = 34
+const TIMELINE_BAR_H = 18
 const SCALES: ProjectScheduleScale[] = ['day', 'week', 'month', 'quarter']
 
 export interface TimelineProps {
@@ -152,7 +152,7 @@ export function TimelineView(props: TimelineProps): ReactElement {
           days={days}
           columnPx={columnPx}
           rowCount={rows.length}
-          rowHeight={ROW_H}
+          rowHeight={TIMELINE_ROW_H}
           axis="double"
           corner={t('project.board.title_column')}
           showToday={showToday}
@@ -163,13 +163,13 @@ export function TimelineView(props: TimelineProps): ReactElement {
           emptyHint={t('project.view.no_dates')}
           minimap={{ bars: [...geometry.entries()].map(([id, place]) => ({ id, left: place.left, width: place.width, color: colorOf(rows[place.row]!.card) })) }}
           overlay={() => showDeps
-            ? <DependencyEdges links={links} geometry={geometry} rowHeight={ROW_H} columnPx={columnPx} width={days.length * columnPx} height={rows.length * ROW_H} />
+            ? <DependencyEdges links={links} geometry={geometry} rowHeight={TIMELINE_ROW_H} columnPx={columnPx} width={days.length * columnPx} height={rows.length * TIMELINE_ROW_H} />
             : null}
           renderLeftRow={(index) => {
             const row = rows[index]!
             const range = daysByCard.get(row.card.id)!
             return (
-              <div key={row.card.id} className="pv-sched-rowhead" style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }} data-schedule-row={row.card.id}>
+              <div key={row.card.id} className="pv-sched-rowhead" style={{ top: `${index * TIMELINE_ROW_H}px`, height: `${TIMELINE_ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }} data-schedule-row={row.card.id}>
                 {row.childCount > 0
                   ? <RowToggle collapsed={collapsed.has(row.card.id)} label={collapsed.has(row.card.id) ? t('project.card.expand_subtasks') : t('project.card.collapse_subtasks')} onToggle={() => toggle(row.card.id)} />
                   : <span className="size-6 shrink-0" aria-hidden="true" />}
@@ -189,8 +189,8 @@ export function TimelineView(props: TimelineProps): ReactElement {
                 color={colorOf(row.card)}
                 left={place.left * columnPx}
                 width={place.width * columnPx}
-                top={index * ROW_H + (ROW_H - BAR_H) / 2}
-                height={BAR_H}
+                top={index * TIMELINE_ROW_H + (TIMELINE_ROW_H - TIMELINE_BAR_H) / 2}
+                height={TIMELINE_BAR_H}
                 done={isDone(row.card)}
                 progress={0}
                 conflict={false}
