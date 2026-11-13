@@ -314,6 +314,21 @@ export async function importProjectArchive(bytes: Uint8Array): Promise<ProjectBo
   return body.board
 }
 
+export async function importProjectAccountArchive(bytes: Uint8Array): Promise<ProjectBoardSummary[]> {
+  const response = await fetch('/api/project/boards/import-account', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/zip', [CLIENT_HEADER]: '1' },
+    body: bytes as BodyInit,
+    credentials: 'same-origin',
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: { message?: string } } | null
+    throw new Error(body?.error?.message ?? `Import failed (${response.status})`)
+  }
+  const body = await response.json() as { boards: ProjectBoardSummary[] }
+  return body.boards
+}
+
 export async function fetchCardLinks(cardId: string): Promise<ProjectCardLink[]> {
   const body = await request<{ links: ProjectCardLink[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/links`)
   return body.links

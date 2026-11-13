@@ -9,6 +9,7 @@ import { SelectMenu } from '../../components/select-menu'
 import { Modal } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useProjectStore } from './store'
+import { importProjectAccountArchive } from './api'
 
 const CONVERTERS = {
   trello: importTrello,
@@ -32,6 +33,20 @@ export function ImportDialog({ onClose }: { onClose: () => void }): ReactElement
     if (!file || busy) return
     setBusy(true)
     try {
+      const name = file.name.toLowerCase()
+      if (name.endsWith('.boardarchive') || name.endsWith('.zip')) {
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        if (name.endsWith('.boardarchive')) {
+          const board = await useProjectStore.getState().addBoardFromArchive(bytes)
+          onClose()
+          navigateToPath(`/project/boards/${board.id}`)
+          return
+        }
+        await importProjectAccountArchive(bytes)
+        await useProjectStore.getState().loadBoards()
+        onClose()
+        return
+      }
       const text = await file.text()
       const lines: ProjectArchiveLine[] = CONVERTERS[format](text)
       const boardLine = lines.find((line) => line.type === 'board')
