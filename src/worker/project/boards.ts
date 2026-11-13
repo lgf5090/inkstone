@@ -5,7 +5,6 @@ import type {
   ProjectProperty,
   ProjectPropertyType,
 } from '@shared/project/model'
-import { emptyProjectViewFields } from '@shared/project/model'
 import { newProjectId } from '@shared/project/limits'
 import { applyProjectPropertyPatch } from '@shared/project/property-patch'
 import { parseProjectPropertyConfig, serializeProjectPropertyConfig } from '@shared/project/property-config'
@@ -81,7 +80,6 @@ export async function createProjectBoard(
   userId: string,
   input: ProjectBoardCreateInput,
   now: number,
-  options: { defaultView?: boolean } = {},
 ): Promise<ProjectBoardSummary> {
   const id = input.id ?? newProjectId('board')
   const statements: D1PreparedStatement[] = [
@@ -99,15 +97,6 @@ export async function createProjectBoard(
     ).bind(id, userId, 'admin', now),
     ...propertyStatements(db, id, input.cardProperties, now),
   ]
-  if (options.defaultView !== false) {
-    const groupProperty = input.cardProperties.find((property) => property.type === 'select')
-    const fields = { ...emptyProjectViewFields(), ...(groupProperty ? { groupById: groupProperty.id } : {}) }
-    statements.push(db.prepare(
-      `INSERT INTO project_views
-         (id, board_id, title, view_type, fields, position, created_by, modified_by, create_at, update_at, delete_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?8, 0)`,
-    ).bind(newProjectId('view'), id, 'Board', 'board', JSON.stringify(fields), 0, userId, now))
-  }
   await db.batch(statements)
   const board: ProjectBoard = {
     id,

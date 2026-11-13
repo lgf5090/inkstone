@@ -150,8 +150,8 @@ export async function moveProjectCard(id: string, targetBoardId: string): Promis
   return body.card
 }
 
-export async function createProjectView(boardId: string, viewType: ProjectViewType): Promise<ProjectView> {
-  const body = await request<{ view: ProjectView }>(`/api/project/boards/${encodeURIComponent(boardId)}/views`, { method: 'POST', body: { viewType } })
+export async function createProjectView(boardId: string, viewType: ProjectViewType, title = ''): Promise<ProjectView> {
+  const body = await request<{ view: ProjectView }>(`/api/project/boards/${encodeURIComponent(boardId)}/views`, { method: 'POST', body: { viewType, title } })
   return body.view
 }
 

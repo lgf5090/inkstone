@@ -4,6 +4,7 @@ import type { ProjectBoardSummary } from '@shared/project/model'
 import {
   createBoardFromTemplate,
   createProjectBoard,
+  createProjectView,
   deleteProjectBoard,
   duplicateProjectBoard,
   fetchProjectBoards,
@@ -57,6 +58,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   async addBoard(title) {
     const board = await createProjectBoard(readRandomIconPref() ? { title, icon: await randomProjectIcon() } : { title })
+    await createProjectView(board.id, 'board', 'Board')
     set((state) => ({ boards: [board, ...state.boards] }))
     return board
   },
