@@ -836,6 +836,31 @@ describe('the tick works on a board named in Chinese (R7-1)', () => {
     expect(onPatchCard).toHaveBeenCalledWith('p', { values: { ps: 'done' } })
   })
 
+  it('batches the child tick and its parent into one write when a batch writer is supplied', async () => {
+    const onPatchCardsBatch = vi.fn().mockResolvedValue(undefined)
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, {
+        bundle: zhBundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(),
+        onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(),
+        onActiveViewChange: vi.fn(), onPatchCard, onPatchCardsBatch,
+        onAddGroupOption: vi.fn().mockResolvedValue(undefined),
+        onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(undefined),
+      }))
+    })
+    const expander = view.container.querySelector<HTMLButtonElement>(`[data-project-card="p"] button[aria-label="${t('project.card.expand_subtasks')}"]`)!
+    await act(async () => { expander.click() })
+    const child = view.container.querySelector<HTMLButtonElement>('[data-project-card="k2"] .pv-check')!
+    await act(async () => { child.click() })
+    expect(onPatchCardsBatch).toHaveBeenCalledTimes(1)
+    expect(onPatchCardsBatch.mock.calls[0]![0]).toEqual([
+      { id: 'k2', patch: { values: { ps: 'done' } } },
+      { id: 'p', patch: { values: { ps: 'done' } } },
+    ])
+    expect(onPatchCard).not.toHaveBeenCalled()
+  })
+
   it('offers no tick at all on a board that cannot store one', async () => {
     const base = zhBundle()
     base.properties = [{ id: 'pt', name: 'Notes', type: 'text', options: [] }]

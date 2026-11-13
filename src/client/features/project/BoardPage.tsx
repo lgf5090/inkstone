@@ -16,7 +16,7 @@ import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Modal } from '../../components/overlay'
-import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchBoardCursor, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard } from './api'
+import { batchPatchProjectBoard, createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchBoardCursor, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard } from './api'
 import { createUndoStack } from './undo'
 import { newProjectId } from '@shared/project/limits'
 import type { SkinTone } from '@shared/types'
@@ -226,6 +226,36 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     }
   }, [bundle, undoStack, refresh])
 
+  const patchCardsBatch = useCallback(async (patches: { id: string, patch: Record<string, unknown> }[]): Promise<void> => {
+    const previous = bundle?.cards.filter((card) => patches.some((entry) => entry.id === card.id)) ?? []
+    await batchPatchProjectBoard(boardId, { cards: patches })
+    setBundle((current) => current ? {
+      ...current,
+      cards: current.cards.map((card) => {
+        const values = patches.find((entry) => entry.id === card.id)?.patch.values as Record<string, string | null> | undefined
+        if (!values) return card
+        const merged = { ...card.values }
+        for (const [key, value] of Object.entries(values)) {
+          if (value === null) delete merged[key]
+          else merged[key] = value
+        }
+        return { ...card, values: merged }
+      }),
+    } : current)
+    if (previous.length) {
+      undoStack.push({
+        undo: async () => {
+          await batchPatchProjectBoard(boardId, { cards: previous.map((card) => ({ id: card.id, patch: { values: { ...card.values } } })) })
+          await refresh()
+        },
+        redo: async () => {
+          await batchPatchProjectBoard(boardId, { cards: patches })
+          await refresh()
+        },
+      })
+    }
+  }, [bundle, boardId, undoStack, refresh])
+
   const addGroupOption = useCallback(async (propertyId: string, value: string) => {
     if (!bundle) return
     const properties = bundle.properties.map((property) => (property.id === propertyId
@@ -421,6 +451,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         onDuplicateView={(id) => guard(() => copyView(id))}
         onActiveViewChange={setActiveViewId}
         onPatchCard={patchCard}
+        onPatchCardsBatch={patchCardsBatch}
         onAddGroupOption={addGroupOption}
         onRenameGroupOption={renameGroupOption}
         onSetGroupOptionColor={setGroupOptionColor}

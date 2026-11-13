@@ -112,6 +112,7 @@ interface BoardViewsProps {
   onDuplicateView: (id: string) => void
   onActiveViewChange: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
+  onPatchCardsBatch?: (patches: { id: string, patch: Record<string, unknown> }[]) => Promise<void>
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
   onRenameGroupOption: (propertyId: string, optionId: string, value: string) => Promise<void>
   onSetGroupOptionColor: (propertyId: string, optionId: string, color: string) => Promise<void>
@@ -121,7 +122,7 @@ interface BoardViewsProps {
   publicView?: boolean
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onCardCreated, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onPatchCardsBatch, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onCardCreated, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
   useEffect(() => { setActiveId(readLastViewId(bundle.board.id)) }, [bundle.board.id])
   const selectView = (id: string): void => {
@@ -302,11 +303,17 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const toggleCardDone = useEvent(async (card: ProjectCard, checked: boolean): Promise<void> => {
     const values = projectDonePatch(bundle.properties, checked)
     if (!values) return
-    await onPatchCard(card.id, { values })
     const after: ProjectCard[] = bundle.cards.map((entry) => (entry.id === card.id ? { ...entry, values: { ...entry.values, ...values } as Record<string, string> } : entry))
-    for (const patch of projectParentDonePatches(after, bundle.properties, card.id)) {
-      await onPatchCard(patch.id, { values: patch.values })
+    const patches = [
+      { id: card.id, patch: { values } as Record<string, unknown> },
+      ...projectParentDonePatches(after, bundle.properties, card.id).map((parent) => ({ id: parent.id, patch: { values: parent.values } as Record<string, unknown> })),
+    ]
+    if (onPatchCardsBatch) {
+      await onPatchCardsBatch(patches)
+      return
     }
+    await onPatchCard(patches[0]!.id, patches[0]!.patch)
+    for (const entry of patches.slice(1)) await onPatchCard(entry.id, entry.patch)
   })
 
   const handleAddSubtask = useEvent(async (parentCardId: string): Promise<void> => {
