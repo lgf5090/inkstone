@@ -1,12 +1,15 @@
 /**
  * Copying a board or a card. A copy gets fresh ids for the board and every child row (those are global
- * primary keys) but keeps property and option ids (those are board-scoped), so the only references
- * that need rewriting are the ones pointing at cards, contents and comments: a card's contentOrder,
- * a view's cardOrder and its default template. Members and share links are deliberately not copied.
+ * primary keys) but keeps property and option ids (those are board-scoped), so the references that need
+ * rewriting are the ones pointing at cards, contents and comments: a card's parent and contentOrder, a
+ * view's cardOrder and its default template, and the dependency edges between copied cards. Members and
+ * share links are deliberately not copied. Attachments stay with the original: a copied row would point
+ * at the same storage object, and deleting either copy would take the object away from the other.
  */
 import type { ProjectBoardBundle, ProjectBoardSummary, ProjectCard, ProjectViewFields } from '@shared/project/model'
 import type { ProjectContentOrder } from '@shared/project/content-order'
 import { newProjectId } from '@shared/project/limits'
+import { serializeProjectRecurrence } from '@shared/project/recurrence'
 import { rowToContent, type ContentRow } from './bundle'
 
 const COPY_BATCH_SIZE = 500
@@ -41,6 +44,10 @@ export async function duplicateProjectBoard(
   const contentMap = new Map(bundle.contents.map((content) => [content.id, newProjectId('content')]))
   const commentMap = new Map(bundle.comments.map((comment) => [comment.id, newProjectId('comment')]))
   const childMap = new Map([...contentMap, ...commentMap])
+  const linkRows = await db
+    .prepare('SELECT from_card_id, to_card_id, kind FROM project_card_links WHERE board_id = ?1')
+    .bind(source.id)
+    .all<{ from_card_id: string, to_card_id: string, kind: string }>()
 
   const statements: D1PreparedStatement[] = [
     db.prepare(
@@ -65,9 +72,13 @@ export async function duplicateProjectBoard(
     const id = cardMap.get(card.id)!
     statements.push(db.prepare(
       `INSERT INTO project_cards
-         (id, board_id, parent_id, title, icon, is_template, content_order, created_by, modified_by, create_at, update_at, delete_at)
-       VALUES (?1, ?2, '', ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?8, 0)`,
-    ).bind(id, boardId, card.title, card.icon, card.isTemplate ? 1 : 0, JSON.stringify(remapContentOrder(card.contentOrder, childMap)), userId, now))
+         (id, board_id, parent_id, title, icon, is_template, content_order, recurrence, created_by, modified_by, create_at, update_at, delete_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, ?10, 0)`,
+    ).bind(
+      id, boardId, card.parentId ? cardMap.get(card.parentId) ?? '' : '', card.title, card.icon,
+      card.isTemplate ? 1 : 0, JSON.stringify(remapContentOrder(card.contentOrder, childMap)),
+      card.recurrence ? serializeProjectRecurrence(card.recurrence) : null, userId, now,
+    ))
     for (const [propertyId, value] of Object.entries(card.values)) {
       statements.push(db.prepare(
         'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4)',
@@ -87,6 +98,14 @@ export async function duplicateProjectBoard(
          (id, card_id, board_id, type, title, fields, position, created_by, modified_by, create_at, update_at, delete_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9, ?9, 0)`,
     ).bind(contentMap.get(content.id)!, remapId(cardMap, content.cardId), boardId, content.type, content.title, JSON.stringify(content.fields), content.position, userId, now))
+  }
+  for (const link of linkRows.results) {
+    const from = cardMap.get(link.from_card_id)
+    const to = cardMap.get(link.to_card_id)
+    if (!from || !to) continue
+    statements.push(db.prepare(
+      'INSERT INTO project_card_links (from_card_id, to_card_id, kind, board_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5)',
+    ).bind(from, to, link.kind, boardId, now))
   }
   if (options.includeComments !== false) {
     for (const comment of bundle.comments) {
@@ -125,14 +144,21 @@ export async function duplicateProjectCard(
   const cardId = newProjectId('card')
   const contentMap = new Map(contents.map((content) => [content.id, newProjectId('content')]))
   const contentOrder: ProjectContentOrder = card.contentOrder
-    .filter((entry): entry is string => typeof entry === 'string' && contentMap.has(entry))
-    .map((entry) => contentMap.get(entry)!)
+    .map((entry): string | string[] | null => {
+      if (typeof entry === 'string') return contentMap.get(entry) ?? null
+      const group = entry.map((id) => contentMap.get(id)).filter((id): id is string => Boolean(id))
+      return group.length ? group : null
+    })
+    .filter((entry): entry is string | string[] => entry !== null)
   const statements: D1PreparedStatement[] = [
     db.prepare(
       `INSERT INTO project_cards
-         (id, board_id, parent_id, title, icon, is_template, content_order, created_by, modified_by, create_at, update_at, delete_at)
-       VALUES (?1, ?2, '', ?3, ?4, 0, ?5, ?6, ?6, ?7, ?7, 0)`,
-    ).bind(cardId, card.boardId, card.title, card.icon, JSON.stringify(contentOrder), userId, now),
+         (id, board_id, parent_id, title, icon, is_template, content_order, recurrence, created_by, modified_by, create_at, update_at, delete_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, ?8, ?9, ?9, 0)`,
+    ).bind(
+      cardId, card.boardId, card.parentId, card.title, card.icon, JSON.stringify(contentOrder),
+      card.recurrence ? serializeProjectRecurrence(card.recurrence) : null, userId, now,
+    ),
   ]
   for (const [propertyId, value] of Object.entries(card.values)) {
     statements.push(db.prepare(
@@ -148,7 +174,8 @@ export async function duplicateProjectCard(
   })
   await db.batch(statements)
   return {
-    id: cardId, boardId: card.boardId, parentId: '', title: card.title, icon: card.icon, isTemplate: false,
-    contentOrder, values: card.values, createdBy: userId, modifiedBy: userId, createAt: now, updateAt: now, deleteAt: 0,
+    id: cardId, boardId: card.boardId, parentId: card.parentId, title: card.title, icon: card.icon, isTemplate: false,
+    contentOrder, values: card.values, recurrence: card.recurrence, createdBy: userId, modifiedBy: userId,
+    createAt: now, updateAt: now, deleteAt: 0,
   }
 }
