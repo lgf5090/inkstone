@@ -202,6 +202,11 @@ export type ProjectCardPatchInput = z.infer<typeof ProjectCardPatchSchema>
 
 export const ProjectCardMoveSchema = z.object({ targetBoardId: projectId })
 
+export const ProjectDefaultViewPutSchema = z.object({
+  viewId: z.union([projectId, z.null()]),
+})
+export type ProjectDefaultViewPutInput = z.infer<typeof ProjectDefaultViewPutSchema>
+
 export const ProjectViewCreateSchema = z.object({
   id: projectId.optional(),
   title: title.default(''),

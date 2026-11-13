@@ -27,7 +27,7 @@ import { buildCardMenu } from './card-menu'
 import { ProjectPeopleProvider, useProjectPeople } from './people-context'
 import { readPinnedCardsPref, readStarredCardsPref, writePinnedCardsPref, writeStarredCardsPref } from './project-prefs'
 import { Seg } from './views/shell'
-import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, fetchProjectCardMarks, moveProjectCard, projectBoardExportUrl, projectFileUrl, saveProjectCardMarks } from './api'
+import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardDefaultView, fetchBoardLinks, fetchProjectCardMarks, moveProjectCard, projectBoardExportUrl, projectFileUrl, saveBoardDefaultView, saveProjectCardMarks } from './api'
 import { KanbanView } from './views/KanbanView'
 import { TableView } from './views/TableView'
 import { GalleryView } from './views/GalleryView'
@@ -124,10 +124,32 @@ interface BoardViewsProps {
 
 export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onPatchCardsBatch, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onCardCreated, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
-  useEffect(() => { setActiveId(readLastViewId(bundle.board.id)) }, [bundle.board.id])
+  const userPickedView = useRef(false)
+  const defaultViewQueue = useRef<Promise<unknown>>(Promise.resolve())
+  useEffect(() => {
+    userPickedView.current = false
+    setActiveId(readLastViewId(bundle.board.id))
+    if (publicView) return
+    const controller = new AbortController()
+    fetchBoardDefaultView(bundle.board.id, controller.signal)
+      .then((viewId) => {
+        if (controller.signal.aborted || userPickedView.current) return
+        if (viewId && bundle.views.some((view) => view.id === viewId)) {
+          setActiveId(viewId)
+          writeLastViewId(bundle.board.id, viewId)
+        }
+      })
+      .catch(() => { /* best-effort: the local last view keeps working offline */ })
+    return () => controller.abort()
+  }, [bundle.board.id, publicView])
   const selectView = (id: string): void => {
+    userPickedView.current = true
     setActiveId(id)
     writeLastViewId(bundle.board.id, id)
+    if (publicView) return
+    defaultViewQueue.current = defaultViewQueue.current
+      .then(() => saveBoardDefaultView(bundle.board.id, id))
+      .catch(() => { /* best-effort: the local choice stands until the account copy is read again */ })
   }
   const addAnchor = useRef<HTMLButtonElement>(null)
   const [addOpen, setAddOpen] = useState(false)

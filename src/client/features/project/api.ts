@@ -91,6 +91,15 @@ export async function saveProjectCardMarks(boardId: string, marks: ProjectCardMa
   return body.marks
 }
 
+export async function fetchBoardDefaultView(boardId: string, signal?: AbortSignal): Promise<string | null> {
+  const body = await request<{ viewId: string | null }>(`/api/project/boards/${encodeURIComponent(boardId)}/default-view`, { signal })
+  return body.viewId
+}
+
+export async function saveBoardDefaultView(boardId: string, viewId: string | null): Promise<void> {
+  await request<{ viewId: string | null }>(`/api/project/boards/${encodeURIComponent(boardId)}/default-view`, { method: 'PUT', body: { viewId } })
+}
+
 export async function fetchProjectBoardBundle(id: string, signal?: AbortSignal): Promise<ProjectBoardBundle> {
   return request<ProjectBoardBundle>(`/api/project/boards/${encodeURIComponent(id)}/bundle`, { signal })
 }

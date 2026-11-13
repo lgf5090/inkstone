@@ -19,6 +19,7 @@ import {
   ProjectCategoryPatchSchema,
   ProjectCommentCreateSchema,
   ProjectCommentPatchSchema,
+  ProjectDefaultViewPutSchema,
   ProjectContentCreateSchema,
   ProjectContentMoveSchema,
   ProjectContentPatchSchema,
@@ -101,7 +102,7 @@ import { searchProject } from './search'
 import { topProjectBoards } from './insights'
 import { addCardLink, applyCardValueEffects, createCardFromTemplate, getCardTodoLink, linkCardTodo, listBoardLinks, listCardLinks, listProjectActivity, recordProjectActivity, removeCardLink, saveCardAsTemplate, unlinkCardTodo } from './enhance'
 import { notifyProjectComment } from './notify'
-import { readProjectCardMarks, writeProjectCardMarks } from './preferences'
+import { readProjectCardMarks, readProjectDefaultView, writeProjectCardMarks, writeProjectDefaultView } from './preferences'
 import { toICal } from '../subscriptions/calendar'
 import { parseProjectDateValue, projectStampToDay } from '@shared/project/date'
 import { projectBoardToMarkdown } from '@shared/project/markdown'
@@ -417,6 +418,24 @@ projectRoutes.put('/boards/:id/card-marks', async (c) => {
   const marks = await projectBody(c, ProjectCardMarksSchema, JSON_BODY_LIMITS.small)
   await writeProjectCardMarks(c.env.DB, userId, board.id, marks, Date.now())
   return c.json({ marks })
+})
+
+/** A reader's landing tab follows the account, so another device opens the same view. */
+projectRoutes.get('/boards/:id/default-view', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ viewId: await readProjectDefaultView(c.env.DB, userId, board.id) })
+})
+
+projectRoutes.put('/boards/:id/default-view', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const input = await projectBody(c, ProjectDefaultViewPutSchema, JSON_BODY_LIMITS.small)
+  if (input.viewId !== null) {
+    const row = await c.env.DB.prepare('SELECT board_id FROM project_views WHERE id = ?1 AND delete_at = 0')
+      .bind(input.viewId).first<{ board_id: string }>()
+    if (!row || row.board_id !== board.id) throw ApiError.badRequest('View does not belong to this board')
+  }
+  await writeProjectDefaultView(c.env.DB, userId, board.id, input.viewId, Date.now())
+  return c.json({ viewId: input.viewId })
 })
 
 projectRoutes.get('/boards/:id/cursor', async (c) => {

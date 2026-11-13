@@ -6,6 +6,36 @@ function key(boardId: string): string {
   return `card-marks:${boardId}`
 }
 
+function defaultViewKey(boardId: string): string {
+  return `default-view:${boardId}`
+}
+
+/**
+ * The server is the single authority for a reader's default view: a browser's localStorage copy is
+ * only an offline fallback. Two devices writing at once resolve to the later `updated_at` in
+ * `project_settings`, so there is no merge to get wrong and no client clock in the decision.
+ */
+export async function readProjectDefaultView(db: D1Database, userId: string, boardId: string): Promise<string | null> {
+  const row = await db.prepare('SELECT value FROM project_settings WHERE user_id = ?1 AND key = ?2')
+    .bind(userId, defaultViewKey(boardId)).first<{ value: string }>()
+  if (!row) return null
+  try {
+    const parsed = JSON.parse(row.value) as { viewId?: unknown }
+    return typeof parsed.viewId === 'string' ? parsed.viewId : null
+  } catch {
+    return null
+  }
+}
+
+export async function writeProjectDefaultView(
+  db: D1Database, userId: string, boardId: string, viewId: string | null, now: number,
+): Promise<void> {
+  await db.prepare(
+    `INSERT INTO project_settings (user_id, key, value, updated_at) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).bind(userId, defaultViewKey(boardId), JSON.stringify({ viewId }), now).run()
+}
+
 export async function readProjectCardMarks(db: D1Database, userId: string, boardId: string): Promise<ProjectCardMarks> {
   const row = await db.prepare('SELECT value FROM project_settings WHERE user_id = ?1 AND key = ?2')
     .bind(userId, key(boardId)).first<{ value: string }>()

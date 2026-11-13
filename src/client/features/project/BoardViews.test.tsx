@@ -10,6 +10,8 @@ import * as api from './api'
 import * as overlay from '../../components/overlay'
 
 vi.spyOn(api, 'fetchProjectCardMarks').mockResolvedValue({ starred: [], pinned: [] })
+vi.spyOn(api, 'fetchBoardDefaultView').mockResolvedValue(null)
+vi.spyOn(api, 'saveBoardDefaultView').mockResolvedValue(undefined)
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 
@@ -49,6 +51,7 @@ async function menuLabels(label: string): Promise<string[]> {
 
 beforeEach(async () => {
   localStorage.clear()
+  vi.mocked(api.saveBoardDefaultView).mockClear()
   await initI18n()
 })
 afterEach(() => { view?.unmount() })
@@ -874,6 +877,26 @@ describe('the tick works on a board named in Chinese (R7-1)', () => {
       }))
     })
     expect(view.container.querySelector<HTMLButtonElement>('.pv-check')!.disabled).toBe(true)
+  })
+})
+
+describe('the account default view', () => {
+  it('lets the account copy win over a browser-only last view', async () => {
+    localStorage.setItem('inkstone.project.lastView.b1', 'v1')
+    vi.mocked(api.fetchBoardDefaultView).mockResolvedValueOnce('v2')
+    await mount()
+    await act(async () => { await Promise.resolve() })
+    expect(view.container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Board')
+    expect(api.saveBoardDefaultView).not.toHaveBeenCalled()
+  })
+
+  it('writes a picked view to the account as well as the browser', async () => {
+    await mount()
+    const boardTab = [...view.container.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === 'Board')!
+    await act(async () => { boardTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
+    await act(async () => { await Promise.resolve() })
+    expect(api.saveBoardDefaultView).toHaveBeenCalledWith('b1', 'v2')
+    expect(localStorage.getItem('inkstone.project.lastView.b1')).toBe('v2')
   })
 })
 

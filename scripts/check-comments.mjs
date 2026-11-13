@@ -12838,6 +12838,8 @@ const allowed = new Map([
     "// uploads its local copy the first time the server has nothing.",
     "/* best-effort migration */",
     "/* best-effort: local marks keep working offline */",
+    "/* best-effort: the local last view keeps working offline */",
+    "/* best-effort: the local choice stands until the account copy is read again */",
   ]],
   ["src/client/features/project/CardBadges.tsx", [
     "/** A date whose whole range has passed reads as overdue; an open-ended one is judged on its start. */",
@@ -42744,6 +42746,7 @@ const allowed = new Map([
   ]],
   ["src/worker/project/preferences.ts", [
     "/** Per-reader, per-board card marks. They are a preference, not board content, so they live beside the\n * user in project_settings rather than on the card row. */",
+    "/**\n * The server is the single authority for a reader's default view: a browser's localStorage copy is\n * only an offline fallback. Two devices writing at once resolve to the later `updated_at` in\n * `project_settings`, so there is no merge to get wrong and no client clock in the decision.\n */",
   ]],
   ["src/worker/project/property-access.ts", [
     "/**\n * The write half of field permissions: a property may name the roles allowed to edit it, and a caller\n * that is not one of them must be refused before the row is touched. Reads are redacted in `bundle.ts`\n * by the same rule, so a hidden property cannot be edited by guessing its id either.\n */",
@@ -42768,6 +42771,7 @@ const allowed = new Map([
     "/** Archived boards this account owns: hidden from the live list, kept whole for restore. */",
     "// Every board-scoped write advances the board's stamp, which is the cursor open tabs poll. Child",
     "// edits, deletes and moves would otherwise leave it behind and a second tab would never converge.",
+    "/** A reader's landing tab follows the account, so another device opens the same view. */",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
@@ -50214,6 +50218,9 @@ const allowed = new Map([
   ]],
   ["tests/project-archive.test.ts", [
     "// Import into a fresh instance: the archive's ids are preserved, so the source board must be gone.",
+  ]],
+  ["tests/project-default-view.test.ts", [
+    "// A second device on the same account, so the conflict rule is exercised across sessions.",
   ]],
   ["tests/project-no-native-select.test.ts", [
     "/**\n * The project app draws its selects with the app's own menu.\n *\n * A native `<select>` cannot carry an option's colour dot or the accent state the rest of the app\n * uses, and its system chrome ignores every design token. `SelectMenu` exists for exactly this and\n * is what the other features use; this app was the last one still on the browser control, which is\n * why its status pickers read as grey text where the reference shows a coloured pill.\n */",
