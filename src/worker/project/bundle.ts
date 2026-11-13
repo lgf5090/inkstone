@@ -217,6 +217,31 @@ export async function readProjectBoardBundle(
       }
     }
   }
+  const relationProperties = visibleProperties.filter(
+    (property) => property.type === 'relation' && property.config?.targetBoardId,
+  )
+  if (relationProperties.length) {
+    const relationIds = new Set(relationProperties.map((property) => property.id))
+    const { results: relationRows } = await db.prepare(
+      `SELECT r.from_card_id, r.property_id, r.to_card_id FROM project_card_relations r
+       JOIN project_cards c ON c.id = r.to_card_id AND c.delete_at = 0
+       WHERE r.board_id = ?1`,
+    ).bind(board.id).all<{ from_card_id: string, property_id: string, to_card_id: string }>()
+    const edges = new Map<string, string[]>()
+    for (const row of relationRows) {
+      if (!relationIds.has(row.property_id)) continue
+      const key = `${row.from_card_id}|${row.property_id}`
+      const list = edges.get(key) ?? []
+      list.push(row.to_card_id)
+      edges.set(key, list)
+    }
+    for (const card of cards) {
+      for (const property of relationProperties) {
+        const ids = edges.get(`${card.id}|${property.id}`) ?? []
+        card.values[property.id] = ids.length ? JSON.stringify(ids) : ''
+      }
+    }
+  }
   const allViews = viewRows.results.map(rowToView)
   const views = allViews.filter((view) => !view.fields.minimumRole || projectRoleAtLeast(role, view.fields.minimumRole))
   const contentsTruncated = contentRows.results.length > PROJECT_LIMITS.bundleContents

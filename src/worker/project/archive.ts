@@ -25,6 +25,7 @@ import { ApiError } from '../lib/errors'
 import { readProjectBoardBundle } from './bundle'
 import { duplicateProjectBoard } from './duplicate'
 import { listBoardLinks } from './enhance'
+import { rebuildBoardRelations } from './relations'
 import { listBoardAttachments, projectAttachmentObjectKey } from './files'
 import { ProjectStore } from './store'
 
@@ -403,6 +404,7 @@ export async function importProjectBoardArchive(
   for (let index = 0; index < statements.length; index += IMPORT_BATCH_SIZE) {
     await db.batch(statements.slice(index, index + IMPORT_BATCH_SIZE))
   }
+  await rebuildBoardRelations(db, source.id, imported.properties, now)
   const board: ProjectBoard = {
     id: source.id, ownerId: userId, type: source.type, minimumRole: source.minimumRole as ProjectBoard['minimumRole'],
     title: source.title, description: source.description, icon: source.icon, showDescription: source.showDescription,

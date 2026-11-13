@@ -311,6 +311,21 @@ export const PROJECT_ENHANCE_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_todo_links(todo_id)`,
 ]
 
+export const PROJECT_RELATION_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_card_relations (
+    board_id TEXT NOT NULL,
+    from_card_id TEXT NOT NULL,
+    to_card_id TEXT NOT NULL,
+    property_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (from_card_id, property_id, to_card_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_relations_to
+     ON project_card_relations(to_card_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_relations_board
+     ON project_card_relations(board_id)`,
+]
+
 // Its own queue rather than notes' fts_index_queue: that table keys on note_id and its drain reads
 // FROM notes, so sharing it would mean editing the notes search write path.
 export const PROJECT_FTS_SCHEMA_STATEMENTS: readonly string[] = [
@@ -347,6 +362,7 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_activity',
   'project_card_links',
   'project_todo_links',
+  'project_card_relations',
   'project_time_entries',
   'project_property_configs',
   'project_fts_queue',
@@ -379,6 +395,8 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_card_links_to',
   'idx_project_card_links_board',
   'idx_project_todo_links_todo',
+  'idx_project_card_relations_to',
+  'idx_project_card_relations_board',
   'idx_project_fts_queue_due',
 ]
 
@@ -430,5 +448,6 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   project_activity: ['board_id', 'id', 'actor_id', 'type', 'target_id', 'summary', 'created_at'],
   project_card_links: ['from_card_id', 'to_card_id', 'kind', 'board_id', 'created_at'],
   project_todo_links: ['card_id', 'todo_id', 'user_id', 'created_at'],
+  project_card_relations: ['board_id', 'from_card_id', 'to_card_id', 'property_id', 'created_at'],
   project_fts_queue: ['user_id', 'card_id', 'kind', 'created_at'],
 }

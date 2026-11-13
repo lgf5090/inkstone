@@ -1,17 +1,18 @@
-import { useRef, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import type { ProjectProperty, ProjectPropertyConfig, ProjectPropertyType, ProjectRole } from '@shared/project/model'
+import type { ProjectBoardSummary, ProjectProperty, ProjectPropertyConfig, ProjectPropertyType, ProjectRole } from '@shared/project/model'
 import { newProjectId } from '@shared/project/limits'
 import { PROJECT_ROLES } from '@shared/project/model'
 import { PROJECT_OPTION_COLORS, projectOptionColorName, projectOptionCssColor } from '@shared/project/option-color'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
-import { Input } from '../../components/form'
+import { Checkbox, Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Menu, Modal, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
+import { fetchProjectBoards } from './api'
 
-const EDITABLE_TYPES: ProjectPropertyType[] = ['text', 'number', 'select', 'multiSelect', 'date', 'person', 'checkbox', 'url', 'email', 'phone']
+const EDITABLE_TYPES: ProjectPropertyType[] = ['text', 'number', 'select', 'multiSelect', 'date', 'person', 'checkbox', 'url', 'email', 'phone', 'relation']
 const OPTION_TYPES = new Set(['select', 'multiSelect'])
 
 const typeOptions = () => EDITABLE_TYPES.map((type) => ({ value: type, label: t(`project.prop.type.${type.toLowerCase()}` as Parameters<typeof t>[0]) }))
@@ -29,6 +30,14 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
   const [newType, setNewType] = useState<ProjectPropertyType>('text')
   const [optionDraft, setOptionDraft] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [boards, setBoards] = useState<ProjectBoardSummary[]>([])
+  useEffect(() => {
+    let alive = true
+    fetchProjectBoards()
+      .then((list) => { if (alive) setBoards(list) })
+      .catch(() => { if (alive) setBoards([]) })
+    return () => { alive = false }
+  }, [])
 
   const update = (id: string, patch: Partial<ProjectProperty>) => {
     setDraft((current) => current.map((property) => (property.id === id ? { ...property, ...patch } : property)))
@@ -147,6 +156,32 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
                   }}
                 />
                 <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('project.props.expression_help')}</p>
+              </div>
+            )}
+            {property.type === 'relation' && (
+              <div className="space-y-1 pl-1">
+                <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.props.relation_board')}</p>
+                <SelectMenu
+                  className="w-full"
+                  value={property.config?.targetBoardId ?? ''}
+                  label={t('project.props.relation_board')}
+                  onChange={(value) => {
+                    const config = { ...property.config, targetBoardId: value || undefined }
+                    if (!value) delete config.targetBoardId
+                    update(property.id, { config: Object.keys(config).length ? config : undefined })
+                  }}
+                  options={[{ value: '', label: '—' }, ...boards.map((board) => ({ value: board.id, label: board.title }))]}
+                />
+                <Checkbox
+                  label={t('project.props.relation_multiple')}
+                  checked={property.config?.multiple === true}
+                  onChange={(checked) => {
+                    const config = { ...property.config }
+                    if (checked) config.multiple = true
+                    else delete config.multiple
+                    update(property.id, { config: Object.keys(config).length ? config : undefined })
+                  }}
+                />
               </div>
             )}
             <details className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1">

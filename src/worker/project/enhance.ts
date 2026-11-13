@@ -11,6 +11,8 @@ import type { AppBindings } from '../env'
 import { createProjectCard, getProjectCard, spawnRecurringCard } from './cards'
 import { createProjectContent } from './contents'
 import { notifyProjectAssignment } from './notify'
+import { projectRelationTargets } from './relations'
+import { readBoardProperties } from './boards'
 
 export type { ProjectActivityEntry, ProjectCardLink }
 
@@ -22,7 +24,7 @@ export async function saveCardAsTemplate(db: D1Database, cardId: string, now: nu
 export async function createCardFromTemplate(db: D1Database, board: ProjectBoard, userId: string, templateId: string, now: number): Promise<ProjectCard> {
   const template = await getProjectCard(db, templateId)
   if (!template || !template.isTemplate || template.boardId !== board.id) throw ApiError.notFound('Template not found')
-  const card = await createProjectCard(db, board, userId, { title: template.title, icon: template.icon, parentId: '', isTemplate: false, values: template.values }, now)
+  const card = await createProjectCard(db, board, userId, { title: template.title, icon: template.icon, parentId: '', isTemplate: false, values: template.values }, now, projectRelationTargets(await readBoardProperties(db, board.id)))
   const { results } = await db.prepare('SELECT * FROM project_card_contents WHERE card_id = ?1 AND delete_at = 0 ORDER BY position, id').bind(templateId).all<{ type: string, title: string, fields: string }>()
   for (const row of results) {
     await createProjectContent(db, card, userId, { type: row.type as 'text', title: row.title, fields: JSON.parse(row.fields) as { checked?: boolean } }, now)

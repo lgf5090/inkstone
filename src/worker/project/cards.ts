@@ -11,6 +11,7 @@ import { advanceProjectDay, projectDayFromIndex, projectDayIndex, serializeProje
 import { moveProjectDateValue, parseProjectDateValue, projectDayToStamp, projectStampToDay } from '@shared/project/date'
 import { ApiError } from '../lib/errors'
 import { rowToCard, type CardRow, type ValueRow } from './bundle'
+import { projectRelationTargets, relationEdgeStatements } from './relations'
 
 export async function readCardValues(db: D1Database, cardId: string): Promise<Record<string, string>> {
   const { results } = await db
@@ -35,16 +36,25 @@ export async function getProjectCard(db: D1Database, cardId: string): Promise<Pr
 function valueStatements(
   db: D1Database,
   cardId: string,
+  boardId: string,
   values: Record<string, string>,
+  relationTargets: ReadonlyMap<string, string>,
   now: number,
 ): D1PreparedStatement[] {
-  return Object.entries(values).map(([propertyId, value]) => db
-    .prepare(
-      `INSERT INTO project_card_values (card_id, property_id, value, updated_at)
-       VALUES (?1, ?2, ?3, ?4)
-       ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-    )
-    .bind(cardId, propertyId, value, now))
+  return Object.entries(values).flatMap(([propertyId, value]) => {
+    const statements: D1PreparedStatement[] = [db
+      .prepare(
+        `INSERT INTO project_card_values (card_id, property_id, value, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      )
+      .bind(cardId, propertyId, value, now)]
+    const targetBoardId = relationTargets.get(propertyId)
+    if (targetBoardId) {
+      statements.push(...relationEdgeStatements(db, boardId, cardId, propertyId, targetBoardId, value, now))
+    }
+    return statements
+  })
 }
 
 /**
@@ -58,6 +68,7 @@ export async function createProjectCard(
   userId: string,
   input: ProjectCardCreateInput,
   now: number,
+  relationTargets: ReadonlyMap<string, string> = new Map(),
 ): Promise<ProjectCard> {
   const count = await db
     .prepare('SELECT COUNT(*) AS n FROM project_cards WHERE board_id = ?1 AND delete_at = 0')
@@ -79,7 +90,7 @@ export async function createProjectCard(
           create_at, update_at, delete_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?8, ?8, ?9, ?9, 0)`,
     ).bind(id, board.id, input.parentId, input.title, input.icon, input.isTemplate ? 1 : 0, input.recurrence ? serializeProjectRecurrence(input.recurrence) : null, userId, now),
-    ...valueStatements(db, id, input.values, now),
+    ...valueStatements(db, id, board.id, input.values, relationTargets, now),
   ])
   return {
     id,
@@ -110,6 +121,7 @@ export function cardPatchStatements(
   patch: ProjectCardPatchInput,
   userId: string,
   now: number,
+  relationTargets: ReadonlyMap<string, string> = new Map(),
 ): D1PreparedStatement[] {
   const sets: string[] = ['modified_by = ?', 'update_at = ?']
   const values: (string | number | null)[] = [userId, now]
@@ -125,8 +137,11 @@ export function cardPatchStatements(
   for (const [propertyId, value] of Object.entries(patch.values ?? {})) {
     if (value === null) {
       statements.push(db.prepare('DELETE FROM project_card_values WHERE card_id = ?1 AND property_id = ?2').bind(card.id, propertyId))
+      if (relationTargets.has(propertyId)) {
+        statements.push(db.prepare('DELETE FROM project_card_relations WHERE from_card_id = ?1 AND property_id = ?2').bind(card.id, propertyId))
+      }
     } else {
-      statements.push(...valueStatements(db, card.id, { [propertyId]: value }, now))
+      statements.push(...valueStatements(db, card.id, card.boardId, { [propertyId]: value }, relationTargets, now))
     }
   }
   return statements
@@ -167,9 +182,10 @@ export async function patchProjectCard(
   patch: ProjectCardPatchInput,
   userId: string,
   now: number,
+  relationTargets: ReadonlyMap<string, string> = new Map(),
 ): Promise<ProjectCard> {
   if (patch.parentId) await assertProjectParent(db, card, patch.parentId)
-  await db.batch(cardPatchStatements(db, card, patch, userId, now))
+  await db.batch(cardPatchStatements(db, card, patch, userId, now, relationTargets))
   return (await getProjectCard(db, card.id))!
 }
 
@@ -208,7 +224,7 @@ export async function spawnRecurringCard(
     isTemplate: false,
     values,
     recurrence: { ...card.recurrence, anchor: anchorIndex },
-  }, now)
+  }, now, projectRelationTargets(properties))
 }
 
 export async function softDeleteProjectCard(db: D1Database, cardId: string, userId: string, now: number): Promise<void> {
@@ -216,6 +232,7 @@ export async function softDeleteProjectCard(db: D1Database, cardId: string, user
     .prepare('UPDATE project_cards SET delete_at = ?1, modified_by = ?2, update_at = ?1 WHERE id = ?3 AND delete_at = 0')
     .bind(now, userId, cardId)
     .run()
+  await db.prepare('DELETE FROM project_card_relations WHERE from_card_id = ?1 OR to_card_id = ?1').bind(cardId).run()
 }
 
 export async function undeleteProjectCard(db: D1Database, cardId: string, userId: string, now: number): Promise<void> {

@@ -3,7 +3,9 @@ import type { ProjectBoardMember, ProjectCard, ProjectPeople, ProjectProperty } 
 import { projectMultiValueIds, projectPersonLabel } from '@shared/project/model'
 import { moveProjectDateValue, parseProjectDateValue, projectInputToStamp, projectStampToInput, projectTimeZoneName } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
-import { useLocale } from '../../lib/i18n'
+import type { ProjectRelationOption } from '@shared/project/relation'
+import { parseProjectRelationIds, serializeProjectRelationIds } from '@shared/project/relation'
+import { t, useLocale } from '../../lib/i18n'
 import { Avatar } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input } from '../../components/form'
 import { isImeComposing } from '../../lib/ime'
@@ -11,6 +13,7 @@ import { SelectMenu } from '../../components/select-menu'
 import { useSession } from '../../store/session'
 import { optionDot } from './CardBadges'
 import { DatePicker } from '../../components/date-picker'
+import { fetchRelationCards } from './api'
 
 interface PropertyValueEditorProps {
   property: ProjectProperty
@@ -29,6 +32,58 @@ function readDateFrom(value: string): string {
   const parsed = parseProjectDateValue(value)
   if (parsed?.from === undefined) return ''
   return projectStampToInput(parsed.from, parsed.includeTime === true, parsed.timeZone)
+}
+
+function RelationPicker({ targetBoardId, multiple, selected, disabled, label, onChange }: {
+  targetBoardId: string
+  multiple: boolean
+  selected: string[]
+  disabled: boolean
+  label: string
+  onChange: (ids: string[]) => void
+}): ReactElement {
+  const [options, setOptions] = useState<ProjectRelationOption[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    fetchRelationCards(targetBoardId)
+      .then((cards) => { if (alive) setOptions(cards) })
+      .catch(() => { if (alive) setOptions(null) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [targetBoardId])
+  if (loading) return <span role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.relation.loading')}</span>
+  if (options === null) return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.relation.no_access')}</span>
+  if (!options.length) return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.relation.empty')}</span>
+  if (multiple) {
+    return (
+      <div className="flex flex-wrap gap-2">
+        {options.map((option) => (
+          <Checkbox
+            key={option.id}
+            label={option.title}
+            checked={selected.includes(option.id)}
+            disabled={disabled}
+            onChange={(checked) => {
+              const next = checked ? [...selected, option.id] : selected.filter((id) => id !== option.id)
+              onChange(next)
+            }}
+          />
+        ))}
+      </div>
+    )
+  }
+  return (
+    <SelectMenu
+      className="w-full"
+      value={selected[0] ?? ''}
+      disabled={disabled}
+      label={label}
+      onChange={(next) => onChange(next ? [next] : [])}
+      options={[{ value: '', label: '—' }, ...options.map((option) => ({ value: option.id, label: option.title }))]}
+    />
+  )
 }
 
 export function PropertyValueEditor({ property, value, members, disabled, onChange, card, onDone, people }: PropertyValueEditorProps): ReactElement {
@@ -128,6 +183,17 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
     case 'person':
       return (
         <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: '—' }, ...candidates.map((userId) => ({ value: userId, label: projectPersonLabel(directory, userId), icon: <Avatar src={directory[userId]?.avatarUrl} name={projectPersonLabel(directory, userId)} size={18} /> }))]} />
+      )
+    case 'relation':
+      return (
+        <RelationPicker
+          targetBoardId={property.config?.targetBoardId ?? ''}
+          multiple={property.config?.multiple === true}
+          selected={parseProjectRelationIds(value)}
+          disabled={disabled}
+          label={property.name}
+          onChange={(ids) => onChange(serializeProjectRelationIds(ids))}
+        />
       )
     case 'formula':
       return <span className="text-[length:var(--text-12)] text-[var(--text-secondary)] tabular">{value || '—'}</span>

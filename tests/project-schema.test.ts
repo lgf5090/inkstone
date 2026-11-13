@@ -8,6 +8,7 @@ import {
   PROJECT_CONTENT_SCHEMA_STATEMENTS,
   PROJECT_CORE_SCHEMA_STATEMENTS,
   PROJECT_ENHANCE_SCHEMA_STATEMENTS,
+  PROJECT_RELATION_SCHEMA_STATEMENTS,
   PROJECT_FTS_SCHEMA_STATEMENTS,
   PROJECT_REQUIRED_COLUMNS,
   PROJECT_REQUIRED_INDEXES,
@@ -19,6 +20,7 @@ const PROJECT_STATEMENTS = [
   ...PROJECT_CONTENT_SCHEMA_STATEMENTS,
   ...PROJECT_AUX_SCHEMA_STATEMENTS,
   ...PROJECT_ENHANCE_SCHEMA_STATEMENTS,
+  ...PROJECT_RELATION_SCHEMA_STATEMENTS,
   ...PROJECT_FTS_SCHEMA_STATEMENTS,
 ]
 
@@ -89,9 +91,8 @@ describe('the project tables', () => {
     // The project block follows the ledger the rest of the app already spent, so it is found by the
     // statements it carries rather than by a version number another feature may claim first.
     const projectMigrations = SCHEMA_MIGRATIONS.filter((entry) => entry.statements.some((statement) => PROJECT_STATEMENTS.includes(statement)))
-    const versions = projectMigrations.slice(0, 5)
-    expect(versions.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 389])
-    for (const entry of versions) migrated.exec(entry.statements.join(';'))
+    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 389, 397])
+    for (const entry of projectMigrations) migrated.exec(entry.statements.join(';'))
 
     const shape = (db: DatabaseSync): string[] =>
       (db.prepare(`SELECT name, sql FROM sqlite_master WHERE name LIKE 'project_%' ORDER BY name`).all() as Array<{ name: string; sql: string | null }>)

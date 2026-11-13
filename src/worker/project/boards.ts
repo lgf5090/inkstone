@@ -162,6 +162,7 @@ export async function patchProjectBoard(
       statements.push(db.prepare(
         'DELETE FROM project_card_values WHERE property_id = ?1 AND card_id IN (SELECT id FROM project_cards WHERE board_id = ?2)',
       ).bind(property.id, board.id))
+      statements.push(db.prepare('DELETE FROM project_card_relations WHERE property_id = ?1').bind(property.id))
     }
     statements.push(...propertyStatements(db, board.id, properties, now))
   }

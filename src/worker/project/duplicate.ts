@@ -11,7 +11,9 @@ import type { ProjectContentOrder } from '@shared/project/content-order'
 import { newProjectId } from '@shared/project/limits'
 import { serializeProjectRecurrence } from '@shared/project/recurrence'
 import { serializeProjectPropertyConfig } from '@shared/project/property-config'
+import { remapProjectRelationValue } from '@shared/project/relation'
 import { rowToContent, type ContentRow } from './bundle'
+import { rebuildBoardRelations } from './relations'
 
 const COPY_BATCH_SIZE = 500
 
@@ -82,6 +84,7 @@ export async function duplicateProjectBoard(
     ).bind(boardId, property.id, serializeProjectPropertyConfig(property.config), now))
   })
   const formulaIds = new Set(bundle.properties.filter((property) => property.type === 'formula').map((property) => property.id))
+  const propertyById = new Map(bundle.properties.map((property) => [property.id, property]))
   for (const card of bundle.cards) {
     const id = cardMap.get(card.id)!
     statements.push(db.prepare(
@@ -95,9 +98,13 @@ export async function duplicateProjectBoard(
     ))
     for (const [propertyId, value] of Object.entries(card.values)) {
       if (formulaIds.has(propertyId)) continue
+      const sourceProperty = propertyById.get(propertyId)
+      const copiedValue = sourceProperty?.type === 'relation' && sourceProperty.config?.targetBoardId === source.id
+        ? remapProjectRelationValue(value, cardMap)
+        : value
       statements.push(db.prepare(
         'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4)',
-      ).bind(id, propertyId, value, now))
+      ).bind(id, propertyId, copiedValue, now))
     }
   }
   for (const view of bundle.views) {
@@ -149,6 +156,7 @@ export async function duplicateProjectBoard(
   for (let index = 0; index < statements.length; index += COPY_BATCH_SIZE) {
     await db.batch(statements.slice(index, index + COPY_BATCH_SIZE))
   }
+  await rebuildBoardRelations(db, boardId, bundle.properties, now)
   return {
     id: boardId, ownerId: userId, type: source.type, minimumRole: source.minimumRole, title: source.title,
     description: source.description, icon: source.icon, showDescription: source.showDescription,

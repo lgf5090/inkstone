@@ -14,6 +14,7 @@ import { serializeProjectPropertyConfig } from '@shared/project/property-config'
 import { ApiError } from '../lib/errors'
 import { readBoardProperties } from './boards'
 import { getProjectCard } from './cards'
+import { rebuildBoardRelations } from './relations'
 
 const MOVE_BATCH_SIZE = 500
 const OPTION_TYPES = new Set<ProjectPropertyType>(['select', 'multiSelect'])
@@ -170,5 +171,7 @@ export async function moveProjectCard(
   for (let index = 0; index < statements.length; index += MOVE_BATCH_SIZE) {
     await db.batch(statements.slice(index, index + MOVE_BATCH_SIZE))
   }
+  await rebuildBoardRelations(db, card.boardId, sourceProperties, now)
+  await rebuildBoardRelations(db, targetBoardId, await readBoardProperties(db, targetBoardId), now)
   return (await getProjectCard(db, card.id))!
 }

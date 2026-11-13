@@ -24,7 +24,7 @@ import {
 import { ProjectRecurrenceSchema } from './validation'
 import { parseProjectPropertyConfig } from './property-config'
 
-const MULTI_VALUE_TYPES = new Set(['multiSelect', 'multiPerson'])
+const MULTI_VALUE_TYPES = new Set(['multiSelect', 'multiPerson', 'relation'])
 
 /** A stored value is text; the reference wants an array for the two multi-valued property types. */
 function exportValue(value: string, propertyType: string | undefined): string | string[] {

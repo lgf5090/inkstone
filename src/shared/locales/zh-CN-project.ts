@@ -1,4 +1,10 @@
 export const ZH_CN_PROJECT = {
+    "project.prop.type.relation": "关联",
+    "project.relation.loading": "正在加载关联卡片...",
+    "project.relation.no_access": "关联看板不可见",
+    "project.relation.empty": "没有可关联的卡片",
+    "project.props.relation_board": "目标看板",
+    "project.props.relation_multiple": "允许多选",
     "project.title": "项目",
     "project.boards.count": "{count} 个板",
     "project.boards.empty_title": "还没有板",

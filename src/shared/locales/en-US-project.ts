@@ -1,4 +1,10 @@
 export const EN_US_PROJECT = {
+    "project.prop.type.relation": "Relation",
+    "project.relation.loading": "Loading related cards...",
+    "project.relation.no_access": "Linked board is not available",
+    "project.relation.empty": "No cards to link",
+    "project.props.relation_board": "Target board",
+    "project.props.relation_multiple": "Allow multiple cards",
     "project.title": "Projects",
     "project.boards.count": "{count} boards",
     "project.boards.empty_title": "No boards yet",

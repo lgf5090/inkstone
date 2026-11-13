@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono'
 import { projectBoardToCsv } from '@shared/project/csv'
+import { isProjectId } from '@shared/project/limits'
 import {
   ProjectBoardCreateSchema,
   ProjectBoardFromTemplateSchema,
@@ -108,6 +109,14 @@ import { projectStatistics } from './statistics'
 import { listProjectMyTasks } from './my-tasks'
 import { deleteTimeEntry, listCardTime, startCardTime, stopCardTime } from './time'
 import { assertProjectValuesWritable } from './property-access'
+import {
+  assertProjectRelationValues,
+  listBackReferences,
+  listRelationOptions,
+  projectRelationTargets,
+  rebuildBoardRelations,
+  redactHiddenRelations,
+} from './relations'
 import { createBoardFromTemplate, listProjectTemplates, saveBoardAsTemplate } from './templates'
 import { listProjectSubscriptions, subscribeProject, unsubscribeProject } from './subscriptions'
 import {
@@ -409,14 +418,18 @@ projectRoutes.get('/boards/:id/cursor', async (c) => {
 
 projectRoutes.get('/boards/:id/bundle', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  return c.json(await readProjectBoardBundle(c.env.DB, board, role))
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  await redactHiddenRelations(c.env.DB, bundle, projectUserId(c))
+  return c.json(bundle)
 })
 
 projectRoutes.post('/boards/:id/cards', async (c) => {
   const { board, userId, role } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectCardCreateSchema)
+  const properties = await readBoardProperties(c.env.DB, board.id)
   await assertProjectValuesWritable(c.env.DB, board.id, role, input.values)
-  return c.json({ card: await createProjectCard(c.env.DB, board, userId, input, Date.now()) }, 201)
+  await assertProjectRelationValues(c.env.DB, properties, input.values, userId)
+  return c.json({ card: await createProjectCard(c.env.DB, board, userId, input, Date.now(), projectRelationTargets(properties)) }, 201)
 })
 
 projectRoutes.post('/boards/:id/views', async (c) => {
@@ -593,11 +606,12 @@ projectRoutes.get('/cards/:id/detail', async (c) => {
 projectRoutes.patch('/cards/:id', async (c) => {
   const { card, board, userId, role } = await requireCard(c, c.req.param('id'), 'editor')
   const patch = await projectBody(c, ProjectCardPatchSchema)
+  const properties = await readBoardProperties(c.env.DB, card.boardId)
   await assertProjectValuesWritable(c.env.DB, card.boardId, role, patch.values)
+  await assertProjectRelationValues(c.env.DB, properties, patch.values, userId)
   const now = Date.now()
-  const updated = await patchProjectCard(c.env.DB, card, patch, userId, now)
+  const updated = await patchProjectCard(c.env.DB, card, patch, userId, now, projectRelationTargets(properties))
   if (patch.values !== undefined) {
-    const properties = await readBoardProperties(c.env.DB, card.boardId)
     await applyCardValueEffects(c.env.DB, c.env, board, card, updated, properties, userId, now)
   }
   return c.json({ card: updated })
@@ -610,9 +624,22 @@ projectRoutes.delete('/cards/:id', async (c) => {
 })
 
 projectRoutes.post('/cards/:id/undelete', async (c) => {
-  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor', { allowDeleted: true })
-  await undeleteProjectCard(c.env.DB, card.id, userId, Date.now())
+  const { card, board, userId } = await requireCard(c, c.req.param('id'), 'editor', { allowDeleted: true })
+  const now = Date.now()
+  await undeleteProjectCard(c.env.DB, card.id, userId, now)
+  await rebuildBoardRelations(c.env.DB, board.id, await readBoardProperties(c.env.DB, board.id), now)
   return c.json({ card: await getProjectCard(c.env.DB, card.id) })
+})
+
+projectRoutes.get('/boards/:id/relation-cards', async (c) => {
+  const boardId = c.req.param('id')
+  if (!isProjectId(boardId)) throw ApiError.badRequest('invalid board id')
+  return c.json({ cards: await listRelationOptions(c.env.DB, boardId, projectUserId(c), 200) })
+})
+
+projectRoutes.get('/cards/:id/relations', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ references: await listBackReferences(c.env.DB, card.id, projectUserId(c)) })
 })
 
 projectRoutes.post('/cards/:id/duplicate', async (c) => {

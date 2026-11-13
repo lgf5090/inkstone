@@ -12,6 +12,7 @@ import { hashPassword, verifyPassword } from '../lib/password'
 import { ApiError } from '../lib/errors'
 import { assertAttemptBudget, assertNotLocked, clearLoginFailures, consumeAttemptBudget, recordLoginFailure, type AttemptBudgetTarget } from '../lib/throttle'
 import { readProjectBoardBundle } from './bundle'
+import { redactHiddenRelations } from './relations'
 
 interface ShareRow {
   slug: string
@@ -122,6 +123,7 @@ export async function readPublicProjectShare(db: D1Database, slug: string, passw
     createAt: boardRow.create_at, updateAt: boardRow.update_at, deleteAt: boardRow.delete_at, archived: boardRow.archived !== 0,
   }
   const bundle = await readProjectBoardBundle(db, board, 'viewer')
+  await redactHiddenRelations(db, bundle, undefined)
   const comments = row.show_comments === 0 ? [] : bundle.comments
   const referenced = new Set<string>()
   for (const card of bundle.cards) {

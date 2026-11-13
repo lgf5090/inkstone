@@ -16,6 +16,7 @@ import { rowToCard, rowToContent, rowToView, type CardRow, type ContentRow, type
 import { assertProjectParent, cardPatchStatements, getProjectCard } from './cards'
 import { cardOrderStatement, contentPatchStatements, getProjectContent, readCardOrder } from './contents'
 import { applyCardValueEffects } from './enhance'
+import { assertProjectRelationValues, projectRelationTargets } from './relations'
 import { getProjectView, viewPatchStatements } from './views'
 
 type ProjectBatchInput = z.infer<typeof ProjectBatchSchema>
@@ -81,6 +82,11 @@ export async function batchPatchProjectBoard(
   const statementCount = cards.reduce((total, { patch }) => total + 1 + Object.keys(patch.values ?? {}).length, 0)
     + contents.length + views.length
   if (statementCount > BATCH_STATEMENT_LIMIT) throw ApiError.tooLarge('batch has too many operations')
+  const properties = await readBoardProperties(db, board.id)
+  const relationTargets = projectRelationTargets(properties)
+  for (const { patch } of cards) {
+    await assertProjectRelationValues(db, properties, patch.values, userId)
+  }
   const cardsById = await readCardsByIds(db, cards.map((entry) => entry.id))
   const contentsById = await readContentsByIds(db, contents.map((entry) => entry.id))
   const viewsById = await readViewsByIds(db, views.map((entry) => entry.id))
@@ -91,7 +97,7 @@ export async function batchPatchProjectBoard(
     if (!card || card.boardId !== board.id || card.deleteAt !== 0) throw ApiError.notFound('Card not found')
     if (patch.parentId) await assertProjectParent(db, card, patch.parentId)
     if (patch.values !== undefined) valueCards.push(card)
-    statements.push(...cardPatchStatements(db, card, patch, userId, now))
+    statements.push(...cardPatchStatements(db, card, patch, userId, now, relationTargets))
   }
   for (const { id, patch } of contents) {
     const content = contentsById.get(id)
@@ -106,7 +112,6 @@ export async function batchPatchProjectBoard(
   }
   await commit(db, statements)
   if (!valueCards.length) return
-  const properties = await readBoardProperties(db, board.id)
   const afterById = await readCardsByIds(db, valueCards.map((card) => card.id))
   for (const before of valueCards) {
     const after = afterById.get(before.id)
@@ -129,6 +134,7 @@ export async function batchDeleteProjectBoard(
     if (!card || card.boardId !== board.id || card.deleteAt !== 0) throw ApiError.notFound('Card not found')
     statements.push(db.prepare('UPDATE project_cards SET delete_at = ?1, modified_by = ?2, update_at = ?1 WHERE id = ?3')
       .bind(now, userId, cardId))
+    statements.push(db.prepare('DELETE FROM project_card_relations WHERE from_card_id = ?1 OR to_card_id = ?1').bind(cardId))
   }
   for (const viewId of input.viewIds) {
     const view = await getProjectView(db, viewId)

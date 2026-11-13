@@ -28,6 +28,7 @@ import type {
   ProjectViewType,
 } from '@shared/project/model'
 import type { ProjectContentCreateInput, ProjectContentPatchInput } from '@shared/project/validation'
+import type { ProjectRelationBackReference, ProjectRelationOption } from '@shared/project/relation'
 import type { ProjectBoardCreateInput, ProjectCardCreateInput } from '@shared/project/validation'
 
 export async function fetchProjectBoards(signal?: AbortSignal): Promise<ProjectBoardSummary[]> {
@@ -435,4 +436,14 @@ export async function fetchBoardTrash(boardId: string, signal?: AbortSignal): Pr
 
 export async function restoreProjectBoard(boardId: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/undelete`, { method: 'POST', body: {} })
+}
+
+export async function fetchRelationCards(targetBoardId: string, signal?: AbortSignal): Promise<ProjectRelationOption[] | null> {
+  const body = await request<{ cards: ProjectRelationOption[] | null }>(`/api/project/boards/${encodeURIComponent(targetBoardId)}/relation-cards`, { signal })
+  return body.cards
+}
+
+export async function fetchCardRelations(cardId: string, signal?: AbortSignal): Promise<ProjectRelationBackReference[]> {
+  const body = await request<{ references: ProjectRelationBackReference[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/relations`, { signal })
+  return body.references
 }

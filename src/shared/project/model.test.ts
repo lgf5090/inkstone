@@ -16,8 +16,8 @@ import {
 import { PROJECT_ID_PATTERN, PROJECT_LIMITS, isProjectId, newProjectId } from './limits'
 
 describe('the project vocabulary', () => {
-  it('declares the eighteen property types and the reference fifteen conditions plus the two numeric additions (X-8)', () => {
-    expect(PROJECT_PROPERTY_TYPES).toHaveLength(18)
+  it('declares the nineteen property types and the reference fifteen conditions plus the two numeric additions (X-8)', () => {
+    expect(PROJECT_PROPERTY_TYPES).toHaveLength(19)
     expect(PROJECT_FILTER_CONDITIONS).toHaveLength(17)
     expect(PROJECT_CALCULATIONS).toHaveLength(21)
     expect(PROJECT_VIEW_TYPES).toHaveLength(10)

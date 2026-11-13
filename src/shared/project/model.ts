@@ -17,7 +17,7 @@ export type ProjectMinimumRole = '' | ProjectRole
 
 export const PROJECT_PROPERTY_TYPES = [
   'text', 'number', 'select', 'multiSelect', 'date', 'person', 'multiPerson', 'file',
-  'checkbox', 'url', 'email', 'phone', 'formula', 'createdTime', 'createdBy', 'updatedTime', 'updatedBy', 'unknown',
+  'checkbox', 'url', 'email', 'phone', 'formula', 'relation', 'createdTime', 'createdBy', 'updatedTime', 'updatedBy', 'unknown',
 ] as const
 export type ProjectPropertyType = (typeof PROJECT_PROPERTY_TYPES)[number]
 
@@ -86,6 +86,7 @@ export const PROJECT_PROPERTY_CAPABILITIES: Readonly<Record<ProjectPropertyType,
   email: EDITABLE_TEXT,
   phone: EDITABLE_TEXT,
   formula: { canFilter: false, filterValueType: 'none', canGroup: false, readOnly: true },
+  relation: { canFilter: true, filterValueType: 'text', canGroup: false, readOnly: false },
   createdTime: SERVER_STAMP,
   createdBy: SERVER_AUTHOR,
   updatedTime: SERVER_STAMP,
@@ -122,6 +123,14 @@ export interface ProjectCardLink {
   fromCardId: string
   toCardId: string
   kind: ProjectCardLinkKind
+}
+
+export interface ProjectCardRelation {
+  boardId: string
+  fromCardId: string
+  toCardId: string
+  propertyId: string
+  createdAt: number
 }
 
 /** A worked interval on a card; `endedAt` null while the timer runs. */
