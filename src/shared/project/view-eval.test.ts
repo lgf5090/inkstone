@@ -296,3 +296,30 @@ describe('group keys and labels', () => {
     expect(projectGroupLabel(undefined, 'raw')).toBe('raw')
   })
 })
+
+describe('sort semantics', () => {
+  it('orders dates chronologically rather than by their JSON spelling', () => {
+    const early = card('early', { pd: JSON.stringify({ from: 100_000 }) })
+    const late = card('late', { pd: JSON.stringify({ from: 20_000 }) })
+    expect(sortProjectCards([early, late], [{ propertyId: 'pd', reversed: false }], props).map((entry) => entry.id))
+      .toEqual(['late', 'early'])
+  })
+
+  it('orders a select by the board option order, not the option id', () => {
+    const status: ProjectProperty = {
+      id: 'px', name: 'Phase', type: 'select',
+      options: [{ id: 'z', value: 'First', color: '' }, { id: 'a', value: 'Second', color: '' }],
+    }
+    const second = card('second', { px: 'a' })
+    const first = card('first', { px: 'z' })
+    expect(sortProjectCards([second, first], [{ propertyId: 'px', reversed: false }], [status]).map((entry) => entry.id))
+      .toEqual(['first', 'second'])
+  })
+
+  it('orders people by display name when the directory is available', () => {
+    const owner: ProjectProperty = { id: 'pp', name: 'Owner', type: 'person', options: [] }
+    const people = { u1: { id: 'u1', name: 'Zoe', avatarUrl: '' }, u2: { id: 'u2', name: 'Amy', avatarUrl: '' } }
+    expect(sortProjectCards([card('z', { pp: 'u1' }), card('a', { pp: 'u2' })], [{ propertyId: 'pp', reversed: false }], [owner], people).map((entry) => entry.id))
+      .toEqual(['a', 'z'])
+  })
+})

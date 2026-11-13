@@ -208,7 +208,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     () => bundle.cards.filter((card) => matchProjectFilterGroup(card, fields.filter, bundle.properties) && matchProjectViewSearch(card, deferredSearch, bundle.properties, bundle.people)),
     [bundle.cards, fields.filter, bundle.properties, bundle.people, deferredSearch],
   )
-  const sorted = useMemo(() => sortProjectCards(filtered, fields.sortOptions, bundle.properties), [filtered, fields.sortOptions, bundle.properties])
+  const sorted = useMemo(() => sortProjectCards(filtered, fields.sortOptions, bundle.properties, bundle.people), [filtered, fields.sortOptions, bundle.properties, bundle.people])
   // The board and the list are manual surfaces: a card the reader dropped stays where it was dropped.
   const cards = useMemo(
     () => (viewType === 'board' || viewType === 'list' ? orderProjectCards(sorted, fields.cardOrder) : sorted),

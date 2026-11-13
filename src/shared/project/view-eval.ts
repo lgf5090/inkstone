@@ -181,17 +181,64 @@ function compareValues(a: string, b: string): number {
   return a.localeCompare(b)
 }
 
+/**
+ * The value a column sorts by, which is not always the string it stores: a date is a JSON object, a
+ * select is an opaque option id, and a person is a user id. Ordering those raw would put January after
+ * December and beat the board's own option order.
+ */
+function projectSortKey(
+  card: ProjectCard,
+  propertyId: string,
+  properties: readonly ProjectProperty[],
+  people?: ProjectPeople,
+): string {
+  const raw = projectCardDisplayValue(card, propertyId, properties)
+  if (!raw) return ''
+  const property = properties.find((entry) => entry.id === propertyId)
+  if (!property) return raw
+  switch (property.type) {
+    case 'date': {
+      const range = parseProjectDateValue(raw)
+      return range?.from === undefined ? '' : String(range.from).padStart(16, '0')
+    }
+    case 'select': {
+      const index = property.options.findIndex((entry) => entry.id === raw)
+      return index < 0 ? raw : String(index).padStart(6, '0')
+    }
+    case 'multiSelect':
+      return asArray(raw)
+        .map((id) => String(property.options.findIndex((entry) => entry.id === id)).padStart(6, '0'))
+        .join(',')
+    case 'multiPerson':
+      return asArray(raw).map((id) => projectPersonLabel(people, id)).join(',')
+    case 'person':
+    case 'createdBy':
+    case 'updatedBy':
+      return projectPersonLabel(people, raw)
+    default:
+      return raw
+  }
+}
+
 /** Multi-key sort; an empty value sorts last regardless of direction, as the reference does. */
 export function sortProjectCards(
   cards: readonly ProjectCard[],
   sortOptions: readonly ProjectSortOption[],
   properties: readonly ProjectProperty[],
+  people?: ProjectPeople,
 ): ProjectCard[] {
   if (sortOptions.length === 0) return [...cards]
+  const keys = new Map<string, string[]>()
+  for (const card of cards) {
+    keys.set(card.id, sortOptions.map((option) => projectSortKey(card, option.propertyId, properties, people)))
+  }
   return [...cards].sort((a, b) => {
-    for (const option of sortOptions) {
-      const av = projectCardDisplayValue(a, option.propertyId, properties)
-      const bv = projectCardDisplayValue(b, option.propertyId, properties)
+    const ak = keys.get(a.id)!
+    const bk = keys.get(b.id)!
+    for (let index = 0; index < sortOptions.length; index += 1) {
+      const option = sortOptions[index]!
+      const av = ak[index]!
+      const bv = bk[index]!
       if (av === bv) continue
       if (av === '') return 1
       if (bv === '') return -1
