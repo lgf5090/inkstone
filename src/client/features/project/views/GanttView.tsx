@@ -400,7 +400,7 @@ export function GanttView(props: GanttProps): ReactElement {
                 data-schedule-row={card.id}
               >
                 {row.childCount > 0
-                  ? <RowToggle collapsed={collapsed.has(card.id)} label={t('project.card.expand_subtasks')} onToggle={() => toggle(card.id)} />
+                  ? <RowToggle collapsed={collapsed.has(card.id)} label={collapsed.has(card.id) ? t('project.card.expand_subtasks') : t('project.card.collapse_subtasks')} onToggle={() => toggle(card.id)} />
                   : <span className="size-6 shrink-0" aria-hidden="true" />}
                 <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: row.color }} aria-hidden="true" />
                 <button type="button" className="pv-sched-rowtitle" onClick={() => props.onOpenCard(card.id)}>{card.title || t('project.board.untitled_card')}</button>

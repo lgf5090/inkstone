@@ -12,7 +12,7 @@ import { PROJECT_ATTACHMENT_CATEGORIES } from '@shared/project/model'
 import { t, useLocale } from '../../../lib/i18n'
 import { Button } from '../../../components/primitives'
 import { Input } from '../../../components/form'
-import { confirm } from '../../../components/overlay'
+import { confirm, useDialogFocus, useEscape } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
 import { ViewEmpty, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { deleteProjectFile, listBoardFiles, projectFileUrl, uploadBoardFile } from '../api'
@@ -31,6 +31,9 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
   const [preview, setPreview] = useState<ProjectAttachment | null>(null)
   const [text, setText] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
+  const previewRef = useRef<HTMLElement>(null)
+  useDialogFocus(preview !== null, previewRef)
+  useEscape(preview !== null, () => setPreview(null))
   const toast = useUi((state) => state.toast)
 
   const load = useCallback(async () => { setFiles(await listBoardFiles(boardId)) }, [boardId])
@@ -154,7 +157,7 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
           </div>
         )}
       {preview && (
-        <aside className="pv-preview" aria-label={preview.filename} data-file-preview={preview.id}>
+        <aside ref={previewRef} className="pv-preview" aria-label={preview.filename} data-file-preview={preview.id}>
           <div className="pv-cal-panel-head">
             <span className="pv-cal-panel-date truncate">{preview.filename}</span>
             <Button size="sm" variant="ghost" onClick={() => setPreview(null)}>{t('common.close')}</Button>

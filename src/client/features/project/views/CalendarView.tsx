@@ -20,7 +20,7 @@ import { buildMonthGridCells } from '../../../components/calendar-grids'
 import { resolveWeekStart, useCalendarDisplayPrefs } from '../../../lib/calendar-display-prefs'
 import { dateKey, narrowWeekdayLabels, startOfWeek } from '../../../lib/time'
 import { Button, IconButton } from '../../../components/primitives'
-import { prompt } from '../../../components/overlay'
+import { prompt, useDialogFocus, useEscape } from '../../../components/overlay'
 import { createProjectCard } from '../api'
 import { Legend, Seg, ViewHead, ViewShell } from './shell'
 
@@ -369,6 +369,9 @@ function DayPanel({ dayKey, roles, properties, colorOf, descriptionFor, subtasks
   onClose: () => void
 }): ReactElement {
   const locale = useLocale()
+  const panelRef = useRef<HTMLElement>(null)
+  useDialogFocus(true, panelRef)
+  useEscape(true, onClose)
   const date = new Date(`${dayKey}T00:00:00`)
   const label = date.toLocaleDateString(locale, { month: 'long', day: 'numeric', weekday: 'long' })
   const priorityProperty = projectPriorityProperty(properties)

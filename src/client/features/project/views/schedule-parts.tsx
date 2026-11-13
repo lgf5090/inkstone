@@ -114,7 +114,7 @@ export function ScheduleBar({ card, color, left, width, top, height, done, progr
 
 export function RowToggle({ collapsed, onToggle, label }: { collapsed: boolean, onToggle: () => void, label: string }): ReactElement {
   return (
-    <IconButton label={label} size="sm" onClick={onToggle}>
+    <IconButton label={label} size="sm" aria-expanded={!collapsed} onClick={onToggle}>
       {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
     </IconButton>
   )

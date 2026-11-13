@@ -601,7 +601,7 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
           )
           : <span className="pv-col-name">{label}</span>}
       <span className="pv-col-count" data-over-limit={overLimit}>{count}</span>
-      <IconButton label={t('project.view.collapse_column')} size="sm" onClick={onCollapse}>
+      <IconButton label={t('project.view.collapse_column')} size="sm" aria-expanded={true} onClick={onCollapse}>
         <ChevronDown size={14} />
       </IconButton>
       <IconButton ref={anchor} label={`${label} ${t('project.view.menu')}`} size="sm" onClick={() => { setWipDraft(wip === undefined ? '' : String(wip)); setOpen(true) }}>
