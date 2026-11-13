@@ -41445,6 +41445,7 @@ const allowed = new Map([
     "/**\n   * Development-only escape hatch for the WebSSH outbound gate. Setting it to `1` lets a local\n   * `wrangler dev` connect to a Docker sshd on a private or loopback address; production must leave\n   * it unset, and port 25 and Cloudflare's own ranges stay blocked either way.\n   */",
     "/** Optional DNS-over-HTTPS endpoint for the WebSSH target resolver; must be https. */",
     "/** Icon conversion queue; optional so a deployment without Queues falls back to browser conversion. */",
+    "/**\n   * Comma-separated IPv4/IPv6 addresses or CIDR ranges of reverse proxies a self-hosted deployment\n   * trusts. Unset (the default) keeps every client without a Cloudflare `cf` object on the shared\n   * `local` throttle key; setting it lets `X-Forwarded-For` supply a per-client key. Only declare\n   * ranges that actually terminate inbound traffic — a spoofable header on these ranges sets the key.\n   */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -41658,9 +41659,6 @@ const allowed = new Map([
     "/**\n * Builds a per-caller, per-minute budget held in the isolate's memory.\n *\n * This is a brake on a runaway client, not a quota: it lives and dies with the isolate and every\n * deployment sees its own. Each caller gets `limit` spends per wall-clock minute; the next spend over\n * the limit answers `429` with `message`.\n */",
   ]],
   ["src/worker/lib/request.ts", [
-    "// CF-Connecting-IP is injected by the Cloudflare edge and cannot be",
-    "// spoofed there. On any other runtime the header is client-controlled,",
-    "// so ignore it rather than trusting it for throttling.",
     "/**\n * The one capped stream reader.\n *\n * The request-body reader, the chat attachment fetch, the RSS relay, the update check and the backup\n * transports each carried their own copy of the same loop — `getReader`, add up `byteLength`, cancel\n * once the total passes the ceiling, join the chunks back. The loop is the same in all five and only\n * the answer differs, so this holds the loop and answers with `null` when the ceiling is passed: the\n * caller turns that into its own status, its own message, or its own \"no body\" value.\n *\n * Counting while streaming is the point. Reading the whole body and checking its length afterwards\n * lets whoever is on the other side decide how much memory this request holds.\n */",
     "// Best-effort: the payload is already refused, and a `cancel()` that itself rejects would",
     "// replace the caller's honest overflow answer with a stream plumbing error.",
@@ -41676,6 +41674,8 @@ const allowed = new Map([
     "// A board write can carry the 800000-rune description field (up to four bytes a rune) plus a hundred",
     "// property templates, so the coarse body ceiling has to sit above that field's own zod limit rather",
     "// than below it — otherwise a legitimate long description is refused as a body before it is parsed.",
+    "/** Invalid entries are dropped rather than guessed at; an empty list keeps the old `local` behaviour. */",
+    "/**\n * The IP a throttle key may use. On Cloudflare the edge-injected address is the only one trusted; a\n * self-hosted deployment has no `cf`, so with no trusted proxy declared every visitor stays `local`\n * and shares one budget. Declaring the deployment's proxy CIDRs switches to the rightmost\n * X-Forwarded-For hop that is not another trusted proxy: a client can prepend spoofed hops, but the\n * proxy appends the peer it actually saw at the right edge.\n */",
   ]],
   ["src/worker/lib/rewrite-drain.ts", [
     "/** Notes a single queue row may rewrite per round; the tail is re-queued for the next one. */",

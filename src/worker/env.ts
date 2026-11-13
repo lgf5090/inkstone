@@ -65,6 +65,14 @@ export interface Env {
   /** Optional DNS-over-HTTPS endpoint for the WebSSH target resolver; must be https. */
   WEBSSH_DOH_URL?: string
 
+  /**
+   * Comma-separated IPv4/IPv6 addresses or CIDR ranges of reverse proxies a self-hosted deployment
+   * trusts. Unset (the default) keeps every client without a Cloudflare `cf` object on the shared
+   * `local` throttle key; setting it lets `X-Forwarded-For` supply a per-client key. Only declare
+   * ranges that actually terminate inbound traffic — a spoofable header on these ranges sets the key.
+   */
+  TRUSTED_PROXY_CIDRS?: string
+
   /** Optional default password for navigation categories that choose "use default". Set as a secret. */
   NAV_DEFAULT_CATEGORY_PASSWORD?: string
 

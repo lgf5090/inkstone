@@ -167,6 +167,7 @@ crons = ["* * * * *"]
 
 [vars]
 APP_NAME = "Inkstone"
+TRUSTED_PROXY_CIDRS = ""
 
 [observability]
 enabled = true
