@@ -167,6 +167,7 @@ export const ProjectRecurrenceSchema = z.object({
   freq: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
   interval: z.number().int().min(1).max(365).default(1),
   byWeekday: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  anchor: z.number().int().optional(),
 })
 
 export const ProjectCardCreateSchema = z.object({

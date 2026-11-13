@@ -52,3 +52,45 @@ describe('advancing the date', () => {
     expect(ymd(advanceProjectDay(day(2024, 2, 29), { freq: 'yearly', interval: 4 }))).toBe('2028-2-29')
   })
 })
+
+describe('advancing from a recurring anchor', () => {
+  it('keeps the original month day after a month-end clamp', () => {
+    const anchor = day(2026, 1, 31)
+    const rule = { freq: 'monthly' as const, interval: 1 }
+    const clamped = advanceProjectDay(anchor, rule, anchor)
+    expect(ymd(clamped)).toBe('2026-2-28')
+    expect(ymd(advanceProjectDay(clamped, rule, anchor))).toBe('2026-3-31')
+  })
+
+  it('recovers a leap day instead of drifting to the 28th forever', () => {
+    const anchor = day(2024, 2, 29)
+    const rule = { freq: 'yearly' as const, interval: 1 }
+    const y2025 = advanceProjectDay(anchor, rule, anchor)
+    const y2026 = advanceProjectDay(y2025, rule, anchor)
+    const y2027 = advanceProjectDay(y2026, rule, anchor)
+    const y2028 = advanceProjectDay(y2027, rule, anchor)
+    expect(ymd(y2025)).toBe('2025-2-28')
+    expect(ymd(y2028)).toBe('2028-2-29')
+  })
+
+  it('advances a weekly interval rule through every chosen weekday of a period', () => {
+    const anchor = day(2026, 1, 5)
+    const rule = { freq: 'weekly' as const, interval: 2, byWeekday: [1, 5] }
+    expect(ymd(advanceProjectDay(anchor, rule, anchor))).toBe('2026-1-9')
+    expect(ymd(advanceProjectDay(day(2026, 1, 9), rule, anchor))).toBe('2026-1-19')
+    expect(ymd(advanceProjectDay(day(2026, 1, 19), rule, anchor))).toBe('2026-1-23')
+    expect(ymd(advanceProjectDay(day(2026, 1, 23), rule, anchor))).toBe('2026-2-2')
+  })
+
+  it('does not skip a period when the last instance moved off the rule week', () => {
+    const anchor = day(2026, 1, 5)
+    const rule = { freq: 'weekly' as const, interval: 2, byWeekday: [1] }
+    expect(ymd(advanceProjectDay(day(2026, 1, 12), rule, anchor))).toBe('2026-1-19')
+  })
+
+  it('keeps a daily interval aligned to the anchor', () => {
+    const anchor = day(2026, 1, 1)
+    const rule = { freq: 'daily' as const, interval: 3 }
+    expect(ymd(advanceProjectDay(day(2026, 1, 2), rule, anchor))).toBe('2026-1-4')
+  })
+})

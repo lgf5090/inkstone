@@ -7,7 +7,7 @@ import type { ProjectBoard, ProjectCard, ProjectProperty } from '@shared/project
 import { projectDonePatch } from '@shared/project/model'
 import { newProjectId, PROJECT_LIMITS } from '@shared/project/limits'
 import type { ProjectCardCreateInput, ProjectCardPatchInput } from '@shared/project/validation'
-import { advanceProjectDay, serializeProjectRecurrence } from '@shared/project/recurrence'
+import { advanceProjectDay, projectDayFromIndex, projectDayIndex, serializeProjectRecurrence } from '@shared/project/recurrence'
 import { moveProjectDateValue, parseProjectDateValue, projectDayToStamp, projectStampToDay } from '@shared/project/date'
 import { ApiError } from '../lib/errors'
 import { rowToCard, type CardRow, type ValueRow } from './bundle'
@@ -190,12 +190,13 @@ export async function spawnRecurringCard(
   if (!card.recurrence) return null
   const values = { ...card.values }
   const dateProperty = properties.find((property) => property.type === 'date')
+  const current = dateProperty ? parseProjectDateValue(values[dateProperty.id] ?? '') : null
+  const includeTime = current?.includeTime === true
+  const timeZone = current?.timeZone
+  const baseDay = current?.from !== undefined ? projectStampToDay(current.from, includeTime, timeZone) : projectStampToDay(now, false, timeZone)
+  const anchorIndex = card.recurrence.anchor ?? projectDayIndex(baseDay)
   if (dateProperty) {
-    const current = parseProjectDateValue(values[dateProperty.id] ?? '')
-    const includeTime = current?.includeTime === true
-    const timeZone = current?.timeZone
-    const baseDay = current?.from !== undefined ? projectStampToDay(current.from, includeTime, timeZone) : projectStampToDay(now, false, timeZone)
-    const nextStamp = projectDayToStamp(advanceProjectDay(baseDay, card.recurrence), includeTime, timeZone)
+    const nextStamp = projectDayToStamp(advanceProjectDay(baseDay, card.recurrence, projectDayFromIndex(anchorIndex)), includeTime, timeZone)
     values[dateProperty.id] = JSON.stringify(moveProjectDateValue(current ?? {}, nextStamp))
   }
   const open = projectDonePatch(properties, false)
@@ -206,7 +207,7 @@ export async function spawnRecurringCard(
     icon: card.icon,
     isTemplate: false,
     values,
-    recurrence: card.recurrence,
+    recurrence: { ...card.recurrence, anchor: anchorIndex },
   }, now)
 }
 

@@ -375,6 +375,7 @@ export interface ProjectRecurrence {
   freq: ProjectRecurrenceFreq
   interval: number
   byWeekday?: number[]
+  anchor?: number
 }
 
 export interface ProjectCard {
