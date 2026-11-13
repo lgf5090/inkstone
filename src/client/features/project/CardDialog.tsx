@@ -9,7 +9,7 @@ import { Checkbox, commitOnEnter, Input, Textarea } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { confirm, Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
 import { sendForAnswerDetailed } from '../chat/editor-ai'
-import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardDetail, fetchCardLinks, listBoardFiles, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
+import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardDetail, fetchCardLinks, listBoardFiles, moveCardContent, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
 import { RecurrenceEditor } from './RecurrenceEditor'
 import { useBandDrag } from './views/use-band-drag'
@@ -284,10 +284,10 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   }
   const reorderBlock = async (id: string, targetId: string, where: 'before' | 'after') => {
     await run(async () => {
-      const newOrder = moveContentOrder(card.contentOrder, id, targetId, where)
-      const updated = await patchProjectCard(card.id, { contentOrder: newOrder })
-      onUpdated(updated)
-      const flat = newOrder.flat()
+      const order = moveContentOrder(card.contentOrder, id, targetId, where)
+      await moveCardContent(id, targetId, where)
+      onUpdated({ ...card, contentOrder: order })
+      const flat = order.flat()
       setBlocks((current) => [...current].sort((a, b) => flat.indexOf(a.id) - flat.indexOf(b.id)))
     })
   }

@@ -185,6 +185,11 @@ export async function patchCardContent(id: string, patch: ProjectContentPatchInp
   return result.content
 }
 
+export async function moveCardContent(id: string, targetId: string, where: 'before' | 'after'): Promise<ProjectContent> {
+  const result = await request<{ content: ProjectContent }>(`/api/project/contents/${encodeURIComponent(id)}/move`, { method: 'POST', body: { targetId, where } })
+  return result.content
+}
+
 export async function deleteCardContent(id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/contents/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
