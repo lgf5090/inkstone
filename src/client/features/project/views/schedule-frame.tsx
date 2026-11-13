@@ -6,12 +6,22 @@
  * horizontally scrolling flex row jitters against the canvas on every frame. Only the rows inside the
  * viewport are mounted, so a board with two thousand cards scrolls like one with twenty.
  */
-import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import type { TimelineDay } from '@shared/project/timeline-layout'
 import { t, useLocale } from '../../../lib/i18n'
 
 const BUFFER_ROWS = 6
 const HEAD_BUFFER_PX = 400
+const monthFormatters = new Map<string, Intl.DateTimeFormat>()
+
+function monthLabel(stamp: number, locale: string): string {
+  let formatter = monthFormatters.get(locale)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short' })
+    monthFormatters.set(locale, formatter)
+  }
+  return formatter.format(new Date(stamp))
+}
 
 export interface ScheduleFrameProps {
   days: readonly TimelineDay[]
@@ -53,9 +63,20 @@ export function ScheduleFrame(props: ScheduleFrameProps): ReactElement {
   const measure = useCallback(() => {
     const node = scroller.current
     if (!node) return
-    setOffset({ top: node.scrollTop, left: node.scrollLeft })
-    setSize({ width: node.clientWidth, height: node.clientHeight })
+    setOffset((current) => current.top === node.scrollTop && current.left === node.scrollLeft
+      ? current
+      : { top: node.scrollTop, left: node.scrollLeft })
+    setSize((current) => current.width === node.clientWidth && current.height === node.clientHeight
+      ? current
+      : { width: node.clientWidth, height: node.clientHeight })
   }, [])
+
+  const frame = useRef(0)
+  const scheduleMeasure = useCallback(() => {
+    if (frame.current) return
+    frame.current = requestAnimationFrame(() => { frame.current = 0; measure() })
+  }, [measure])
+  useEffect(() => () => { if (frame.current) cancelAnimationFrame(frame.current) }, [])
 
   useEffect(() => {
     const node = scroller.current
@@ -87,13 +108,16 @@ export function ScheduleFrame(props: ScheduleFrameProps): ReactElement {
   const indexes = Array.from({ length: Math.max(0, last - first) }, (_, index) => first + index)
   const todayIndex = days.findIndex((day) => day.today)
 
-  const months: { left: number, width: number, label: string }[] = []
-  days.forEach((day, index) => {
-    const label = new Date(day.stamp).toLocaleDateString(locale, { year: 'numeric', month: 'short' })
-    const previous = months[months.length - 1]
-    if (previous && previous.label === label) previous.width += columnPx
-    else months.push({ left: index * columnPx, width: columnPx, label })
-  })
+  const months = useMemo(() => {
+    const out: { left: number, width: number, label: string }[] = []
+    days.forEach((day, index) => {
+      const label = monthLabel(day.stamp, locale)
+      const previous = out[out.length - 1]
+      if (previous && previous.label === label) previous.width += columnPx
+      else out.push({ left: index * columnPx, width: columnPx, label })
+    })
+    return out
+  }, [days, columnPx, locale])
   const visibleMonths = months.filter((month) => month.left + month.width > offset.left - HEAD_BUFFER_PX && month.left < offset.left + size.width + HEAD_BUFFER_PX)
   const firstDay = Math.max(0, Math.floor((offset.left - HEAD_BUFFER_PX) / columnPx))
   const lastDay = Math.min(days.length, Math.ceil((offset.left + size.width + HEAD_BUFFER_PX) / columnPx))
@@ -174,7 +198,7 @@ export function ScheduleFrame(props: ScheduleFrameProps): ReactElement {
           className="pv-sched-scroll pv-scroll"
           data-pan={Boolean(props.panEnabled)}
           data-draw={Boolean(props.drawEnabled)}
-          onScroll={measure}
+          onScroll={scheduleMeasure}
           onPointerDown={(event) => {
             pan(event)
             if (!props.onCanvasPointerDown) return

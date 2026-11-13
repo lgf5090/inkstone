@@ -75,7 +75,7 @@ export function GanttView(props: GanttProps): ReactElement {
   const [showTray, setShowTray] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
   const viewport = useRef<HTMLDivElement | null>(null)
-  const today = Date.now()
+  const today = useMemo(() => Date.now(), [])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const isDone = useCallback((card: ProjectCard) => isProjectCardDone(card, properties), [properties])
   const planning = canEdit && Boolean(propertyId)
@@ -84,7 +84,7 @@ export function GanttView(props: GanttProps): ReactElement {
     .map((card) => ({ card, days: projectCardDays(card, propertyId) }))
     .filter((entry): entry is { card: ProjectCard, days: { start: number, end: number } } => entry.days !== null), [cards, propertyId])
   const unscheduled = useMemo(() => cards.filter((card) => projectCardDays(card, propertyId) === null), [cards, propertyId])
-  const ranges = dated.map((entry) => ({ from: entry.days.start, to: entry.days.end }))
+  const ranges = useMemo(() => dated.map((entry) => ({ from: entry.days.start, to: entry.days.end })), [dated])
   const axisWindow = useMemo(() => projectTimelineWindow(ranges, today), [ranges, today])
   const days = useMemo(() => projectTimelineDays(axisWindow, today), [axisWindow, today])
   const columnPx = PROJECT_TIMELINE_COLUMN_PX[scale]
