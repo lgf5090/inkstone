@@ -10,6 +10,7 @@ import { PROJECT_SPRINT_STATUSES, type ProjectSprintBurndown, type ProjectSprint
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
+import { DatePicker } from '../../../components/date-picker'
 import { SelectMenu } from '../../../components/select-menu'
 import { useUi } from '../../../store/ui'
 import { ViewHead, ViewShell } from './shell'
@@ -70,15 +71,17 @@ function Burndown({ burndown }: { burndown: ProjectSprintBurndown }): ReactEleme
         <span>{t('project.sprint.actual')}</span>
         <span>{t('project.sprint.velocity')}: {burndown.velocity}</span>
       </div>
-      <table className="sr-only">
-        <caption>{t('project.sprint.chart_label', { total: burndown.total, completed: burndown.completed })}</caption>
-        <thead><tr><th scope="col">{t('project.sprint.day')}</th><th scope="col">{t('project.sprint.ideal')}</th><th scope="col">{t('project.sprint.remaining')}</th></tr></thead>
-        <tbody>
-          {points.map((point) => (
-            <tr key={point.day}><td>{point.dayLabel}</td><td>{point.ideal}</td><td>{point.remaining}</td></tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="sr-only">
+        <table>
+          <caption>{t('project.sprint.chart_label', { total: burndown.total, completed: burndown.completed })}</caption>
+          <thead><tr><th scope="col">{t('project.sprint.day')}</th><th scope="col">{t('project.sprint.ideal')}</th><th scope="col">{t('project.sprint.remaining')}</th></tr></thead>
+          <tbody>
+            {points.map((point) => (
+              <tr key={point.day}><td>{point.dayLabel}</td><td>{point.ideal}</td><td>{point.remaining}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -234,8 +237,8 @@ export function SprintView({ boardId, cards, canEdit, onOpenCard }: SprintViewPr
                 <Input className="w-full" value={name} aria-label={t('project.sprint.name')} placeholder={t('project.sprint.name')} onChange={(event) => setName(event.target.value)} />
                 <Input className="w-full" value={goal} aria-label={t('project.sprint.goal')} placeholder={t('project.sprint.goal')} onChange={(event) => setGoal(event.target.value)} />
                 <div className="flex flex-wrap gap-2">
-                  <Input className="w-40" type="date" value={start} aria-label={t('project.sprint.start')} onChange={(event) => setStart(event.target.value)} />
-                  <Input className="w-40" type="date" value={end} aria-label={t('project.sprint.end')} onChange={(event) => setEnd(event.target.value)} />
+                  <DatePicker className="w-40" label={t('project.sprint.start')} value={start} onChange={setStart} />
+                  <DatePicker className="w-40" label={t('project.sprint.end')} value={end} onChange={setEnd} />
                 </div>
                 <Button variant="primary" icon={<Plus size={14} />} loading={busy} disabled={!name.trim()} onClick={() => void create()}>
                   {t('project.sprint.create')}
