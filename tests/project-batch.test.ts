@@ -152,6 +152,15 @@ describe('batch patch', () => {
     addMember(board.id, 'bob', 'viewer')
     expect((await req('bob', 'PATCH', `/boards/${board.id}/batch`, { cards: [] })).status).toBe(403)
   })
+
+  it('rejects an over-limit batch before reading any rows', async () => {
+    const board = await createBoard('alice')
+    const bigValues: Record<string, string> = {}
+    for (let index = 0; index < 6; index++) bigValues[pid(index + 10)] = 'x'
+    const cards = Array.from({ length: 200 }, () => ({ id: missingId, patch: { values: bigValues } }))
+    const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards })
+    expect(response.status).toBe(413)
+  })
 })
 
 describe('batch delete', () => {
