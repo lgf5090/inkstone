@@ -297,21 +297,48 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 96px;
   gap: var(--sp-1);
-  overflow: hidden;
+  overflow: clip;
+  overflow-clip-margin: 20px;
   border: 1px solid var(--pv-hairline);
   border-radius: var(--r-sm);
   background: var(--bg-base);
-  box-shadow: var(--shadow-xs);
   padding: var(--sp-2);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+.pv-card::before,
+.pv-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.pv-card::before {
+  box-shadow: var(--shadow-xs);
+}
+.pv-card::after {
+  box-shadow: var(--shadow-soft);
+  opacity: 0;
 }
 .pv-card:hover {
   border-color: var(--border-strong);
-  box-shadow: var(--shadow-soft);
+}
+.pv-card:hover::before {
+  opacity: 0;
+}
+.pv-card:hover::after {
+  opacity: 1;
 }
 .pv-card[data-selected='true'] {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.pv-card[data-selected='true']::before {
+  box-shadow: none;
+}
+.pv-card[data-selected='true']::after {
+  display: none;
 }
 .pv-card[data-done='true'] .pv-card-title {
   text-decoration: line-through;
@@ -334,6 +361,7 @@
   width: calc(100% + var(--sp-4));
   height: 92px;
   margin: calc(-1 * var(--sp-2)) calc(-1 * var(--sp-2)) 0;
+  border-radius: calc(var(--r-sm) - 1px) calc(var(--r-sm) - 1px) 0 0;
   object-fit: cover;
   background: var(--bg-sunken);
 }
@@ -1343,21 +1371,43 @@ body.pv-dragging * {
   position: relative;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: clip;
+  overflow-clip-margin: 20px;
   border: 1px solid var(--pv-hairline);
   border-radius: var(--r-md);
   background: var(--bg-base);
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+.pv-tile::before,
+.pv-tile::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.pv-tile::before {
   box-shadow: var(--shadow-xs);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+.pv-tile::after {
+  box-shadow: var(--shadow-soft);
+  opacity: 0;
 }
 .pv-tile:hover {
   border-color: var(--border-strong);
-  box-shadow: var(--shadow-soft);
   transform: translateY(-1px);
+}
+.pv-tile:hover::before {
+  opacity: 0;
+}
+.pv-tile:hover::after {
+  opacity: 1;
 }
 .pv-tile-cover {
   width: 100%;
   height: var(--pv-cover-h, 120px);
+  border-radius: calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0 0;
   object-fit: cover;
   background: var(--bg-sunken);
 }
@@ -1367,6 +1417,7 @@ body.pv-dragging * {
   height: var(--pv-cover-h, 120px);
   align-items: center;
   justify-content: center;
+  border-radius: calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0 0;
   background: linear-gradient(
     135deg,
     color-mix(in oklab, var(--pv-card-color, var(--accent)) 16%, var(--bg-sunken)),
