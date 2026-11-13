@@ -478,6 +478,7 @@ export const ZH_CN_PROJECT = {
     "project.dashboard.nothing_due": "未来 7 天没有到期卡片",
     "project.view.add_card_inline": "+ 添加卡片",
     "project.collection.preview": "预览 {name}",
+    "project.collection.delete_file": "删除文件",
     "project.collection.open_raw": "打开原文件",
     "project.dashboard.other_target": "其它对象",
     "project.card.rename": "重命名卡片",

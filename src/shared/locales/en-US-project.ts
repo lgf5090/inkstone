@@ -478,6 +478,7 @@ export const EN_US_PROJECT = {
     "project.dashboard.nothing_due": "Nothing due in the next 7 days",
     "project.view.add_card_inline": "+ Add a card",
     "project.collection.preview": "Preview {name}",
+    "project.collection.delete_file": "Delete file",
     "project.collection.open_raw": "Open original",
     "project.dashboard.other_target": "another item",
     "project.card.rename": "Rename card",
