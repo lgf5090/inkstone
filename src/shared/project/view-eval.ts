@@ -225,6 +225,50 @@ export function groupProjectCards(
   return groups
 }
 
+/** Every key a grouped view has to draw: the property's own options plus whatever the cards hold. */
+export function projectGroupKeys(
+  cards: readonly ProjectCard[],
+  groupById: string | undefined,
+  properties: readonly ProjectProperty[],
+): string[] {
+  if (!groupById) return ['']
+  const property = properties.find((entry) => entry.id === groupById)
+  const keys = new Set<string>()
+  if (property && (property.type === 'select' || property.type === 'multiSelect')) {
+    for (const option of property.options) keys.add(option.id)
+  }
+  for (const key of groupProjectCards(cards, groupById, properties).keys()) keys.add(key)
+  keys.add('')
+  return [...keys]
+}
+
+/** A group key as a reader sees it, including people and dates that are not option ids. */
+export function projectGroupLabel(
+  property: ProjectProperty | undefined,
+  key: string,
+  people?: ProjectPeople,
+  locale?: string,
+): string {
+  if (!property) return key
+  switch (property.type) {
+    case 'select':
+    case 'multiSelect':
+      return projectOptionLabel(property, key)
+    case 'person':
+    case 'multiPerson':
+    case 'createdBy':
+    case 'updatedBy':
+      return projectPersonLabel(people, key)
+    case 'date': {
+      const range = parseProjectDateValue(key)
+      if (range?.from === undefined) return key
+      return projectStampToDay(range.from, range.includeTime === true).toLocaleDateString(locale)
+    }
+    default:
+      return key
+  }
+}
+
 /**
  * C-23: strip the leading emoji cluster before comparing, so "🗺️ Roadmap" sorts under R rather than
  * under the emoji's code point. The reference's `\p{Emoji}` also matches digits and leaves the

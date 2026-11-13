@@ -11,8 +11,9 @@ import type { ProjectCalculation, ProjectCard, ProjectChartType, ProjectProperty
 import { PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { projectOptionCssColor } from '@shared/project/option-color'
-import { groupProjectCards, projectOptionLabel } from '@shared/project/view-eval'
-import { t } from '../../../lib/i18n'
+import { groupProjectCards, projectGroupKeys, projectGroupLabel } from '@shared/project/view-eval'
+import { t, useLocale } from '../../../lib/i18n'
+import { useProjectPeople } from '../people-context'
 import { SelectMenu } from '../../../components/select-menu'
 import { ChartCanvas, type ChartColors } from '../../../components/chart-canvas'
 import { Seg, ViewEmpty, ViewHead, ViewShell, ViewToolbar } from './shell'
@@ -49,6 +50,8 @@ function canvasColor(value: string, fallback: string): string {
 
 export function ChartView(props: ChartProps): ReactElement {
   const { cards, properties, fields } = props
+  const people = useProjectPeople()
+  const locale = useLocale()
   const groupable = properties.filter((property) => PROJECT_PROPERTY_CAPABILITIES[property.type].canGroup)
   const groupProperty = properties.find((property) => property.id === fields.chartGroupById)
     ?? groupable[0]
@@ -60,19 +63,18 @@ export function ChartView(props: ChartProps): ReactElement {
   const series = useMemo(() => {
     if (!groupProperty) return []
     const groups = groupProjectCards(cards, groupProperty.id, properties)
-    const keys = [...groupProperty.options.map((option) => option.id), '']
-    return keys.map((key) => {
+    return projectGroupKeys(cards, groupProperty.id, properties).map((key) => {
       const list = groups.get(key) ?? []
       const raw = measureProperty ? computeProjectCalculation(list, measureProperty, calculation) : String(list.length)
       return {
         key,
-        label: key === '' ? t('project.view.no_value') : projectOptionLabel(groupProperty, key),
+        label: key === '' ? t('project.view.no_value') : projectGroupLabel(groupProperty, key, people, locale),
         count: list.length,
         value: Number.parseFloat(raw.replace(/[^\d.-]/g, '')) || 0,
         color: (key === '' ? null : projectOptionCssColor(groupProperty.options.find((option) => option.id === key)?.color ?? '')) ?? null,
       }
-    }).filter((entry) => entry.count > 0 || groupProperty.options.length === 0)
-  }, [cards, properties, groupProperty, measureProperty, calculation])
+    }).filter((entry) => entry.count > 0)
+  }, [cards, properties, groupProperty, measureProperty, calculation, people, locale])
 
   const total = series.reduce((sum, entry) => sum + entry.value, 0)
   const labels = series.map((entry) => entry.label)

@@ -13,13 +13,14 @@ import { isProjectCardDone } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { projectCardColorResolver, projectOptionCssColor, PROJECT_OPTION_COLORS } from '@shared/project/option-color'
-import { groupProjectCards, projectKanbanDropOrder, projectOptionLabel } from '@shared/project/view-eval'
-import { t } from '../../../lib/i18n'
+import { groupProjectCards, projectGroupLabel, projectKanbanDropOrder } from '@shared/project/view-eval'
+import { t, useLocale } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Menu, prompt, submenuFor, type MenuItem } from '../../../components/overlay'
 import { optionColorItems } from '../card-menu'
 import { isImeComposing } from '../../../lib/ime'
+import { useProjectPeople } from '../people-context'
 import { QuickAdd, ViewShell } from './shell'
 import { CardFace, CardGrip, SubtaskProgress, SubtaskRows } from './card-face'
 import { useDragSort, type DragDropTarget } from './use-drag-sort'
@@ -53,9 +54,10 @@ export interface KanbanProps {
   onAddSubtask: (parentId: string) => Promise<void>
 }
 
-/** Column keys in the reader's order: the property's options, then the ungrouped bucket. */
-export function kanbanColumnKeys(property: ProjectProperty | undefined, fields: ProjectViewFields): string[] {
-  const base = property && property.options.length > 0 ? [...property.options.map((option) => option.id), ''] : ['']
+/** Column keys in the reader's order: the property's options, then any discovered value, then the ungrouped bucket. */
+export function kanbanColumnKeys(property: ProjectProperty | undefined, fields: ProjectViewFields, discovered: readonly string[] = []): string[] {
+  const options = property?.options.map((option) => option.id) ?? []
+  const base = [...new Set([...options, ...discovered, ''])]
   const order = fields.columnOrder ?? []
   const rank = new Map(order.map((id, index) => [id, index]))
   const sorted = [...base].sort((left, right) => {
@@ -72,8 +74,11 @@ export function kanbanColumnKeys(property: ProjectProperty | undefined, fields: 
 export function KanbanView(props: KanbanProps): ReactElement {
   const { cards, properties, fields, canEdit, selected } = props
   const groupProperty = properties.find((property) => property.id === fields.groupById)
-  const keys = useMemo(() => kanbanColumnKeys(groupProperty, fields), [groupProperty, fields])
   const groups = useMemo(() => groupProjectCards(cards, fields.groupById, properties), [cards, fields.groupById, properties])
+  const keys = useMemo(
+    () => kanbanColumnKeys(groupProperty, fields, [...groups.keys()].filter((key) => key !== '')),
+    [groupProperty, fields, groups],
+  )
   const allIds = useMemo(() => new Set(cards.map((card) => card.id)), [cards])
   const columns = useMemo(() => keys.map((key) => {
     const bucket = groups.get(key) ?? []
@@ -207,7 +212,9 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
   onColumnDragStart: (event: React.PointerEvent) => void
 }): ReactElement {
   const { canEdit, subtasksByParent, selected, canMarkDone = true } = props
-  const label = columnKey === '' ? t('project.view.no_value') : projectOptionLabel(groupProperty!, columnKey)
+  const people = useProjectPeople()
+  const locale = useLocale()
+  const label = columnKey === '' ? t('project.view.no_value') : projectGroupLabel(groupProperty, columnKey, people, locale)
   const color = (groupProperty && columnKey !== ''
     ? projectOptionCssColor(groupProperty.options.find((option) => option.id === columnKey)?.color ?? '')
     : null) ?? 'var(--text-quaternary)'

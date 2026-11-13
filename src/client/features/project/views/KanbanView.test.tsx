@@ -10,6 +10,7 @@ const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, de
 const properties: ProjectProperty[] = [
   { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: 'propColorBlue' }, { id: 'o2', value: 'Done', color: 'propColorGreen' }] },
   { id: 'pt', name: 'Notes', type: 'text', options: [] },
+  { id: 'pp', name: 'Owner', type: 'person', options: [] },
 ]
 
 function card(id: string, status = 'o1', parentId = ''): ProjectCard {
@@ -52,6 +53,13 @@ describe('column order and visibility', () => {
   it('keeps the property order for a column the reader never moved', () => {
     const fields = { ...emptyProjectViewFields(), columnOrder: ['o2'] }
     expect(kanbanColumnKeys(properties[0], fields)).toEqual(['o2', 'o1', ''])
+  })
+
+  it('adds the values the cards actually hold to a non-option grouping', async () => {
+    const owned: ProjectCard = { ...card('a'), values: { pp: 'u1' } }
+    await mount([owned], { groupById: 'pp' })
+    expect(columns()).toHaveLength(2)
+    expect(view.container.querySelector('[data-drag-id="a"]')).not.toBeNull()
   })
 
   it('folds a column to a spine and unfolds it again', async () => {

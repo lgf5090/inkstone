@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectCard, ProjectFilterClause, ProjectFilterGroup, ProjectProperty } from './model'
 import { emptyProjectFilterGroup } from './model'
-import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, projectFilterPrefill, projectKanbanDropOrder, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from './view-eval'
+import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, projectFilterPrefill, projectGroupKeys, projectGroupLabel, projectKanbanDropOrder, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from './view-eval'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u2', createAt: 1_000_000, updateAt: 2_000_000, deleteAt: 0 }
 
@@ -276,5 +276,23 @@ describe('manual card order', () => {
       target: { zone: 'x', index: 1 },
     })
     expect(order).toEqual(['c', 'a', 'b', 'd'])
+  })
+})
+
+describe('group keys and labels', () => {
+  it('unions the declared options with the values the cards hold', () => {
+    const keys = projectGroupKeys([card('a', { pp: 'u1' }), card('b', { ps: 'o2' })], 'pp', [
+      ...props,
+      { id: 'pp', name: 'Owner', type: 'person', options: [] },
+    ])
+    expect(keys).toEqual(['u1', ''])
+    expect(projectGroupKeys([card('a', { ps: 'o2' })], 'ps', props)).toEqual(['o1', 'o2', ''])
+  })
+
+  it('labels people and dates the way the card face does', () => {
+    const people = { u1: { id: 'u1', name: 'Alice', avatarUrl: '' } }
+    expect(projectGroupLabel({ id: 'pp', name: 'Owner', type: 'person', options: [] }, 'u1', people)).toBe('Alice')
+    expect(projectGroupLabel(props[1], 'o2')).toBe('Done')
+    expect(projectGroupLabel(undefined, 'raw')).toBe('raw')
   })
 })

@@ -11,8 +11,8 @@ import type { ProjectBoardBundle, ProjectCard, ProjectCardLink, ProjectProperty,
 import { emptyProjectViewFields, projectCanMarkDone, projectDonePatch, projectViewPropertyId, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { projectParentDonePatches } from '@shared/project/hierarchy'
 import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badges'
-import { matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
-import { t } from '../../lib/i18n'
+import { matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, projectGroupKeys, projectGroupLabel, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
+import { t, useLocale } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
 import { useUi } from '../../store/ui'
 import { useProjectStore } from './store'
@@ -23,7 +23,7 @@ import { confirm, Menu, prompt, type MenuItem } from '../../components/overlay'
 import { PropertiesModal, SortModal } from './ViewSettingsModals'
 import { FilterModal } from './FilterEditor'
 import { buildCardMenu } from './card-menu'
-import { ProjectPeopleProvider } from './people-context'
+import { ProjectPeopleProvider, useProjectPeople } from './people-context'
 import { readPinnedCardsPref, readStarredCardsPref, writePinnedCardsPref, writeStarredCardsPref } from './project-prefs'
 import { Seg } from './views/shell'
 import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardLinks, fetchProjectCardMarks, moveProjectCard, projectBoardExportUrl, projectFileUrl, saveProjectCardMarks } from './api'
@@ -743,7 +743,9 @@ function Swimlanes({ cards, properties, fields, kanbanProps }: {
   kanbanProps: Omit<Parameters<typeof KanbanView>[0], 'cards'>
 }): ReactElement {
   const laneProperty = properties.find((property) => property.id === fields.swimlaneBy)
-  const keys = laneProperty ? [...laneProperty.options.map((option) => option.id), ''] : ['']
+  const people = useProjectPeople()
+  const locale = useLocale()
+  const keys = projectGroupKeys(cards, fields.swimlaneBy, properties)
   const buckets = new Map<string, ProjectCard[]>()
   for (const card of cards) {
     const key = (laneProperty ? card.values[laneProperty.id] : '') ?? ''
@@ -755,11 +757,10 @@ function Swimlanes({ cards, properties, fields, kanbanProps }: {
     <div className="pv-scroll min-h-0 flex-1 overflow-y-auto">
       {keys.map((key) => {
         const laneCards = buckets.get(key) ?? []
-        const option = laneProperty?.options.find((entry) => entry.id === key)
         return (
           <section key={key || 'none'} className="pv-lane" data-swimlane={key}>
             <h3 className="pv-lane-head">
-              <span className="min-w-0 flex-1 truncate">{option?.value ?? t('project.view.no_value')}</span>
+              <span className="min-w-0 flex-1 truncate">{key === '' ? t('project.view.no_value') : projectGroupLabel(laneProperty, key, people, locale)}</span>
               <span className="pv-head-count">{laneCards.length}</span>
             </h3>
             <div className="flex h-[420px]">
