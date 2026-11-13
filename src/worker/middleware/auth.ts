@@ -12,6 +12,7 @@ import { MEMOS_API_PREFIX } from '@shared/memos/constants'
 import { destroySession, hashToken, isSessionToken, renewSession } from '../lib/session-store'
 import { ApiError } from '../lib/errors'
 import { memoPatFromAuthorization } from '../memos/tokens'
+import { projectTokenFromAuthorization } from '../project/tokens'
 import { isXgetProxyPath } from '../development/xget/paths'
 import type { AppBindings, Variables } from '../env'
 
@@ -155,6 +156,12 @@ function isGatewayRequest(c: Context<AppBindings>): boolean {
   return c.req.path === '/api/gateway' || c.req.path.startsWith('/api/gateway/')
 }
 
+/** Project API tokens are machine clients: they carry no browser identification header. */
+function isProjectTokenRequest(c: Context<AppBindings>): boolean {
+  if (!c.req.path.startsWith('/api/project/')) return false
+  return projectTokenFromAuthorization(c.req.header('Authorization')) !== null
+}
+
 export const requireClientHeader = createMiddleware<AppBindings>(async (c, next) => {
   const method = c.req.method.toUpperCase()
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
@@ -165,6 +172,7 @@ export const requireClientHeader = createMiddleware<AppBindings>(async (c, next)
       !isShortlinksApiKeyRequest(c) &&
       !isCerthubTokenRequest(c) &&
       !isGatewayRequest(c) &&
+      !isProjectTokenRequest(c) &&
       c.req.header(CLIENT_HEADER) !== '1'
     ) {
       throw new ApiError(403, 'forbidden', `Missing client identification header. Web clients must send ${CLIENT_HEADER}: 1`)

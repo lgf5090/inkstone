@@ -12,6 +12,7 @@ import { Menu, Modal, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { fetchBoardProperties, fetchProjectBoards } from './api'
 import { AutomationsDialog } from './AutomationsDialog'
+import { IntegrationsDialog } from './IntegrationsDialog'
 
 const EDITABLE_TYPES: ProjectPropertyType[] = ['text', 'number', 'select', 'multiSelect', 'date', 'person', 'checkbox', 'url', 'email', 'phone', 'relation', 'rollup']
 const OPTION_TYPES = new Set(['select', 'multiSelect'])
@@ -33,6 +34,7 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
   const [saving, setSaving] = useState(false)
   const [boards, setBoards] = useState<ProjectBoardSummary[]>([])
   const [automationsOpen, setAutomationsOpen] = useState(false)
+  const [integrationsOpen, setIntegrationsOpen] = useState(false)
   const [targetProperties, setTargetProperties] = useState<Record<string, ProjectProperty[]>>({})
   useEffect(() => {
     let alive = true
@@ -132,6 +134,7 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
         width={640}
         footer={<>
           <Button variant="ghost" onClick={() => setAutomationsOpen(true)}>{t('project.automations.open')}</Button>
+          <Button variant="ghost" onClick={() => setIntegrationsOpen(true)}>{t('project.integrations.open')}</Button>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
           <Button variant="primary" disabled={saving} onClick={() => void save()}>{t('common.save')}</Button>
         </>}
@@ -285,6 +288,7 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
         </div>
       </Modal>
       {automationsOpen && <AutomationsDialog boardId={boardId} onClose={() => setAutomationsOpen(false)} />}
+      {integrationsOpen && <IntegrationsDialog boardId={boardId} onClose={() => setIntegrationsOpen(false)} />}
     </>
   )
 }

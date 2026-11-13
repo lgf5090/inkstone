@@ -256,6 +256,8 @@ export interface Variables {
   /** Set only when the request authenticated with a Memos access token rather than a session. */
   memoPatId?: string
   memoPatScope?: 'memos' | 'owner'
+  /** Set only when the request authenticated with a project API token rather than a session. */
+  projectTokenId?: string
 
   sessionId: string
 

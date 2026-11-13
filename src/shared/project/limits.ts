@@ -42,6 +42,10 @@ export const PROJECT_ID_PREFIXES = {
   activity: 'e',
   time: 'd',
   automation: 'm',
+  token: 'q',
+  webhook: 'h',
+  delivery: 'n',
+  sprint: 'r',
   unknown: '7',
 } as const
 

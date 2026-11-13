@@ -24,6 +24,7 @@ import {
   PROJECT_SUBSCRIPTION_BLOCKS,
   PROJECT_VIEW_TYPES,
 } from './model'
+import { PROJECT_TOKEN_SCOPES, PROJECT_WEBHOOK_EVENTS } from './integrations'
 
 const projectId = z.string().refine(isProjectId, 'invalid id')
 // zod's string max counts code points, not UTF-16 units, which is the unit the reference's ceiling is
@@ -206,6 +207,26 @@ export const ProjectDefaultViewPutSchema = z.object({
   viewId: z.union([projectId, z.null()]),
 })
 export type ProjectDefaultViewPutInput = z.infer<typeof ProjectDefaultViewPutSchema>
+
+export const ProjectApiTokenCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  scope: z.enum(PROJECT_TOKEN_SCOPES),
+  boardId: z.union([projectId, z.literal('')]).optional(),
+  expiresAt: stamp.nullable().optional(),
+})
+export type ProjectApiTokenCreateInput = z.infer<typeof ProjectApiTokenCreateSchema>
+
+const webhookEvent = z.union([z.literal('*'), z.enum(PROJECT_WEBHOOK_EVENTS)])
+
+export const ProjectWebhookCreateSchema = z.object({
+  url: z.string().trim().min(1).max(2048),
+  events: z.array(webhookEvent).max(PROJECT_WEBHOOK_EVENTS.length + 1).optional(),
+  enabled: z.boolean().optional(),
+})
+export type ProjectWebhookCreateInput = z.infer<typeof ProjectWebhookCreateSchema>
+
+export const ProjectWebhookPatchSchema = ProjectWebhookCreateSchema.partial()
+export type ProjectWebhookPatchInput = z.infer<typeof ProjectWebhookPatchSchema>
 
 export const ProjectViewCreateSchema = z.object({
   id: projectId.optional(),

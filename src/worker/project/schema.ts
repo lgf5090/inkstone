@@ -343,6 +343,52 @@ export const PROJECT_AUTOMATION_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_automations(board_id, enabled)`,
 ]
 
+/** Machine credentials and outbound deliveries. Token bytes are never stored; only their SHA-256. */
+export const PROJECT_INTEGRATION_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_api_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    board_id TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    scope TEXT NOT NULL CHECK (scope IN ('read','write')),
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at INTEGER,
+    created_at INTEGER NOT NULL,
+    revoked_at INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_api_tokens_user
+     ON project_api_tokens(user_id, revoked_at)`,
+
+  `CREATE TABLE IF NOT EXISTS project_webhooks (
+    id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    secret TEXT NOT NULL,
+    events TEXT NOT NULL DEFAULT '["*"]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_webhooks_board
+     ON project_webhooks(board_id, enabled)`,
+
+  `CREATE TABLE IF NOT EXISTS project_webhook_deliveries (
+    id TEXT PRIMARY KEY,
+    webhook_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivered','failed')),
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_webhook_deliveries_due
+     ON project_webhook_deliveries(status, next_attempt_at)`,
+]
+
 export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_boards',
   'project_board_members',
@@ -365,6 +411,9 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_automations',
   'project_time_entries',
   'project_property_configs',
+  'project_api_tokens',
+  'project_webhooks',
+  'project_webhook_deliveries',
 ]
 
 export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
@@ -396,6 +445,9 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_card_relations_to',
   'idx_project_card_relations_board',
   'idx_project_automations_board',
+  'idx_project_api_tokens_user',
+  'idx_project_webhooks_board',
+  'idx_project_webhook_deliveries_due',
 ]
 
 export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -446,4 +498,10 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   project_todo_links: ['card_id', 'todo_id', 'user_id', 'created_at'],
   project_card_relations: ['board_id', 'from_card_id', 'to_card_id', 'property_id', 'created_at'],
   project_automations: ['id', 'board_id', 'trigger', 'condition', 'action', 'enabled', 'created_by', 'created_at', 'updated_at'],
+  project_api_tokens: ['id', 'user_id', 'board_id', 'name', 'scope', 'token_hash', 'expires_at', 'created_at', 'revoked_at'],
+  project_webhooks: ['id', 'board_id', 'url', 'secret', 'events', 'enabled', 'created_by', 'created_at', 'updated_at'],
+  project_webhook_deliveries: [
+    'id', 'webhook_id', 'board_id', 'event', 'payload', 'attempts', 'next_attempt_at',
+    'status', 'last_error', 'created_at',
+  ],
 }

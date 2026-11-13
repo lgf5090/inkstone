@@ -20,6 +20,9 @@ import {
   ProjectCommentCreateSchema,
   ProjectCommentPatchSchema,
   ProjectDefaultViewPutSchema,
+  ProjectApiTokenCreateSchema,
+  ProjectWebhookCreateSchema,
+  ProjectWebhookPatchSchema,
   ProjectContentCreateSchema,
   ProjectContentMoveSchema,
   ProjectContentPatchSchema,
@@ -42,6 +45,15 @@ import { originOf } from '../lib/notify'
 import { broadcastProjectChange } from './realtime'
 import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAccountArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireBoardOwner, requireCard, requireComment, requireContent, requireView } from './auth'
+import { projectWebhookEvent } from '@shared/project/integrations'
+import {
+  createProjectApiToken, listProjectApiTokens, projectTokenFromAuthorization,
+  revokeProjectApiToken, verifyProjectApiToken,
+} from './tokens'
+import {
+  createProjectWebhook, deleteProjectWebhook, deliverProjectWebhook,
+  enqueueProjectWebhookEvents, listProjectWebhooks, patchProjectWebhook,
+} from './webhooks'
 import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
 import { projectBoardCursor, readProjectBoardBundle, rowToComment, rowToContent, touchProjectBoard } from './bundle'
 import {
@@ -139,6 +151,44 @@ import {
 
 export const projectRoutes = new Hono<AppBindings>()
 
+/**
+ * Machine clients authenticate with a hashed, board-scoped token instead of a cookie. Setting
+ * `userId` lets every existing route reuse `requireBoard`; the scope and board checks below are the
+ * extra boundaries a token needs, and the management endpoints stay session-only so a token can
+ * never mint another token or add an outbound target.
+ */
+projectRoutes.use('*', async (c, next) => {
+  const secret = projectTokenFromAuthorization(c.req.header('Authorization'))
+  if (!secret) return next()
+  const auth = await verifyProjectApiToken(c.env.DB, secret, Date.now())
+  if (!auth) throw ApiError.unauthenticated('Invalid API token')
+  const path = c.req.path
+  if (/^\/api\/project\/tokens(\/|$)/.test(path) || path.includes('/webhooks')) {
+    throw ApiError.forbidden('API tokens cannot manage integrations')
+  }
+  if (auth.scope === 'read' && !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method.toUpperCase())) {
+    throw ApiError.forbidden('This token is read-only')
+  }
+  if (auth.boardId) {
+    let boardId = /^\/api\/project\/boards\/([^/]+)(?:\/|$)/.exec(path)?.[1]
+    if (!boardId) {
+      const child = /^\/api\/project\/(cards|views|contents|comments|files)\/([^/]+)/.exec(path)
+      if (child) {
+        const table = {
+          cards: 'project_cards', views: 'project_views', contents: 'project_card_contents',
+          comments: 'project_comments', files: 'project_attachments',
+        }[child[1] as 'cards' | 'views' | 'contents' | 'comments' | 'files']
+        const row = await c.env.DB.prepare(`SELECT board_id FROM ${table} WHERE id = ?1`).bind(child[2]).first<{ board_id: string }>()
+        boardId = row?.board_id
+      }
+    }
+    if (boardId !== auth.boardId) throw ApiError.notFound('Board not found')
+  }
+  c.set('userId', auth.userId)
+  c.set('projectTokenId', auth.id)
+  await next()
+})
+
 projectRoutes.use('*', requireAuth)
 
 /**
@@ -193,6 +243,16 @@ projectRoutes.use('*', async (c, next) => {
     try { c.executionCtx?.waitUntil(t) } catch { /* no ExecutionContext in tests */ }
   })
   task.catch((error: unknown) => console.warn('[inkstone] project fan-out failed:', error instanceof Error ? error.message : error))
+  if (!path.includes('/webhooks') && !path.includes('/tokens')) {
+    const event = projectWebhookEvent(method, path)
+    const delivery = enqueueProjectWebhookEvents(c.env.DB, boardId, event, {
+      boardId, event, targetId, method, path, at: now,
+    }, now).then((ids) => Promise.all(ids.map((id) => deliverProjectWebhook(c.env.DB, id, Date.now()))))
+    delivery.catch((error: unknown) => {
+      console.warn('[inkstone] project webhook dispatch failed:', error instanceof Error ? error.message : error)
+    })
+    try { c.executionCtx?.waitUntil(delivery) } catch { /* no ExecutionContext in tests */ }
+  }
 })
 
 function projectExportFilename(id: string, extension: string): string {
@@ -556,6 +616,51 @@ projectRoutes.patch('/boards/:id/automations/:ruleId', async (c) => {
 projectRoutes.delete('/boards/:id/automations/:ruleId', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'admin')
   await deleteProjectAutomation(c.env.DB, board.id, c.req.param('ruleId'))
+  return c.json({ ok: true })
+})
+
+/** Account-level machine credentials; the plaintext secret is returned once, at creation only. */
+projectRoutes.get('/tokens', async (c) => {
+  return c.json({ tokens: await listProjectApiTokens(c.env.DB, projectUserId(c)) })
+})
+
+projectRoutes.post('/tokens', async (c) => {
+  const userId = projectUserId(c)
+  await consumeAttemptBudget(c.env.DB, [{ key: `project-token-create:${userId}`, maxAttempts: 20, windowMs: 60 * 60 * 1000 }])
+  const input = await projectBody(c, ProjectApiTokenCreateSchema, JSON_BODY_LIMITS.small)
+  if (input.boardId) await requireBoard(c, input.boardId, 'admin')
+  return c.json(await createProjectApiToken(c.env.DB, userId, input, Date.now()), 201)
+})
+
+projectRoutes.delete('/tokens/:id', async (c) => {
+  const revoked = await revokeProjectApiToken(c.env.DB, projectUserId(c), c.req.param('id'), Date.now())
+  if (!revoked) throw ApiError.notFound('Token not found')
+  return c.json({ ok: true })
+})
+
+projectRoutes.get('/boards/:id/webhooks', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
+  return c.json({ webhooks: await listProjectWebhooks(c.env.DB, board.id) })
+})
+
+projectRoutes.post('/boards/:id/webhooks', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  await consumeAttemptBudget(c.env.DB, [{ key: `project-webhook-create:${userId}`, maxAttempts: 20, windowMs: 60 * 60 * 1000 }])
+  const input = await projectBody(c, ProjectWebhookCreateSchema, JSON_BODY_LIMITS.small)
+  return c.json(await createProjectWebhook(c.env.DB, board.id, userId, input, Date.now()), 201)
+})
+
+projectRoutes.patch('/boards/:id/webhooks/:hookId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
+  const input = await projectBody(c, ProjectWebhookPatchSchema, JSON_BODY_LIMITS.small)
+  const webhook = await patchProjectWebhook(c.env.DB, board.id, c.req.param('hookId'), input, Date.now())
+  if (!webhook) throw ApiError.notFound('Webhook not found')
+  return c.json({ webhook })
+})
+
+projectRoutes.delete('/boards/:id/webhooks/:hookId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
+  await deleteProjectWebhook(c.env.DB, board.id, c.req.param('hookId'))
   return c.json({ ok: true })
 })
 

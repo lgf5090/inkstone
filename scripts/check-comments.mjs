@@ -12858,6 +12858,9 @@ const allowed = new Map([
   ["src/client/features/project/FilterEditor.tsx", [
     "/** The value editor the reference dispatches on `filterValueType`, one branch per kind of clause. */",
   ]],
+  ["src/client/features/project/IntegrationsDialog.tsx", [
+    "/**\n * One place for the two machine-facing surfaces: an account's API tokens and a board's webhooks.\n * Both issue a secret exactly once, so the dialog keeps the value in local state until dismissed and\n * never reads it back from a list response.\n */",
+  ]],
   ["src/client/features/project/MembersDialog.tsx", [
     "/**\n * Who is on this board, and what they may do.\n *\n * The role model, the person properties and the mention notifications all key on membership, so\n * without this screen a \"shared\" board is a board of one. The server owns the two refusals that\n * matter — the last admin cannot be demoted or removed, and the roster is capped — so the dialog\n * reports what the server said rather than guessing at either rule.\n */",
   ]],
@@ -33441,6 +33444,11 @@ const allowed = new Map([
   ["src/shared/project/importers.ts", [
     "/**\n * The six external importers (G-1…G-6) as pure converters: each parses its system's export into the\n * same archive lines the server importer reads, so there is exactly one trust boundary. Lists /\n * sections / columns become a single select property; rows become cards carrying that property, and\n * free text becomes a text content block. G-7's packing is the shared archive envelope itself.\n */",
   ]],
+  ["src/shared/project/integrations.ts", [
+    "/**\n * The vocabulary shared by the API-token and webhook endpoints and their dialog.\n *\n * A webhook event names the write that produced it, not the entity's whole history: the payload is a\n * small envelope (board, target, method) so a delivery never carries card bodies or member names.\n */",
+    "/** A card create has no id in its path; every other card write addresses one. */",
+    "/** Exponential backoff, starting at one minute and capped at one hour. */",
+  ]],
   ["src/shared/project/limits.ts", [
     "/**\n * The project app's budgets, in one place so the server that enforces them and the client that\n * explains them cannot disagree about a number.\n *\n * The first three come from the reference's block model, where they were MySQL TEXT ceilings; D1 has\n * no such ceiling, but an archive exported there has to import here without truncation. The rest are\n * this port's own limits: the reference gated capacity behind a paid cloud plan, and a self-hosted\n * board needs a stated ceiling instead of an unbounded table.\n */",
     "/** The reference's MySQL TEXT ceiling divided by four: the most bytes one rune can cost. */",
@@ -41448,6 +41456,7 @@ const allowed = new Map([
     "/** Optional DNS-over-HTTPS endpoint for the WebSSH target resolver; must be https. */",
     "/** Icon conversion queue; optional so a deployment without Queues falls back to browser conversion. */",
     "/**\n   * Comma-separated IPv4/IPv6 addresses or CIDR ranges of reverse proxies a self-hosted deployment\n   * trusts. Unset (the default) keeps every client without a Cloudflare `cf` object on the shared\n   * `local` throttle key; setting it lets `X-Forwarded-For` supply a per-client key. Only declare\n   * ranges that actually terminate inbound traffic — a spoofable header on these ranges sets the key.\n   */",
+    "/** Set only when the request authenticated with a project API token rather than a session. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -41995,6 +42004,7 @@ const allowed = new Map([
   ["src/worker/middleware/auth.ts", [
     "/**\n * How stale `users.last_seen_at` may get before a request writes a fresh one.\n *\n * A reader's every request would otherwise take a write to the `users` row, so the bump is rate-limited\n * to one per interval; the same number is the guard in the `UPDATE` so two concurrent requests cannot\n * both decide they were the one that crossed the interval.\n */",
     "/** The public AI gateway is a bearer-key data plane, not a cookie-authenticated browser API. */",
+    "/** Project API tokens are machine clients: they carry no browser identification header. */",
   ]],
   ["src/worker/music/assistant-context.ts", [
     "/**\n * The music screen, read from a turn's body and written into its prompt.\n *\n * This is the trust boundary for the music context: the client is not allowed to decide what the\n * model sees. Only a page the app actually has, bounded strings and one enumerated cloud source get\n * through, and anything else is dropped rather than passed along as an empty value the prompt would\n * have to interpret.\n */",
@@ -42772,6 +42782,8 @@ const allowed = new Map([
     "// Every board-scoped write advances the board's stamp, which is the cursor open tabs poll. Child",
     "// edits, deletes and moves would otherwise leave it behind and a second tab would never converge.",
     "/** A reader's landing tab follows the account, so another device opens the same view. */",
+    "/**\n * Machine clients authenticate with a hashed, board-scoped token instead of a cookie. Setting\n * `userId` lets every existing route reuse `requireBoard`; the scope and board checks below are the\n * extra boundaries a token needs, and the management endpoints stay session-only so a token can\n * never mint another token or add an outbound target.\n */",
+    "/** Account-level machine credentials; the plaintext secret is returned once, at creation only. */",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
@@ -42789,6 +42801,7 @@ const allowed = new Map([
     "// The public link is read-only; comments are internal discussion unless the owner opts in.",
     "/** One row per worked interval on a card; `ended_at` null means the timer is still running. */",
     "/**\n * Per-property settings that are not part of the column list: which board a relation points at, a\n * formula, or which roles may read and edit the property. Kept beside `project_properties` so the\n * hot property table's shape does not change for every new capability.\n */",
+    "/** Machine credentials and outbound deliveries. Token bytes are never stored; only their SHA-256. */",
   ]],
   ["src/worker/project/search.ts", [
     "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. Cards match on their title,\n * their content blocks, their comments and their property values. The scan is bounded by the number of\n * readable boards and the result limit, so no index table is needed to keep it correct.\n */",
@@ -42817,9 +42830,16 @@ const allowed = new Map([
   ["src/worker/project/time.ts", [
     "/**\n * Time tracking as intervals rather than a counter: starting writes a row, stopping stamps its end,\n * so a correction is an edit and two people timing one card never overwrite each other. Only the\n * person who started a running timer may stop it; a board editor may remove any row.\n */",
   ]],
+  ["src/worker/project/tokens.ts", [
+    "/**\n * Board-scoped machine credentials. The token is shown once and only its SHA-256 is stored, so a\n * database export cannot be replayed as a credential; verification joins `users` so a deleted or\n * disabled account stops authenticating immediately.\n */",
+  ]],
   ["src/worker/project/views.ts", [
     "/**\n * Views: the saved ways of looking at one board's cards. A view's fields arrive partial and are\n * merged over the empty defaults on create and over the stored fields on patch, so a client that\n * only changes the sort never has to resend the column widths. Order is a real column the client\n * drags, and a new view without an explicit position lands after the last one.\n */",
     "/** A copy keeps the fields and type but gets a fresh id and the next position; the title is suffixed. */",
+  ]],
+  ["src/worker/project/webhooks.ts", [
+    "/**\n * Outbound board events. Every target is checked against the shared SSRF guard both when it is saved\n * and when it is used, so a DNS answer that changes after creation cannot turn a saved webhook into a\n * request for a metadata endpoint. Delivery is a durable row: the same write that produced the event\n * answers the caller, while retries come from the cron rather than from an in-memory promise.\n */",
+    "/** One attempt. A missing webhook, a blocked target and a refused network all end as a retry or a failure. */",
   ]],
   ["src/worker/quickadd/store.ts", [
     "/**\n * Every read and write the QuickAdd HTTP routes make against D1.\n *\n * The shape follows `share/store.ts`: a store built per request from the account it serves, methods\n * that hand back rows, the boolean a guarded write matched, or the answers the route prints, and no\n * `Response` in between. Two kinds of read live here:\n *  - the library envelope on the account's own `users` row. `WHERE id = ?1` binds `c.get('userId')`,\n *    and `users.id` *is* the account, so one device can neither read nor overwrite another's library.\n *    The envelope text is the route's to build and to parse; the store only moves the column;\n *  - the property scans behind `{{FIELD:}}`. Their `user_id` predicate is not a literal in the\n *    template but the first clause `fieldScopeWhere()` always splices — `n.user_id = ?1` bound to the\n *    account the store was built with — because the optional folder/tag scopes are named by the\n *    caller and have to be numbered after it.\n *\n * The scan's three bounds (`FIELD_SCAN_LIMIT`, `FIELD_VALUE_LIMIT`, `FIELD_VALUE_MAX_LENGTH`) are part\n * of the answer rather than configuration: a value list is a convenience, and a slow one is worse than\n * the author typing the word.\n */",

@@ -489,3 +489,62 @@ export async function patchProjectAutomation(boardId: string, id: string, patch:
 export async function deleteProjectAutomation(boardId: string, id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/automations/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
+
+export interface ProjectApiTokenSummary {
+  id: string
+  name: string
+  scope: 'read' | 'write'
+  boardId: string
+  expiresAt: number | null
+  createdAt: number
+  revokedAt: number | null
+}
+
+export interface ProjectWebhookSummary {
+  id: string
+  url: string
+  events: string[]
+  enabled: boolean
+  createdAt: number
+  pending: number
+  lastError: string
+}
+
+export async function fetchProjectApiTokens(signal?: AbortSignal): Promise<ProjectApiTokenSummary[]> {
+  const body = await request<{ tokens: ProjectApiTokenSummary[] }>('/api/project/tokens', { signal })
+  return body.tokens
+}
+
+export async function createProjectApiToken(input: {
+  name: string, scope: 'read' | 'write', boardId?: string, expiresAt?: number | null,
+}): Promise<{ token: ProjectApiTokenSummary, secret: string }> {
+  return request<{ token: ProjectApiTokenSummary, secret: string }>('/api/project/tokens', { method: 'POST', body: input })
+}
+
+export async function revokeProjectApiToken(id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function fetchProjectWebhooks(boardId: string, signal?: AbortSignal): Promise<ProjectWebhookSummary[]> {
+  const body = await request<{ webhooks: ProjectWebhookSummary[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/webhooks`, { signal })
+  return body.webhooks
+}
+
+export async function createProjectWebhook(boardId: string, input: {
+  url: string, events?: string[], enabled?: boolean,
+}): Promise<{ webhook: ProjectWebhookSummary, secret: string }> {
+  return request<{ webhook: ProjectWebhookSummary, secret: string }>(
+    `/api/project/boards/${encodeURIComponent(boardId)}/webhooks`, { method: 'POST', body: input },
+  )
+}
+
+export async function patchProjectWebhook(boardId: string, id: string, patch: { enabled?: boolean }): Promise<ProjectWebhookSummary> {
+  const body = await request<{ webhook: ProjectWebhookSummary }>(
+    `/api/project/boards/${encodeURIComponent(boardId)}/webhooks/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch },
+  )
+  return body.webhook
+}
+
+export async function deleteProjectWebhook(boardId: string, id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
