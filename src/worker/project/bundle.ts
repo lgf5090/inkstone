@@ -32,6 +32,7 @@ export interface CardRow {
   is_template: number
   content_order: string
   recurrence: string | null
+  completed_at: number | null
   created_by: string
   modified_by: string
   create_at: number
@@ -95,6 +96,7 @@ export function rowToCard(row: CardRow, values: Record<string, string>): Project
     isTemplate: row.is_template === 1,
     contentOrder: JSON.parse(row.content_order) as ProjectCard['contentOrder'],
     recurrence: parseProjectRecurrence(row.recurrence),
+    ...(row.completed_at ? { completedAt: row.completed_at } : {}),
     values,
     createdBy: row.created_by,
     modifiedBy: row.modified_by,

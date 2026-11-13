@@ -69,7 +69,7 @@ export function projectWeeklyCompletions(
   const buckets: ProjectWeekBucket[] = Array.from({ length: weeks }, (_, index) => ({ start: monday - (weeks - 1 - index) * 7 * DAY_MS, count: 0 }))
   for (const card of cards) {
     if (!isProjectCardDone(card, properties)) continue
-    const at = card.updateAt
+    const at = card.completedAt ?? card.updateAt
     for (const bucket of buckets) {
       if (at >= bucket.start && at < bucket.start + 7 * DAY_MS) { bucket.count += 1; break }
     }

@@ -410,6 +410,7 @@ export interface ProjectCard {
   values: Record<string, string>
   /** A repeating card spawns its next instance when completed; absent is an ordinary card. */
   recurrence?: ProjectRecurrence | null
+  completedAt?: number
   createdBy: string
   modifiedBy: string
   createAt: number

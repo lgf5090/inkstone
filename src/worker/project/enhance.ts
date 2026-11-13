@@ -175,8 +175,13 @@ export async function applyCardValueEffects(
   now: number,
   seen: Set<string> = new Set(),
 ): Promise<void> {
+  const wasDone = isProjectCardDone(before, properties)
+  const nowDone = isProjectCardDone(after, properties)
+  if (nowDone !== wasDone) {
+    await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(nowDone ? now : null, after.id).run()
+  }
   await syncCardCompletionToTodo(db, after, properties, now)
-  if (after.recurrence && isProjectCardDone(after, properties) && !isProjectCardDone(before, properties)) {
+  if (after.recurrence && nowDone && !wasDone) {
     await spawnRecurringCard(db, board, after, properties, userId, now)
   }
   const assigned = newlyAssignedPeople(before, after, properties)
@@ -211,6 +216,7 @@ export async function syncTodoCompletionToCard(db: D1Database, todoId: string, d
     await db.prepare(
       'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
     ).bind(card.id, checkbox.id, done ? 'true' : 'false', now).run()
+    await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(done ? now : null, card.id).run()
     return
   }
   const select = results.find((p) => p.type === 'select')
@@ -223,5 +229,6 @@ export async function syncTodoCompletionToCard(db: D1Database, todoId: string, d
         'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
       ).bind(card.id, select.id, target.id, now).run()
     }
+    await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(done ? now : null, card.id).run()
   }
 }

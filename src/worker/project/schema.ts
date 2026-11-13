@@ -70,6 +70,7 @@ export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
     is_template INTEGER NOT NULL DEFAULT 0,
     content_order TEXT NOT NULL DEFAULT '[]',
     recurrence TEXT,
+    completed_at INTEGER,
     created_by TEXT NOT NULL,
     modified_by TEXT NOT NULL,
     create_at INTEGER NOT NULL,
@@ -432,7 +433,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   ],
   project_cards: [
     'id', 'board_id', 'parent_id', 'title', 'icon', 'is_template', 'content_order', 'recurrence',
-    'created_by', 'modified_by', 'create_at', 'update_at', 'delete_at',
+    'completed_at', 'created_by', 'modified_by', 'create_at', 'update_at', 'delete_at',
   ],
   project_card_values: ['card_id', 'property_id', 'value', 'updated_at'],
   project_views: [

@@ -4326,6 +4326,11 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 398,
     statements: PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
   },
+  {
+    version: 399,
+    skipIfColumnExists: { table: 'project_cards', column: 'completed_at' },
+    statements: ['ALTER TABLE project_cards ADD COLUMN completed_at INTEGER'],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
