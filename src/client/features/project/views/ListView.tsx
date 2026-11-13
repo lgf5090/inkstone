@@ -14,7 +14,7 @@ import type { ProjectCardBadges } from '@shared/project/badges'
 import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
 import { projectPriorityProperty } from '@shared/project/stats'
 import { projectCardDays } from '@shared/project/timeline-layout'
-import { groupProjectCards, projectKanbanDropOrder, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
+import { groupProjectCards, projectGroupKeys, projectGroupLabel, projectKanbanDropOrder, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t, useLocale } from '../../../lib/i18n'
 import { IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
@@ -71,12 +71,12 @@ export function ListView(props: ListProps): ReactElement {
     }
     return map
   }, [cards, ids])
-  const roots = cards.filter((card) => !card.parentId || !ids.has(card.parentId))
+  const roots = useMemo(() => cards.filter((card) => !card.parentId || !ids.has(card.parentId)), [cards, ids])
   const groupProperty = properties.find((property) => property.id === fields.groupById)
-  const groups = groupProjectCards(roots, fields.groupById, properties)
-  const entries: [string, ProjectCard[]][] = groupProperty
-    ? [...groupProperty.options.map((option) => option.id), ''].map((key) => [key, groups.get(key) ?? []])
-    : [...groups.entries()]
+  const groups = useMemo(() => groupProjectCards(roots, fields.groupById, properties), [roots, fields.groupById, properties])
+  const entries = useMemo<[string, ProjectCard[]][]>(() => groupProperty
+    ? projectGroupKeys(roots, fields.groupById, properties).map((key) => [key, groups.get(key) ?? []])
+    : [...groups.entries()], [groupProperty, groups, roots, fields.groupById, properties])
 
   const drag = useDragSort({
     enabled: canEdit,
@@ -277,7 +277,9 @@ export function ListView(props: ListProps): ReactElement {
           <section key={key || 'all'} data-drag-zone={key}>
             {fields.groupById && (
               <h3 className="pv-list-group">
-                {groupProperty && key !== '' ? <OptionChip property={groupProperty} value={key} /> : <span>{key === '' ? t('project.view.no_value') : projectOptionLabel(groupProperty!, key)}</span>}
+                {groupProperty && key !== '' && (groupProperty.type === 'select' || groupProperty.type === 'multiSelect')
+                  ? <OptionChip property={groupProperty} value={key} />
+                  : <span>{key === '' ? t('project.view.no_value') : projectGroupLabel(groupProperty, key, people, locale)}</span>}
                 <span className="pv-head-count">{list.length}</span>
               </h3>
             )}

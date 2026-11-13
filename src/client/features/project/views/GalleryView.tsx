@@ -10,7 +10,7 @@ import { ChevronDown, ChevronRight, CornerDownRight, LayoutGrid, ListTodo, Squar
 import type { ProjectCard, ProjectGallerySize, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { projectCardColorResolver } from '@shared/project/option-color'
-import { groupProjectCards, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
+import { groupProjectCards, projectGroupKeys, projectGroupLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
 import { t, useLocale } from '../../../lib/i18n'
 import { CardBadges, OptionChip } from '../CardBadges'
 import { useProjectPeople } from '../people-context'
@@ -37,20 +37,25 @@ export function GalleryView(props: GalleryProps): ReactElement {
   const { cards, properties, fields, canEdit } = props
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const size = fields.galleryCardSize ?? 'medium'
-  const ids = new Set(cards.map((card) => card.id))
-  const children = new Map<string, ProjectCard[]>()
-  for (const card of cards) {
-    if (!card.parentId || !ids.has(card.parentId)) continue
-    const list = children.get(card.parentId)
-    if (list) list.push(card)
-    else children.set(card.parentId, [card])
-  }
-  const roots = cards.filter((card) => !card.parentId || !ids.has(card.parentId))
+  const people = useProjectPeople()
+  const locale = useLocale()
+  const ids = useMemo(() => new Set(cards.map((card) => card.id)), [cards])
+  const children = useMemo(() => {
+    const map = new Map<string, ProjectCard[]>()
+    for (const card of cards) {
+      if (!card.parentId || !ids.has(card.parentId)) continue
+      const list = map.get(card.parentId)
+      if (list) list.push(card)
+      else map.set(card.parentId, [card])
+    }
+    return map
+  }, [cards, ids])
+  const roots = useMemo(() => cards.filter((card) => !card.parentId || !ids.has(card.parentId)), [cards, ids])
   const groupProperty = properties.find((property) => property.id === fields.groupById)
-  const groups = groupProjectCards(roots, fields.groupById, properties)
-  const entries: [string, ProjectCard[]][] = groupProperty
-    ? [...groupProperty.options.map((option) => option.id), ''].map((key) => [key, groups.get(key) ?? []])
-    : [...groups.entries()]
+  const groups = useMemo(() => groupProjectCards(roots, fields.groupById, properties), [roots, fields.groupById, properties])
+  const entries = useMemo<[string, ProjectCard[]][]>(() => groupProperty
+    ? projectGroupKeys(roots, fields.groupById, properties).map((key) => [key, groups.get(key) ?? []])
+    : [...groups.entries()], [groupProperty, groups, roots, fields.groupById, properties])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
 
   return (
@@ -71,7 +76,7 @@ export function GalleryView(props: GalleryProps): ReactElement {
       <div className="pv-gallery pv-scroll">
         {entries.map(([key, groupCards]) => {
           const collapsed = fields.collapsedOptionIds.includes(key)
-          const label = key === '' ? t('project.view.no_value') : projectOptionLabel(groupProperty!, key)
+          const label = key === '' ? t('project.view.no_value') : projectGroupLabel(groupProperty, key, people, locale)
           return (
             <section key={key || 'empty'} aria-label={label} data-gallery-group={key} className="mb-5">
               {fields.groupById && (
@@ -84,7 +89,9 @@ export function GalleryView(props: GalleryProps): ReactElement {
                   })}
                 >
                   {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-                  {groupProperty && key !== '' ? <OptionChip property={groupProperty} value={key} /> : <span>{label}</span>}
+                  {groupProperty && key !== '' && (groupProperty.type === 'select' || groupProperty.type === 'multiSelect')
+                    ? <OptionChip property={groupProperty} value={key} />
+                    : <span>{label}</span>}
                   <span className="pv-head-count">{groupCards.length}</span>
                 </button>
               )}
