@@ -128,4 +128,21 @@ describe('todo two-way completion sync (X-5)', () => {
     const value = sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id) as { value: string }
     expect(value.value).toBe('false')
   })
+
+  it('recognises a Chinese done option in both sync directions', async () => {
+    const status = 's'.repeat(27)
+    const doneId = 'd'.repeat(27)
+    const openId = 'o'.repeat(27)
+    const options = [{ id: openId, value: '待办', color: '' }, { id: doneId, value: '完成', color: '' }]
+    const board = ((await (await req('POST', '/boards', { title: '中文', cardProperties: [{ id: status, name: '状态', type: 'select', options }] })).json()) as { board: ProjectBoard }).board
+    const card = ((await (await req('POST', `/boards/${board.id}/cards`, { title: '中文卡' })).json()) as { card: ProjectCard }).card
+    sqlite.prepare(`INSERT INTO todos_tasks (user_id, id, title, created_at, updated_at) VALUES ('alice', 'zh1', 'Linked task', 1, 1)`).run()
+    expect((await req('POST', `/cards/${card.id}/todo-link`, { todoId: 'zh1' })).status).toBe(201)
+    await req('PATCH', `/cards/${card.id}`, { values: { [status]: doneId } })
+    const todo = sqlite.prepare('SELECT status FROM todos_tasks WHERE id = ?').get('zh1') as { status: string }
+    expect(todo.status).toBe('done')
+    await syncTodoCompletionToCard(env.DB, 'zh1', true, Date.now())
+    const value = sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ? AND property_id = ?').get(card.id, status) as { value: string }
+    expect(value.value).toBe(doneId)
+  })
 })

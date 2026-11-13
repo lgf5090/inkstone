@@ -4,7 +4,7 @@
  * a board can never deadlock itself. Both reuse tables created with the core schema.
  */
 import type { ProjectActivityEntry, ProjectBoard, ProjectCard, ProjectCardLink, ProjectCardLinkKind, ProjectProperty } from '@shared/project/model'
-import { isProjectCardDone, projectMultiValueIds } from '@shared/project/model'
+import { CARD_DONE_PATTERN, isProjectCardDone, projectMultiValueIds } from '@shared/project/model'
 import { newProjectId } from '@shared/project/limits'
 import { ApiError } from '../lib/errors'
 import type { AppBindings } from '../env'
@@ -117,8 +117,6 @@ export async function getCardTodoLink(db: D1Database, cardId: string): Promise<s
   return row?.todo_id ?? null
 }
 
-const DONE_PATTERN = /done|complete|finished/i
-
 /** A card reads as done when a checkbox property is ticked or its status option names completion. */
 export function cardIsDone(card: ProjectCard, properties: readonly { id: string, type: string, options: { id: string, value: string }[] }[]): boolean {
   for (const property of properties) {
@@ -127,7 +125,7 @@ export function cardIsDone(card: ProjectCard, properties: readonly { id: string,
     if (property.type === 'checkbox' && raw === 'true') return true
     if (property.type === 'select') {
       const option = property.options.find((o) => o.id === raw)
-      if (option && DONE_PATTERN.test(option.value)) return true
+      if (option && CARD_DONE_PATTERN.test(option.value)) return true
     }
   }
   return false
@@ -212,8 +210,8 @@ export async function syncTodoCompletionToCard(db: D1Database, todoId: string, d
   const select = results.find((p) => p.type === 'select')
   if (select) {
     const options = JSON.parse(select.options) as { id: string, value: string }[]
-    const doneOption = options.find((o) => DONE_PATTERN.test(o.value))
-    const target = done ? doneOption : options.find((o) => !DONE_PATTERN.test(o.value))
+    const doneOption = options.find((o) => CARD_DONE_PATTERN.test(o.value))
+    const target = done ? doneOption : options.find((o) => !CARD_DONE_PATTERN.test(o.value))
     if (target) {
       await db.prepare(
         'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
