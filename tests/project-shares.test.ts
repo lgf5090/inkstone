@@ -52,6 +52,17 @@ async function reqFromIp(path: string, ip: string, body: unknown): Promise<Respo
 }
 
 describe('public sharing', () => {
+  it('rotates the slug when the passcode changes so a leaked link stops working', async () => {
+    const board = await makeBoard()
+    const first = await req('PUT', `/api/project/boards/${board.id}/share`, { password: 'first-pass' })
+    const oldSlug = ((await first.json()) as { share: ProjectShare }).share.slug
+    const second = await req('PUT', `/api/project/boards/${board.id}/share`, { password: 'second-pass' })
+    const newSlug = ((await second.json()) as { share: ProjectShare }).share.slug
+    expect(newSlug).not.toBe(oldSlug)
+    expect((await req('POST', `/api/project/public/${oldSlug}`, { password: 'first-pass' }, false)).status).toBe(404)
+    expect((await req('POST', `/api/project/public/${newSlug}`, { password: 'second-pass' }, false)).status).toBe(200)
+  })
+
   it('shares a board read-only and revokes it', async () => {
     const board = await makeBoard()
     await req('POST', `/api/project/boards/${board.id}/cards`, { title: 'Visible card' })

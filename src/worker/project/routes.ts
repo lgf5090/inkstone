@@ -429,6 +429,7 @@ projectRoutes.post('/boards/:id/batch-delete', async (c) => {
 projectRoutes.patch('/boards/:id', async (c) => {
   const patch = await projectBody(c, ProjectBoardPatchSchema)
   const ownerOnly = patch.type !== undefined || patch.minimumRole !== undefined || patch.archived !== undefined
+    || patch.updatedCardProperties !== undefined || patch.deletedCardProperties !== undefined
   const { board } = ownerOnly
     ? await requireBoardOwner(c, c.req.param('id'))
     : await requireBoard(c, c.req.param('id'), 'editor')

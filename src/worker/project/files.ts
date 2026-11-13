@@ -10,6 +10,7 @@ import { extensionFor } from '../lib/image'
 import { ApiError } from '../lib/errors'
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+const ATTACHMENT_LIST_LIMIT = 200
 
 interface AttachmentRow {
   id: string
@@ -55,8 +56,8 @@ export function attachmentCategory(mime: string): ProjectAttachmentCategory {
 
 export async function listBoardAttachments(db: D1Database, boardId: string, cardId?: string): Promise<ProjectAttachment[]> {
   const { results } = cardId
-    ? await db.prepare('SELECT * FROM project_attachments WHERE board_id = ?1 AND card_id = ?2 ORDER BY created_at DESC').bind(boardId, cardId).all<AttachmentRow>()
-    : await db.prepare('SELECT * FROM project_attachments WHERE board_id = ?1 ORDER BY created_at DESC').bind(boardId).all<AttachmentRow>()
+    ? await db.prepare(`SELECT * FROM project_attachments WHERE board_id = ?1 AND card_id = ?2 ORDER BY created_at DESC LIMIT ${ATTACHMENT_LIST_LIMIT}`).bind(boardId, cardId).all<AttachmentRow>()
+    : await db.prepare(`SELECT * FROM project_attachments WHERE board_id = ?1 ORDER BY created_at DESC LIMIT ${ATTACHMENT_LIST_LIMIT}`).bind(boardId).all<AttachmentRow>()
   return results.map(rowToAttachment)
 }
 
@@ -91,7 +92,7 @@ export async function uploadProjectAttachment(
 }
 
 export async function deleteProjectAttachment(db: D1Database, r2: R2Bucket | undefined, attachment: ProjectAttachment): Promise<void> {
-  if (r2) await r2.delete(attachment.objectKey).catch(() => undefined)
+  if (r2) await r2.delete(attachment.objectKey)
   await db.prepare('DELETE FROM project_attachments WHERE id = ?1').bind(attachment.id).run()
 }
 

@@ -36,4 +36,18 @@ describe('Markdown export', () => {
     expect(markdown).toContain('- **Status**: Open')
     expect(markdown).toContain('### Ship it')
   })
+
+  it('escapes interpolated text so a card cannot forge headings or pull remote resources', () => {
+    const bundle = fixture()
+    bundle.board.title = 'Road\n# Forged'
+    bundle.board.description = '<img src="https://example.test/x">'
+    bundle.cards[0]!.title = 'Ship ![x](https://example.test/y)'
+    bundle.properties[0]!.name = 'Sta\ntus'
+    const markdown = projectBoardToMarkdown(bundle)
+    expect(markdown.split('\n').filter((line) => line.startsWith('# '))).toHaveLength(1)
+    expect(markdown).not.toContain('<img')
+    expect(markdown).not.toContain('![')
+    expect(markdown).toContain('&lt;')
+    expect(markdown).not.toContain('Sta\ntus')
+  })
 })

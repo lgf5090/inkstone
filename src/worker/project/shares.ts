@@ -55,9 +55,10 @@ export async function putProjectShare(
   const expiresAt = input.expiresAt === undefined ? (existing?.expires_at ?? null) : input.expiresAt
   const showComments = input.showComments === undefined ? (existing?.show_comments ?? 0) : (input.showComments ? 1 : 0)
   if (existing) {
-    await db.prepare('UPDATE project_shares SET password_hash = ?1, expires_at = ?2, show_comments = ?3 WHERE slug = ?4')
-      .bind(passwordHash, expiresAt, showComments, existing.slug).run()
-    return rowToShare({ ...existing, password_hash: passwordHash, expires_at: expiresAt, show_comments: showComments })
+    const slug = input.password === undefined ? existing.slug : newSlug()
+    await db.prepare('UPDATE project_shares SET slug = ?1, password_hash = ?2, expires_at = ?3, show_comments = ?4 WHERE slug = ?5')
+      .bind(slug, passwordHash, expiresAt, showComments, existing.slug).run()
+    return rowToShare({ ...existing, slug, password_hash: passwordHash, expires_at: expiresAt, show_comments: showComments })
   }
   const slug = newSlug()
   await db.prepare(
