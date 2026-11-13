@@ -196,6 +196,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
         />
       )
     case 'formula':
+    case 'rollup':
       return <span className="text-[length:var(--text-12)] text-[var(--text-secondary)] tabular">{value || '—'}</span>
     case 'createdBy':
     case 'updatedBy':

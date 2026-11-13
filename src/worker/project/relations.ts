@@ -205,12 +205,23 @@ export async function redactHiddenRelations(
   const relationProperties = bundle.properties.filter(
     (property) => property.type === 'relation' && property.config?.targetBoardId,
   )
-  if (!relationProperties.length) return
+  const rollupProperties = bundle.properties.filter(
+    (property) => property.type === 'rollup' && property.config?.rollup,
+  )
+  if (!relationProperties.length && !rollupProperties.length) return
+  const byId = new Map(bundle.properties.map((property) => [property.id, property]))
   const hidden = new Set<string>()
   for (const property of relationProperties) {
     const target = property.config!.targetBoardId!
     if (target === bundle.board.id) continue
     if (!await projectBoardVisibleTo(db, target, viewerId)) hidden.add(property.id)
+  }
+  for (const property of rollupProperties) {
+    const relation = byId.get(property.config!.rollup!.relationPropertyId)
+    const target = relation?.config?.targetBoardId
+    if (target && target !== bundle.board.id && !await projectBoardVisibleTo(db, target, viewerId)) {
+      hidden.add(property.id)
+    }
   }
   if (!hidden.size) return
   for (const card of bundle.cards) {

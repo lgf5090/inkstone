@@ -83,7 +83,7 @@ export function projectBundleToArchiveLines(
   for (const card of cards) {
     const values: Record<string, string | string[]> = {}
     for (const [propertyId, value] of Object.entries(card.values)) {
-      if (propertyTypes.get(propertyId) === 'formula') continue
+      if (propertyTypes.get(propertyId) === 'formula' || propertyTypes.get(propertyId) === 'rollup') continue
       values[propertyId] = exportValue(value, propertyTypes.get(propertyId))
     }
     lines.push({

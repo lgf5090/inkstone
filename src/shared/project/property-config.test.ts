@@ -18,4 +18,16 @@ describe('property config parsing', () => {
     const config = { targetBoardId: 'b1', multiple: true }
     expect(parseProjectPropertyConfig(serializeProjectPropertyConfig(config))).toEqual(config)
   })
+
+  it('keeps a valid rollup config', () => {
+    const id = `p${'1'.repeat(26)}`
+    const config = { rollup: { relationPropertyId: id, targetPropertyId: id, aggregation: 'avg' as const } }
+    expect(parseProjectPropertyConfig(serializeProjectPropertyConfig(config))).toEqual(config)
+  })
+
+  it('rejects a rollup with an unknown aggregation or an invalid id', () => {
+    const id = `p${'1'.repeat(26)}`
+    expect(parseProjectPropertyConfig(JSON.stringify({ rollup: { relationPropertyId: id, targetPropertyId: id, aggregation: 'median' } }))).toBeUndefined()
+    expect(parseProjectPropertyConfig(JSON.stringify({ rollup: { relationPropertyId: '../bad', targetPropertyId: id, aggregation: 'sum' } }))).toBeUndefined()
+  })
 })

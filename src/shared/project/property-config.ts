@@ -6,13 +6,30 @@
  * to the four real roles, and an empty result is `undefined` rather than an empty object so callers
  * can tell "no settings" from "settings that say nothing".
  */
-import type { ProjectProperty, ProjectPropertyConfig, ProjectRole } from './model'
-import { PROJECT_PROPERTY_CAPABILITIES, PROJECT_ROLES } from './model'
+import type { ProjectProperty, ProjectPropertyConfig, ProjectRole, ProjectRollupAggregation, ProjectRollupConfig } from './model'
+import { PROJECT_PROPERTY_CAPABILITIES, PROJECT_ROLES, PROJECT_ROLLUP_AGGREGATIONS } from './model'
+import { isProjectId } from './limits'
 
 function readRoles(value: unknown): ProjectRole[] | undefined {
   if (!Array.isArray(value)) return undefined
   const roles = PROJECT_ROLES.filter((role) => value.includes(role))
   return roles.length ? roles : undefined
+}
+
+function readRollup(value: unknown): ProjectRollupConfig | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const relationPropertyId = record.relationPropertyId
+  const targetPropertyId = record.targetPropertyId
+  const aggregation = record.aggregation
+  if (typeof relationPropertyId !== 'string' || !isProjectId(relationPropertyId)) return undefined
+  if (typeof targetPropertyId !== 'string' || !isProjectId(targetPropertyId)) return undefined
+  if (typeof aggregation !== 'string' || !(PROJECT_ROLLUP_AGGREGATIONS as readonly string[]).includes(aggregation)) return undefined
+  return {
+    relationPropertyId,
+    targetPropertyId,
+    aggregation: aggregation as ProjectRollupAggregation,
+  }
 }
 
 export function parseProjectPropertyConfig(raw: string | null | undefined): ProjectPropertyConfig | undefined {
@@ -33,6 +50,8 @@ export function parseProjectPropertyConfig(raw: string | null | undefined): Proj
   if (viewRoles) config.viewRoles = viewRoles
   const editRoles = readRoles(record.editRoles)
   if (editRoles) config.editRoles = editRoles
+  const rollup = readRollup(record.rollup)
+  if (rollup) config.rollup = rollup
   return Object.keys(config).length ? config : undefined
 }
 

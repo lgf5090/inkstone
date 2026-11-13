@@ -16,6 +16,7 @@ import type {
 } from '@shared/project/model'
 import { projectPropertyVisibleTo } from '@shared/project/property-config'
 import { evaluateProjectFormula } from '@shared/project/formula'
+import { evaluateProjectRollup, projectRollupCycleIds, projectRollupOrder } from '@shared/project/rollup'
 import { projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { parseProjectRecurrence } from '@shared/project/recurrence'
@@ -239,6 +240,64 @@ export async function readProjectBoardBundle(
       for (const property of relationProperties) {
         const ids = edges.get(`${card.id}|${property.id}`) ?? []
         card.values[property.id] = ids.length ? JSON.stringify(ids) : ''
+      }
+    }
+  }
+  const rollupProperties = visibleProperties.filter((property) => property.type === 'rollup' && property.config?.rollup)
+  if (rollupProperties.length) {
+    const cycles = projectRollupCycleIds(visibleProperties)
+    const order = projectRollupOrder(visibleProperties)
+    const byId = new Map(visibleProperties.map((property) => [property.id, property]))
+    const { results: rollupEdges } = await db.prepare(
+      `SELECT r.from_card_id, r.property_id, r.to_card_id FROM project_card_relations r
+       JOIN project_cards c ON c.id = r.to_card_id AND c.delete_at = 0
+       WHERE r.board_id = ?1`,
+    ).bind(board.id).all<{ from_card_id: string, property_id: string, to_card_id: string }>()
+    const edgesByKey = new Map<string, string[]>()
+    const targetIds = new Set<string>()
+    for (const edge of rollupEdges) {
+      const key = `${edge.from_card_id}|${edge.property_id}`
+      const list = edgesByKey.get(key) ?? []
+      list.push(edge.to_card_id)
+      edgesByKey.set(key, list)
+      targetIds.add(edge.to_card_id)
+    }
+    const valuesByCardId = new Map<string, Record<string, string>>()
+    for (const card of cards) valuesByCardId.set(card.id, card.values)
+    const targetIdList = [...targetIds]
+    if (targetIdList.length) {
+      const marks = targetIdList.map((_, index) => `?${index + 1}`).join(', ')
+      const { results: targetRows } = await db.prepare(
+        `SELECT card_id, property_id, value FROM project_card_values WHERE card_id IN (${marks})`,
+      ).bind(...targetIdList).all<ValueRow>()
+      for (const row of targetRows) {
+        const values = valuesByCardId.get(row.card_id) ?? {}
+        values[row.property_id] = row.value
+        valuesByCardId.set(row.card_id, values)
+      }
+    }
+    const computed = new Map<string, string>()
+    for (const card of cards) {
+      for (const property of rollupProperties) {
+        if (cycles.has(property.id)) card.values[property.id] = ''
+      }
+    }
+    for (const propertyId of order) {
+      const property = byId.get(propertyId)
+      if (!property?.config?.rollup) continue
+      const config = property.config.rollup
+      const relation = byId.get(config.relationPropertyId)
+      const usable = relation?.type === 'relation'
+      for (const card of cards) {
+        const toIds = usable ? (edgesByKey.get(`${card.id}|${config.relationPropertyId}`) ?? []) : []
+        const targetValues = toIds.map((toId) => {
+          const stored = valuesByCardId.get(toId)?.[config.targetPropertyId]
+          if (stored !== undefined) return stored
+          return computed.get(`${toId}|${config.targetPropertyId}`) ?? ''
+        })
+        const result = evaluateProjectRollup(targetValues, config.aggregation)
+        computed.set(`${card.id}|${propertyId}`, result)
+        card.values[propertyId] = result
       }
     }
   }

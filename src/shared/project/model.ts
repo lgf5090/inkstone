@@ -17,7 +17,7 @@ export type ProjectMinimumRole = '' | ProjectRole
 
 export const PROJECT_PROPERTY_TYPES = [
   'text', 'number', 'select', 'multiSelect', 'date', 'person', 'multiPerson', 'file',
-  'checkbox', 'url', 'email', 'phone', 'formula', 'relation', 'createdTime', 'createdBy', 'updatedTime', 'updatedBy', 'unknown',
+  'checkbox', 'url', 'email', 'phone', 'formula', 'relation', 'rollup', 'createdTime', 'createdBy', 'updatedTime', 'updatedBy', 'unknown',
 ] as const
 export type ProjectPropertyType = (typeof PROJECT_PROPERTY_TYPES)[number]
 
@@ -87,6 +87,7 @@ export const PROJECT_PROPERTY_CAPABILITIES: Readonly<Record<ProjectPropertyType,
   phone: EDITABLE_TEXT,
   formula: { canFilter: false, filterValueType: 'none', canGroup: false, readOnly: true },
   relation: { canFilter: true, filterValueType: 'text', canGroup: false, readOnly: false },
+  rollup: { canFilter: true, filterValueType: 'number', canGroup: false, readOnly: true },
   createdTime: SERVER_STAMP,
   createdBy: SERVER_AUTHOR,
   updatedTime: SERVER_STAMP,
@@ -217,12 +218,22 @@ export interface ProjectPropertyOption {
  * Settings a property type needs beyond its column: which board a relation points at, the formula to
  * evaluate, and which roles may read or write this property. Empty arrays mean every role.
  */
+export const PROJECT_ROLLUP_AGGREGATIONS = ['count', 'sum', 'avg', 'min', 'max'] as const
+export type ProjectRollupAggregation = (typeof PROJECT_ROLLUP_AGGREGATIONS)[number]
+
+export interface ProjectRollupConfig {
+  relationPropertyId: string
+  targetPropertyId: string
+  aggregation: ProjectRollupAggregation
+}
+
 export interface ProjectPropertyConfig {
   targetBoardId?: string
   multiple?: boolean
   expression?: string
   viewRoles?: ProjectRole[]
   editRoles?: ProjectRole[]
+  rollup?: ProjectRollupConfig
 }
 
 export interface ProjectProperty {

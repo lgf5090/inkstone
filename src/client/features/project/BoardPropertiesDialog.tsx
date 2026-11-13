@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import type { ProjectBoardSummary, ProjectProperty, ProjectPropertyConfig, ProjectPropertyType, ProjectRole } from '@shared/project/model'
+import type { ProjectBoardSummary, ProjectProperty, ProjectPropertyConfig, ProjectPropertyType, ProjectRole, ProjectRollupAggregation, ProjectRollupConfig } from '@shared/project/model'
 import { newProjectId } from '@shared/project/limits'
-import { PROJECT_ROLES } from '@shared/project/model'
+import { PROJECT_ROLES, PROJECT_ROLLUP_AGGREGATIONS } from '@shared/project/model'
 import { PROJECT_OPTION_COLORS, projectOptionColorName, projectOptionCssColor } from '@shared/project/option-color'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
@@ -12,7 +12,7 @@ import { Menu, Modal, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { fetchProjectBoards } from './api'
 
-const EDITABLE_TYPES: ProjectPropertyType[] = ['text', 'number', 'select', 'multiSelect', 'date', 'person', 'checkbox', 'url', 'email', 'phone', 'relation']
+const EDITABLE_TYPES: ProjectPropertyType[] = ['text', 'number', 'select', 'multiSelect', 'date', 'person', 'checkbox', 'url', 'email', 'phone', 'relation', 'rollup']
 const OPTION_TYPES = new Set(['select', 'multiSelect'])
 
 const typeOptions = () => EDITABLE_TYPES.map((type) => ({ value: type, label: t(`project.prop.type.${type.toLowerCase()}` as Parameters<typeof t>[0]) }))
@@ -48,6 +48,11 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
     const config: ProjectPropertyConfig = { ...property.config }
     if (next.length) config[key] = next
     else delete config[key]
+    update(property.id, { config: Object.keys(config).length ? config : undefined })
+  }
+  const updateRollup = (property: ProjectProperty, patch: Partial<ProjectRollupConfig>) => {
+    const current = property.config?.rollup ?? { relationPropertyId: '', targetPropertyId: '', aggregation: 'count' as ProjectRollupAggregation }
+    const config = { ...property.config, rollup: { ...current, ...patch } }
     update(property.id, { config: Object.keys(config).length ? config : undefined })
   }
 
@@ -181,6 +186,32 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
                     else delete config.multiple
                     update(property.id, { config: Object.keys(config).length ? config : undefined })
                   }}
+                />
+              </div>
+            )}
+            {property.type === 'rollup' && (
+              <div className="space-y-1 pl-1">
+                <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.props.rollup_relation')}</p>
+                <SelectMenu
+                  className="w-full"
+                  value={property.config?.rollup?.relationPropertyId ?? ''}
+                  label={t('project.props.rollup_relation')}
+                  onChange={(value) => updateRollup(property, { relationPropertyId: value })}
+                  options={[{ value: '', label: '—' }, ...draft.filter((entry) => entry.type === 'relation').map((entry) => ({ value: entry.id, label: entry.name }))]}
+                />
+                <Input
+                  className="w-full"
+                  value={property.config?.rollup?.targetPropertyId ?? ''}
+                  placeholder={t('project.props.rollup_target')}
+                  aria-label={t('project.props.rollup_target')}
+                  onChange={(event) => updateRollup(property, { targetPropertyId: event.target.value })}
+                />
+                <SelectMenu
+                  className="w-full"
+                  value={property.config?.rollup?.aggregation ?? 'count'}
+                  label={t('project.props.rollup_aggregation')}
+                  onChange={(value) => updateRollup(property, { aggregation: value as ProjectRollupAggregation })}
+                  options={PROJECT_ROLLUP_AGGREGATIONS.map((aggregation) => ({ value: aggregation, label: t(`project.rollup.${aggregation}` as Parameters<typeof t>[0]) }))}
                 />
               </div>
             )}

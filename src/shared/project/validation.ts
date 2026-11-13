@@ -19,6 +19,7 @@ import {
   PROJECT_GALLERY_SIZES,
   PROJECT_PROPERTY_TYPES,
   PROJECT_ROLES,
+  PROJECT_ROLLUP_AGGREGATIONS,
   PROJECT_SCHEDULE_SCALES,
   PROJECT_SUBSCRIPTION_BLOCKS,
   PROJECT_VIEW_TYPES,
@@ -45,12 +46,19 @@ export const ProjectPropertyOptionSchema = z.object({
   color: z.string().max(64),
 })
 
+export const ProjectRollupConfigSchema = z.object({
+  relationPropertyId: projectId,
+  targetPropertyId: projectId,
+  aggregation: z.enum(PROJECT_ROLLUP_AGGREGATIONS),
+})
+
 export const ProjectPropertyConfigSchema = z.object({
   targetBoardId: projectId.optional(),
   multiple: z.boolean().optional(),
   expression: z.string().max(500).optional(),
   viewRoles: z.array(z.enum(PROJECT_ROLES)).max(PROJECT_ROLES.length).optional(),
   editRoles: z.array(z.enum(PROJECT_ROLES)).max(PROJECT_ROLES.length).optional(),
+  rollup: ProjectRollupConfigSchema.optional(),
 })
 
 export const ProjectPropertySchema = z.object({
