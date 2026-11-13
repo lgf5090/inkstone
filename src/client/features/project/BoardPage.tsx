@@ -220,7 +220,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === id ? updated : card)) } : current))
     if (previous) {
       undoStack.push({
-        undo: async () => { await patchProjectCard(id, { title: previous.title, values: previous.values, icon: previous.icon }); await refresh() },
+        undo: async () => { await patchProjectCard(id, { title: previous.title, values: previous.values, icon: previous.icon, parentId: previous.parentId, contentOrder: previous.contentOrder, recurrence: previous.recurrence ?? null }); await refresh() },
         redo: async () => { await patchProjectCard(id, patch); await refresh() },
       })
     }
