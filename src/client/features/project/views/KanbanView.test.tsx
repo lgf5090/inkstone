@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
 import { initI18n, t } from '../../../lib/i18n'
+import { useUi } from '../../../store/ui'
 import { renderElement, type RenderedElement } from '../../../lib/test-render'
 import { KanbanView, kanbanColumnKeys } from './KanbanView'
 
@@ -224,6 +225,31 @@ describe('dragging a multi-selection', () => {
     expect(props.onPatchCards).toHaveBeenCalledWith(['a', 'b'], { ps: 'o2' })
   })
 })
+describe('the WIP ceiling on drop', () => {
+  it('refuses a drop that would push a column past its limit', async () => {
+    const toast = vi.spyOn(useUi.getState(), 'toast').mockImplementation(() => '')
+    const props = await mount([card('a'), card('b'), card('c', 'o2')], { wipLimits: { o2: 1 } })
+    const zones = columns().map((column) => column.querySelector<HTMLElement>('[data-drag-zone]')!)
+    zones[0]!.getBoundingClientRect = () => ({ left: 0, right: 280, top: 0, bottom: 600, width: 280, height: 600, x: 0, y: 0, toJSON: () => ({}) })
+    zones[1]!.getBoundingClientRect = () => ({ left: 300, right: 580, top: 0, bottom: 600, width: 280, height: 600, x: 300, y: 0, toJSON: () => ({}) })
+    const rects: Record<string, { left: number, top: number }> = { a: { left: 0, top: 0 }, b: { left: 0, top: 100 }, c: { left: 300, top: 0 } }
+    for (const [id, rect] of Object.entries(rects)) {
+      const element = view.container.querySelector<HTMLElement>(`[data-drag-id="${id}"]`)!
+      element.getBoundingClientRect = () => ({ left: rect.left, right: rect.left + 280, top: rect.top, bottom: rect.top + 90, width: 280, height: 90, x: rect.left, y: rect.top, toJSON: () => ({}) })
+    }
+    const grip = view.container.querySelector<HTMLElement>('[data-drag-id="a"] [data-drag-handle]')!
+    await act(async () => { grip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 10, clientY: 10, button: 0, pointerId: 1, pointerType: 'mouse' })) })
+    await act(async () => { window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 320, clientY: 50 })) })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 32)) })
+    await act(async () => { window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 320, clientY: 50 })) })
+    expect(props.onPatchFields).not.toHaveBeenCalled()
+    expect(props.onPatchCard).not.toHaveBeenCalled()
+    expect(props.onPatchCards).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith({ title: t('project.view.wip_limit_reached'), tone: 'danger' })
+    toast.mockRestore()
+  })
+})
+
 describe('the two card layouts', () => {
   it('draws a compact line by default and a full card when the view says so', async () => {
     await mount([card('a')])

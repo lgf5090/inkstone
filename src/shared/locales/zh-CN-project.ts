@@ -92,6 +92,7 @@ export const ZH_CN_PROJECT = {
     "project.prop.type.email": "邮箱",
     "project.prop.type.phone": "电话",
     "project.view.wip_limit": "在制品上限",
+    "project.view.wip_limit_reached": "已达在制品上限",
     "project.calendar.day_panel": "当日任务",
     "project.calendar.day_empty": "当日无任务",
     "project.view.resize_start": "调整开始日",

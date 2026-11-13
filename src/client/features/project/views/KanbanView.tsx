@@ -15,6 +15,7 @@ import { calculationOptionsFor, computeProjectCalculation } from '@shared/projec
 import { projectCardColorResolver, projectOptionCssColor, PROJECT_OPTION_COLORS } from '@shared/project/option-color'
 import { groupProjectCards, projectGroupLabel, projectKanbanDropOrder } from '@shared/project/view-eval'
 import { t, useLocale } from '../../../lib/i18n'
+import { useUi } from '../../../store/ui'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Menu, prompt, submenuFor, type MenuItem } from '../../../components/overlay'
@@ -99,6 +100,20 @@ export function KanbanView(props: KanbanProps): ReactElement {
   const onDrop = (cardId: string, target: DragDropTarget): void => {
     const bulk = selected.length > 1 && selectedSet.has(cardId)
     const draggedIds = bulk ? cards.filter((card) => selectedSet.has(card.id)).map((card) => card.id) : [cardId]
+    const moving = groupProperty
+      ? draggedIds.filter((id) => {
+          const card = cards.find((entry) => entry.id === id)
+          return card && (card.values[groupProperty.id] ?? '') !== target.zone
+        })
+      : []
+    const wipLimit = fields.wipLimits?.[target.zone]
+    if (wipLimit !== undefined) {
+      const targetCount = columns.find((column) => column.key === target.zone)?.cards.length ?? 0
+      if (targetCount + moving.length > wipLimit) {
+        useUi.getState().toast({ title: t('project.view.wip_limit_reached'), tone: 'danger' })
+        return
+      }
+    }
     const order = projectKanbanDropOrder({
       columns: columns.map((column) => ({ key: column.key, cardIds: column.cards.map((card) => card.id) })),
       cardOrder: fields.cardOrder,
@@ -106,12 +121,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
       target,
     })
     props.onPatchFields({ cardOrder: order })
-    if (!groupProperty) return
-    const moving = draggedIds.filter((id) => {
-      const card = cards.find((entry) => entry.id === id)
-      return card && (card.values[groupProperty.id] ?? '') !== target.zone
-    })
-    if (moving.length === 0) return
+    if (!groupProperty || moving.length === 0) return
     const values = { [groupProperty.id]: target.zone === '' ? null : target.zone }
     if (moving.length === 1) void props.onPatchCard(moving[0]!, { values })
     else void props.onPatchCards(moving, values)
