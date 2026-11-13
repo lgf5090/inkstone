@@ -200,6 +200,8 @@ export const PROJECT_AUX_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_attachments(card_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_project_attachments_user
      ON project_attachments(user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_attachments_board
+     ON project_attachments(board_id, created_at DESC)`,
 
   // No subscriber type column: the reference's `channel` subscribers have no counterpart here.
   `CREATE TABLE IF NOT EXISTS project_subscriptions (
@@ -369,6 +371,7 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_category_boards_board',
   'idx_project_attachments_card',
   'idx_project_attachments_user',
+  'idx_project_attachments_board',
   'idx_project_subscriptions_subscriber',
   'idx_project_shares_board',
   'idx_project_activity_board',

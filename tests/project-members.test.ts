@@ -127,10 +127,11 @@ describe('adding a member', () => {
     expect(member).toMatchObject({ boardId: 'b1', userId: 'bob', role: 'editor' })
   })
 
-  it('refuses an unknown user with a 404', async () => {
+  it('refuses an unknown user with the same 409 as a duplicate so names cannot be enumerated', async () => {
     addBoard('b1', 'alice')
     const response = await req('alice', 'POST', '/boards/b1/members', { username: 'ghost', role: 'viewer' })
-    expect(response.status).toBe(404)
+    expect(response.status).toBe(409)
+    expect((await errorOf(response)).message).toBe('already_member')
   })
 
   it('finds the account by username regardless of case', async () => {

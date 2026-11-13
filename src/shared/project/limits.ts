@@ -24,6 +24,8 @@ export const PROJECT_LIMITS = {
   searchResults: 50,
   bundleContents: 2000,
   bundleComments: 2000,
+  attachmentsPerBoard: 500,
+  attachmentBytesPerBoard: 200 * 1024 * 1024,
 } as const
 
 /** The leading character of an id says what it names, the spelling the reference's archives use. */

@@ -101,7 +101,7 @@ export async function addProjectMember(
     .prepare('SELECT id FROM users WHERE lower(username) = lower(?1) LIMIT 1')
     .bind(username)
     .first<{ id: string }>()
-  if (!account) throw ApiError.notFound('User not found')
+  if (!account) throw ApiError.conflict('already_member')
   const targetUserId = account.id
   if (targetUserId === board.ownerId) throw ApiError.conflict('owner_immutable')
   if (await memberRow(db, board.id, targetUserId)) throw ApiError.conflict('already_member')
@@ -161,6 +161,10 @@ export async function removeProjectMember(
     .bind(board.id, targetUserId)
     .run()
   await clearBoardSubscriptions(db, board.id, targetUserId)
+  await db.prepare(
+    `DELETE FROM project_todo_links
+     WHERE user_id = ?1 AND card_id IN (SELECT id FROM project_cards WHERE board_id = ?2)`,
+  ).bind(targetUserId, board.id).run()
 }
 
 export interface ProjectJoinResult {

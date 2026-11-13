@@ -52,6 +52,14 @@ async function reqFromIp(path: string, ip: string, body: unknown): Promise<Respo
 }
 
 describe('public sharing', () => {
+  it('refuses an oversized public body before the share gate is touched', async () => {
+    const board = await makeBoard()
+    const put = await req('PUT', `/api/project/boards/${board.id}/share`, {})
+    const share = ((await put.json()) as { share: ProjectShare }).share
+    const response = await req('POST', `/api/project/public/${share.slug}`, { password: 'x'.repeat(64 * 1024) }, false)
+    expect(response.status).toBe(413)
+  })
+
   it('rotates the slug when the passcode changes so a leaked link stops working', async () => {
     const board = await makeBoard()
     const first = await req('PUT', `/api/project/boards/${board.id}/share`, { password: 'first-pass' })

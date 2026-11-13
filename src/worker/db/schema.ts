@@ -4310,6 +4310,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 395,
     statements: PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS,
   },
+  {
+    version: 396,
+    statements: ['CREATE INDEX IF NOT EXISTS idx_project_attachments_board ON project_attachments(board_id, created_at DESC)'],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

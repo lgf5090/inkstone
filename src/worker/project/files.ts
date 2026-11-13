@@ -5,8 +5,8 @@
  * files stay private.
  */
 import type { ProjectAttachment, ProjectAttachmentCategory } from '@shared/project/model'
-import { newProjectId } from '@shared/project/limits'
-import { extensionFor } from '../lib/image'
+import { newProjectId, PROJECT_LIMITS } from '@shared/project/limits'
+import { extensionFor, safeAttachmentMime } from '../lib/image'
 import { ApiError } from '../lib/errors'
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -78,15 +78,22 @@ export async function uploadProjectAttachment(
 ): Promise<ProjectAttachment> {
   if (!r2) throw ApiError.badRequest('File storage is not configured')
   if (input.bytes.byteLength > MAX_UPLOAD_BYTES) throw ApiError.tooLarge('File too large')
+  const mime = safeAttachmentMime(input.bytes, input.mime)
+  const totals = await db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes FROM project_attachments WHERE board_id = ?1')
+    .bind(input.boardId).first<{ count: number, bytes: number }>()
+  if ((totals?.count ?? 0) >= PROJECT_LIMITS.attachmentsPerBoard
+    || (totals?.bytes ?? 0) + input.bytes.byteLength > PROJECT_LIMITS.attachmentBytesPerBoard) {
+    throw ApiError.tooLarge('Board attachment quota exceeded')
+  }
   const id = newProjectId('attachment')
-  const objectKey = projectAttachmentObjectKey(input.userId, id, input.mime, input.filename)
-  await r2.put(objectKey, input.bytes, { httpMetadata: { contentType: input.mime } })
+  const objectKey = projectAttachmentObjectKey(input.userId, id, mime, input.filename)
+  await r2.put(objectKey, input.bytes, { httpMetadata: { contentType: mime } })
   await db.prepare(
     `INSERT INTO project_attachments (id, user_id, board_id, card_id, filename, mime, size, storage, object_key, created_at, updated_at)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'r2', ?8, ?9, ?9)`,
-  ).bind(id, input.userId, input.boardId, input.cardId, input.filename, input.mime, input.bytes.byteLength, objectKey, now).run()
+  ).bind(id, input.userId, input.boardId, input.cardId, input.filename, mime, input.bytes.byteLength, objectKey, now).run()
   return {
-    id, userId: input.userId, boardId: input.boardId, cardId: input.cardId, filename: input.filename, mime: input.mime,
+    id, userId: input.userId, boardId: input.boardId, cardId: input.cardId, filename: input.filename, mime,
     size: input.bytes.byteLength, storage: 'r2', objectKey, width: null, height: null, thumbnailKey: null, createdAt: now, updatedAt: now,
   }
 }

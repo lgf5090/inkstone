@@ -52657,7 +52657,7 @@ const allowed = new Map([
     "// owner's live-session ceiling.",
   ]],
   ["tests/webssh-schema.test.ts", [
-    "// The project tables append 385–395 after this lane's own block.",
+    "// The project tables append 385–396 after this lane's own block.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",

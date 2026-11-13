@@ -190,10 +190,17 @@ export async function applyCardValueEffects(
 
 /** X-5 todo→card: mirror a task's completion onto the linked card's checkbox/status property. */
 export async function syncTodoCompletionToCard(db: D1Database, todoId: string, done: boolean, now: number): Promise<void> {
-  const row = await db.prepare('SELECT card_id FROM project_todo_links WHERE todo_id = ?1').bind(todoId).first<{ card_id: string }>()
+  const row = await db.prepare('SELECT card_id, user_id FROM project_todo_links WHERE todo_id = ?1').bind(todoId).first<{ card_id: string, user_id: string }>()
   if (!row) return
   const card = await getProjectCard(db, row.card_id)
   if (!card) return
+  const access = await db.prepare(
+    `SELECT 1 FROM project_boards b
+     WHERE b.id = ?1 AND b.delete_at = 0
+       AND (b.owner_id = ?2 OR b.minimum_role IN ('viewer','commenter','editor','admin')
+            OR EXISTS (SELECT 1 FROM project_board_members m WHERE m.board_id = b.id AND m.user_id = ?2))`,
+  ).bind(card.boardId, row.user_id).first()
+  if (!access) return
   const { results } = await db.prepare('SELECT id, type, options FROM project_properties WHERE board_id = ?1').bind(card.boardId).all<{ id: string, type: string, options: string }>()
   const checkbox = results.find((p) => p.type === 'checkbox')
   if (checkbox) {

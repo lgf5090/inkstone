@@ -31,7 +31,7 @@ import {
 } from '@shared/project/validation'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit, readFormDataWithinLimit, requestClientIp } from '../lib/request'
+import { assertDeclaredBodySize, FORM_BODY_LIMITS, JSON_BODY_LIMITS, readBytesWithinLimit, readFormDataWithinLimit, readStreamTextWithinLimit, requestClientIp } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { consumeAttemptBudget } from '../lib/throttle'
 import { originOf } from '../lib/notify'
@@ -308,6 +308,7 @@ projectRoutes.get('/boards/:id/files', async (c) => {
 
 projectRoutes.post('/boards/:id/files', async (c) => {
   const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
+  await consumeAttemptBudget(c.env.DB, [{ key: `project-upload:${userId}`, maxAttempts: 100, windowMs: 60 * 60 * 1000 }])
   const form = await readFormDataWithinLimit(c.req, PROJECT_UPLOAD_LIMIT + 1024 * 1024)
   const file = form.get('file')
   if (!(file instanceof File)) throw ApiError.badRequest('A file field is required')
@@ -529,7 +530,8 @@ projectRoutes.get('/boards/:id/members', async (c) => {
 })
 
 projectRoutes.post('/boards/:id/members', async (c) => {
-  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  await consumeAttemptBudget(c.env.DB, [{ key: `project-member-add:${userId}`, maxAttempts: 20, windowMs: 60 * 60 * 1000 }])
   const input = await projectBody(c, ProjectMemberAddSchema, JSON_BODY_LIMITS.small)
   const member = await addProjectMember(c.env.DB, board, input.username, input.role, Date.now())
   return c.json({ member }, 201)
@@ -756,8 +758,10 @@ projectPublicRoutes.get('/:slug/calendar.ics', async (c) => {
 })
 
 projectPublicRoutes.post('/:slug', async (c) => {
+  assertDeclaredBodySize(c.req, JSON_BODY_LIMITS.small)
+  const raw = await readStreamTextWithinLimit(c.req.raw.body, JSON_BODY_LIMITS.small)
+  if (raw === null) throw ApiError.tooLarge('The request body is too large')
   let password: string | undefined
-  const raw = await c.req.text()
   if (raw.trim()) {
     try {
       const parsed = JSON.parse(raw) as { password?: unknown }
