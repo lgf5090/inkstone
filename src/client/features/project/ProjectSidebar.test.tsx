@@ -50,7 +50,7 @@ beforeEach(async () => {
 afterEach(() => {
   view?.unmount()
   useSession.setState({ user: null })
-  useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: [], starredBoards: [] } } }))
+  useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: [], starredBoards: [], notifications: {} } } }))
 })
 
 async function mount() {
@@ -156,7 +156,7 @@ describe('the project sidebar', () => {
   })
 
   it('renders pinned and favorites sections when preferences are present', async () => {
-    useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: ['b1'], starredBoards: ['b2'] } } }))
+    useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: ['b1'], starredBoards: ['b2'], notifications: {} } } }))
     await mount()
     const text = view.container.textContent ?? ''
     expect(text).toContain(t('project.sidebar.pinned'))

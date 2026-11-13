@@ -11,6 +11,7 @@ import { Trash2, UserPlus } from 'lucide-react'
 import type { ProjectBoardMember, ProjectMinimumRole, ProjectPeople, ProjectRole } from '@shared/project/model'
 import { PROJECT_ROLES, projectPersonLabel } from '@shared/project/model'
 import { PROJECT_LIMITS } from '@shared/project/limits'
+import { PROJECT_NOTIFICATION_LEVELS, type ProjectNotificationLevel } from '@shared/constants'
 import { t } from '../../lib/i18n'
 import { Avatar, Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
@@ -18,6 +19,7 @@ import { SelectMenu } from '../../components/select-menu'
 import { confirm, Modal } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { useUi } from '../../store/ui'
+import { useSession } from '../../store/session'
 import { addBoardMember, fetchBoardMembers, removeBoardMember, setBoardMemberRole } from './api'
 
 const roleOptions = () => PROJECT_ROLES.map((role) => ({ value: role, label: t(`project.role.${role}` as Parameters<typeof t>[0]) }))
@@ -40,6 +42,7 @@ export function MembersDialog({ boardId, minimumRole, boardType, canManageVisibi
   const [role, setRole] = useState<ProjectRole>('editor')
   const [busy, setBusy] = useState(false)
   const toast = useUi((state) => state.toast)
+  const notificationLevel = useSession((state) => state.settings.project.notifications[boardId] ?? 'all')
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const result = await fetchBoardMembers(boardId, signal)
@@ -75,6 +78,18 @@ export function MembersDialog({ boardId, minimumRole, boardType, canManageVisibi
   return (
     <Modal open onClose={onClose} title={t('project.members.title')} width={520}>
       <div className="space-y-4" data-board-members={boardId}>
+        <section aria-label={t('project.notify.title')} className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="w-28 shrink-0 text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('project.notify.title')}</span>
+            <SelectMenu
+              className="min-w-0 flex-1"
+              value={notificationLevel}
+              label={t('project.notify.title')}
+              onChange={(value) => { void useSession.getState().updateSettings({ project: { notifications: { [boardId]: value as ProjectNotificationLevel } } }) }}
+              options={PROJECT_NOTIFICATION_LEVELS.map((level) => ({ value: level, label: t(`project.notify.${level}` as Parameters<typeof t>[0]) }))}
+            />
+          </div>
+        </section>
         {canManageVisibility && <section aria-label={t('project.board.visibility')} className="space-y-2">
           <div className="flex items-center gap-2">
             <span className="w-28 shrink-0 text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('project.board.visibility')}</span>

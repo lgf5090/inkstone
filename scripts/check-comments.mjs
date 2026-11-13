@@ -32682,6 +32682,8 @@ const allowed = new Map([
     "// leave an unlocked note readable for a whole working day; the panel offers minutes, the reader",
     "// stores minutes, and the clamp is the one rule both obey.",
     "/** The board marks one account may keep; a mark naming a board that no longer exists is dropped by the reader. */",
+    "/** Per-board choice: everything worth telling, only an @mention or assignment, or nothing at all. */",
+    "// A board-keyed map is patched one entry at a time; a shallow merge would drop the other boards.",
   ]],
   ["src/shared/crypto/index.ts", [
     "/** The shared sealed-text surface: every consumer imports from here, never from a private path. */",
@@ -33449,6 +33451,7 @@ const allowed = new Map([
     "/**\n * D-7: who a comment notifies — the members it @mentions plus the subscribers watching the card or\n * board, never the author. Pure so tests can pin the set without a database.\n */",
     "// A handle is opaque, so a reader mentions the name they see; names may contain spaces and the",
     "// token above stops at one, which is why the whole body is also checked.",
+    "/** The members a body actually names, which is the subset a `mentions` preference still delivers. */",
   ]],
   ["src/shared/project/model.test.ts", [
     "// X-8 deliberately makes number filterable/groupable, unlike the reference.",
@@ -42714,6 +42717,7 @@ const allowed = new Map([
   ]],
   ["src/worker/project/notify.ts", [
     "/**\n * D-7: a comment notifies the members it @mentions and the subscribers watching the card or board.\n * The target set is a pure function so tests can pin it; delivery is best-effort because a refused\n * notice must never refuse the comment itself.\n */",
+    "/** The account's choice for this board: all notices, only direct ones, or none. */",
   ]],
   ["src/worker/project/permissions.ts", [
     "/**\n * Which boards the sidebar lists, and what the caller may do with each.\n *\n * A board reaches its audience two ways — the account owns it, or a membership row names it — so the\n * list is the union of the two, and a board the caller can no longer read is dropped rather than\n * shown greyed out. The role is resolved here so no caller has to remember the open-board rule.\n */",

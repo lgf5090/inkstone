@@ -48,7 +48,7 @@ describe('project-prefs', () => {
 
 describe('moving board marks into the account', () => {
   function signIn(pinnedBoards: string[] = [], starredBoards: string[] = []): void {
-    useSession.setState({ status: 'authed', settings: { ...DEFAULT_SETTINGS, project: { pinnedBoards, starredBoards } } })
+    useSession.setState({ status: 'authed', settings: { ...DEFAULT_SETTINGS, project: { pinnedBoards, starredBoards, notifications: {} } } })
   }
 
   beforeEach(() => { installTestGlobals(); localStorage.clear() })
@@ -62,7 +62,7 @@ describe('moving board marks into the account', () => {
     writePinnedBoardsPref(['b1'])
     writeStarredBoardsPref(['b2'])
     migrateProjectBoardMarks()
-    expect(useSession.getState().settings.project).toEqual({ pinnedBoards: ['b1'], starredBoards: ['b2'] })
+    expect(useSession.getState().settings.project).toEqual({ pinnedBoards: ['b1'], starredBoards: ['b2'], notifications: {} })
     expect(localStorage.getItem('inkstone.project.pinnedBoards')).toBeNull()
     expect(localStorage.getItem('inkstone.project.starredBoards')).toBeNull()
   })
