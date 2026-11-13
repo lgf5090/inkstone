@@ -521,7 +521,19 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
         >
           <Plus size={14} aria-hidden="true" />{t('project.sidebar.new_board')}
         </button>
-        <Input className="w-full" value={query} placeholder={t('project.sidebar.search')} aria-label={t('project.sidebar.search')} onChange={(event) => { setQuery(event.target.value); setHighlight(-1) }} onKeyDown={onSearchKey} />
+        <Input
+          className="w-full"
+          value={query}
+          placeholder={t('project.sidebar.search')}
+          aria-label={t('project.sidebar.search')}
+          role="combobox"
+          aria-expanded
+          aria-controls="pv-sidebar-tree"
+          aria-autocomplete="list"
+          aria-activedescendant={highlight >= 0 && visibleBoards[highlight] ? `pv-sidebar-board-${visibleBoards[highlight].id}` : undefined}
+          onChange={(event) => { setQuery(event.target.value); setHighlight(-1) }}
+          onKeyDown={onSearchKey}
+        />
         <div className="flex items-center gap-1">
           <IconButton label={t('project.sidebar.new_category')} size="sm" onClick={newCategory}><FolderPlus size={15} /></IconButton>
           <IconButton label={t('project.sidebar.import_archive')} size="sm" onClick={onImport}><Upload size={15} /></IconButton>
@@ -529,13 +541,13 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           <Menu anchor={settingsAnchor} open={settingsOpen} onClose={() => setSettingsOpen(false)} items={settingsMenu} label={t('project.sidebar.settings')} />
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" id="pv-sidebar-tree" role="listbox" aria-label={t('project.sidebar.boards')}>
         {pinnedBoards.length > 0 && (
           <section className="mb-2">
-            <div className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] font-semibold uppercase text-[var(--accent)] tracking-wider">
+            <h3 className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] font-semibold uppercase text-[var(--accent)] tracking-wider">
               <Pin size={12} className="shrink-0" />
               <span>{t('project.sidebar.pinned')}</span>
-            </div>
+            </h3>
             <ul className="mt-0.5 space-y-0.5">
               {pinnedBoards.map((board) => renderBoard(board, edgeForBoard(board.id)))}
             </ul>
@@ -544,10 +556,10 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
 
         {starredBoards.length > 0 && (
           <section className="mb-2">
-            <div className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] font-semibold uppercase text-[var(--warning)] tracking-wider">
+            <h3 className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] font-semibold uppercase text-[var(--warning)] tracking-wider">
               <Star size={12} className="shrink-0 fill-[var(--warning)]" />
               <span>{t('project.sidebar.favorites')}</span>
-            </div>
+            </h3>
             <ul className="mt-0.5 space-y-0.5">
               {starredBoards.map((board) => renderBoard(board, edgeForBoard(board.id)))}
             </ul>
@@ -556,10 +568,10 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
 
         {recentBoards.length > 0 && (
           <section className="mb-2">
-            <div className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+            <h3 className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
               <Clock size={12} className="shrink-0" />
               <span>{t('project.sidebar.recent')}</span>
-            </div>
+            </h3>
             <ul className="mt-0.5 space-y-0.5">
               {recentBoards.map((board) => renderBoard(board, edgeForBoard(board.id)))}
             </ul>
@@ -732,6 +744,7 @@ const BoardEntry = memo(function BoardEntry({
   const items = open ? buildItems(board, edge) : []
   return (
     <li
+      role="none"
       className={`group/board flex items-center gap-1 ${edge?.hidden ? 'opacity-50' : ''}`}
       data-sidebar-board={board.id}
       data-sidebar-drop={payload}
@@ -750,6 +763,9 @@ const BoardEntry = memo(function BoardEntry({
       </button>
       <button
         type="button"
+        role="option"
+        id={`pv-sidebar-board-${board.id}`}
+        aria-selected={active}
         aria-current={active ? 'true' : undefined}
         className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] px-1 py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active ? 'bg-[var(--bg-hover)] font-semibold' : ''} ${focused ? 'ring-2 ring-[var(--accent)]' : ''}`}
         onClick={() => navigateToPath(`/project/boards/${board.id}`)}

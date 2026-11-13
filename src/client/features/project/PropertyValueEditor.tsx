@@ -81,7 +81,7 @@ function RelationPicker({ targetBoardId, multiple, selected, disabled, label, on
       disabled={disabled}
       label={label}
       onChange={(next) => onChange(next ? [next] : [])}
-      options={[{ value: '', label: '—' }, ...options.map((option) => ({ value: option.id, label: option.title }))]}
+      options={[{ value: '', label: t('project.value.empty') }, ...options.map((option) => ({ value: option.id, label: option.title }))]}
     />
   )
 }
@@ -120,7 +120,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
   switch (property.type) {
     case 'select':
       return (
-        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: '—' }, ...property.options.map((option) => ({ value: option.id, label: option.value, icon: optionDot(option.color) }))]} />
+        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: t('project.value.empty') }, ...property.options.map((option) => ({ value: option.id, label: option.value, icon: optionDot(option.color) }))]} />
       )
     case 'multiSelect': {
       const selected = projectMultiValueIds(value)
@@ -145,7 +145,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
       const selected = projectMultiValueIds(value)
       return (
         <div className="flex flex-wrap gap-2">
-          {candidates.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</span>}
+          {candidates.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.value.empty')}</span>}
           {candidates.map((userId) => (
             <Checkbox
               key={userId}
@@ -182,7 +182,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
       )
     case 'person':
       return (
-        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: '—' }, ...candidates.map((userId) => ({ value: userId, label: projectPersonLabel(directory, userId), icon: <Avatar src={directory[userId]?.avatarUrl} name={projectPersonLabel(directory, userId)} size={18} /> }))]} />
+        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: t('project.value.empty') }, ...candidates.map((userId) => ({ value: userId, label: projectPersonLabel(directory, userId), icon: <Avatar src={directory[userId]?.avatarUrl} name={projectPersonLabel(directory, userId)} size={18} /> }))]} />
       )
     case 'relation':
       return (
@@ -197,12 +197,12 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
       )
     case 'formula':
     case 'rollup':
-      return <span className="text-[length:var(--text-12)] text-[var(--text-secondary)] tabular">{value || '—'}</span>
+      return <span className="text-[length:var(--text-12)] text-[var(--text-secondary)] tabular">{value || t('project.value.empty')}</span>
     case 'createdBy':
     case 'updatedBy':
     case 'createdTime':
     case 'updatedTime':
-      return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{(card ? projectPropertyDisplayText(card, property, directory, locale) : value) || '—'}</span>
+      return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{(card ? projectPropertyDisplayText(card, property, directory, locale) : value) || t('project.value.empty')}</span>
     default:
       return (
         <Input

@@ -429,7 +429,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
         </div>
         <section aria-label={t('project.card.properties')} className="space-y-2">
           <SectionHeading icon={SlidersHorizontal} label={t('project.card.properties')} />
-          {properties.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</p>}
+          {properties.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.value.empty')}</p>}
           {properties.map((property) => (
             <div key={property.id} className="flex items-start gap-3">
               <span className="w-28 shrink-0 pt-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">{property.name}</span>
@@ -461,7 +461,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
               </>
             )}
           </div>
-          {blocks.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</p>}
+          {blocks.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.value.empty')}</p>}
           <div className="space-y-2" ref={blocksRef}>
             {blocks.map((block) => (
               <div

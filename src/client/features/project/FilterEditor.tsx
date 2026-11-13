@@ -50,7 +50,7 @@ function ClauseValue({ clause, property, members, people, disabled, onChange }: 
       : members.map((member) => ({ id: member.userId, label: projectPersonLabel(people, member.userId) }))
     return (
       <div className="flex flex-wrap gap-2" role="group" aria-label={t('project.view.filter_value')}>
-        {choices.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</span>}
+        {choices.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.value.empty')}</span>}
         {choices.map((choice) => (
           <Checkbox
             key={choice.id}

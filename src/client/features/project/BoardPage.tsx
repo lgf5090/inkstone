@@ -519,7 +519,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
                       </li>
                     )
                   })}
-                  {activity.length === 0 && <li className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</li>}
+                  {activity.length === 0 && <li className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.value.empty')}</li>}
                 </ul>
               )}
         </Modal>

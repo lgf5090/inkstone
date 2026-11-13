@@ -67,7 +67,7 @@ export async function createBoardFromTemplate(
       showDescription: false,
       isTemplate: false,
       cardProperties: builtIn.properties,
-    }, now)
+    }, now, { defaultView: false })
     for (const view of builtIn.views) {
       await createProjectView(db, board.id, userId, {
         title: view.title,

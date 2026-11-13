@@ -127,6 +127,10 @@ describe('find-board keyboard navigation (E-8)', () => {
     await act(async () => { setter.call(input, 'board'); input.dispatchEvent(new Event('input', { bubbles: true })) })
     await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })) })
     expect(document.body.querySelector('[data-sidebar-board="b1"] button:not([data-sidebar-grip])')!.className).toContain('ring-2')
+    expect(input.getAttribute('role')).toBe('combobox')
+    expect(input.getAttribute('aria-activedescendant')).toBe('pv-sidebar-board-b1')
+    expect(document.getElementById('pv-sidebar-tree')?.getAttribute('role')).toBe('listbox')
+    expect(document.getElementById('pv-sidebar-board-b1')?.getAttribute('role')).toBe('option')
     await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
     expect(input.value).toBe('')
     expect(document.body.querySelector('[data-sidebar-board="b1"] button:not([data-sidebar-grip])')!.className).not.toContain('ring-2')
@@ -312,7 +316,7 @@ describe('the nested tree reads as a tree', () => {
 
   it('lists the recently edited boards above the tree', async () => {
     await mount()
-    const headings = [...view.container.querySelectorAll('section > div')].map((node) => node.textContent)
+    const headings = [...view.container.querySelectorAll('section > :is(h2, h3)')].map((node) => node.textContent)
     expect(headings.some((text) => text === t('project.sidebar.recent'))).toBe(true)
   })
 })
