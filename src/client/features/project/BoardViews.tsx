@@ -5,7 +5,7 @@
  * reader who switches tabs is looking at the same set. What a view does with them — columns, cells,
  * bars, tiles — is the view's own business.
  */
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ArrowUpDown, BarChart3, Calendar, CalendarRange, Clock, Copy, Download, Eye, Filter, FolderOpen, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Pencil, Plus, RotateCcw, SquareKanban, Table, Trash2, type LucideIcon } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, projectCanMarkDone, projectDonePatch, projectViewPropertyId, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
@@ -13,6 +13,7 @@ import { projectParentDonePatches } from '@shared/project/hierarchy'
 import { projectCardBadges, type ProjectCardBadges } from '@shared/project/badges'
 import { matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, projectGroupKeys, projectGroupLabel, sortProjectCards, sortProjectViewsAlphabetically } from '@shared/project/view-eval'
 import { t, useLocale } from '../../lib/i18n'
+import { useEvent } from '../../lib/hooks'
 import { isImeComposing } from '../../lib/ime'
 import { useUi } from '../../store/ui'
 import { useProjectStore } from './store'
@@ -83,6 +84,7 @@ function viewTabLabel(view: { title: string, viewType: string }): string {
 const EMPTY_CAPABLE_VIEWS = new Set(['board', 'gallery', 'list', 'calendar', 'chart', 'collection'])
 
 const LAST_VIEW_KEY = 'inkstone.project.lastView.'
+const EMPTY_BADGES: ProjectCardBadges = { description: false, comments: 0, checked: 0, checkboxes: 0 }
 
 function readLastViewId(boardId: string): string | null {
   try {
@@ -166,7 +168,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       .catch(() => { /* best-effort: local marks keep working offline */ })
     return () => { alive = false }
   }, [bundle.board.id, publicView])
-  const toggleCardFlag = (kind: 'star' | 'pin', cardId: string): void => {
+  const toggleCardFlag = useEvent((kind: 'star' | 'pin', cardId: string): void => {
     const read = kind === 'star' ? starredCards : pinnedCards
     const next = read.includes(cardId) ? read.filter((id) => id !== cardId) : [...read, cardId]
     const starred = kind === 'star' ? next : starredCards
@@ -177,7 +179,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       void saveProjectCardMarks(bundle.board.id, { starred, pinned })
         .catch(() => { useUi.getState().toast({ title: t('project.card.marks_save_failed'), tone: 'danger' }) })
     }
-  }
+  })
 
   // C-23: tabs read alphabetically; the default view stays the board's first by position.
   const orderedViews = sortProjectViewsAlphabetically(bundle.views)
@@ -199,7 +201,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   useEffect(() => { onActiveViewChange(active?.id ?? '') }, [active?.id, onActiveViewChange])
 
   const viewPatchQueue = useRef<Promise<void>>(Promise.resolve())
-  const enqueueViewPatch = (viewId: string, patch: ProjectViewPatch): Promise<void> => {
+  const enqueueViewPatch = useEvent((viewId: string, patch: ProjectViewPatch): Promise<void> => {
     const task = viewPatchQueue.current
       .then(() => onPatchView(viewId, patch))
       .catch((error: unknown) => {
@@ -207,10 +209,10 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       })
     viewPatchQueue.current = task
     return task
-  }
-  const patchFields = (patch: Partial<ProjectViewFields>): void => {
+  })
+  const patchFields = useEvent((patch: Partial<ProjectViewFields>): void => {
     if (active) void enqueueViewPatch(active.id, { fields: patch })
-  }
+  })
   // Every keystroke used to re-match and re-sort the whole board; the box stays immediate while the
   // expensive pass trails one frame behind.
   const deferredSearch = useDeferredValue(search)
@@ -282,14 +284,22 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     return map
   }, [bundle.cards])
 
-  const badgesFor = (cardId: string): ProjectCardBadges => badgesByCard.get(cardId) ?? { description: false, comments: 0, checked: 0, checkboxes: 0 }
-  const coverFor = publicView ? undefined : (cardId: string): string | null => coverByCard.get(cardId) ?? null
+  const badgesFor = useCallback((cardId: string): ProjectCardBadges => badgesByCard.get(cardId) ?? EMPTY_BADGES, [badgesByCard])
+  const coverFor = useCallback((cardId: string): string | null => publicView ? null : (coverByCard.get(cardId) ?? null), [coverByCard, publicView])
+  const descriptionFor = useCallback((cardId: string): string => descriptionByCard.get(cardId) ?? '', [descriptionByCard])
+  const patchCardsValues = useEvent(async (ids: readonly string[], values: Record<string, string | null>): Promise<void> => {
+    await batchPatchProjectBoard(bundle.board.id, { cards: ids.map((id) => ({ id, patch: { values } })) })
+    await onRefresh()
+  })
+  const changeCalendarMode = useEvent((mode: ProjectViewFields['calendarMode']): void => {
+    patchFields({ calendarMode: mode })
+  })
 
   /**
    * One writer for every tick in the app, so the list, the board's checklist and the card menu cannot
    * disagree about which option "done" is. A parent then follows its children.
    */
-  const toggleCardDone = async (card: ProjectCard, checked: boolean): Promise<void> => {
+  const toggleCardDone = useEvent(async (card: ProjectCard, checked: boolean): Promise<void> => {
     const values = projectDonePatch(bundle.properties, checked)
     if (!values) return
     await onPatchCard(card.id, { values })
@@ -297,22 +307,22 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     for (const patch of projectParentDonePatches(after, bundle.properties, card.id)) {
       await onPatchCard(patch.id, { values: patch.values })
     }
-  }
+  })
 
-  const handleAddSubtask = async (parentCardId: string): Promise<void> => {
+  const handleAddSubtask = useEvent(async (parentCardId: string): Promise<void> => {
     const name = await prompt({ title: t('project.card.add_subtask'), confirmLabel: t('project.card.add_subtask') })
     if (name === null || !name.trim()) return
     const card = await createProjectCard(bundle.board.id, { title: name.trim(), parentId: parentCardId })
     onCardCreated(card)
-  }
+  })
 
-  const addCardInColumn = async (title: string, optionId: string): Promise<void> => {
+  const addCardInColumn = useEvent(async (title: string, optionId: string): Promise<void> => {
     const values = fields.groupById && optionId ? { [fields.groupById]: optionId } : {}
     const card = await createProjectCard(bundle.board.id, { title, values })
     onCardCreated(card)
-  }
+  })
 
-  const handleCopyLink = async (cardId: string): Promise<void> => {
+  const handleCopyLink = useEvent(async (cardId: string): Promise<void> => {
     const url = `${window.location.origin}/project/boards/${encodeURIComponent(bundle.board.id)}?card=${encodeURIComponent(cardId)}`
     try {
       await navigator.clipboard.writeText(url)
@@ -320,9 +330,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     } catch {
       useUi.getState().toast({ title: t('project.card.copy_link_failed'), tone: 'danger' })
     }
-  }
+  })
 
-  const buildCardContextMenu = (card: ProjectCard): MenuItem[] => buildCardMenu({
+  const buildCardContextMenu = useEvent((card: ProjectCard): MenuItem[] => buildCardMenu({
     card,
     properties: bundle.properties,
     groupById: fields.groupById,
@@ -346,16 +356,16 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
         .then(() => { useUi.getState().toast({ title: t('project.card.moved') }); onRefresh() })
         .catch((reason: unknown) => { useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' }) })
     },
-  })
+  }))
 
-  const onCardContextMenu = (event: MouseEvent, card: ProjectCard): void => {
+  const onCardContextMenu = useEvent((event: MouseEvent, card: ProjectCard): void => {
     event.preventDefault()
     event.stopPropagation()
     setContextItems(buildCardContextMenu(card))
     setContextPoint({ x: event.clientX, y: event.clientY })
-  }
+  })
 
-  const selectClick = (event: MouseEvent, cardId: string): void => {
+  const selectClick = useEvent((event: MouseEvent, cardId: string): void => {
     const ids = cards.map((card) => card.id)
     const index = ids.indexOf(cardId)
     if (event.shiftKey && lastIndex.current !== null) {
@@ -371,9 +381,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     lastIndex.current = index
     setSelected([])
     onOpenCard(cardId)
-  }
+  })
 
-  const runBatch = async (action: () => Promise<void>): Promise<boolean> => {
+  const runBatch = useEvent(async (action: () => Promise<void>): Promise<boolean> => {
     try {
       await action()
       setSelected([])
@@ -383,8 +393,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
       return false
     }
-  }
-  const batchDelete = async (): Promise<void> => {
+  })
+  const batchDelete = useEvent(async (): Promise<void> => {
     const ok = await confirm({
       title: t('project.view.delete_selected'),
       description: t('project.view.delete_selected_hint', { count: selected.length }),
@@ -393,11 +403,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     })
     if (!ok) return
     await runBatch(() => batchDeleteProjectBoard(bundle.board.id, { cardIds: selected }))
-  }
-  const batchApply = async (values: Record<string, string | null>): Promise<void> => {
+  })
+  const batchApply = useEvent(async (values: Record<string, string | null>): Promise<void> => {
     const ok = await runBatch(() => batchPatchProjectBoard(bundle.board.id, { cards: selected.map((id) => ({ id, patch: { values } })) }))
     if (ok) setBatchOpen(false)
-  }
+  })
 
   // The three keys a reader reaches for on a board: find, add, back out of a selection.
   const searchRef = useRef<HTMLDivElement>(null)
@@ -433,12 +443,12 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const showsGroupBy = viewType === 'board' || viewType === 'table' || viewType === 'gallery' || viewType === 'list'
   const density = fields.cardSize ?? 'comfortable'
 
-  const renameView = (): void => {
+  const renameView = useEvent((): void => {
     if (!active) return
     void prompt({ title: t('project.view.rename'), defaultValue: active.title, confirmLabel: t('common.save') }).then((name) => {
       if (name !== null) void enqueueViewPatch(active.id, { title: name.trim() })
     })
-  }
+  })
   const viewMenu: MenuItem[] = active ? [
     { id: 'rename', label: t('project.view.rename'), icon: <Pencil size={15} />, disabled: !canEdit, onSelect: renameView },
     { id: 'duplicate', label: t('project.view.duplicate'), icon: <Copy size={15} />, disabled: !canEdit, onSelect: () => onDuplicateView(active.id) },
@@ -460,10 +470,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     onOpenCard,
     onDeleteCard,
     onPatchCard,
-    onPatchCards: async (ids: readonly string[], values: Record<string, string | null>) => {
-      await batchPatchProjectBoard(bundle.board.id, { cards: ids.map((id) => ({ id, patch: { values } })) })
-      await onRefresh()
-    },
+    onPatchCards: patchCardsValues,
     onPatchFields: patchFields,
     onAddCard: addCardInColumn,
     onAddGroupOption,
@@ -475,7 +482,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     starredCards,
     pinnedCards,
     canMarkDone: projectCanMarkDone(bundle.properties),
-    descriptionFor: (cardId: string) => descriptionByCard.get(cardId) ?? '',
+    descriptionFor,
   }
 
   const renderView = (): ReactElement => {
@@ -495,12 +502,12 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             properties={bundle.properties}
             datePropertyId={projectViewPropertyId(fields.dateDisplayPropertyId)}
             mode={fields.calendarMode ?? 'month'}
-            onModeChange={(mode) => patchFields({ calendarMode: mode })}
+            onModeChange={changeCalendarMode}
             canEdit={canEdit}
             onOpenCard={onOpenCard}
             onPatchCard={onPatchCard}
             onRefresh={onRefresh}
-            descriptionFor={(cardId) => descriptionByCard.get(cardId) ?? ''}
+            descriptionFor={descriptionFor}
             subtasksByParent={subtasksByParent}
           />
         )

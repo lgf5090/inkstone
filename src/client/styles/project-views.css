@@ -210,7 +210,7 @@
   background: var(--bg-base);
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
-.pv-col[data-over='true'] {
+.pv-col:has(.pv-drop-line) {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-softer);
 }

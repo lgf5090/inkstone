@@ -6,7 +6,7 @@
  * order when it landed between two cards. The reference keeps those as one gesture; splitting them
  * made a reorder inside a column silently do nothing.
  */
-import { useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
+import { memo, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, EyeOff, GripVertical, MoreHorizontal, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ProjectCalculation, ProjectCard, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
@@ -21,10 +21,11 @@ import { Input } from '../../../components/form'
 import { Menu, prompt, submenuFor, type MenuItem } from '../../../components/overlay'
 import { optionColorItems } from '../card-menu'
 import { isImeComposing } from '../../../lib/ime'
+import { useEvent } from '../../../lib/hooks'
 import { useProjectPeople } from '../people-context'
 import { QuickAdd, ViewShell } from './shell'
-import { CardFace, CardGrip, SubtaskProgress, SubtaskRows } from './card-face'
-import { useDragSort, type DragDropTarget } from './use-drag-sort'
+import { CardFace, CardGrip, DropLine, SubtaskProgress, SubtaskRows } from './card-face'
+import { useDragSort, type DragDropTarget, type DragOverStore } from './use-drag-sort'
 import { useBandDrag } from './use-band-drag'
 
 export interface KanbanProps {
@@ -242,12 +243,18 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
   const calcProperty = groupProperty ?? properties[0]
   const wip = fields.wipLimits?.[columnKey]
   const count = calcProperty ? computeProjectCalculation(cards, calcProperty, calc) : cards.length
-  const over = drag.over?.zone === columnKey
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(label)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [columnMenu, setColumnMenu] = useState<{ x: number, y: number } | null>(null)
-  const layout = fields.boardLayout ?? 'compact'
+  const toggleExpanded = useEvent((cardId: string) => {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (next.has(cardId)) next.delete(cardId)
+      else next.add(cardId)
+      return next
+    })
+  })
   const colorOptions = optionColorItems(['', ...PROJECT_OPTION_COLORS], groupProperty?.options.find((option) => option.id === columnKey)?.color ?? '', (next) => {
     setColumnMenu(null)
     if (groupProperty && columnKey !== '') void props.onSetGroupOptionColor(groupProperty.id, columnKey, next)
@@ -287,7 +294,6 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
       style={{ '--pv-col-color': color } as React.CSSProperties}
       data-kanban-column={columnKey}
       data-collapsed={collapsed}
-      data-over={over && !collapsed}
       aria-label={label}
       onContextMenu={(event) => {
         if (!canEdit || !groupProperty || columnKey === '') return
@@ -343,99 +349,40 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
             )}
             <div className="pv-col-body pv-scroll" data-drag-zone={columnKey}>
               {cards.length === 0 && <p className="pv-col-empty">{t('project.view.drop_here')}</p>}
-              {cards.map((card, index) => {
-                const subtasks = subtasksByParent.get(card.id) ?? []
-                const done = subtasks.filter((entry) => isProjectCardDone(entry, properties)).length
-                const isOpen = expanded.has(card.id)
-                return (
-                  <div key={card.id} className="contents">
-                    {over && drag.over?.index === index && <div className="pv-drop-line" data-drop-line={columnKey} />}
-                    <article
-                      className="pv-card group"
-                      data-drag-item=""
-                      data-drag-id={card.id}
-                      data-project-card={card.id}
-                      data-density={fields.cardSize ?? 'comfortable'}
-                      data-layout={layout}
-                      data-selected={selectedSet.has(card.id)}
-                      data-done={isProjectCardDone(card, properties)}
-                      data-dragging={drag.draggingId === card.id}
-                      style={{ '--pv-card-color': colorOf(card) } as React.CSSProperties}
-                      onContextMenu={(event) => props.onCardContextMenu(event, card)}
-                    >
-                      <CardFace
-                        card={card}
-                        color={colorOf(card)}
-                        cover={props.coverFor?.(card.id)}
-                        chipProperties={chipProperties}
-                        excludePropertyId={fields.groupById}
-                        badges={props.badgesFor(card.id)}
-                        density={fields.cardSize ?? 'comfortable'}
-                        todayStamp={todayStamp}
-                        rich={layout === 'card'}
-                        description={props.descriptionFor(card.id)}
-                        starred={starredSet.has(card.id)}
-                        pinned={pinnedSet.has(card.id)}
-                      >
-                        <button
-                          type="button"
-                          className="pv-card-title"
-                          onClick={(event) => props.onSelectClick(event, card.id)}
-                          onKeyDown={(event) => {
-                            if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
-                            event.preventDefault()
-                            const rect = event.currentTarget.getBoundingClientRect()
-                            event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom }))
-                          }}
-                        >
-                          {card.icon && <span className="mr-1" aria-hidden="true">{card.icon}</span>}
-                          {card.title || t('project.board.untitled_card')}
-                        </button>
-                        {canEdit && (
-                          <IconButton label={t('project.board.delete_card')} size="sm" className="opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100" data-touch-reveal="" onClick={() => props.onDeleteCard(card.id)}>
-                            <Trash2 size={12} />
-                          </IconButton>
-                        )}
-                        {canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => drag.start(event, card.id)} />}
-                      </CardFace>
-                      {subtasks.length > 0 && (
-                        <>
-                          <SubtaskProgress done={done} total={subtasks.length} color={colorOf(card)} />
-                          <button
-                            type="button"
-                            className="flex items-center gap-1 self-start text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:text-[var(--accent)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-                            aria-expanded={isOpen}
-                            aria-label={isOpen ? t('project.card.collapse_subtasks') : t('project.card.expand_subtasks')}
-                            onClick={() => setExpanded((current) => {
-                              const next = new Set(current)
-                              if (next.has(card.id)) next.delete(card.id)
-                              else next.add(card.id)
-                              return next
-                            })}
-                          >
-                            {isOpen ? <ChevronDown size={11} aria-hidden="true" /> : <ChevronRight size={11} aria-hidden="true" />}
-                            {isOpen ? t('project.card.collapse_subtasks') : t('project.card.expand_subtasks')}
-                          </button>
-                          {isOpen && (
-                            <SubtaskRows
-                              parentId={card.id}
-                              subtasks={subtasks}
-                              properties={properties}
-                              canEdit={canEdit && canMarkDone}
-                              colorOf={colorOf}
-                              onOpenCard={props.onOpenCard}
-                              onToggleDone={(entry, checked) => { void props.onToggleCardDone(entry, checked) }}
-                              onDelete={props.onDeleteCard}
-                              onAddSubtask={props.onAddSubtask}
-                            />
-                          )}
-                        </>
-                      )}
-                    </article>
-                  </div>
-                )
-              })}
-              {over && drag.over?.index === cards.length && <div className="pv-drop-line" data-drop-line={columnKey} />}
+              {cards.map((card, index) => (
+                <KanbanCard
+                  key={card.id}
+                  card={card}
+                  index={index}
+                  columnKey={columnKey}
+                  overStore={drag.overStore}
+                  fields={fields}
+                  properties={properties}
+                  chipProperties={chipProperties}
+                  colorOf={colorOf}
+                  todayStamp={todayStamp}
+                  subtasksByParent={subtasksByParent}
+                  selected={selectedSet.has(card.id)}
+                  starred={starredSet.has(card.id)}
+                  pinned={pinnedSet.has(card.id)}
+                  dragging={drag.draggingId === card.id}
+                  isOpen={expanded.has(card.id)}
+                  canEdit={canEdit}
+                  canMarkDone={canMarkDone}
+                  badges={props.badgesFor(card.id)}
+                  cover={props.coverFor?.(card.id) ?? null}
+                  description={props.descriptionFor(card.id)}
+                  onSelectClick={props.onSelectClick}
+                  onDeleteCard={props.onDeleteCard}
+                  onCardContextMenu={props.onCardContextMenu}
+                  onOpenCard={props.onOpenCard}
+                  onToggleCardDone={props.onToggleCardDone}
+                  onAddSubtask={props.onAddSubtask}
+                  onToggleExpanded={toggleExpanded}
+                  onDragStart={drag.start}
+                />
+              ))}
+              <DropLine store={drag.overStore} zone={columnKey} index={cards.length} />
             </div>
           </>
         )}
@@ -445,6 +392,126 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
     </section>
   )
 }
+
+interface KanbanCardProps {
+  card: ProjectCard
+  index: number
+  columnKey: string
+  overStore: DragOverStore
+  fields: ProjectViewFields
+  properties: ProjectProperty[]
+  chipProperties: readonly ProjectProperty[]
+  colorOf: (card: ProjectCard) => string
+  todayStamp: number
+  subtasksByParent: Map<string, ProjectCard[]>
+  selected: boolean
+  starred: boolean
+  pinned: boolean
+  dragging: boolean
+  isOpen: boolean
+  canEdit: boolean
+  canMarkDone: boolean
+  badges: ProjectCardBadges
+  cover: string | null
+  description: string
+  onSelectClick: (event: MouseEvent, cardId: string) => void
+  onDeleteCard: (id: string) => void
+  onCardContextMenu: (event: MouseEvent, card: ProjectCard) => void
+  onOpenCard: (id: string) => void
+  onToggleCardDone: (card: ProjectCard, done: boolean) => Promise<void>
+  onAddSubtask: (parentId: string) => Promise<void>
+  onToggleExpanded: (cardId: string) => void
+  onDragStart: (event: React.PointerEvent, id: string) => void
+}
+
+const KanbanCard = memo(function KanbanCard({ card, index, columnKey, overStore, fields, properties, chipProperties, colorOf, todayStamp, subtasksByParent, selected, starred, pinned, dragging, isOpen, canEdit, canMarkDone, badges, cover, description, onSelectClick, onDeleteCard, onCardContextMenu, onOpenCard, onToggleCardDone, onAddSubtask, onToggleExpanded, onDragStart }: KanbanCardProps): ReactElement {
+  const subtasks = subtasksByParent.get(card.id) ?? []
+  const done = subtasks.filter((entry) => isProjectCardDone(entry, properties)).length
+  const layout = fields.boardLayout ?? 'compact'
+  return (
+    <div className="contents">
+      <DropLine store={overStore} zone={columnKey} index={index} />
+      <article
+        className="pv-card group"
+        data-drag-item=""
+        data-drag-id={card.id}
+        data-project-card={card.id}
+        data-density={fields.cardSize ?? 'comfortable'}
+        data-layout={layout}
+        data-selected={selected}
+        data-done={isProjectCardDone(card, properties)}
+        data-dragging={dragging}
+        style={{ '--pv-card-color': colorOf(card) } as React.CSSProperties}
+        onContextMenu={(event) => onCardContextMenu(event, card)}
+      >
+        <CardFace
+          card={card}
+          color={colorOf(card)}
+          cover={cover}
+          chipProperties={chipProperties}
+          excludePropertyId={fields.groupById}
+          badges={badges}
+          density={fields.cardSize ?? 'comfortable'}
+          todayStamp={todayStamp}
+          rich={layout === 'card'}
+          description={description}
+          starred={starred}
+          pinned={pinned}
+        >
+          <button
+            type="button"
+            className="pv-card-title"
+            onClick={(event) => onSelectClick(event, card.id)}
+            onKeyDown={(event) => {
+              if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+              event.preventDefault()
+              const rect = event.currentTarget.getBoundingClientRect()
+              event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom }))
+            }}
+          >
+            {card.icon && <span className="mr-1" aria-hidden="true">{card.icon}</span>}
+            {card.title || t('project.board.untitled_card')}
+          </button>
+          {canEdit && (
+            <IconButton label={t('project.board.delete_card')} size="sm" className="opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100" data-touch-reveal="" onClick={() => onDeleteCard(card.id)}>
+              <Trash2 size={12} />
+            </IconButton>
+          )}
+          {canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => onDragStart(event, card.id)} />}
+        </CardFace>
+        {subtasks.length > 0 && (
+          <>
+            <SubtaskProgress done={done} total={subtasks.length} color={colorOf(card)} />
+            <button
+              type="button"
+              className="flex items-center gap-1 self-start text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:text-[var(--accent)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+              aria-expanded={isOpen}
+              aria-label={isOpen ? t('project.card.collapse_subtasks') : t('project.card.expand_subtasks')}
+              onClick={() => onToggleExpanded(card.id)}
+            >
+              {isOpen ? <ChevronDown size={11} aria-hidden="true" /> : <ChevronRight size={11} aria-hidden="true" />}
+              {isOpen ? t('project.card.collapse_subtasks') : t('project.card.expand_subtasks')}
+            </button>
+            {isOpen && (
+              <SubtaskRows
+                parentId={card.id}
+                subtasks={subtasks}
+                properties={properties}
+                canEdit={canEdit && canMarkDone}
+                colorOf={colorOf}
+                onOpenCard={onOpenCard}
+                onToggleDone={(entry, checked) => { void onToggleCardDone(entry, checked) }}
+                onDelete={onDeleteCard}
+                onAddSubtask={onAddSubtask}
+              />
+            )}
+          </>
+        )}
+      </article>
+    </div>
+  )
+})
+
 /**
  * The column's title row: name, summary and one menu.
  *

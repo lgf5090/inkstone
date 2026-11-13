@@ -12,6 +12,12 @@ import { t } from '../../../lib/i18n'
 import { IconButton } from '../../../components/primitives'
 import { Checkbox } from '../../../components/form'
 import { CardBadges, CardPropertyChips } from '../CardBadges'
+import { useDragOverSlot, type DragOverStore } from './use-drag-sort'
+
+export function DropLine({ store, zone, index }: { store: DragOverStore, zone: string, index: number }): ReactElement | null {
+  const active = useDragOverSlot(store, zone, index)
+  return active ? <div className="pv-drop-line" data-drop-line={zone} /> : null
+}
 
 export function CardFace({ card, color, cover, chipProperties, excludePropertyId, badges, density, description, rich = false, starred, pinned, todayStamp, children }: {
   card: ProjectCard

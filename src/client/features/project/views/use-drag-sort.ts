@@ -11,7 +11,7 @@
  * at a low rate while auto-scrolling, which keeps a card whose height is still an intrinsic estimate
  * from leaving a stale drop line behind.
  */
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react'
 
 export interface DragDropTarget {
   zone: string
@@ -38,6 +38,16 @@ interface ZoneRect {
 export interface DragGeometry {
   zones: readonly { key: string, left: number, right: number, top: number, bottom: number }[]
   items: ReadonlyMap<string, readonly { id: string, top: number, height: number }[]>
+}
+
+export interface DragOverStore {
+  isActive: (zone: string, index: number) => boolean
+  subscribe: (listener: () => void) => () => void
+}
+
+export function useDragOverSlot(store: DragOverStore, zone: string, index: number): boolean {
+  const getSnapshot = useCallback(() => store.isActive(zone, index), [store, zone, index])
+  return useSyncExternalStore(store.subscribe, getSnapshot, () => false)
 }
 
 /**
@@ -77,12 +87,24 @@ export function useDragSort(options: {
   onDrop: (id: string, target: DragDropTarget) => void
 }): {
   draggingId: string | null
-  over: DragDropTarget | null
+  overStore: DragOverStore
   start: (event: ReactPointerEvent, id: string) => void
 } {
   const { enabled, groupOf, onDrop } = options
   const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [over, setOver] = useState<DragDropTarget | null>(null)
+  const overRef = useRef<DragDropTarget | null>(null)
+  const listeners = useRef(new Set<() => void>())
+  const notify = useCallback(() => { for (const listener of listeners.current) listener() }, [])
+  const overStore = useMemo<DragOverStore>(() => ({
+    isActive: (zone, index) => {
+      const current = overRef.current
+      return current !== null && current.zone === zone && current.index === index
+    },
+    subscribe: (listener) => {
+      listeners.current.add(listener)
+      return () => { listeners.current.delete(listener) }
+    },
+  }), [])
   const dropRef = useRef(onDrop)
   dropRef.current = onDrop
   const groupRef = useRef(groupOf)
@@ -219,7 +241,8 @@ export function useDragSort(options: {
       const next = resolve(lastX, lastY)
       if (next && (next.zone !== latest?.zone || next.index !== latest?.index)) {
         latest = next
-        setOver(next)
+        overRef.current = next
+        notify()
       }
       if (autoScroll()) remeasureTarget()
       if (begun) frame = requestAnimationFrame(paint)
@@ -267,7 +290,8 @@ export function useDragSort(options: {
       latest = null
       session.current = null
       setDraggingId(null)
-      setOver(null)
+      overRef.current = null
+      notify()
     }
 
     session.current = { cleanup }
@@ -278,5 +302,5 @@ export function useDragSort(options: {
     if (touch) hold = window.setTimeout(() => { hold = null; begin(); if (!frame) frame = requestAnimationFrame(paint) }, TOUCH_HOLD_MS)
   }, [enabled])
 
-  return { draggingId, over, start }
+  return useMemo(() => ({ draggingId, overStore, start }), [draggingId, overStore, start])
 }
