@@ -13,6 +13,7 @@ import { createProjectContent } from './contents'
 import { notifyProjectAssignment } from './notify'
 import { projectRelationTargets } from './relations'
 import { readBoardProperties } from './boards'
+import { runProjectAutomations } from './automations'
 
 export type { ProjectActivityEntry, ProjectCardLink }
 
@@ -172,20 +173,23 @@ export async function applyCardValueEffects(
   properties: readonly ProjectProperty[],
   userId: string,
   now: number,
+  seen: Set<string> = new Set(),
 ): Promise<void> {
   await syncCardCompletionToTodo(db, after, properties, now)
   if (after.recurrence && isProjectCardDone(after, properties) && !isProjectCardDone(before, properties)) {
     await spawnRecurringCard(db, board, after, properties, userId, now)
   }
   const assigned = newlyAssignedPeople(before, after, properties)
-  if (!assigned.length) return
-  try {
-    await notifyProjectAssignment(db, env, {
-      boardId: board.id, cardId: after.id, cardTitle: after.title, actorId: userId, assigneeIds: assigned,
-    })
-  } catch (error) {
-    console.warn('[inkstone] project assignment notice failed:', error instanceof Error ? error.message : error)
+  if (assigned.length) {
+    try {
+      await notifyProjectAssignment(db, env, {
+        boardId: board.id, cardId: after.id, cardTitle: after.title, actorId: userId, assigneeIds: assigned,
+      })
+    } catch (error) {
+      console.warn('[inkstone] project assignment notice failed:', error instanceof Error ? error.message : error)
+    }
   }
+  await runProjectAutomations(db, env, board, before, after, properties, now, seen)
 }
 
 /** X-5 todo→card: mirror a task's completion onto the linked card's checkbox/status property. */

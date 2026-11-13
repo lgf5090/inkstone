@@ -113,10 +113,11 @@ export async function batchPatchProjectBoard(
   await commit(db, statements)
   if (!valueCards.length) return
   const afterById = await readCardsByIds(db, valueCards.map((card) => card.id))
+  const seen = new Set<string>()
   for (const before of valueCards) {
     const after = afterById.get(before.id)
     if (!after) continue
-    await applyCardValueEffects(db, env, board, before, after, properties, userId, now)
+    await applyCardValueEffects(db, env, board, before, after, properties, userId, now, seen)
   }
 }
 

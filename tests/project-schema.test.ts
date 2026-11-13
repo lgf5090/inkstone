@@ -9,6 +9,7 @@ import {
   PROJECT_CORE_SCHEMA_STATEMENTS,
   PROJECT_ENHANCE_SCHEMA_STATEMENTS,
   PROJECT_RELATION_SCHEMA_STATEMENTS,
+  PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
   PROJECT_FTS_SCHEMA_STATEMENTS,
   PROJECT_REQUIRED_COLUMNS,
   PROJECT_REQUIRED_INDEXES,
@@ -21,6 +22,7 @@ const PROJECT_STATEMENTS = [
   ...PROJECT_AUX_SCHEMA_STATEMENTS,
   ...PROJECT_ENHANCE_SCHEMA_STATEMENTS,
   ...PROJECT_RELATION_SCHEMA_STATEMENTS,
+  ...PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
   ...PROJECT_FTS_SCHEMA_STATEMENTS,
 ]
 
@@ -91,7 +93,7 @@ describe('the project tables', () => {
     // The project block follows the ledger the rest of the app already spent, so it is found by the
     // statements it carries rather than by a version number another feature may claim first.
     const projectMigrations = SCHEMA_MIGRATIONS.filter((entry) => entry.statements.some((statement) => PROJECT_STATEMENTS.includes(statement)))
-    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 389, 397])
+    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 389, 397, 398])
     for (const entry of projectMigrations) migrated.exec(entry.statements.join(';'))
 
     const shape = (db: DatabaseSync): string[] =>

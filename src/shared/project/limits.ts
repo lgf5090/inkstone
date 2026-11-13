@@ -41,6 +41,7 @@ export const PROJECT_ID_PREFIXES = {
   share: 'k',
   activity: 'e',
   time: 'd',
+  automation: 'm',
   unknown: '7',
 } as const
 

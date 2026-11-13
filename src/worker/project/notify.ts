@@ -58,3 +58,16 @@ export async function notifyProjectComment(
     })
   }
 }
+
+export async function notifyProjectAutomation(
+  db: D1Database,
+  env: AppBindings['Bindings'],
+  input: { boardId: string, cardTitle: string, ownerId: string, message: string },
+): Promise<void> {
+  if (!input.ownerId) return
+  await new AssistantStore(db, input.ownerId, env).createNotification({
+    title: input.message.slice(0, 200),
+    body: input.cardTitle,
+    link: `project:${input.boardId}`,
+  })
+}

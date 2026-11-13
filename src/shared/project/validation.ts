@@ -329,3 +329,36 @@ export const ProjectBatchDeleteSchema = z.object({
   contentIds: z.array(projectId).max(PROJECT_LIMITS.batchOperations).default([]),
   viewIds: z.array(projectId).max(PROJECT_LIMITS.batchOperations).default([]),
 })
+
+export const ProjectAutomationTriggerSchema = z.object({
+  type: z.literal('cardValueChanged'),
+  propertyId: projectId.optional(),
+})
+
+export const ProjectAutomationConditionSchema = z.object({
+  propertyId: projectId,
+  op: z.enum(['equals', 'notEquals', 'isSet', 'isEmpty']),
+  value: z.string().max(500),
+})
+
+export const ProjectAutomationActionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('setValue'), propertyId: projectId, value: z.string().max(PROJECT_LIMITS.fieldsRunes) }),
+  z.object({ type: z.literal('notify'), message: z.string().min(1).max(500) }),
+])
+
+export const ProjectAutomationCreateSchema = z.object({
+  id: projectId.optional(),
+  trigger: ProjectAutomationTriggerSchema,
+  condition: ProjectAutomationConditionSchema.nullable().default(null),
+  action: ProjectAutomationActionSchema,
+  enabled: z.boolean().default(true),
+})
+export type ProjectAutomationCreateInput = z.infer<typeof ProjectAutomationCreateSchema>
+
+export const ProjectAutomationPatchSchema = z.object({
+  trigger: ProjectAutomationTriggerSchema.optional(),
+  condition: ProjectAutomationConditionSchema.nullable().optional(),
+  action: ProjectAutomationActionSchema.optional(),
+  enabled: z.boolean().optional(),
+})
+export type ProjectAutomationPatchInput = z.infer<typeof ProjectAutomationPatchSchema>

@@ -24,6 +24,8 @@ import {
   ProjectContentPatchSchema,
   ProjectMemberAddSchema,
   ProjectMemberPatchSchema,
+  ProjectAutomationCreateSchema,
+  ProjectAutomationPatchSchema,
   ProjectSharePutSchema,
   ProjectSubscriptionCreateSchema,
   ProjectTodoLinkSchema,
@@ -117,6 +119,12 @@ import {
   rebuildBoardRelations,
   redactHiddenRelations,
 } from './relations'
+import {
+  createProjectAutomation,
+  deleteProjectAutomation,
+  listProjectAutomations,
+  patchProjectAutomation,
+} from './automations'
 import { createBoardFromTemplate, listProjectTemplates, saveBoardAsTemplate } from './templates'
 import { listProjectSubscriptions, subscribeProject, unsubscribeProject } from './subscriptions'
 import {
@@ -504,6 +512,31 @@ projectRoutes.put('/boards/:id/share', async (c) => {
 projectRoutes.delete('/boards/:id/share', async (c) => {
   const { board, userId } = await requireBoardOwner(c, c.req.param('id'))
   await deleteProjectShare(c.env.DB, board.id, userId)
+  return c.json({ ok: true })
+})
+
+projectRoutes.get('/boards/:id/automations', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ automations: await listProjectAutomations(c.env.DB, board.id) })
+})
+
+projectRoutes.post('/boards/:id/automations', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  const input = await projectBody(c, ProjectAutomationCreateSchema, JSON_BODY_LIMITS.small)
+  return c.json({ automation: await createProjectAutomation(c.env.DB, board.id, userId, input, Date.now()) }, 201)
+})
+
+projectRoutes.patch('/boards/:id/automations/:ruleId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
+  const input = await projectBody(c, ProjectAutomationPatchSchema, JSON_BODY_LIMITS.small)
+  const automation = await patchProjectAutomation(c.env.DB, board.id, c.req.param('ruleId'), input, Date.now())
+  if (!automation) throw ApiError.notFound('Automation not found')
+  return c.json({ automation })
+})
+
+projectRoutes.delete('/boards/:id/automations/:ruleId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
+  await deleteProjectAutomation(c.env.DB, board.id, c.req.param('ruleId'))
   return c.json({ ok: true })
 })
 

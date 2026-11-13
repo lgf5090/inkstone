@@ -29,6 +29,7 @@ import type {
 } from '@shared/project/model'
 import type { ProjectContentCreateInput, ProjectContentPatchInput } from '@shared/project/validation'
 import type { ProjectRelationBackReference, ProjectRelationOption } from '@shared/project/relation'
+import type { ProjectAutomation, ProjectAutomationAction, ProjectAutomationCondition, ProjectAutomationTrigger } from '@shared/project/automation'
 import type { ProjectBoardCreateInput, ProjectCardCreateInput } from '@shared/project/validation'
 
 export async function fetchProjectBoards(signal?: AbortSignal): Promise<ProjectBoardSummary[]> {
@@ -446,4 +447,30 @@ export async function fetchRelationCards(targetBoardId: string, signal?: AbortSi
 export async function fetchCardRelations(cardId: string, signal?: AbortSignal): Promise<ProjectRelationBackReference[]> {
   const body = await request<{ references: ProjectRelationBackReference[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/relations`, { signal })
   return body.references
+}
+
+export interface ProjectAutomationInput {
+  trigger: ProjectAutomationTrigger
+  condition: ProjectAutomationCondition | null
+  action: ProjectAutomationAction
+  enabled?: boolean
+}
+
+export async function fetchProjectAutomations(boardId: string, signal?: AbortSignal): Promise<ProjectAutomation[]> {
+  const body = await request<{ automations: ProjectAutomation[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/automations`, { signal })
+  return body.automations
+}
+
+export async function createProjectAutomation(boardId: string, input: ProjectAutomationInput): Promise<ProjectAutomation> {
+  const body = await request<{ automation: ProjectAutomation }>(`/api/project/boards/${encodeURIComponent(boardId)}/automations`, { method: 'POST', body: input })
+  return body.automation
+}
+
+export async function patchProjectAutomation(boardId: string, id: string, patch: Partial<ProjectAutomationInput>): Promise<ProjectAutomation> {
+  const body = await request<{ automation: ProjectAutomation }>(`/api/project/boards/${encodeURIComponent(boardId)}/automations/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
+  return body.automation
+}
+
+export async function deleteProjectAutomation(boardId: string, id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/automations/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
