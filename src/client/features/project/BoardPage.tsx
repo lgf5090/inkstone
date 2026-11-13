@@ -321,6 +321,9 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     })
   }, [])
+  const guardedPatchCard = useCallback((id: string, patch: Record<string, unknown>) => guard(() => patchCard(id, patch)), [guard, patchCard])
+  const guardedPatchCardsBatch = useCallback((patches: { id: string, patch: Record<string, unknown> }[]) => guard(() => patchCardsBatch(patches)), [guard, patchCardsBatch])
+  const guardedDeleteCard = useCallback((id: string) => guard(() => removeCard(id)), [guard, removeCard])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -443,15 +446,15 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       <BoardViews
         bundle={bundle}
         canEdit={canEdit}
-        onDeleteCard={(id) => void removeCard(id)}
+        onDeleteCard={guardedDeleteCard}
         onCreateView={(type) => guard(() => addView(type))}
         onOpenCard={setOpenCardId}
-        onPatchView={(id, patch) => guard(() => patchView(id, patch))}
+        onPatchView={patchView}
         onDeleteView={(id) => guard(() => removeView(id))}
         onDuplicateView={(id) => guard(() => copyView(id))}
         onActiveViewChange={setActiveViewId}
-        onPatchCard={patchCard}
-        onPatchCardsBatch={patchCardsBatch}
+        onPatchCard={guardedPatchCard}
+        onPatchCardsBatch={guardedPatchCardsBatch}
         onAddGroupOption={addGroupOption}
         onRenameGroupOption={renameGroupOption}
         onSetGroupOptionColor={setGroupOptionColor}
@@ -480,10 +483,10 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           minimumRole={bundle.board.minimumRole}
           canManageVisibility={isOwner}
           onClose={() => setShowMembers(false)}
-          onBoardPatched={async (patch) => {
+          onBoardPatched={(patch) => guard(async () => {
             const result = await patchProjectBoard(boardId, patch)
             setBundle((current) => (current ? { ...current, board: result.board } : current))
-          }}
+          })}
         />
       )}
       {iconOpen && (

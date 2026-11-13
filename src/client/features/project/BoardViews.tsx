@@ -202,13 +202,15 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   useEffect(() => { onActiveViewChange(active?.id ?? '') }, [active?.id, onActiveViewChange])
 
   const viewPatchQueue = useRef<Promise<void>>(Promise.resolve())
-  const enqueueViewPatch = useEvent((viewId: string, patch: ProjectViewPatch): Promise<void> => {
+  const enqueueViewPatch = useEvent((viewId: string, patch: ProjectViewPatch): Promise<boolean> => {
     const task = viewPatchQueue.current
       .then(() => onPatchView(viewId, patch))
+      .then(() => true)
       .catch((error: unknown) => {
         useUi.getState().toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
+        return false
       })
-    viewPatchQueue.current = task
+    viewPatchQueue.current = task.then(() => undefined)
     return task
   })
   const patchFields = useEvent((patch: Partial<ProjectViewFields>): void => {

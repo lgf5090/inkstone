@@ -6,17 +6,27 @@ import { Button, IconButton } from '../../components/primitives'
 import { Checkbox } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Modal } from '../../components/overlay'
+import { useUi } from '../../store/ui'
 
 interface ModalProps {
   view: ProjectView
   properties: ProjectProperty[]
   canEdit?: boolean
   onClose: () => void
-  onPatch: (fields: Partial<ProjectViewFields>) => Promise<void>
+  onPatch: (fields: Partial<ProjectViewFields>) => Promise<boolean>
 }
 
 function Footer({ onClose, onSave }: { onClose: () => void, onSave: () => void }): ReactElement {
   return <><Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button><Button variant="primary" onClick={onSave}>{t('common.save')}</Button></>
+}
+
+async function saveAndClose(onPatch: (fields: Partial<ProjectViewFields>) => Promise<boolean>, fields: Partial<ProjectViewFields>, onClose: () => void): Promise<void> {
+  try {
+    const ok = await onPatch(fields)
+    if (ok !== false) onClose()
+  } catch (reason) {
+    useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
+  }
 }
 
 export function SortModal({ view, properties, onClose, onPatch }: ModalProps): ReactElement {
@@ -24,7 +34,7 @@ export function SortModal({ view, properties, onClose, onPatch }: ModalProps): R
   const [propertyId, setPropertyId] = useState(properties[0]?.id ?? '')
   const [reversed, setReversed] = useState(false)
   return (
-    <Modal open onClose={onClose} title={t('project.view.sort')} width={480} footer={<Footer onClose={onClose} onSave={async () => { await onPatch({ sortOptions: draft }); onClose() }} />}>
+    <Modal open onClose={onClose} title={t('project.view.sort')} width={480} footer={<Footer onClose={onClose} onSave={() => { void saveAndClose(onPatch, { sortOptions: draft }, onClose) }} />}>
       <div className="space-y-2">
         {draft.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.no_sorts')}</p>}
         {draft.map((sort, index) => (
@@ -48,7 +58,7 @@ export function PropertiesModal({ view, properties, canEdit = false, onClose, on
   const [draft, setDraft] = useState<string[]>(() => (view.fields.visiblePropertyIds.length ? view.fields.visiblePropertyIds : properties.map((p) => p.id)))
   const [minimumRole, setMinimumRole] = useState<ProjectMinimumRole>(view.fields.minimumRole ?? '')
   return (
-    <Modal open onClose={onClose} title={t('project.view.properties')} width={400} footer={<Footer onClose={onClose} onSave={async () => { await onPatch(canEdit ? { visiblePropertyIds: draft, minimumRole } : { visiblePropertyIds: draft }); onClose() }} />}>
+    <Modal open onClose={onClose} title={t('project.view.properties')} width={400} footer={<Footer onClose={onClose} onSave={() => { void saveAndClose(onPatch, canEdit ? { visiblePropertyIds: draft, minimumRole } : { visiblePropertyIds: draft }, onClose) }} />}>
       <div className="space-y-2">
         {properties.map((property) => (
           <Checkbox

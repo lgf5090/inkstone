@@ -21,11 +21,13 @@ const people = { u1: { id: 'u1', name: 'Uma', avatarUrl: '' }, u2: { id: 'u2', n
 const view: ProjectView = { id: 'v1', boardId: 'b1', title: 'V', viewType: 'table', fields: emptyProjectViewFields(), position: 0, ...stamps }
 
 let viewEl: RenderedElement
-let onPatch: ReturnType<typeof vi.fn<(fields: Partial<ProjectViewFields>) => Promise<void>>>
+let onPatch: ReturnType<typeof vi.fn<(fields: Partial<ProjectViewFields>) => Promise<boolean>>>
+let onClose: ReturnType<typeof vi.fn<() => void>>
 async function mount(fields = view.fields): Promise<void> {
-  onPatch = vi.fn<(fields: Partial<ProjectViewFields>) => Promise<void>>().mockResolvedValue(undefined)
+  onPatch = vi.fn<(fields: Partial<ProjectViewFields>) => Promise<boolean>>().mockResolvedValue(true)
+  onClose = vi.fn<() => void>()
   await act(async () => {
-    viewEl = renderElement(createElement(FilterModal, { view: { ...view, fields }, properties, members, people, canEdit: true, onClose: vi.fn(), onPatch }))
+    viewEl = renderElement(createElement(FilterModal, { view: { ...view, fields }, properties, members, people, canEdit: true, onClose, onPatch }))
   })
 }
 beforeEach(async () => { await initI18n() })
@@ -186,5 +188,15 @@ describe('typed filter values (C-10/C-11)', () => {
     await type(input, '5')
     await save()
     expect(onPatch).toHaveBeenCalledWith({ filter: { operation: 'and', filters: [{ propertyId: 'pn', condition: 'greaterThan', values: ['5'] }] } })
+  })
+
+  it('keeps the dialog open with the draft intact when the patch fails', async () => {
+    await mount()
+    await click(t('project.view.add_filter'))
+    onPatch.mockResolvedValue(false)
+    await save()
+    expect(onPatch).toHaveBeenCalledTimes(1)
+    expect(onClose).not.toHaveBeenCalled()
+    expect(clauseRow().querySelector('input')).not.toBeNull()
   })
 })

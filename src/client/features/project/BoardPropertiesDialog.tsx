@@ -9,6 +9,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Menu, Modal, type MenuItem } from '../../components/overlay'
+import { useUi } from '../../store/ui'
 
 const EDITABLE_TYPES: ProjectPropertyType[] = ['text', 'number', 'select', 'multiSelect', 'date', 'person', 'checkbox', 'url', 'email', 'phone']
 const OPTION_TYPES = new Set(['select', 'multiSelect'])
@@ -70,6 +71,8 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
       const deletedIds = properties.filter((p) => !draft.some((d) => d.id === p.id)).map((p) => p.id)
       await onSave(draft, deletedIds)
       onClose()
+    } catch (reason) {
+      useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     } finally {
       setSaving(false)
     }

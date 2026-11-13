@@ -5,6 +5,7 @@ import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
 import { SelectMenu } from '../../components/select-menu'
+import { useUi } from '../../store/ui'
 import { PropertyValueEditor } from './PropertyValueEditor'
 
 /** A property a bulk write can actually carry; server stamps and opaque file cells are read-only here. */
@@ -42,6 +43,8 @@ export function BatchEditDialog({ count, properties, members, people, onClose, o
     setBusy(true)
     try {
       await onApply({ [property.id]: next })
+    } catch (reason) {
+      useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     } finally {
       setBusy(false)
     }
