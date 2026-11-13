@@ -35,6 +35,7 @@ export async function searchProject(db: D1Database, userId: string, query: strin
              c.title LIKE ?1 ESCAPE '\\'
              OR EXISTS (SELECT 1 FROM project_card_contents x WHERE x.card_id = c.id AND x.delete_at = 0 AND x.title LIKE ?1 ESCAPE '\\')
              OR EXISTS (SELECT 1 FROM project_comments m WHERE m.card_id = c.id AND m.delete_at = 0 AND m.body LIKE ?1 ESCAPE '\\')
+             OR EXISTS (SELECT 1 FROM project_card_values v WHERE v.card_id = c.id AND v.value LIKE ?1 ESCAPE '\\')
            )
          LIMIT ?${chunk.length + 2}`,
       )
