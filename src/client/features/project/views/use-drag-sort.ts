@@ -6,8 +6,10 @@
  * on touch), then a fixed clone follows the pointer while the real card stays behind as a slot.
  *
  * The drop index is counted in midlines and means "insert here after the dragged card is removed",
- * so the caller can splice without a ±1 correction. Geometry is read once at drag start and corrected
- * by scroll deltas, because reading every card's rect on every pointermove forces a layout per frame.
+ * so the caller can splice without a ±1 correction. Geometry is stored in document coordinates, so a
+ * scroll changes only the pointer's coordinate and never the cards'; the target column is re-measured
+ * at a low rate while auto-scrolling, which keeps a card whose height is still an intrinsic estimate
+ * from leaving a stale drop line behind.
  */
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
@@ -31,6 +33,35 @@ interface ZoneRect {
   right: number
   top: number
   bottom: number
+}
+
+export interface DragGeometry {
+  zones: readonly { key: string, left: number, right: number, top: number, bottom: number }[]
+  items: ReadonlyMap<string, readonly { id: string, top: number, height: number }[]>
+}
+
+/**
+ * The pure half of hit testing: geometry is in document coordinates, so the pointer is the only thing
+ * that has to be shifted by the scroll offsets. An empty column wins by band, and the last target is
+ * kept when the pointer leaves every band, so a drag that strays outside the board does not drop.
+ */
+export function resolveDragTarget(
+  geometry: DragGeometry,
+  pointer: { x: number, y: number, scrollX: number, scrollY: number },
+  excluded: ReadonlySet<string>,
+  fallback: DragDropTarget | null,
+): DragDropTarget | null {
+  const x = pointer.x + pointer.scrollX
+  const y = pointer.y + pointer.scrollY
+  const inBand = geometry.zones.filter((entry) => x >= entry.left && x <= entry.right)
+  const zone = inBand.find((entry) => y >= entry.top && y <= entry.bottom) ?? inBand[0]
+  if (!zone) return fallback
+  const siblings = (geometry.items.get(zone.key) ?? []).filter((entry) => !excluded.has(entry.id))
+  let index = 0
+  for (const entry of siblings) {
+    if (y > entry.top + entry.height / 2) index += 1
+  }
+  return { zone: zone.key, index }
 }
 
 const MOUSE_THRESHOLD = 4
@@ -73,8 +104,11 @@ export function useDragSort(options: {
     let ghost: HTMLElement | null = null
     let itemsByZone = new Map<string, ItemRect[]>()
     let zones: ZoneRect[] = []
+    let zoneEls: HTMLElement[] = []
     let scrollers: HTMLElement[] = []
-    let scrollBase: { top: number, left: number }[] = []
+    let scrollX = 0
+    let scrollY = 0
+    let lastRemeasure = 0
     let offsetX = 0
     let offsetY = 0
     let width = 0
@@ -84,20 +118,37 @@ export function useDragSort(options: {
     let lastY = startY
     let hold: number | null = null
 
-    const measure = (): void => {
-      const zoneEls = [...root.querySelectorAll<HTMLElement>('[data-drag-zone]')]
+    /** Every card's rect, expressed in the content coordinates that scrolling does not move. */
+    const readScroll = (): void => {
+      scrollX = 0
+      scrollY = 0
+      for (const el of scrollers) {
+        scrollX += el.scrollLeft
+        scrollY += el.scrollTop
+      }
+    }
+
+    const measureZones = (): void => {
+      readScroll()
       zones = zoneEls.map((el) => {
         const rect = el.getBoundingClientRect()
-        return { key: el.dataset.dragZone ?? '', el, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+        return { key: el.dataset.dragZone ?? '', el, left: rect.left + scrollX, right: rect.right + scrollX, top: rect.top + scrollY, bottom: rect.bottom + scrollY }
       })
-      itemsByZone = new Map()
-      for (const zone of zones) {
-        const cards = [...zone.el.querySelectorAll<HTMLElement>('[data-drag-item]')]
-        itemsByZone.set(zone.key, cards.map((el, index) => {
-          const rect = el.getBoundingClientRect()
-          return { id: el.dataset.dragId ?? '', zone: zone.key, top: rect.top, height: rect.height, index }
-        }))
-      }
+    }
+
+    const measureZone = (key: string): void => {
+      const zone = zones.find((entry) => entry.key === key)
+      if (!zone) return
+      readScroll()
+      const cards = [...zone.el.querySelectorAll<HTMLElement>('[data-drag-item]')]
+      itemsByZone.set(key, cards.map((el, index) => {
+        const rect = el.getBoundingClientRect()
+        return { id: el.dataset.dragId ?? '', zone: key, top: rect.top + scrollY, height: rect.height, index }
+      }))
+    }
+
+    const measure = (): void => {
+      zoneEls = [...root.querySelectorAll<HTMLElement>('[data-drag-zone]')]
       scrollers = []
       let node: HTMLElement | null = root
       while (node) {
@@ -105,7 +156,19 @@ export function useDragSort(options: {
         if (/(auto|scroll)/.test(`${style.overflowY}${style.overflowX}`)) scrollers.push(node)
         node = node.parentElement
       }
-      scrollBase = scrollers.map((el) => ({ top: el.scrollTop, left: el.scrollLeft }))
+      measureZones()
+      itemsByZone = new Map()
+      for (const zone of zones) measureZone(zone.key)
+      lastRemeasure = performance.now()
+    }
+
+    /** A virtualised card can enter the viewport with a different height than its estimate held. */
+    const remeasureTarget = (): void => {
+      const now = performance.now()
+      if (now - lastRemeasure < 120) return
+      lastRemeasure = now
+      measureZones()
+      if (latest) measureZone(latest.zone)
     }
 
     const begin = (): void => {
@@ -133,29 +196,21 @@ export function useDragSort(options: {
       setDraggingId(id)
     }
 
-    /** Scroll deltas since `measure`, so a cached rect stays honest while the column scrolls. */
-    const scrollDelta = (): { dx: number, dy: number } => {
-      let dx = 0
-      let dy = 0
-      scrollers.forEach((el, index) => {
-        const base = scrollBase[index] ?? { top: 0, left: 0 }
-        dx += el.scrollLeft - base.left
-        dy += el.scrollTop - base.top
-      })
-      return { dx, dy }
+    const resolve = (x: number, y: number): DragDropTarget | null => {
+      readScroll()
+      return resolveDragTarget({ zones, items: itemsByZone }, { x, y, scrollX, scrollY }, group, latest)
     }
 
-    const resolve = (x: number, y: number): DragDropTarget | null => {
-      const { dx, dy } = scrollDelta()
-      const inBand = zones.filter((entry) => x >= entry.left - dx && x <= entry.right - dx)
-      const zone = inBand.find((entry) => y >= entry.top - dy && y <= entry.bottom - dy) ?? inBand[0]
-      if (!zone) return latest
-      const siblings = (itemsByZone.get(zone.key) ?? []).filter((entry) => !group.has(entry.id))
-      let index = 0
-      for (const entry of siblings) {
-        if (y > entry.top - dy + entry.height / 2) index += 1
+    const autoScroll = (): boolean => {
+      let moved = false
+      for (const el of scrollers) {
+        const rect = el.getBoundingClientRect()
+        if (lastY < rect.top + EDGE) { el.scrollTop -= EDGE_SPEED; moved = true }
+        else if (lastY > rect.bottom - EDGE) { el.scrollTop += EDGE_SPEED; moved = true }
+        if (lastX < rect.left + EDGE) { el.scrollLeft -= EDGE_SPEED; moved = true }
+        else if (lastX > rect.right - EDGE) { el.scrollLeft += EDGE_SPEED; moved = true }
       }
-      return { zone: zone.key, index }
+      return moved
     }
 
     const paint = (): void => {
@@ -166,13 +221,7 @@ export function useDragSort(options: {
         latest = next
         setOver(next)
       }
-      for (const el of scrollers) {
-        const rect = el.getBoundingClientRect()
-        if (lastY < rect.top + EDGE) el.scrollTop -= EDGE_SPEED
-        else if (lastY > rect.bottom - EDGE) el.scrollTop += EDGE_SPEED
-        if (lastX < rect.left + EDGE) el.scrollLeft -= EDGE_SPEED
-        else if (lastX > rect.right - EDGE) el.scrollLeft += EDGE_SPEED
-      }
+      if (autoScroll()) remeasureTarget()
       if (begun) frame = requestAnimationFrame(paint)
     }
 

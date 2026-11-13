@@ -13047,10 +13047,12 @@ const allowed = new Map([
     "/** The release point, for callers whose drop means more than \"over this band\" (nest vs beside). */",
   ]],
   ["src/client/features/project/views/use-drag-sort.ts", [
-    "/**\n * Pointer drag for the board and the list.\n *\n * HTML5 drag-and-drop never fires from a touch, so a board built on `draggable` is a desktop-only\n * board. This walks the same path for mouse, pen and finger: press, cross a small threshold (or hold\n * on touch), then a fixed clone follows the pointer while the real card stays behind as a slot.\n *\n * The drop index is counted in midlines and means \"insert here after the dragged card is removed\",\n * so the caller can splice without a ±1 correction. Geometry is read once at drag start and corrected\n * by scroll deltas, because reading every card's rect on every pointermove forces a layout per frame.\n */",
-    "/** Scroll deltas since `measure`, so a cached rect stays honest while the column scrolls. */",
     "// A finger that travels before the hold expires meant to scroll the column, not drag.",
     "/** The full set travelling together when the pressed card is part of a multi-selection. */",
+    "/**\n * Pointer drag for the board and the list.\n *\n * HTML5 drag-and-drop never fires from a touch, so a board built on `draggable` is a desktop-only\n * board. This walks the same path for mouse, pen and finger: press, cross a small threshold (or hold\n * on touch), then a fixed clone follows the pointer while the real card stays behind as a slot.\n *\n * The drop index is counted in midlines and means \"insert here after the dragged card is removed\",\n * so the caller can splice without a ±1 correction. Geometry is stored in document coordinates, so a\n * scroll changes only the pointer's coordinate and never the cards'; the target column is re-measured\n * at a low rate while auto-scrolling, which keeps a card whose height is still an intrinsic estimate\n * from leaving a stale drop line behind.\n */",
+    "/**\n * The pure half of hit testing: geometry is in document coordinates, so the pointer is the only thing\n * that has to be shifted by the scroll offsets. An empty column wins by band, and the last target is\n * kept when the pointer leaves every band, so a drag that strays outside the board does not drop.\n */",
+    "/** Every card's rect, expressed in the content coordinates that scrolling does not move. */",
+    "/** A virtualised card can enter the viewport with a different height than its estimate held. */",
   ]],
   ["src/client/features/quickadd/bridge.test.ts", [
     "// `mount(undefined)` would take the helper's own default, so the prop is set here directly.",

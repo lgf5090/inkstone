@@ -294,6 +294,8 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
   gap: var(--sp-1);
   overflow: hidden;
   border: 1px solid var(--pv-hairline);
@@ -321,10 +323,12 @@
 .pv-card[data-density='compact'] {
   gap: 2px;
   padding: var(--sp-1) var(--sp-1-5);
+  contain-intrinsic-size: auto 56px;
 }
 .pv-card[data-density='spacious'] {
   gap: var(--sp-1-5);
   padding: var(--sp-3);
+  contain-intrinsic-size: auto 124px;
 }
 .pv-card-cover {
   width: calc(100% + var(--sp-4));
@@ -1420,6 +1424,8 @@ body.pv-dragging * {
 .pv-list-row {
   position: relative;
   display: flex;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 40px;
   min-height: 34px;
   align-items: center;
   gap: var(--sp-2);
