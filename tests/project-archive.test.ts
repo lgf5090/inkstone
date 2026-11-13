@@ -7,7 +7,7 @@ import { createSession } from '../src/worker/lib/session-store'
 import { CLIENT_HEADER, LEGACY_SESSION_COOKIE } from '../src/shared/constants'
 import type { Env } from '../src/worker/env'
 import type { ProjectBoard, ProjectBoardBundle } from '../src/shared/project/model'
-import { testBindings } from './doubles/bindings'
+import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const ACCOUNTS = ['alice', 'bob', 'carol'] as const
@@ -17,10 +17,12 @@ const app = createApp()
 const tokens = new Map<Account, string>()
 let sqlite: DatabaseSync
 let env: Env
+let files: TestR2Bucket
 
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
-  env = testBindings(makeD1(sqlite))
+  files = testR2Bucket()
+  env = testBindings(makeD1(sqlite), { FILES: files })
   await app.fetch(new Request('http://localhost/api/health'), env)
   const now = Date.now()
   for (const account of ACCOUNTS) {
@@ -33,9 +35,11 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
+  files.objects.clear()
+  files.types.clear()
   sqlite.exec(`DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
     DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_views;
-    DELETE FROM project_card_contents; DELETE FROM project_comments`)
+    DELETE FROM project_card_contents; DELETE FROM project_comments; DELETE FROM project_card_links; DELETE FROM project_attachments`)
 })
 
 const pid = (n: number) => `p${String(n).padStart(26, '0')}`
@@ -107,7 +111,7 @@ describe('archive export and import', () => {
     // Import into a fresh instance: the archive's ids are preserved, so the source board must be gone.
     sqlite.exec(`DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
       DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_views;
-      DELETE FROM project_card_contents; DELETE FROM project_comments`)
+      DELETE FROM project_card_contents; DELETE FROM project_comments; DELETE FROM project_card_links; DELETE FROM project_attachments`)
     const importResponse = await reqRaw('bob', '/boards/import', bytes)
     expect(importResponse.status, await importResponse.clone().text()).toBe(201)
     const result = (await importResponse.json()) as { board: ProjectBoard }
@@ -123,6 +127,57 @@ describe('archive export and import', () => {
     expect(restored.board).toMatchObject({ title: 'Roadmap', description: 'Desc', icon: '🗺️', showDescription: true })
     expect(restored.board.ownerId).toBe('bob')
     expect(restored.members.map((m) => m.userId)).toEqual(['bob'])
+  })
+
+  it('carries card hierarchy, recurrence and dependency edges through a round trip', async () => {
+    const board = await createBoard('alice', { title: 'Tree' })
+    const parent = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Parent' })).json()) as { card: { id: string } }).card
+    const child = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, {
+      title: 'Child', parentId: parent.id, recurrence: { freq: 'monthly', interval: 2 },
+    })).json()) as { card: { id: string } }).card
+    expect((await req('alice', 'POST', `/cards/${child.id}/links`, { toCardId: parent.id, kind: 'blocks' })).status).toBe(201)
+    const bytes = new Uint8Array(await (await req('alice', 'GET', `/boards/${board.id}/archive`)).arrayBuffer())
+    sqlite.exec(`DELETE FROM project_attachments; DELETE FROM project_card_links; DELETE FROM project_card_values;
+      DELETE FROM project_cards; DELETE FROM project_card_contents; DELETE FROM project_comments; DELETE FROM project_views;
+      DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards`)
+    expect((await reqRaw('bob', '/boards/import', bytes)).status).toBe(201)
+    const restored = await bundle('bob', board.id)
+    expect(restored.cards.find((card) => card.id === child.id)!.parentId).toBe(parent.id)
+    expect(restored.cards.find((card) => card.id === child.id)!.recurrence).toEqual({ freq: 'monthly', interval: 2 })
+    const links = sqlite.prepare('SELECT from_card_id, to_card_id, kind FROM project_card_links WHERE board_id = ?').all(board.id)
+    expect(links).toEqual([{ from_card_id: child.id, to_card_id: parent.id, kind: 'blocks' }])
+  })
+
+  it('packs attachment bytes and restores them with new storage keys', async () => {
+    const board = await createBoard('alice', { title: 'Files' })
+    const card = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Holder' })).json()) as { card: { id: string } }).card
+    const content = new TextEncoder().encode('hello archive')
+    const form = new FormData()
+    form.set('file', new File([content], 'note.txt', { type: 'text/plain' }))
+    form.set('cardId', card.id)
+    const uploaded = await app.fetch(new Request(`http://localhost/api/project/boards/${board.id}/files`, {
+      method: 'POST',
+      headers: { Cookie: `${LEGACY_SESSION_COOKIE}=${tokens.get('alice')}`, [CLIENT_HEADER]: '1' },
+      body: form,
+    }), env)
+    expect(uploaded.status, await uploaded.clone().text()).toBe(201)
+    const attachment = ((await uploaded.json()) as { file: { id: string, objectKey: string } }).file
+    const bytes = new Uint8Array(await (await req('alice', 'GET', `/boards/${board.id}/archive`)).arrayBuffer())
+    const entries = unzipSync(bytes)
+    expect(entries[`${board.id}/files/${attachment.id}`]).toEqual(content)
+
+    files.objects.clear()
+    files.types.clear()
+    sqlite.exec(`DELETE FROM project_attachments; DELETE FROM project_card_links; DELETE FROM project_card_values;
+      DELETE FROM project_cards; DELETE FROM project_card_contents; DELETE FROM project_comments; DELETE FROM project_views;
+      DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards`)
+    expect((await reqRaw('bob', '/boards/import', bytes)).status).toBe(201)
+    const row = sqlite.prepare('SELECT card_id, object_key FROM project_attachments WHERE id = ?').get(attachment.id) as { card_id: string, object_key: string }
+    expect(row.card_id).toBe(card.id)
+    expect(row.object_key).not.toBe(attachment.objectKey)
+    const restored = await req('bob', 'GET', `/files/${attachment.id}`)
+    expect(restored.status, await restored.clone().text()).toBe(200)
+    expect(new Uint8Array(await restored.arrayBuffer())).toEqual(content)
   })
 
   it('refuses to import over an existing board id', async () => {

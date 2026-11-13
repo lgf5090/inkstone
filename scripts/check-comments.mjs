@@ -33362,10 +33362,11 @@ const allowed = new Map([
   ]],
   ["src/shared/project/archive.ts", [
     "/**\n * The archive envelope, shared by the exporter, the importer and the six external converters.\n *\n * A v2 archive is a ZIP holding `version.json`, one `<boardId>/board.jsonl` per board, and the boards'\n * binaries beside it. This module owns the JSONL only — the ZIP is the server's business — so a\n * converter running in the browser can produce exactly what the server reads without either side\n * knowing about the other's transport.\n */",
-    "/**\n * The reference's writer emits three line kinds and its reader accepts four: `board_block` is an\n * older spelling of `block` that still appears in archives people have on disk.\n */",
     "/**\n * A block as the reference wrote it. Deliberately loose: the importer's job is to map these onto\n * boards, cards, views and contents, and a field this port does not use must not fail the import.\n */",
     "/**\n * Read one `board.jsonl`.\n *\n * The board itself arrives two ways. A current export writes it as a `board` line; the reference's own\n * built-in templates predate that and carry it as a `block` line whose `data.type` is `board` and\n * whose parent is empty. Dispatching on the outer type alone reads none of those seven templates.\n */",
     "/** The board hidden in a legacy `block` line, or null when the block is an ordinary child. */",
+    "/**\n * The reference's writer emits three line kinds and its reader accepts four: `board_block` is an\n * older spelling of `block` that still appears in archives people have on disk. `cardLink` is this\n * port's addition: the reference never wrote dependency edges, so a v3 archive carries them on a line\n * of their own instead of pretending they are content blocks.\n */",
+    "/**\n * A file the ZIP carries beside the JSONL. `path` is archive-relative and is checked by the importer\n * against the board directory, so an uploaded archive cannot point a row at an arbitrary entry.\n */",
   ]],
   ["src/shared/project/assistant-context.ts", [
     "/**\n * Board context for the assistant (X-6): bounded, countable facts about the open board — never\n * instructions — mirroring the todo context's discipline. The dock sends these as page facts so the\n * model can answer \"what's due this week\" or \"split this card\" against real data.\n */",
@@ -33490,6 +33491,7 @@ const allowed = new Map([
     "/** A repeating card spawns its next instance when completed; absent is an ordinary card. */",
     "/** The weakest role that sees this tab; absent means everyone who can read the board. */",
     "/** Set when the board holds more detail rows than one read carries; open a card for the rest. */",
+    "/** Carried only by an import path that already has the edges; a board read leaves it undefined. */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",
@@ -42631,7 +42633,8 @@ const allowed = new Map([
     "// D1 caps a batch at 1000 statements; a large board can exceed that, so the import runs in chunks.",
     "/** Whole-account export: one v2 ZIP carrying every readable board's JSONL side by side. */",
     "/** Whole-account import: every board.jsonl in the ZIP becomes a fresh board (ids remapped). */",
-    "/**\n * The archive transport: a v2 ZIP out, a v2 ZIP or a v1 JSON in. The JSONL mapping itself lives in\n * the shared module so the browser converters and this server agree byte for byte; this file only\n * zips, unzips, and writes the imported rows. Import preserves the archive's ids (so a round trip is\n * field-equal) but the new board belongs to whoever imports it. Member rows are deliberately not\n * restored: an archive is data, not an invitation, and no local account may join a board because an\n * uploaded file said so.\n */",
+    "/**\n * The archive transport: a v3 ZIP out, a v3 ZIP or a v1 JSON in. The JSONL mapping itself lives in\n * the shared module so the browser converters and this server agree byte for byte; this file only\n * zips, unzips, and writes the imported rows. Import preserves the archive's ids (so a round trip is\n * field-equal) but the new board belongs to whoever imports it. Member rows are deliberately not\n * restored: an archive is data, not an invitation, and no local account may join a board because an\n * uploaded file said so.\n */",
+    "/** The two places a project file can live, passed in so the archive logic stays binding-free. */",
   ]],
   ["src/worker/project/auth.ts", [
     "/** Every project write parses through this, so a rejected field reads the same on every route. */",

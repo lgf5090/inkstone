@@ -597,6 +597,8 @@ export interface ProjectBoardBundle {
   comments: ProjectComment[]
   commentsTruncated?: boolean
   members: ProjectBoardMember[]
+  /** Carried only by an import path that already has the edges; a board read leaves it undefined. */
+  links?: ProjectCardLink[]
   /** Everyone the board refers to: members, card authors, comment authors and assigned people. */
   people: ProjectPeople
   /** The caller's effective role, already resolved against the board's minimum role. */

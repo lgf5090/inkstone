@@ -6,13 +6,15 @@
  * share links are deliberately not copied. Attachments stay with the original: a copied row would point
  * at the same storage object, and deleting either copy would take the object away from the other.
  */
-import type { ProjectBoardBundle, ProjectBoardSummary, ProjectCard, ProjectViewFields } from '@shared/project/model'
+import type { ProjectAttachment, ProjectBoardBundle, ProjectBoardSummary, ProjectCard, ProjectCardLink, ProjectViewFields } from '@shared/project/model'
 import type { ProjectContentOrder } from '@shared/project/content-order'
 import { newProjectId } from '@shared/project/limits'
 import { serializeProjectRecurrence } from '@shared/project/recurrence'
 import { rowToContent, type ContentRow } from './bundle'
 
 const COPY_BATCH_SIZE = 500
+
+type AttachmentSource = Pick<ProjectAttachment, 'cardId' | 'filename' | 'mime' | 'storage' | 'width' | 'height'>
 
 function remapId(map: Map<string, string>, id: string): string {
   return map.get(id) ?? id
@@ -35,7 +37,11 @@ export async function duplicateProjectBoard(
   bundle: ProjectBoardBundle,
   userId: string,
   now: number,
-  options: { includeComments?: boolean } = {},
+  options: {
+    includeComments?: boolean
+    attachments?: readonly { attachment: AttachmentSource, bytes: Uint8Array }[]
+    onAttachment?: (input: { id: string, cardId: string | null, attachment: AttachmentSource, bytes: Uint8Array }) => Promise<string | null>
+  } = {},
 ): Promise<ProjectBoardSummary> {
   const source = bundle.board
   const boardId = newProjectId('board')
@@ -44,10 +50,12 @@ export async function duplicateProjectBoard(
   const contentMap = new Map(bundle.contents.map((content) => [content.id, newProjectId('content')]))
   const commentMap = new Map(bundle.comments.map((comment) => [comment.id, newProjectId('comment')]))
   const childMap = new Map([...contentMap, ...commentMap])
-  const linkRows = await db
+  const links = bundle.links ?? (await db
     .prepare('SELECT from_card_id, to_card_id, kind FROM project_card_links WHERE board_id = ?1')
     .bind(source.id)
-    .all<{ from_card_id: string, to_card_id: string, kind: string }>()
+    .all<{ from_card_id: string, to_card_id: string, kind: string }>()).results.map((row) => ({
+    fromCardId: row.from_card_id, toCardId: row.to_card_id, kind: row.kind as ProjectCardLink['kind'],
+  }))
 
   const statements: D1PreparedStatement[] = [
     db.prepare(
@@ -99,13 +107,29 @@ export async function duplicateProjectBoard(
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9, ?9, 0)`,
     ).bind(contentMap.get(content.id)!, remapId(cardMap, content.cardId), boardId, content.type, content.title, JSON.stringify(content.fields), content.position, userId, now))
   }
-  for (const link of linkRows.results) {
-    const from = cardMap.get(link.from_card_id)
-    const to = cardMap.get(link.to_card_id)
+  for (const link of links) {
+    const from = cardMap.get(link.fromCardId)
+    const to = cardMap.get(link.toCardId)
     if (!from || !to) continue
     statements.push(db.prepare(
       'INSERT INTO project_card_links (from_card_id, to_card_id, kind, board_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5)',
     ).bind(from, to, link.kind, boardId, now))
+  }
+  for (const item of options.attachments ?? []) {
+    if (!options.onAttachment) continue
+    const cardId = item.attachment.cardId ? cardMap.get(item.attachment.cardId) ?? null : null
+    if (item.attachment.cardId && !cardId) continue
+    const attachmentId = newProjectId('attachment')
+    const objectKey = await options.onAttachment({ id: attachmentId, cardId, attachment: item.attachment, bytes: item.bytes })
+    if (!objectKey) continue
+    statements.push(db.prepare(
+      `INSERT INTO project_attachments
+         (id, user_id, board_id, card_id, filename, mime, size, storage, object_key, width, height, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)`,
+    ).bind(
+      attachmentId, userId, boardId, cardId, item.attachment.filename, item.attachment.mime,
+      item.bytes.byteLength, item.attachment.storage, objectKey, item.attachment.width, item.attachment.height, now,
+    ))
   }
   if (options.includeComments !== false) {
     for (const comment of bundle.comments) {

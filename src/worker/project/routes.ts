@@ -184,7 +184,7 @@ projectRoutes.get('/search', async (c) => {
 projectRoutes.get('/export', async (c) => {
   const userId = projectUserId(c)
   await consumeAttemptBudget(c.env.DB, [{ key: `project-export:${userId}`, maxAttempts: 10, windowMs: 60 * 60 * 1000 }])
-  const bytes = await exportProjectAccountArchive(c.env.DB, userId)
+  const bytes = await exportProjectAccountArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, userId)
   return new Response(bytes, {
     headers: { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="inkstone-project.zip"' },
   })
@@ -451,7 +451,7 @@ projectRoutes.get('/boards/:id/metadata', async (c) => {
 
 projectRoutes.get('/boards/:id/archive', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const bytes = await exportProjectBoardArchive(c.env.DB, board, role)
+  const bytes = await exportProjectBoardArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, board, role)
   return new Response(bytes, {
     headers: {
       'Content-Type': 'application/zip',
@@ -476,7 +476,7 @@ projectRoutes.post('/boards/import', async (c) => {
   await consumeAttemptBudget(c.env.DB, [{ key: `project-import:${userId}`, maxAttempts: 20, windowMs: 60 * 60 * 1000 }])
   assertDeclaredBodySize(c.req, FORM_BODY_LIMITS.import)
   const bytes = await readBytesWithinLimit(c.req.raw.body, FORM_BODY_LIMITS.import)
-  return c.json(await importProjectBoardArchive(c.env.DB, userId, bytes, Date.now()), 201)
+  return c.json(await importProjectBoardArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, userId, bytes, Date.now()), 201)
 })
 
 projectRoutes.post('/boards/import-account', async (c) => {
@@ -484,7 +484,7 @@ projectRoutes.post('/boards/import-account', async (c) => {
   await consumeAttemptBudget(c.env.DB, [{ key: `project-import-account:${userId}`, maxAttempts: 10, windowMs: 60 * 60 * 1000 }])
   assertDeclaredBodySize(c.req, FORM_BODY_LIMITS.import)
   const bytes = await readBytesWithinLimit(c.req.raw.body, FORM_BODY_LIMITS.import)
-  return c.json({ boards: await importProjectAccountArchive(c.env.DB, userId, bytes, Date.now()) }, 201)
+  return c.json({ boards: await importProjectAccountArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, userId, bytes, Date.now()) }, 201)
 })
 
 projectRoutes.get('/boards/:id/members', async (c) => {

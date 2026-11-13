@@ -65,6 +65,10 @@ export async function getProjectAttachment(db: D1Database, id: string): Promise<
   return row ? rowToAttachment(row) : null
 }
 
+export function projectAttachmentObjectKey(userId: string, id: string, mime: string, filename: string): string {
+  return `project/${attachmentCategory(mime)}/${userId}/${id}.${extensionFor(mime, filename)}`
+}
+
 export async function uploadProjectAttachment(
   db: D1Database,
   r2: R2Bucket | undefined,
@@ -74,8 +78,7 @@ export async function uploadProjectAttachment(
   if (!r2) throw ApiError.badRequest('File storage is not configured')
   if (input.bytes.byteLength > MAX_UPLOAD_BYTES) throw ApiError.tooLarge('File too large')
   const id = newProjectId('attachment')
-  const category = attachmentCategory(input.mime)
-  const objectKey = `project/${category}/${input.userId}/${id}.${extensionFor(input.mime, input.filename)}`
+  const objectKey = projectAttachmentObjectKey(input.userId, id, input.mime, input.filename)
   await r2.put(objectKey, input.bytes, { httpMetadata: { contentType: input.mime } })
   await db.prepare(
     `INSERT INTO project_attachments (id, user_id, board_id, card_id, filename, mime, size, storage, object_key, created_at, updated_at)
