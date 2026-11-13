@@ -20,6 +20,7 @@ import type {
   ProjectComment,
   ProjectContent,
   ProjectPeople,
+  ProjectProperty,
   ProjectRole,
   ProjectShare,
   ProjectSubscription,
@@ -174,6 +175,11 @@ export async function duplicateProjectView(id: string): Promise<ProjectView> {
 
 export async function fetchBoardMetadata(id: string): Promise<ProjectBoardMetadata> {
   return request<ProjectBoardMetadata>(`/api/project/boards/${encodeURIComponent(id)}/metadata`)
+}
+
+export async function fetchBoardProperties(id: string, signal?: AbortSignal): Promise<ProjectProperty[]> {
+  const body = await request<{ properties: ProjectProperty[] }>(`/api/project/boards/${encodeURIComponent(id)}/properties`, { signal })
+  return body.properties
 }
 
 export function projectBoardExportUrl(id: string, kind: 'csv' | 'archive' | 'markdown'): string {

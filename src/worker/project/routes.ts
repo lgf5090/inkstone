@@ -540,6 +540,11 @@ projectRoutes.delete('/boards/:id/automations/:ruleId', async (c) => {
   return c.json({ ok: true })
 })
 
+projectRoutes.get('/boards/:id/properties', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ properties: await readBoardProperties(c.env.DB, board.id) })
+})
+
 projectRoutes.get('/boards/:id/metadata', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
   return c.json(await projectBoardMetadata(c.env.DB, board.id))

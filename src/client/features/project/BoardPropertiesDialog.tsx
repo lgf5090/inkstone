@@ -10,7 +10,7 @@ import { Checkbox, Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Menu, Modal, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
-import { fetchProjectBoards } from './api'
+import { fetchBoardProperties, fetchProjectBoards } from './api'
 import { AutomationsDialog } from './AutomationsDialog'
 
 const EDITABLE_TYPES: ProjectPropertyType[] = ['text', 'number', 'select', 'multiSelect', 'date', 'person', 'checkbox', 'url', 'email', 'phone', 'relation', 'rollup']
@@ -33,6 +33,7 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
   const [saving, setSaving] = useState(false)
   const [boards, setBoards] = useState<ProjectBoardSummary[]>([])
   const [automationsOpen, setAutomationsOpen] = useState(false)
+  const [targetProperties, setTargetProperties] = useState<Record<string, ProjectProperty[]>>({})
   useEffect(() => {
     let alive = true
     fetchProjectBoards()
@@ -40,6 +41,34 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
       .catch(() => { if (alive) setBoards([]) })
     return () => { alive = false }
   }, [])
+
+  const targetBoardIds = [...new Set(draft
+    .filter((entry) => entry.type === 'rollup' && entry.config?.rollup?.relationPropertyId)
+    .map((entry) => draft.find((relation) => relation.type === 'relation' && relation.id === entry.config?.rollup?.relationPropertyId)?.config?.targetBoardId)
+    .filter((id): id is string => Boolean(id)))]
+  const targetBoardKey = targetBoardIds.join(',')
+  useEffect(() => {
+    const missing = targetBoardIds.filter((id) => !(id in targetProperties))
+    if (!missing.length) return
+    let alive = true
+    const controllers = missing.map((id) => {
+      const controller = new AbortController()
+      fetchBoardProperties(id, controller.signal)
+        .then((list) => { if (alive) setTargetProperties((previous) => ({ ...previous, [id]: list })) })
+        .catch(() => { if (alive) setTargetProperties((previous) => ({ ...previous, [id]: [] })) })
+      return controller
+    })
+    return () => { alive = false; for (const controller of controllers) controller.abort() }
+  }, [targetBoardKey, targetProperties])
+
+  const rollupTargetOptions = (property: ProjectProperty) => {
+    const relation = draft.find((entry) => entry.type === 'relation' && entry.id === property.config?.rollup?.relationPropertyId)
+    const targetBoardId = relation?.config?.targetBoardId
+    return [
+      { value: '', label: t('project.value.empty') },
+      ...(targetBoardId ? targetProperties[targetBoardId] ?? [] : []).map((entry) => ({ value: entry.id, label: entry.name })),
+    ]
+  }
 
   const update = (id: string, patch: Partial<ProjectProperty>) => {
     setDraft((current) => current.map((property) => (property.id === id ? { ...property, ...patch } : property)))
@@ -203,12 +232,12 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
                     onChange={(value) => updateRollup(property, { relationPropertyId: value })}
                     options={[{ value: '', label: '—' }, ...draft.filter((entry) => entry.type === 'relation').map((entry) => ({ value: entry.id, label: entry.name }))]}
                   />
-                  <Input
+                  <SelectMenu
                     className="w-full"
                     value={property.config?.rollup?.targetPropertyId ?? ''}
-                    placeholder={t('project.props.rollup_target')}
-                    aria-label={t('project.props.rollup_target')}
-                    onChange={(event) => updateRollup(property, { targetPropertyId: event.target.value })}
+                    label={t('project.props.rollup_target')}
+                    onChange={(value) => updateRollup(property, { targetPropertyId: value })}
+                    options={rollupTargetOptions(property)}
                   />
                   <SelectMenu
                     className="w-full"
