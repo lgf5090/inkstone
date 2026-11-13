@@ -107,6 +107,7 @@ import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProject
 import { projectStatistics } from './statistics'
 import { listProjectMyTasks } from './my-tasks'
 import { deleteTimeEntry, listCardTime, startCardTime, stopCardTime } from './time'
+import { assertProjectValuesWritable } from './property-access'
 import { createBoardFromTemplate, listProjectTemplates, saveBoardAsTemplate } from './templates'
 import { listProjectSubscriptions, subscribeProject, unsubscribeProject } from './subscriptions'
 import {
@@ -396,8 +397,9 @@ projectRoutes.get('/boards/:id/bundle', async (c) => {
 })
 
 projectRoutes.post('/boards/:id/cards', async (c) => {
-  const { board, userId } = await requireBoard(c, c.req.param('id'), 'editor')
+  const { board, userId, role } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectCardCreateSchema)
+  await assertProjectValuesWritable(c.env.DB, board.id, role, input.values)
   return c.json({ card: await createProjectCard(c.env.DB, board, userId, input, Date.now()) }, 201)
 })
 
@@ -410,6 +412,9 @@ projectRoutes.post('/boards/:id/views', async (c) => {
 projectRoutes.patch('/boards/:id/batch', async (c) => {
   const { board, userId, role } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectBatchSchema)
+  for (const entry of input.cards ?? []) {
+    await assertProjectValuesWritable(c.env.DB, board.id, role, entry.patch.values)
+  }
   await batchPatchProjectBoard(c.env.DB, board, input, userId, Date.now(), role, c.env)
   return c.json({ ok: true })
 })
@@ -568,8 +573,9 @@ projectRoutes.get('/cards/:id/detail', async (c) => {
 })
 
 projectRoutes.patch('/cards/:id', async (c) => {
-  const { card, board, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  const { card, board, userId, role } = await requireCard(c, c.req.param('id'), 'editor')
   const patch = await projectBody(c, ProjectCardPatchSchema)
+  await assertProjectValuesWritable(c.env.DB, card.boardId, role, patch.values)
   const now = Date.now()
   const updated = await patchProjectCard(c.env.DB, card, patch, userId, now)
   if (patch.values !== undefined) {

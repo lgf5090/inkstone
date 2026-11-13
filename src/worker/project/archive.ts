@@ -20,6 +20,7 @@ import {
 import { projectArchiveLinesToImport, projectBundleToArchiveLines } from '@shared/project/archive-mapping'
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { serializeProjectRecurrence } from '@shared/project/recurrence'
+import { serializeProjectPropertyConfig } from '@shared/project/property-config'
 import { ApiError } from '../lib/errors'
 import { readProjectBoardBundle } from './bundle'
 import { duplicateProjectBoard } from './duplicate'
@@ -330,6 +331,10 @@ export async function importProjectBoardArchive(
       `INSERT INTO project_properties (board_id, id, name, type, options, position, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`,
     ).bind(source.id, property.id, property.name, property.type, JSON.stringify(property.options), index, now))
+    statements.push(db.prepare(
+      `INSERT OR REPLACE INTO project_property_configs (board_id, property_id, config, updated_at)
+       VALUES (?1, ?2, ?3, ?4)`,
+    ).bind(source.id, property.id, serializeProjectPropertyConfig(property.config), now))
   })
   for (const card of imported.cards) {
     statements.push(db.prepare(

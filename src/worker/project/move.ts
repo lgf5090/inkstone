@@ -10,6 +10,7 @@
 import type { ProjectCard, ProjectProperty, ProjectPropertyType } from '@shared/project/model'
 import { projectMultiValueIds } from '@shared/project/model'
 import { PROJECT_LIMITS, newProjectId } from '@shared/project/limits'
+import { serializeProjectPropertyConfig } from '@shared/project/property-config'
 import { ApiError } from '../lib/errors'
 import { readBoardProperties } from './boards'
 import { getProjectCard } from './cards'
@@ -121,6 +122,13 @@ export async function moveProjectCard(
       `INSERT INTO project_properties (board_id, id, name, type, options, position, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`,
     ).bind(targetBoardId, property.id, property.name, property.type, JSON.stringify(property.options), targetProperties.length + index, now))
+    const config = sourceById.get(property.id)?.config
+    if (config) {
+      statements.push(db.prepare(
+        `INSERT OR REPLACE INTO project_property_configs (board_id, property_id, config, updated_at)
+         VALUES (?1, ?2, ?3, ?4)`,
+      ).bind(targetBoardId, property.id, serializeProjectPropertyConfig(config), now))
+    }
   })
   for (const update of plan.optionUpdates) {
     statements.push(db.prepare('UPDATE project_properties SET options = ?1, updated_at = ?2 WHERE board_id = ?3 AND id = ?4')

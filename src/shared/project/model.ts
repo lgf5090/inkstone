@@ -203,11 +203,24 @@ export interface ProjectPropertyOption {
   color: string
 }
 
+/**
+ * Settings a property type needs beyond its column: which board a relation points at, the formula to
+ * evaluate, and which roles may read or write this property. Empty arrays mean every role.
+ */
+export interface ProjectPropertyConfig {
+  targetBoardId?: string
+  multiple?: boolean
+  expression?: string
+  viewRoles?: ProjectRole[]
+  editRoles?: ProjectRole[]
+}
+
 export interface ProjectProperty {
   id: string
   name: string
   type: ProjectPropertyType
   options: ProjectPropertyOption[]
+  config?: ProjectPropertyConfig
 }
 
 export interface ProjectSortOption {

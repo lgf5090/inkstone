@@ -10,6 +10,7 @@ import type { ProjectAttachment, ProjectBoardBundle, ProjectBoardSummary, Projec
 import type { ProjectContentOrder } from '@shared/project/content-order'
 import { newProjectId } from '@shared/project/limits'
 import { serializeProjectRecurrence } from '@shared/project/recurrence'
+import { serializeProjectPropertyConfig } from '@shared/project/property-config'
 import { rowToContent, type ContentRow } from './bundle'
 
 const COPY_BATCH_SIZE = 500
@@ -75,6 +76,10 @@ export async function duplicateProjectBoard(
       `INSERT INTO project_properties (board_id, id, name, type, options, position, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`,
     ).bind(boardId, property.id, property.name, property.type, JSON.stringify(property.options), index, now))
+    statements.push(db.prepare(
+      `INSERT INTO project_property_configs (board_id, property_id, config, updated_at)
+       VALUES (?1, ?2, ?3, ?4)`,
+    ).bind(boardId, property.id, serializeProjectPropertyConfig(property.config), now))
   })
   for (const card of bundle.cards) {
     const id = cardMap.get(card.id)!

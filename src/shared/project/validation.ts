@@ -45,11 +45,20 @@ export const ProjectPropertyOptionSchema = z.object({
   color: z.string().max(64),
 })
 
+export const ProjectPropertyConfigSchema = z.object({
+  targetBoardId: projectId.optional(),
+  multiple: z.boolean().optional(),
+  expression: z.string().max(500).optional(),
+  viewRoles: z.array(z.enum(PROJECT_ROLES)).max(PROJECT_ROLES.length).optional(),
+  editRoles: z.array(z.enum(PROJECT_ROLES)).max(PROJECT_ROLES.length).optional(),
+})
+
 export const ProjectPropertySchema = z.object({
   id: projectId,
   name: z.string().max(1024),
   type: ProjectPropertyTypeSchema,
   options: z.array(ProjectPropertyOptionSchema).max(PROJECT_LIMITS.optionsPerProperty),
+  config: ProjectPropertyConfigSchema.optional(),
 })
 
 export const ProjectFilterClauseSchema = z.object({

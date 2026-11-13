@@ -236,6 +236,21 @@ export const PROJECT_AUX_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
 ]
 
+/**
+ * Per-property settings that are not part of the column list: which board a relation points at, a
+ * formula, or which roles may read and edit the property. Kept beside `project_properties` so the
+ * hot property table's shape does not change for every new capability.
+ */
+export const PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_property_configs (
+    board_id TEXT NOT NULL,
+    property_id TEXT NOT NULL,
+    config TEXT NOT NULL DEFAULT '{}',
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (board_id, property_id)
+  )`,
+]
+
 /** One row per worked interval on a card; `ended_at` null means the timer is still running. */
 export const PROJECT_TIME_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS project_time_entries (
@@ -331,6 +346,7 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_card_links',
   'project_todo_links',
   'project_time_entries',
+  'project_property_configs',
   'project_fts_queue',
   'project_fts',
 ]

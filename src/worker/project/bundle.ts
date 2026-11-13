@@ -14,6 +14,7 @@ import type {
   ProjectRole,
   ProjectView,
 } from '@shared/project/model'
+import { projectPropertyVisibleTo } from '@shared/project/property-config'
 import { projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { parseProjectRecurrence } from '@shared/project/recurrence'
@@ -187,7 +188,16 @@ export async function readProjectBoardBundle(
     }
     values[row.property_id] = row.value
   }
-  const cards = cardRows.results.map((row) => rowToCard(row, valuesByCard.get(row.id) ?? {}))
+  const visibleProperties = properties.filter((property) => projectPropertyVisibleTo(property, role))
+  const visiblePropertyIds = new Set(visibleProperties.map((property) => property.id))
+  const cards = cardRows.results.map((row) => {
+    const values = valuesByCard.get(row.id) ?? {}
+    const kept: Record<string, string> = {}
+    for (const [propertyId, value] of Object.entries(values)) {
+      if (visiblePropertyIds.has(propertyId)) kept[propertyId] = value
+    }
+    return rowToCard(row, kept)
+  })
   const allViews = viewRows.results.map(rowToView)
   const views = allViews.filter((view) => !view.fields.minimumRole || projectRoleAtLeast(role, view.fields.minimumRole))
   const contentsTruncated = contentRows.results.length > PROJECT_LIMITS.bundleContents
@@ -195,7 +205,7 @@ export async function readProjectBoardBundle(
   const contents = contentRows.results.slice(0, PROJECT_LIMITS.bundleContents).map(rowToContent)
   const comments = commentRows.results.slice(0, PROJECT_LIMITS.bundleComments).map(rowToComment)
 
-  const personProperties = new Set(properties.filter((property) => property.type === 'person' || property.type === 'multiPerson').map((property) => property.id))
+  const personProperties = new Set(visibleProperties.filter((property) => property.type === 'person' || property.type === 'multiPerson').map((property) => property.id))
   const userIds = new Set<string>([board.ownerId])
   for (const member of members) userIds.add(member.userId)
   for (const card of cards) {
@@ -217,7 +227,7 @@ export async function readProjectBoardBundle(
   for (const member of members) cursor = Math.max(cursor, member.updatedAt)
 
   return {
-    board, properties, views, cards, contents, comments, members, people, role, cursor,
+    board, properties: visibleProperties, views, cards, contents, comments, members, people, role, cursor,
     ...(contentsTruncated ? { contentsTruncated } : {}),
     ...(commentsTruncated ? { commentsTruncated } : {}),
   }

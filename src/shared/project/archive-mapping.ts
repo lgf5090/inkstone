@@ -22,6 +22,7 @@ import {
   type ProjectArchiveAttachment, type ProjectArchiveBlock, type ProjectArchiveLine,
 } from './archive'
 import { ProjectRecurrenceSchema } from './validation'
+import { parseProjectPropertyConfig } from './property-config'
 
 const MULTI_VALUE_TYPES = new Set(['multiSelect', 'multiPerson'])
 
@@ -261,11 +262,13 @@ function readProperties(value: unknown): ProjectProperty[] {
         return { id: asString(opt.id), value: asString(opt.value), color: asString(opt.color) }
       })
       : []
+    const config = parseProjectPropertyConfig(JSON.stringify(record.config ?? {}))
     out.push({
       id,
       name: asString(record.name),
       type: (PROJECT_PROPERTY_TYPES as readonly string[]).includes(type) ? (type as ProjectProperty['type']) : 'unknown',
       options,
+      ...(config ? { config } : {}),
     })
   }
   return out

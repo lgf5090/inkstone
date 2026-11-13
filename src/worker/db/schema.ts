@@ -239,6 +239,7 @@ import {
   PROJECT_CORE_SCHEMA_STATEMENTS,
   PROJECT_ENHANCE_SCHEMA_STATEMENTS,
   PROJECT_TIME_SCHEMA_STATEMENTS,
+  PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS,
   PROJECT_FTS_SCHEMA_STATEMENTS,
   PROJECT_REQUIRED_COLUMNS,
   PROJECT_REQUIRED_INDEXES,
@@ -853,6 +854,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...PROJECT_AUX_SCHEMA_STATEMENTS,
   ...PROJECT_ENHANCE_SCHEMA_STATEMENTS,
   ...PROJECT_TIME_SCHEMA_STATEMENTS,
+  ...PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS,
   ...PROJECT_FTS_SCHEMA_STATEMENTS,]
 
 export interface SchemaMigration {
@@ -4301,6 +4303,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // edit and two people timing the same card cannot overwrite each other.
     version: 394,
     statements: PROJECT_TIME_SCHEMA_STATEMENTS,
+  },
+  {
+    // Relation targets, formulas and role restrictions live beside the property rather than in four
+    // nullable columns that only one property type uses.
+    version: 395,
+    statements: PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS,
   },
 ]
 

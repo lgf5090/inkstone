@@ -7,6 +7,7 @@ import type {
 } from '@shared/project/model'
 import { newProjectId } from '@shared/project/limits'
 import { applyProjectPropertyPatch } from '@shared/project/property-patch'
+import { parseProjectPropertyConfig, serializeProjectPropertyConfig } from '@shared/project/property-config'
 import type { ProjectBoardCreateInput, ProjectBoardPatchInput } from '@shared/project/validation'
 import { rowToBoard, type ProjectBoardRow } from './permissions'
 
@@ -31,11 +32,20 @@ function rowToProperty(row: PropertyRow): ProjectProperty {
 }
 
 export async function readBoardProperties(db: D1Database, boardId: string): Promise<ProjectProperty[]> {
-  const { results } = await db
-    .prepare('SELECT * FROM project_properties WHERE board_id = ?1 ORDER BY position, id')
-    .bind(boardId)
-    .all<PropertyRow>()
-  return results.map(rowToProperty)
+  const [{ results }, configs] = await Promise.all([
+    db.prepare('SELECT * FROM project_properties WHERE board_id = ?1 ORDER BY position, id')
+      .bind(boardId)
+      .all<PropertyRow>(),
+    db.prepare('SELECT property_id, config FROM project_property_configs WHERE board_id = ?1')
+      .bind(boardId)
+      .all<{ property_id: string, config: string }>(),
+  ])
+  const byProperty = new Map(configs.results.map((row) => [row.property_id, row.config]))
+  return results.map((row) => {
+    const property = rowToProperty(row)
+    const config = parseProjectPropertyConfig(byProperty.get(row.id))
+    return config ? { ...property, config } : property
+  })
 }
 
 function propertyStatements(
@@ -44,15 +54,21 @@ function propertyStatements(
   properties: readonly ProjectProperty[],
   now: number,
 ): D1PreparedStatement[] {
-  return properties.map((property, index) => db
-    .prepare(
+  return properties.flatMap((property, index) => [
+    db.prepare(
       `INSERT INTO project_properties (board_id, id, name, type, options, position, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
        ON CONFLICT(board_id, id) DO UPDATE SET
          name = excluded.name, type = excluded.type, options = excluded.options,
          position = excluded.position, updated_at = excluded.updated_at`,
     )
-    .bind(boardId, property.id, property.name, property.type, JSON.stringify(property.options), index, now))
+      .bind(boardId, property.id, property.name, property.type, JSON.stringify(property.options), index, now),
+    db.prepare(
+      `INSERT INTO project_property_configs (board_id, property_id, config, updated_at)
+       VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT(board_id, property_id) DO UPDATE SET config = excluded.config, updated_at = excluded.updated_at`,
+    ).bind(boardId, property.id, serializeProjectPropertyConfig(property.config), now),
+  ])
 }
 
 /**
@@ -142,6 +158,7 @@ export async function patchProjectBoard(
     for (const property of current) {
       if (kept.has(property.id)) continue
       statements.push(db.prepare('DELETE FROM project_properties WHERE board_id = ?1 AND id = ?2').bind(board.id, property.id))
+      statements.push(db.prepare('DELETE FROM project_property_configs WHERE board_id = ?1 AND property_id = ?2').bind(board.id, property.id))
       statements.push(db.prepare(
         'DELETE FROM project_card_values WHERE property_id = ?1 AND card_id IN (SELECT id FROM project_cards WHERE board_id = ?2)',
       ).bind(property.id, board.id))

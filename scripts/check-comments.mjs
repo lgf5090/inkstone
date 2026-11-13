@@ -33500,6 +33500,7 @@ const allowed = new Map([
     "/** Carried only by an import path that already has the edges; a board read leaves it undefined. */",
     "/** One row of the cross-board \"my tasks\" list: the card, its board and its earliest date. */",
     "/** A worked interval on a card; `endedAt` null while the timer runs. */",
+    "/**\n * Settings a property type needs beyond its column: which board a relation points at, the formula to\n * evaluate, and which roles may read or write this property. Empty arrays mean every role.\n */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",
@@ -33507,6 +33508,10 @@ const allowed = new Map([
     "/** The palette name a stored colour names, or `''` for none — including the reference's `propColorDefault`. */",
     "/** The CSS colour a chip's text and dot are painted in, or `null` when the option carries no colour. */",
     "/**\n * A colour lookup that resolves each option once instead of once per card.\n *\n * A board draws the same card's colour three or four times a frame (dot, bar, progress, chip) and a\n * thousand cards each walk every select property's option list to find it. Pre-resolving the options\n * turns each card into one map read.\n */",
+  ]],
+  ["src/shared/project/property-config.ts", [
+    "/**\n * Reading and writing a property's settings JSON.\n *\n * The column is free-form so a new capability does not need a migration, which makes this the one\n * place that decides what a stored object may say: unknown keys are dropped, role lists are reduced\n * to the four real roles, and an empty result is `undefined` rather than an empty object so callers\n * can tell \"no settings\" from \"settings that say nothing\".\n */",
+    "/** A role list that is absent or empty means every role; the check is the same in both directions. */",
   ]],
   ["src/shared/project/property-patch.ts", [
     "/**\n * The reference's cardProperties patch, step for step (board.go Patch): a whole-object replacement\n * matched by id, where a never-seen id is appended rather than inserted, and a deletion leaves the\n * survivors in their original relative order. Entries without a string id are skipped, not rejected.\n *\n * One guard the reference lacks: a deleted id leaves the order list immediately, so an id both deleted\n * and re-added in the same patch lands at the end exactly once. The reference keeps the deleted id in\n * the order list and would emit it twice; here a property id is a primary key, so a duplicate cannot be\n * stored and the order list must not name it twice.\n */",
@@ -41039,6 +41044,8 @@ const allowed = new Map([
     "// the version without re-adding it.",
     "// Time tracking writes its own intervals rather than a running total, so a correction is a row",
     "// edit and two people timing the same card cannot overwrite each other.",
+    "// Relation targets, formulas and role restrictions live beside the property rather than in four",
+    "// nullable columns that only one property type uses.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -42732,6 +42739,9 @@ const allowed = new Map([
   ["src/worker/project/preferences.ts", [
     "/** Per-reader, per-board card marks. They are a preference, not board content, so they live beside the\n * user in project_settings rather than on the card row. */",
   ]],
+  ["src/worker/project/property-access.ts", [
+    "/**\n * The write half of field permissions: a property may name the roles allowed to edit it, and a caller\n * that is not one of them must be refused before the row is touched. Reads are redacted in `bundle.ts`\n * by the same rule, so a hidden property cannot be edited by guessing its id either.\n */",
+  ]],
   ["src/worker/project/public-page.ts", [
     "/**\n * The public board's address.\n *\n * `/p` is reserved in `wrangler.toml`'s run_worker_first, so the worker answers it rather than the\n * asset fallback — without this route the reserved path was a 404 and the link the share dialog hands\n * out led nowhere. It serves the app shell and nothing more: a board's title sits behind the same\n * passcode as its cards, so a crawler is told no more than a stranger holding the address.\n */",
   ]],
@@ -42772,6 +42782,7 @@ const allowed = new Map([
     "// an fts5 virtual table has none to replay — its columns are changed by rebuilding it, not by ADD COLUMN.",
     "// The public link is read-only; comments are internal discussion unless the owner opts in.",
     "/** One row per worked interval on a card; `ended_at` null means the timer is still running. */",
+    "/**\n * Per-property settings that are not part of the column list: which board a relation points at, a\n * formula, or which roles may read and edit the property. Kept beside `project_properties` so the\n * hot property table's shape does not change for every new capability.\n */",
   ]],
   ["src/worker/project/search.ts", [
     "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. Cards match on their title,\n * their content blocks and their comments; the reserved project_fts table remains the indexed\n * follow-up once the write-path queue is wired.\n */",
@@ -52643,7 +52654,7 @@ const allowed = new Map([
     "// owner's live-session ceiling.",
   ]],
   ["tests/webssh-schema.test.ts", [
-    "// The project tables append 385–394 after this lane's own block.",
+    "// The project tables append 385–395 after this lane's own block.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",

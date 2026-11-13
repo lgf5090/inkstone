@@ -1,7 +1,8 @@
 import { useRef, useState, type ReactElement } from 'react'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import type { ProjectProperty, ProjectPropertyType } from '@shared/project/model'
+import type { ProjectProperty, ProjectPropertyConfig, ProjectPropertyType, ProjectRole } from '@shared/project/model'
 import { newProjectId } from '@shared/project/limits'
+import { PROJECT_ROLES } from '@shared/project/model'
 import { PROJECT_OPTION_COLORS, projectOptionColorName, projectOptionCssColor } from '@shared/project/option-color'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
@@ -31,6 +32,15 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
   const update = (id: string, patch: Partial<ProjectProperty>) => {
     setDraft((current) => current.map((property) => (property.id === id ? { ...property, ...patch } : property)))
   }
+  const toggleRole = (property: ProjectProperty, key: 'viewRoles' | 'editRoles', role: ProjectRole) => {
+    const current = property.config?.[key] ?? []
+    const next = current.includes(role) ? current.filter((entry) => entry !== role) : [...current, role]
+    const config: ProjectPropertyConfig = { ...property.config }
+    if (next.length) config[key] = next
+    else delete config[key]
+    update(property.id, { config: Object.keys(config).length ? config : undefined })
+  }
+
   const move = (index: number, delta: number) => {
     setDraft((current) => {
       const next = [...current]
@@ -118,6 +128,33 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
                 </div>
               </div>
             )}
+            <details className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1">
+              <summary className="cursor-pointer text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.props.access')}</summary>
+              <div className="mt-1.5 space-y-1">
+                {(['viewRoles', 'editRoles'] as const).map((key) => (
+                  <div key={key} className="flex flex-wrap items-center gap-1">
+                    <span className="w-16 shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                      {t(key === 'viewRoles' ? 'project.props.access_view' : 'project.props.access_edit')}
+                    </span>
+                    {PROJECT_ROLES.map((role) => {
+                      const active = property.config?.[key]?.includes(role) ?? false
+                      return (
+                        <button
+                          key={role}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => toggleRole(property, key, role)}
+                          className={`rounded-full border px-2 py-0.5 text-[length:var(--text-11)] transition-colors ${active ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
+                        >
+                          {t(`project.role.${role}` as Parameters<typeof t>[0])}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
+                <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('project.props.access_hint')}</p>
+              </div>
+            </details>
           </div>
         ))}
         <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
