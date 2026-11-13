@@ -33498,6 +33498,7 @@ const allowed = new Map([
     "/** The weakest role that sees this tab; absent means everyone who can read the board. */",
     "/** Set when the board holds more detail rows than one read carries; open a card for the rest. */",
     "/** Carried only by an import path that already has the edges; a board read leaves it undefined. */",
+    "/** One row of the cross-board \"my tasks\" list: the card, its board and its earliest date. */",
   ]],
   ["src/shared/project/option-color.ts", [
     "/**\n * The option colour vocabulary, and the palette it is drawn with.\n *\n * An archive spells a colour as the reference's `propColorRed`; the app already owns a calibrated\n * tag palette in `styles/tokens.css`, whose nine named colours overlap the reference's by name\n * (port plan D-03). Resolving to those tokens rather than importing the kanban engine keeps this\n * module's chunk free of that engine, and keeps the contrast calibration that palette already carries.\n *\n * The stored string stays the reference's token so an export still round-trips; only the reader maps.\n */",
@@ -42714,6 +42715,9 @@ const allowed = new Map([
   ]],
   ["src/worker/project/move.ts", [
     "/**\n * Moving a card (and its subtasks) to another board.\n *\n * A card's values key on the source board's property and option ids, which mean nothing on the target.\n * Each used property is matched to the target by name and type; a match reuses the target's property\n * and maps options by their label, while a property the target lacks is created there carrying its\n * options over. Contents and comments travel with the card; the moved root detaches from any parent\n * left behind, and subtasks keep their place under it.\n */",
+  ]],
+  ["src/worker/project/my-tasks.ts", [
+    "/**\n * The cards across every readable board that name the reader in a person property.\n *\n * A board the reader merely can open still counts, because an open board's cards are visible even\n * without a membership row; a card on a board they cannot read never appears. Dates are read in the\n * zone the value was written in, so the grouping lands on the author's day rather than UTC's.\n */",
   ]],
   ["src/worker/project/notify.ts", [
     "/**\n * D-7: a comment notifies the members it @mentions and the subscribers watching the card or board.\n * The target set is a pure function so tests can pin it; delivery is best-effort because a refused\n * notice must never refuse the comment itself.\n */",

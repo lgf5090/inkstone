@@ -13,6 +13,7 @@ import type {
   ProjectCard,
   ProjectCardLink,
   ProjectCardMarks,
+  ProjectMyTask,
   ProjectCategory,
   ProjectCategoryBoard,
   ProjectComment,
@@ -31,6 +32,11 @@ import type { ProjectBoardCreateInput, ProjectCardCreateInput } from '@shared/pr
 export async function fetchProjectBoards(signal?: AbortSignal): Promise<ProjectBoardSummary[]> {
   const body = await request<{ boards: ProjectBoardSummary[] }>('/api/project/boards', { signal })
   return body.boards
+}
+
+export async function fetchMyProjectTasks(signal?: AbortSignal): Promise<ProjectMyTask[]> {
+  const body = await request<{ tasks: ProjectMyTask[] }>('/api/project/my-tasks', { signal })
+  return body.tasks
 }
 
 export async function createProjectBoard(input: Partial<ProjectBoardCreateInput>): Promise<ProjectBoardSummary> {

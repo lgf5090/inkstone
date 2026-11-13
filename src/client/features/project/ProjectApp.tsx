@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { Archive, Clock, Copy, Download, MoreHorizontal, Pencil, Pin, Plus, Save, Search, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
+import { Archive, Clock, Copy, Download, ListTodo, MoreHorizontal, Pencil, Pin, Plus, Save, Search, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { ProjectBoardSummary, ProjectRole } from '@shared/project/model'
 import { t, useLocale } from '../../lib/i18n'
@@ -15,6 +15,7 @@ import { useProjectStore } from './store'
 import { BoardPage } from './BoardPage'
 import { ArchiveDialog } from './ArchiveDialog'
 import { ImportDialog } from './ImportDialog'
+import { MyTasksPage } from './MyTasksPage'
 import { ProjectSidebar } from './ProjectSidebar'
 import { SearchDialog } from './SearchDialog'
 import { TemplatePicker } from './TemplatePicker'
@@ -39,6 +40,7 @@ export function ProjectApp(): ReactElement {
   const pathname = usePathname()
   const sessionStatus = useSession((state) => state.status)
   useEffect(() => { if (sessionStatus === 'authed') migrateProjectBoardMarks() }, [sessionStatus])
+  if (pathname === '/project/my-tasks') return <MyTasksPage />
   const match = /^\/project\/boards\/([^/]+)/.exec(pathname)
   if (match) return <BoardPage boardId={decodeURIComponent(match[1]!)} />
   return <BoardList />
@@ -112,6 +114,7 @@ function BoardList(): ReactElement {
             ]}
           />
         </span>
+        <IconButton label={t('project.my_tasks.title')} size="sm" onClick={() => navigateToPath('/project/my-tasks')}><ListTodo size={16} /></IconButton>
         <IconButton label={t('project.search.title')} size="sm" onClick={() => setShowSearch(true)}><Search size={16} /></IconButton>
         <IconButton label={t('project.archive.title')} size="sm" onClick={() => setShowArchive(true)}><Archive size={16} /></IconButton>
         <IconButton label={t('project.trash.title')} size="sm" onClick={() => setShowTrash(true)}><Trash2 size={16} /></IconButton>

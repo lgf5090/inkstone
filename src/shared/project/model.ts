@@ -123,6 +123,17 @@ export interface ProjectCardLink {
   kind: ProjectCardLinkKind
 }
 
+/** One row of the cross-board "my tasks" list: the card, its board and its earliest date. */
+export interface ProjectMyTask {
+  cardId: string
+  boardId: string
+  boardTitle: string
+  boardIcon: string
+  title: string
+  dueAt: number | null
+  updatedAt: number
+}
+
 export interface ProjectActivityEntry {
   id: string
   actorId: string

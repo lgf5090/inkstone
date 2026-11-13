@@ -105,6 +105,7 @@ import { projectBoardToMarkdown } from '@shared/project/markdown'
 import { deleteProjectAttachment, getProjectAttachment, listBoardAttachments, uploadProjectAttachment, PROJECT_UPLOAD_LIMIT, PROJECT_INLINE_MIMES } from './files'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
 import { projectStatistics } from './statistics'
+import { listProjectMyTasks } from './my-tasks'
 import { createBoardFromTemplate, listProjectTemplates, saveBoardAsTemplate } from './templates'
 import { listProjectSubscriptions, subscribeProject, unsubscribeProject } from './subscriptions'
 import {
@@ -169,6 +170,10 @@ function store(c: Context<AppBindings>): ProjectStore {
 
 projectRoutes.get('/boards', async (c) => {
   return c.json({ boards: await store(c).boards() })
+})
+
+projectRoutes.get('/my-tasks', async (c) => {
+  return c.json({ tasks: await listProjectMyTasks(c.env.DB, projectUserId(c)) })
 })
 
 projectRoutes.get('/statistics', async (c) => {
