@@ -311,7 +311,7 @@ function applyMemoryScope(q: Query, scope: MemoryScope | undefined, column = 'pr
  * `length(key_ciphertext) > 0` answers "is a key stored" without the ciphertext ever leaving the row,
  * so no provider listing can carry a key out even if a route is added carelessly later.
  */
-const PROVIDER_COLUMNS = `id, label, protocol, base_url, endpoints, reasoning_dialect, key_hint, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
+const PROVIDER_COLUMNS = `id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_hint, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
 
 /** A provider key row, ciphertext included: read only by the rotation, never by a listing. */
 const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, enabled, last_used_at, error_count, last_error, created_at, updated_at`

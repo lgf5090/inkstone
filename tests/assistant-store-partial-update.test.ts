@@ -191,6 +191,16 @@ describe('a provider or project PATCH that names one field', () => {
     expect(oneField?.hasKey).toBe(false)
   })
 
+  it('reads a stored icon back from the listing, and keeps it across a patch of another field', async () => {
+    const chosen = 'emoji:🦊'
+    await store.updateProvider(provider.id, { icon: chosen })
+    expect((await store.listProviders()).find((entry) => entry.id === provider.id)?.icon).toBe(chosen)
+    expect((await store.getProvider(provider.id))?.icon).toBe(chosen)
+    const renamed = await store.updateProvider(provider.id, { label: 'Only the label again' })
+    expect(renamed?.icon).toBe(chosen)
+    expect((await store.listProviders()).find((entry) => entry.id === provider.id)?.icon).toBe(chosen)
+  })
+
   it('keeps both fields when two project writes overlap', async () => {
     const project = await store.createProject({ name: 'Alpha', instructions: 'Stand', modelId: model.id })
     const first = store.updateProject(project.id, { instructions: 'Rewritten' })
