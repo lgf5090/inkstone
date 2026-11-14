@@ -146,7 +146,7 @@ import { ChatShareStore, conversationSharePasswordHash, messageScope, MAX_SHARED
 import { suggestActiveModel } from '../assistant/model-config'
 import { listVendorModels } from '../assistant/vendor-models'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
-import { MAX_PROVIDER_MODELS, reasoningDialectValue, reasoningValue, searchEndpointValue } from '@shared/assistant'
+import { MAX_PROVIDER_KEYS, MAX_PROVIDER_MODELS, parseProviderKeys, reasoningDialectValue, reasoningValue, searchEndpointValue } from '@shared/assistant'
 import { MAX_SEARCH_KEY_CHARS, isWebSearchEngineId, webSearchEngineFor } from '@shared/web-search-engines'
 import { balanceSpecFor } from '@shared/provider-balance'
 import {
@@ -3389,12 +3389,13 @@ assistantRoutes.post('/providers', async (c) => {
   const protocol = asProtocol(body.protocol)
   const baseUrl = vetBaseUrl(body.baseUrl)
   const label = text(body.label, 60)
-  const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
-  if (apiKey.length > 4096) throw ApiError.badRequest('That API key is too long to store.')
+  const keys = providerKeys(body.apiKey)
   const provider = await s.createProvider({
-    label, icon: assistantIconValue(body.icon), protocol, baseUrl, apiKey, endpoints: vetEndpoints(body.endpoints),
+    label, icon: assistantIconValue(body.icon), protocol, baseUrl, apiKey: keys[0] ?? '', endpoints: vetEndpoints(body.endpoints),
     reasoningDialect: reasoningDialectValue(body.reasoningDialect),
   })
+  // The first key belongs to the provider row; the rest are the ring the next turns rotate through.
+  for (const key of keys.slice(1)) await s.createProviderKey(provider.id, { label: '', apiKey: key })
   const models = Array.isArray(body.models) ? body.models : []
   for (const entry of models.slice(0, MAX_PROVIDER_MODELS)) {
     const model = typeof entry === 'string' ? entry : (entry as { model?: unknown })?.model
@@ -3411,16 +3412,23 @@ assistantRoutes.patch('/providers/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.profile)
+  // A filled box replaces the whole ring: the first key goes on the provider row and every extra key
+  // row is rebuilt from the rest. A blank box sends nothing at all and leaves the stored ring alone.
+  const keys = typeof body.apiKey === 'string' ? providerKeys(body.apiKey) : null
   const provider = await s.updateProvider(id, {
     ...(body.label !== undefined ? { label: text(body.label, 60, 'A provider name is required.') } : {}),
     ...(body.icon !== undefined ? { icon: assistantIconValue(body.icon) } : {}),
     ...(body.protocol !== undefined ? { protocol: asProtocol(body.protocol) } : {}),
     ...(body.baseUrl !== undefined ? { baseUrl: vetBaseUrl(body.baseUrl) } : {}),
-    ...(body.apiKey === null ? { apiKey: null } : typeof body.apiKey === 'string' ? { apiKey: body.apiKey } : {}),
+    ...(body.apiKey === null ? { apiKey: null } : keys?.length ? { apiKey: keys[0] } : {}),
     ...(body.endpoints !== undefined ? { endpoints: vetEndpoints(body.endpoints) } : {}),
     ...(body.reasoningDialect !== undefined ? { reasoningDialect: reasoningDialectValue(body.reasoningDialect) } : {}),
   })
   if (!provider) throw ApiError.notFound('Provider not found')
+  if (keys?.length) {
+    for (const extra of await s.listProviderKeys(id)) await s.deleteProviderKey(extra.id)
+    for (const key of keys.slice(1)) await s.createProviderKey(id, { label: '', apiKey: key })
+  }
   return c.json({ provider })
 })
 
@@ -3527,8 +3535,10 @@ assistantRoutes.post('/providers/model-list', async (c) => {
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
   const protocol = asProtocol(body.protocol)
   const baseUrl = vetBaseUrl(body.baseUrl)
-  const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
-  if (apiKey.length > 4096) throw ApiError.badRequest('That API key is too long to send.')
+  const rawKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
+  if (rawKey.length > 4096) throw ApiError.badRequest('That API key is too long to send.')
+  // Only one credential can sign a listing; the ring's first key is the one the form would have stored.
+  const apiKey = parseProviderKeys(rawKey)[0] ?? ''
   return c.json(await listVendorModels(protocol, baseUrl, apiKey))
 })
 
@@ -3549,6 +3559,22 @@ assistantRoutes.delete('/providers/:id', async (c) => {
   }
   return c.json({ deleted: true })
 })
+
+/**
+ * The keys a create or edit actually named, before any of them reaches the vault.
+ *
+ * A comma-separated box is one ring, so the byte ceiling and the cap are checked here rather than in the
+ * store: an edit that says "replace" must write all of the keys the form counted, or refuse the request.
+ */
+function providerKeys(value: unknown): string[] {
+  const raw = typeof value === 'string' ? value : ''
+  if (raw.length > 4096) throw ApiError.badRequest('That API key list is too long to store.')
+  const keys = parseProviderKeys(raw)
+  if (keys.length > MAX_PROVIDER_KEYS) {
+    throw ApiError.badRequest(`A provider may hold at most ${MAX_PROVIDER_KEYS} keys.`)
+  }
+  return keys
+}
 
 function asProtocol(value: unknown): AssistantProtocol {
   if (typeof value === 'string' && (ASSISTANT_PROTOCOLS as readonly string[]).includes(value)) return value as AssistantProtocol

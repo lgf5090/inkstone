@@ -8,7 +8,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { AudioLines, Brain, Check, ChevronDown, Download, Eye, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
 import { type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProtocol, type AssistantProvider, type AssistantSettings, type ReasoningDialect } from '@shared/assistant'
-import { ASSISTANT_PROTOCOLS, PROVIDER_PRESETS, endpointFieldState } from '@shared/assistant'
+import { ASSISTANT_PROTOCOLS, MAX_PROVIDER_KEYS, PROVIDER_PRESETS, endpointFieldState, parseProviderKeys } from '@shared/assistant'
 import { iconForModel, iconForProvider } from '@shared/assistant-icons'
 import { dialectsForProtocol } from '@shared/reasoning'
 import { AssistantIcon } from './AssistantIcon'
@@ -625,8 +625,11 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     for (const entry of extraProtocols) {
       if (endpointFieldState(extra[entry] ?? '') === 'invalid') out[entry] = t('assistant.settings.address_invalid')
     }
+    if (parseProviderKeys(apiKey).length > MAX_PROVIDER_KEYS) {
+      out.api_key = t('assistant.settings.api_key_too_many', { max: MAX_PROVIDER_KEYS })
+    }
     return out
-  }, [baseUrl, extra, extraProtocols])
+  }, [baseUrl, extra, extraProtocols, apiKey])
   const sendable = Object.fromEntries(
     extraProtocols
       .map((entry) => [entry, extra[entry]] as const)
@@ -634,7 +637,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   )
   // Listing needs both halves to be worth sending; the button says which one is missing instead of
   // opening a dialog that can only fail.
-  const canList = Boolean(apiKey.trim()) && endpointFieldState(baseUrl) === 'ok'
+  const canList = parseProviderKeys(apiKey).length > 0 && endpointFieldState(baseUrl) === 'ok'
 
   /**
    * Switching the wire a provider is called on, and taking its address with it.
@@ -699,6 +702,14 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
       ? t('assistant.settings.api_key_edit_hint', { hint: storedHint })
       : t('assistant.settings.api_key_edit_hint_nohint'))
     : t('assistant.settings.api_key_hint')
+  // The box is one ring rather than one credential. What the reader sees here is what the route parses,
+  // so the count and the cap have to be visible before the save rather than discovered after it.
+  const keyCount = parseProviderKeys(apiKey).length
+  const apiKeyFieldHint = [
+    apiKeyHint,
+    t('assistant.settings.api_key_multi', { max: MAX_PROVIDER_KEYS }),
+    keyCount > 1 ? t('assistant.settings.api_key_count', { count: keyCount }) : '',
+  ].filter(Boolean).join(' ')
 
   // The save and its answer, in one place: the dialog stays open with the draft intact unless the write
   // says it landed, and the reason it refused is printed here rather than arriving as a toast over a
@@ -823,12 +834,13 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
         {/* An edit opens with an empty password box because the plaintext is not ours to show again. The
             field still has to say that a key is stored, or the reader reads the empty box as "my key is
             gone" — the placeholder carries the last four characters, and the hint says blank keeps it. */}
-        <Field label={t('assistant.settings.api_key')} hint={apiKeyHint}>
+        <Field label={t('assistant.settings.api_key')} hint={problems.api_key ?? apiKeyFieldHint}>
           <Input
             type="password"
             value={apiKey}
             maxLength={4096}
             autoComplete="off"
+            invalid={Boolean(problems.api_key)}
             leading={<KeyRound size={13} />}
             placeholder={apiKeyPlaceholder}
             onChange={(event) => setApiKey(event.target.value)}
@@ -868,7 +880,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
 
       {listing && (
         <ModelPickerDialog
-          draft={{ protocol, baseUrl: baseUrl.trim(), apiKey: apiKey.trim(), label: label.trim() || chosen.label }}
+          draft={{ protocol, baseUrl: baseUrl.trim(), apiKey: parseProviderKeys(apiKey)[0] ?? '', label: label.trim() || chosen.label }}
           existing={models.split(',').map((entry) => entry.trim()).filter(Boolean)}
           onPicked={(ids) => setModels(ids.join(', '))}
           onClose={() => setListing(false)}

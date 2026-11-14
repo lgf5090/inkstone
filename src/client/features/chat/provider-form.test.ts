@@ -10,7 +10,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantProvider, AssistantVendorModel } from '@shared/assistant'
-import { PROVIDER_PRESETS } from '@shared/assistant'
+import { MAX_PROVIDER_KEYS, PROVIDER_PRESETS } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { ProviderForm } from './AssistantModelTab'
@@ -110,6 +110,18 @@ describe('saving a provider', () => {
     expect(onCreated).toHaveBeenCalledWith(created)
     // The form closes first: the listing opens on top of the settings screen, not of this dialog.
     expect(onCloseSpy).toHaveBeenCalled()
+  })
+
+  it('counts the keys a comma-separated box will rotate through before the save', () => {
+    act(() => { type(keyBox()!, 'sk-one, sk-two, sk-three') })
+    expect(document.body.textContent).toContain(t('assistant.settings.api_key_count', { count: 3 }))
+  })
+
+  it('refuses a ring longer than the shared cap, and names the limit', () => {
+    const tooMany = Array.from({ length: MAX_PROVIDER_KEYS + 1 }, (_, index) => `sk-many-${index}`).join(',')
+    act(() => { type(keyBox()!, tooMany) })
+    expect(submit()?.disabled).toBe(true)
+    expect(document.body.textContent).toContain(t('assistant.settings.api_key_too_many', { max: MAX_PROVIDER_KEYS }))
   })
 })
 

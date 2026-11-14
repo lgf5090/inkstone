@@ -2195,6 +2195,8 @@ const allowed = new Map([
     "// A bare scheme is \"nothing was entered\", so it must not overwrite a usable address.",
     "// A stored entry for the provider's own wire is dropped here: the address box above already",
     "// carries that wire, and a second copy this form cannot show is what used to disable the save.",
+    "// The box is one ring rather than one credential. What the reader sees here is what the route parses,",
+    "// so the count and the cap have to be visible before the save rather than discovered after it.",
   ]],
   ["src/client/features/chat/AssistantOtherTab.tsx", [
     "/** The switches that change how the interface behaves rather than how the model answers. */",
@@ -32399,6 +32401,8 @@ const allowed = new Map([
     "/**\n * The page context a request may carry, or null when the caller sent nothing usable.\n *\n * Every string is trimmed and truncated and every list is capped: an oversized screen is cut down to the\n * bound rather than refused, because a reader with a long page title should still get an answer about it.\n * Fields the type does not name are dropped, so a caller cannot smuggle a new prompt line through.\n */",
     "/**\n * The page context as one paragraph of system prompt.\n *\n * Kept to a header, the label, and the facts the caller already bounded, so the paragraph costs a fixed\n * number of tokens however busy the screen is. The closing line says what the block is for, because a\n * screen whose label reads \"Delete all notes\" must be context, not an order.\n */",
     "/** The share of `inputTokens` a vendor reported it served from its own prompt cache. */",
+    "/**\n * How many keys one provider may rotate through, counting the one on its own row.\n *\n * The form is one line the reader pastes a whole ring into, and every extra key is a vault write, so the\n * ceiling belongs on the parsed list rather than on the store that would otherwise write an unbounded\n * number of rows for one request.\n */",
+    "/**\n * Splits a pasted ring into keys: commas or line breaks, trimmed, blanks and repeats dropped.\n *\n * Shared by the form (which counts what it is about to send) and the route (which is the trust boundary),\n * so the number the reader saw is the number the worker stores. The cap is enforced by the route, which\n * can refuse a list too long to store rather than quietly dropping the keys at its end.\n */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -37979,6 +37983,10 @@ const allowed = new Map([
     "/** The reader's Eisenhower answers, or null while the matrix derives them. */",
     "/** A nullable answer column as two booleans and an absence, never collapsing null to false. */",
     "/** The column value for a tri-state flag: null is \"not answered\", false is 0, true is 1. */",
+    "/** The failures a key can be blamed for, as the runner writes them into `last_error`. */",
+    "/**\n * How long a refused key stays at the back of the ring. Short on purpose: a 429 is about the moment,\n * not the credential, and a longer window would take a working key out of rotation on one bad answer.\n */",
+    "// The provider's own row has no place to keep a refusal, so it cannot be cooled. Its turn still",
+    "// comes round, and the retry inside that turn moves on to an extra key if one is available.",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
@@ -43383,6 +43391,11 @@ const allowed = new Map([
     "// are never granted: their permission belongs to a third party, and the card stays every time.",
     "// A caller that owns the turn's tools (a template's declared capability list) narrows what the model",
     "// may be offered. The same name check as a pinned tool: a name the assistant cannot call is dropped.",
+    "// The first key belongs to the provider row; the rest are the ring the next turns rotate through.",
+    "// A filled box replaces the whole ring: the first key goes on the provider row and every extra key",
+    "// row is rebuilt from the rest. A blank box sends nothing at all and leaves the stored ring alone.",
+    "// Only one credential can sign a listing; the ring's first key is the one the form would have stored.",
+    "/**\n * The keys a create or edit actually named, before any of them reaches the vault.\n *\n * A comma-separated box is one ring, so the byte ceiling and the cap are checked here rather than in the\n * store: an edit that says \"replace\" must write all of the keys the form counted, or refuse the request.\n */",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",
@@ -47355,6 +47368,15 @@ const allowed = new Map([
     "// The whole of what a browser may learn about a stored key: that it exists, and its last four.",
     "// A disabled row is not asked, and so is not shown as a failure either: the reader switched it off, and",
     "// the ring is not using it. `on.id` is the only row left standing.",
+  ]],
+  ["tests/assistant-provider-key-ring.test.ts", [
+    "/**\n * A pasted key ring: one line in the form, several credentials in the vault, one rotation.\n *\n * The reader's complaint was that the key box held one key and the polling was never complete. The form\n * now sends the line it typed and the route is the place that says what it means: the first key belongs to\n * the provider row, the rest become extra rows, and a filled box on an edit replaces the whole ring rather\n * than leaving the reader's old, labelled keys quietly beside the new ones. These cases pin that boundary,\n * the cap that keeps one request from writing an unbounded number of vault rows, and the short cooldown\n * that sends a refused key to the back of the ring instead of taking it away for good.\n *\n * All keys below are synthetic. No real credential appears in this file, in the database, or in a log.\n */",
+    "/** Synthetic tokens, in the shape a vendor issues. The last four are what a listing may show. */",
+    "/** One vault across the whole case: a fresh master key per request could not decrypt what it just wrote. */",
+    "// A listing may say which key it holds, never what it is.",
+    "// The primary key has just been used, so the extras are what a rotating call would choose between.",
+    "// Read the row after stamping it: pickProviderKey takes the provider's own snapshot, not a query.",
+    "// A cooldown is a window, not a ban: once it has passed the refused key is back in the rotation.",
   ]],
   ["tests/assistant-reading-tools.test.ts", [
     "/**\n * The reading tools, and the reader's lookups.\n *\n * The tools read the account's synced shelf through the real `ReaderLibraryStore` over an in-memory\n * D1, because what is being pinned is that a question about \"my books\" is answered from stored rows —\n * a stub shelf would pass while the account scoping was missing. The second half pins the lookup path:\n * a selection's explanation now goes through the assistant's account model, and the drawing engine's\n * browser-local key is not read at all.\n */",

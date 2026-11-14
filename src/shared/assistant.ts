@@ -397,6 +397,27 @@ export interface AssistantCustomParam {
  */
 export const MAX_PROVIDER_MODELS = 20
 
+/**
+ * How many keys one provider may rotate through, counting the one on its own row.
+ *
+ * The form is one line the reader pastes a whole ring into, and every extra key is a vault write, so the
+ * ceiling belongs on the parsed list rather than on the store that would otherwise write an unbounded
+ * number of rows for one request.
+ */
+export const MAX_PROVIDER_KEYS = 10
+
+/**
+ * Splits a pasted ring into keys: commas or line breaks, trimmed, blanks and repeats dropped.
+ *
+ * Shared by the form (which counts what it is about to send) and the route (which is the trust boundary),
+ * so the number the reader saw is the number the worker stores. The cap is enforced by the route, which
+ * can refuse a list too long to store rather than quietly dropping the keys at its end.
+ */
+export function parseProviderKeys(raw: string): string[] {
+  const parts = raw.split(/[,\r\n]/).map((entry) => entry.trim()).filter(Boolean)
+  return [...new Set(parts)]
+}
+
 export const MAX_CUSTOM_PARAMS = 12
 
 /** Parses the stored JSON, dropping anything malformed rather than sending half a request body. */

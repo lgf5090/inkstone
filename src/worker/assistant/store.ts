@@ -316,6 +316,15 @@ const PROVIDER_COLUMNS = `id, label, icon, protocol, base_url, endpoints, reason
 /** A provider key row, ciphertext included: read only by the rotation, never by a listing. */
 const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, enabled, last_used_at, error_count, last_error, created_at, updated_at`
 
+/** The failures a key can be blamed for, as the runner writes them into `last_error`. */
+const KEY_FAILURE = /^(?:auth|quota|rate):/
+
+/**
+ * How long a refused key stays at the back of the ring. Short on purpose: a 429 is about the moment,
+ * not the credential, and a longer window would take a working key out of rotation on one bad answer.
+ */
+const KEY_COOLDOWN_MS = 60_000
+
 /**
  * A search engine's key, ciphertext included.
  *
@@ -1804,7 +1813,7 @@ export class AssistantStore {
    * tie so the order is stable rather than whichever row the database happened to return.
    */
   async pickProviderKey(record: ProviderRow): Promise<{ keyId: string, key: string, label: string } | null> {
-    const ring: Array<{ keyId: string, ciphertext: string, lastUsedAt: number, order: number, label: string }> = []
+    const ring: Array<{ keyId: string, ciphertext: string, lastUsedAt: number, order: number, label: string, cooling: boolean }> = []
     if (record.key_ciphertext) {
       ring.push({
         keyId: '',
@@ -1812,6 +1821,9 @@ export class AssistantStore {
         lastUsedAt: record.key_last_used_at ?? 0,
         order: -1,
         label: record.label,
+        // The provider's own row has no place to keep a refusal, so it cannot be cooled. Its turn still
+        // comes round, and the retry inside that turn moves on to an extra key if one is available.
+        cooling: false,
       })
     }
     const extras = await this.rows<ProviderKeyRow>(
@@ -1821,10 +1833,17 @@ export class AssistantStore {
     )
     for (const row of extras) {
       if (!row.key_ciphertext) continue
-      ring.push({ keyId: row.id, ciphertext: row.key_ciphertext, lastUsedAt: row.last_used_at ?? 0, order: row.created_at, label: row.label })
+      ring.push({
+        keyId: row.id, ciphertext: row.key_ciphertext,
+        lastUsedAt: row.last_used_at ?? 0, order: row.created_at, label: row.label,
+        cooling: KEY_FAILURE.test(row.last_error ?? '') && Date.now() - (row.updated_at ?? 0) < KEY_COOLDOWN_MS,
+      })
     }
     if (!ring.length) return null
-    ring.sort((left, right) => (left.lastUsedAt - right.lastUsedAt) || (left.order - right.order))
+    ring.sort((left, right) =>
+      (Number(left.cooling) - Number(right.cooling))
+      || (left.lastUsedAt - right.lastUsedAt)
+      || (left.order - right.order))
     for (const candidate of ring) {
       const key = (await decryptAssistantKey(this.env, this.userId, candidate.ciphertext)) ?? ''
       if (key) return { keyId: candidate.keyId, key, label: candidate.label }
