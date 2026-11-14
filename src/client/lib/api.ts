@@ -2385,6 +2385,15 @@ export const api = {
         `/api/assistant/providers/${id}/keys/probe`,
         { method: 'POST', body: {} },
       ),
+    /** The one call that answers with a plaintext key; the worker writes an audit line first. */
+    revealProviderKey: (id: string) =>
+      request<{ key: string, keyHint: string }>(`/api/assistant/providers/${id}/reveal`, { method: 'POST', body: {} }),
+    revealExtraKey: (id: string, keyId: string) =>
+      request<{ key: string, keyHint: string }>(
+        `/api/assistant/providers/${id}/keys/${encodeURIComponent(keyId)}/reveal`,
+        { method: 'POST', body: {} },
+      ),
+
     /** Totals for one slice: this key, its provider, or the whole account. */
     keyStats: (query: { scope: 'key' | 'provider' | 'all', providerId?: string, keyId?: string }) => {
       const params = new URLSearchParams({ scope: query.scope })

@@ -295,3 +295,35 @@ describe('a provider that keeps one key', () => {
     expect((await store.pickProviderKey(rotated!))?.keyId).toBe(extras[0]!.id)
   })
 })
+
+describe('showing a stored key to its owner', () => {
+  it('answers with the plaintext once, and writes an audit line for each look', async () => {
+    const response = await send('POST', '/api/assistant/providers', newProvider(`${FIRST}, ${SECOND}`))
+    const id = (await response.json() as { provider: { id: string } }).provider.id
+    const extras = await store.listProviderKeys(id)
+
+    const primary = await send('POST', `/api/assistant/providers/${id}/reveal`, {})
+    expect(primary.status).toBe(200)
+    expect((await primary.json() as { key: string }).key).toBe(FIRST)
+
+    const extra = await send('POST', `/api/assistant/providers/${id}/keys/${extras[0]!.id}/reveal`, {})
+    expect((await extra.json() as { key: string }).key).toBe(SECOND)
+
+    // The one door that returns a secret counts how often it was opened.
+    const activity = sqlite.prepare("SELECT type FROM chat_activity WHERE type = 'key.revealed'").all()
+    expect(activity).toHaveLength(2)
+  })
+
+  it('will not hand a key to a caller who names the wrong provider', async () => {
+    const first = await send('POST', '/api/assistant/providers', newProvider(FIRST))
+    const firstId = (await first.json() as { provider: { id: string } }).provider.id
+    const second = await send('POST', '/api/assistant/providers', newProvider(SECOND))
+    const secondId = (await second.json() as { provider: { id: string } }).provider.id
+    await store.createProviderKey(secondId, { label: '', apiKey: THIRD })
+    const foreign = (await store.listProviderKeys(secondId))[0]!
+
+    // The path's provider and the key's provider must agree, or the plaintext belongs to a row the
+    // caller never named.
+    expect((await send('POST', `/api/assistant/providers/${firstId}/keys/${foreign.id}/reveal`, {})).status).toBe(404)
+  })
+})

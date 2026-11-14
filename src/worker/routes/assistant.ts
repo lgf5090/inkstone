@@ -3518,6 +3518,29 @@ assistantRoutes.delete('/logs/:id', async (c) => {
 })
 
 /**
+ * Hands the plaintext of one stored key to the reader who owns it.
+ *
+ * The only endpoint that answers with a key rather than four characters. Every call is written to the
+ * activity log first, so "who looked at this credential and when" has an answer.
+ */
+assistantRoutes.post('/providers/:id/reveal', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const revealed = await s.revealProviderKey(id, '')
+  if (!revealed) throw ApiError.notFound('Key not found')
+  return c.json(revealed)
+})
+
+assistantRoutes.post('/providers/:id/keys/:keyId/reveal', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const keyId = requiredId(c.req.param('keyId'))
+  const revealed = await s.revealProviderKey(id, keyId)
+  if (!revealed) throw ApiError.notFound('Key not found')
+  return c.json(revealed)
+})
+
+/**
  * Ask the provider about keys the reader has typed but not saved.
  *
  * The form is where a reader decides to trust a key, so the test has to be available there rather than

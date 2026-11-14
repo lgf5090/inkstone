@@ -2036,6 +2036,33 @@ export class AssistantStore {
   }
 
   /**
+   * Decrypts one stored key for the reader who asked to see it.
+   *
+   * Every other door hands out four characters. This is the only one that returns the plaintext, and it
+   * writes an activity line before it does: a credential that can be read is a credential whose readings
+   * are worth counting. `keyId` `''` is the provider's own key, the same way every surface names it.
+   */
+  async revealProviderKey(providerId: string, keyId: string): Promise<{ key: string, keyHint: string } | null> {
+    const record = await this.providerRecord(providerId)
+    if (!record) return null
+    const row = keyId
+      ? await this.one<ProviderKeyRow>(
+        `SELECT ${PROVIDER_KEY_COLUMNS} FROM chat_provider_keys
+           WHERE user_id = ?1 AND id = ?2 AND provider_id = ?3`,
+        this.userId, keyId, providerId,
+      )
+      : null
+    if (keyId && !row?.key_ciphertext) return null
+    const ciphertext = keyId ? (row?.key_ciphertext ?? '') : (record.key_ciphertext ?? '')
+    if (!ciphertext) return null
+    const key = (await decryptAssistantKey(this.env, this.userId, ciphertext)) ?? ''
+    if (!key) return null
+    const hint = keyId ? (row?.key_hint ?? '') : (record.key_hint ?? '')
+    await this.recordActivity('key.revealed', `${record.label} ····${hint}`)
+    return { key, keyHint: hint }
+  }
+
+  /**
    * One line per attempt. Kept short on purpose: a log that grows without bound is a table nobody reads
    * and everybody pays for, so the writer trims to the most recent {@link REQUEST_LOG_LIMIT} rows.
    */

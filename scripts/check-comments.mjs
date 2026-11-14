@@ -3323,6 +3323,10 @@ const allowed = new Map([
     "/** The ring's first key has no row here, so its last use arrives with this answer rather than the card. */",
     "/** Which slice the stats/logs panel is open on: a key, or the provider as a whole. */",
     "/* One panel, two tabs, three scopes. It lives here rather than inside a row so the numbers a key\n          carries can be read next to the provider's — the comparison is the point. */",
+    "/** How long a revealed key stays on screen before it hides itself. */",
+    "/** The one key whose plaintext is on screen, and which row it belongs to. Cleared on a timer. */",
+    "/**\n   * Asks the worker for one plaintext key.\n   *\n   * The worker writes an activity line before it answers, so this is a thing the reader did rather than a\n   * thing that happened. The plaintext lives in this component for {REVEAL_MS} and then goes away on its\n   * own — a key left on screen is a key in the next screenshot.\n   */",
+    "// A browser that refuses the clipboard still gets the plaintext on screen, which is the fallback.",
   ]],
   ["src/client/features/chat/PushDevicesSection.tsx", [
     "/**\n   * The press, and the two things it can turn into.\n   *\n   * A refusal stays on the row as an inline block rather than a toast that leaves: the reader is looking at\n   * the switch that did not move, and the reason has to be where their attention already is.\n   */",
@@ -21512,6 +21516,7 @@ const allowed = new Map([
     "/** The same question about keys the reader has typed and not saved yet. Nothing is stored. */",
     "/** Totals for one slice: this key, its provider, or the whole account. */",
     "/** The attempts behind a slice, newest first. */",
+    "/** The one call that answers with a plaintext key; the worker writes an audit line first. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/** Replace the address without a reload. A no-op on the address that is already up. */",
@@ -38158,6 +38163,7 @@ const allowed = new Map([
     "/**\n   * Totals for one scope, read from the daily rollups and joined with the log's own latencies.\n   *\n   * The rollups answer the counts and the tokens; only the log knows how long an attempt took or when the\n   * last one happened. A slice with no rollup row but with log rows is still reported, because an attempt\n   * that failed before any token was counted is exactly the line a reader is looking for.\n   */",
     "// Latency and last-use come from the attempt log: the rollup has a count, not a clock.",
     "// One row per provider (or one row for everything) is what the two outer levels ask for.",
+    "/**\n   * Decrypts one stored key for the reader who asked to see it.\n   *\n   * Every other door hands out four characters. This is the only one that returns the plaintext, and it\n   * writes an activity line before it does: a credential that can be read is a credential whose readings\n   * are worth counting. `keyId` `''` is the provider's own key, the same way every surface names it.\n   */",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
@@ -43595,6 +43601,7 @@ const allowed = new Map([
     "/**\n * Totals for one slice of the ring.\n *\n * Three scopes, one question: `key` answers \"how is this credential doing\", `provider` answers \"how is\n * this vendor doing\", `all` answers \"what has this account spent\". The rollups carry the counts and the\n * tokens; the attempt log supplies the latency and the last-use stamp.\n */",
     "/** The attempts behind a slice, newest first. `before` is the `at` of the last row already shown. */",
     "/** Removes one attempt, or every attempt in a slice, or the whole log. */",
+    "/**\n * Hands the plaintext of one stored key to the reader who owns it.\n *\n * The only endpoint that answers with a key rather than four characters. Every call is written to the\n * activity log first, so \"who looked at this credential and when\" has an answer.\n */",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",
@@ -47597,6 +47604,9 @@ const allowed = new Map([
     "// Two turns running. Rotation would have moved to the extra key on the second.",
     "// A cooled first key still yields to the second: sticky is about cost, not about insisting.",
     "// Off again: the ring resumes least-recently-used order, which is the extra key.",
+    "// The one door that returns a secret counts how often it was opened.",
+    "// The path's provider and the key's provider must agree, or the plaintext belongs to a row the",
+    "// caller never named.",
   ]],
   ["tests/assistant-reading-tools.test.ts", [
     "/**\n * The reading tools, and the reader's lookups.\n *\n * The tools read the account's synced shelf through the real `ReaderLibraryStore` over an in-memory\n * D1, because what is being pinned is that a question about \"my books\" is answered from stored rows —\n * a stub shelf would pass while the account scoping was missing. The second half pins the lookup path:\n * a selection's explanation now goes through the assistant's account model, and the drawing engine's\n * browser-local key is not read at all.\n */",

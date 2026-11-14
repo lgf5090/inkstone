@@ -13,7 +13,7 @@
  * readings to both the header chips and these rows.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, ChevronDown, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Activity, ChevronDown, Copy, Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type { AssistantKeyProbe, AssistantProvider, AssistantProviderKey } from '@shared/assistant'
 import type { KeyBalance, ProviderBalanceAnswer } from '@shared/provider-balance'
 import { t } from '../../lib/i18n'
@@ -25,6 +25,9 @@ import { cn } from '../../lib/cn'
 import { useUi } from '../../store/ui'
 import { storedKeyLabel } from './assistant-settings-shared'
 import { KeyInsights } from './KeyInsights'
+
+/** How long a revealed key stays on screen before it hides itself. */
+const REVEAL_MS = 15_000
 
 /** When a key last answered, in the reader's own words rather than as a timestamp. */
 function lastUsed(at: number | null): string {
@@ -195,6 +198,9 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
   /** The ring's first key has no row here, so its last use arrives with this answer rather than the card. */
   const [primaryLastUsedAt, setPrimaryLastUsedAt] = useState<number | null>(provider.keyLastUsedAt)
   const [probing, setProbing] = useState(false)
+  /** The one key whose plaintext is on screen, and which row it belongs to. Cleared on a timer. */
+  const [revealed, setRevealed] = useState<{ keyId: string, key: string } | null>(null)
+  const [revealing, setRevealing] = useState<string | null>(null)
   /** Which slice the stats/logs panel is open on: a key, or the provider as a whole. */
   const [insights, setInsights] = useState<{ keyId?: string, keyLabel?: string, keyHint?: string } | null>(null)
 
@@ -230,10 +236,59 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
 
   const probeOf = (keyId: string): AssistantKeyProbe | undefined => probes.find((entry) => entry.keyId === keyId)
 
+  /**
+   * Asks the worker for one plaintext key.
+   *
+   * The worker writes an activity line before it answers, so this is a thing the reader did rather than a
+   * thing that happened. The plaintext lives in this component for {REVEAL_MS} and then goes away on its
+   * own — a key left on screen is a key in the next screenshot.
+   */
+  const revealKey = async (keyId: string): Promise<string | null> => {
+    setRevealing(keyId)
+    try {
+      const answer = keyId
+        ? await api.assistant.revealExtraKey(provider.id, keyId)
+        : await api.assistant.revealProviderKey(provider.id)
+      return answer.key
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
+      return null
+    } finally {
+      setRevealing(null)
+    }
+  }
+
+  const toggleReveal = async (keyId: string) => {
+    if (revealed?.keyId === keyId) {
+      setRevealed(null)
+      return
+    }
+    const key = await revealKey(keyId)
+    if (key) setRevealed({ keyId, key })
+  }
+
+  const copyKey = async (keyId: string) => {
+    const key = await revealKey(keyId)
+    if (!key) return
+    try {
+      await navigator.clipboard.writeText(key)
+      toast({ title: t('assistant.keys.copied'), tone: 'default' })
+    } catch {
+      // A browser that refuses the clipboard still gets the plaintext on screen, which is the fallback.
+      setRevealed({ keyId, key })
+    }
+  }
+
   useEffect(() => {
     if (!open) return
     void load()
   }, [open, load])
+
+  useEffect(() => {
+    if (!revealed) return
+    const timer = setTimeout(() => setRevealed(null), REVEAL_MS)
+    return () => clearTimeout(timer)
+  }, [revealed])
 
   /** The reading for one row of the ring, or nothing to say about it yet. */
   const balanceOf = (keyId: string): KeyBalance | undefined => wallet.balances?.readings.find((entry) => entry.keyId === keyId)
@@ -328,10 +383,31 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
             {/* The same words the provider row and the edit form use, so one stored key reads the same
                 way everywhere: its last four characters, never the plaintext. */}
             <span className="shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-              {storedKeyLabel(provider)}
-              {" · "}
-              {lastUsed(primaryLastUsedAt)}
+              {revealed?.keyId === '' ? (
+                <span className="select-all text-[var(--accent)]">{revealed.key}</span>
+              ) : (
+                <>
+                  {storedKeyLabel(provider)}
+                  {" · "}
+                  {lastUsed(primaryLastUsedAt)}
+                </>
+              )}
             </span>
+            {provider.hasKey && (
+              <IconButton
+                label={revealed?.keyId === '' ? t('assistant.keys.hide') : t('assistant.keys.reveal')}
+                size="xs"
+                disabled={revealing === ''}
+                onClick={() => void toggleReveal('')}
+              >
+                {revealed?.keyId === '' ? <EyeOff size={12} /> : <Eye size={12} />}
+              </IconButton>
+            )}
+            {provider.hasKey && (
+              <IconButton label={t('assistant.keys.copy')} size="xs" disabled={revealing === ''} onClick={() => void copyKey('')}>
+                <Copy size={12} />
+              </IconButton>
+            )}
             <ProbeBadge probe={probeOf('')} />
             <Button size="sm" variant="ghost" onClick={() => setInsights({ keyId: '', keyLabel: t('assistant.keys.primary'), keyHint: provider.keyHint })}>
               {t('assistant.insights.tab_stats')}
@@ -377,7 +453,11 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
                         {key.label || t('assistant.keys.unnamed')}
                       </p>
                       <p className="truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-                        <span className="font-mono">{key.hasKey ? key.keyHint : t('assistant.settings.key_missing')}</span>
+                        {revealed?.keyId === key.id ? (
+                          <span className="select-all font-mono text-[var(--accent)]">{revealed.key}</span>
+                        ) : (
+                          <span className="font-mono">{key.hasKey ? key.keyHint : t('assistant.settings.key_missing')}</span>
+                        )}
                         {' · '}
                         {lastUsed(key.lastUsedAt)}
                         {key.errorCount > 0 && ` · ${t('assistant.keys.errors', { count: key.errorCount })}`}
@@ -389,6 +469,21 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
                   )}
                   <ProbeBadge probe={probeOf(key.id)} />
                   <BalanceChip reading={balanceOf(key.id)} name={key.label || t('assistant.keys.unnamed')} />
+                  {renaming !== key.id && key.hasKey && (
+                    <IconButton
+                      label={revealed?.keyId === key.id ? t('assistant.keys.hide') : t('assistant.keys.reveal')}
+                      size="xs"
+                      disabled={revealing === key.id}
+                      onClick={() => void toggleReveal(key.id)}
+                    >
+                      {revealed?.keyId === key.id ? <EyeOff size={12} /> : <Eye size={12} />}
+                    </IconButton>
+                  )}
+                  {renaming !== key.id && key.hasKey && (
+                    <IconButton label={t('assistant.keys.copy')} size="xs" disabled={revealing === key.id} onClick={() => void copyKey(key.id)}>
+                      <Copy size={12} />
+                    </IconButton>
+                  )}
                   {renaming !== key.id && (
                     <IconButton
                       label={t('assistant.insights.open')}
