@@ -54,7 +54,9 @@ beforeEach(() => {
   HTMLCanvasElement.prototype.toBlob = ((callback: (blob: Blob | null) => void) => {
     callback(new Blob(['png-bytes'], { type: 'image/png' }))
   }) as never
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Uint8Array([1, 2, 3]), { status: 200 }))
+  const response = new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+  response.blob = async () => new window.Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' })
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(response)
 })
 
 afterEach(() => {

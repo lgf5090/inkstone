@@ -1,19 +1,21 @@
 // @vitest-environment jsdom
 import { createElement } from 'react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { initI18n } from '../src/client/lib/i18n'
+import { getLocale, initI18n } from '../src/client/lib/i18n'
 import { installTestGlobals, renderElement } from '../src/client/lib/test-render'
 import { CloudflareApp } from '../src/client/features/cloudflare/CloudflareApp'
+import { ensureCloudflareMessages } from '../src/client/features/cloudflare/i18n'
 
 beforeAll(async () => {
   installTestGlobals()
   await initI18n()
+  await ensureCloudflareMessages(getLocale())
 })
 
 afterEach(() => vi.unstubAllGlobals())
 
 describe('the Cloudflare container', () => {
-  it('draws its ten-screen rail once its copy arrives', async () => {
+  it('draws its fifteen-screen rail once its copy arrives', async () => {
     vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
       const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url)
       if (url.pathname.endsWith('/quota')) return Response.json({ accounts: [] })
@@ -26,13 +28,18 @@ describe('the Cloudflare container', () => {
     })
     const view = renderElement(createElement(CloudflareApp))
     await vi.waitFor(() => {
-      expect(document.querySelectorAll('nav a[href^="/cloudflare"]').length).toBe(10)
-    })
+      expect(document.querySelectorAll('nav a[href^="/cloudflare"]').length).toBe(15)
+    }, { timeout: 10_000 })
     const links = [...document.querySelectorAll('nav a[href^="/cloudflare"]')]
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
       '/cloudflare',
       '/cloudflare/accounts',
       '/cloudflare/dns',
+      '/cloudflare/network',
+      '/cloudflare/platform',
+      '/cloudflare/alerting',
+      '/cloudflare/toolbox',
+      '/cloudflare/zero-trust',
       '/cloudflare/workers',
       '/cloudflare/storage',
       '/cloudflare/tunnels',

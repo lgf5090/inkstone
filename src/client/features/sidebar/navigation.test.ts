@@ -406,6 +406,8 @@ describe('folder row menu', () => {
             t('linter.command.ignore_folder'),
             t('assistant.scope.about_folder'),
             t('assistant.folder_summary.command'),
+            t('notelock.menu_folder_lock'),
+            t('notelock.menu_folder_remove'),
             t('sidebar.delete_folder'),
         ]);
     });
@@ -432,6 +434,8 @@ describe('folder row menu', () => {
                 t('folders.group_archive'),
                 t('assistant.scope.about_folder'),
                 t('assistant.folder_summary.command'),
+                t('notelock.menu_folder_lock'),
+                t('notelock.menu_folder_remove'),
                 t('sidebar.delete_folder'),
             ]);
         }

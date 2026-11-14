@@ -71,7 +71,9 @@ describe('the app tab registry', () => {
 
   it('places the YouTube container directly above the toolbox', () => {
     const ids = APP_TABS.map((tab) => tab.id)
-    expect(ids[ids.indexOf('youtube') + 1]).toBe('tools')
+    expect(ids[ids.indexOf('youtube') + 1]).toBe('scriptshub')
+    expect(ids[ids.indexOf('scriptshub') + 1]).toBe('webssh')
+    expect(ids[ids.indexOf('webssh') + 1]).toBe('tools')
     expect(ids[ids.indexOf('cloudflare') + 1]).toBe('youtube')
   })
 
