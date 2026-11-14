@@ -197,6 +197,7 @@ function UploadProgress({
         aria-valuemax={100}
         aria-valuenow={percent}
         aria-label={status}
+        aria-valuetext={`${status} ${percent}%`}
         className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--bg-raised)]"
       >
         <div

@@ -38,7 +38,8 @@ function seed(): D1Database {
   sqlite.exec(`
     CREATE TABLE notes (
       id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
-      content TEXT NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+      content TEXT NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER,
+      is_encrypted INTEGER NOT NULL DEFAULT 0
     );
   `)
   const rows: Array<[string, string, string, number]> = [

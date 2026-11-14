@@ -158,6 +158,7 @@ function ProgressBar({ value, failed }: { value: number, failed?: boolean }) {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(value * 100)}
+      aria-valuetext={failed ? t('assistant.attach.failed') : t('assistant.attach.uploading', { percent: Math.round(value * 100) })}
       className={cn(
         'pointer-events-none absolute inset-x-1 bottom-1 h-[3px] overflow-hidden rounded-full bg-[var(--bg-inset)]',
         failed && 'opacity-70',

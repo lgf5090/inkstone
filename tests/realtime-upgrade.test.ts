@@ -4,6 +4,7 @@ import { beforeAll, expect, it } from 'vitest'
 import worker from '../src/worker/index'
 import { hashToken } from '../src/worker/lib/session-store'
 import { makeD1 } from './doubles/d1-sqlite'
+import { initializeDatabase } from '../src/worker/db/schema'
 import type { Env } from '../src/worker/env'
 
 const ORIGIN = 'https://inkstone.test'
@@ -51,11 +52,7 @@ beforeAll(async () => {
       }),
     },
   } as unknown as Env
-  await worker.fetch(
-    new Request(`${ORIGIN}/api/health`, { headers: { 'X-Inkstone-Client': '1' } }),
-    env,
-    ctx,
-  )
+  await initializeDatabase(env)
   const now = Date.now()
   sqlite.prepare(
     `INSERT INTO users (id, username, password_hash, login, name, avatar_url, role, settings, created_at, last_seen_at)

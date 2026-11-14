@@ -55,8 +55,30 @@ const wasmAsModule = (): Plugin => ({
   },
 })
 
+/**
+ * `node:sqlite` is absent from Node 22's `builtinModules`, so Vitest's forced `noExternal` leaves it to
+ * Vite's browser externalization, which refuses to bundle it for the jsdom project. Loading the real
+ * builtin through `createRequire` keeps those suites runnable without changing their environment, and
+ * the D1 doubles still get the same database object the Worker uses in production.
+ */
+const nodeSqlite = (): Plugin => ({
+  name: 'inkstone:node-sqlite',
+  enforce: 'pre',
+  resolveId(source) {
+    return source === 'node:sqlite' ? 'virtual:inkstone-node-sqlite' : null
+  },
+  load(id) {
+    if (id !== 'virtual:inkstone-node-sqlite') return null
+    return [
+      "import { createRequire } from 'node:module'",
+      "const require = createRequire(process.cwd() + '/package.json')",
+      "export const DatabaseSync = require('node:sqlite').DatabaseSync",
+    ].join('\n')
+  },
+})
+
 export default defineConfig({
-  plugins: [wasmAsModule()],
+  plugins: [wasmAsModule(), nodeSqlite()],
   resolve: {
     alias: {
       '@': resolve('./src/client'),

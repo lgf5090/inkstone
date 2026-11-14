@@ -11,9 +11,10 @@ function seed(noteCount: number) {
   sqlite.exec(`
     CREATE TABLE notes (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, deleted_at INTEGER,
       content TEXT NOT NULL, excerpt TEXT NOT NULL, word_count INTEGER NOT NULL,
-      char_count INTEGER NOT NULL, rev INTEGER NOT NULL, content_hash TEXT NOT NULL);
+      char_count INTEGER NOT NULL, rev INTEGER NOT NULL, content_hash TEXT NOT NULL,
+      is_encrypted INTEGER NOT NULL DEFAULT 0);
   `)
-  const insert = sqlite.prepare('INSERT INTO notes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  const insert = sqlite.prepare('INSERT INTO notes (id, user_id, deleted_at, content, excerpt, word_count, char_count, rev, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
   for (let index = 1; index <= noteCount; index++)
     insert.run(`n${index}`, USER, null, TAB_NOTE, 'stale', 0, 0, 7, 'hash-7')
   insert.run('gone', USER, 1_700_000_000_000, TAB_NOTE, 'stale', 0, 0, 3, 'hash-3')

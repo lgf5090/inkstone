@@ -52847,6 +52847,7 @@ const allowed = new Map([
     "/**\n * Serves the built reading runtime during dev.\n *\n * The blog loads the versioned bundle exactly as it does in production; without this the dev app's SPA\n * fallback answers `/blog-runtime/*` with `index.html`, which a module script cannot execute. Rebuild\n * with `npm run build:runtime` after changing the surface.\n */",
   ]],
   ["vitest.config.ts", [
+    "/**\n * `node:sqlite` is absent from Node 22's `builtinModules`, so Vitest's forced `noExternal` leaves it to\n * Vite's browser externalization, which refuses to bundle it for the jsdom project. Loading the real\n * builtin through `createRequire` keeps those suites runnable without changing their environment, and\n * the D1 doubles still get the same database object the Worker uses in production.\n */",
     "// The suite's own tail decides this number. Measured over a full parallel run of every file:",
     "// one test is 8 ms at the median and 1.5 s at p99, but 38 files hold at least one test above",
     "// 1.5 s — a 19.8k-note vault rebuilt step by step, a 120-card board mounted six ways, a gate",

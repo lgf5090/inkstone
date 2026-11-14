@@ -197,7 +197,7 @@ function ChannelsPanel(): ReactElement {
                 : t('imgbed.settings.usage_value' as never, { used: (usage[channel.name]!.usedMB / 1024).toFixed(2) })}</span>}
               {channel.quota.limitGB ? <span className="h-1 w-16 overflow-hidden rounded-full bg-[var(--bg-inset)]"><span className="block h-full rounded-full bg-[var(--accent)]" style={{ width: `${Math.min(100, (usage[channel.name]?.usedMB ?? 0) / 1024 / channel.quota.limitGB * 100)}%` }} /></span> : null}
               {channel.fixed && <Badge tone="neutral">{t('imgbed.settings.fixed')}</Badge>}
-              {channel.hasCredentials && <KeyRound size={13} className="text-[var(--text-quaternary)]" aria-label={t('imgbed.settings.credentials')} />}
+              {channel.hasCredentials && <KeyRound size={13} className="text-[var(--text-quaternary)]" role="img" aria-label={t('imgbed.settings.credentials')} />}
               <IconButton label={t('imgbed.settings.test_channel')} onClick={() => void test(channel)}><Zap size={13} /></IconButton>
               {!channel.fixed && <IconButton label={t('imgbed.settings.edit_channel')} onClick={() => setEditing(channel)}><Check size={13} /></IconButton>}
               {!channel.fixed && <IconButton label={t('imgbed.settings.delete_channel')} onClick={() => void remove(channel)}><Trash2 size={13} /></IconButton>}

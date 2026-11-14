@@ -399,6 +399,7 @@ export function StatsTab() {
                     aria-valuemax={100}
                     aria-valuenow={rate}
                     aria-label={`${account.accountName}: ${percentLabel(account.totalNeurons, NEURON_QUOTA)}`}
+                    aria-valuetext={`${account.accountName}: ${percentLabel(account.totalNeurons, NEURON_QUOTA)}`}
                     className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-[var(--bg-sunken)]"
                   >
                     <div
