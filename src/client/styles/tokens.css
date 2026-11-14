@@ -155,6 +155,9 @@
   --success: oklch(48% 0.14 155);
   --warning: oklch(51% 0.145 80);
   --danger: oklch(53% 0.19 22);
+  --status-warning: var(--warning);
+  --text-danger: var(--danger);
+  --bg-elevated: var(--bg-raised);
   --brand-accent: #bb4430;
 
   --platform-android: oklch(48% 0.14 155);
