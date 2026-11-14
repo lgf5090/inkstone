@@ -38042,6 +38042,11 @@ const allowed = new Map([
     "/**\n * How long a refused key stays at the back of the ring. Short on purpose: a 429 is about the moment,\n * not the credential, and a longer window would take a working key out of rotation on one bad answer.\n */",
     "// The provider's own row has no place to keep a refusal, so it cannot be cooled. Its turn still",
     "// comes round, and the retry inside that turn moves on to an extra key if one is available.",
+    "// A database created by an earlier migration made this column NOT NULL DEFAULT '' while the",
+    "// current DDL lets it be null. Both read back as \"no pin\" through `reasoningDialectValue`, so the",
+    "// empty string is written here as the value both shapes accept.",
+    "// Same reason as the insert above: an older database's column is NOT NULL, and '' is what both",
+    "// shapes read as \"no pin\".",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
@@ -47441,6 +47446,7 @@ const allowed = new Map([
     "// The primary key has just been used, so the extras are what a rotating call would choose between.",
     "// Read the row after stamping it: pickProviderKey takes the provider's own snapshot, not a query.",
     "// A cooldown is a window, not a ban: once it has passed the refused key is back in the rotation.",
+    "// The API contract is still \"no pin\", not \"the empty dialect\".",
   ]],
   ["tests/assistant-reading-tools.test.ts", [
     "/**\n * The reading tools, and the reader's lookups.\n *\n * The tools read the account's synced shelf through the real `ReaderLibraryStore` over an in-memory\n * D1, because what is being pinned is that a question about \"my books\" is answered from stored rows —\n * a stub shelf would pass while the account scoping was missing. The second half pins the lookup path:\n * a selection's explanation now goes through the assistant's account model, and the drawing engine's\n * browser-local key is not read at all.\n */",

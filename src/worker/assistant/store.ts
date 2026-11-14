@@ -1601,7 +1601,10 @@ export class AssistantStore {
       `INSERT INTO chat_providers (id, user_id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, created_at, updated_at)
        VALUES (?2, ?1, ?3, ?12, ?4, ?5, ?9, ?10, ?6, ?11, ?7, ?8)`,
       id, input.label, input.protocol, input.baseUrl, ciphertext, at, at,
-      JSON.stringify(input.endpoints ?? {}), dialect, hint, icon,
+      // A database created by an earlier migration made this column NOT NULL DEFAULT '' while the
+      // current DDL lets it be null. Both read back as "no pin" through `reasoningDialectValue`, so the
+      // empty string is written here as the value both shapes accept.
+      JSON.stringify(input.endpoints ?? {}), dialect ?? '', hint, icon,
     )
     return {
       id,
@@ -1648,7 +1651,9 @@ export class AssistantStore {
       protocol,
       patch.reasoningDialect !== undefined ? patch.reasoningDialect : reasoningDialectValue(existing.reasoning_dialect),
     )
-    if (patch.reasoningDialect !== undefined || patch.protocol !== undefined) set('reasoning_dialect', dialect)
+    // Same reason as the insert above: an older database's column is NOT NULL, and '' is what both
+    // shapes read as "no pin".
+    if (patch.reasoningDialect !== undefined || patch.protocol !== undefined) set('reasoning_dialect', dialect ?? '')
     // A patch that says nothing about the key keeps the stored ciphertext and its hint: the row still
     // holds that key, and clearing the hint would make a saved key look missing on the next listing.
     if (patch.apiKey === null) {

@@ -110,6 +110,15 @@ describe('creating a provider from a pasted ring', () => {
     expect(JSON.stringify(extras)).not.toContain(SECOND)
   })
 
+  it('writes “no pin” as the empty string a database from an earlier migration accepts', async () => {
+    const response = await send('POST', '/api/assistant/providers', newProvider(''))
+    const id = (await response.json() as { provider: { id: string } }).provider.id
+    const row = sqlite.prepare('SELECT reasoning_dialect FROM chat_providers WHERE id = ?').get(id) as { reasoning_dialect: string | null }
+    expect(row.reasoning_dialect).toBe('')
+    // The API contract is still "no pin", not "the empty dialect".
+    expect((await store.getProvider(id))?.reasoningDialect).toBeNull()
+  })
+
   it('refuses a ring longer than the shared cap instead of dropping its tail', async () => {
     const tooMany = Array.from({ length: MAX_PROVIDER_KEYS + 1 }, (_, index) => `sk-test-many-${index}`).join(',')
     const response = await send('POST', '/api/assistant/providers', newProvider(tooMany))
