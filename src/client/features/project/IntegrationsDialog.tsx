@@ -6,6 +6,7 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { PROJECT_WEBHOOK_EVENTS, type ProjectWebhookEvent } from '@shared/project/integrations'
+import { ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Input } from '../../components/form'
@@ -35,7 +36,14 @@ const EVENT_LABELS: Record<string, Parameters<typeof t>[0]> = {
 }
 
 function describeFailure(reason: unknown): void {
-  useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
+  // The route says which field it refused; the generic code sentence alone leaves the reader
+  // guessing which of the two inputs to fix.
+  const detail = reason instanceof ApiError ? reason.serverMessage : undefined
+  useUi.getState().toast({
+    title: reason instanceof Error ? reason.message : String(reason),
+    ...(detail ? { description: detail } : {}),
+    tone: 'danger',
+  })
 }
 
 export function IntegrationsDialog({ boardId, onClose }: IntegrationsDialogProps): ReactElement {

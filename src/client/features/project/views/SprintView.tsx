@@ -39,8 +39,13 @@ function describeFailure(reason: unknown): void {
   useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
 }
 
+function pad2(value: number): string {
+  return value < 10 ? `0${value}` : String(value)
+}
+
 function dateInput(stamp: number): string {
-  return new Date(stamp).toISOString().slice(0, 10)
+  const date = new Date(stamp)
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 }
 
 function dateStamp(value: string): number {
@@ -58,17 +63,24 @@ function Burndown({ burndown }: { burndown: ProjectSprintBurndown }): ReactEleme
     <div className="space-y-2">
       <svg
         viewBox="0 0 600 180"
+        preserveAspectRatio="none"
         className="h-[180px] w-full"
         role="img"
         aria-label={t('project.sprint.chart_label', { total: burndown.total, completed: burndown.completed })}
       >
-        <line x1={20} y1={160} x2={580} y2={160} stroke="var(--border-subtle)" />
-        <polyline points={ideal} fill="none" stroke="var(--text-quaternary)" strokeDasharray="4 4" strokeWidth={2} />
-        <polyline points={actual} fill="none" stroke="var(--accent)" strokeWidth={2} />
+        <line x1={20} y1={160} x2={580} y2={160} stroke="var(--border-subtle)" vectorEffect="non-scaling-stroke" />
+        <polyline points={ideal} fill="none" stroke="var(--text-quaternary)" strokeDasharray="4 4" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+        <polyline points={actual} fill="none" stroke="var(--accent)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
       </svg>
-      <div className="flex gap-4 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-        <span>{t('project.sprint.ideal')}</span>
-        <span>{t('project.sprint.actual')}</span>
+      <div className="flex items-center gap-4 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+        <span className="flex items-center gap-1.5">
+          <span aria-hidden="true" className="h-0 w-5 border-t-2 border-dashed border-[var(--text-quaternary)]" />
+          {t('project.sprint.ideal')}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span aria-hidden="true" className="h-0 w-5 border-t-2 border-[var(--accent)]" />
+          {t('project.sprint.actual')}
+        </span>
         <span>{t('project.sprint.velocity')}: {burndown.velocity}</span>
       </div>
       <div className="sr-only">

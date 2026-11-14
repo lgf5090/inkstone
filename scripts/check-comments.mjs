@@ -12860,6 +12860,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/project/IntegrationsDialog.tsx", [
     "/**\n * One place for the two machine-facing surfaces: an account's API tokens and a board's webhooks.\n * Both issue a secret exactly once, so the dialog keeps the value in local state until dismissed and\n * never reads it back from a list response.\n */",
+    "// The route says which field it refused; the generic code sentence alone leaves the reader",
+    "// guessing which of the two inputs to fix.",
   ]],
   ["src/client/features/project/MembersDialog.tsx", [
     "/**\n * Who is on this board, and what they may do.\n *\n * The role model, the person properties and the mention notifications all key on membership, so\n * without this screen a \"shared\" board is a board of one. The server owns the two refusals that\n * matter — the last admin cannot be demoted or removed, and the roster is capped — so the dialog\n * reports what the server said rather than guessing at either rule.\n */",
@@ -12922,6 +12924,10 @@ const allowed = new Map([
   ["src/client/features/project/offline-outbox.ts", [
     "/**\n * Project writes that failed on the network are kept in the account's IndexedDB outbox and replayed\n * in order. The queued row's write id becomes the server's Idempotency-Key, so a create whose answer\n * was lost cannot be repeated by the replay. A permanent refusal is announced and then dropped —\n * keeping it forever would retry a request the server has already rejected.\n */",
     "/** Ask the service worker for a Background Sync pass in case the tab is closed before it reconnects. */",
+    "/**\n * The queue row is removed by the store that owns the replay loop, after this module has returned,\n * so the \"one fewer pending\" event has to come from there rather than from the replay itself.\n */",
+    "// Background Sync is a best-effort extra: `serviceWorker.ready` never settles when no worker is",
+    "// registered (the dev server, or a browser that refused the registration), and awaiting it here",
+    "// would keep the failed write from ever reaching the caller as an error.",
   ]],
   ["src/client/features/project/people-context.tsx", [
     "/**\n * The board's people directory, for the surfaces that draw a card without holding the bundle.\n *\n * A card face is drawn by the board, the list, the gallery and the day panel, none of which receive\n * the whole bundle; the directory is board-scoped, so it travels as context rather than as a prop on\n * every view in between.\n */",
@@ -42709,6 +42715,9 @@ const allowed = new Map([
     "// Values are keyed to a card, so a deleted card's values drop out with it rather than lingering.",
     "/**\n * The newest stamp across everything the bundle carries, without reading any of it.\n *\n * The bundle's own cursor is computed from rows it already fetched; a poller only needs the number,\n * so this asks each table for its MAX instead. An unchanged answer means the copy the reader holds\n * is still current and the whole-board read can be skipped.\n */",
     "/** Advances the board's own stamp; the cursor poll and the sidebar's recency both read it. */",
+    "// One SELECT with scalar subqueries rather than a UNION of six: the local D1 runtime caps a",
+    "// compound SELECT at five terms, and a 500 here made every 30-second convergence poll fail",
+    "// silently because the caller treats a cursor error as best-effort.",
   ]],
   ["src/worker/project/cards.ts", [
     "/**\n * Cards and their property values. A card is a row plus a bag of values keyed by property id; the\n * value bag lives in its own table so changing one property never rewrites the whole card. Writes\n * land in one D1 batch, and a delete is a stamp so a card can come back with its values intact.\n */",
@@ -42804,6 +42813,8 @@ const allowed = new Map([
     "/**\n * Machine clients authenticate with a hashed, board-scoped token instead of a cookie. Setting\n * `userId` lets every existing route reuse `requireBoard`; the scope and board checks below are the\n * extra boundaries a token needs, and the management endpoints stay session-only so a token can\n * never mint another token or add an outbound target.\n */",
     "/** Account-level machine credentials; the plaintext secret is returned once, at creation only. */",
     "/**\n * A queued offline write replays under the key it was minted with. Returning the stored answer before\n * the route runs also keeps the cursor bump, activity row and webhook delivery from firing twice.\n */",
+    "// Per-reader preferences are not board content: bumping the cursor would make every other tab",
+    "// refetch, and recording them would fill the activity feed with the act of choosing a tab.",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",

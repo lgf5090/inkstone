@@ -250,6 +250,9 @@ projectRoutes.use('*', async (c, next) => {
     }
   }
   if (!boardId) return
+  // Per-reader preferences are not board content: bumping the cursor would make every other tab
+  // refetch, and recording them would fill the activity feed with the act of choosing a tab.
+  if (/\/(default-view|card-marks)$/.test(path)) return
   const now = Date.now()
   // Every board-scoped write advances the board's stamp, which is the cursor open tabs poll. Child
   // edits, deletes and moves would otherwise leave it behind and a second tab would never converge.

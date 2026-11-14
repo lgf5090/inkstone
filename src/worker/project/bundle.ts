@@ -350,15 +350,18 @@ export async function touchProjectBoard(db: D1Database, boardId: string, now: nu
  * is still current and the whole-board read can be skipped.
  */
 export async function projectBoardCursor(db: D1Database, board: ProjectBoard): Promise<number> {
+  // One SELECT with scalar subqueries rather than a UNION of six: the local D1 runtime caps a
+  // compound SELECT at five terms, and a 500 here made every 30-second convergence poll fail
+  // silently because the caller treats a cursor error as best-effort.
   const row = await db.prepare(
-    `SELECT MAX(at) AS at FROM (
-       SELECT MAX(update_at) AS at FROM project_cards WHERE board_id = ?1 AND delete_at = 0
-       UNION ALL SELECT MAX(update_at) FROM project_views WHERE board_id = ?1 AND delete_at = 0
-       UNION ALL SELECT MAX(update_at) FROM project_card_contents WHERE board_id = ?1 AND delete_at = 0
-       UNION ALL SELECT MAX(update_at) FROM project_comments WHERE board_id = ?1 AND delete_at = 0
-       UNION ALL SELECT MAX(updated_at) FROM project_board_members WHERE board_id = ?1
-       UNION ALL SELECT MAX(updated_at) FROM project_properties WHERE board_id = ?1
-     )`,
+    `SELECT MAX(
+       COALESCE((SELECT MAX(update_at) FROM project_cards WHERE board_id = ?1 AND delete_at = 0), 0),
+       COALESCE((SELECT MAX(update_at) FROM project_views WHERE board_id = ?1 AND delete_at = 0), 0),
+       COALESCE((SELECT MAX(update_at) FROM project_card_contents WHERE board_id = ?1 AND delete_at = 0), 0),
+       COALESCE((SELECT MAX(update_at) FROM project_comments WHERE board_id = ?1 AND delete_at = 0), 0),
+       COALESCE((SELECT MAX(updated_at) FROM project_board_members WHERE board_id = ?1), 0),
+       COALESCE((SELECT MAX(updated_at) FROM project_properties WHERE board_id = ?1), 0)
+     ) AS at`,
   ).bind(board.id).first<{ at: number | null }>()
   return Math.max(board.updateAt, row?.at ?? 0)
 }
