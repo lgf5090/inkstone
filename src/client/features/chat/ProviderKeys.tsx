@@ -365,6 +365,9 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
                         {' · '}
                         {lastUsed(key.lastUsedAt)}
                         {key.errorCount > 0 && ` · ${t('assistant.keys.errors', { count: key.errorCount })}`}
+                        {/* Why this key is not being used right now — a silence would read as a bug. */}
+                        {key.coolingUntil !== null && key.coolingUntil > Date.now()
+                          && ` · ${t('assistant.keys.cooling', { mins: Math.max(1, Math.ceil((key.coolingUntil - Date.now()) / 60_000)) })}`}
                       </p>
                     </div>
                   )}

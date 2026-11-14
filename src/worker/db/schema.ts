@@ -4371,6 +4371,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    // When a refused key becomes usable again, stored rather than derived from `updated_at`: the row is
+    // also touched by renames and switches, and a cooldown that a name change can extend is not a cooldown.
+    version: 405,
+    skipIfColumnExists: { table: 'chat_provider_keys', column: 'cooling_until' },
+    statements: [
+      `ALTER TABLE chat_provider_keys ADD COLUMN cooling_until INTEGER`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

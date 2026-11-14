@@ -271,6 +271,14 @@ export interface UpstreamRetry {
    * Awaited, so a key that failed twice in one turn is counted twice rather than once.
    */
   onAttemptFailed?: (error: UpstreamError, apiKey: string) => void | Promise<void>
+  /**
+   * Told once, when an attempt starts producing rather than when it finishes.
+   *
+   * This is the earliest proof that the key works, and the caller is the only one that can turn that into
+   * "the cooldown this key earned is no longer true". Waiting for the turn to end would keep a recovered
+   * key at the back of the ring for the rest of the answer.
+   */
+  onAttemptSucceeded?: (apiKey: string) => void | Promise<void>
 }
 
 export class UpstreamError extends Error {
@@ -458,7 +466,12 @@ export async function* streamUpstream(
     let produced = false
     try {
       for await (const event of streamOnce(protocol, { ...request, apiKey })) {
-        produced = true
+        if (!produced) {
+          produced = true
+          try { await request.retry?.onAttemptSucceeded?.(apiKey) } catch {
+            // Bookkeeping must not cost an answer that has already started arriving.
+          }
+        }
         yield event
       }
       return

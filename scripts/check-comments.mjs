@@ -3300,6 +3300,7 @@ const allowed = new Map([
     "/** What the last probe concluded, per key. Empty until somebody asks. */",
     "/**\n   * Asks the provider about every key at once.\n   *\n   * Not wrapped in `run`: a probe changes nothing about the ring, so the wallet does not have to be\n   * re-read — and one request per key is already the most this screen does at a time.\n   */",
     "/* Offered only once there is something to ask about: a probe of an empty ring is a request that\n            can only answer \"there is nothing here\". */",
+    "/* Why this key is not being used right now — a silence would read as a bug. */",
   ]],
   ["src/client/features/chat/PushDevicesSection.tsx", [
     "/**\n   * The press, and the two things it can turn into.\n   *\n   * A refusal stays on the row as an inline block rather than a toast that leaves: the reader is looking at\n   * the switch that did not move, and the reason has to be where their attention already is.\n   */",
@@ -32466,6 +32467,7 @@ const allowed = new Map([
     "/** One key's last probe. */",
     "/** The empty string for the provider's own key, which has no row of its own to hang this on. */",
     "/** Round-trip time of the probe request, which is how a reader tells two working keys apart. */",
+    "/** Unix ms the key becomes usable again, or null when it is not resting. Set by a refusal. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -36858,6 +36860,8 @@ const allowed = new Map([
     "// The caller's copy is the turn's opening snapshot. A retry has to see the `key_last_used_at` the",
     "// previous attempt just wrote, or the ring hands back the same key the provider refused and the",
     "// transport reads \"nothing else to try\" from a ring it never actually rotated.",
+    "// Same rule as above: a key that answered answered, whatever the bookkeeping did about it.",
+    "/**\n * How long one refusal keeps a key out of the rotation.\n *\n * The vendor's own `Retry-After` wins when it gave one: it is the only party that knows when its window\n * reopens. Failing that the kind decides — a rate limit is a moment, a refusal that names the key is worth\n * a longer rest, and a quota is an allowance that refills on the vendor's schedule rather than in seconds.\n *\n * These are bases only. `recordProviderKeyError` doubles the window per consecutive failure, so a key that\n * keeps failing is retried less and less insistently without ever being switched off for good; one answer\n * from that key resets it.\n */",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -37317,7 +37321,6 @@ const allowed = new Map([
     "/** The extra keys on a provider, oldest first, without their ciphertext. */",
     "/**\n   * The key this call should sign with, chosen from everything the provider has.\n   *\n   * The provider's own key is one of the ring rather than a separate path: a reader who added two more\n   * expects all three to be used. The least recently used one goes first, which spreads turns without a\n   * cursor to keep — a key never used sorts ahead of one used a minute ago, and `created_at` breaks the\n   * tie so the order is stable rather than whichever row the database happened to return.\n   */",
     "/** Records that a key just answered, so the next turn starts from a different one. */",
-    "/** What a key last said when it failed, for the row that has to show which one is broken. */",
     "// The listing goes through the same ring a turn does, so a provider whose first key is spent can",
     "// still be listed with the one that works.",
     "/** When the provider's own key last signed a call; null until it has been used once. */",
@@ -38071,8 +38074,6 @@ const allowed = new Map([
     "/** The reader's Eisenhower answers, or null while the matrix derives them. */",
     "/** A nullable answer column as two booleans and an absence, never collapsing null to false. */",
     "/** The column value for a tri-state flag: null is \"not answered\", false is 0, true is 1. */",
-    "/** The failures a key can be blamed for, as the runner writes them into `last_error`. */",
-    "/**\n * How long a refused key stays at the back of the ring. Short on purpose: a 429 is about the moment,\n * not the credential, and a longer window would take a working key out of rotation on one bad answer.\n */",
     "// The provider's own row has no place to keep a refusal, so it cannot be cooled. Its turn still",
     "// comes round, and the retry inside that turn moves on to an extra key if one is available.",
     "// A database created by an earlier migration made this column NOT NULL DEFAULT '' while the",
@@ -38082,6 +38083,11 @@ const allowed = new Map([
     "// shapes read as \"no pin\".",
     "/** Replaces this key's last probe result: one row per key, because a history would be a log nobody reads. */",
     "/** What the last probe concluded about each of this provider's keys, keyed by the empty string for its own. */",
+    "/**\n * How long a refused key rests, at the rate the compiler decides.\n *\n * Short at the bottom on purpose: a 429 is about the moment, not the credential, and a long first window\n * would take a working key out of rotation on one bad answer. The caller passes the base — a rate limit's\n * own `Retry-After` when the vendor gave one, a longer figure for a refusal that names the key — and this\n * constant is only the floor used by callers that have nothing better to say.\n */",
+    "/** Each consecutive failure doubles the window, up to this many doublings (1 min → ~32 min). */",
+    "/** The ceiling of that doubling, so a key that keeps failing is still retried once an hour. */",
+    "/**\n   * What a key last said when it failed, and how long that keeps it out of the rotation.\n   *\n   * The deadline is stored rather than derived from `updated_at`, because that column is also touched by\n   * a rename or a switch — a cooldown a name change can extend is not a cooldown. Each consecutive failure\n   * doubles the window; `clearProviderKeyFailure` puts it back to zero the moment the key answers again,\n   * which is the only evidence that beats a guess.\n   */",
+    "/**\n   * A key that just answered is a key that works.\n   *\n   * The failure count and the cooldown are cleared together: keeping the count would make the next\n   * unrelated slip double a window the reader had already recovered from.\n   */",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
@@ -38500,6 +38506,8 @@ const allowed = new Map([
     "/**\n * The subset of JSON Schema Gemini's function declarations accept.\n *\n * `additionalProperties` is the one the app's own generator emits on every object and string; Google\n * answers it with a 400 for the whole turn. Keys are dropped rather than rewritten, and the recursion\n * reaches nested objects and array items because a tool may describe either.\n */",
     "/** The non-streaming sibling of {@link geminiEndpoint}, for the recovery path. */",
     "/**\n * Gemini's key rides in its own header rather than as a bearer token.\n *\n * An API key sent as `Authorization: Bearer` is read as an OAuth token and refused with 401, which is what\n * every request to this wire did before this header existed. The gateway header list already carries the\n * name, so the guard's allowlist is unchanged.\n */",
+    "/**\n   * Told once, when an attempt starts producing rather than when it finishes.\n   *\n   * This is the earliest proof that the key works, and the caller is the only one that can turn that into\n   * \"the cooldown this key earned is no longer true\". Waiting for the turn to end would keep a recovered\n   * key at the back of the ring for the rest of the answer.\n   */",
+    "// Bookkeeping must not cost an answer that has already started arriving.",
   ]],
   ["src/worker/assistant/vault.ts", [
     "/**\n * The vault as lists and counts, for the tools that answer \"what do I have\".\n *\n * `search_notes` answers a topic out of the notes; nothing answered the questions a reader asks about\n * the notebook itself — how many notes there are, which folders they sit in, which tags label them —\n * so the assistant had to guess or say it could not tell. The rows are already there, and the scope\n * every note tool obeys applies to a listing exactly as it applies to a search.\n *\n * The SQL lives here rather than in `mcp/retrieval.ts` because the shape is different: a listing pages\n * by recency rather than by relevance, and the scope is the assistant's own permission model, which the\n * MCP server does not have. What the two share is the notes schema, and that is shared through\n * `db/rows.ts`.\n */",
@@ -41192,6 +41200,8 @@ const allowed = new Map([
     "// spends a version dropping them rather than leaving a shape a fresh boot no longer has.",
     "// Where the answer to \"does this key still work\" lives: one row per key, replaced on every probe.",
     "// `key_id = ''` is the provider's own credential, which has no row in `chat_provider_keys`.",
+    "// When a refused key becomes usable again, stored rather than derived from `updated_at`: the row is",
+    "// also touched by renames and switches, and a cooldown that a name change can extend is not a cooldown.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -47494,6 +47504,9 @@ const allowed = new Map([
     "// Read the row after stamping it: pickProviderKey takes the provider's own snapshot, not a query.",
     "// A cooldown is a window, not a ban: once it has passed the refused key is back in the rotation.",
     "// The API contract is still \"no pin\", not \"the empty dialect\".",
+    "// A rename touches `updated_at`; a cooldown that a name change could shorten is not a cooldown.",
+    "// The mapping the runner hands to the store: the only party that knows when its own window reopens",
+    "// is the vendor, so its header wins over anything this app would guess.",
   ]],
   ["tests/assistant-reading-tools.test.ts", [
     "/**\n * The reading tools, and the reader's lookups.\n *\n * The tools read the account's synced shelf through the real `ReaderLibraryStore` over an in-memory\n * D1, because what is being pinned is that a question about \"my books\" is answered from stored rows —\n * a stub shelf would pass while the account scoping was missing. The second half pins the lookup path:\n * a selection's explanation now goes through the assistant's account model, and the drawing engine's\n * browser-local key is not read at all.\n */",

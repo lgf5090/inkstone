@@ -317,16 +317,23 @@ function applyMemoryScope(q: Query, scope: MemoryScope | undefined, column = 'pr
 const PROVIDER_COLUMNS = `id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_hint, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
 
 /** A provider key row, ciphertext included: read only by the rotation, never by a listing. */
-const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, enabled, last_used_at, error_count, last_error, created_at, updated_at`
-
-/** The failures a key can be blamed for, as the runner writes them into `last_error`. */
-const KEY_FAILURE = /^(?:auth|quota|rate):/
+const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, enabled, last_used_at, error_count, last_error, cooling_until, created_at, updated_at`
 
 /**
- * How long a refused key stays at the back of the ring. Short on purpose: a 429 is about the moment,
- * not the credential, and a longer window would take a working key out of rotation on one bad answer.
+ * How long a refused key rests, at the rate the compiler decides.
+ *
+ * Short at the bottom on purpose: a 429 is about the moment, not the credential, and a long first window
+ * would take a working key out of rotation on one bad answer. The caller passes the base — a rate limit's
+ * own `Retry-After` when the vendor gave one, a longer figure for a refusal that names the key — and this
+ * constant is only the floor used by callers that have nothing better to say.
  */
 const KEY_COOLDOWN_MS = 60_000
+
+/** Each consecutive failure doubles the window, up to this many doublings (1 min → ~32 min). */
+const KEY_COOLDOWN_STEPS = 5
+
+/** The ceiling of that doubling, so a key that keeps failing is still retried once an hour. */
+const KEY_COOLDOWN_CAP_MS = 60 * 60_000
 
 /**
  * A search engine's key, ciphertext included.
@@ -1702,7 +1709,7 @@ export class AssistantStore {
     )
     return {
       id, providerId, label, hasKey: true, keyHint: key.slice(-4), enabled: true,
-      lastUsedAt: null, errorCount: 0, lastError: null, createdAt: at, updatedAt: at,
+      lastUsedAt: null, errorCount: 0, lastError: null, coolingUntil: null, createdAt: at, updatedAt: at,
     }
   }
 
@@ -1844,7 +1851,7 @@ export class AssistantStore {
       ring.push({
         keyId: row.id, ciphertext: row.key_ciphertext,
         lastUsedAt: row.last_used_at ?? 0, order: row.created_at, label: row.label,
-        cooling: KEY_FAILURE.test(row.last_error ?? '') && Date.now() - (row.updated_at ?? 0) < KEY_COOLDOWN_MS,
+        cooling: (row.cooling_until ?? 0) > Date.now(),
       })
     }
     if (!ring.length) return null
@@ -1901,13 +1908,45 @@ export class AssistantStore {
     await this.write(`UPDATE chat_providers SET key_last_used_at = ?2 WHERE user_id = ?1 AND id = ?3`, at, providerId)
   }
 
-  /** What a key last said when it failed, for the row that has to show which one is broken. */
-  async recordProviderKeyError(keyId: string, message: string): Promise<void> {
+  /**
+   * What a key last said when it failed, and how long that keeps it out of the rotation.
+   *
+   * The deadline is stored rather than derived from `updated_at`, because that column is also touched by
+   * a rename or a switch — a cooldown a name change can extend is not a cooldown. Each consecutive failure
+   * doubles the window; `clearProviderKeyFailure` puts it back to zero the moment the key answers again,
+   * which is the only evidence that beats a guess.
+   */
+  async recordProviderKeyError(keyId: string, message: string, baseCoolingMs = KEY_COOLDOWN_MS): Promise<void> {
+    if (!keyId) return
+    const row = await this.one<{ error_count: number }>(
+      `SELECT error_count FROM chat_provider_keys WHERE user_id = ?1 AND id = ?2`,
+      this.userId, keyId,
+    )
+    if (!row) return
+    const at = Date.now()
+    const window = Math.min(
+      Math.max(baseCoolingMs, 1_000) * 2 ** Math.min(row.error_count ?? 0, KEY_COOLDOWN_STEPS),
+      KEY_COOLDOWN_CAP_MS,
+    )
+    await this.write(
+      `UPDATE chat_provider_keys SET error_count = error_count + 1, last_error = ?2, cooling_until = ?3, updated_at = ?4
+         WHERE user_id = ?1 AND id = ?5`,
+      message.slice(0, 300), at + window, at, keyId,
+    )
+  }
+
+  /**
+   * A key that just answered is a key that works.
+   *
+   * The failure count and the cooldown are cleared together: keeping the count would make the next
+   * unrelated slip double a window the reader had already recovered from.
+   */
+  async clearProviderKeyFailure(keyId: string): Promise<void> {
     if (!keyId) return
     await this.write(
-      `UPDATE chat_provider_keys SET error_count = error_count + 1, last_error = ?2, updated_at = ?3
-         WHERE user_id = ?1 AND id = ?4`,
-      message.slice(0, 300), Date.now(), keyId,
+      `UPDATE chat_provider_keys SET error_count = 0, last_error = NULL, cooling_until = NULL
+         WHERE user_id = ?1 AND id = ?2 AND (error_count > 0 OR cooling_until IS NOT NULL)`,
+      keyId,
     )
   }
 
@@ -8885,6 +8924,7 @@ interface ProviderKeyRow {
   last_used_at?: number | null
   error_count: number
   last_error?: string | null
+  cooling_until?: number | null
   created_at: number
   updated_at: number
 }
@@ -8900,6 +8940,7 @@ function toProviderKey(r: ProviderKeyRow): AssistantProviderKey {
     lastUsedAt: r.last_used_at ?? null,
     errorCount: r.error_count ?? 0,
     lastError: r.last_error ?? null,
+    coolingUntil: r.cooling_until ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }

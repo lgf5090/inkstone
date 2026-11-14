@@ -1687,10 +1687,19 @@ export class AssistantRunner {
         const keyId = this.signedKeyIds.get(apiKey)
         if (!keyId) return
         try {
-          await this.store.recordProviderKeyError(keyId, `${error.kind}: ${error.message}`)
+          await this.store.recordProviderKeyError(keyId, `${error.kind}: ${error.message}`, cooldownFor(error))
         } catch {
           // A diagnostic must not replace the failure it was describing: the turn still reports the
           // provider's own error, and the next failure will try to record itself again.
+        }
+      },
+      onAttemptSucceeded: async (apiKey) => {
+        const keyId = this.signedKeyIds.get(apiKey)
+        if (!keyId) return
+        try {
+          await this.store.clearProviderKeyFailure(keyId)
+        } catch {
+          // Same rule as above: a key that answered answered, whatever the bookkeeping did about it.
         }
       },
     }
@@ -3014,4 +3023,23 @@ function syntheticContext(): ExecutionContext {
     },
     passThroughOnException: () => {},
   } as unknown as ExecutionContext
+}
+
+/**
+ * How long one refusal keeps a key out of the rotation.
+ *
+ * The vendor's own `Retry-After` wins when it gave one: it is the only party that knows when its window
+ * reopens. Failing that the kind decides — a rate limit is a moment, a refusal that names the key is worth
+ * a longer rest, and a quota is an allowance that refills on the vendor's schedule rather than in seconds.
+ *
+ * These are bases only. `recordProviderKeyError` doubles the window per consecutive failure, so a key that
+ * keeps failing is retried less and less insistently without ever being switched off for good; one answer
+ * from that key resets it.
+ */
+export function cooldownFor(error: UpstreamError): number {
+  const after = error.retryAfterMs
+  if (after !== undefined && after > 0) return Math.min(after, 60 * 60_000)
+  if (error.kind === 'quota') return 60 * 60_000
+  if (error.kind === 'auth') return 5 * 60_000
+  return 60_000
 }

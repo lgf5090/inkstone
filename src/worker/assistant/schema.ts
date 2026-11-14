@@ -54,6 +54,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     last_used_at INTEGER,
     error_count INTEGER NOT NULL DEFAULT 0,
     last_error TEXT,
+    cooling_until INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -945,7 +946,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_usage_daily_period: ['user_id', 'day', 'model_label', 'model_id', 'period_id', 'provider_id', 'key_id', 'input_tokens', 'output_tokens', 'cached_input_tokens'],
   chat_share_links: ['slug', 'conversation_id', 'user_id', 'scope', 'password_hash', 'expires_at', 'views', 'created_at'],
   chat_providers: ['user_id', 'id', 'label', 'icon', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_hint', 'key_last_used_at', 'created_at', 'updated_at'],
-  chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'created_at', 'updated_at'],
+  chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'cooling_until', 'created_at', 'updated_at'],
   chat_provider_key_probes: ['user_id', 'provider_id', 'key_id', 'outcome', 'reason', 'latency_ms', 'probed_at'],
   chat_search_keys: ['user_id', 'engine', 'key_ciphertext', 'key_hint', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'icon', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens',

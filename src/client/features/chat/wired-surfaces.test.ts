@@ -94,8 +94,8 @@ vi.mock('../../lib/api', () => ({
 /** The ring as the route describes it: two rows, each with its own last four characters. */
 const providerKeys = vi.fn(async () => ({
   keys: [
-    { id: 'k1', providerId: 'p1', label: 'Work', hasKey: true, keyHint: 'wxyz', enabled: true, lastUsedAt: null, errorCount: 0, lastError: null, createdAt: 1, updatedAt: 1 },
-    { id: 'k2', providerId: 'p1', label: 'Spare', hasKey: true, keyHint: 'beef', enabled: true, lastUsedAt: null, errorCount: 0, lastError: null, createdAt: 2, updatedAt: 2 },
+    { id: 'k1', providerId: 'p1', label: 'Work', hasKey: true, keyHint: 'wxyz', enabled: true, lastUsedAt: null, errorCount: 0, lastError: null, coolingUntil: null, createdAt: 1, updatedAt: 1 },
+    { id: 'k2', providerId: 'p1', label: 'Spare', hasKey: true, keyHint: 'beef', enabled: true, lastUsedAt: null, errorCount: 0, lastError: null, coolingUntil: null, createdAt: 2, updatedAt: 2 },
   ],
 }))
 

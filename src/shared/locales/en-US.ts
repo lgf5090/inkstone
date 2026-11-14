@@ -8179,6 +8179,7 @@ const CORE_MESSAGES_TAIL = {
     "assistant.keys.probe_failed": "Invalid",
     "assistant.keys.probe_unknown": "Cannot tell",
     "assistant.keys.probe_latency": "{ms}ms",
+    "assistant.keys.cooling": "resting {mins} min",
     "assistant.keys.probe_reason.invalid_credential": "The provider refused this key",
     "assistant.keys.probe_reason.model_unavailable": "That model is not available",
     "assistant.keys.probe_reason.rate_limited": "Rate-limited right now, try again later",

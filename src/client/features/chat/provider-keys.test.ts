@@ -37,7 +37,7 @@ function provider(over: Partial<AssistantProvider> = {}): AssistantProvider {
 function key(over: Partial<AssistantProviderKey> = {}): AssistantProviderKey {
   return {
     id: 'k1', providerId: 'p1', label: 'second', hasKey: true, keyHint: '4321', enabled: true,
-    lastUsedAt: null, errorCount: 0, lastError: null, createdAt: 1, updatedAt: 1, ...over,
+    lastUsedAt: null, errorCount: 0, lastError: null, coolingUntil: null, createdAt: 1, updatedAt: 1, ...over,
   }
 }
 

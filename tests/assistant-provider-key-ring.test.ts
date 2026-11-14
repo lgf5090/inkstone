@@ -19,6 +19,8 @@ import { errorResponse } from '../src/worker/lib/errors'
 import { assistantRoutes } from '../src/worker/routes/assistant'
 import { AssistantStore } from '../src/worker/assistant/store'
 import { CredentialVault } from '../src/worker/durable/credential-vault'
+import { cooldownFor } from '../src/worker/assistant/runner'
+import { UpstreamError } from '../src/worker/assistant/upstream'
 import { MAX_PROVIDER_KEYS, parseProviderKeys } from '../src/shared/assistant'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -191,8 +193,56 @@ describe('a key the vendor refused a moment ago', () => {
     const first = await store.pickProviderKey(record!)
     expect(first?.keyId).toBe(extras[1]!.id)
     // A cooldown is a window, not a ban: once it has passed the refused key is back in the rotation.
-    sqlite.exec(`UPDATE chat_provider_keys SET updated_at = 1 WHERE id = '${extras[0]!.id}'`)
+    sqlite.exec(`UPDATE chat_provider_keys SET cooling_until = 1 WHERE id = '${extras[0]!.id}'`)
     const later = await store.pickProviderKey(record!)
     expect(later?.keyId).toBe(extras[0]!.id)
+  })
+})
+
+describe('how long a refusal keeps a key out of the ring', () => {
+  const ringOf = async () => {
+    const response = await send('POST', '/api/assistant/providers', newProvider(`${FIRST}, ${SECOND}`))
+    const id = (await response.json() as { provider: { id: string } }).provider.id
+    const extras = await store.listProviderKeys(id)
+    return { id, keyId: extras[0]!.id }
+  }
+  const coolingOf = (keyId: string) =>
+    (sqlite.prepare('SELECT cooling_until, error_count FROM chat_provider_keys WHERE id = ?').get(keyId) as
+      { cooling_until: number | null, error_count: number })
+
+  it('stores a deadline instead of deriving it from the row’s own timestamp', async () => {
+    const { keyId } = await ringOf()
+    const before = Date.now()
+    await store.recordProviderKeyError(keyId, 'rate: slow down', 30_000)
+    const row = coolingOf(keyId)
+    expect(row.error_count).toBe(1)
+    expect(row.cooling_until).toBeGreaterThanOrEqual(before + 30_000)
+    // A rename touches `updated_at`; a cooldown that a name change could shorten is not a cooldown.
+    await store.updateProviderKey(keyId, { label: 'renamed' })
+    expect(coolingOf(keyId).cooling_until).toBe(row.cooling_until)
+  })
+
+  it('doubles the window per consecutive failure, and one answer puts it back to zero', async () => {
+    const { keyId } = await ringOf()
+    const before = Date.now()
+    await store.recordProviderKeyError(keyId, 'rate: one', 10_000)
+    const first = coolingOf(keyId).cooling_until! - before
+    await store.recordProviderKeyError(keyId, 'rate: two', 10_000)
+    const second = coolingOf(keyId).cooling_until! - before
+    expect(second, 'the second failure did not double the window').toBeGreaterThan(first * 1.8)
+
+    await store.clearProviderKeyFailure(keyId)
+    const cleared = coolingOf(keyId)
+    expect(cleared.error_count).toBe(0)
+    expect(cleared.cooling_until).toBeNull()
+  })
+
+  it('lets the vendor’s own Retry-After decide the window, and ranks the kinds when it does not', () => {
+    // The mapping the runner hands to the store: the only party that knows when its own window reopens
+    // is the vendor, so its header wins over anything this app would guess.
+    expect(cooldownFor(new UpstreamError('rate', 'slow down', 429, 120_000))).toBe(120_000)
+    expect(cooldownFor(new UpstreamError('rate', 'slow down', 429))).toBe(60_000)
+    expect(cooldownFor(new UpstreamError('auth', 'refused', 401))).toBe(300_000)
+    expect(cooldownFor(new UpstreamError('quota', 'spent', 402))).toBe(3_600_000)
   })
 })

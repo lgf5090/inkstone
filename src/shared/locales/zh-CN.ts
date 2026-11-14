@@ -8171,6 +8171,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.keys.probe_failed": "无效",
     "assistant.keys.probe_unknown": "无法判定",
     "assistant.keys.probe_latency": "{ms}ms",
+    "assistant.keys.cooling": "冷却 {mins} 分钟",
     "assistant.keys.probe_reason.invalid_credential": "服务商拒绝了这个密钥",
     "assistant.keys.probe_reason.model_unavailable": "该模型不可用",
     "assistant.keys.probe_reason.rate_limited": "请求过于频繁，稍后再试",

@@ -203,6 +203,8 @@ export interface AssistantProviderKey {
   lastUsedAt: number | null
   errorCount: number
   lastError: string | null
+  /** Unix ms the key becomes usable again, or null when it is not resting. Set by a refusal. */
+  coolingUntil: number | null
   createdAt: number
   updatedAt: number
 }
