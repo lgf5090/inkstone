@@ -16,7 +16,7 @@ import { readStreamWithinLimit } from '../lib/request'
 import { anthropicEndpoint, openAiEndpoint } from './upstream'
 
 /** A listing is a convenience, not a data migration: past this the picker is unusable anyway. */
-export const MAX_VENDOR_MODELS = 500
+const MAX_VENDOR_MODELS = 500
 
 /** Large gateways publish hundreds of models, but a model list is never a multi-megabyte document. */
 const MAX_LISTING_BYTES = 1024 * 1024

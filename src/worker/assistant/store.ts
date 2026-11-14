@@ -8892,7 +8892,7 @@ function toSearchKeyPresence(r: { engine: string, has_key?: unknown, key_hint?: 
  * The columns a model row is read with. One list, because two hand-copied ones are how a new column
  * ends up written but never read back: the editor saved `purpose` and the reader saw the old value.
  */
-export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, icon, temperature, max_output_tokens,
+const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, icon, temperature, max_output_tokens,
   reasoning, context_tokens, vendor_context_tokens, vendor_max_output_tokens, vision, purpose, kind, supports_tools, no_tools, max_input_tokens, modalities, top_p,
   custom_params, protocol, fallback_model_id, input_price, output_price, price_currency, price_periods, enabled, position`
 

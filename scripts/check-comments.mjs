@@ -43456,6 +43456,7 @@ const allowed = new Map([
     "/**\n * The keys a create or edit actually named, before any of them reaches the vault.\n *\n * A comma-separated box is one ring, so the byte ceiling and the cap are checked here rather than in the\n * store: an edit that says \"replace\" must write all of the keys the form counted, or refuse the request.\n */",
     "// A redirect would move the bearer key to an address the guard never saw; a WebSocket upgrade",
     "// cannot answer over one anyway, so the refusal is both the safe and the honest answer.",
+    "/** A changed key ring makes every balance this isolate cached for that provider stale. */",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",

@@ -2240,7 +2240,6 @@ export const api = {
     resolveReview: (id: string, action: string) =>
       request<{ kept: number, deleted: boolean }>(`/api/assistant/memories/reviews/${id}`, { method: 'POST', body: { action } }),
     projects: () => request<{ projects: AssistantProject[] }>('/api/assistant/projects'),
-    getProject: (id: string) => request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`),
     createProject: (body: {
       name: string
       description?: string
@@ -2401,7 +2400,6 @@ export const api = {
       request<{ key: AssistantSearchKey }>(`/api/assistant/search-keys/${encodeURIComponent(engine)}`, { method: 'PUT', body }),
     deleteSearchKey: (engine: string) =>
       request<{ deleted: true }>(`/api/assistant/search-keys/${encodeURIComponent(engine)}`, { method: 'DELETE' }),
-    models: () => request<{ models: AssistantModel[] }>('/api/assistant/models'),
     /** A short-lived credential for a realtime voice session; the long-lived provider key stays server-side. */
     realtimeSession: (modelId?: string) =>
       request<{ session: AssistantRealtimeSession }>(
@@ -2426,8 +2424,6 @@ export const api = {
     /** The account's own totals, which no range narrows — see the type for why. */
     usageOverview: () =>
       request<{ overview: AssistantUsageOverview }>('/api/assistant/stats/overview'),
-    activity: () =>
-      request<{ activity: { id: string, type: string, summary: string, created_at: number }[] }>('/api/assistant/activity'),
     /**
      * The backup as data rather than as a download.
      *

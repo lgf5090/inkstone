@@ -108,7 +108,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson, readStreamWithinLimit } from '../lib/request'
-import { fetchProviderBalance } from '../assistant/balance'
+import { fetchProviderBalance, forgetBalances } from '../assistant/balance'
 import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
 import { loadMcpNote } from '../mcp/retrieval'
@@ -204,6 +204,11 @@ function executionContext(c: Context<AppBindings>): ExecutionContext {
 
 function store(c: Context<AppBindings>): AssistantStore {
   return new AssistantStore(c.env.DB, c.get('userId'), c.env)
+}
+
+/** A changed key ring makes every balance this isolate cached for that provider stale. */
+function forgetProviderBalances(c: Context<AppBindings>, providerId: string): void {
+  forgetBalances(`${c.get('userId')}:${providerId}:`)
 }
 
 
@@ -3425,9 +3430,12 @@ assistantRoutes.patch('/providers/:id', async (c) => {
     ...(body.reasoningDialect !== undefined ? { reasoningDialect: reasoningDialectValue(body.reasoningDialect) } : {}),
   })
   if (!provider) throw ApiError.notFound('Provider not found')
-  if (keys?.length) {
-    for (const extra of await s.listProviderKeys(id)) await s.deleteProviderKey(extra.id)
-    for (const key of keys.slice(1)) await s.createProviderKey(id, { label: '', apiKey: key })
+  if (keys?.length || body.apiKey === null) {
+    if (keys?.length) {
+      for (const extra of await s.listProviderKeys(id)) await s.deleteProviderKey(extra.id)
+      for (const key of keys.slice(1)) await s.createProviderKey(id, { label: '', apiKey: key })
+    }
+    forgetProviderBalances(c, id)
   }
   return c.json({ provider })
 })
@@ -3494,6 +3502,7 @@ assistantRoutes.patch('/providers/:id/keys/:keyId', async (c) => {
   })
   // The provider in the path is checked too, so a key id from another provider reads as not found.
   if (!updated || updated.providerId !== id) throw ApiError.notFound('Key not found')
+  if (body.apiKey !== undefined) forgetProviderBalances(c, id)
   return c.json({ key: updated })
 })
 
@@ -3503,6 +3512,7 @@ assistantRoutes.delete('/providers/:id/keys/:keyId', async (c) => {
   const keyId = requiredId(c.req.param('keyId'))
   if (!(await s.listProviderKeys(id)).some((key) => key.id === keyId)) throw ApiError.notFound('Key not found')
   await s.deleteProviderKey(keyId)
+  forgetProviderBalances(c, id)
   return c.json({ deleted: true })
 })
 
@@ -3551,6 +3561,7 @@ assistantRoutes.delete('/providers/:id', async (c) => {
   // with it, so the question "did this provider carry the active one" can only be asked now.
   const active = settings.activeModelId ? await s.getModel(settings.activeModelId) : null
   await s.deleteProvider(id)
+  forgetProviderBalances(c, id)
   // Only a provider that carried the active model takes the default down with it. Recomputing for
   // every deletion replaced a default the reader had chosen with the first suggestion, which made
   // removing an unrelated provider an edit of a setting nobody asked to change.

@@ -29,7 +29,7 @@ export interface VendorLimitEntry {
   maxOutputTokens: number | null
 }
 
-export const VENDOR_LIMIT_ENTRIES: readonly VendorLimitEntry[] = [
+const VENDOR_LIMIT_ENTRIES: readonly VendorLimitEntry[] = [
   // OpenAI — platform.openai.com/docs/models prints "Context window" and "Max completion tokens" beside
   // each model: gpt-4o and gpt-4o-mini are 128,000 / 16,384; the gpt-4.1 line is 1,047,576 / 32,768;
   // gpt-5 is 400,000 / 128,000. The reasoning guide's table gives o3 and o4-mini 200,000 / 100,000.

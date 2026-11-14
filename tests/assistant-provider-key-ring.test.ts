@@ -13,7 +13,7 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { assistantRoutes } from '../src/worker/routes/assistant'
@@ -56,6 +56,10 @@ async function send(method: string, path: string, body: unknown): Promise<Respon
   }), env, {} as ExecutionContext)
 }
 
+async function get(path: string): Promise<Response> {
+  return await app.fetch(new Request(`http://localhost${path}`), env, {} as ExecutionContext)
+}
+
 const newProvider = (apiKey: string) => ({
   label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com/v1', apiKey, models: [],
 })
@@ -82,6 +86,8 @@ beforeEach(async () => {
   instance.route('/api/assistant', assistantRoutes)
   app = instance
 })
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe('splitting the line the form typed', () => {
   it('takes commas and line breaks, drops blanks and repeats, and keeps order', () => {
@@ -137,6 +143,28 @@ describe('editing a provider whose ring already holds extra keys', () => {
     expect(extras).toHaveLength(1)
     expect(extras[0]?.id).not.toBe(firstExtra.id)
     expect(extras[0]?.keyHint).toBe('cccc')
+  })
+})
+
+describe('a balance the isolate remembered', () => {
+  it('is asked again after the key ring is replaced', async () => {
+    const created = await send('POST', '/api/assistant/providers', newProvider(FIRST))
+    const id = (await created.json() as { provider: { id: string } }).provider.id
+    let calls = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1
+      return new Response(JSON.stringify({ balance_infos: [{ total_balance: '3.5', currency: 'CNY' }] }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })
+    }))
+    expect((await get(`/api/assistant/providers/${id}/balance`)).status).toBe(200)
+    expect(calls).toBe(1)
+    expect((await get(`/api/assistant/providers/${id}/balance`)).status).toBe(200)
+    expect(calls, 'the second reading should have come from the cache').toBe(1)
+
+    await send('PATCH', `/api/assistant/providers/${id}`, { apiKey: REPLACEMENT })
+    expect((await get(`/api/assistant/providers/${id}/balance`)).status).toBe(200)
+    expect(calls, 'the new ring kept the old key’s balance').toBe(2)
   })
 })
 
