@@ -392,7 +392,19 @@ export function DataTab() {
       <UsagePanel />
 
       <Group title={t('assistant.settings.config')}>
-        <SettingRow title={t('assistant.settings.config_export')} description={t('assistant.settings.config_export_hint')}>
+        {/* The only setting that keeps a secret on screen without an action behind it, so it carries the
+          warning where it is turned on rather than in a tooltip. */}
+      <SettingRow
+        title={t('assistant.settings.reveal_always')}
+        description={t('assistant.settings.reveal_always_hint')}
+      >
+        <Switch
+          checked={settings?.revealKeysAlways ?? false}
+          label={t('assistant.settings.reveal_always')}
+          onChange={(checked) => void saveSettings({ revealKeysAlways: checked })}
+        />
+      </SettingRow>
+      <SettingRow title={t('assistant.settings.config_export')} description={t('assistant.settings.config_export_hint')}>
           <Button
             size="sm"
             variant="secondary"

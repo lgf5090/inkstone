@@ -126,6 +126,7 @@ import type {
   AssistantProvider,
   AssistantProviderKey,
   AssistantKeyProbe,
+  AssistantKeyRotation,
   AssistantKeyStats,
   AssistantRequestLog,
   AssistantRealtimeSession,
@@ -2385,6 +2386,12 @@ export const api = {
         `/api/assistant/providers/${id}/keys/probe`,
         { method: 'POST', body: {} },
       ),
+    /** The ring in the order a turn would walk it, so the screen can name the next key. */
+    keyRotation: (id: string, model?: string) =>
+      request<{ order: AssistantKeyRotation[] }>(
+        `/api/assistant/providers/${id}/rotation${model ? `?model=${encodeURIComponent(model)}` : ''}`,
+      ),
+
     /** The one call that answers with a plaintext key; the worker writes an audit line first. */
     revealProviderKey: (id: string) =>
       request<{ key: string, keyHint: string }>(`/api/assistant/providers/${id}/reveal`, { method: 'POST', body: {} }),

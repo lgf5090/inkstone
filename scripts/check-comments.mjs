@@ -2022,6 +2022,7 @@ const allowed = new Map([
     "/* The server's own reasons, listed rather than summarised: a reader deciding whether to fix\n                  the file and try again needs the per-kind detail, not a count. */",
     "/* The other way a conversation gets in: a file this app never wrote. It shares the group with the\n            backup rows because it is the same question — the reader's own records, moving — and it is the\n            one row on this screen that has to answer with what it refused, so it carries its own result\n            block rather than a toast alone. */",
     "/* What leaves the account on its own: the devices this deployment may wake up. It sits with the\n          export and the file list because the reader who comes to this tab is asking what the assistant\n          holds and what it sends. */",
+    "/* The only setting that keeps a secret on screen without an action behind it, so it carries the\n          warning where it is turned on rather than in a tooltip. */",
   ]],
   ["src/client/features/chat/AssistantDock.tsx", [
     "/**\n * The assistant, docked beside the note.\n *\n * Asking about what you are writing used to mean leaving the page: the chat tab replaces the notebook,\n * so \"is this paragraph clear?\" cost a reader the paragraph. The dock is the same conversation in a\n * column of the notebook's own frame — same store, same composer, same replies — so the thread that\n * answers a question about this note is the thread they can come back to later.\n *\n * It is deliberately not a second assistant. There is one active conversation, and the chat tab and this\n * panel are two windows onto it: switching between them keeps the answer that is streaming, because the\n * turn lives in the store rather than in either surface.\n *\n * The note on screen is the context by default. That is the whole point of the panel, so it is switched\n * on when the panel opens rather than inherited from whatever the chat tab was last set to — and it is\n * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.\n */",
@@ -3327,6 +3328,18 @@ const allowed = new Map([
     "/** The one key whose plaintext is on screen, and which row it belongs to. Cleared on a timer. */",
     "/**\n   * Asks the worker for one plaintext key.\n   *\n   * The worker writes an activity line before it answers, so this is a thing the reader did rather than a\n   * thing that happened. The plaintext lives in this component for {REVEAL_MS} and then goes away on its\n   * own — a key left on screen is a key in the next screenshot.\n   */",
     "// A browser that refuses the clipboard still gets the plaintext on screen, which is the fallback.",
+    "/**\n * Where one key sits in the order a turn walks the ring.\n *\n * The first place is marked rather than numbered: \"1\" reads as a rank a key earned, and this is a turn\n * order that changes every time one of them answers. The rest keep their number, which is what a reader\n * checks after a key starts resting.\n */",
+    "/** The ring in walking order: who signs the next turn, and who is resting behind whom. */",
+    "/** The reader's standing choice to keep secrets on screen; see the setting that turns it on. */",
+    "/** Plaintext for every key, held only while that choice is on and the panel is open. */",
+    "// The order is an annotation: a panel that could not read it still has keys to show. The wrapper",
+    "// catches a missing method as well as a rejected call, which is what a test double looks like.",
+    "/** The plaintext this row may show: the standing choice first, then a one-off reveal. */",
+    "/** Where this key sits in the order a turn would walk, or nothing when the ring has not been read. */",
+    "// The standing choice reads the whole ring once per open. Each read is an audited reveal, which is the",
+    "// price of the choice: a screen full of plaintext is a screen whose readings are countable.",
+    "// One unreadable key must not stop the rest of the ring from being shown.",
+    "/* Who a turn would sign with, before the reader has to open anything: the one fact that makes\n            \"three keys\" mean something at a glance. */",
   ]],
   ["src/client/features/chat/PushDevicesSection.tsx", [
     "/**\n   * The press, and the two things it can turn into.\n   *\n   * A refusal stays on the row as an inline block rather than a toast that leaves: the reader is looking at\n   * the switch that did not move, and the reason has to be where their attention already is.\n   */",
@@ -21517,6 +21530,7 @@ const allowed = new Map([
     "/** Totals for one slice: this key, its provider, or the whole account. */",
     "/** The attempts behind a slice, newest first. */",
     "/** The one call that answers with a plaintext key; the worker writes an audit line first. */",
+    "/** The ring in the order a turn would walk it, so the screen can name the next key. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/** Replace the address without a reload. A no-op on the address that is already up. */",
@@ -32509,6 +32523,12 @@ const allowed = new Map([
     "/** Mean attempt latency, or null when nothing in this slice was timed. */",
     "/** Which slice of the ring a stats question is about. */",
     "/**\n   * Whether the request log keeps the prompt that was sent.\n   *\n   * Off by default. The log is a debugging tool, and a prompt is the reader's own writing: keeping it\n   * turns a table meant to answer \"which key failed\" into a second copy of the conversation. The reader\n   * who wants to inspect bodies can turn it on for a while and clear the log afterwards.\n   */",
+    "/**\n * One key's place in the order the next turn would walk the ring.\n *\n * Position one is the key a turn takes. The flags say why a key sits where it does, which is the question\n * a reader has when their fastest key is not the one being used.\n */",
+    "/** Empty for the provider's own key. */",
+    "/** 1-based: 1 is the key the next turn signs with. */",
+    "/** Resting after a refusal, so the ring moves past it. */",
+    "/** Resting for this model only; the key still answers every other model. */",
+    "/**\n   * Keep stored keys visible instead of showing four characters.\n   *\n   * Off by default, and the only setting that puts a secret on screen without an action behind it: a\n   * reader who turns it on has decided their screen is not looked at by anyone else. Every panel that\n   * respects it says so, because a key on screen is a key in the next screenshot.\n   */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -38164,6 +38184,7 @@ const allowed = new Map([
     "// Latency and last-use come from the attempt log: the rollup has a count, not a clock.",
     "// One row per provider (or one row for everything) is what the two outer levels ask for.",
     "/**\n   * Decrypts one stored key for the reader who asked to see it.\n   *\n   * Every other door hands out four characters. This is the only one that returns the plaintext, and it\n   * writes an activity line before it does: a credential that can be read is a credential whose readings\n   * are worth counting. `keyId` `''` is the provider's own key, the same way every surface names it.\n   */",
+    "/**\n   * The ring in the order the next turn would walk it, including the keys it would skip.\n   *\n   * `pickProviderKey` hands out one key and says nothing about the rest, which leaves a reader unable to\n   * answer \"who goes next, and why is that one resting\". This is the same ordering, published: position\n   * one is the key a turn takes, and every row carries the reason it sits where it does.\n   */",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
@@ -43602,6 +43623,7 @@ const allowed = new Map([
     "/** The attempts behind a slice, newest first. `before` is the `at` of the last row already shown. */",
     "/** Removes one attempt, or every attempt in a slice, or the whole log. */",
     "/**\n * Hands the plaintext of one stored key to the reader who owns it.\n *\n * The only endpoint that answers with a key rather than four characters. Every call is written to the\n * activity log first, so \"who looked at this credential and when\" has an answer.\n */",
+    "/** The ring in walking order, so a screen can say who goes next and who is resting. */",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",

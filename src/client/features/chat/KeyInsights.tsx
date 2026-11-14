@@ -39,7 +39,14 @@ function when(at: number): string {
 /** One figure with its label, sized so four of them fit on a phone. */
 function Stat({ icon, label, value, tone }: { icon: React.ReactNode, label: string, value: string, tone?: 'ok' | 'bad' | 'muted' }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-2">
+    <div className={cn(
+      'flex min-w-0 flex-col gap-0.5 rounded-[var(--r-md)] border-y border-r border-l-[3px] px-2.5 py-2',
+      tone === 'ok'
+        ? 'border-l-[var(--success)] border-y-[var(--border-subtle)] border-r-[var(--border-subtle)]'
+        : tone === 'bad'
+          ? 'border-l-[var(--danger)] border-y-[color-mix(in_oklab,var(--danger)_30%,transparent)] border-r-[color-mix(in_oklab,var(--danger)_30%,transparent)] bg-[color-mix(in_oklab,var(--danger)_6%,transparent)]'
+          : 'border-l-[var(--border-strong)] border-y-[var(--border-subtle)] border-r-[var(--border-subtle)]',
+    )}>
       <span className={cn('flex items-center gap-1 text-[length:var(--text-10-5)]',
         tone === 'ok' ? 'text-[var(--text-tertiary)]' : tone === 'bad' ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]',
       )}
@@ -47,7 +54,7 @@ function Stat({ icon, label, value, tone }: { icon: React.ReactNode, label: stri
         {icon}
         {label}
       </span>
-      <span className={cn('truncate tabular text-[length:var(--text-15)] font-semibold',
+      <span className={cn('truncate tabular text-[length:var(--text-16)] font-semibold',
         tone === 'bad' ? 'text-[var(--danger)]' : 'text-[var(--text-primary)]',
       )}
       >

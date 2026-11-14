@@ -3517,6 +3517,14 @@ assistantRoutes.delete('/logs/:id', async (c) => {
   return c.json({ deleted })
 })
 
+/** The ring in walking order, so a screen can say who goes next and who is resting. */
+assistantRoutes.get('/providers/:id/rotation', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const model = c.req.query('model')
+  return c.json({ order: await s.keyRingOrder(id, model || undefined) })
+})
+
 /**
  * Hands the plaintext of one stored key to the reader who owns it.
  *

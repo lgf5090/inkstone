@@ -13,8 +13,8 @@
  * readings to both the header chips and these rows.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, ChevronDown, Copy, Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import type { AssistantKeyProbe, AssistantProvider, AssistantProviderKey } from '@shared/assistant'
+import { Activity, AlertTriangle, CheckCircle2, ChevronDown, Copy, Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import type { AssistantKeyProbe, AssistantKeyRotation, AssistantProvider, AssistantProviderKey } from '@shared/assistant'
 import type { KeyBalance, ProviderBalanceAnswer } from '@shared/provider-balance'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -25,9 +25,39 @@ import { cn } from '../../lib/cn'
 import { useUi } from '../../store/ui'
 import { storedKeyLabel } from './assistant-settings-shared'
 import { KeyInsights } from './KeyInsights'
+import { useAssistant } from './assistant-store'
 
 /** How long a revealed key stays on screen before it hides itself. */
 const REVEAL_MS = 15_000
+
+/**
+ * Where one key sits in the order a turn walks the ring.
+ *
+ * The first place is marked rather than numbered: "1" reads as a rank a key earned, and this is a turn
+ * order that changes every time one of them answers. The rest keep their number, which is what a reader
+ * checks after a key starts resting.
+ */
+function TurnOrder({ entry }: { entry: AssistantKeyRotation | undefined }) {
+  if (!entry) return null
+  if (entry.position === 1) {
+    return (
+      <Tooltip label={t('assistant.keys.next_mark')} side="top">
+        <span className="flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--success)_14%,transparent)] px-1.5 text-[length:var(--text-10)] text-[var(--success)]">
+          <span className="size-1 rounded-full bg-[var(--success)]" aria-hidden />
+          {t('assistant.keys.next')}
+        </span>
+      </Tooltip>
+    )
+  }
+  if (entry.modelBlocked) {
+    return (
+      <Tooltip label={t('assistant.keys.blocked_model')} side="top">
+        <span className="shrink-0 tabular text-[length:var(--text-10)] text-[var(--text-quaternary)]">#{entry.position}</span>
+      </Tooltip>
+    )
+  }
+  return <span className="shrink-0 tabular text-[length:var(--text-10)] text-[var(--text-quaternary)]">#{entry.position}</span>
+}
 
 /** When a key last answered, in the reader's own words rather than as a timestamp. */
 function lastUsed(at: number | null): string {
@@ -104,12 +134,16 @@ function ProbeBadge({ probe }: { probe: AssistantKeyProbe | undefined }) {
     <Tooltip label={`${words}${reason ? ` · ${reason}` : ''} · ${lastUsed(probe.probedAt)}`} side="top">
       <span
         className={cn(
-          'shrink-0 tabular text-[length:var(--text-10-5)]',
+          'flex shrink-0 items-center gap-1 tabular text-[length:var(--text-10-5)]',
           probe.outcome === 'passed'
             ? 'text-[var(--text-secondary)]'
-            : probe.outcome === 'failed' ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]',
+            : probe.outcome === 'failed'
+              ? 'rounded-full bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] px-1.5 font-medium text-[var(--danger)]'
+              : 'text-[var(--text-quaternary)]',
         )}
       >
+        {probe.outcome === 'failed' && <AlertTriangle size={10} aria-hidden />}
+        {probe.outcome === 'passed' && <CheckCircle2 size={10} className="text-[var(--success)]" aria-hidden />}
         {words}{latency}
       </span>
     </Tooltip>
@@ -201,15 +235,29 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
   /** The one key whose plaintext is on screen, and which row it belongs to. Cleared on a timer. */
   const [revealed, setRevealed] = useState<{ keyId: string, key: string } | null>(null)
   const [revealing, setRevealing] = useState<string | null>(null)
+  /** The ring in walking order: who signs the next turn, and who is resting behind whom. */
+  const [rotation, setRotation] = useState<AssistantKeyRotation[]>([])
+  /** The reader's standing choice to keep secrets on screen; see the setting that turns it on. */
+  const revealAlways = useAssistant((state) => state.settings?.revealKeysAlways ?? false)
+  /** Plaintext for every key, held only while that choice is on and the panel is open. */
+  const [alwaysShown, setAlwaysShown] = useState<Record<string, string>>({})
   /** Which slice the stats/logs panel is open on: a key, or the provider as a whole. */
   const [insights, setInsights] = useState<{ keyId?: string, keyLabel?: string, keyHint?: string } | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const answer = await api.assistant.providerKeys(provider.id)
+      const [answer, order] = await Promise.all([
+        api.assistant.providerKeys(provider.id),
+        // The order is an annotation: a panel that could not read it still has keys to show. The wrapper
+        // catches a missing method as well as a rejected call, which is what a test double looks like.
+        Promise.resolve()
+          .then(() => api.assistant.keyRotation(provider.id))
+          .catch(() => ({ order: [] as AssistantKeyRotation[] })),
+      ])
       setKeys(answer.keys)
       setProbes(answer.probes)
       setPrimaryLastUsedAt(answer.primaryLastUsedAt)
+      setRotation(order.order)
     } catch (error) {
       toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
       setKeys([])
@@ -235,6 +283,14 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
   }
 
   const probeOf = (keyId: string): AssistantKeyProbe | undefined => probes.find((entry) => entry.keyId === keyId)
+
+  /** The plaintext this row may show: the standing choice first, then a one-off reveal. */
+  const plainOf = (keyId: string): string | null =>
+    alwaysShown[keyId] ?? (revealed?.keyId === keyId ? revealed.key : null)
+
+  /** Where this key sits in the order a turn would walk, or nothing when the ring has not been read. */
+  const rotationOf = (keyId: string): AssistantKeyRotation | undefined =>
+    rotation.find((entry) => entry.keyId === keyId)
 
   /**
    * Asks the worker for one plaintext key.
@@ -268,7 +324,7 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
   }
 
   const copyKey = async (keyId: string) => {
-    const key = await revealKey(keyId)
+    const key = plainOf(keyId) ?? await revealKey(keyId)
     if (!key) return
     try {
       await navigator.clipboard.writeText(key)
@@ -289,6 +345,33 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
     const timer = setTimeout(() => setRevealed(null), REVEAL_MS)
     return () => clearTimeout(timer)
   }, [revealed])
+
+  // The standing choice reads the whole ring once per open. Each read is an audited reveal, which is the
+  // price of the choice: a screen full of plaintext is a screen whose readings are countable.
+  useEffect(() => {
+    if (!open || !revealAlways) {
+      setAlwaysShown({})
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const next: Record<string, string> = {}
+      const ids = [''].concat((keys ?? []).filter((entry) => entry.hasKey).map((entry) => entry.id))
+      for (const keyId of ids) {
+        try {
+          const answer = keyId
+            ? await api.assistant.revealExtraKey(provider.id, keyId)
+            : await api.assistant.revealProviderKey(provider.id)
+          next[keyId] = answer.key
+        } catch {
+          // One unreadable key must not stop the rest of the ring from being shown.
+        }
+        if (cancelled) return
+      }
+      if (!cancelled) setAlwaysShown(next)
+    })()
+    return () => { cancelled = true }
+  }, [open, revealAlways, keys, provider.id])
 
   /** The reading for one row of the ring, or nothing to say about it yet. */
   const balanceOf = (keyId: string): KeyBalance | undefined => wallet.balances?.readings.find((entry) => entry.keyId === keyId)
@@ -360,6 +443,19 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
         </button>
         {/* Offered only once there is something to ask about: a probe of an empty ring is a request that
             can only answer "there is nothing here". */}
+        {/* Who a turn would sign with, before the reader has to open anything: the one fact that makes
+            "three keys" mean something at a glance. */}
+        {open && rotation.length > 1 && rotation[0] && (
+          <Tooltip
+            label={rotation[0].label || t('assistant.keys.primary')}
+            side="top"
+          >
+            <span className="flex shrink-0 items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+              <span className="size-1.5 rounded-full bg-[var(--success)]" aria-hidden />
+              {t('assistant.keys.next_up', { hint: rotation[0].keyHint || t('assistant.keys.primary') })}
+            </span>
+          </Tooltip>
+        )}
         {open && (
           <IconButton label={t('assistant.insights.open')} size="xs" onClick={() => setInsights({})}>
             <Activity size={12} />
@@ -378,13 +474,20 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
 
           {/* The provider's own key heads the ring, and is listed here so the count above means something:
               a reader who adds one key should see two, not wonder which one the ring is using. */}
-          <div className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5 text-[length:var(--text-11-5)]">
+          <div
+            className={cn(
+              'flex items-center gap-2 rounded-[var(--r-md)] border-l-[3px] border-y border-r px-2 py-1.5 text-[length:var(--text-11-5)]',
+              probeOf('')?.outcome === 'failed'
+                ? 'border-l-[var(--danger)] border-y-[color-mix(in_oklab,var(--danger)_30%,transparent)] border-r-[color-mix(in_oklab,var(--danger)_30%,transparent)] bg-[color-mix(in_oklab,var(--danger)_7%,transparent)]'
+                : 'border-l-[var(--border-subtle)] border-y-[var(--border-subtle)] border-r-[var(--border-subtle)]',
+            )}
+          >
             <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]">{t('assistant.keys.primary')}</span>
             {/* The same words the provider row and the edit form use, so one stored key reads the same
                 way everywhere: its last four characters, never the plaintext. */}
             <span className="shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-              {revealed?.keyId === '' ? (
-                <span className="select-all text-[var(--accent)]">{revealed.key}</span>
+              {plainOf('') ? (
+                <span className="select-all text-[var(--accent)]">{plainOf('')}</span>
               ) : (
                 <>
                   {storedKeyLabel(provider)}
@@ -395,12 +498,12 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
             </span>
             {provider.hasKey && (
               <IconButton
-                label={revealed?.keyId === '' ? t('assistant.keys.hide') : t('assistant.keys.reveal')}
+                label={plainOf('') ? t('assistant.keys.hide') : t('assistant.keys.reveal')}
                 size="xs"
                 disabled={revealing === ''}
                 onClick={() => void toggleReveal('')}
               >
-                {revealed?.keyId === '' ? <EyeOff size={12} /> : <Eye size={12} />}
+                {plainOf('') ? <EyeOff size={12} /> : <Eye size={12} />}
               </IconButton>
             )}
             {provider.hasKey && (
@@ -408,6 +511,7 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
                 <Copy size={12} />
               </IconButton>
             )}
+            <TurnOrder entry={rotationOf('')} />
             <ProbeBadge probe={probeOf('')} />
             <Button size="sm" variant="ghost" onClick={() => setInsights({ keyId: '', keyLabel: t('assistant.keys.primary'), keyHint: provider.keyHint })}>
               {t('assistant.insights.tab_stats')}
@@ -422,7 +526,12 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
               {keys.map((key) => (
                 <li
                   key={key.id}
-                  className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5"
+                  className={cn(
+                    'flex items-center gap-2 rounded-[var(--r-md)] border-l-[3px] border-y border-r px-2 py-1.5',
+                    probeOf(key.id)?.outcome === 'failed'
+                      ? 'border-l-[var(--danger)] border-y-[color-mix(in_oklab,var(--danger)_30%,transparent)] border-r-[color-mix(in_oklab,var(--danger)_30%,transparent)] bg-[color-mix(in_oklab,var(--danger)_7%,transparent)]'
+                      : 'border-l-[var(--border-subtle)] border-y-[var(--border-subtle)] border-r-[var(--border-subtle)]',
+                  )}
                 >
                   {renaming === key.id ? (
                     <form
@@ -448,13 +557,15 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
                       </Button>
                     </form>
                   ) : (
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
-                        {key.label || t('assistant.keys.unnamed')}
-                      </p>
+                    <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <TurnOrder entry={rotationOf(key.id)} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+                          {key.label || t('assistant.keys.unnamed')}
+                        </p>
                       <p className="truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-                        {revealed?.keyId === key.id ? (
-                          <span className="select-all font-mono text-[var(--accent)]">{revealed.key}</span>
+                        {plainOf(key.id) ? (
+                          <span className="select-all font-mono text-[var(--accent)]">{plainOf(key.id)}</span>
                         ) : (
                           <span className="font-mono">{key.hasKey ? key.keyHint : t('assistant.settings.key_missing')}</span>
                         )}
@@ -462,21 +573,22 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
                         {lastUsed(key.lastUsedAt)}
                         {key.errorCount > 0 && ` · ${t('assistant.keys.errors', { count: key.errorCount })}`}
                         {/* Why this key is not being used right now — a silence would read as a bug. */}
-                        {key.coolingUntil !== null && key.coolingUntil > Date.now()
-                          && ` · ${t('assistant.keys.cooling', { mins: Math.max(1, Math.ceil((key.coolingUntil - Date.now()) / 60_000)) })}`}
-                      </p>
+                          {key.coolingUntil !== null && key.coolingUntil > Date.now()
+                            && ` · ${t('assistant.keys.cooling', { mins: Math.max(1, Math.ceil((key.coolingUntil - Date.now()) / 60_000)) })}`}
+                        </p>
+                      </div>
                     </div>
                   )}
                   <ProbeBadge probe={probeOf(key.id)} />
                   <BalanceChip reading={balanceOf(key.id)} name={key.label || t('assistant.keys.unnamed')} />
                   {renaming !== key.id && key.hasKey && (
                     <IconButton
-                      label={revealed?.keyId === key.id ? t('assistant.keys.hide') : t('assistant.keys.reveal')}
+                      label={plainOf(key.id) ? t('assistant.keys.hide') : t('assistant.keys.reveal')}
                       size="xs"
                       disabled={revealing === key.id}
                       onClick={() => void toggleReveal(key.id)}
                     >
-                      {revealed?.keyId === key.id ? <EyeOff size={12} /> : <Eye size={12} />}
+                      {plainOf(key.id) ? <EyeOff size={12} /> : <Eye size={12} />}
                     </IconButton>
                   )}
                   {renaming !== key.id && key.hasKey && (

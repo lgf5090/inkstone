@@ -289,6 +289,27 @@ export interface AssistantRequestLog {
   requestBody: string | null
 }
 
+/**
+ * One key's place in the order the next turn would walk the ring.
+ *
+ * Position one is the key a turn takes. The flags say why a key sits where it does, which is the question
+ * a reader has when their fastest key is not the one being used.
+ */
+export interface AssistantKeyRotation {
+  /** Empty for the provider's own key. */
+  keyId: string
+  label: string
+  keyHint: string
+  /** 1-based: 1 is the key the next turn signs with. */
+  position: number
+  lastUsedAt: number | null
+  coolingUntil: number | null
+  /** Resting after a refusal, so the ring moves past it. */
+  cooling: boolean
+  /** Resting for this model only; the key still answers every other model. */
+  modelBlocked: boolean
+}
+
 /** Totals over one slice of the ring: one key, one provider, or the whole account. */
 export interface AssistantKeyStats {
   /** The key id, the provider id, or `all` — whatever the scope that produced this row was. */
@@ -873,6 +894,14 @@ export interface AssistantSettings {
    */
   logRequestBodies: boolean
   /**
+   * Keep stored keys visible instead of showing four characters.
+   *
+   * Off by default, and the only setting that puts a secret on screen without an action behind it: a
+   * reader who turns it on has decided their screen is not looked at by anyone else. Every panel that
+   * respects it says so, because a key on screen is a key in the next screenshot.
+   */
+  revealKeysAlways: boolean
+  /**
    * The model a realtime voice session is opened with.
    *
    * Kept apart from `activeModelId` because a realtime model cannot answer a text turn: it speaks
@@ -1041,6 +1070,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   autoRecover: true,
   requestTimeoutMs: 60_000,
   logRequestBodies: false,
+  revealKeysAlways: false,
   realtimeModelId: null,
   temperature: 0.4,
   limits: { ...DEFAULT_LIMITS },
@@ -1222,6 +1252,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     autoRecover: booleanValue(raw.autoRecover, DEFAULT_ASSISTANT_SETTINGS.autoRecover),
     requestTimeoutMs: integerInRange(raw.requestTimeoutMs, MIN_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS, DEFAULT_ASSISTANT_SETTINGS.requestTimeoutMs),
     logRequestBodies: booleanValue(raw.logRequestBodies, DEFAULT_ASSISTANT_SETTINGS.logRequestBodies),
+    revealKeysAlways: booleanValue(raw.revealKeysAlways, DEFAULT_ASSISTANT_SETTINGS.revealKeysAlways),
     realtimeModelId: typeof raw.realtimeModelId === 'string' && raw.realtimeModelId ? raw.realtimeModelId.slice(0, 26) : null,
     temperature: numberInRange(raw.temperature, 0, 1.5, DEFAULT_ASSISTANT_SETTINGS.temperature),
     limits,

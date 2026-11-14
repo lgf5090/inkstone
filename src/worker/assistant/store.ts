@@ -2063,6 +2063,72 @@ export class AssistantStore {
   }
 
   /**
+   * The ring in the order the next turn would walk it, including the keys it would skip.
+   *
+   * `pickProviderKey` hands out one key and says nothing about the rest, which leaves a reader unable to
+   * answer "who goes next, and why is that one resting". This is the same ordering, published: position
+   * one is the key a turn takes, and every row carries the reason it sits where it does.
+   */
+  async keyRingOrder(providerId: string, model?: string): Promise<Array<{
+    keyId: string, label: string, keyHint: string, position: number,
+    lastUsedAt: number | null, coolingUntil: number | null, cooling: boolean, modelBlocked: boolean,
+  }>> {
+    const record = await this.providerRecord(providerId)
+    if (!record) return []
+    const blocked = new Set<string>()
+    if (model) {
+      const rows = await this.rows<{ key_id: string }>(
+        `SELECT key_id FROM chat_provider_key_model_cooldowns
+          WHERE user_id = ?1 AND provider_id = ?2 AND model = ?3 AND cooling_until > ?4`,
+        this.userId, record.id, model, Date.now(),
+      )
+      for (const row of rows) blocked.add(row.key_id)
+    }
+    const entries: Array<{
+      keyId: string, label: string, keyHint: string, lastUsedAt: number | null,
+      coolingUntil: number | null, cooling: boolean, modelBlocked: boolean, order: number,
+    }> = []
+    if (record.key_ciphertext) {
+      entries.push({
+        keyId: '', label: record.label, keyHint: record.key_hint ?? '',
+        lastUsedAt: record.key_last_used_at ?? null, coolingUntil: null,
+        cooling: blocked.has(''), modelBlocked: blocked.has(''), order: -1,
+      })
+    }
+    const extras = await this.rows<ProviderKeyRow>(
+      `SELECT ${PROVIDER_KEY_COLUMNS} FROM chat_provider_keys
+        WHERE user_id = ?1 AND provider_id = ?2 AND enabled = 1 ORDER BY created_at`,
+      this.userId, record.id,
+    )
+    for (const row of extras) {
+      if (!row.key_ciphertext) continue
+      const coolingUntil = row.cooling_until ?? null
+      entries.push({
+        keyId: row.id, label: row.label, keyHint: row.key_hint ?? '',
+        lastUsedAt: row.last_used_at ?? null, coolingUntil,
+        cooling: (coolingUntil ?? 0) > Date.now() || blocked.has(row.id),
+        modelBlocked: blocked.has(row.id), order: row.created_at,
+      })
+    }
+    entries.sort((left, right) => {
+      const resting = Number(left.cooling) - Number(right.cooling)
+      if (resting !== 0) return resting
+      if (record.sticky) return left.order - right.order
+      return ((left.lastUsedAt ?? 0) - (right.lastUsedAt ?? 0)) || (left.order - right.order)
+    })
+    return entries.map((entry, index) => ({
+      keyId: entry.keyId,
+      label: entry.label,
+      keyHint: entry.keyHint,
+      position: index + 1,
+      lastUsedAt: entry.lastUsedAt,
+      coolingUntil: entry.coolingUntil,
+      cooling: entry.cooling,
+      modelBlocked: entry.modelBlocked,
+    }))
+  }
+
+  /**
    * One line per attempt. Kept short on purpose: a log that grows without bound is a table nobody reads
    * and everybody pays for, so the writer trims to the most recent {@link REQUEST_LOG_LIMIT} rows.
    */
