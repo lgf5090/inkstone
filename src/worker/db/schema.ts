@@ -4395,6 +4395,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    // One provider can prefer one key for every turn: a vendor keys its prompt cache on the prefix, so
+    // rotating keys per turn throws that cache away. Off by default — rotation is what spreads a limit.
+    version: 407,
+    skipIfColumnExists: { table: 'chat_providers', column: 'sticky' },
+    statements: [
+      `ALTER TABLE chat_providers ADD COLUMN sticky INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

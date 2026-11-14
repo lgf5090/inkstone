@@ -2197,6 +2197,7 @@ const allowed = new Map([
     "// carries that wire, and a second copy this form cannot show is what used to disable the save.",
     "// The box is one ring rather than one credential. What the reader sees here is what the route parses,",
     "// so the count and the cap have to be visible before the save rather than discovered after it.",
+    "/** Keep one key for every turn instead of rotating: the reader's own cost/stability trade. */",
   ]],
   ["src/client/features/chat/AssistantOtherTab.tsx", [
     "/** The switches that change how the interface behaves rather than how the model answers. */",
@@ -32468,6 +32469,7 @@ const allowed = new Map([
     "/** The empty string for the provider's own key, which has no row of its own to hang this on. */",
     "/** Round-trip time of the probe request, which is how a reader tells two working keys apart. */",
     "/** Unix ms the key becomes usable again, or null when it is not resting. Set by a refusal. */",
+    "/**\n   * Keep one key on every turn instead of rotating through the ring.\n   *\n   * Rotation spreads a rate limit across keys, which is why it is the default. A vendor's prompt cache is\n   * keyed on the request prefix and is per account, so rotating throws that cache away on every turn — a\n   * provider whose ring is about a quota rather than a limit may prefer to sit on one key and pay less.\n   */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -38098,6 +38100,10 @@ const allowed = new Map([
     "// model it could not serve is a different fact and is kept here like any other key's.",
     "/**\n   * A key that just answered is a key that works.\n   *\n   * The failure count and the cooldown are cleared together: keeping the count would make the next\n   * unrelated slip double a window the reader had already recovered from. `model` clears that model's own\n   * narrower cooldown in the same pass, because both facts were proved by the same answer.\n   */",
     "/**\n   * Records that one key could not serve one model, without touching the key's own health.\n   *\n   * Written by the failures that name the request rather than the credential — a model this key has no\n   * access to. Cooling the whole key for it would take a working credential out of every other turn, which\n   * is exactly the confusion multi-key rings exist to avoid.\n   */",
+    "// Sticky keeps the ring's own order: the same key answers every turn, which is what a vendor's",
+    "// prompt cache keys on. Rotation is the default because it spreads a rate limit across keys, and a",
+    "// reader who chose sticky chose the other trade.",
+    "/** 1 when this provider should keep one key for every turn rather than rotating. */",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
@@ -41214,6 +41220,8 @@ const allowed = new Map([
     "// also touched by renames and switches, and a cooldown that a name change can extend is not a cooldown.",
     "// A model one key cannot serve is a narrower fact than a broken key, and cooling the whole key for it",
     "// takes a working credential out of every other turn.",
+    "// One provider can prefer one key for every turn: a vendor keys its prompt cache on the prefix, so",
+    "// rotating keys per turn throws that cache away. Off by default — rotation is what spreads a limit.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -47523,6 +47531,9 @@ const allowed = new Map([
     "// model-a is the model this key could not serve: the ring falls through to the provider's own key.",
     "// Every other model still gets the fastest answer, and a caller that names no model is untouched.",
     "// An answer clears the narrower cooldown in the same pass as the key's own health.",
+    "// Two turns running. Rotation would have moved to the extra key on the second.",
+    "// A cooled first key still yields to the second: sticky is about cost, not about insisting.",
+    "// Off again: the ring resumes least-recently-used order, which is the extra key.",
   ]],
   ["tests/assistant-reading-tools.test.ts", [
     "/**\n * The reading tools, and the reader's lookups.\n *\n * The tools read the account's synced shelf through the real `ReaderLibraryStore` over an in-memory\n * D1, because what is being pinned is that a question about \"my books\" is answered from stored rows —\n * a stub shelf would pass while the account scoping was missing. The second half pins the lookup path:\n * a selection's explanation now goes through the assistant's account model, and the drawing engine's\n * browser-local key is not read at all.\n */",

@@ -314,7 +314,7 @@ function applyMemoryScope(q: Query, scope: MemoryScope | undefined, column = 'pr
  * `length(key_ciphertext) > 0` answers "is a key stored" without the ciphertext ever leaving the row,
  * so no provider listing can carry a key out even if a route is added carelessly later.
  */
-const PROVIDER_COLUMNS = `id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_hint, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
+const PROVIDER_COLUMNS = `id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_hint, length(key_ciphertext) > 0 AS has_key, sticky, created_at, updated_at`
 
 /** A provider key row, ciphertext included: read only by the rotation, never by a listing. */
 const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, enabled, last_used_at, error_count, last_error, cooling_until, created_at, updated_at`
@@ -1577,7 +1577,7 @@ export class AssistantStore {
   /** Includes the ciphertext: only the worker may hold it, and only to sign one upstream request. */
   async providerRecord(id: string): Promise<ProviderRow | null> {
     const stored = await this.one<Omit<ProviderRow, 'protocol'> & { protocol: string }>(
-      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, key_last_used_at, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, key_last_used_at, sticky, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -1597,6 +1597,7 @@ export class AssistantStore {
     label: string, icon?: string, protocol: AssistantProtocol, baseUrl: string, apiKey: string,
     endpoints?: Partial<Record<AssistantProtocol, string>>,
     reasoningDialect?: ReasoningDialect | null,
+    sticky?: boolean,
   }): Promise<AssistantProvider> {
     const id = newId()
     const at = Date.now()
@@ -1608,13 +1609,13 @@ export class AssistantStore {
     // characters have to travel with the row the way an extra key's already do.
     const hint = key ? key.slice(-4) : ''
     await this.write(
-      `INSERT INTO chat_providers (id, user_id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?12, ?4, ?5, ?9, ?10, ?6, ?11, ?7, ?8)`,
+      `INSERT INTO chat_providers (id, user_id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, sticky, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?12, ?4, ?5, ?9, ?10, ?6, ?11, ?13, ?7, ?8)`,
       id, input.label, input.protocol, input.baseUrl, ciphertext, at, at,
       // A database created by an earlier migration made this column NOT NULL DEFAULT '' while the
       // current DDL lets it be null. Both read back as "no pin" through `reasoningDialectValue`, so the
       // empty string is written here as the value both shapes accept.
-      JSON.stringify(input.endpoints ?? {}), dialect ?? '', hint, icon,
+      JSON.stringify(input.endpoints ?? {}), dialect ?? '', hint, icon, input.sticky ? 1 : 0,
     )
     return {
       id,
@@ -1624,6 +1625,7 @@ export class AssistantStore {
       baseUrl: input.baseUrl,
       endpoints: input.endpoints ?? {},
       reasoningDialect: dialect,
+      sticky: Boolean(input.sticky),
       hasKey: Boolean(ciphertext),
       keyHint: hint,
       createdAt: at,
@@ -1637,6 +1639,7 @@ export class AssistantStore {
       label?: string, icon?: string, protocol?: AssistantProtocol, baseUrl?: string, apiKey?: string | null,
       endpoints?: Partial<Record<AssistantProtocol, string>>,
       reasoningDialect?: ReasoningDialect | null,
+      sticky?: boolean,
     },
   ): Promise<AssistantProvider | null> {
     const existing = await this.providerRecord(id)
@@ -1673,6 +1676,7 @@ export class AssistantStore {
       set('key_ciphertext', await encryptAssistantKey(this.env, this.userId, patch.apiKey))
       set('key_hint', patch.apiKey.trim().slice(-4))
     }
+    if (patch.sticky !== undefined) set('sticky', patch.sticky ? 1 : 0)
     set('updated_at', Date.now())
     await this.partialUpdate('chat_providers', id, fields)
     return await this.getProvider(id)
@@ -1866,10 +1870,15 @@ export class AssistantStore {
       })
     }
     if (!ring.length) return null
-    ring.sort((left, right) =>
-      (Number(left.cooling) - Number(right.cooling))
-      || (left.lastUsedAt - right.lastUsedAt)
-      || (left.order - right.order))
+    ring.sort((left, right) => {
+      const resting = Number(left.cooling) - Number(right.cooling)
+      if (resting !== 0) return resting
+      // Sticky keeps the ring's own order: the same key answers every turn, which is what a vendor's
+      // prompt cache keys on. Rotation is the default because it spreads a rate limit across keys, and a
+      // reader who chose sticky chose the other trade.
+      if (record.sticky) return left.order - right.order
+      return (left.lastUsedAt - right.lastUsedAt) || (left.order - right.order)
+    })
     for (const candidate of ring) {
       const key = (await decryptAssistantKey(this.env, this.userId, candidate.ciphertext)) ?? ''
       if (key) return { keyId: candidate.keyId, key, label: candidate.label }
@@ -2028,7 +2037,7 @@ export class AssistantStore {
    */
   async vendorAccess(id: string): Promise<{ protocol: AssistantProtocol, baseUrl: string, apiKey: string } | null> {
     const row = await this.one<ProviderRow>(
-      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, key_last_used_at, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, key_last_used_at, sticky, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -8917,6 +8926,8 @@ export interface ProviderRow {
   /** When the provider's own key last signed a call; null until it has been used once. */
   key_last_used_at?: number | null
   has_key?: number | null
+  /** 1 when this provider should keep one key for every turn rather than rotating. */
+  sticky?: number | null
   created_at: number
   updated_at: number
 }
@@ -8945,6 +8956,7 @@ function toProvider(r: ProviderRow): AssistantProvider {
     hasKey: bool(r.has_key ?? Boolean(r.key_ciphertext)),
     // Stored beside the ciphertext, so the listing proves which key it holds without decrypting it.
     keyHint: r.key_hint ?? '',
+    sticky: bool(r.sticky ?? 0),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }

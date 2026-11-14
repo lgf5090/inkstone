@@ -32,7 +32,7 @@ vi.mock('../../lib/api', () => ({
 
 const PROVIDER: AssistantProvider = {
   id: 'p1', label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', endpoints: {},
-  hasKey: true, icon: '', keyHint: '', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+  hasKey: true, icon: '', keyHint: '', reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
 }
 
 function vendor(id: string, over: Partial<AssistantVendorModel> = {}): AssistantVendorModel {

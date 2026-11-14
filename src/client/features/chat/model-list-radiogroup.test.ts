@@ -20,7 +20,7 @@ vi.mock('../../lib/api', () => ({
   CLIENT_ID: 'test-client',
   api: {
     assistant: {
-      providerKeys: vi.fn(async () => ({ keys: [] })),
+      providerKeys: vi.fn(async () => ({ keys: [], probes: [] })),
       usage: vi.fn(async () => ({ today: {}, last7Days: {} })),
     },
     files: { upload: vi.fn(async () => ({ url: '', filename: '', mime: '' })) },
@@ -29,7 +29,7 @@ vi.mock('../../lib/api', () => ({
 
 const PROVIDER: AssistantProvider = {
   id: 'p1', label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', endpoints: {},
-  hasKey: true, icon: '', keyHint: 'abcd', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+  hasKey: true, icon: '', keyHint: 'abcd', reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
 }
 
 function model(id: string, label: string): AssistantModel {

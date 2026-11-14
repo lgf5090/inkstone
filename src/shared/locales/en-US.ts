@@ -8222,6 +8222,8 @@ const CORE_MESSAGES_TAIL = {
     "assistant.settings.protocol.anthropic": "Anthropic",
     "assistant.settings.protocol.gemini": "Google Gemini",
     "assistant.settings.dialect": "Thinking dialect",
+    "assistant.settings.sticky": "Keep one key for every turn",
+    "assistant.settings.sticky_hint": "The default rotates through the ring, least recently used first, which spreads a rate limit. With this on, the provider always answers on its first working key, so the vendor’s prompt cache survives between turns and costs less — at the price of hitting one key’s limit sooner.",
     "assistant.settings.dialect_hint": "Leave this on automatic to read the dialect from the address and the model's name. Pin one where a custom gateway or a proxy cannot be told apart.",
     "assistant.settings.dialect.auto": "Automatic",
     "assistant.settings.dialect.openai": "OpenAI (reasoning_effort)",

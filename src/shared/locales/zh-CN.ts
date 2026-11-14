@@ -8214,6 +8214,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.settings.protocol.anthropic": "Anthropic",
     "assistant.settings.protocol.gemini": "Google Gemini",
     "assistant.settings.dialect": "推理方言",
+    "assistant.settings.sticky": "固定使用一把密钥",
+    "assistant.settings.sticky_hint": "默认按最久未用的顺序轮换，能分摊限流。开启后同一服务商始终优先用第一把可用密钥，服务商的提示词缓存才不会每轮失效，成本更低；代价是限流时更容易撞到同一把。",
     "assistant.settings.dialect_hint": "留空即按地址和模型名自动判断。自定义网关或代理判断不出来时，在这里指明这套接口认的思考参数。",
     "assistant.settings.dialect.auto": "自动判断",
     "assistant.settings.dialect.openai": "OpenAI（reasoning_effort）",

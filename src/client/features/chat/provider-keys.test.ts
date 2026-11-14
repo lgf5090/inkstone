@@ -30,7 +30,7 @@ const wallet = (): ProviderWallet => ({ balances: null, problem: null, busy: fal
 function provider(over: Partial<AssistantProvider> = {}): AssistantProvider {
   return {
     id: 'p1', label: 'Example', protocol: 'openai', baseUrl: 'https://api.example.com', endpoints: {},
-    hasKey: true, icon: '', keyHint: '9876', reasoningDialect: null, createdAt: 1, updatedAt: 1, ...over,
+    hasKey: true, icon: '', keyHint: '9876', reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1, ...over,
   }
 }
 

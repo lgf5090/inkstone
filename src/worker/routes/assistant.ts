@@ -3401,6 +3401,7 @@ assistantRoutes.post('/providers', async (c) => {
   const provider = await s.createProvider({
     label, icon: assistantIconValue(body.icon), protocol, baseUrl, apiKey: keys[0] ?? '', endpoints: vetEndpoints(body.endpoints),
     reasoningDialect: reasoningDialectValue(body.reasoningDialect),
+    sticky: body.sticky === true,
   })
   // The first key belongs to the provider row; the rest are the ring the next turns rotate through.
   for (const key of keys.slice(1)) await s.createProviderKey(provider.id, { label: '', apiKey: key })
@@ -3431,6 +3432,7 @@ assistantRoutes.patch('/providers/:id', async (c) => {
     ...(body.apiKey === null ? { apiKey: null } : keys?.length ? { apiKey: keys[0] } : {}),
     ...(body.endpoints !== undefined ? { endpoints: vetEndpoints(body.endpoints) } : {}),
     ...(body.reasoningDialect !== undefined ? { reasoningDialect: reasoningDialectValue(body.reasoningDialect) } : {}),
+    ...(body.sticky !== undefined ? { sticky: body.sticky === true } : {}),
   })
   if (!provider) throw ApiError.notFound('Provider not found')
   if (keys?.length || body.apiKey === null) {

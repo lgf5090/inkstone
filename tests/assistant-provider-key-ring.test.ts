@@ -270,3 +270,28 @@ describe('a model one key cannot serve', () => {
     expect((await store.pickProviderKey(record!, 'model-a'))?.keyId).toBe(keyId)
   })
 })
+
+describe('a provider that keeps one key', () => {
+  it('answers on the same key every turn, and rotates again once the choice is undone', async () => {
+    const response = await send('POST', '/api/assistant/providers', newProvider(`${FIRST}, ${SECOND}`))
+    const id = (await response.json() as { provider: { id: string } }).provider.id
+    const extras = await store.listProviderKeys(id)
+    await send('PATCH', `/api/assistant/providers/${id}`, { sticky: true })
+    const record = await store.providerRecord(id)
+    expect(record?.sticky).toBe(1)
+
+    // Two turns running. Rotation would have moved to the extra key on the second.
+    expect((await store.pickProviderKey(record!))?.keyId).toBe('')
+    await store.markProviderKeyUsed(id, '')
+    expect((await store.pickProviderKey(record!))?.keyId).toBe('')
+
+    // A cooled first key still yields to the second: sticky is about cost, not about insisting.
+    await store.recordKeyModelCooldown('', id, 'model-a', 60_000)
+    expect((await store.pickProviderKey(record!, 'model-a'))?.keyId).toBe(extras[0]!.id)
+
+    await send('PATCH', `/api/assistant/providers/${id}`, { sticky: false })
+    const rotated = await store.providerRecord(id)
+    // Off again: the ring resumes least-recently-used order, which is the extra key.
+    expect((await store.pickProviderKey(rotated!))?.keyId).toBe(extras[0]!.id)
+  })
+})

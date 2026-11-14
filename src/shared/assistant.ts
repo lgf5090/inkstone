@@ -182,6 +182,14 @@ export interface AssistantProvider {
    * vendor whose naming is guesswork is exactly what this is for.
    */
   reasoningDialect: ReasoningDialect | null
+  /**
+   * Keep one key on every turn instead of rotating through the ring.
+   *
+   * Rotation spreads a rate limit across keys, which is why it is the default. A vendor's prompt cache is
+   * keyed on the request prefix and is per account, so rotating throws that cache away on every turn — a
+   * provider whose ring is about a quota rather than a limit may prefer to sit on one key and pay less.
+   */
+  sticky: boolean
   createdAt: number
   updatedAt: number
 }

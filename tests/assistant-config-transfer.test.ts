@@ -8,7 +8,7 @@ function store(over: Record<string, unknown> = {}) {
     getSettings: vi.fn(async () => ({ ...DEFAULT_ASSISTANT_SETTINGS, activeModelId: 'm-local', limits: { ...DEFAULT_ASSISTANT_SETTINGS.limits, maxRequestsPerDay: 7 } })),
     listProviders: vi.fn(async () => [{
       id: 'p1', label: 'Vendor', icon: 'sparkles', protocol: 'openai', baseUrl: 'https://api.test',
-      endpoints: {}, reasoningDialect: null, hasKey: true, keyHint: '1234', createdAt: 1, updatedAt: 1,
+      endpoints: {}, reasoningDialect: null, sticky: false, hasKey: true, keyHint: '1234', createdAt: 1, updatedAt: 1,
     }]),
     listModels: vi.fn(async () => [{
       id: 'm1', providerId: 'p1', model: 'gpt', label: 'GPT', icon: '', temperature: 0.4,

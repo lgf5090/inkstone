@@ -263,7 +263,7 @@ describe('an address box that got something else typed into it', () => {
 describe('the key box of a provider that already has one', () => {
   const saved = {
     id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gw.internal.example/v1',
-    endpoints: {}, hasKey: true, icon: '', keyHint: '1234', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+    endpoints: {}, hasKey: true, icon: '', keyHint: '1234', reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
   } as unknown as AssistantProvider
   const editButton = () => buttons().find((node) => node.textContent?.trim() === t('assistant.settings.edit_provider'))
   /** The note a field declares it is described by, reached through the association alone. */
@@ -362,7 +362,7 @@ describe('a save the route refuses', () => {
     })
     const provider = {
       id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gw.internal.example/v1',
-      endpoints: {}, hasKey: true, icon: '', keyHint: '1234', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+      endpoints: {}, hasKey: true, icon: '', keyHint: '1234', reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
     } as unknown as AssistantProvider
     await act(async () => { root.render(createElement(ProviderForm, { open: true, provider, onClose: onCloseSpy })) })
     await press(editButton(), 'the save button')
@@ -454,7 +454,7 @@ describe('an address for the wire the provider is on', () => {
   it('drops a stored address for the provider own protocol instead of sending it back', async () => {
     const provider = {
       id: 'p1', label: 'Legacy Gateway', protocol: 'openai', baseUrl: 'https://api.deepseek.com',
-      endpoints: { openai: 'lgf5090' }, hasKey: false, icon: '', keyHint: '', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+      endpoints: { openai: 'lgf5090' }, hasKey: false, icon: '', keyHint: '', reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
     } as unknown as AssistantProvider
     await act(async () => { root.render(createElement(ProviderForm, { open: true, provider, onClose: onCloseSpy })) })
     expect(editButton()?.disabled, 'an address no box shows kept the save disabled').toBe(false)

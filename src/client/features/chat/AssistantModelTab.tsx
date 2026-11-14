@@ -603,6 +603,8 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   // offered: the two wires do not share a thinking shape, so one that no longer fits would only build a
   // body the far end ignores.
   const [dialect, setDialect] = useState<ReasoningDialect | ''>('')
+  /** Keep one key for every turn instead of rotating: the reader's own cost/stability trade. */
+  const [sticky, setSticky] = useState(false)
   const [listing, setListing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState<WriteFailure | null>(null)
@@ -674,6 +676,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
       // carries that wire, and a second copy this form cannot show is what used to disable the save.
       setExtra(otherEndpoints(editing.endpoints, editing.protocol))
       setDialect(editing.reasoningDialect ?? '')
+      setSticky(editing.sticky)
       setModels('')
       setApiKey('')
       return
@@ -686,6 +689,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     setApiKey('')
     setExtra({})
     setDialect('')
+    setSticky(false)
   }, [open, chosen, editing])
 
   // An edit opens with an empty password box because the plaintext is not ours to show again. The box
@@ -726,6 +730,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
         baseUrl: baseUrl.trim(),
         endpoints: sendable,
         reasoningDialect: pinned || null,
+        sticky,
         // A blank box means "keep the stored key", not "forget it": an untouched field is not
         // sent at all, and the worker keeps the ciphertext for a patch that carries no key.
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
@@ -745,6 +750,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
       apiKey: apiKey.trim(),
       endpoints: sendable,
       reasoningDialect: pinned || null,
+      sticky,
       models: models.split(',').map((entry) => entry.trim()).filter(Boolean),
     }, setFailure)
     setSaving(false)
@@ -802,6 +808,13 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
             ))}
           </Select>
         </Field>
+        <div className="flex items-start gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-2">
+          <Switch checked={sticky} label={t('assistant.settings.sticky')} onChange={setSticky} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{t('assistant.settings.sticky')}</p>
+            <p className="mt-0.5 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.settings.sticky_hint')}</p>
+          </div>
+        </div>
         <Field label={t('assistant.settings.base_url')} hint={problems.base_url ?? t('assistant.settings.base_url_hint')}>
           <Input
             value={baseUrl}
