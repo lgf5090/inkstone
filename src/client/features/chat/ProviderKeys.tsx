@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { ChevronDown, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import type { AssistantProvider, AssistantProviderKey } from '@shared/assistant'
+import type { AssistantKeyProbe, AssistantProvider, AssistantProviderKey } from '@shared/assistant'
 import type { KeyBalance, ProviderBalanceAnswer } from '@shared/provider-balance'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -71,6 +71,42 @@ function BalanceChip({ reading, name }: { reading: KeyBalance | undefined, name:
         )}
       >
         {balanceWords(reading)}
+      </span>
+    </Tooltip>
+  )
+}
+
+/**
+ * What the last probe said about one key, and why.
+ *
+ * Three words, not two. "Cannot tell" is a real answer — a limit, an outage or a timeout says nothing
+ * about the credential — and the tooltip carries the reason, because a badge has room for one word and
+ * the reader's next move depends on which one it is.
+ */
+function ProbeBadge({ probe }: { probe: AssistantKeyProbe | undefined }) {
+  if (!probe) return null
+  const words = probe.outcome === 'passed'
+    ? t('assistant.keys.probe_passed')
+    : probe.outcome === 'failed'
+      ? t('assistant.keys.probe_failed')
+      : t('assistant.keys.probe_unknown')
+  const reason = probe.reason ? t(`assistant.keys.probe_reason.${probe.reason}`) : ''
+  // The round-trip of a passing probe is the only number here worth a reader's attention: it is how two
+  // working keys are told apart when one of them is slower than the other.
+  const latency = probe.outcome === 'passed' && probe.latencyMs !== null
+    ? ` ${t('assistant.keys.probe_latency', { ms: probe.latencyMs })}`
+    : ''
+  return (
+    <Tooltip label={`${words}${reason ? ` · ${reason}` : ''} · ${lastUsed(probe.probedAt)}`} side="top">
+      <span
+        className={cn(
+          'shrink-0 tabular text-[length:var(--text-10-5)]',
+          probe.outcome === 'passed'
+            ? 'text-[var(--text-secondary)]'
+            : probe.outcome === 'failed' ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]',
+        )}
+      >
+        {words}{latency}
       </span>
     </Tooltip>
   )
@@ -153,15 +189,40 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
   // tells three wallets apart once the last four characters have scrolled out of the tooltip.
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renamed, setRenamed] = useState('')
+  /** What the last probe concluded, per key. Empty until somebody asks. */
+  const [probes, setProbes] = useState<AssistantKeyProbe[]>([])
+  const [probing, setProbing] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      setKeys((await api.assistant.providerKeys(provider.id)).keys)
+      const answer = await api.assistant.providerKeys(provider.id)
+      setKeys(answer.keys)
+      setProbes(answer.probes)
     } catch (error) {
       toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
       setKeys([])
     }
   }, [provider.id, toast])
+
+  /**
+   * Asks the provider about every key at once.
+   *
+   * Not wrapped in `run`: a probe changes nothing about the ring, so the wallet does not have to be
+   * re-read — and one request per key is already the most this screen does at a time.
+   */
+  const probe = async () => {
+    setProbing(true)
+    try {
+      const answer = await api.assistant.probeProviderKeys(provider.id)
+      setProbes(answer.results)
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
+    } finally {
+      setProbing(false)
+    }
+  }
+
+  const probeOf = (keyId: string): AssistantKeyProbe | undefined => probes.find((entry) => entry.keyId === keyId)
 
   useEffect(() => {
     if (!open) return
@@ -212,27 +273,38 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
     })
   }
 
+  const ringSize = (keys?.length ?? 0) + (provider.hasKey ? 1 : 0)
+
   return (
     <div className="pl-9">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className={cn(
-          'flex w-full items-center gap-1.5 rounded-[var(--r-md)] px-1 py-1 text-left',
-          'text-[length:var(--text-11-5)] text-[var(--text-tertiary)]',
-          'transition-colors duration-[var(--dur-fast)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-md)] px-1 py-1 text-left',
+            'text-[length:var(--text-11-5)] text-[var(--text-tertiary)]',
+            'transition-colors duration-[var(--dur-fast)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+          )}
+        >
+          <KeyRound size={12} className="shrink-0" />
+          {t('assistant.keys.title')}
+          {ringSize > 0 && (
+            <span className="rounded-full bg-[var(--accent-soft)] px-1.5 text-[length:var(--text-10-5)] tabular text-[var(--accent-on-soft)]">
+              {ringSize}
+            </span>
+          )}
+          <ChevronDown size={12} className={cn('ml-auto transition-transform duration-[var(--dur-fast)]', open && 'rotate-180')} />
+        </button>
+        {/* Offered only once there is something to ask about: a probe of an empty ring is a request that
+            can only answer "there is nothing here". */}
+        {open && ringSize > 0 && (
+          <Button size="sm" variant="ghost" disabled={probing || busy} onClick={() => void probe()}>
+            {probing ? t('assistant.keys.probe_running') : t('assistant.keys.probe')}
+          </Button>
         )}
-      >
-        <KeyRound size={12} className="shrink-0" />
-        {t('assistant.keys.title')}
-        {keys && keys.length > 0 && (
-          <span className="rounded-full bg-[var(--accent-soft)] px-1.5 text-[length:var(--text-10-5)] tabular text-[var(--accent-on-soft)]">
-            {keys.length + (provider.hasKey ? 1 : 0)}
-          </span>
-        )}
-        <ChevronDown size={12} className={cn('ml-auto transition-transform duration-[var(--dur-fast)]', open && 'rotate-180')} />
-      </button>
+      </div>
 
       {open && (
         <div className="mt-1 flex flex-col gap-1.5 pb-1">
@@ -247,6 +319,7 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
             <span className="shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
               {storedKeyLabel(provider)}
             </span>
+            <ProbeBadge probe={probeOf('')} />
             <BalanceChip reading={balanceOf('')} name={t('assistant.keys.primary')} />
           </div>
 
@@ -295,6 +368,7 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
                       </p>
                     </div>
                   )}
+                  <ProbeBadge probe={probeOf(key.id)} />
                   <BalanceChip reading={balanceOf(key.id)} name={key.label || t('assistant.keys.unnamed')} />
                   {renaming !== key.id && (
                     <IconButton

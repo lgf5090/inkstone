@@ -4354,6 +4354,23 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 403,
     statements: PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS,
   },
+  {
+    // Where the answer to "does this key still work" lives: one row per key, replaced on every probe.
+    // `key_id = ''` is the provider's own credential, which has no row in `chat_provider_keys`.
+    version: 404,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_provider_key_probes (
+        user_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        reason TEXT,
+        latency_ms INTEGER,
+        probed_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, provider_id, key_id)
+      )`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

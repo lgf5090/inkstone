@@ -125,6 +125,7 @@ import type {
   AssistantNotification,
   AssistantProvider,
   AssistantProviderKey,
+  AssistantKeyProbe,
   AssistantRealtimeSession,
   AssistantSearchKey,
   AssistantSettings,
@@ -2373,8 +2374,15 @@ export const api = {
     updateProvider: (id: string, body: Record<string, unknown>) =>
       request<{ provider: AssistantProvider }>(`/api/assistant/providers/${id}`, { method: 'PATCH', body }),
     deleteProvider: (id: string) => request<{ deleted: true }>(`/api/assistant/providers/${id}`, { method: 'DELETE' }),
-    /** The extra keys a provider rotates through. The plaintext is never in the answer. */
-    providerKeys: (id: string) => request<{ keys: AssistantProviderKey[] }>(`/api/assistant/providers/${id}/keys`),
+    /** The extra keys a provider rotates through, with what the last probe concluded about each. */
+    providerKeys: (id: string) =>
+      request<{ keys: AssistantProviderKey[], probes: AssistantKeyProbe[] }>(`/api/assistant/providers/${id}/keys`),
+    /** Asks the provider whether each stored key still works. Free: it reads the model listing. */
+    probeProviderKeys: (id: string) =>
+      request<{ results: Array<AssistantKeyProbe & { label: string, keyHint: string }> }>(
+        `/api/assistant/providers/${id}/keys/probe`,
+        { method: 'POST', body: {} },
+      ),
     createProviderKey: (id: string, body: { label?: string, apiKey: string }) =>
       request<{ key: AssistantProviderKey }>(`/api/assistant/providers/${id}/keys`, { method: 'POST', body }),
     updateProviderKey: (id: string, keyId: string, body: { label?: string, enabled?: boolean, apiKey?: string | null }) =>

@@ -62,6 +62,26 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
      ON chat_provider_keys(user_id, provider_id, created_at)`,
 
   /**
+   * The last time one stored key was asked whether it still works.
+   *
+   * Its own table rather than four more columns on two tables, because the subject is "one key of one
+   * provider" and that already has a key shape: the provider's own credential has no row in
+   * `chat_provider_keys`, so `key_id = ''` names it here without inventing a second column set. One row
+   * per key, replaced on every probe — a history of probe results would be a log nobody reads, and the
+   * usage tables already answer "which key did the work".
+   */
+  `CREATE TABLE IF NOT EXISTS chat_provider_key_probes (
+    user_id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    reason TEXT,
+    latency_ms INTEGER,
+    probed_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, provider_id, key_id)
+  )`,
+
+  /**
    * The key the reader stores for one hosted web-search engine.
    *
    * It is its own table rather than a settings field because `chat_settings` is a plaintext JSON blob and a
@@ -926,6 +946,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_share_links: ['slug', 'conversation_id', 'user_id', 'scope', 'password_hash', 'expires_at', 'views', 'created_at'],
   chat_providers: ['user_id', 'id', 'label', 'icon', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_hint', 'key_last_used_at', 'created_at', 'updated_at'],
   chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'created_at', 'updated_at'],
+  chat_provider_key_probes: ['user_id', 'provider_id', 'key_id', 'outcome', 'reason', 'latency_ms', 'probed_at'],
   chat_search_keys: ['user_id', 'engine', 'key_ciphertext', 'key_hint', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'icon', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens',
     'vendor_context_tokens', 'vendor_max_output_tokens', 'vision',

@@ -86,6 +86,8 @@ import {
   type AssistantMemoryCategory,
   type AssistantMessage,
   type AssistantProtocol,
+  type AssistantKeyProbeOutcome,
+  type AssistantKeyProbeReason,
   type AssistantSettings,
   type AssistantPricePeriod,
   type AssistantToolMode,
@@ -145,6 +147,7 @@ import { importSessionFile, MAX_SESSION_FILE_BYTES, SESSION_IMPORT_BODY_BYTES } 
 import { ChatShareStore, conversationSharePasswordHash, messageScope, MAX_SHARED_PICK, type ChatShareRow } from '../assistant/share'
 import { suggestActiveModel } from '../assistant/model-config'
 import { listVendorModels } from '../assistant/vendor-models'
+import { probeProviderKey } from '../assistant/key-probe'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
 import { MAX_PROVIDER_KEYS, MAX_PROVIDER_MODELS, parseProviderKeys, reasoningDialectValue, reasoningValue, searchEndpointValue } from '@shared/assistant'
 import { MAX_SEARCH_KEY_CHARS, isWebSearchEngineId, webSearchEngineFor } from '@shared/web-search-engines'
@@ -3450,7 +3453,47 @@ assistantRoutes.get('/providers/:id/keys', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getProvider(id))) throw ApiError.notFound('Provider not found')
-  return c.json({ keys: await s.listProviderKeys(id) })
+  return c.json({ keys: await s.listProviderKeys(id), probes: await s.listKeyProbes(id) })
+})
+
+/**
+ * Ask the provider whether each stored key still works.
+ *
+ * One free request per key, against the model listing every supported protocol publishes. The answer is
+ * three outcomes rather than two, because a 429 or a timeout says nothing about the credential and a
+ * screen that called those "invalid" would send the reader to delete a working key.
+ *
+ * Nothing here changes the rotation: this is a diagnosis the reader asked for, and acting on it is a
+ * separate decision. A key that comes back `failed` is shown as such, and the reader may disable it.
+ */
+assistantRoutes.post('/providers/:id/keys/probe', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const provider = await s.providerRecord(id)
+  if (!provider) throw ApiError.notFound('Provider not found')
+  const ring = await s.providerKeySecrets(id)
+  if (!ring.keys.length) throw ApiError.badRequest('This provider has no key to test.')
+  const protocol = asProtocol(provider.protocol)
+  const settled = await Promise.allSettled(
+    ring.keys.map(async (entry) => await probeProviderKey(protocol, ring.baseUrl, entry.key)),
+  )
+  const results: Array<{
+    keyId: string, label: string, keyHint: string,
+    outcome: AssistantKeyProbeOutcome, reason: AssistantKeyProbeReason | null, latencyMs: number | null, probedAt: number,
+  }> = []
+  for (const [index, entry] of ring.keys.entries()) {
+    const outcome = settled[index]
+    const result = outcome?.status === 'fulfilled'
+      ? outcome.value
+      // A probe that threw is not evidence about the key: the same three-outcome rule applies to the
+      // probe's own failure, so it is recorded as "cannot tell" and never as "invalid".
+      : { outcome: 'inconclusive' as const, reason: 'unknown' as const, latencyMs: null }
+    const saved = await s.recordKeyProbe(id, {
+      keyId: entry.keyId, outcome: result.outcome, reason: result.reason, latencyMs: result.latencyMs,
+    })
+    results.push({ ...entry, ...saved })
+  }
+  return c.json({ results })
 })
 
 assistantRoutes.post('/providers/:id/keys', async (c) => {

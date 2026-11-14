@@ -43,6 +43,9 @@ import type {
   AssistantNotification,
   AssistantProvider,
   AssistantProviderKey,
+  AssistantKeyProbe,
+  AssistantKeyProbeOutcome,
+  AssistantKeyProbeReason,
   AssistantSearchKey,
   AssistantReasoning,
   AssistantSettings,
@@ -1906,6 +1909,39 @@ export class AssistantStore {
          WHERE user_id = ?1 AND id = ?4`,
       message.slice(0, 300), Date.now(), keyId,
     )
+  }
+
+  /** Replaces this key's last probe result: one row per key, because a history would be a log nobody reads. */
+  async recordKeyProbe(
+    providerId: string,
+    probe: { keyId: string, outcome: AssistantKeyProbeOutcome, reason: AssistantKeyProbeReason | null, latencyMs: number | null },
+  ): Promise<AssistantKeyProbe> {
+    const at = Date.now()
+    await this.write(
+      `INSERT INTO chat_provider_key_probes (user_id, provider_id, key_id, outcome, reason, latency_ms, probed_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+       ON CONFLICT(user_id, provider_id, key_id) DO UPDATE SET
+         outcome = excluded.outcome, reason = excluded.reason,
+         latency_ms = excluded.latency_ms, probed_at = excluded.probed_at`,
+      providerId, probe.keyId, probe.outcome, probe.reason, probe.latencyMs, at,
+    )
+    return { ...probe, probedAt: at }
+  }
+
+  /** What the last probe concluded about each of this provider's keys, keyed by the empty string for its own. */
+  async listKeyProbes(providerId: string): Promise<AssistantKeyProbe[]> {
+    const rows = await this.rows<{ key_id: string, outcome: string, reason: string | null, latency_ms: number | null, probed_at: number }>(
+      `SELECT key_id, outcome, reason, latency_ms, probed_at FROM chat_provider_key_probes
+        WHERE user_id = ?1 AND provider_id = ?2`,
+      this.userId, providerId,
+    )
+    return rows.map((row) => ({
+      keyId: row.key_id,
+      outcome: row.outcome as AssistantKeyProbeOutcome,
+      reason: (row.reason as AssistantKeyProbeReason | null) ?? null,
+      latencyMs: row.latency_ms,
+      probedAt: row.probed_at,
+    }))
   }
 
   /**

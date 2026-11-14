@@ -3294,6 +3294,12 @@ const allowed = new Map([
     "// because a row that gained a name or left the ring changes what the chips beside it are saying — the",
     "// vendor is not asked twice, the worker holds the reading for a few minutes.",
     "/**\n   * Names a row that already exists.\n   *\n   * The name is worth an edit of its own because it is what the balance chips and the tooltips say: a ring\n   * of three keys that were never labelled is three rows reading \"Unnamed key\", and the last four\n   * characters only separate them while nothing else has scrolled away.\n   */",
+    "/**\n * What the last probe said about one key, and why.\n *\n * Three words, not two. \"Cannot tell\" is a real answer — a limit, an outage or a timeout says nothing\n * about the credential — and the tooltip carries the reason, because a badge has room for one word and\n * the reader's next move depends on which one it is.\n */",
+    "// The round-trip of a passing probe is the only number here worth a reader's attention: it is how two",
+    "// working keys are told apart when one of them is slower than the other.",
+    "/** What the last probe concluded, per key. Empty until somebody asks. */",
+    "/**\n   * Asks the provider about every key at once.\n   *\n   * Not wrapped in `run`: a probe changes nothing about the ring, so the wallet does not have to be\n   * re-read — and one request per key is already the most this screen does at a time.\n   */",
+    "/* Offered only once there is something to ask about: a probe of an empty ring is a request that\n            can only answer \"there is nothing here\". */",
   ]],
   ["src/client/features/chat/PushDevicesSection.tsx", [
     "/**\n   * The press, and the two things it can turn into.\n   *\n   * A refusal stays on the row as an inline block rather than a toast that leaves: the reader is looking at\n   * the switch that did not move, and the reason has to be where their attention already is.\n   */",
@@ -5327,6 +5333,9 @@ const allowed = new Map([
     "/**\n * The card's wallet, emptied.\n *\n * These cases are about the ring — what it reads, what it sends, what it never echoes. The numbers the\n * wallet carries are the card's own claim and are pinned in `wired-surfaces.test.ts`.\n */",
     "// One field in the body: renaming must not read as a chance to re-send or clear the secret.",
     "// The row goes back to being a row once the name is in.",
+    "// Nothing to ask about while the section is closed.",
+    "// The passing row carries its round-trip, which is the only number that separates two working keys.",
+    "// \"Cannot tell\" is kept as its own word: it is not a pass and must not read as a failure either.",
   ]],
   ["src/client/features/chat/push-devices.ts", [
     "/** Whether this browser could be given a push subscription at all. */",
@@ -21393,7 +21402,6 @@ const allowed = new Map([
     "/**\n     * Ask the worker to start a login at this server's own identity provider.\n     *\n     * The answer is an address rather than a redirect on purpose: this call is a `fetch`, and a redirect to\n     * an external site would drag the session cookie along with it. The caller opens the address itself.\n     */",
     "// The browser's own reading of a document, when it could make one; the server stores it beside the",
     "// bytes so the model is shown the contents on every turn rather than only the one that uploaded it.",
-    "/** The extra keys a provider rotates through. The plaintext is never in the answer. */",
     "/** The account's own totals, which no range narrows — see the type for why. */",
     "/**\n     * Withdraw the client registration itself, at the issuer when it can be and here always.\n     *\n     * A different press from the one above: that one logs the reader out, this one uninstalls the app. The\n     * answer carries whether the issuer was actually told, because a client registered by hand has nothing\n     * at the far end to delete.\n     */",
     "/** Put a conversation away or take it back out. Not a delete: the thread stays whole and searchable. */",
@@ -21476,6 +21484,8 @@ const allowed = new Map([
     "/** This thread's own overrides; the object replaces the stored one rather than merging into it. */",
     "/**\n     * Hand one feed's articles to the account, so the assistant can read them.\n     *\n     * The entry list never travels with the library: it is rebuilt from the network, and only the\n     * device that fetched it holds the text. This is the one write that carries it, reduced to plain\n     * text and capped, and the route refuses a feed the account does not subscribe to.\n     */",
     "/**\n     * The focus history over a window, plus today's own reading.\n     *\n     * A record is posted when a pomodoro phase ends, so the statistics can show work and break time\n     * without inferring it from a second table.\n     */",
+    "/** The extra keys a provider rotates through, with what the last probe concluded about each. */",
+    "/** Asks the provider whether each stored key still works. Free: it reads the model listing. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/** Replace the address without a reload. A no-op on the address that is already up. */",
@@ -32451,6 +32461,11 @@ const allowed = new Map([
     "/** The share of `inputTokens` a vendor reported it served from its own prompt cache. */",
     "/**\n * How many keys one provider may rotate through, counting the one on its own row.\n *\n * The form is one line the reader pastes a whole ring into, and every extra key is a vault write, so the\n * ceiling belongs on the parsed list rather than on the store that would otherwise write an unbounded\n * number of rows for one request.\n */",
     "/**\n * Splits a pasted ring into keys: commas or line breaks, trimmed, blanks and repeats dropped.\n *\n * Shared by the form (which counts what it is about to send) and the route (which is the trust boundary),\n * so the number the reader saw is the number the worker stores. The cap is enforced by the route, which\n * can refuse a list too long to store rather than quietly dropping the keys at its end.\n */",
+    "/**\n * What a probe of one stored key concluded.\n *\n * \"Cannot tell\" is a result, not a failure. A 429 or a timeout says nothing about whether the credential\n * works, and reporting those as invalid is how a good key gets thrown away — so the third outcome exists\n * and the screen has to name it.\n */",
+    "/**\n * Why a probe reached its outcome.\n *\n * `invalid_credential` is the only reason that blames the key. Everything else blames the moment, the\n * model or the probe itself, and the screen says so.\n */",
+    "/** One key's last probe. */",
+    "/** The empty string for the provider's own key, which has no row of its own to hang this on. */",
+    "/** Round-trip time of the probe request, which is how a reader tells two working keys apart. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -35977,6 +35992,20 @@ const allowed = new Map([
   ["src/worker/assistant/index.ts", [
     "/** Assistant store entry point used by the memos module. */",
   ]],
+  ["src/worker/assistant/key-probe.ts", [
+    "/**\n * Asking a provider whether a stored key still works.\n *\n * The only question a probe may answer is \"did the provider accept this credential\". It is deliberately\n * not a chat call: the cheapest free door every supported protocol has is its model listing, and a probe\n * that costs tokens is a probe nobody runs. When a provider does not publish that door the answer is\n * `probe_incompatible` rather than a guess.\n *\n * The shape of the answer is three outcomes, not two. A 429, a timeout or a 5xx says nothing about the\n * key, and reporting those as invalid is how a working credential gets deleted — so \"cannot tell\" is its\n * own result, with a reason that tells the reader whether to wait, retry later, or replace the key.\n */",
+    "/** Round-trip time, which is how a reader tells two working keys apart. Null when nothing was timed. */",
+    "/** A probe is a diagnostic, not a turn: past this the reader is better served by \"cannot tell\". */",
+    "// An address the guard refuses is not a key problem, and saying \"invalid key\" here would send the",
+    "// reader to rotate a credential that was never the issue.",
+    "// Same header spelling as the listing and the chat call, so a key that works there works here.",
+    "// The body is never read: a listing can be megabytes, and an error page is vendor text that has quoted",
+    "// credentials before. The status is the whole answer.",
+    "// The exchange is already over; a cancellation that fails has nothing left to release.",
+    "// A redirect is the guard's blind spot rather than the key's problem: the probe stops at the first",
+    "// address it was allowed to call.",
+    "// 404/405 is the one address shape this vendor does not publish. The chat call may still work.",
+  ]],
   ["src/worker/assistant/mcp-client.ts", [
     "/** A short, safe reason when `ok` is false: never the upstream body, which can carry the key. */",
     "/**\n * Whether this URL may be fetched at all.\n *\n * https is required, and no address inside a network is fetched at all: this runs on the platform, so a\n * reader's own laptop is not what a loopback address would reach, and the platform's own services are\n * exactly what must stay out of reach. A local MCP server is used through a tunnel, like any third party.\n */",
@@ -36945,6 +36974,7 @@ const allowed = new Map([
     "// the only surface that could create one; the to-do app now owns the table, and `migrateTaskTable`",
     "// moves an older database's rows across once.",
     "/**\n   * What a routine delivered, and whether any device was ever told about it.\n   *\n   * `read_at` is the reader's own state and `pushed_at` is a delivery fact, and the two must not be\n   * confused: the marker is stamped by `assistant/push-fanout.ts` the first time a push service accepts the\n   * nudge for this row, and it is what makes a later cron catch-up fire idempotent. Null means \"no device\n   * ever accepted one\" — including every row written before Web Push existed, which is the honest reading\n   * rather than a backfill that would claim a send that never happened.\n   *\n   * `link` is where the thing the notice is about lives, spelled `<app>:<id>` — `todo:<task id>` today. It\n   * is deliberately not a URL: a stored address would let whatever wrote the row point a reader's press at\n   * a site this deployment never chose, and the client is the one that knows how to reach a task, what a\n   * task it cannot read falls back to, and that the address it opens is same-origin by construction. Null\n   * means the notice is only a message — a digest, a finished run — and pressing it expands the row instead\n   * of moving the reader.\n   */",
+    "/**\n   * The last time one stored key was asked whether it still works.\n   *\n   * Its own table rather than four more columns on two tables, because the subject is \"one key of one\n   * provider\" and that already has a key shape: the provider's own credential has no row in\n   * `chat_provider_keys`, so `key_id = ''` names it here without inventing a second column set. One row\n   * per key, replaced on every probe — a history of probe results would be a log nobody reads, and the\n   * usage tables already answer \"which key did the work\".\n   */",
   ]],
   ["src/worker/assistant/scriptshub-tools.ts", [
     "/**\n * The ScriptsHub tools: the assistant can find, read, create and publish a snippet.\n *\n * Every call goes through the same `ScriptsHubStore` the screens and the HTTP routes use, so the\n * account boundary and the path validation are the ones the app already enforces. Publishing is a\n * write rather than a destructive action — it exposes a file the reader chose, and the reader can\n * pause or remove it from the same card — but the tool names the exact path and visibility in its\n * answer, so the model cannot read a publish as a local edit.\n */",
@@ -38050,6 +38080,8 @@ const allowed = new Map([
     "// empty string is written here as the value both shapes accept.",
     "// Same reason as the insert above: an older database's column is NOT NULL, and '' is what both",
     "// shapes read as \"no pin\".",
+    "/** Replaces this key's last probe result: one row per key, because a history would be a log nobody reads. */",
+    "/** What the last probe concluded about each of this provider's keys, keyed by the empty string for its own. */",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
@@ -41158,6 +41190,8 @@ const allowed = new Map([
     "// The project FTS tables were declared but never written or read: search scans the live rows with",
     "// LIKE. Removing the declarations leaves old databases carrying two empty tables, so the ledger",
     "// spends a version dropping them rather than leaving a shape a fresh boot no longer has.",
+    "// Where the answer to \"does this key still work\" lives: one row per key, replaced on every probe.",
+    "// `key_id = ''` is the provider's own credential, which has no row in `chat_provider_keys`.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -43465,6 +43499,9 @@ const allowed = new Map([
     "// A redirect would move the bearer key to an address the guard never saw; a WebSocket upgrade",
     "// cannot answer over one anyway, so the refusal is both the safe and the honest answer.",
     "/** A changed key ring makes every balance this isolate cached for that provider stale. */",
+    "/**\n * Ask the provider whether each stored key still works.\n *\n * One free request per key, against the model listing every supported protocol publishes. The answer is\n * three outcomes rather than two, because a 429 or a timeout says nothing about the credential and a\n * screen that called those \"invalid\" would send the reader to delete a working key.\n *\n * Nothing here changes the rotation: this is a diagnosis the reader asked for, and acting on it is a\n * separate decision. A key that comes back `failed` is shown as such, and the reader may disable it.\n */",
+    "// A probe that threw is not evidence about the key: the same three-outcome rule applies to the",
+    "// probe's own failure, so it is recorded as \"cannot tell\" and never as \"invalid\".",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",
@@ -47163,6 +47200,13 @@ const allowed = new Map([
   ["tests/assistant-imgbed-tools.test.ts", [
     "/**\n * The assistant's hands on the image bed.\n *\n * The image bed already had a store, a tag writer and a delete path; what it did not have was a way for\n * a turn to reach them. These cases run the tools the model actually calls, over a real D1 double, and\n * pin three things: the listing filters answer from the rows rather than from a guess, a tag write is\n * readable back, and the owner-only boundary is the one the HTTP routes draw — reading is open to a\n * member, tagging, statistics and deletion are not.\n *\n * The vision path is deliberately not exercised here: it needs a vision model and a configured key,\n * neither of which belongs in a unit fixture. Its refusal when the image bed has no vision settings is\n * covered, because that is the state a reader without the feature is in.\n */",
     "// The other account exists too, so a permission case is refused for the role rather than for a missing row.",
+  ]],
+  ["tests/assistant-key-probe.test.ts", [
+    "/**\n * Asking whether a key still works, and the discipline of three answers.\n *\n * The point of this file is the case a two-outcome probe gets wrong: a 429, a timeout or a 5xx says\n * nothing about the credential, and a screen that called those \"invalid\" would send the reader to delete\n * a key that works. So the classification table below is the contract, and \"cannot tell\" has to survive\n * every path — including the probe's own failure.\n *\n * The probe asks the model listing rather than a chat call: it must stay free, or nobody runs it.\n */",
+    "/** Synthetic tokens in the shape a vendor issues. The last four are what a listing may show. */",
+    "// The provider's own key is named by the empty string, the same way the rest of the app names it.",
+    "// A row whose ciphertext the vault cannot read stands in for a probe that would have thrown.",
+    "// The unreadable row cannot be decrypted, so it never reaches the wire; the two real keys still answer.",
   ]],
   ["tests/assistant-linked-images.test.ts", [
     "/**\n * Pictures a Markdown attachment links to.\n *\n * The reader attaches a file, and the file names a picture; whether that picture travels to the model is a\n * permission held by two switches (the reader's fetch setting and the model's vision tick) and by the\n * outbound guard. These cases pin the join: the URL is fetched, the bytes become an inline image, and a\n * switch that is off keeps the request from being made at all.\n */",

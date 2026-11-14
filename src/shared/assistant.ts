@@ -208,6 +208,41 @@ export interface AssistantProviderKey {
 }
 
 /**
+ * What a probe of one stored key concluded.
+ *
+ * "Cannot tell" is a result, not a failure. A 429 or a timeout says nothing about whether the credential
+ * works, and reporting those as invalid is how a good key gets thrown away — so the third outcome exists
+ * and the screen has to name it.
+ */
+export type AssistantKeyProbeOutcome = 'passed' | 'failed' | 'inconclusive'
+
+/**
+ * Why a probe reached its outcome.
+ *
+ * `invalid_credential` is the only reason that blames the key. Everything else blames the moment, the
+ * model or the probe itself, and the screen says so.
+ */
+export type AssistantKeyProbeReason =
+  | 'invalid_credential'
+  | 'model_unavailable'
+  | 'rate_limited'
+  | 'timeout'
+  | 'upstream_error'
+  | 'probe_incompatible'
+  | 'unknown'
+
+/** One key's last probe. */
+export interface AssistantKeyProbe {
+  /** The empty string for the provider's own key, which has no row of its own to hang this on. */
+  keyId: string
+  outcome: AssistantKeyProbeOutcome
+  reason: AssistantKeyProbeReason | null
+  /** Round-trip time of the probe request, which is how a reader tells two working keys apart. */
+  latencyMs: number | null
+  probedAt: number
+}
+
+/**
  * One hosted web-search engine's key, as a listing is allowed to describe it.
  *
  * There is no key field and no ciphertext field here, and that is the whole design: the only thing a screen
