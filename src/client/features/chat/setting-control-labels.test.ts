@@ -60,7 +60,7 @@ const MODEL: AssistantModel = {
 }
 const PROVIDER: AssistantProvider = {
   id: 'p1', label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', endpoints: {},
-  hasKey: true, icon: '', keyHint: 'abcd', reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
+  hasKey: true, icon: '', keyHint: 'abcd', keyLastUsedAt: null, reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
 }
 
 /** The elements a reader can be told the name of, as opposed to the containers that hold them. */

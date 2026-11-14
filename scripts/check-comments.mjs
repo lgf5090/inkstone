@@ -2198,6 +2198,14 @@ const allowed = new Map([
     "// The box is one ring rather than one credential. What the reader sees here is what the route parses,",
     "// so the count and the cap have to be visible before the save rather than discovered after it.",
     "/** Keep one key for every turn instead of rotating: the reader's own cost/stability trade. */",
+    "/** One typed key's answer, keyed by its last four characters because a draft has no row to hang on. */",
+    "/** Whether the key box shows what was typed. The plaintext is the reader's own, not a stored secret. */",
+    "/** How many keys this provider already rotates through, so an edit names the ring it is adding to. */",
+    "// A draft with keys tests what was typed; an edit with an untouched box tests what is stored.",
+    "/**\n   * Asks the provider about the keys in front of the reader.\n   *\n   * A draft is tested as typed and never stored; an edit whose box is untouched tests the stored ring,\n   * which is the same question asked of the keys that are already in rotation.\n   */",
+    "// The plaintext is the reader's own, typed seconds ago and not yet stored. Seeing it is how a",
+    "// paste that lost a character gets noticed before it becomes a 401 nobody can explain.",
+    "/* The test sits under the box rather than behind a save: what a reader wants to know about a key\n            they just pasted is whether it works, and making them store it first is the wrong order. */",
   ]],
   ["src/client/features/chat/AssistantOtherTab.tsx", [
     "/** The switches that change how the interface behaves rather than how the model answers. */",
@@ -3302,6 +3310,7 @@ const allowed = new Map([
     "/**\n   * Asks the provider about every key at once.\n   *\n   * Not wrapped in `run`: a probe changes nothing about the ring, so the wallet does not have to be\n   * re-read — and one request per key is already the most this screen does at a time.\n   */",
     "/* Offered only once there is something to ask about: a probe of an empty ring is a request that\n            can only answer \"there is nothing here\". */",
     "/* Why this key is not being used right now — a silence would read as a bug. */",
+    "/** The ring's first key has no row here, so its last use arrives with this answer rather than the card. */",
   ]],
   ["src/client/features/chat/PushDevicesSection.tsx", [
     "/**\n   * The press, and the two things it can turn into.\n   *\n   * A refusal stays on the row as an inline block rather than a toast that leaves: the reader is looking at\n   * the switch that did not move, and the reason has to be where their attention already is.\n   */",
@@ -21488,6 +21497,7 @@ const allowed = new Map([
     "/**\n     * The focus history over a window, plus today's own reading.\n     *\n     * A record is posted when a pomodoro phase ends, so the statistics can show work and break time\n     * without inferring it from a second table.\n     */",
     "/** The extra keys a provider rotates through, with what the last probe concluded about each. */",
     "/** Asks the provider whether each stored key still works. Free: it reads the model listing. */",
+    "/** The same question about keys the reader has typed and not saved yet. Nothing is stored. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/** Replace the address without a reload. A no-op on the address that is already up. */",
@@ -32470,6 +32480,7 @@ const allowed = new Map([
     "/** Round-trip time of the probe request, which is how a reader tells two working keys apart. */",
     "/** Unix ms the key becomes usable again, or null when it is not resting. Set by a refusal. */",
     "/**\n   * Keep one key on every turn instead of rotating through the ring.\n   *\n   * Rotation spreads a rate limit across keys, which is why it is the default. A vendor's prompt cache is\n   * keyed on the request prefix and is per account, so rotating throws that cache away on every turn — a\n   * provider whose ring is about a quota rather than a limit may prefer to sit on one key and pay less.\n   */",
+    "/**\n   * When this provider's own key last signed a call, or null if it never has.\n   *\n   * The ring's first key has no row of its own, so without this the panel could say 'never used' about\n   * a key that answers every turn — which reads as 'my primary key is not being used'.\n   */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -43532,6 +43543,10 @@ const allowed = new Map([
     "/**\n * Ask the provider whether each stored key still works.\n *\n * One free request per key, against the model listing every supported protocol publishes. The answer is\n * three outcomes rather than two, because a 429 or a timeout says nothing about the credential and a\n * screen that called those \"invalid\" would send the reader to delete a working key.\n *\n * Nothing here changes the rotation: this is a diagnosis the reader asked for, and acting on it is a\n * separate decision. A key that comes back `failed` is shown as such, and the reader may disable it.\n */",
     "// A probe that threw is not evidence about the key: the same three-outcome rule applies to the",
     "// probe's own failure, so it is recorded as \"cannot tell\" and never as \"invalid\".",
+    "// The ring's first key has no row of its own, so its last use travels with this answer rather than",
+    "// with the provider listing: a panel that reads only the ring would say \"never used\" about the key",
+    "// that answered the last turn.",
+    "/**\n * Ask the provider about keys the reader has typed but not saved.\n *\n * The form is where a reader decides to trust a key, so the test has to be available there rather than\n * only after a save. Nothing is written: the keys arrive in the body, are tried once, and are answered\n * with the same three outcomes a stored ring gets — a draft has no row to hang a probe result on.\n */",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",

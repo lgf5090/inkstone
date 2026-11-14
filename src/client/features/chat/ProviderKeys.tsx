@@ -191,6 +191,8 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
   const [renamed, setRenamed] = useState('')
   /** What the last probe concluded, per key. Empty until somebody asks. */
   const [probes, setProbes] = useState<AssistantKeyProbe[]>([])
+  /** The ring's first key has no row here, so its last use arrives with this answer rather than the card. */
+  const [primaryLastUsedAt, setPrimaryLastUsedAt] = useState<number | null>(provider.keyLastUsedAt)
   const [probing, setProbing] = useState(false)
 
   const load = useCallback(async () => {
@@ -198,6 +200,7 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
       const answer = await api.assistant.providerKeys(provider.id)
       setKeys(answer.keys)
       setProbes(answer.probes)
+      setPrimaryLastUsedAt(answer.primaryLastUsedAt)
     } catch (error) {
       toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
       setKeys([])
@@ -318,6 +321,8 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
                 way everywhere: its last four characters, never the plaintext. */}
             <span className="shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
               {storedKeyLabel(provider)}
+              {" · "}
+              {lastUsed(primaryLastUsedAt)}
             </span>
             <ProbeBadge probe={probeOf('')} />
             <BalanceChip reading={balanceOf('')} name={t('assistant.keys.primary')} />

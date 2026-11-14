@@ -2376,12 +2376,18 @@ export const api = {
     deleteProvider: (id: string) => request<{ deleted: true }>(`/api/assistant/providers/${id}`, { method: 'DELETE' }),
     /** The extra keys a provider rotates through, with what the last probe concluded about each. */
     providerKeys: (id: string) =>
-      request<{ keys: AssistantProviderKey[], probes: AssistantKeyProbe[] }>(`/api/assistant/providers/${id}/keys`),
+      request<{ keys: AssistantProviderKey[], probes: AssistantKeyProbe[], primaryLastUsedAt: number | null }>(`/api/assistant/providers/${id}/keys`),
     /** Asks the provider whether each stored key still works. Free: it reads the model listing. */
     probeProviderKeys: (id: string) =>
       request<{ results: Array<AssistantKeyProbe & { label: string, keyHint: string }> }>(
         `/api/assistant/providers/${id}/keys/probe`,
         { method: 'POST', body: {} },
+      ),
+    /** The same question about keys the reader has typed and not saved yet. Nothing is stored. */
+    probeDraftKeys: (body: { protocol: string, baseUrl: string, apiKeys: string[] }) =>
+      request<{ results: Array<Omit<AssistantKeyProbe, 'keyId' | 'probedAt'> & { keyHint: string }> }>(
+        '/api/assistant/providers/probe',
+        { method: 'POST', body },
       ),
     createProviderKey: (id: string, body: { label?: string, apiKey: string }) =>
       request<{ key: AssistantProviderKey }>(`/api/assistant/providers/${id}/keys`, { method: 'POST', body }),

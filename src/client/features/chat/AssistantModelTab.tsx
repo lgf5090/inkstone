@@ -6,8 +6,8 @@
  * the ones that key can really call rather than a preset's guess.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { AudioLines, Brain, Check, ChevronDown, Download, Eye, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
-import { type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProtocol, type AssistantProvider, type AssistantSettings, type ReasoningDialect } from '@shared/assistant'
+import { AudioLines, Brain, Check, ChevronDown, Download, Eye, EyeOff, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
+import { type AssistantKeyProbeOutcome, type AssistantKeyProbeReason, type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProtocol, type AssistantProvider, type AssistantSettings, type ReasoningDialect } from '@shared/assistant'
 import { ASSISTANT_PROTOCOLS, MAX_PROVIDER_KEYS, PROVIDER_PRESETS, endpointFieldState, parseProviderKeys } from '@shared/assistant'
 import { iconForModel, iconForProvider } from '@shared/assistant-icons'
 import { dialectsForProtocol } from '@shared/reasoning'
@@ -17,6 +17,7 @@ import { ModelEditorDialog } from './ModelEditorDialog'
 import { ModelPickerDialog } from './ModelPickerDialog'
 import { ProviderKeys, useProviderBalances, WalletChips } from './ProviderKeys'
 import { cn } from '../../lib/cn'
+import { api } from '../../lib/api'
 import { matchesQuery } from '../../lib/fuzzy'
 import { t, type MessageKey } from '../../lib/i18n'
 import { Button, Divider, IconButton } from '../../components/primitives'
@@ -581,6 +582,14 @@ function PresetPicker({ value, onPick }: { value: string, onPick: (id: string) =
   )
 }
 
+/** One typed key's answer, keyed by its last four characters because a draft has no row to hang on. */
+interface DraftProbe {
+  keyHint: string
+  outcome: AssistantKeyProbeOutcome
+  reason: AssistantKeyProbeReason | null
+  latencyMs: number | null
+}
+
 export function ProviderForm({ open, provider, onClose, onCreated }: {
   open: boolean
   provider?: AssistantProvider | null
@@ -605,6 +614,12 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   const [dialect, setDialect] = useState<ReasoningDialect | ''>('')
   /** Keep one key for every turn instead of rotating: the reader's own cost/stability trade. */
   const [sticky, setSticky] = useState(false)
+  /** Whether the key box shows what was typed. The plaintext is the reader's own, not a stored secret. */
+  const [showKey, setShowKey] = useState(false)
+  const [draftProbes, setDraftProbes] = useState<DraftProbe[]>([])
+  const [probing, setProbing] = useState(false)
+  /** How many keys this provider already rotates through, so an edit names the ring it is adding to. */
+  const [ringCount, setRingCount] = useState(0)
   const [listing, setListing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState<WriteFailure | null>(null)
@@ -640,6 +655,9 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   // Listing needs both halves to be worth sending; the button says which one is missing instead of
   // opening a dialog that can only fail.
   const canList = parseProviderKeys(apiKey).length > 0 && endpointFieldState(baseUrl) === 'ok'
+  // A draft with keys tests what was typed; an edit with an untouched box tests what is stored.
+  const canProbe = endpointFieldState(baseUrl) === 'ok'
+    && (parseProviderKeys(apiKey).length > 0 || Boolean(editing?.hasKey))
 
   /**
    * Switching the wire a provider is called on, and taking its address with it.
@@ -677,6 +695,11 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
       setExtra(otherEndpoints(editing.endpoints, editing.protocol))
       setDialect(editing.reasoningDialect ?? '')
       setSticky(editing.sticky)
+      setDraftProbes([])
+      setShowKey(false)
+      void api.assistant.providerKeys(editing.id)
+        .then((answer) => setRingCount(answer.keys.length + (editing.hasKey ? 1 : 0)))
+        .catch(() => setRingCount(editing.hasKey ? 1 : 0))
       setModels('')
       setApiKey('')
       return
@@ -690,6 +713,9 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     setExtra({})
     setDialect('')
     setSticky(false)
+    setDraftProbes([])
+    setShowKey(false)
+    setRingCount(0)
   }, [open, chosen, editing])
 
   // An edit opens with an empty password box because the plaintext is not ours to show again. The box
@@ -714,6 +740,35 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     t('assistant.settings.api_key_multi', { max: MAX_PROVIDER_KEYS }),
     keyCount > 1 ? t('assistant.settings.api_key_count', { count: keyCount }) : '',
   ].filter(Boolean).join(' ')
+
+  /**
+   * Asks the provider about the keys in front of the reader.
+   *
+   * A draft is tested as typed and never stored; an edit whose box is untouched tests the stored ring,
+   * which is the same question asked of the keys that are already in rotation.
+   */
+  const probeDraft = async () => {
+    if (probing) return
+    setProbing(true)
+    setDraftProbes([])
+    try {
+      const typed = parseProviderKeys(apiKey)
+      if (typed.length) {
+        const answer = await api.assistant.probeDraftKeys({ protocol, baseUrl: baseUrl.trim(), apiKeys: typed })
+        setDraftProbes(answer.results)
+      } else if (editing) {
+        const answer = await api.assistant.probeProviderKeys(editing.id)
+        setDraftProbes(answer.results.map((entry) => ({
+          keyHint: entry.keyHint, outcome: entry.outcome, reason: entry.reason, latencyMs: entry.latencyMs,
+        })))
+        setRingCount(answer.results.length)
+      }
+    } catch (error) {
+      setFailure({ headline: error instanceof Error ? error.message : String(error), detail: null })
+    } finally {
+      setProbing(false)
+    }
+  }
 
   // The save and its answer, in one place: the dialog stays open with the draft intact unless the write
   // says it landed, and the reason it refused is printed here rather than arriving as a toast over a
@@ -849,7 +904,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
             gone" — the placeholder carries the last four characters, and the hint says blank keeps it. */}
         <Field label={t('assistant.settings.api_key')} hint={problems.api_key ?? apiKeyFieldHint}>
           <Input
-            type="password"
+            type={showKey ? 'text' : 'password'}
             value={apiKey}
             maxLength={4096}
             autoComplete="off"
@@ -858,8 +913,58 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
             placeholder={apiKeyPlaceholder}
             onChange={(event) => setApiKey(event.target.value)}
             className="font-mono text-[length:var(--text-12)]"
+            // The plaintext is the reader's own, typed seconds ago and not yet stored. Seeing it is how a
+            // paste that lost a character gets noticed before it becomes a 401 nobody can explain.
+            trailing={(
+              <button
+                type="button"
+                aria-label={t(showKey ? 'assistant.settings.api_key_hide' : 'assistant.settings.api_key_show')}
+                onClick={() => setShowKey((value) => !value)}
+                className="flex size-5 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
+              >
+                {showKey ? <EyeOff size={13} /> : <Eye size={13} />}
+              </button>
+            )}
           />
         </Field>
+        {/* The test sits under the box rather than behind a save: what a reader wants to know about a key
+            they just pasted is whether it works, and making them store it first is the wrong order. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!canProbe || probing}
+            onClick={() => void probeDraft()}
+          >
+            {probing ? t('assistant.keys.probe_running') : t('assistant.keys.probe')}
+          </Button>
+          {draftProbes.map((entry) => (
+            <span
+              key={entry.keyHint}
+              className={cn(
+                'tabular text-[length:var(--text-11)]',
+                entry.outcome === 'passed'
+                  ? 'text-[var(--text-secondary)]'
+                  : entry.outcome === 'failed' ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]',
+              )}
+              title={entry.reason ? t(`assistant.keys.probe_reason.${entry.reason}`) : undefined}
+            >
+              <span className="font-mono">····{entry.keyHint}</span>
+              {' '}
+              {entry.outcome === 'passed'
+                ? t('assistant.keys.probe_passed')
+                : entry.outcome === 'failed' ? t('assistant.keys.probe_failed') : t('assistant.keys.probe_unknown')}
+              {entry.outcome === 'passed' && entry.latencyMs !== null
+                ? ` ${t('assistant.keys.probe_latency', { ms: entry.latencyMs })}`
+                : ''}
+            </span>
+          ))}
+          {editing && ringCount > 0 && (
+            <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+              {t('assistant.settings.ring_count', { count: ringCount })}
+            </span>
+          )}
+        </div>
         {!editing && (
           <>
             <Field label={t('assistant.settings.models')} hint={t('assistant.settings.models_hint')}>

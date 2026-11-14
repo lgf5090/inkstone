@@ -176,6 +176,13 @@ export interface AssistantProvider {
   /** Last four characters, for the settings row that has to prove which key is stored. */
   keyHint: string
   /**
+   * When this provider's own key last signed a call, or null if it never has.
+   *
+   * The ring's first key has no row of its own, so without this the panel could say 'never used' about
+   * a key that answers every turn — which reads as 'my primary key is not being used'.
+   */
+  keyLastUsedAt: number | null
+  /**
    * The thinking shape the reader pinned for this address, or null to let it be read off the address.
    *
    * A service that announces itself in its hostname and model names needs no pin; a gateway, a proxy or a

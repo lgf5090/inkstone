@@ -314,7 +314,7 @@ function applyMemoryScope(q: Query, scope: MemoryScope | undefined, column = 'pr
  * `length(key_ciphertext) > 0` answers "is a key stored" without the ciphertext ever leaving the row,
  * so no provider listing can carry a key out even if a route is added carelessly later.
  */
-const PROVIDER_COLUMNS = `id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_hint, length(key_ciphertext) > 0 AS has_key, sticky, created_at, updated_at`
+const PROVIDER_COLUMNS = `id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_hint, key_last_used_at, length(key_ciphertext) > 0 AS has_key, sticky, created_at, updated_at`
 
 /** A provider key row, ciphertext included: read only by the rotation, never by a listing. */
 const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, enabled, last_used_at, error_count, last_error, cooling_until, created_at, updated_at`
@@ -1628,6 +1628,7 @@ export class AssistantStore {
       sticky: Boolean(input.sticky),
       hasKey: Boolean(ciphertext),
       keyHint: hint,
+      keyLastUsedAt: null,
       createdAt: at,
       updatedAt: at,
     }
@@ -8956,6 +8957,7 @@ function toProvider(r: ProviderRow): AssistantProvider {
     hasKey: bool(r.has_key ?? Boolean(r.key_ciphertext)),
     // Stored beside the ciphertext, so the listing proves which key it holds without decrypting it.
     keyHint: r.key_hint ?? '',
+    keyLastUsedAt: r.key_last_used_at ?? null,
     sticky: bool(r.sticky ?? 0),
     createdAt: r.created_at,
     updatedAt: r.updated_at,

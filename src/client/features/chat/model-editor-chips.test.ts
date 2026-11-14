@@ -56,7 +56,7 @@ function provider(over: Partial<AssistantProvider> = {}): AssistantProvider {
         endpoints: {},
         hasKey: true,
         icon: '', keyHint: 'abcd',
-        reasoningDialect: null, sticky: false,
+        keyLastUsedAt: null, reasoningDialect: null, sticky: false,
         createdAt: 1,
         updatedAt: 1,
         ...over,

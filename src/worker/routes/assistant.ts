@@ -3454,8 +3454,44 @@ assistantRoutes.patch('/providers/:id', async (c) => {
 assistantRoutes.get('/providers/:id/keys', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
-  if (!(await s.getProvider(id))) throw ApiError.notFound('Provider not found')
-  return c.json({ keys: await s.listProviderKeys(id), probes: await s.listKeyProbes(id) })
+  const record = await s.providerRecord(id)
+  if (!record) throw ApiError.notFound('Provider not found')
+  // The ring's first key has no row of its own, so its last use travels with this answer rather than
+  // with the provider listing: a panel that reads only the ring would say "never used" about the key
+  // that answered the last turn.
+  return c.json({
+    keys: await s.listProviderKeys(id),
+    probes: await s.listKeyProbes(id),
+    primaryLastUsedAt: record.key_last_used_at ?? null,
+  })
+})
+
+/**
+ * Ask the provider about keys the reader has typed but not saved.
+ *
+ * The form is where a reader decides to trust a key, so the test has to be available there rather than
+ * only after a save. Nothing is written: the keys arrive in the body, are tried once, and are answered
+ * with the same three outcomes a stored ring gets — a draft has no row to hang a probe result on.
+ */
+assistantRoutes.post('/providers/probe', async (c) => {
+  const body = await readJson<{ protocol?: unknown, baseUrl?: unknown, apiKeys?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const protocol = asProtocol(body.protocol)
+  const baseUrl = vetBaseUrl(body.baseUrl)
+  const keys = (Array.isArray(body.apiKeys) ? body.apiKeys : [])
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .slice(0, MAX_PROVIDER_KEYS)
+  if (!keys.length) throw ApiError.badRequest('Nothing to test.')
+  const settled = await Promise.allSettled(
+    keys.map(async (key) => await probeProviderKey(protocol, baseUrl, key.slice(0, 4096))),
+  )
+  return c.json({
+    results: settled.map((outcome, index) => ({
+      keyHint: keys[index]!.trim().slice(-4),
+      ...(outcome.status === 'fulfilled'
+        ? outcome.value
+        : { outcome: 'inconclusive' as const, reason: 'unknown' as const, latencyMs: null }),
+    })),
+  })
 })
 
 /**

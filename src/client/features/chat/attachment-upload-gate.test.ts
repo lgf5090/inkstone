@@ -53,7 +53,7 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
 function provider(protocol: AssistantProvider['protocol']): AssistantProvider {
   return {
     id: 'p1', label: 'Gateway', protocol, baseUrl: 'https://gateway.example.org/v1', endpoints: {},
-    hasKey: true, icon: '', keyHint: 'abcd', reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
+    hasKey: true, icon: '', keyHint: 'abcd', keyLastUsedAt: null, reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
   }
 }
 
