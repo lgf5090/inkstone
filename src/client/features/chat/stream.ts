@@ -294,5 +294,10 @@ export async function streamAssistantTurn(
   } finally {
     // A turn that ended, was refused, or was stopped still owns the words it already wrote.
     batch?.flush()
+    // The fetch signal closes the connection, but the reader still holds the lock on the decoder's
+    // stream. Releasing it lets both be collected with the turn instead of with the connection.
+    try { reader.releaseLock() } catch {
+      // The stream was torn down by the abort, so there is no lock left to release.
+    }
   }
 }

@@ -5771,6 +5771,9 @@ const allowed = new Map([
     "/** Coalesce text and reasoning frames that arrive within this many milliseconds. */",
     "/**\n * One event for the words a whole window wrote.\n *\n * Every text frame otherwise causes a store write, and that write repaints the whole thread: the answer\n * is re-parsed as markdown, the markup is replaced, and the composer reconciles. The window keeps the\n * order of every other frame — a stage, a tool, a usage reading or `done` flushes the words before it —\n * and the caller flushes once more at the end, so the last words of a turn are never left in the buffer.\n */",
     "// A turn that ended, was refused, or was stopped still owns the words it already wrote.",
+    "// The fetch signal closes the connection, but the reader still holds the lock on the decoder's",
+    "// stream. Releasing it lets both be collected with the turn instead of with the connection.",
+    "// The stream was torn down by the abort, so there is no lock left to release.",
   ]],
   ["src/client/features/chat/tag-attach.test.ts", [
     "/**\n * A new tag has to reach the conversation it was made for, or say why it did not.\n *\n * `createTag` is optimistic — it validates the name, answers a duplicate with the tag that already\n * exists, seeds the local cache and posts the row without waiting — so its id is in hand before the\n * server has a row to point at, and the attach route refuses an unknown tag. The old path caught that\n * refusal and threw the answer away: the reader typed a name, nothing appeared, and no one said so.\n * What is pinned here is the two honest outcomes: the conversation is filed once the row is back, or a\n * danger toast says it was not.\n */",

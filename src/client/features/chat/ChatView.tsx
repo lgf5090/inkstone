@@ -2049,7 +2049,7 @@ function ContextStrip() {
  * The two things that cannot be shared are the surfaces the "manage" entries open — the dock has no
  * assistant tabs of its own, so it is handed a way out instead.
  */
-export function ChatComposer({
+export const ChatComposer = memo(function ChatComposer({
   streaming,
   sendOnEnter,
   onSend,
@@ -2776,7 +2776,7 @@ ${current}` : seed))
       </div>
     </div>
   )
-}
+})
 
 function hourGreeting(): string {
   const hour = new Date().getHours()
