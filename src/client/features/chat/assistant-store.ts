@@ -612,6 +612,8 @@ interface AssistantState {
     noTools?: boolean
     /** A whitelist from a caller that owns the turn's tools (a template's capability declaration). */
     allowedTools?: readonly string[]
+    /** Called once the worker's first frame proves the turn was accepted, before the stream ends. */
+    onAccepted?: () => void
   }) => Promise<boolean>
   /** Drop one message that was queued while a turn was running. */
   removeQueued: (id: string) => void
@@ -843,6 +845,39 @@ function toast(error: unknown): void {
     ...(failure.detail ? { description: failure.detail } : {}),
     tone: 'danger',
   })
+}
+
+/**
+ * One write per picked row, and one answer for the whole batch.
+ *
+ * A sequence of awaits used to stop at the first refusal: the rows before it had already changed on the
+ * server, but neither list was re-read and the whole selection stayed on the screen, so the reader saw
+ * old data and pressed the button again. Every row is attempted, both lists are refreshed whatever
+ * happened, and only the rows that refused stay picked.
+ */
+async function settlePicked(
+  picks: ReadonlySet<string>,
+  work: (id: string) => Promise<unknown>,
+  activeId: string | null,
+): Promise<void> {
+  const ids = [...picks]
+  const results = await Promise.allSettled(ids.map(work))
+  const failed = ids.filter((_id, index) => results[index]?.status === 'rejected')
+  useAssistant.setState({ conversationPicks: failed.length ? new Set(failed) : null })
+  // Leaving the thread is only right when its own row really went; a refused delete must not empty a
+  // conversation that is still there.
+  if (activeId && picks.has(activeId) && results[ids.indexOf(activeId)]?.status === 'fulfilled') {
+    useAssistant.getState().newConversation()
+  }
+  try {
+    await useAssistant.getState().loadConversations()
+    await useAssistant.getState().loadFlagged()
+  } catch (error) {
+    toast(error)
+  }
+  if (failed.length) {
+    useUi.getState().toast({ title: t('assistant.chat.batch_partial', { count: failed.length }), tone: 'danger' })
+  }
 }
 
 /**
@@ -1709,31 +1744,13 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   archivePickedConversations: async () => {
     const picks = get().conversationPicks
     if (!picks?.size) return
-    try {
-      // One request per row, because the route files one conversation at a time; a reader picking a
-      // handful is the case this exists for, and a batch endpoint would be a second way to do the same.
-      for (const id of picks) await api.assistant.setConversationArchived(id, true)
-      set({ conversationPicks: null })
-      await get().loadConversations()
-      await get().loadFlagged()
-    } catch (error) {
-      toast(error)
-    }
+    await settlePicked(picks, (id) => api.assistant.setConversationArchived(id, true), null)
   },
 
   deletePickedConversations: async () => {
     const picks = get().conversationPicks
     if (!picks?.size) return
-    try {
-      for (const id of picks) await api.assistant.deleteConversation(id)
-      const active = get().activeId
-      set({ conversationPicks: null })
-      if (active && picks.has(active)) get().newConversation()
-      await get().loadConversations()
-      await get().loadFlagged()
-    } catch (error) {
-      toast(error)
-    }
+    await settlePicked(picks, (id) => api.assistant.deleteConversation(id), get().activeId)
   },
 
   loadMoreConversations: async () => {
@@ -2743,7 +2760,12 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // never took, which is the one case where the draft is still the reader's.
     let accepted = false
     const apply = (event: ChatStreamEvent) => {
-      if (event.type !== 'title') accepted = true
+      if (event.type !== 'title') {
+        // The promise `send` returns only settles when the stream ends. A caller that has work to start
+        // beside this turn needs to know the worker took it, not that it finished.
+        if (!accepted) opts.onAccepted?.()
+        accepted = true
+      }
       if (event.type === 'start' && event.conversationId) filedConversationId = event.conversationId
       // A draft arrives whole rather than as deltas: the tool writes a row and the row is what the
       // panel draws. It belongs to the turn that asked for it, so the same token check the other frames
@@ -3076,6 +3098,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         set({ activeId: null, messages: [], turn: null, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false })
       }
       await get().loadConversations()
+      await get().loadFlagged()
     } catch (error) {
       toast(error)
     }

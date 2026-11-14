@@ -394,8 +394,13 @@ export const useMultiModel = create<MultiModelState>()((set, get) => ({
       useUi.getState().toast({ title: t('assistant.panes.prepare_failed'), tone: 'danger' })
       return false
     }
-    for (const pane of visiblePanes(get())) void runPaneTurn(pane, text.trim(), attached, set, get)
-    void useAssistant.getState().send(text).then((accepted) => {
+    const panes = visiblePanes(get())
+    // The side panes cost tokens of their own. A main turn the worker never took must not start them,
+    // so they wait for the one frame that proves the request was accepted rather than for `send` to
+    // resolve (which happens only when the answer has finished).
+    void useAssistant.getState().send(text, {
+      onAccepted: () => { for (const pane of panes) void runPaneTurn(pane, text.trim(), attached, set, get) },
+    }).then((accepted) => {
       if (!accepted) useUi.getState().toast({ title: t('assistant.panes.main_refused'), tone: 'danger' })
     })
     return true

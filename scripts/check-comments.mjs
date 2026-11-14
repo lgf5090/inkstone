@@ -3777,8 +3777,6 @@ const allowed = new Map([
     "/** Uploads one failed attachment again, from the file the browser still holds. */",
     "/**\n * The stored page, without throwing away the older turns the reader had already scrolled back to.\n *\n * A background read always asks for the newest page. Replacing the transcript with it would make every\n * \"load earlier\" the reader had done vanish the moment a reply was filed, and the thread would jump. So\n * anything on screen that is older than the page's own first row is kept, and rows the page carries are\n * the ones that win — they are the server's current copy of those turns.\n */",
     "/**\n * Send one pending file, and record where it got to.\n *\n * Shared by the first attempt and by the retry: a second code path for \"upload again\" is how the two\n * drift, and the failure branch here is the one that already knows how to say what went wrong.\n */",
-    "// One request per row, because the route files one conversation at a time; a reader picking a",
-    "// handful is the case this exists for, and a batch endpoint would be a second way to do the same.",
     "// One page at a time: the scroll handler fires on every frame near the bottom, and a second request",
     "// would append the same page twice.",
     "// A filter change or a fresh load happened while this page was in flight; its rows belong to the",
@@ -3972,6 +3970,12 @@ const allowed = new Map([
     "// the more precise answer and a page block beside them would only repeat the same screen.",
     "/** A whitelist from a caller that owns the turn's tools (a template's capability declaration). */",
     "/**\n * How long a live turn holds text frames before handing them to the store. Short enough that the answer\n * still reads as arriving word by word; long enough that a fast vendor does not repaint the whole thread\n * once per token.\n */",
+    "/** Called once the worker's first frame proves the turn was accepted, before the stream ends. */",
+    "/**\n * One write per picked row, and one answer for the whole batch.\n *\n * A sequence of awaits used to stop at the first refusal: the rows before it had already changed on the\n * server, but neither list was re-read and the whole selection stayed on the screen, so the reader saw\n * old data and pressed the button again. Every row is attempted, both lists are refreshed whatever\n * happened, and only the rows that refused stay picked.\n */",
+    "// Leaving the thread is only right when its own row really went; a refused delete must not empty a",
+    "// conversation that is still there.",
+    "// The promise `send` returns only settles when the stream ends. A caller that has work to start",
+    "// beside this turn needs to know the worker took it, not that it finished.",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -4642,6 +4646,9 @@ const allowed = new Map([
     "/** The conversation being dragged, or null for a drag that is not a conversation's. */",
     "/** True while a conversation is over the target, which is what says the drop is accepted. */",
   ]],
+  ["src/client/features/chat/conversation-picks.test.ts", [
+    "/**\n * A batch that only half answered.\n *\n * One request per row used to stop at the first refusal: the rows before it had already changed on the\n * server, but neither list was re-read and the whole selection stayed on the screen. The reader saw old\n * data and pressed the button again. What has to hold is that every row is attempted, both lists are\n * refreshed whatever happened, only the rows that refused stay picked, and the active thread is left\n * alone when its own delete was the one that failed.\n */",
+  ]],
   ["src/client/features/chat/conversation-resources.test.ts", [
     "/**\n * The resource index behind the session panel.\n *\n * The cases that matter are the boundaries between sections: a cited URL is a source, not a second link;\n * a note named by a tool or a mention is a note the reader can open; a file the messages never reference\n * is not this conversation's file; and a live tool is not counted twice once its row lands.\n */",
   ]],
@@ -5126,6 +5133,9 @@ const allowed = new Map([
     "// A workspace opened before its first message has no thread yet. The first send makes the main one,",
     "// titled from the reader's own words, and tells the workspace about it before the store opens it —",
     "// otherwise returning to the thread would read as a different workspace and drop the panes.",
+    "// The side panes cost tokens of their own. A main turn the worker never took must not start them,",
+    "// so they wait for the one frame that proves the request was accepted rather than for `send` to",
+    "// resolve (which happens only when the answer has finished).",
   ]],
   ["src/client/features/chat/multi-model.test.ts", [
     "/**\n * The multi-model workspace: one main thread, one ephemeral fork per side pane, one shared send.\n *\n * The cases pin the boundaries that make the grid safe rather than the pixels: switching on a layout\n * creates only the panes that are missing, a side turn names its own conversation and model and is asked\n * without tools, a close takes that pane's thread with it, and the arrangement survives a return to the\n * thread. The view cases pin the four layouts the design asks for.\n */",

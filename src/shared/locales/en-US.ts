@@ -7545,6 +7545,7 @@ const CORE_MESSAGES_TAIL = {
     "assistant.chat.placeholder": "Ask the assistant anything…",
     "assistant.chat.send": "Send message",
     "assistant.chat.queue_full": "Five messages are already waiting. Let the current answer finish before adding another.",
+    "assistant.chat.batch_partial": "{count} conversations could not be changed; they stay selected for another try. The rest were applied.",
     "assistant.chat.queue_restored": "The latest queued message was returned to the box; {count} older messages were dropped.",
     "assistant.chat.queue_waiting": "{count} waiting",
     "assistant.chat.queue_remove": "Remove queued message",

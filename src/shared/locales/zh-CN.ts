@@ -7537,6 +7537,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.placeholder": "问助手任何事…",
     "assistant.chat.send": "发送",
     "assistant.chat.queue_full": "已经有五条消息在排队，等当前回答结束后再发。",
+    "assistant.chat.batch_partial": "{count} 个会话未能完成操作，已保留选中，可重试。其余会话已生效。",
     "assistant.chat.queue_restored": "最后一条排队消息已退回输入框，较早的 {count} 条已丢弃。",
     "assistant.chat.queue_waiting": "{count} 条等待中",
     "assistant.chat.queue_remove": "移除排队消息",
