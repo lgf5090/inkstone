@@ -10,7 +10,7 @@
  * otherwise, so the panel has nothing to hide.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, AlertTriangle, CheckCircle2, ChevronLeft, Clock, Coins, FileText, Hash, Trash2, XCircle } from 'lucide-react'
+import { Activity, AlertTriangle, CheckCircle2, ChevronLeft, Clock, Coins, Download, FileText, Hash, Trash2, XCircle } from 'lucide-react'
 import type { AssistantKeyStats, AssistantProvider, AssistantRequestLog, AssistantStatsScope } from '@shared/assistant'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -23,6 +23,38 @@ import { useUi } from '../../store/ui'
 
 /** A number with thousands separators; the panel is about magnitudes, not exact digits. */
 const count = (value: number): string => value.toLocaleString()
+
+const LOG_WINDOWS = [
+  { ms: 3_600_000, key: 'assistant.insights.since_1h' },
+  { ms: 86_400_000, key: 'assistant.insights.since_24h' },
+  { ms: 604_800_000, key: 'assistant.insights.since_7d' },
+  { ms: 2_592_000_000, key: 'assistant.insights.since_30d' },
+  { ms: null, key: 'assistant.insights.since_all' },
+] as const
+
+const CSV_HEADER = 'at,provider,model,key_hint,ok,http_status,error_kind,input_tokens,output_tokens,cached,latency_ms'
+
+function csvCell(value: string | number | null): string {
+  const text = String(value ?? '')
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
+}
+
+function toCsv(logs: AssistantRequestLog[]): string {
+  const rows = logs.map((entry) => [
+    new Date(entry.at).toISOString(),
+    entry.providerLabel || entry.providerId,
+    entry.modelLabel || entry.operation,
+    entry.keyHint,
+    String(entry.ok),
+    entry.httpStatus,
+    entry.errorKind,
+    entry.inputTokens,
+    entry.outputTokens,
+    entry.cachedInputTokens,
+    entry.latencyMs,
+  ])
+  return '\uFEFF' + [CSV_HEADER, ...rows.map((row) => row.map(csvCell).join(','))].join('\r\n') + '\r\n'
+}
 
 /** Tokens in the reader's own units: 43,397 is fine, 4,330,000 is not. */
 function tokens(value: number): string {
@@ -82,6 +114,12 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
   const [logs, setLogs] = useState<AssistantRequestLog[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [sinceMs, setSinceMs] = useState<number | null>(null)
+
+  const logScope = useCallback(() => ({
+    ...(scope === 'key' ? { providerId: provider.id, keyId } : {}),
+    ...(scope === 'provider' ? { providerId: provider.id } : {}),
+  }), [scope, provider.id, keyId])
 
   const loadStats = useCallback(async () => {
     const answer = await api.assistant.keyStats({
@@ -94,12 +132,40 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
 
   const loadLogs = useCallback(async () => {
     const answer = await api.assistant.requestLogs({
-      ...(scope === 'key' ? { providerId: provider.id, keyId } : {}),
-      ...(scope === 'provider' ? { providerId: provider.id } : {}),
+      ...logScope(),
+      ...(sinceMs !== null ? { sinceMs } : {}),
       limit: 50,
     })
     setLogs(answer.logs)
-  }, [scope, provider.id, keyId])
+  }, [logScope, sinceMs])
+
+  const exportLogs = async (format: 'json' | 'csv') => {
+    try {
+      const answer = await api.assistant.requestLogs({
+        ...logScope(),
+        ...(sinceMs !== null ? { sinceMs } : {}),
+        limit: 500,
+      })
+      const text = format === 'json' ? JSON.stringify(answer.logs, null, 2) : toCsv(answer.logs)
+      const blob = new Blob([text], {
+        type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8',
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `key-logs.${format}`
+      document.body.append(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    } catch (error) {
+      toast({
+        title: t('assistant.insights.export_failed'),
+        description: error instanceof Error ? error.message : String(error),
+        tone: 'danger',
+      })
+    }
+  }
 
   useEffect(() => {
     if (!open) return
@@ -216,42 +282,67 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
 
         {!busy && tab === 'logs' && (
           <>
-            <div className="flex items-center justify-between">
-              <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.insights.logs_hint')}</p>
-              <span className="flex items-center gap-1.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
-                {t('assistant.insights.log_bodies')}
-                <Switch
-                  checked={logBodies}
-                  label={t('assistant.insights.log_bodies')}
-                  onChange={(checked) => void saveSettings({ logRequestBodies: checked })}
-                />
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={<Trash2 size={12} />}
-                onClick={() => {
-                  void (async () => {
-                    const goal = scope === 'all'
-                      ? t('assistant.insights.scope_all')
-                      : scope === 'provider' ? provider.label : (keyLabel || keyHint || t('assistant.keys.primary'))
-                    const agreed = await confirm({
-                      title: t('assistant.insights.clear_title', { name: goal }),
-                      description: t('assistant.insights.clear_body'),
-                      tone: 'danger',
-                    })
-                    if (!agreed) return
-                    await api.assistant.clearRequestLogs({
-                      ...(scope === 'key' ? { providerId: provider.id, keyId } : {}),
-                      ...(scope === 'provider' ? { providerId: provider.id } : {}),
-                      ...(scope === 'all' ? { all: true } : {}),
-                    })
-                    await loadLogs()
-                  })()
-                }}
-              >
-                {t('assistant.insights.clear')}
-              </Button>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.insights.logs_since')}</span>
+                {LOG_WINDOWS.map((entry) => (
+                  <button
+                    key={entry.key}
+                    type="button"
+                    aria-pressed={sinceMs === entry.ms}
+                    onClick={() => setSinceMs(entry.ms)}
+                    className={cn(
+                      'rounded-[var(--r-md)] px-2 py-1 text-[length:var(--text-10-5)] transition-colors duration-[var(--dur-fast)]',
+                      sinceMs === entry.ms
+                        ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
+                        : 'text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)]',
+                    )}
+                  >
+                    {t(entry.key)}
+                  </button>
+                ))}
+                <span className="ml-auto flex items-center gap-1.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                  {t('assistant.insights.log_bodies')}
+                  <Switch
+                    checked={logBodies}
+                    label={t('assistant.insights.log_bodies')}
+                    onChange={(checked) => void saveSettings({ logRequestBodies: checked })}
+                  />
+                </span>
+                <Button size="sm" variant="ghost" icon={<Download size={12} />} onClick={() => void exportLogs('json')}>
+                  {t('assistant.insights.export_json')}
+                </Button>
+                <Button size="sm" variant="ghost" icon={<Download size={12} />} onClick={() => void exportLogs('csv')}>
+                  {t('assistant.insights.export_csv')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Trash2 size={12} />}
+                  onClick={() => {
+                    void (async () => {
+                      const goal = scope === 'all'
+                        ? t('assistant.insights.scope_all')
+                        : scope === 'provider' ? provider.label : (keyLabel || keyHint || t('assistant.keys.primary'))
+                      const agreed = await confirm({
+                        title: t('assistant.insights.clear_title', { name: goal }),
+                        description: t('assistant.insights.clear_body'),
+                        tone: 'danger',
+                      })
+                      if (!agreed) return
+                      await api.assistant.clearRequestLogs({
+                        ...(scope === 'key' ? { providerId: provider.id, keyId } : {}),
+                        ...(scope === 'provider' ? { providerId: provider.id } : {}),
+                        ...(scope === 'all' ? { all: true } : {}),
+                      })
+                      await loadLogs()
+                    })()
+                  }}
+                >
+                  {t('assistant.insights.clear')}
+                </Button>
+              </div>
+              <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.insights.logs_hint')}</p>
             </div>
             {logs === null ? <div className="flex justify-center py-6"><Spinner /></div> : logs.length === 0 ? (
               <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.insights.logs_empty')}</p>

@@ -2409,11 +2409,12 @@ export const api = {
       return request<{ rows: AssistantKeyStats[] }>(`/api/assistant/stats/keys?${params.toString()}`)
     },
     /** The attempts behind a slice, newest first. */
-    requestLogs: (query: { providerId?: string, keyId?: string, before?: number, limit?: number }) => {
+    requestLogs: (query: { providerId?: string, keyId?: string, before?: number, sinceMs?: number, limit?: number }) => {
       const params = new URLSearchParams()
       if (query.providerId !== undefined) params.set('providerId', query.providerId)
       if (query.keyId !== undefined) params.set('keyId', query.keyId)
       if (query.before) params.set('before', String(query.before))
+      if (query.sinceMs) params.set('sinceMs', String(query.sinceMs))
       if (query.limit) params.set('limit', String(query.limit))
       return request<{ logs: AssistantRequestLog[] }>(`/api/assistant/logs?${params.toString()}`)
     },
@@ -2437,6 +2438,8 @@ export const api = {
       request<{ key: AssistantProviderKey }>(`/api/assistant/providers/${id}/keys`, { method: 'POST', body }),
     updateProviderKey: (id: string, keyId: string, body: { label?: string, enabled?: boolean, apiKey?: string | null }) =>
       request<{ key: AssistantProviderKey }>(`/api/assistant/providers/${id}/keys/${keyId}`, { method: 'PATCH', body }),
+    resetExtraKey: (id: string, keyId: string) =>
+      request<{ ok: true }>(`/api/assistant/providers/${id}/keys/${keyId}/reset`, { method: 'POST', body: {} }),
     deleteProviderKey: (id: string, keyId: string) =>
       request<{ deleted: true }>(`/api/assistant/providers/${id}/keys/${keyId}`, { method: 'DELETE' }),
     /**

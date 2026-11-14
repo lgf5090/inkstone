@@ -5,9 +5,9 @@
  * arrives — including the question it asks the vendor before anything is saved, so the ids it stores are
  * the ones that key can really call rather than a preset's guess.
  */
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { AudioLines, Brain, Check, ChevronDown, Download, Eye, EyeOff, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
-import { type AssistantKeyProbeOutcome, type AssistantKeyProbeReason, type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProtocol, type AssistantProvider, type AssistantSettings, type ReasoningDialect } from '@shared/assistant'
+import { type AssistantKeyProbe, type AssistantKeyProbeOutcome, type AssistantKeyProbeReason, type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProtocol, type AssistantProvider, type AssistantSettings, type ReasoningDialect } from '@shared/assistant'
 import { ASSISTANT_PROTOCOLS, MAX_PROVIDER_KEYS, PROVIDER_PRESETS, endpointFieldState, parseProviderKeys } from '@shared/assistant'
 import { iconForModel, iconForProvider } from '@shared/assistant-icons'
 import { dialectsForProtocol } from '@shared/reasoning'
@@ -245,9 +245,16 @@ function ProviderCard({ provider, models, activeModelId, onEditProvider, onPickM
 }) {
   const removeProvider = useAssistant((state) => state.removeProvider)
   const wallet = useProviderBalances(provider)
+  const [hasFailedKey, setHasFailedKey] = useState(false)
+  const onProbes = useCallback((probes: AssistantKeyProbe[]) => {
+    setHasFailedKey(probes.some((entry) => entry.outcome === 'failed'))
+  }, [])
 
   return (
-    <div className="flex flex-col gap-1.5 py-3">
+    <div className={cn(
+      'flex flex-col gap-1.5 rounded-[var(--r-md)] border border-transparent py-3',
+      hasFailedKey && 'border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-[color-mix(in_oklab,var(--danger)_5%,transparent)]',
+    )}>
       <div className="flex items-center gap-2.5">
         {/* The brand says who answers; the small key badge keeps the one fact about this provider that
             costs a round trip to learn without taking the vendor's mark away. */}
@@ -298,7 +305,7 @@ function ProviderCard({ provider, models, activeModelId, onEditProvider, onPickM
           </IconButton>
         </div>
       </div>
-      <ProviderKeys provider={provider} wallet={wallet} />
+      <ProviderKeys provider={provider} wallet={wallet} onProbes={onProbes} />
       {models.length === 0 ? (
         <p className="pl-9 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.settings.no_models')}</p>
       ) : (

@@ -335,6 +335,8 @@ const KEY_COOLDOWN_MS = 60_000
 /** How many attempts the log keeps; the oldest are trimmed as new ones arrive. */
 const REQUEST_LOG_LIMIT = 2_000
 
+const REQUEST_LOG_QUERY_LIMIT = 500
+
 /** Each consecutive failure doubles the window, up to this many doublings (1 min ~= 32 min). */
 const KEY_COOLDOWN_STEPS = 5
 
@@ -2178,7 +2180,7 @@ export class AssistantStore {
 
   /** The attempts behind one slice, newest first. `before` pages backwards through older rows. */
   async listRequestLogs(filter: {
-    providerId?: string, keyId?: string, before?: number | null, limit?: number,
+    providerId?: string, keyId?: string, before?: number | null, sinceMs?: number, limit?: number,
   } = {}): Promise<AssistantRequestLog[]> {
     const clauses = ['user_id = ?1']
     const binds: unknown[] = [this.userId]
@@ -2194,7 +2196,11 @@ export class AssistantStore {
       binds.push(filter.before)
       clauses.push(`at < ?${binds.length}`)
     }
-    binds.push(Math.min(Math.max(filter.limit ?? 50, 1), 200))
+    if (filter.sinceMs) {
+      binds.push(Date.now() - filter.sinceMs)
+      clauses.push(`at > ?${binds.length}`)
+    }
+    binds.push(Math.min(Math.max(filter.limit ?? 50, 1), REQUEST_LOG_QUERY_LIMIT))
     const rows = await this.rows<{
       id: string, at: number, provider_id: string, provider_label: string, key_id: string,
       key_label: string, key_hint: string, model_label: string, operation: string, ok: number,

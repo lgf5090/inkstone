@@ -3489,11 +3489,13 @@ assistantRoutes.get('/logs', async (c) => {
   const s = store(c)
   const before = Number(c.req.query('before') ?? 0)
   const limit = Number(c.req.query('limit') ?? 50)
+  const sinceMs = Number(c.req.query('sinceMs') ?? 0)
   return c.json({
     logs: await s.listRequestLogs({
       ...(c.req.query('providerId') !== undefined ? { providerId: c.req.query('providerId')! } : {}),
       ...(c.req.query('keyId') !== undefined ? { keyId: c.req.query('keyId')! } : {}),
       before: Number.isFinite(before) && before > 0 ? before : null,
+      ...(Number.isFinite(sinceMs) && sinceMs > 0 ? { sinceMs } : {}),
       limit: Number.isFinite(limit) ? limit : 50,
     }),
   })
@@ -3677,6 +3679,15 @@ assistantRoutes.delete('/providers/:id/keys/:keyId', async (c) => {
   await s.deleteProviderKey(keyId)
   forgetProviderBalances(c, id)
   return c.json({ deleted: true })
+})
+
+assistantRoutes.post('/providers/:id/keys/:keyId/reset', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const keyId = requiredId(c.req.param('keyId'))
+  if (!(await s.listProviderKeys(id)).some((key) => key.id === keyId)) throw ApiError.notFound('Key not found')
+  await s.clearProviderKeyFailure(keyId)
+  return c.json({ ok: true })
 })
 
 /**

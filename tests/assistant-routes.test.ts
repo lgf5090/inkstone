@@ -454,6 +454,20 @@ describe('the attempt log', () => {
     await call<{ deleted: number }>('DELETE', '/api/assistant/logs?all=1')
     expect((await call<{ logs: unknown[] }>('GET', '/api/assistant/logs')).logs).toHaveLength(0)
   })
+
+  it('narrows the list to a time window and widens it back', async () => {
+    const now = Date.now()
+    const insert = sqlite.prepare('INSERT INTO chat_request_logs (user_id, id, at, ok) VALUES (?, ?, ?, 1)')
+    insert.run(USER, 'old', now - 2 * 3_600_000)
+    insert.run(USER, 'fresh', now - 60_000)
+
+    const all = await call<{ logs: Array<{ id: string }> }>('GET', '/api/assistant/logs')
+    expect(all.logs.map((row) => row.id)).toEqual(['fresh', 'old'])
+    const hour = await call<{ logs: Array<{ id: string }> }>('GET', '/api/assistant/logs?sinceMs=3600000')
+    expect(hour.logs.map((row) => row.id)).toEqual(['fresh'])
+    const nonsense = await call<{ logs: Array<{ id: string }> }>('GET', '/api/assistant/logs?sinceMs=not-a-number')
+    expect(nonsense.logs).toHaveLength(2)
+  })
 })
 
 describe('drafts', () => {

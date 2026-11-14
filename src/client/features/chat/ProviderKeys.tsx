@@ -13,7 +13,7 @@
  * readings to both the header chips and these rows.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, AlertTriangle, CheckCircle2, ChevronDown, Copy, Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Activity, AlertTriangle, CheckCircle2, ChevronDown, Copy, Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
 import type { AssistantKeyProbe, AssistantKeyRotation, AssistantProvider, AssistantProviderKey } from '@shared/assistant'
 import type { KeyBalance, ProviderBalanceAnswer } from '@shared/provider-balance'
 import { t } from '../../lib/i18n'
@@ -42,7 +42,7 @@ function TurnOrder({ entry }: { entry: AssistantKeyRotation | undefined }) {
   if (entry.position === 1) {
     return (
       <Tooltip label={t('assistant.keys.next_mark')} side="top">
-        <span className="flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--success)_14%,transparent)] px-1.5 text-[length:var(--text-10)] text-[var(--success)]">
+        <span className="flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--success)_14%,transparent)] px-1.5 text-[length:var(--text-10-5)] text-[var(--success)]">
           <span className="size-1 rounded-full bg-[var(--success)]" aria-hidden />
           {t('assistant.keys.next')}
         </span>
@@ -52,11 +52,11 @@ function TurnOrder({ entry }: { entry: AssistantKeyRotation | undefined }) {
   if (entry.modelBlocked) {
     return (
       <Tooltip label={t('assistant.keys.blocked_model')} side="top">
-        <span className="shrink-0 tabular text-[length:var(--text-10)] text-[var(--text-quaternary)]">#{entry.position}</span>
+        <span className="shrink-0 tabular text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">#{entry.position}</span>
       </Tooltip>
     )
   }
-  return <span className="shrink-0 tabular text-[length:var(--text-10)] text-[var(--text-quaternary)]">#{entry.position}</span>
+  return <span className="shrink-0 tabular text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">#{entry.position}</span>
 }
 
 /** When a key last answered, in the reader's own words rather than as a timestamp. */
@@ -216,7 +216,9 @@ export function WalletChips({ wallet }: { wallet: ProviderWallet }) {
   )
 }
 
-export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider, wallet: ProviderWallet }) {
+export function ProviderKeys({ provider, wallet, onProbes }: {
+  provider: AssistantProvider, wallet: ProviderWallet, onProbes?: (probes: AssistantKeyProbe[]) => void,
+}) {
   const toast = useUi((state) => state.toast)
   const [keys, setKeys] = useState<AssistantProviderKey[] | null>(null)
   const [open, setOpen] = useState(false)
@@ -256,13 +258,14 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
       ])
       setKeys(answer.keys)
       setProbes(answer.probes)
+      onProbes?.(answer.probes)
       setPrimaryLastUsedAt(answer.primaryLastUsedAt)
       setRotation(order.order)
     } catch (error) {
       toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
       setKeys([])
     }
-  }, [provider.id, toast])
+  }, [provider.id, toast, onProbes])
 
   /**
    * Asks the provider about every key at once.
@@ -275,6 +278,7 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
     try {
       const answer = await api.assistant.probeProviderKeys(provider.id)
       setProbes(answer.results)
+      onProbes?.(answer.results)
     } catch (error) {
       toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
     } finally {
@@ -283,6 +287,11 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
   }
 
   const probeOf = (keyId: string): AssistantKeyProbe | undefined => probes.find((entry) => entry.keyId === keyId)
+
+  const invalidKeys = probes
+    .filter((entry) => entry.outcome === 'failed' && entry.reason === 'invalid_credential' && entry.keyId)
+    .map((entry) => entry.keyId)
+    .filter((keyId) => keys?.some((key) => key.id === keyId && key.enabled))
 
   /** The plaintext this row may show: the standing choice first, then a one-off reveal. */
   const plainOf = (keyId: string): string | null =>
@@ -326,13 +335,20 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
   const copyKey = async (keyId: string) => {
     const key = plainOf(keyId) ?? await revealKey(keyId)
     if (!key) return
+    let copied = false
     try {
       await navigator.clipboard.writeText(key)
-      toast({ title: t('assistant.keys.copied'), tone: 'default' })
-    } catch {
-      // A browser that refuses the clipboard still gets the plaintext on screen, which is the fallback.
-      setRevealed({ keyId, key })
+      copied = true
+    } catch (error) {
+      console.warn('clipboard write refused', error)
     }
+    if (copied) {
+      toast({ title: t('assistant.keys.copied'), tone: 'default' })
+      return
+    }
+    // A browser that refuses the clipboard still gets the plaintext on screen, which is the fallback.
+    setRevealed({ keyId, key })
+    toast({ title: t('assistant.keys.copy_failed'), tone: 'warning' })
   }
 
   useEffect(() => {
@@ -393,6 +409,21 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
     }
   }
 
+  const disableInvalid = async () => {
+    const agreed = await confirm({
+      title: t('assistant.keys.disable_invalid_title', { count: invalidKeys.length }),
+      description: t('assistant.keys.disable_invalid_body'),
+      confirmLabel: t('assistant.keys.disable_invalid', { count: invalidKeys.length }),
+      tone: 'danger',
+    })
+    if (!agreed) return
+    await run(async () => {
+      for (const keyId of invalidKeys) {
+        await api.assistant.updateProviderKey(provider.id, keyId, { enabled: false })
+      }
+    })
+  }
+
   const add = async () => {
     const apiKey = draft.apiKey.trim()
     if (!apiKey) return
@@ -428,7 +459,7 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
           onClick={() => setOpen((value) => !value)}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-md)] px-1 py-1 text-left',
-            'text-[length:var(--text-11-5)] text-[var(--text-tertiary)]',
+            'text-[length:var(--text-12)] text-[var(--text-tertiary)]',
             'transition-colors duration-[var(--dur-fast)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
           )}
         >
@@ -466,17 +497,22 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
             {probing ? t('assistant.keys.probe_running') : t('assistant.keys.probe')}
           </Button>
         )}
+        {open && invalidKeys.length > 0 && (
+          <Button size="sm" variant="ghost" disabled={probing || busy} onClick={() => void disableInvalid()}>
+            {t('assistant.keys.disable_invalid', { count: invalidKeys.length })}
+          </Button>
+        )}
       </div>
 
       {open && (
         <div className="mt-1 flex flex-col gap-1.5 pb-1">
-          <p className="text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.keys.hint')}</p>
+          <p className="text-[length:var(--text-10-5)] leading-snug text-[var(--text-quaternary)]">{t('assistant.keys.hint')}</p>
 
           {/* The provider's own key heads the ring, and is listed here so the count above means something:
               a reader who adds one key should see two, not wonder which one the ring is using. */}
           <div
             className={cn(
-              'flex items-center gap-2 rounded-[var(--r-md)] border-l-[3px] border-y border-r px-2 py-1.5 text-[length:var(--text-11-5)]',
+              'flex items-center gap-2 rounded-[var(--r-md)] border-l-[3px] border-y border-r px-2 py-1.5 text-[length:var(--text-12)]',
               probeOf('')?.outcome === 'failed'
                 ? 'border-l-[var(--danger)] border-y-[color-mix(in_oklab,var(--danger)_30%,transparent)] border-r-[color-mix(in_oklab,var(--danger)_30%,transparent)] bg-[color-mix(in_oklab,var(--danger)_7%,transparent)]'
                 : 'border-l-[var(--border-subtle)] border-y-[var(--border-subtle)] border-r-[var(--border-subtle)]',
@@ -560,7 +596,7 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
                     <div className="flex min-w-0 flex-1 items-center gap-1.5">
                       <TurnOrder entry={rotationOf(key.id)} />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+                        <p className="truncate text-[length:var(--text-12)] text-[var(--text-secondary)]">
                           {key.label || t('assistant.keys.unnamed')}
                         </p>
                       <p className="truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
@@ -581,51 +617,66 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
                   )}
                   <ProbeBadge probe={probeOf(key.id)} />
                   <BalanceChip reading={balanceOf(key.id)} name={key.label || t('assistant.keys.unnamed')} />
-                  {renaming !== key.id && key.hasKey && (
-                    <IconButton
-                      label={plainOf(key.id) ? t('assistant.keys.hide') : t('assistant.keys.reveal')}
-                      size="xs"
-                      disabled={revealing === key.id}
-                      onClick={() => void toggleReveal(key.id)}
-                    >
-                      {plainOf(key.id) ? <EyeOff size={12} /> : <Eye size={12} />}
-                    </IconButton>
-                  )}
-                  {renaming !== key.id && key.hasKey && (
-                    <IconButton label={t('assistant.keys.copy')} size="xs" disabled={revealing === key.id} onClick={() => void copyKey(key.id)}>
-                      <Copy size={12} />
-                    </IconButton>
-                  )}
-                  {renaming !== key.id && (
-                    <IconButton
-                      label={t('assistant.insights.open')}
-                      size="xs"
-                      onClick={() => setInsights({ keyId: key.id, keyLabel: key.label, keyHint: key.keyHint })}
-                    >
-                      <Activity size={12} />
-                    </IconButton>
-                  )}
-                  {renaming !== key.id && (
-                    <IconButton
-                      label={t('assistant.keys.rename', { label: key.label || t('assistant.keys.unnamed') })}
-                      size="xs"
-                      onClick={() => {
-                        setRenaming(key.id)
-                        setRenamed(key.label)
-                      }}
-                    >
-                      <Pencil size={12} />
-                    </IconButton>
-                  )}
-                  <Switch
-                    checked={key.enabled}
-                    disabled={busy}
-                    label={t('assistant.keys.enabled', { label: key.label || t('assistant.keys.unnamed') })}
-                    onChange={(checked) => void run(async () => {
-                      await api.assistant.updateProviderKey(provider.id, key.id, { enabled: checked })
-                    })}
-                  />
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    {renaming !== key.id && key.hasKey && (
+                      <IconButton
+                        label={plainOf(key.id) ? t('assistant.keys.hide') : t('assistant.keys.reveal')}
+                        size="xs"
+                        disabled={revealing === key.id}
+                        onClick={() => void toggleReveal(key.id)}
+                      >
+                        {plainOf(key.id) ? <EyeOff size={12} /> : <Eye size={12} />}
+                      </IconButton>
+                    )}
+                    {renaming !== key.id && key.hasKey && (
+                      <IconButton label={t('assistant.keys.copy')} size="xs" disabled={revealing === key.id} onClick={() => void copyKey(key.id)}>
+                        <Copy size={12} />
+                      </IconButton>
+                    )}
+                    {renaming !== key.id && (
+                      <IconButton
+                        label={t('assistant.insights.open')}
+                        size="xs"
+                        onClick={() => setInsights({ keyId: key.id, keyLabel: key.label, keyHint: key.keyHint })}
+                      >
+                        <Activity size={12} />
+                      </IconButton>
+                    )}
+                    {renaming !== key.id && (
+                      <IconButton
+                        label={t('assistant.keys.rename', { label: key.label || t('assistant.keys.unnamed') })}
+                        size="xs"
+                        onClick={() => {
+                          setRenaming(key.id)
+                          setRenamed(key.label)
+                        }}
+                      >
+                        <Pencil size={12} />
+                      </IconButton>
+                    )}
+                    {renaming !== key.id && (key.errorCount > 0 || (key.coolingUntil !== null && key.coolingUntil > Date.now())) && (
+                      <IconButton
+                        label={t('assistant.keys.reset')}
+                        size="xs"
+                        disabled={busy}
+                        onClick={() => void run(async () => {
+                          await api.assistant.resetExtraKey(provider.id, key.id)
+                        })}
+                      >
+                        <RotateCcw size={12} />
+                      </IconButton>
+                    )}
+                    <Switch
+                      checked={key.enabled}
+                      disabled={busy}
+                      label={t('assistant.keys.enabled', { label: key.label || t('assistant.keys.unnamed') })}
+                      onChange={(checked) => void run(async () => {
+                        await api.assistant.updateProviderKey(provider.id, key.id, { enabled: checked })
+                      })}
+                    />
+                  </div>
                   <IconButton
+                    className="ml-auto hover:bg-[color-mix(in_oklab,var(--danger)_10%,transparent)] hover:text-[var(--danger)]"
                     label={t('assistant.keys.remove', { label: key.label || t('assistant.keys.unnamed') })}
                     size="xs"
                     onClick={() => {

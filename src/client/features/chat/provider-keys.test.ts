@@ -14,7 +14,13 @@ import type { AssistantProvider, AssistantProviderKey } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { api } from '../../lib/api'
+import { useUi } from '../../store/ui'
 import { ProviderKeys, type ProviderWallet } from './ProviderKeys'
+
+vi.mock('../../components/overlay', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../components/overlay')>(),
+  confirm: async () => true,
+}))
 
 let root: Root
 let container: HTMLDivElement
@@ -176,6 +182,36 @@ describe('asking the provider whether a key still works', () => {
     expect(document.body.textContent).toContain(t('assistant.keys.probe_latency', { ms: 120 }))
   })
 
+  it('offers to disable the refused keys, and switches each one off', async () => {
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({
+      keys: [key(), key({ id: 'k2', label: 'third', keyHint: '1111' })],
+      probes: [],
+      primaryLastUsedAt: null,
+    })
+    vi.spyOn(api.assistant, 'probeProviderKeys').mockResolvedValue({
+      results: [
+        { keyId: '', label: '', keyHint: '9876', outcome: 'passed', reason: null, latencyMs: 10, probedAt: 1 },
+        { keyId: 'k1', label: 'second', keyHint: '4321', outcome: 'failed', reason: 'invalid_credential', latencyMs: 10, probedAt: 1 },
+        { keyId: 'k2', label: 'third', keyHint: '1111', outcome: 'failed', reason: 'invalid_credential', latencyMs: 10, probedAt: 1 },
+      ],
+    })
+    const patched = vi.spyOn(api.assistant, 'updateProviderKey').mockImplementation(async (_id, keyId, body) => ({
+      key: key({ id: keyId, enabled: body.enabled ?? true }),
+    }))
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
+    expect(byText(t('assistant.keys.disable_invalid', { count: 2 }))).toBeUndefined()
+
+    await act(async () => { trigger()!.click() })
+    await act(async () => { byText(t('assistant.keys.probe'))!.click() })
+    const disable = byText(t('assistant.keys.disable_invalid', { count: 2 }))
+    expect(disable, 'the ring offers no way to act on a refused key').toBeTruthy()
+    await act(async () => { disable!.click() })
+
+    expect(patched).toHaveBeenCalledTimes(2)
+    expect(patched).toHaveBeenCalledWith('p1', 'k1', { enabled: false })
+    expect(patched).toHaveBeenCalledWith('p1', 'k2', { enabled: false })
+  })
+
   it('keeps a stored result after a reload, so a bad key stays marked', async () => {
     vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({
       keys: [key()],
@@ -187,5 +223,47 @@ describe('asking the provider whether a key still works', () => {
     // "Cannot tell" is kept as its own word: it is not a pass and must not read as a failure either.
     expect(document.body.textContent).toContain(t('assistant.keys.probe_unknown'))
     expect(document.body.textContent).not.toContain(t('assistant.keys.probe_failed'))
+  })
+})
+
+describe('copying a key without showing it', () => {
+  const SECRET = 'sk-copy-only-000000000000'
+
+  const openPanel = async () => {
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [], probes: [], primaryLastUsedAt: null })
+    vi.spyOn(api.assistant, 'revealProviderKey').mockResolvedValue({ key: SECRET, keyHint: '0000' })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
+    await act(async () => { trigger()!.click() })
+    return document.querySelector<HTMLButtonElement>(`button[aria-label="${t('assistant.keys.copy')}"]`)!
+  }
+
+  it('announces a successful copy and keeps the secret off the screen', async () => {
+    useUi.setState({ toasts: [] })
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } })
+    try {
+      const copy = await openPanel()
+      await act(async () => { copy.click() })
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard')
+    }
+    expect(useUi.getState().toasts.some((entry) => entry.title === t('assistant.keys.copied'))).toBe(true)
+    expect(document.body.textContent).not.toContain(SECRET)
+  })
+
+  it('explains the plaintext when the browser refuses the clipboard', async () => {
+    useUi.setState({ toasts: [] })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async () => { throw new Error('refused') } },
+    })
+    try {
+      const copy = await openPanel()
+      await act(async () => { copy.click() })
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard')
+    }
+    expect(useUi.getState().toasts.some((entry) => entry.title === t('assistant.keys.copy_failed'))).toBe(true)
+    expect(document.body.textContent).toContain(SECRET)
   })
 })

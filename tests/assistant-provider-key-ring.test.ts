@@ -296,6 +296,36 @@ describe('a provider that keeps one key', () => {
   })
 })
 
+describe('waking a resting key by hand', () => {
+  it('clears its cooldown and count, and puts it back at the front of the ring', async () => {
+    const response = await send('POST', '/api/assistant/providers', newProvider(`${FIRST}, ${SECOND}, ${THIRD}`))
+    const id = (await response.json() as { provider: { id: string } }).provider.id
+    const extras = await store.listProviderKeys(id)
+    await store.markProviderKeyUsed(id, '')
+    const record = await store.providerRecord(id)
+    await store.recordProviderKeyError(extras[0]!.id, 'rate: slow down', 60_000)
+    expect((await store.pickProviderKey(record!))?.keyId).toBe(extras[1]!.id)
+
+    const reset = await send('POST', `/api/assistant/providers/${id}/keys/${extras[0]!.id}/reset`, {})
+    expect(reset.status, await reset.clone().text()).toBe(200)
+    const after = await store.listProviderKeys(id)
+    expect(after[0]!.errorCount).toBe(0)
+    expect(after[0]!.coolingUntil).toBeNull()
+    expect((await store.pickProviderKey(record!))?.keyId).toBe(extras[0]!.id)
+  })
+
+  it('refuses a key owned by another provider', async () => {
+    const first = await send('POST', '/api/assistant/providers', newProvider(FIRST))
+    const firstId = (await first.json() as { provider: { id: string } }).provider.id
+    const second = await send('POST', '/api/assistant/providers', newProvider(SECOND))
+    const secondId = (await second.json() as { provider: { id: string } }).provider.id
+    await store.createProviderKey(secondId, { label: '', apiKey: THIRD })
+    const foreign = (await store.listProviderKeys(secondId))[0]!
+
+    expect((await send('POST', `/api/assistant/providers/${firstId}/keys/${foreign.id}/reset`, {})).status).toBe(404)
+  })
+})
+
 describe('showing a stored key to its owner', () => {
   it('answers with the plaintext once, and writes an audit line for each look', async () => {
     const response = await send('POST', '/api/assistant/providers', newProvider(`${FIRST}, ${SECOND}`))
