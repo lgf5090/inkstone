@@ -13,7 +13,7 @@
  * readings to both the header chips and these rows.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { ChevronDown, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Activity, ChevronDown, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type { AssistantKeyProbe, AssistantProvider, AssistantProviderKey } from '@shared/assistant'
 import type { KeyBalance, ProviderBalanceAnswer } from '@shared/provider-balance'
 import { t } from '../../lib/i18n'
@@ -24,6 +24,7 @@ import { Tooltip, confirm } from '../../components/overlay'
 import { cn } from '../../lib/cn'
 import { useUi } from '../../store/ui'
 import { storedKeyLabel } from './assistant-settings-shared'
+import { KeyInsights } from './KeyInsights'
 
 /** When a key last answered, in the reader's own words rather than as a timestamp. */
 function lastUsed(at: number | null): string {
@@ -194,6 +195,8 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
   /** The ring's first key has no row here, so its last use arrives with this answer rather than the card. */
   const [primaryLastUsedAt, setPrimaryLastUsedAt] = useState<number | null>(provider.keyLastUsedAt)
   const [probing, setProbing] = useState(false)
+  /** Which slice the stats/logs panel is open on: a key, or the provider as a whole. */
+  const [insights, setInsights] = useState<{ keyId?: string, keyLabel?: string, keyHint?: string } | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -302,6 +305,11 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
         </button>
         {/* Offered only once there is something to ask about: a probe of an empty ring is a request that
             can only answer "there is nothing here". */}
+        {open && (
+          <IconButton label={t('assistant.insights.open')} size="xs" onClick={() => setInsights({})}>
+            <Activity size={12} />
+          </IconButton>
+        )}
         {open && ringSize > 0 && (
           <Button size="sm" variant="ghost" disabled={probing || busy} onClick={() => void probe()}>
             {probing ? t('assistant.keys.probe_running') : t('assistant.keys.probe')}
@@ -325,6 +333,9 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
               {lastUsed(primaryLastUsedAt)}
             </span>
             <ProbeBadge probe={probeOf('')} />
+            <Button size="sm" variant="ghost" onClick={() => setInsights({ keyId: '', keyLabel: t('assistant.keys.primary'), keyHint: provider.keyHint })}>
+              {t('assistant.insights.tab_stats')}
+            </Button>
             <BalanceChip reading={balanceOf('')} name={t('assistant.keys.primary')} />
           </div>
 
@@ -378,6 +389,15 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
                   )}
                   <ProbeBadge probe={probeOf(key.id)} />
                   <BalanceChip reading={balanceOf(key.id)} name={key.label || t('assistant.keys.unnamed')} />
+                  {renaming !== key.id && (
+                    <IconButton
+                      label={t('assistant.insights.open')}
+                      size="xs"
+                      onClick={() => setInsights({ keyId: key.id, keyLabel: key.label, keyHint: key.keyHint })}
+                    >
+                      <Activity size={12} />
+                    </IconButton>
+                  )}
                   {renaming !== key.id && (
                     <IconButton
                       label={t('assistant.keys.rename', { label: key.label || t('assistant.keys.unnamed') })}
@@ -472,6 +492,17 @@ export function ProviderKeys({ provider, wallet }: { provider: AssistantProvider
           )}
         </div>
       )}
+
+      {/* One panel, two tabs, three scopes. It lives here rather than inside a row so the numbers a key
+          carries can be read next to the provider's — the comparison is the point. */}
+      <KeyInsights
+        open={insights !== null}
+        onClose={() => setInsights(null)}
+        provider={provider}
+        {...(insights?.keyId !== undefined ? { keyId: insights.keyId } : {})}
+        {...(insights?.keyLabel !== undefined ? { keyLabel: insights.keyLabel } : {})}
+        {...(insights?.keyHint !== undefined ? { keyHint: insights.keyHint } : {})}
+      />
     </div>
   )
 }

@@ -64,14 +64,40 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
      ON chat_provider_keys(user_id, provider_id, created_at)`,
 
   /**
-   * The last time one stored key was asked whether it still works.
+   * One line per attempt at the provider, because "which key, which model, how did it go" is a question
+   * the daily rollups cannot answer: they keep totals per day, and a reader debugging a key needs the
+   * individual attempts — including the ones that never produced a token count.
    *
-   * Its own table rather than four more columns on two tables, because the subject is "one key of one
-   * provider" and that already has a key shape: the provider's own credential has no row in
-   * `chat_provider_keys`, so `key_id = ''` names it here without inventing a second column set. One row
-   * per key, replaced on every probe — a history of probe results would be a log nobody reads, and the
-   * usage tables already answer "which key did the work".
+   * The request body is not here unless the reader turned that on in settings. A prompt is the reader's
+   * own writing and this table is the one place it would outlive the conversation, so the column stays
+   * null by default rather than being written and hidden.
    */
+  `CREATE TABLE IF NOT EXISTS chat_request_logs (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    provider_id TEXT NOT NULL DEFAULT '',
+    provider_label TEXT NOT NULL DEFAULT '',
+    key_id TEXT NOT NULL DEFAULT '',
+    key_label TEXT NOT NULL DEFAULT '',
+    key_hint TEXT NOT NULL DEFAULT '',
+    model_label TEXT NOT NULL DEFAULT '',
+    operation TEXT NOT NULL DEFAULT 'chat',
+    ok INTEGER NOT NULL,
+    http_status INTEGER,
+    error_kind TEXT,
+    error_message TEXT,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+    latency_ms INTEGER,
+    request_body TEXT,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_at ON chat_request_logs(user_id, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_key ON chat_request_logs(user_id, key_id, at DESC)`,
+
+
   /**
    * A model one key could not serve, asked apart from the key's own health.
    *
@@ -89,6 +115,15 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id, provider_id, key_id, model)
   )`,
 
+  /**
+   * The last time one stored key was asked whether it still works.
+   *
+   * Its own table rather than four more columns on two tables, because the subject is "one key of one
+   * provider" and that already has a key shape: the provider's own credential has no row in
+   * `chat_provider_keys`, so `key_id = ''` names it here without inventing a second column set. One row
+   * per key, replaced on every probe — a history of probe results would be a log nobody reads, and the
+   * usage tables already answer "which key did the work".
+   */
   `CREATE TABLE IF NOT EXISTS chat_provider_key_probes (
     user_id TEXT NOT NULL,
     provider_id TEXT NOT NULL,
@@ -967,6 +1002,9 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'cooling_until', 'created_at', 'updated_at'],
   chat_provider_key_probes: ['user_id', 'provider_id', 'key_id', 'outcome', 'reason', 'latency_ms', 'probed_at'],
   chat_provider_key_model_cooldowns: ['user_id', 'provider_id', 'key_id', 'model', 'cooling_until'],
+  chat_request_logs: ['user_id', 'id', 'at', 'provider_id', 'provider_label', 'key_id', 'key_label', 'key_hint',
+    'model_label', 'operation', 'ok', 'http_status', 'error_kind', 'error_message',
+    'input_tokens', 'output_tokens', 'cached_input_tokens', 'latency_ms', 'request_body'],
   chat_search_keys: ['user_id', 'engine', 'key_ciphertext', 'key_hint', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'icon', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens',
     'vendor_context_tokens', 'vendor_max_output_tokens', 'vision',

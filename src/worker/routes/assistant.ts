@@ -3467,6 +3467,57 @@ assistantRoutes.get('/providers/:id/keys', async (c) => {
 })
 
 /**
+ * Totals for one slice of the ring.
+ *
+ * Three scopes, one question: `key` answers "how is this credential doing", `provider` answers "how is
+ * this vendor doing", `all` answers "what has this account spent". The rollups carry the counts and the
+ * tokens; the attempt log supplies the latency and the last-use stamp.
+ */
+assistantRoutes.get('/stats/keys', async (c) => {
+  const s = store(c)
+  const scope = c.req.query('scope')
+  const rows = await s.keyStats({
+    scope: scope === 'all' || scope === 'provider' ? scope : 'key',
+    ...(c.req.query('providerId') !== undefined ? { providerId: c.req.query('providerId')! } : {}),
+    ...(c.req.query('keyId') !== undefined ? { keyId: c.req.query('keyId')! } : {}),
+  })
+  return c.json({ rows })
+})
+
+/** The attempts behind a slice, newest first. `before` is the `at` of the last row already shown. */
+assistantRoutes.get('/logs', async (c) => {
+  const s = store(c)
+  const before = Number(c.req.query('before') ?? 0)
+  const limit = Number(c.req.query('limit') ?? 50)
+  return c.json({
+    logs: await s.listRequestLogs({
+      ...(c.req.query('providerId') !== undefined ? { providerId: c.req.query('providerId')! } : {}),
+      ...(c.req.query('keyId') !== undefined ? { keyId: c.req.query('keyId')! } : {}),
+      before: Number.isFinite(before) && before > 0 ? before : null,
+      limit: Number.isFinite(limit) ? limit : 50,
+    }),
+  })
+})
+
+/** Removes one attempt, or every attempt in a slice, or the whole log. */
+assistantRoutes.delete('/logs', async (c) => {
+  const s = store(c)
+  const deleted = await s.deleteRequestLogs({
+    ...(c.req.query('providerId') !== undefined ? { providerId: c.req.query('providerId')! } : {}),
+    ...(c.req.query('keyId') !== undefined ? { keyId: c.req.query('keyId')! } : {}),
+    ...(c.req.query('all') === '1' ? { all: true } : {}),
+  })
+  return c.json({ deleted })
+})
+
+assistantRoutes.delete('/logs/:id', async (c) => {
+  const s = store(c)
+  const deleted = await s.deleteRequestLogs({ id: requiredId(c.req.param('id')) })
+  if (!deleted) throw ApiError.notFound('Log entry not found')
+  return c.json({ deleted })
+})
+
+/**
  * Ask the provider about keys the reader has typed but not saved.
  *
  * The form is where a reader decides to trust a key, so the test has to be available there rather than

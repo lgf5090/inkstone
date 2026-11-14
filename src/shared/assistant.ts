@@ -260,6 +260,58 @@ export interface AssistantKeyProbe {
 }
 
 /**
+ * One attempt at the provider, as the log table keeps it.
+ *
+ * An attempt rather than a turn: a turn that rotated through two keys wrote two lines, which is the
+ * only way the log can answer "which key was refused".
+ */
+export interface AssistantRequestLog {
+  id: string
+  at: number
+  providerId: string
+  providerLabel: string
+  /** Empty for the provider's own key, the same way every other surface names it. */
+  keyId: string
+  keyLabel: string
+  keyHint: string
+  modelLabel: string
+  /** `chat`, `title`, `summarize`, `compile`, `probe`, … — which door the attempt went through. */
+  operation: string
+  ok: boolean
+  httpStatus: number | null
+  errorKind: string | null
+  errorMessage: string | null
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+  latencyMs: number | null
+  /** Present only when the reader turned body logging on; null otherwise, never a truncated body. */
+  requestBody: string | null
+}
+
+/** Totals over one slice of the ring: one key, one provider, or the whole account. */
+export interface AssistantKeyStats {
+  /** The key id, the provider id, or `all` — whatever the scope that produced this row was. */
+  id: string
+  label: string
+  keyHint: string
+  providerId: string
+  requests: number
+  succeeded: number
+  failed: number
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+  toolCalls: number
+  /** Mean attempt latency, or null when nothing in this slice was timed. */
+  avgLatencyMs: number | null
+  lastAttemptAt: number | null
+}
+
+/** Which slice of the ring a stats question is about. */
+export type AssistantStatsScope = 'key' | 'provider' | 'all'
+
+/**
  * One hosted web-search engine's key, as a listing is allowed to describe it.
  *
  * There is no key field and no ciphertext field here, and that is the whole design: the only thing a screen
@@ -813,6 +865,14 @@ export interface AssistantSettings {
   /** How long a primary request may take before it is treated as timed out. */
   requestTimeoutMs: number
   /**
+   * Whether the request log keeps the prompt that was sent.
+   *
+   * Off by default. The log is a debugging tool, and a prompt is the reader's own writing: keeping it
+   * turns a table meant to answer "which key failed" into a second copy of the conversation. The reader
+   * who wants to inspect bodies can turn it on for a while and clear the log afterwards.
+   */
+  logRequestBodies: boolean
+  /**
    * The model a realtime voice session is opened with.
    *
    * Kept apart from `activeModelId` because a realtime model cannot answer a text turn: it speaks
@@ -980,6 +1040,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   titlePrompt: '',
   autoRecover: true,
   requestTimeoutMs: 60_000,
+  logRequestBodies: false,
   realtimeModelId: null,
   temperature: 0.4,
   limits: { ...DEFAULT_LIMITS },
@@ -1160,6 +1221,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     titlePrompt: stringAllowEmpty(raw.titlePrompt, DEFAULT_ASSISTANT_SETTINGS.titlePrompt, MAX_TITLE_PROMPT_CHARS),
     autoRecover: booleanValue(raw.autoRecover, DEFAULT_ASSISTANT_SETTINGS.autoRecover),
     requestTimeoutMs: integerInRange(raw.requestTimeoutMs, MIN_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS, DEFAULT_ASSISTANT_SETTINGS.requestTimeoutMs),
+    logRequestBodies: booleanValue(raw.logRequestBodies, DEFAULT_ASSISTANT_SETTINGS.logRequestBodies),
     realtimeModelId: typeof raw.realtimeModelId === 'string' && raw.realtimeModelId ? raw.realtimeModelId.slice(0, 26) : null,
     temperature: numberInRange(raw.temperature, 0, 1.5, DEFAULT_ASSISTANT_SETTINGS.temperature),
     limits,

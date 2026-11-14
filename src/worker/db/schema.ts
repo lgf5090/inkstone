@@ -4404,6 +4404,37 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_providers ADD COLUMN sticky INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    // Attempt-level detail: the daily rollups answer "how much", never "which attempt failed and why".
+    // The request body column stays null unless the reader opts in — a prompt is the reader's own writing.
+    version: 408,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_request_logs (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        at INTEGER NOT NULL,
+        provider_id TEXT NOT NULL DEFAULT '',
+        provider_label TEXT NOT NULL DEFAULT '',
+        key_id TEXT NOT NULL DEFAULT '',
+        key_label TEXT NOT NULL DEFAULT '',
+        key_hint TEXT NOT NULL DEFAULT '',
+        model_label TEXT NOT NULL DEFAULT '',
+        operation TEXT NOT NULL DEFAULT 'chat',
+        ok INTEGER NOT NULL,
+        http_status INTEGER,
+        error_kind TEXT,
+        error_message TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+        latency_ms INTEGER,
+        request_body TEXT,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_at ON chat_request_logs(user_id, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_key ON chat_request_logs(user_id, key_id, at DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

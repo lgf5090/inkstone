@@ -345,6 +345,117 @@ describe('a model the key could not serve', () => {
   })
 })
 
+/**
+ * The attempt log, and the three scopes that read it.
+ *
+ * One line per attempt is the point: a turn that rotated through two keys has to show both, or the log
+ * cannot answer the only question it exists for — which key the provider refused.
+ */
+describe('the attempt log', () => {
+  it('keeps one line per attempt, with the tokens the answer reported', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    let events: ChatStreamEvent[] = []
+    try {
+      events = await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(events.some((event) => event.type === 'text')).toBe(true)
+
+    const rows = sqlite.prepare('SELECT ok, model_label, key_hint, input_tokens, output_tokens, latency_ms, request_body FROM chat_request_logs').all() as
+      Array<{ ok: number, model_label: string, key_hint: string, input_tokens: number, output_tokens: number, latency_ms: number | null, request_body: string | null }>
+    const answered = rows.filter((row) => row.ok === 1)
+    expect(answered).toHaveLength(1)
+    expect(answered[0]!.model_label).toBe('example-model')
+    expect(answered[0]!.key_hint).toBe('9876')
+    expect(answered[0]!.input_tokens).toBe(20)
+    expect(answered[0]!.output_tokens).toBe(6)
+    expect(answered[0]!.latency_ms).not.toBeNull()
+    // A prompt is the reader's own writing: the column stays null unless they asked for it.
+    expect(answered[0]!.request_body).toBeNull()
+  })
+
+  it('records a refusal as its own line rather than folding it into the answer', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: 'bad key' } }), {
+      status: 401, headers: { 'content-type': 'application/json' },
+    })))
+    try {
+      await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    const rows = sqlite.prepare('SELECT ok, error_kind, http_status, key_hint FROM chat_request_logs ORDER BY at').all() as
+      Array<{ ok: number, error_kind: string | null, http_status: number | null, key_hint: string }>
+    expect(rows[0]!.ok).toBe(0)
+    expect(rows[0]!.error_kind).toBe('auth')
+    expect(rows[0]!.http_status).toBe(401)
+    expect(rows[0]!.key_hint).toBe('9876')
+  })
+
+  it('keeps the request body only when the reader asked for it', async () => {
+    await useExampleModel()
+    await call('PATCH', '/api/assistant/settings', { logRequestBodies: true })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    try {
+      await chatEvents({ message: 'a message whose body is being kept' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    const kept = sqlite.prepare('SELECT request_body FROM chat_request_logs WHERE ok = 1').all() as Array<{ request_body: string | null }>
+    expect(kept[0]?.request_body).toBeTruthy()
+    expect(kept[0]!.request_body).toContain('example-model')
+
+    // Off again: the column goes back to null rather than being written and hidden.
+    await call('PATCH', '/api/assistant/settings', { logRequestBodies: false })
+    sqlite.prepare('DELETE FROM chat_request_logs').run()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    try {
+      await chatEvents({ message: 'another message' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    const dropped = sqlite.prepare('SELECT request_body FROM chat_request_logs WHERE ok = 1').all() as Array<{ request_body: string | null }>
+    expect(dropped[0]?.request_body).toBeNull()
+  })
+
+  it('answers the same totals at three scopes, and deletes a slice', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    try {
+      await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    type StatsRow = { id: string, requests: number, succeeded: number, failed: number, inputTokens: number }
+    const byKey = await call<{ rows: StatsRow[] }>('GET', '/api/assistant/stats/keys?scope=key')
+    expect(byKey.rows).toHaveLength(1)
+    expect(byKey.rows[0]!.requests).toBeGreaterThan(0)
+    expect(byKey.rows[0]!.succeeded).toBe(byKey.rows[0]!.requests - byKey.rows[0]!.failed)
+    expect(byKey.rows[0]!.inputTokens).toBeGreaterThan(0)
+
+    const byProvider = await call<{ rows: StatsRow[] }>('GET', '/api/assistant/stats/keys?scope=provider')
+    expect(byProvider.rows).toHaveLength(1)
+    const everything = await call<{ rows: StatsRow[] }>('GET', '/api/assistant/stats/keys?scope=all')
+    expect(everything.rows).toHaveLength(1)
+    expect(everything.rows[0]!.id).toBe('all')
+    expect(everything.rows[0]!.requests).toBe(byKey.rows[0]!.requests)
+
+    const logs = await call<{ logs: Array<{ id: string }> }>('GET', '/api/assistant/logs?limit=5')
+    expect(logs.logs.length).toBeGreaterThan(0)
+    expect((await call<{ deleted: number }>('DELETE', `/api/assistant/logs/${logs.logs[0]!.id}`)).deleted).toBe(1)
+    await call<{ deleted: number }>('DELETE', '/api/assistant/logs?all=1')
+    expect((await call<{ logs: unknown[] }>('GET', '/api/assistant/logs')).logs).toHaveLength(0)
+  })
+})
+
 describe('drafts', () => {
   const newConversation = async (title = 'Planning') =>
     (await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title })).conversation

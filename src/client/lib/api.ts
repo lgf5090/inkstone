@@ -126,6 +126,8 @@ import type {
   AssistantProvider,
   AssistantProviderKey,
   AssistantKeyProbe,
+  AssistantKeyStats,
+  AssistantRequestLog,
   AssistantRealtimeSession,
   AssistantSearchKey,
   AssistantSettings,
@@ -2383,6 +2385,32 @@ export const api = {
         `/api/assistant/providers/${id}/keys/probe`,
         { method: 'POST', body: {} },
       ),
+    /** Totals for one slice: this key, its provider, or the whole account. */
+    keyStats: (query: { scope: 'key' | 'provider' | 'all', providerId?: string, keyId?: string }) => {
+      const params = new URLSearchParams({ scope: query.scope })
+      if (query.providerId !== undefined) params.set('providerId', query.providerId)
+      if (query.keyId !== undefined) params.set('keyId', query.keyId)
+      return request<{ rows: AssistantKeyStats[] }>(`/api/assistant/stats/keys?${params.toString()}`)
+    },
+    /** The attempts behind a slice, newest first. */
+    requestLogs: (query: { providerId?: string, keyId?: string, before?: number, limit?: number }) => {
+      const params = new URLSearchParams()
+      if (query.providerId !== undefined) params.set('providerId', query.providerId)
+      if (query.keyId !== undefined) params.set('keyId', query.keyId)
+      if (query.before) params.set('before', String(query.before))
+      if (query.limit) params.set('limit', String(query.limit))
+      return request<{ logs: AssistantRequestLog[] }>(`/api/assistant/logs?${params.toString()}`)
+    },
+    deleteRequestLog: (id: string) =>
+      request<{ deleted: number }>(`/api/assistant/logs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    clearRequestLogs: (query: { providerId?: string, keyId?: string, all?: boolean }) => {
+      const params = new URLSearchParams()
+      if (query.providerId !== undefined) params.set('providerId', query.providerId)
+      if (query.keyId !== undefined) params.set('keyId', query.keyId)
+      if (query.all) params.set('all', '1')
+      return request<{ deleted: number }>(`/api/assistant/logs?${params.toString()}`, { method: 'DELETE' })
+    },
+
     /** The same question about keys the reader has typed and not saved yet. Nothing is stored. */
     probeDraftKeys: (body: { protocol: string, baseUrl: string, apiKeys: string[] }) =>
       request<{ results: Array<Omit<AssistantKeyProbe, 'keyId' | 'probedAt'> & { keyHint: string }> }>(

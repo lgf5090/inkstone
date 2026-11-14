@@ -45,6 +45,9 @@ import type {
   AssistantProviderKey,
   AssistantKeyProbe,
   AssistantKeyProbeOutcome,
+  AssistantKeyStats,
+  AssistantRequestLog,
+  AssistantStatsScope,
   AssistantKeyProbeReason,
   AssistantSearchKey,
   AssistantReasoning,
@@ -329,7 +332,10 @@ const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, 
  */
 const KEY_COOLDOWN_MS = 60_000
 
-/** Each consecutive failure doubles the window, up to this many doublings (1 min → ~32 min). */
+/** How many attempts the log keeps; the oldest are trimmed as new ones arrive. */
+const REQUEST_LOG_LIMIT = 2_000
+
+/** Each consecutive failure doubles the window, up to this many doublings (1 min ~= 32 min). */
 const KEY_COOLDOWN_STEPS = 5
 
 /** The ceiling of that doubling, so a key that keeps failing is still retried once an hour. */
@@ -2027,6 +2033,229 @@ export class AssistantStore {
       latencyMs: row.latency_ms,
       probedAt: row.probed_at,
     }))
+  }
+
+  /**
+   * One line per attempt. Kept short on purpose: a log that grows without bound is a table nobody reads
+   * and everybody pays for, so the writer trims to the most recent {@link REQUEST_LOG_LIMIT} rows.
+   */
+  async recordRequestLog(entry: {
+    providerId: string, providerLabel: string, keyId: string, keyLabel: string, keyHint: string,
+    modelLabel: string, operation: string, ok: boolean, httpStatus?: number | null,
+    errorKind?: string | null, errorMessage?: string | null,
+    inputTokens?: number, outputTokens?: number, cachedInputTokens?: number,
+    latencyMs?: number | null, requestBody?: string | null,
+  }): Promise<string> {
+    const id = newId()
+    await this.write(
+      `INSERT INTO chat_request_logs
+         (id, user_id, at, provider_id, provider_label, key_id, key_label, key_hint, model_label,
+          operation, ok, http_status, error_kind, error_message, input_tokens, output_tokens,
+          cached_input_tokens, latency_ms, request_body)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
+      id, Date.now(), entry.providerId, entry.providerLabel.slice(0, 120), entry.keyId,
+      entry.keyLabel.slice(0, 60), entry.keyHint.slice(0, 8), entry.modelLabel.slice(0, 120),
+      entry.operation, entry.ok ? 1 : 0, entry.httpStatus ?? null,
+      entry.errorKind ?? null, (entry.errorMessage ?? '').slice(0, 300) || null,
+      entry.inputTokens ?? 0, entry.outputTokens ?? 0, entry.cachedInputTokens ?? 0,
+      entry.latencyMs ?? null, entry.requestBody ?? null,
+    )
+    // Trim in the same call: the oldest rows stop existing before the table grows past its ceiling.
+    await this.write(
+      `DELETE FROM chat_request_logs WHERE user_id = ?1 AND id IN (
+         SELECT id FROM chat_request_logs WHERE user_id = ?1 ORDER BY at DESC LIMIT -1 OFFSET ?2)`,
+      REQUEST_LOG_LIMIT,
+    )
+    return id
+  }
+
+  /** Fills in the tokens an attempt only learns once the provider has finished answering. */
+  async finishRequestLog(id: string, usage: {
+    inputTokens: number, outputTokens: number, cachedInputTokens?: number, latencyMs?: number | null,
+  }): Promise<void> {
+    await this.write(
+      // `COALESCE` keeps the round-trip the attempt already measured: this call only fills in tokens, and
+      // writing null over a known latency is how a log loses the number it exists to show.
+      `UPDATE chat_request_logs SET input_tokens = ?2, output_tokens = ?3, cached_input_tokens = ?4,
+              latency_ms = COALESCE(?5, latency_ms)
+         WHERE user_id = ?1 AND id = ?6`,
+      usage.inputTokens, usage.outputTokens, usage.cachedInputTokens ?? 0, usage.latencyMs ?? null, id,
+    )
+  }
+
+  /** The attempts behind one slice, newest first. `before` pages backwards through older rows. */
+  async listRequestLogs(filter: {
+    providerId?: string, keyId?: string, before?: number | null, limit?: number,
+  } = {}): Promise<AssistantRequestLog[]> {
+    const clauses = ['user_id = ?1']
+    const binds: unknown[] = [this.userId]
+    if (filter.providerId !== undefined) {
+      binds.push(filter.providerId)
+      clauses.push(`provider_id = ?${binds.length}`)
+    }
+    if (filter.keyId !== undefined) {
+      binds.push(filter.keyId)
+      clauses.push(`key_id = ?${binds.length}`)
+    }
+    if (filter.before) {
+      binds.push(filter.before)
+      clauses.push(`at < ?${binds.length}`)
+    }
+    binds.push(Math.min(Math.max(filter.limit ?? 50, 1), 200))
+    const rows = await this.rows<{
+      id: string, at: number, provider_id: string, provider_label: string, key_id: string,
+      key_label: string, key_hint: string, model_label: string, operation: string, ok: number,
+      http_status: number | null, error_kind: string | null, error_message: string | null,
+      input_tokens: number, output_tokens: number, cached_input_tokens: number,
+      latency_ms: number | null, request_body: string | null,
+    }>(
+      `SELECT id, at, provider_id, provider_label, key_id, key_label, key_hint, model_label, operation,
+              ok, http_status, error_kind, error_message, input_tokens, output_tokens, cached_input_tokens,
+              latency_ms, request_body
+         FROM chat_request_logs WHERE ${clauses.join(' AND ')}
+        ORDER BY at DESC LIMIT ?${binds.length}`,
+      ...binds,
+    )
+    return rows.map((row) => ({
+      id: row.id,
+      at: row.at,
+      providerId: row.provider_id,
+      providerLabel: row.provider_label,
+      keyId: row.key_id,
+      keyLabel: row.key_label,
+      keyHint: row.key_hint,
+      modelLabel: row.model_label,
+      operation: row.operation,
+      ok: Boolean(row.ok),
+      httpStatus: row.http_status,
+      errorKind: row.error_kind,
+      errorMessage: row.error_message,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+      cachedInputTokens: row.cached_input_tokens,
+      latencyMs: row.latency_ms,
+      requestBody: row.request_body,
+    }))
+  }
+
+  /** Removes one attempt, or every attempt in a slice. Returns how many rows went. */
+  async deleteRequestLogs(filter: { id?: string, providerId?: string, keyId?: string, all?: boolean }): Promise<number> {
+    if (filter.id) {
+      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1 AND id = ?2`, filter.id)
+    }
+    if (filter.all) {
+      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1`)
+    }
+    const clauses = ['user_id = ?1']
+    const binds: unknown[] = []
+    if (filter.providerId !== undefined) {
+      binds.push(filter.providerId)
+      clauses.push(`provider_id = ?${binds.length + 1}`)
+    }
+    if (filter.keyId !== undefined) {
+      binds.push(filter.keyId)
+      clauses.push(`key_id = ?${binds.length + 1}`)
+    }
+    return await this.write(`DELETE FROM chat_request_logs WHERE ${clauses.join(' AND ')}`, ...binds)
+  }
+
+  /**
+   * Totals for one scope, read from the daily rollups and joined with the log's own latencies.
+   *
+   * The rollups answer the counts and the tokens; only the log knows how long an attempt took or when the
+   * last one happened. A slice with no rollup row but with log rows is still reported, because an attempt
+   * that failed before any token was counted is exactly the line a reader is looking for.
+   */
+  async keyStats(filter: {
+    scope: AssistantStatsScope, providerId?: string, keyId?: string, sinceDay?: string,
+  }): Promise<AssistantKeyStats[]> {
+    const clauses = ['user_id = ?1']
+    const binds: unknown[] = [this.userId]
+    if (filter.sinceDay) {
+      binds.push(filter.sinceDay)
+      clauses.push(`day >= ?${binds.length}`)
+    }
+    if (filter.providerId !== undefined) {
+      binds.push(filter.providerId)
+      clauses.push(`provider_id = ?${binds.length}`)
+    }
+    if (filter.keyId !== undefined) {
+      binds.push(filter.keyId)
+      clauses.push(`key_id = ?${binds.length}`)
+    }
+    const rows = await this.rows<{
+      provider_id: string, provider_label: string, key_id: string, key_label: string,
+      requests: number, errors: number, input_tokens: number, output_tokens: number,
+      cached_input_tokens: number, tool_calls: number,
+    }>(
+      `SELECT provider_id, MAX(provider_label) AS provider_label, key_id, MAX(key_label) AS key_label,
+              SUM(requests) AS requests, SUM(errors) AS errors, SUM(input_tokens) AS input_tokens,
+              SUM(output_tokens) AS output_tokens, SUM(cached_input_tokens) AS cached_input_tokens,
+              SUM(tool_calls) AS tool_calls
+         FROM chat_usage_daily_key WHERE ${clauses.join(' AND ')}
+        GROUP BY provider_id, key_id`,
+      ...binds,
+    )
+    // Latency and last-use come from the attempt log: the rollup has a count, not a clock.
+    const logClauses = ['user_id = ?1']
+    const logBinds: unknown[] = [this.userId]
+    if (filter.providerId !== undefined) {
+      logBinds.push(filter.providerId)
+      logClauses.push(`provider_id = ?${logBinds.length}`)
+    }
+    if (filter.keyId !== undefined) {
+      logBinds.push(filter.keyId)
+      logClauses.push(`key_id = ?${logBinds.length}`)
+    }
+    const measured = await this.rows<{ provider_id: string, key_id: string, avg_ms: number | null, last_at: number | null }>(
+      `SELECT provider_id, key_id, AVG(latency_ms) AS avg_ms, MAX(at) AS last_at
+         FROM chat_request_logs WHERE ${logClauses.join(' AND ')} GROUP BY provider_id, key_id`,
+      ...logBinds,
+    )
+    const timing = new Map(measured.map((row) => [`${row.provider_id}/${row.key_id}`, row]))
+    const merged = rows.map((row) => {
+      const clock = timing.get(`${row.provider_id}/${row.key_id}`)
+      return {
+        id: filter.scope === 'all' ? 'all' : filter.scope === 'provider' ? row.provider_id : row.key_id,
+        label: filter.scope === 'all' ? '' : filter.scope === 'provider' ? row.provider_label : row.key_label,
+        keyHint: '',
+        providerId: row.provider_id,
+        requests: row.requests ?? 0,
+        succeeded: (row.requests ?? 0) - (row.errors ?? 0),
+        failed: row.errors ?? 0,
+        inputTokens: row.input_tokens ?? 0,
+        outputTokens: row.output_tokens ?? 0,
+        cachedInputTokens: row.cached_input_tokens ?? 0,
+        toolCalls: row.tool_calls ?? 0,
+        avgLatencyMs: clock?.avg_ms ?? null,
+        lastAttemptAt: clock?.last_at ?? null,
+      }
+    })
+    if (filter.scope !== 'key') {
+      // One row per provider (or one row for everything) is what the two outer levels ask for.
+      const grouped = new Map<string, AssistantKeyStats>()
+      for (const row of merged) {
+        const key = filter.scope === 'all' ? 'all' : row.providerId
+        const held = grouped.get(key)
+        if (!held) {
+          grouped.set(key, { ...row, id: key })
+          continue
+        }
+        held.requests += row.requests
+        held.succeeded += row.succeeded
+        held.failed += row.failed
+        held.inputTokens += row.inputTokens
+        held.outputTokens += row.outputTokens
+        held.cachedInputTokens += row.cachedInputTokens
+        held.toolCalls += row.toolCalls
+        held.avgLatencyMs = held.avgLatencyMs === null || row.avgLatencyMs === null
+          ? (held.avgLatencyMs ?? row.avgLatencyMs)
+          : Math.round((held.avgLatencyMs + row.avgLatencyMs) / 2)
+        held.lastAttemptAt = Math.max(held.lastAttemptAt ?? 0, row.lastAttemptAt ?? 0) || null
+      }
+      return [...grouped.values()]
+    }
+    return merged
   }
 
   /**

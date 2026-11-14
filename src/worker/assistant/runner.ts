@@ -472,6 +472,10 @@ export class AssistantRunner {
   private attachmentPayloads = new Map<string, AttachmentPayload>()
   /** Which row each key on the wire came from, so a refusal can be written onto the key that caused it. */
   private signedKeyIds = new Map<string, string>()
+  /** When each key was signed for the current attempt, so the log can carry a round-trip. */
+  private attemptStartedAt = new Map<string, number>()
+  /** The log line of the attempt that answered, waiting for the token count the answer reports. */
+  private lastAttemptLogId: string | null = null
   /** The answer this turn resumes, when the reader pressed "continue" on a cut-off reply. */
   private continueFrom: AssistantMessage | null = null
   /** The caller's cancellation, kept so each attempt can combine it with its own timeout. */
@@ -1222,6 +1226,7 @@ export class AssistantRunner {
         conversation: turns.reduce((total, turn) => total + estimateTokens(turn.content ?? '') + (turn.calls?.length ? estimateTokens(JSON.stringify(turn.calls)) : 0), 0),
         reasoning: estimateTokens(reasoning),
       }
+      await this.finishAttemptLog(usage)
       yield { type: 'usage', usage: usage.cachedInputTokens ? usage : { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }, contextBreakdown }
       // Read the signal again here: every `yield` above hands control back to the response writer, and
       // a reader who stopped the turn in the meantime must not have their half answer filed as whole.
@@ -1663,6 +1668,7 @@ export class AssistantRunner {
     // Kept for the length of this turn only: the request carries the key, not the row it came from, and
     // this is what lets a refusal be charged to the key that earned it.
     this.signedKeyIds.set(picked.key, picked.keyId)
+    this.attemptStartedAt.set(picked.key, Date.now())
     return picked.key
   }
 
@@ -1678,11 +1684,98 @@ export class AssistantRunner {
    * host or a malformed request says nothing about the key, and counting it would send the reader to the
    * wrong row.
    */
+  /** Milliseconds since this key was signed for the attempt in flight, or null when untimed. */
+  private elapsedFor(apiKey: string): number | null {
+    const started = this.attemptStartedAt.get(apiKey)
+    return started ? Date.now() - started : null
+  }
+
+  /**
+   * One line in the attempt log.
+   *
+   * Never throws: a log that breaks a turn is worse than a gap in it. The label is left empty because the
+   * runner never reads key rows — the hint and the id are what a reader searches by.
+   */
+  private async logAttempt(entry: {
+    provider: ProviderRow, model?: string, apiKey: string, keyId: string, ok: boolean,
+    httpStatus?: number | null, errorKind?: string | null, errorMessage?: string | null,
+    latencyMs?: number | null, request?: UpstreamRequest,
+  }): Promise<string | null> {
+    try {
+      return await this.store.recordRequestLog({
+        providerId: entry.provider.id,
+        providerLabel: entry.provider.label,
+        keyId: entry.keyId,
+        keyLabel: '',
+        keyHint: entry.apiKey.slice(-4),
+        modelLabel: entry.model ?? '',
+        operation: 'chat',
+        ok: entry.ok,
+        httpStatus: entry.httpStatus ?? null,
+        errorKind: entry.errorKind ?? null,
+        errorMessage: entry.errorMessage ?? null,
+        latencyMs: entry.latencyMs ?? null,
+        requestBody: this.describeRequest(entry.request),
+      })
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * The request as the reader asked to keep it, or null when they did not.
+   *
+   * Truncated to a readable size: a body is here to answer "what did we actually send", and a 40k-token
+   * transcript pasted into a log row answers that no better than its first few thousand characters.
+   */
+  private describeRequest(request?: UpstreamRequest): string | null {
+    if (!request || !this.settings.logRequestBodies) return null
+    try {
+      const body = JSON.stringify({
+        model: request.model,
+        system: request.system,
+        turns: request.turns,
+        tools: request.tools?.map((tool) => tool.name ?? tool),
+      })
+      return body.length > LOG_BODY_LIMIT ? `${body.slice(0, LOG_BODY_LIMIT)}…` : body
+    } catch {
+      return null
+    }
+  }
+
+  /** Writes the tokens onto the line the successful attempt opened, then forgets it. */
+  private async finishAttemptLog(usage: {
+    inputTokens: number, outputTokens: number, cachedInputTokens?: number,
+  }): Promise<void> {
+    const id = this.lastAttemptLogId
+    if (!id) return
+    this.lastAttemptLogId = null
+    try {
+      await this.store.finishRequestLog(id, {
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cachedInputTokens: usage.cachedInputTokens ?? 0,
+      })
+    } catch {
+      // A missing token count on one line is not worth failing a finished answer over.
+    }
+  }
+
   private retryFor(provider: ProviderRow, model?: string): UpstreamRetry {
     return {
       attempts: UPSTREAM_RETRY_ATTEMPTS,
       rotateKey: async () => await this.signKey(provider, model),
-      onAttemptFailed: async (error, apiKey) => {
+      onAttemptFailed: async (error, apiKey, request) => {
+        await this.logAttempt({
+          provider, model, apiKey,
+          keyId: this.signedKeyIds.get(apiKey) ?? '',
+          ok: false,
+          httpStatus: error.status ?? null,
+          errorKind: error.kind,
+          errorMessage: error.message,
+          latencyMs: this.elapsedFor(apiKey),
+          request,
+        })
         // `has`, not the value: the provider's own key is named by the empty string, and it can still be
         // the key a model was not entitled to.
         if (!this.signedKeyIds.has(apiKey)) return
@@ -1705,7 +1798,14 @@ export class AssistantRunner {
           // provider's own error, and the next failure will try to record itself again.
         }
       },
-      onAttemptSucceeded: async (apiKey) => {
+      onAttemptSucceeded: async (apiKey, request) => {
+        this.lastAttemptLogId = await this.logAttempt({
+          provider, model, apiKey,
+          keyId: this.signedKeyIds.get(apiKey) ?? '',
+          ok: true,
+          latencyMs: this.elapsedFor(apiKey),
+          request,
+        })
         if (!this.signedKeyIds.has(apiKey)) return
         try {
           await this.store.clearProviderKeyFailure(this.signedKeyIds.get(apiKey)!, provider.id, model)
@@ -3044,6 +3144,9 @@ function syntheticContext(): ExecutionContext {
  * in seconds. Cooling only the pair keeps the key answering every other model in the meantime.
  */
 const MODEL_COOLDOWN_MS = 30 * 60_000
+
+/** How much of a request body the log keeps, as characters. */
+const LOG_BODY_LIMIT = 8_000
 
 /**
  * How long one refusal keeps a key out of the rotation.
