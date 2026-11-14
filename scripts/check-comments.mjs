@@ -11642,6 +11642,9 @@ const allowed = new Map([
     "// repaint, but a pass that only listened to `settled` was never asked again, which left a stored",
     "// reply's diagram at \"drawing…\" for as long as the surface stayed open. Asking only once the text has",
     "// settled keeps the repaint from turning into a redraw per token.",
+    "// A live answer is repainted on every batch, so enhancing a document that is about to be replaced",
+    "// throws away the highlight, the line numbers and every decoration on the next frame. The settled",
+    "// text is the one worth decorating — the same gate the diagram pass below already uses.",
   ]],
   ["src/client/features/preview/NoteProperties.tsx", [
     "// Read the live buffer rather than taking the rendered text as a prop: a debounced or",
@@ -12359,6 +12362,10 @@ const allowed = new Map([
     "// old nodes is discarded; nothing re-asks it unless the settled text's repaint does.",
     "// The other half: text that is still moving waits for the settle, so a stream is not a redraw per",
     "// token. This render's debounced value has not arrived yet.",
+  ]],
+  ["src/client/features/preview/markdown-body-streaming.test.ts", [
+    "/**\n * The enhancement pass belongs to text that has stopped moving.\n *\n * A streamed answer repaints its markup on every batch. Code highlighting, line numbers, copy controls\n * and every other decoration the pass draws into that markup were rebuilt once per batch and thrown away\n * on the next one — and the cache of highlighted code could never hit, because a growing code block is a\n * new key every time. This pins the one behaviour that fixes it: nothing is enhanced while the text is\n * still arriving, and exactly one pass runs once it settles.\n */",
+    "/** Longer than DEBOUNCE.render, so the settled value has caught up with the source. */",
   ]],
   ["src/client/features/preview/markdown-body.test.ts", [
     "/**\n * The read-only Markdown renderer the chat's replies and a shared note both go through.\n *\n * What this pins is the half of a Markdown surface that is not the renderer: that a fenced block comes\n * out highlighted with a copy button that answers, and that a `[[note]]` is a door when the surface was\n * given somewhere to open it. A surface that only calls `renderMarkdown` has neither, and the shape of\n * that failure — a block that looks finished, a button that does nothing, a word that looks like a link\n * and is not one — is invisible to any assertion about the markup alone.\n */",

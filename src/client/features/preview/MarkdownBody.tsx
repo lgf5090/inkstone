@@ -189,6 +189,10 @@ export function MarkdownBody({
         await resolveNoteEmbeds(node, { currentContent: embedContent, currentTitle: embedTitle ?? '', isCurrent })
         if (!isCurrent()) return
       }
+      // A live answer is repainted on every batch, so enhancing a document that is about to be replaced
+      // throws away the highlight, the line numbers and every decoration on the next frame. The settled
+      // text is the one worth decorating — the same gate the diagram pass below already uses.
+      if (settled !== source) return
       await enhancePreview(node, {
         math,
         mermaid,
@@ -204,7 +208,7 @@ export function MarkdownBody({
     return () => {
       cancelled = true
     }
-  }, [seen, rendered, dark, math, mermaid, chart, codeBlockCollapseLines, embedContent, embedTitle])
+  }, [seen, rendered, settled, source, dark, math, mermaid, chart, codeBlockCollapseLines, embedContent, embedTitle])
 
   useEffect(() => {
     if (!seen) return
