@@ -847,6 +847,7 @@ export function ChatView() {
                     <span aria-hidden className="h-px flex-1 bg-[var(--border-subtle)]" />
                   </div>
                 )}
+                <div className="ink-chat-row">
                 <MessageRow
                   key={message.id}
                   message={message}
@@ -860,6 +861,7 @@ export function ChatView() {
                   onShare={shareMessage}
                   selection={selected ? { active: true, checked: selected.has(message.id), onToggle: () => togglePicked(message.id) } : undefined}
                 />
+                </div>
                 </Fragment>
                 )
               })}

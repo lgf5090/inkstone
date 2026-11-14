@@ -60,6 +60,15 @@
   white-space: pre-wrap;
 }
 
+/* A loaded thread can hold hundreds of turns, each with its own rendered markup. Rows outside the
+   viewport skip layout and paint but stay in the DOM: the outline, find-in-chat and the "load earlier"
+   scroll correction all read those rows by their anchors. `auto` remembers a row's real height once it
+   has been drawn, so scrolling back does not jump the way a fixed estimate would. */
+.ink-chat-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
 /*
  * Motion that the chat asks the reader to look at, and what happens when they ask not to see it.
  *
