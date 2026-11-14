@@ -12,10 +12,14 @@
 import { assertRelayableEndpoint, pickRelayHeaders } from '@shared/ai-proxy-guard'
 import { MAX_TOKEN_CEILING, type AssistantProtocol, type AssistantVendorModel } from '@shared/assistant'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
+import { readStreamWithinLimit } from '../lib/request'
 import { anthropicEndpoint, openAiEndpoint } from './upstream'
 
 /** A listing is a convenience, not a data migration: past this the picker is unusable anyway. */
 export const MAX_VENDOR_MODELS = 500
+
+/** Large gateways publish hundreds of models, but a model list is never a multi-megabyte document. */
+const MAX_LISTING_BYTES = 1024 * 1024
 
 export type VendorModel = AssistantVendorModel
 
@@ -64,9 +68,14 @@ export async function listVendorModels(protocol: AssistantProtocol, baseUrl: str
     if (isRedirectResponse(response)) {
       return { ok: false, error: `The provider redirected (HTTP ${response.status}) instead of answering; redirects are refused.`, models: [] }
     }
-    text = await response.text()
-    // Only the status is told back: a vendor's error body is its own text, and it has carried keys and
-    // internal addresses before, so it is never handed on to a browser as though it were an explanation.
+    // Only the status is told back for a refusal, but the body is still bounded before it is read: a
+    // vendor that answers with a huge document must not be able to make one listing request expensive.
+    const declared = Number(response.headers.get('content-length') ?? 0)
+    const bytes = declared > MAX_LISTING_BYTES ? null : await readStreamWithinLimit(response.body, MAX_LISTING_BYTES)
+    if (!bytes) return { ok: false, error: 'The provider model list is too large.', models: [] }
+    text = new TextDecoder().decode(bytes)
+    // A vendor's error body is its own text, and it has carried keys and internal addresses before, so it
+    // is never handed on to a browser as though it were an explanation.
     if (!response.ok) return { ok: false, error: `The provider answered HTTP ${status}.`, models: [] }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'The provider could not be reached.', models: [] }

@@ -152,6 +152,21 @@ describe('what a listing must never do', () => {
     expect(result.error).toMatch(/redirect/i)
   })
 
+  it('refuses a body whose declared length is past the listing ceiling', async () => {
+    stub(new Response('{}', { headers: { 'content-length': String(2 * 1024 * 1024) } }))
+    const result = await listVendorModels('openai', 'https://api.example.com', 'sk-1')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('too large')
+    expect(result.models).toEqual([])
+  })
+
+  it('refuses an undeclared body that grows past the ceiling while it is read', async () => {
+    stub(new Response('x'.repeat(1024 * 1024 + 1)))
+    const result = await listVendorModels('openai', 'https://api.example.com', 'sk-1')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('too large')
+  })
+
   it('cuts an enormous list and drops rows with no id to call', async () => {
     stub(json({ data: [...Array.from({ length: 600 }, (_, index) => ({ id: `m-${index}` })), { id: '   ' }] }))
     const result = await listVendorModels('openai', 'https://api.example.com', 'sk-1')

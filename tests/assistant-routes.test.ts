@@ -652,6 +652,34 @@ describe('realtime voice sessions', () => {
     expect(JSON.parse(text).error.code).toBe('realtime_refused')
   })
 
+  it('refuses a redirect instead of handing the long-lived key to an unvetted host', async () => {
+    await useRealtimeModel()
+    const seen: Array<{ url: string, redirect: string | undefined }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
+      seen.push({ url: String(input), redirect: init?.redirect })
+      return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } })
+    }))
+    const response = await app.fetch(new Request('http://localhost/api/assistant/realtime/session', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    }), env, ctx)
+    expect(response.status).toBe(502)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.redirect).toBe('manual')
+    expect(await response.text()).not.toContain('sk-realtime-test-1234')
+  })
+
+  it('refuses a session answer larger than a session document can be', async () => {
+    await useRealtimeModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {
+      status: 200, headers: { 'content-length': String(128 * 1024) },
+    })))
+    const response = await app.fetch(new Request('http://localhost/api/assistant/realtime/session', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    }), env, ctx)
+    expect(response.status).toBe(502)
+    expect(await response.text()).not.toContain('sk-realtime-test-1234')
+  })
+
   it('names an unreachable provider rather than a generic server failure', async () => {
     await useRealtimeModel()
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
@@ -706,6 +734,23 @@ describe('ModelBest realtime relay sessions', () => {
       .toBe('wss://api.modelbest.cn/v1/realtime?mode=audio&model=MiniCPM-o-4.5-Realtime')
     expect(modelBestSocketUrl('https://api.modelbest.cn/v1/', 'MiniCPM-o-4.5-Realtime'))
       .toBe('wss://api.modelbest.cn/v1/realtime?mode=audio&model=MiniCPM-o-4.5-Realtime')
+  })
+
+  it('refuses a relay redirect instead of following it with the bearer key', async () => {
+    const model = await useModelBestRealtime()
+    const seen: Array<{ redirect: string | undefined, auth: string | null }> = []
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      seen.push({ redirect: init?.redirect, auth: new Headers(init?.headers).get('authorization') })
+      return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } })
+    }))
+    const response = await app.fetch(new Request(
+      `http://localhost/api/assistant/realtime/relay?modelId=${model.id}`,
+      { headers: { Upgrade: 'websocket' } },
+    ), env, ctx)
+    expect(response.status).toBe(502)
+    expect(seen[0]?.redirect).toBe('manual')
+    expect(seen[0]?.auth).toContain('Bearer ')
+    expect(await response.text()).toContain('redirect')
   })
 
   it('refuses a relay request that is not an upgrade, or names no realtime model', async () => {

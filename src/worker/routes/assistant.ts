@@ -3909,10 +3909,16 @@ assistantRoutes.get('/realtime/relay', async (c) => {
   try {
     upstreamResponse = await fetch(target.toString(), {
       headers: { Upgrade: 'websocket', Authorization: `Bearer ${key.key}` },
+      redirect: NO_REDIRECT,
     })
   } catch (error) {
     console.warn('[inkstone] realtime relay could not reach the provider', error instanceof Error ? error.message : 'unknown')
     throw new ApiError(502, 'realtime_refused', 'The realtime provider could not be reached.')
+  }
+  // A redirect would move the bearer key to an address the guard never saw; a WebSocket upgrade
+  // cannot answer over one anyway, so the refusal is both the safe and the honest answer.
+  if (isRedirectResponse(upstreamResponse)) {
+    throw new ApiError(502, 'realtime_refused', 'The realtime provider redirected instead of answering; redirects are refused.')
   }
   const upstream = upstreamResponse.webSocket
   if (!upstream) {
