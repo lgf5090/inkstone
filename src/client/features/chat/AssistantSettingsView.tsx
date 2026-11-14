@@ -5,7 +5,7 @@
  * shows only whether a key is stored — because a key that comes back to the browser can be read by any
  * extension, any XSS, and any screenshot, and the assistant has no need of it on this side.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { Spinner } from '../../components/primitives'
@@ -29,6 +29,21 @@ export function AssistantSettingsView() {
   const loadSettings = useAssistant((state) => state.loadSettings)
   const [tab, setTab] = useState<Tab>('model')
   const [refused, setRefused] = useState(false)
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
+  // A tablist is one stop in the tab order, not nine: arrows, Home and End move the selected tab and
+  // its focus together, which is the keyboard contract a set of plain buttons does not provide.
+  const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const current = TABS.indexOf(tab)
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? TABS.length - 1
+        : event.key === 'ArrowRight' ? (current + 1) % TABS.length
+          : event.key === 'ArrowLeft' ? (current - 1 + TABS.length) % TABS.length
+            : -1
+    if (next < 0) return
+    event.preventDefault()
+    setTab(TABS[next]!)
+    tabRefs.current[next]?.focus()
+  }
 
   /**
    * A load that was refused has to be named, because the store cannot tell one from a load in flight:
@@ -74,14 +89,19 @@ export function AssistantSettingsView() {
             return (
               <button
                 key={entry}
+                ref={(node) => { tabRefs.current[TABS.indexOf(entry)] = node }}
+                id={`assistant-settings-tab-${entry}`}
                 type="button"
                 role="tab"
                 aria-selected={active}
+                aria-controls="assistant-settings-panel"
+                tabIndex={active ? 0 : -1}
+                onKeyDown={onTabKeyDown}
                 onClick={() => setTab(entry)}
                 className={cn(
                   'inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-[var(--r-sm)] px-2.5 text-[length:var(--text-11-5)] font-medium transition-[color,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
                   active
-                    ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-[0_1px_2px_rgba(0,0,0,.10)]'
+                    ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-[var(--shadow-xs)]'
                     : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
                 )}
               >
@@ -90,15 +110,22 @@ export function AssistantSettingsView() {
             )
           })}
         </div>
-        {tab === 'model' && <ModelTab settings={settings} />}
-        {tab === 'mcp' && <McpTab />}
-        {tab === 'knowledge' && <KnowledgeTab />}
-        {tab === 'writing' && <WritingTab settings={settings} />}
-        {tab === 'behaviour' && <BehaviourTab settings={settings} />}
-        {tab === 'memory' && <MemoryTab settings={settings} />}
-        {tab === 'budget' && <BudgetTab settings={settings} />}
-        {tab === 'data' && <DataTab />}
-        {tab === 'other' && <OtherTab settings={settings} />}
+        <div
+          id="assistant-settings-panel"
+          role="tabpanel"
+          aria-labelledby={`assistant-settings-tab-${tab}`}
+          className="min-w-0"
+        >
+          {tab === 'model' && <ModelTab settings={settings} />}
+          {tab === 'mcp' && <McpTab />}
+          {tab === 'knowledge' && <KnowledgeTab />}
+          {tab === 'writing' && <WritingTab settings={settings} />}
+          {tab === 'behaviour' && <BehaviourTab settings={settings} />}
+          {tab === 'memory' && <MemoryTab settings={settings} />}
+          {tab === 'budget' && <BudgetTab settings={settings} />}
+          {tab === 'data' && <DataTab />}
+          {tab === 'other' && <OtherTab settings={settings} />}
+        </div>
       </div>
     </div>
   )
