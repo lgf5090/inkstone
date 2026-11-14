@@ -41522,6 +41522,7 @@ const allowed = new Map([
     "// known to have succeeded, which is the failure this exists to prevent.",
   ]],
   ["src/worker/index.ts", [
+    "/**\n * Heavy modules are loaded inside the event handlers, not at module scope: a Worker has a one-second\n * startup CPU budget (Cloudflare error 10021), and a static import of `mcp/oauth`, the certificate tick\n * or the icon queue would evaluate the whole route graph, ACME/axios/node-forge and the resvg WASM\n * module before the Worker can answer its first request.\n */",
     "// Codex CLI drops the `iss` callback parameter while its rmcp",
     "// dependency enforces it whenever the authorization server advertises",
     "// `authorization_response_iss_parameter_supported` (openai/codex#31573), so",

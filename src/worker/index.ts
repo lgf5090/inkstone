@@ -12,7 +12,6 @@ import { initializeDatabase } from './db/schema'
 import { drainAllFtsQueues } from './db/fts'
 import { drainAiIndexQueue } from './mcp/ai-search'
 import { drainRewriteQueues } from './lib/rewrite-drain'
-import { createOAuthProvider, providerForScheduled } from './mcp/oauth'
 import { purgeRevokedMcpApiKeys } from './mcp/api-keys'
 import { purgeExpiredMcpOperations } from './mcp/operations'
 import { purgeExpiredOperationalData } from './lib/maintenance'
@@ -40,11 +39,17 @@ import { runShortlinksRetention } from './tools/shortlinks/maintenance'
 import { runCompareRetention } from './tools/compare/retention'
 import { runDueCloudflareTasks } from './cloudflare/tasks'
 import { runDueCloudDriveJobs } from './clouddrive/routes-jobs'
-import { runCerthubTick } from './development/certhub/worker'
 import { resumeCloudDriveIndexTasks } from './clouddrive/routes-admin'
 import { resumeCloudDriveRemoteTasks } from './clouddrive/remote'
 import { runWebsshRetention } from './webssh/retention'
-import { handleIconQueue, type IconQueueMessage } from './development/icons/queue'
+import type { IconQueueMessage } from './development/icons/queue'
+
+/**
+ * Heavy modules are loaded inside the event handlers, not at module scope: a Worker has a one-second
+ * startup CPU budget (Cloudflare error 10021), and a static import of `mcp/oauth`, the certificate tick
+ * or the icon queue would evaluate the whole route graph, ACME/axios/node-forge and the resvg WASM
+ * module before the Worker can answer its first request.
+ */
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -78,6 +83,7 @@ export default {
         { aiConnectHosts: env.AI_CONNECT_HOSTS },
       )
     }
+    const { createOAuthProvider } = await import('./mcp/oauth')
     const provider = createOAuthProvider(oauthRequest, env)
     const response = new URL(oauthRequest.url).pathname === OAUTH_AUTHORIZATION_SERVER_METADATA
       ? await oauthMetadataWithoutIssParameter(provider, oauthRequest, env, ctx)
@@ -89,6 +95,7 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       const { ftsEnabled } = await initializeDatabase(env)
+      const { runCerthubTick } = await import('./development/certhub/worker')
       // The cron fires every minute: a reminder that arrives twenty-nine minutes late is a broken reminder,
       // so the three sweeps below ride every fire. The drains keep the three fires an hour `isDrainFire`
       // accepts and the whole-library work keeps the top of the hour, so the extra fires cost nothing beyond
@@ -217,7 +224,10 @@ export default {
               return null
             }),
             purgeExpiredSubscriptionData(env.DB),
-            providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
+            (async () => {
+              const { providerForScheduled } = await import('./mcp/oauth')
+              return providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 })
+            })(),
           ]
         : []
       await Promise.all([...drains, ...heavy, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectWebhookTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, clouddriveTick])
@@ -243,6 +253,7 @@ export default {
    */
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     await initializeDatabase(env)
+    const { handleIconQueue } = await import('./development/icons/queue')
     await handleIconQueue(batch as unknown as MessageBatch<IconQueueMessage>, env)
   },
 } satisfies ExportedHandler<Env>
@@ -264,7 +275,7 @@ export function isHourStart(scheduledTime: number): boolean {
 }
 
 async function oauthMetadataWithoutIssParameter(
-  provider: ReturnType<typeof createOAuthProvider>,
+  provider: ReturnType<typeof import('./mcp/oauth').createOAuthProvider>,
   request: Request,
   env: Env,
   ctx: ExecutionContext,
