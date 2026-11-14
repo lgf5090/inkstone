@@ -11,6 +11,7 @@ import {
   DEVELOPMENT_ICONS_REQUIRED_TABLES,
 } from '../src/worker/development/icons/schema'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 
 function tablesOf(sqlite: DatabaseSync): string[] {
   return sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all().map((row) => (row as { name: string }).name)
@@ -27,7 +28,7 @@ function versionsOf(sqlite: DatabaseSync): number[] {
 async function installed(): Promise<DatabaseSync> {
   const sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
-  await initializeDatabase({ DB: makeD1(sqlite) } as never)
+  await initializeDatabase(testBindings(makeD1(sqlite)))
   return sqlite
 }
 
@@ -60,9 +61,9 @@ describe('development icons schema', () => {
   it('boots twice without changing the shape', async () => {
     const sqlite = new DatabaseSync(':memory:')
     sqlite.exec('PRAGMA journal_mode = OFF')
-    await initializeDatabase({ DB: makeD1(sqlite) } as never)
+    await initializeDatabase(testBindings(makeD1(sqlite)))
     const before = tablesOf(sqlite).sort()
-    await initializeDatabase({ DB: makeD1(sqlite) } as never)
+    await initializeDatabase(testBindings(makeD1(sqlite)))
     expect(tablesOf(sqlite).sort()).toEqual(before)
     for (const version of [320, 321, 327, 328]) {
       expect(versionsOf(sqlite).filter((entry) => entry === version)).toHaveLength(1)

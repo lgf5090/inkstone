@@ -18,6 +18,7 @@ import { MemoryHistoryService } from '../src/worker/assistant/memory-service'
 import { ToolExecutor, type ToolContext } from '../src/worker/assistant/tools'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 
 const USER = 'user-1'
 
@@ -29,7 +30,7 @@ let clientB: Project
 beforeEach(async () => {
   const sqlite = new DatabaseSync(':memory:')
   const db = makeD1(sqlite)
-  await initializeDatabase({ DB: db } as never)
+  await initializeDatabase(testBindings(db))
   env = { DB: db } as unknown as Env
   store = new AssistantStore(env.DB, USER, env)
   clientA = await store.createProject({ name: 'Client A', description: '' })

@@ -16,6 +16,8 @@ import { parseAcmeFailure } from '../src/worker/development/certhub/acme/errors'
 import { matchProviderForDomain } from '../src/client/features/development/certhub/rules'
 import { ApiError } from '../src/worker/lib/errors'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
+import type { DomainRow, OrderRow } from '../src/worker/development/certhub/store'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -102,7 +104,7 @@ describe('binding a provider to an existing order', () => {
   it('attaches the provider, re-queues the order and records the change', async () => {
     const sqlite = database()
     const db = makeD1(sqlite)
-    await bindOrderDomainProvider({} as never, db, 'u1', '01m6x7pbeg5pc4vfgqt1vtzddd', '01m6x7pbegytjtsc6acsqktjj6', '01m6x5h138kwsw8ssz29qhqv5r', 'user')
+    await bindOrderDomainProvider(testBindings(db), db, 'u1', '01m6x7pbeg5pc4vfgqt1vtzddd', '01m6x7pbegytjtsc6acsqktjj6', '01m6x5h138kwsw8ssz29qhqv5r', 'user')
 
     const order = sqlite.prepare(`SELECT status, version FROM development_certhub_orders WHERE user_id = 'u1' AND id = '01m6x7pbeg5pc4vfgqt1vtzddd'`).get() as { status: string; version: number }
     expect(order).toEqual({ status: 'queued', version: 2 })
@@ -119,7 +121,7 @@ describe('binding a provider to an existing order', () => {
     const sqlite = database()
     sqlite.exec(`UPDATE development_certhub_orders SET status = 'issued' WHERE user_id = 'u1' AND id = '01m6x7pbeg5pc4vfgqt1vtzddd'`)
     const db = makeD1(sqlite)
-    await expect(bindOrderDomainProvider({} as never, db, 'u1', '01m6x7pbeg5pc4vfgqt1vtzddd', '01m6x7pbegytjtsc6acsqktjj6', '01m6x5h138kwsw8ssz29qhqv5r', 'user'))
+    await expect(bindOrderDomainProvider(testBindings(db), db, 'u1', '01m6x7pbeg5pc4vfgqt1vtzddd', '01m6x7pbegytjtsc6acsqktjj6', '01m6x5h138kwsw8ssz29qhqv5r', 'user'))
       .rejects.toMatchObject({ status: 409, code: 'order_state_conflict' })
     sqlite.close()
   })
@@ -127,7 +129,7 @@ describe('binding a provider to an existing order', () => {
   it('answers not-found for a provider that belongs to another account', async () => {
     const sqlite = database()
     const db = makeD1(sqlite)
-    await expect(bindOrderDomainProvider({} as never, db, 'u2', '01m6x7pbeg5pc4vfgqt1vtzddd', '01m6x7pbegytjtsc6acsqktjj6', '01m6x5h138kwsw8ssz29qhqv5r', 'user'))
+    await expect(bindOrderDomainProvider(testBindings(db), db, 'u2', '01m6x7pbeg5pc4vfgqt1vtzddd', '01m6x7pbegytjtsc6acsqktjj6', '01m6x5h138kwsw8ssz29qhqv5r', 'user'))
       .rejects.toBeInstanceOf(ApiError)
     sqlite.close()
   })
@@ -137,8 +139,8 @@ describe('repairing a stored order', () => {
   it('binds the provider whose zone covers the domain and re-queues the order', async () => {
     const sqlite = database()
     const db = makeD1(sqlite)
-    const order = { id: '01m6x7pbeg5pc4vfgqt1vtzddd' } as never
-    const domains = sqlite.prepare(`SELECT id, name, challenge_mode, dns_provider_id, status FROM development_certhub_order_domains WHERE user_id = 'u1' AND order_id = '01m6x7pbeg5pc4vfgqt1vtzddd'`).all() as never
+    const order = { id: '01m6x7pbeg5pc4vfgqt1vtzddd' } as unknown as OrderRow
+    const domains = sqlite.prepare(`SELECT id, name, challenge_mode, dns_provider_id, status FROM development_certhub_order_domains WHERE user_id = 'u1' AND order_id = '01m6x7pbeg5pc4vfgqt1vtzddd'`).all() as unknown as DomainRow[]
     expect(await autoBindMissingProviders(db, 'u1', order, domains, 'system')).toBe(true)
     const domain = sqlite.prepare(`SELECT dns_provider_id, status FROM development_certhub_order_domains WHERE user_id = 'u1' AND id = '01m6x7pbegytjtsc6acsqktjj6'`).get() as { dns_provider_id: string; status: string }
     expect(domain).toEqual({ dns_provider_id: '01m6x5h138kwsw8ssz29qhqv5r', status: 'pending' })
@@ -153,8 +155,8 @@ describe('repairing a stored order', () => {
     const sqlite = database()
     sqlite.exec(`UPDATE development_certhub_dns_providers SET zone_name = 'other.example' WHERE user_id = 'u1'`)
     const db = makeD1(sqlite)
-    const order = { id: '01m6x7pbeg5pc4vfgqt1vtzddd' } as never
-    const domains = sqlite.prepare(`SELECT id, name, challenge_mode, dns_provider_id, status FROM development_certhub_order_domains WHERE user_id = 'u1' AND order_id = '01m6x7pbeg5pc4vfgqt1vtzddd'`).all() as never
+    const order = { id: '01m6x7pbeg5pc4vfgqt1vtzddd' } as unknown as OrderRow
+    const domains = sqlite.prepare(`SELECT id, name, challenge_mode, dns_provider_id, status FROM development_certhub_order_domains WHERE user_id = 'u1' AND order_id = '01m6x7pbeg5pc4vfgqt1vtzddd'`).all() as unknown as DomainRow[]
     expect(await autoBindMissingProviders(db, 'u1', order, domains, 'system')).toBe(false)
     const row = sqlite.prepare(`SELECT status FROM development_certhub_orders WHERE user_id = 'u1' AND id = '01m6x7pbeg5pc4vfgqt1vtzddd'`).get() as { status: string }
     expect(row.status).toBe('awaiting_dns')

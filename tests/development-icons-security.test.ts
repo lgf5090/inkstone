@@ -13,6 +13,7 @@ import {
 import { createMinuteBudget } from '../src/worker/lib/rate-limit'
 import { iconFormatFromMime } from '../src/shared/development/icons/formats'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 
 let sqlite: DatabaseSync
 let db: ReturnType<typeof makeD1>
@@ -30,7 +31,7 @@ beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
   db = makeD1(sqlite)
-  await initializeDatabase({ DB: db } as never)
+  await initializeDatabase(testBindings(db))
   await seedAsset('user-a', 'asset-a')
   await seedAsset('user-b', 'asset-b')
 })

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { FTS_USER_MATCH_SQL } from '../src/worker/db/fts'
@@ -26,17 +26,17 @@ function mockDb(handle: DatabaseSync): D1Database {
         bind(...values: unknown[]) {
           return {
             async all() {
-              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value]))
-              return { results: handle.prepare(sql).all(args as never) }
+              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value])) as unknown as Record<string, SQLInputValue>
+              return { results: handle.prepare(sql).all(args) }
             },
             async run() {
-              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value]))
-              handle.prepare(sql).run(args as never)
+              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value])) as unknown as Record<string, SQLInputValue>
+              handle.prepare(sql).run(args)
               return {}
             },
             async first() {
-              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value]))
-              return { result: handle.prepare(sql).get(args as never) ?? null }
+              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value])) as unknown as Record<string, SQLInputValue>
+              return { result: handle.prepare(sql).get(args) ?? null }
             },
           }
         },

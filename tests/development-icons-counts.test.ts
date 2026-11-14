@@ -37,11 +37,11 @@ function d1From(database: DatabaseSync): D1Database {
       },
       async all<T>() {
         const results = database.prepare(sql).all(...(bound as never[])) as T[]
-        return { results, success: true, meta: {} } as never
+        return { results, success: true, meta: {} } as unknown as D1Result<T>
       },
       async run() {
         const info = database.prepare(sql).run(...(bound as never[]))
-        return { success: true, meta: { changes: Number(info.changes) } } as never
+        return { success: true, meta: { changes: Number(info.changes) } } as unknown as D1Result<unknown>
       },
     }
     return statement

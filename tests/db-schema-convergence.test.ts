@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import { initializeDatabase, REQUIRED_COLUMNS, SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 
 /**
  * What a deploy must do when the database it lands on disagrees with it.
@@ -35,7 +36,7 @@ const ADDITIONS = SCHEMA_MIGRATIONS.flatMap((migration) => migration.statements)
 
 async function boot(sqlite: DatabaseSync): Promise<D1Database> {
   const db = makeD1(sqlite)
-  await initializeDatabase({ DB: db } as never)
+  await initializeDatabase(testBindings(db))
   return db
 }
 
