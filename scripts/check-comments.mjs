@@ -3969,6 +3969,7 @@ const allowed = new Map([
     "// and a few bounded facts. The notebook is left out because its note and folder pointers are",
     "// the more precise answer and a page block beside them would only repeat the same screen.",
     "/** A whitelist from a caller that owns the turn's tools (a template's capability declaration). */",
+    "/**\n * How long a live turn holds text frames before handing them to the store. Short enough that the answer\n * still reads as arriving word by word; long enough that a fast vendor does not repaint the whole thread\n * once per token.\n */",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -5633,6 +5634,13 @@ const allowed = new Map([
   ["src/client/features/chat/stored-reasoning.test.ts", [
     "/**\n * What a reopened thread shows of the thinking behind an answer.\n *\n * The fold used to exist only while a turn was streaming, because the trace was never filed with the\n * answer. Now it is a column on the row, and this pins the join between the two: a message read from the\n * server hands its own reasoning to the bubble, and one that never had any draws no fold at all.\n */",
   ]],
+  ["src/client/features/chat/stream-batching.test.ts", [
+    "/**\n * The text window a live turn opts into.\n *\n * A frame-by-frame stream is the contract every other reader of this transport relies on, so the window\n * is a caller's choice rather than a change to the wire. What has to hold for a live turn is that no words\n * are lost, that words written before a stage/tool/done frame stay before it, and that a turn cut short\n * still owns the words it had already written. A caller that asks for no window gets every frame.\n */",
+    "/** One response whose bytes arrive as the given chunks; `error` closes it with a read failure instead. */",
+    "// The bytes have to be read before the failure arrives, or there are no words to assert on.",
+    "// A cut-short stream is one of the cases: the words already written are what this asserts.",
+    "// A long window means the end of the stream, not the timer, is what flushes here.",
+  ]],
   ["src/client/features/chat/stream-disconnect-copy.test.ts", [
     "/**\n * What a broken stream may promise, measured against the controls the transcript actually draws.\n *\n * The line a turn prints when its bytes stop arriving says two things: that the words already received\n * stay on the screen, and that the reader can press the continue control to have the answer carried on. The\n * second is a statement about this document, not about the transport, and the first is a statement about\n * what the bubble holds — so both are checked here the way a reader would check them: by rendering the\n * thread, breaking its stream, and asking whether the sentence on the screen can point at the thing it\n * names.\n *\n * Three states, and the promise is only true in one of them:\n *\n * - the half answer is filed and is the newest thing in the thread, so its row draws the control: the\n *   sentence may name it, and it is the case that has to keep saying what it says today;\n * - the break came first and the row is not on the screen yet — the bubble is kept up because the worker\n *   still holds the lease — so nothing can be pressed, and the words for that moment must not offer it;\n * - no word arrived at all, so there is no half answer kept anywhere, and a line that claims one is\n *   describing an answer that was never written.\n *\n * The fourth state the report asked about is the version pager: `MessageParts.tsx` hides the control while\n * the reader is looking at an older answer. That is checked as a row that *carries* a pager, because the\n * transcript cannot see which page the reader is on — see the last case for why the sentence has to stay\n * silent there too.\n *\n * jsdom lays nothing out: every claim below is about a node in the tree, its role and its accessible\n * name, and none about a rectangle.\n */",
     "/** Every stream the store asked for, in order. */",
@@ -5759,6 +5767,10 @@ const allowed = new Map([
     "/** The hand-written note open beside the dock; the worker re-reads it against the caller. */",
     "/** The generic page the dock sits beside, for surfaces without a bespoke context. */",
     "/** Only these assistant tools may be offered this turn; empty is refused by the caller as `noTools`. */",
+    "/**\n * How a caller wants the transport to hand over text frames.\n *\n * Optional on purpose: the frame-by-frame contract is what the tests and the transport's own readers\n * assert. A live turn opts into a window, and a caller that needs every frame gets it by saying nothing.\n */",
+    "/** Coalesce text and reasoning frames that arrive within this many milliseconds. */",
+    "/**\n * One event for the words a whole window wrote.\n *\n * Every text frame otherwise causes a store write, and that write repaints the whole thread: the answer\n * is re-parsed as markdown, the markup is replaced, and the composer reconciles. The window keeps the\n * order of every other frame — a stage, a tool, a usage reading or `done` flushes the words before it —\n * and the caller flushes once more at the end, so the last words of a turn are never left in the buffer.\n */",
+    "// A turn that ended, was refused, or was stopped still owns the words it already wrote.",
   ]],
   ["src/client/features/chat/tag-attach.test.ts", [
     "/**\n * A new tag has to reach the conversation it was made for, or say why it did not.\n *\n * `createTag` is optimistic — it validates the name, answers a duplicate with the tag that already\n * exists, seeds the local cache and posts the row without waiting — so its id is in hand before the\n * server has a row to point at, and the attach route refuses an unknown tag. The old path caught that\n * refusal and threw the answer away: the reader typed a name, nothing appeared, and no one said so.\n * What is pinned here is the two honest outcomes: the conversation is filed once the row is back, or a\n * danger toast says it was not.\n */",

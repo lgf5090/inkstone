@@ -86,10 +86,64 @@ export class StreamDisconnectedError extends Error {
   }
 }
 
+/**
+ * How a caller wants the transport to hand over text frames.
+ *
+ * Optional on purpose: the frame-by-frame contract is what the tests and the transport's own readers
+ * assert. A live turn opts into a window, and a caller that needs every frame gets it by saying nothing.
+ */
+export interface StreamTurnOptions {
+  /** Coalesce text and reasoning frames that arrive within this many milliseconds. */
+  batchMs?: number
+}
+
+/**
+ * One event for the words a whole window wrote.
+ *
+ * Every text frame otherwise causes a store write, and that write repaints the whole thread: the answer
+ * is re-parsed as markdown, the markup is replaced, and the composer reconciles. The window keeps the
+ * order of every other frame — a stage, a tool, a usage reading or `done` flushes the words before it —
+ * and the caller flushes once more at the end, so the last words of a turn are never left in the buffer.
+ */
+function textBatcher(sink: (event: ChatStreamEvent) => void, windowMs: number) {
+  let text = ''
+  let reasoning = ''
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const flush = () => {
+    if (timer !== null) { clearTimeout(timer); timer = null }
+    if (text) {
+      const delta = text
+      text = ''
+      sink({ type: 'text', delta })
+    }
+    if (reasoning) {
+      const delta = reasoning
+      reasoning = ''
+      sink({ type: 'reasoning', delta })
+    }
+  }
+  const push = (event: ChatStreamEvent) => {
+    if (event.type === 'text' && event.delta) {
+      text += event.delta
+      timer ??= setTimeout(flush, windowMs)
+      return
+    }
+    if (event.type === 'reasoning' && event.delta) {
+      reasoning += event.delta
+      timer ??= setTimeout(flush, windowMs)
+      return
+    }
+    flush()
+    sink(event)
+  }
+  return { push, flush }
+}
+
 export async function streamAssistantTurn(
   input: StreamTurnInput,
   onEvent: (event: ChatStreamEvent) => void,
   signal: AbortSignal,
+  options: StreamTurnOptions = {},
 ): Promise<void> {
   // The request is made inside the `try` below, and that placement is the whole point: a turn can lose its
   // connection before there is a response to read at all, and then the only thing the browser has to say
@@ -189,49 +243,56 @@ export async function streamAssistantTurn(
     throw failure
   }
   let buffer = ''
-  for (;;) {
-    // A read that fails is the connection giving out under a turn the worker never refused. The stop the
-    // reader pressed is the one exception, and `signal` is the proof of it: that stream is closed on
-    // purpose, so its rejection goes back exactly as it came and the caller keeps treating it as a stop.
-    let chunk
-    try {
-      chunk = await reader.read()
-    } catch (error) {
-      if (signal.aborted) throw error
-      throw new StreamDisconnectedError('The assistant stream ended before the turn was answered.', { cause: error })
-    }
-    const { value, done } = chunk
-    if (done) break
-    buffer += value
-    let boundary = buffer.indexOf('\n\n')
-    while (boundary !== -1) {
-      const frame = buffer.slice(0, boundary)
-      buffer = buffer.slice(boundary + 2)
-      const data = frame
-        .split('\n')
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).trimStart())
-        .join('\n')
-      if (!data) {
-        // Nothing to hand on: a comment line, which is what the worker's keepalive is. Skipping the frame
-        // is right and skipping this index along with it is not — the buffer is now `boundary + 2` bytes
-        // shorter than the number below was measured against, so the next cut would be taken from the
-        // wrong place: it would slice the middle out of the following frame, and once the buffer runs out
-        // it would never find another `\n\n` to stop on. Read the boundary again before going round.
-        boundary = buffer.indexOf('\n\n')
-        continue
-      }
+  const batch = options.batchMs && options.batchMs > 0 ? textBatcher(onEvent, options.batchMs) : null
+  const emit = batch ? batch.push : onEvent
+  try {
+    for (;;) {
+      // A read that fails is the connection giving out under a turn the worker never refused. The stop the
+      // reader pressed is the one exception, and `signal` is the proof of it: that stream is closed on
+      // purpose, so its rejection goes back exactly as it came and the caller keeps treating it as a stop.
+      let chunk
       try {
-        onEvent(JSON.parse(data) as ChatStreamEvent)
+        chunk = await reader.read()
       } catch (error) {
-        // Best-effort on purpose, and it stays that way: a frame this reader cannot parse is one frame
-        // lost, and the answer keeps arriving after it. Throwing would trade the rest of a reply the
-        // reader is watching for a line the transport wrote badly, so the frame is skipped and only the
-        // parse failure is recorded — the frame's own text is an answer's worth of reading material and
-        // does not belong in a console log.
-        console.warn('[inkstone] an assistant stream frame could not be parsed and was skipped', error)
+        if (signal.aborted) throw error
+        throw new StreamDisconnectedError('The assistant stream ended before the turn was answered.', { cause: error })
       }
-      boundary = buffer.indexOf('\n\n')
+      const { value, done } = chunk
+      if (done) break
+      buffer += value
+      let boundary = buffer.indexOf('\n\n')
+      while (boundary !== -1) {
+        const frame = buffer.slice(0, boundary)
+        buffer = buffer.slice(boundary + 2)
+        const data = frame
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trimStart())
+          .join('\n')
+        if (!data) {
+          // Nothing to hand on: a comment line, which is what the worker's keepalive is. Skipping the frame
+          // is right and skipping this index along with it is not — the buffer is now `boundary + 2` bytes
+          // shorter than the number below was measured against, so the next cut would be taken from the
+          // wrong place: it would slice the middle out of the following frame, and once the buffer runs out
+          // it would never find another `\n\n` to stop on. Read the boundary again before going round.
+          boundary = buffer.indexOf('\n\n')
+          continue
+        }
+        try {
+          emit(JSON.parse(data) as ChatStreamEvent)
+        } catch (error) {
+          // Best-effort on purpose, and it stays that way: a frame this reader cannot parse is one frame
+          // lost, and the answer keeps arriving after it. Throwing would trade the rest of a reply the
+          // reader is watching for a line the transport wrote badly, so the frame is skipped and only the
+          // parse failure is recorded — the frame's own text is an answer's worth of reading material and
+          // does not belong in a console log.
+          console.warn('[inkstone] an assistant stream frame could not be parsed and was skipped', error)
+        }
+        boundary = buffer.indexOf('\n\n')
+      }
     }
+  } finally {
+    // A turn that ended, was refused, or was stopped still owns the words it already wrote.
+    batch?.flush()
   }
 }

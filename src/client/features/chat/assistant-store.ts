@@ -918,6 +918,13 @@ function reportFailure(error: unknown, report?: ReportFailure): void {
   else toast(error)
 }
 
+/**
+ * How long a live turn holds text frames before handing them to the store. Short enough that the answer
+ * still reads as arriving word by word; long enough that a fast vendor does not repaint the whole thread
+ * once per token.
+ */
+const STREAM_TEXT_BATCH_MS = 64
+
 /** How often a popup is asked whether the reader has finished logging in, and how long to keep asking. */
 const POPUP_POLL_MS = 700
 const POPUP_WAIT_MS = 5 * 60 * 1000
@@ -2940,6 +2947,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         },
         apply,
         controller.signal,
+        { batchMs: STREAM_TEXT_BATCH_MS },
       )
     } catch (error) {
       if (!controller.signal.aborted) {
