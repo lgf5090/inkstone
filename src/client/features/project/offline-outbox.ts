@@ -33,6 +33,14 @@ function emit(name: string): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(name))
 }
 
+/**
+ * The queue row is removed by the store that owns the replay loop, after this module has returned,
+ * so the "one fewer pending" event has to come from there rather than from the replay itself.
+ */
+export function notifyProjectOutboxFlushed(): void {
+  emit(PROJECT_OUTBOX_FLUSHED_EVENT)
+}
+
 function boardIdOf(path: string): string {
   return /^\/api\/project\/boards\/([^/]+)/.exec(path)?.[1] ?? ''
 }
@@ -65,7 +73,10 @@ export async function enqueueProjectWrite(path: string, method: string, body: un
   }
   await localDb.enqueueOutbox(item)
   emit(PROJECT_OUTBOX_CHANGED_EVENT)
-  await requestProjectOutboxSync()
+  // Background Sync is a best-effort extra: `serviceWorker.ready` never settles when no worker is
+  // registered (the dev server, or a browser that refused the registration), and awaiting it here
+  // would keep the failed write from ever reaching the caller as an error.
+  void requestProjectOutboxSync()
 }
 
 export async function pendingProjectWrites(): Promise<number> {
@@ -99,6 +110,5 @@ export async function replayProjectOutboxItem(item: OutboxItem): Promise<Project
       tone: 'danger',
     })
   }
-  emit(PROJECT_OUTBOX_FLUSHED_EVENT)
   return { status: 'done' }
 }

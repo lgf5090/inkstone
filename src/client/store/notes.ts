@@ -2782,7 +2782,7 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
             // Project writes are handed to the module that owns their HTTP shape; the note store only
             // owns the queue's lease, the completion bookkeeping and the decision to stop when offline.
             if (item.entity === 'project') {
-                const { replayProjectOutboxItem } = await import('../features/project/offline-outbox');
+                const { replayProjectOutboxItem, notifyProjectOutboxFlushed } = await import('../features/project/offline-outbox');
                 const outcome = await replayProjectOutboxItem(item);
                 if (outcome.status === 'offline') {
                     stoppedOffline = true;
@@ -2791,7 +2791,10 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                 }
                 if (outcome.status === 'done') {
                     const completed = await completeOutboxQuietly(item.id, item.writeId);
-                    if (completed) publishBroadcast({ type: 'local-write', clientId: CLIENT_ID });
+                    if (completed) {
+                        publishBroadcast({ type: 'local-write', clientId: CLIENT_ID });
+                        notifyProjectOutboxFlushed();
+                    }
                 }
                 continue;
             }

@@ -5,7 +5,7 @@ import {
   PROJECT_OUTBOX_CHANGED_EVENT, PROJECT_OUTBOX_FLUSHED_EVENT,
 } from '../../lib/runtime'
 import {
-  enqueueProjectWrite, pendingProjectWrites, replayProjectOutboxItem,
+  enqueueProjectWrite, notifyProjectOutboxFlushed, pendingProjectWrites, replayProjectOutboxItem,
 } from './offline-outbox'
 import { request } from '../../lib/api'
 
@@ -67,15 +67,19 @@ describe('the project offline outbox', () => {
   })
 
   it('replays with the queued row key as the idempotency key', async () => {
-    let flushed = 0
-    const listener = () => { flushed += 1 }
-    window.addEventListener(PROJECT_OUTBOX_FLUSHED_EVENT, listener)
     const outcome = await replayProjectOutboxItem(item({ path: '/api/project/cards/c1', method: 'PATCH', body: { title: 'X' } }))
-    window.removeEventListener(PROJECT_OUTBOX_FLUSHED_EVENT, listener)
     expect(outcome.status).toBe('done')
     expect(request).toHaveBeenCalledWith('/api/project/cards/c1', {
       method: 'PATCH', body: { title: 'X' }, idempotencyKey: 'pw_test',
     })
+  })
+
+  it('announces the flush only after the store removed the row', () => {
+    let flushed = 0
+    const listener = () => { flushed += 1 }
+    window.addEventListener(PROJECT_OUTBOX_FLUSHED_EVENT, listener)
+    notifyProjectOutboxFlushed()
+    window.removeEventListener(PROJECT_OUTBOX_FLUSHED_EVENT, listener)
     expect(flushed).toBe(1)
   })
 

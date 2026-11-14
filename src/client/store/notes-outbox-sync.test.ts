@@ -54,7 +54,10 @@ vi.mock('../lib/db', async (importOriginal) => {
   }
 })
 
-vi.mock('../features/project/offline-outbox', () => ({ replayProjectOutboxItem: mocks.replayProject }))
+vi.mock('../features/project/offline-outbox', () => ({
+  replayProjectOutboxItem: mocks.replayProject,
+  notifyProjectOutboxFlushed: vi.fn(),
+}))
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<{ api: Record<string, unknown> }>('../lib/api')
