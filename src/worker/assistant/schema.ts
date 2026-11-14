@@ -71,6 +71,23 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
    * per key, replaced on every probe — a history of probe results would be a log nobody reads, and the
    * usage tables already answer "which key did the work".
    */
+  /**
+   * A model one key could not serve, asked apart from the key's own health.
+   *
+   * Keys on the same provider can carry different entitlements, so "this key has no access to that model"
+   * is not the same fact as "this key is broken" — cooling the whole key for a model it was never allowed
+   * to reach takes a working credential out of every other turn. One row per key and model, expiring on
+   * its own.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_provider_key_model_cooldowns (
+    user_id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    cooling_until INTEGER NOT NULL,
+    PRIMARY KEY (user_id, provider_id, key_id, model)
+  )`,
+
   `CREATE TABLE IF NOT EXISTS chat_provider_key_probes (
     user_id TEXT NOT NULL,
     provider_id TEXT NOT NULL,
@@ -948,6 +965,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_providers: ['user_id', 'id', 'label', 'icon', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_hint', 'key_last_used_at', 'created_at', 'updated_at'],
   chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'cooling_until', 'created_at', 'updated_at'],
   chat_provider_key_probes: ['user_id', 'provider_id', 'key_id', 'outcome', 'reason', 'latency_ms', 'probed_at'],
+  chat_provider_key_model_cooldowns: ['user_id', 'provider_id', 'key_id', 'model', 'cooling_until'],
   chat_search_keys: ['user_id', 'engine', 'key_ciphertext', 'key_hint', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'icon', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens',
     'vendor_context_tokens', 'vendor_max_output_tokens', 'vision',

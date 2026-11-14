@@ -246,3 +246,27 @@ describe('how long a refusal keeps a key out of the ring', () => {
     expect(cooldownFor(new UpstreamError('quota', 'spent', 402))).toBe(3_600_000)
   })
 })
+
+describe('a model one key cannot serve', () => {
+  it('rests that pair only, leaving the key free for every other model', async () => {
+    const response = await send('POST', '/api/assistant/providers', newProvider(`${FIRST}, ${SECOND}`))
+    const id = (await response.json() as { provider: { id: string } }).provider.id
+    const keyId = (await store.listProviderKeys(id))[0]!.id
+    // Hand the next pick to the extra key, so "skipped" is something the assertion can see.
+    await store.markProviderKeyUsed(id, '')
+    const record = await store.providerRecord(id)
+    expect((await store.pickProviderKey(record!, 'model-b'))?.keyId).toBe(keyId)
+
+    await store.recordKeyModelCooldown(keyId, id, 'model-a', 60_000)
+
+    // model-a is the model this key could not serve: the ring falls through to the provider's own key.
+    expect((await store.pickProviderKey(record!, 'model-a'))?.keyId).toBe('')
+    // Every other model still gets the fastest answer, and a caller that names no model is untouched.
+    expect((await store.pickProviderKey(record!, 'model-b'))?.keyId).toBe(keyId)
+    expect((await store.pickProviderKey(record!))?.keyId).toBe(keyId)
+
+    // An answer clears the narrower cooldown in the same pass as the key's own health.
+    await store.clearProviderKeyFailure(keyId, id, 'model-a')
+    expect((await store.pickProviderKey(record!, 'model-a'))?.keyId).toBe(keyId)
+  })
+})

@@ -1085,7 +1085,7 @@ export class AssistantRunner {
           extraBody: { ...customParamBody(entry.model.customParams), ...(project ? customParamBody(project.customParams) : {}) },
           reasoning: entry.model.reasoning,
           reasoningDialect: entry.call.reasoningDialect,
-          retry: this.retryFor(entry.provider),
+          retry: this.retryFor(entry.provider, entry.model.model),
           signal,
         }), calls, usage, project?.stream === false && schemas.length === 0)) {
           if (event.type === 'text') {
@@ -1400,7 +1400,7 @@ export class AssistantRunner {
         const attemptUsage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }
         const timed = this.attemptSignal()
         try {
-          const apiKey = await this.signKey(entry.provider)
+          const apiKey = await this.signKey(entry.provider, entry.model.model)
           // An Agent that turned streaming off answers a tool-less step in one request. A step with tools
           // stays streamed: the non-streaming door returns words, not the calls the loop exists to run.
           if (preferOnce) {
@@ -1435,7 +1435,7 @@ export class AssistantRunner {
           if (attempt === 2 && timed.timedOut() && this.settings.autoRecover) {
             this.rollbackAttempt(sourcesBefore, truncatedBefore, blockedBefore)
             try {
-              const apiKey = await this.signKey(entry.provider)
+              const apiKey = await this.signKey(entry.provider, entry.model.model)
               const once = await fetchOnce(entry.call.protocol, requestFor(entry, apiKey, this.turnSignal ?? new AbortController().signal))
               if (once.text.trim()) {
                 usage.inputTokens += once.inputTokens
@@ -1652,17 +1652,17 @@ export class AssistantRunner {
    * Marking it is what makes the rotation rotate: the next call sorts the least recently used key first,
    * so a turn that takes several steps spreads across the ring instead of pinning the first one.
    */
-  private async signKey(provider: ProviderRow): Promise<string> {
+  private async signKey(provider: ProviderRow, model?: string): Promise<string> {
     // The caller's copy is the turn's opening snapshot. A retry has to see the `key_last_used_at` the
     // previous attempt just wrote, or the ring hands back the same key the provider refused and the
     // transport reads "nothing else to try" from a ring it never actually rotated.
     const fresh = await this.store.providerRecord(provider.id) ?? provider
-    const picked = await this.store.pickProviderKey(fresh)
+    const picked = await this.store.pickProviderKey(fresh, model)
     if (!picked) return ''
     await this.store.markProviderKeyUsed(provider.id, picked.keyId)
     // Kept for the length of this turn only: the request carries the key, not the row it came from, and
     // this is what lets a refusal be charged to the key that earned it.
-    if (picked.keyId) this.signedKeyIds.set(picked.key, picked.keyId)
+    this.signedKeyIds.set(picked.key, picked.keyId)
     return picked.key
   }
 
@@ -1678,14 +1678,26 @@ export class AssistantRunner {
    * host or a malformed request says nothing about the key, and counting it would send the reader to the
    * wrong row.
    */
-  private retryFor(provider: ProviderRow): UpstreamRetry {
+  private retryFor(provider: ProviderRow, model?: string): UpstreamRetry {
     return {
       attempts: UPSTREAM_RETRY_ATTEMPTS,
-      rotateKey: async () => await this.signKey(provider),
+      rotateKey: async () => await this.signKey(provider, model),
       onAttemptFailed: async (error, apiKey) => {
+        // `has`, not the value: the provider's own key is named by the empty string, and it can still be
+        // the key a model was not entitled to.
+        if (!this.signedKeyIds.has(apiKey)) return
+        const keyId = this.signedKeyIds.get(apiKey)!
+        // A failure that names the request rather than the credential is narrowed to this model. The key
+        // may serve every other model it is entitled to, and cooling it whole would idle a working key.
+        if (model && (error.kind === 'bad-request' || error.kind === 'unsupported')) {
+          try {
+            await this.store.recordKeyModelCooldown(keyId, provider.id, model, MODEL_COOLDOWN_MS)
+          } catch {
+            // Same rule as below: the turn still reports the provider's own error.
+          }
+          return
+        }
         if (error.kind !== 'auth' && error.kind !== 'quota' && error.kind !== 'rate') return
-        const keyId = this.signedKeyIds.get(apiKey)
-        if (!keyId) return
         try {
           await this.store.recordProviderKeyError(keyId, `${error.kind}: ${error.message}`, cooldownFor(error))
         } catch {
@@ -1694,10 +1706,9 @@ export class AssistantRunner {
         }
       },
       onAttemptSucceeded: async (apiKey) => {
-        const keyId = this.signedKeyIds.get(apiKey)
-        if (!keyId) return
+        if (!this.signedKeyIds.has(apiKey)) return
         try {
-          await this.store.clearProviderKeyFailure(keyId)
+          await this.store.clearProviderKeyFailure(this.signedKeyIds.get(apiKey)!, provider.id, model)
         } catch {
           // Same rule as above: a key that answered answered, whatever the bookkeeping did about it.
         }
@@ -1757,7 +1768,7 @@ export class AssistantRunner {
       if (!(await this.reserve(1, this.settings.limits.maxRequestsPerDay))) return null
       for await (const event of streamUpstream(call.protocol, {
         baseUrl: call.baseUrl,
-        apiKey: await this.signKey(resolved.provider),
+        apiKey: await this.signKey(resolved.provider, resolved.model.model),
         model: resolved.model.model,
         system: promptCatalog(this.settings.language).summarizer_system,
         turns: [{ role: 'user', content: summarizerPrompt(this.settings.language, previous, transcript) }],
@@ -1767,7 +1778,7 @@ export class AssistantRunner {
         // A summary is arithmetic on text, not a question: thinking only costs the reader's budget.
         reasoning: 'off',
         reasoningDialect: call.reasoningDialect,
-        retry: this.retryFor(resolved.provider),
+        retry: this.retryFor(resolved.provider, resolved.model.model),
         signal: controller.signal,
       })) {
         if (event.type === 'text') text += event.delta
@@ -2589,7 +2600,7 @@ export class AssistantRunner {
     try {
       for await (const event of streamUpstream(call.protocol, {
         baseUrl: call.baseUrl,
-        apiKey: await this.signKey(resolved.provider),
+        apiKey: await this.signKey(resolved.provider, resolved.model.model),
         model: resolved.model.model,
         system: catalog.conflict_system,
         turns: [{
@@ -2609,7 +2620,7 @@ export class AssistantRunner {
         structured: true,
         reasoning: 'off',
         reasoningDialect: call.reasoningDialect,
-        retry: this.retryFor(resolved.provider),
+        retry: this.retryFor(resolved.provider, resolved.model.model),
         signal: controller.signal,
       })) {
         if (event.type === 'text') text += event.delta
@@ -2711,7 +2722,7 @@ export class AssistantRunner {
         temperature: this.settings.temperature,
         reasoning: entry.model.reasoning,
         reasoningDialect: entry.call.reasoningDialect,
-        retry: this.retryFor(entry.provider),
+        retry: this.retryFor(entry.provider, entry.model.model),
         signal: attemptSignal,
       }), calls, usage)) {
         if (event.type === 'text') text += event.delta ?? ''
@@ -3026,6 +3037,15 @@ function syntheticContext(): ExecutionContext {
 }
 
 /**
+ * How long one key stays away from one model it could not serve.
+ *
+ * Longer than a key's own rest and independent of it: the cause is an entitlement — a plan that does not
+ * include the model, a region that does not carry it — and that changes on a vendor's schedule rather than
+ * in seconds. Cooling only the pair keeps the key answering every other model in the meantime.
+ */
+const MODEL_COOLDOWN_MS = 30 * 60_000
+
+/**
  * How long one refusal keeps a key out of the rotation.
  *
  * The vendor's own `Retry-After` wins when it gave one: it is the only party that knows when its window
@@ -3043,3 +3063,4 @@ export function cooldownFor(error: UpstreamError): number {
   if (error.kind === 'auth') return 5 * 60_000
   return 60_000
 }
+

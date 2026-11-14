@@ -1827,7 +1827,18 @@ export class AssistantStore {
    * cursor to keep — a key never used sorts ahead of one used a minute ago, and `created_at` breaks the
    * tie so the order is stable rather than whichever row the database happened to return.
    */
-  async pickProviderKey(record: ProviderRow): Promise<{ keyId: string, key: string, label: string } | null> {
+  async pickProviderKey(record: ProviderRow, model?: string): Promise<{ keyId: string, key: string, label: string } | null> {
+    // Which keys cannot serve *this* model, as distinct from which keys are resting for their own reasons.
+    // Callers that are not about a model (a balance reading, a voice session) pass nothing and see none.
+    const blocked = new Set<string>()
+    if (model) {
+      const rows = await this.rows<{ key_id: string }>(
+        `SELECT key_id FROM chat_provider_key_model_cooldowns
+          WHERE user_id = ?1 AND provider_id = ?2 AND model = ?3 AND cooling_until > ?4`,
+        this.userId, record.id, model, Date.now(),
+      )
+      for (const row of rows) blocked.add(row.key_id)
+    }
     const ring: Array<{ keyId: string, ciphertext: string, lastUsedAt: number, order: number, label: string, cooling: boolean }> = []
     if (record.key_ciphertext) {
       ring.push({
@@ -1836,9 +1847,9 @@ export class AssistantStore {
         lastUsedAt: record.key_last_used_at ?? 0,
         order: -1,
         label: record.label,
-        // The provider's own row has no place to keep a refusal, so it cannot be cooled. Its turn still
-        // comes round, and the retry inside that turn moves on to an extra key if one is available.
-        cooling: false,
+        // The provider's own row has no place to keep a key-level refusal, so it cannot rest for one. A
+        // model it could not serve is a different fact and is kept here like any other key's.
+        cooling: blocked.has(''),
       })
     }
     const extras = await this.rows<ProviderKeyRow>(
@@ -1851,7 +1862,7 @@ export class AssistantStore {
       ring.push({
         keyId: row.id, ciphertext: row.key_ciphertext,
         lastUsedAt: row.last_used_at ?? 0, order: row.created_at, label: row.label,
-        cooling: (row.cooling_until ?? 0) > Date.now(),
+        cooling: (row.cooling_until ?? 0) > Date.now() || blocked.has(row.id),
       })
     }
     if (!ring.length) return null
@@ -1939,14 +1950,39 @@ export class AssistantStore {
    * A key that just answered is a key that works.
    *
    * The failure count and the cooldown are cleared together: keeping the count would make the next
-   * unrelated slip double a window the reader had already recovered from.
+   * unrelated slip double a window the reader had already recovered from. `model` clears that model's own
+   * narrower cooldown in the same pass, because both facts were proved by the same answer.
    */
-  async clearProviderKeyFailure(keyId: string): Promise<void> {
+  async clearProviderKeyFailure(keyId: string, providerId?: string, model?: string): Promise<void> {
     if (!keyId) return
     await this.write(
       `UPDATE chat_provider_keys SET error_count = 0, last_error = NULL, cooling_until = NULL
          WHERE user_id = ?1 AND id = ?2 AND (error_count > 0 OR cooling_until IS NOT NULL)`,
       keyId,
+    )
+    if (providerId && model) {
+      await this.write(
+        `DELETE FROM chat_provider_key_model_cooldowns
+          WHERE user_id = ?1 AND provider_id = ?2 AND key_id = ?3 AND model = ?4`,
+        providerId, keyId, model,
+      )
+    }
+  }
+
+  /**
+   * Records that one key could not serve one model, without touching the key's own health.
+   *
+   * Written by the failures that name the request rather than the credential — a model this key has no
+   * access to. Cooling the whole key for it would take a working credential out of every other turn, which
+   * is exactly the confusion multi-key rings exist to avoid.
+   */
+  async recordKeyModelCooldown(keyId: string, providerId: string, model: string, coolingMs: number): Promise<void> {
+    const until = Date.now() + Math.max(coolingMs, 1_000)
+    await this.write(
+      `INSERT INTO chat_provider_key_model_cooldowns (user_id, provider_id, key_id, model, cooling_until)
+       VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(user_id, provider_id, key_id, model) DO UPDATE SET cooling_until = excluded.cooling_until`,
+      providerId, keyId, model, until,
     )
   }
 

@@ -4380,6 +4380,21 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_provider_keys ADD COLUMN cooling_until INTEGER`,
     ],
   },
+  {
+    // A model one key cannot serve is a narrower fact than a broken key, and cooling the whole key for it
+    // takes a working credential out of every other turn.
+    version: 406,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_provider_key_model_cooldowns (
+        user_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        cooling_until INTEGER NOT NULL,
+        PRIMARY KEY (user_id, provider_id, key_id, model)
+      )`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

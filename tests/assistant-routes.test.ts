@@ -314,6 +314,37 @@ describe('a provider with more than one key', () => {
   })
 })
 
+/**
+ * A 400 is about the model, not the credential, and the row that earns the cooldown says so.
+ *
+ * Recorded instead on the key, one model a plan does not include would idle a credential that serves
+ * every other model — the exact confusion a multi-key ring exists to avoid.
+ */
+describe('a model the key could not serve', () => {
+  it('records the pair, not a broken key', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: 'model not found' } }), {
+      status: 400, headers: { 'content-type': 'application/json' },
+    })))
+    let events: ChatStreamEvent[] = []
+    try {
+      events = await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(events.some((event) => event.type === 'error'), 'a 400 should be reported to the reader').toBe(true)
+
+    const cooldowns = sqlite.prepare('SELECT key_id, model, cooling_until FROM chat_provider_key_model_cooldowns').all() as
+      Array<{ key_id: string, model: string, cooling_until: number }>
+    expect(cooldowns).toHaveLength(1)
+    // The provider's own key is named by the empty string here too.
+    expect(cooldowns[0]!.key_id).toBe('')
+    expect(cooldowns[0]!.model).toBe('example-model')
+    expect(cooldowns[0]!.cooling_until).toBeGreaterThan(Date.now())
+  })
+})
+
 describe('drafts', () => {
   const newConversation = async (title = 'Planning') =>
     (await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title })).conversation
