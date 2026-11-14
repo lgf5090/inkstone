@@ -79,4 +79,34 @@ describe('assistant config transfer', () => {
     expect(vi.mocked(s.createProvider).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ apiKey: '' }))
     expect(vi.mocked(s.createModel).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ providerId: 'p-new', model: 'new-model' }))
   })
+
+  it('skips a provider whose address points inside the network', async () => {
+    const s = store()
+    const summary = await importAssistantConfig(s, {
+      format: 'inkstone-assistant-config', version: 1,
+      providers: [
+        { id: 'p-bad', label: 'Inside', baseUrl: 'http://127.0.0.1:8080/v1', protocol: 'openai' },
+        { id: 'p-bad2', label: 'Endpoint', baseUrl: 'https://new.test/v1', protocol: 'openai', endpoints: { anthropic: 'http://169.254.169.254/' } },
+      ],
+      models: [], skills: [], projects: [],
+    })
+    expect(summary.providers).toBe(0)
+    expect(summary.skipped).toBe(2)
+    expect(s.createProvider).not.toHaveBeenCalled()
+  })
+
+  it('keeps an uploaded icon intact and leaves a bare skill glyph alone', async () => {
+    const s = store()
+    const png = `data:image/png;base64,${'A'.repeat(200)}`
+    await importAssistantConfig(s, {
+      format: 'inkstone-assistant-config', version: 1,
+      providers: [{ id: 'p-new', label: 'New Vendor', baseUrl: 'https://new.test/v1', protocol: 'openai', icon: png }],
+      models: [], skills: [{ id: 's1', title: 'A skill', content: 'Body', icon: '🦊' }],
+      projects: [{ id: 'pr1', name: 'Notes', icon: png }],
+    })
+    expect(vi.mocked(s.createProvider).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ icon: png }))
+    expect(vi.mocked(s.createProject).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ icon: png }))
+    // The skill list prints its icon as the character itself, so the importer must not normalise it.
+    expect(vi.mocked(s.insertSkill).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ icon: '🦊' }))
+  })
 })
