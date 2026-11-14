@@ -68,6 +68,7 @@ import { AssistantBubble, CHAT_MENTION_LINKS } from './MessageParts'
 import { CanvasPanel } from './CanvasPanel'
 import { MultiModelMenu, MultiModelView } from './MultiModelView'
 import { useMultiModel } from './multi-model-store'
+import { draftScope, readDraft, writeDraft } from './chat-draft'
 import { SessionResourcesPanel } from './SessionResourcesPanel'
 import { VoiceMode } from './VoiceMode'
 import { ConversationSettingsDialog } from './ConversationSettingsDialog'
@@ -2068,7 +2069,21 @@ export const ChatComposer = memo(function ChatComposer({
   /** How many times the palette has asked for the model picker; the picker spends it. */
   modelPickerRequest?: number
 }) {
-  const [value, setValue] = useState('')
+  const activeId = useAssistant((state) => state.activeId)
+  const ephemeral = useAssistant((state) => state.ephemeral)
+  const draftScopeId = draftScope(activeId, ephemeral)
+  const [value, setValue] = useState(() => readDraft(draftScopeId))
+  const loadedScope = useRef(draftScopeId)
+  // Each thread owns its own unsent words. A scope change reads the other thread's draft; every other
+  // render writes the words that are in the box now, so a reload finds them where they were left.
+  useEffect(() => {
+    if (loadedScope.current !== draftScopeId) {
+      loadedScope.current = draftScopeId
+      setValue(readDraft(draftScopeId))
+      return
+    }
+    writeDraft(draftScopeId, value)
+  }, [draftScopeId, value])
   const seed = useAssistant((state) => state.composerSeed)
   const seedId = useAssistant((state) => state.composerSeedId)
   const consumedSeed = useRef(0)
@@ -2102,7 +2117,6 @@ ${current}` : seed))
   const providers = useAssistant((state) => state.providers)
   const projects = useAssistant((state) => state.projects)
   const conversations = useAssistant((state) => state.conversations)
-  const activeId = useAssistant((state) => state.activeId)
   const setConversationProject = useAssistant((state) => state.setConversationProject)
   const settings = useAssistant((state) => state.settings)
   const activeProjectId = activeId

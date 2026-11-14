@@ -2787,6 +2787,8 @@ const allowed = new Map([
     "// Outside the notebook the note/folder/canvas pointers name a document the reader is not looking at,",
     "// so nothing of the notebook is drawn here; the dock draws the context the current surface opened.",
     "// Mutating the list rather than returning early keeps every hook above on the same path.",
+    "// Each thread owns its own unsent words. A scope change reads the other thread's draft; every other",
+    "// render writes the words that are in the box now, so a reload finds them where they were left.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -4306,6 +4308,11 @@ const allowed = new Map([
   ["src/client/features/chat/canvas-width.ts", [
     "/**\n * How wide the canvas dock may be.\n *\n * The floor keeps the editor from becoming a column of one word per line, and the ceiling keeps the\n * thread usable on a small laptop: a panel may take at most sixty percent of the window. The arithmetic\n * is pure so the drag and the keyboard can share one answer.\n */",
   ]],
+  ["src/client/features/chat/chat-draft.ts", [
+    "/**\n * The words a reader typed but did not send, kept against the conversation they belong to.\n *\n * Switching threads used to leave the half-written question in the box, where the next press sent it to\n * the wrong conversation; a reload lost it altogether. A draft is local, unsent text rather than chat\n * history, so localStorage is the right place and the scope is the thread id (or `new` before a thread\n * exists). A temporary conversation opts out entirely: its promise is that nothing is kept.\n */",
+    "/** Which box a draft belongs to, or null when this conversation must keep nothing. */",
+    "// A full or disabled store must not stop the reader from typing in the box.",
+  ]],
   ["src/client/features/chat/chat-embed-rendering.test.ts", [
     "/**\n * The embed an answer names, drawn inside the thread.\n *\n * A reply that says \"see ![[Roadmap]]\" is the same sentence the note preview writes, and the reader who\n * reads it in the thread expects the same thing to arrive. Nothing else about the row explains the box:\n * left with no document to resolve against, an embed sits at \"Loading\" for the whole life of the answer,\n * which reads as a reply still being delivered rather than as a surface that never asked the notebook.\n * So what is pinned here is the whole shape of the promise — the body comes in, a note the vault does not\n * have is *named* rather than left waiting, and the reader's own question is held to the same line.\n *\n * The real renderer is mounted for this on purpose. A stand-in would answer nothing about whether the\n * pass that fills the box is ever started, which is exactly the defect.\n */",
     "/** Every read of a note body the store has not cached — which is what an embed has to reach. */",
@@ -4607,6 +4614,8 @@ const allowed = new Map([
     "/** The request the send just made, as the store handed it to the stream. */",
     "// The collision the summed version had: one row added and one character typed produced one number.",
     "// A reply still arriving owns no marks yet; settling is what the panel has to re-make them over.",
+    "// Leaving the thread takes its words out of the box rather than leaving them to be sent to the next.",
+    "// A reload is a fresh mount reading the same scope.",
   ]],
   ["src/client/features/chat/context-note.test.ts", [
     "/**\n * The open note's way from a chip to the request.\n *\n * The notebook's pointer rides along with every turn so \"summarise this\" works without naming the note,\n * and a chip the reader can take off is the only thing that keeps that from being an invisible decision.\n * What is pinned here is the half-wire: taking the chip off really does leave the id out of the request.\n */",
