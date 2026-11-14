@@ -225,6 +225,95 @@ describe('conversations', () => {
   })
 })
 
+/**
+ * A refused key is answered by the next one in the ring.
+ *
+ * The ring's parts are each tested where they live — the store's ordering, the transport's retry — but
+ * nothing joined them. A 401 on the first key and a working second one is the case a reader buys several
+ * keys for, and the only proof that one bad credential does not cost the turn.
+ */
+describe('a provider with more than one key', () => {
+  const KEYS = ['sk-ring-first-0001', 'sk-ring-second-0002'] as const
+  /** The same store the routes read, for the rows only it can write. */
+  const localStore = async () => {
+    const { AssistantStore } = await import('../src/worker/assistant/store')
+    return new AssistantStore(env.DB as D1Database, USER, env)
+  }
+
+  it('answers with the next key when the provider refuses the first', async () => {
+    const sent: string[] = []
+    const { provider } = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Ring', protocol: 'openai', baseUrl: 'https://ring.example.com',
+      apiKey: KEYS[0], models: ['ring-model'],
+    })
+    const store = await localStore()
+    await store.createProviderKey(provider.id, { label: '', apiKey: KEYS[1] })
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get('authorization') ?? '')
+      return sent.length === 1
+        ? new Response(JSON.stringify({ error: { message: 'invalid key' } }), {
+          status: 401, headers: { 'content-type': 'application/json' },
+        })
+        : new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    let events: ChatStreamEvent[] = []
+    try {
+      events = await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(sent[0], 'the first attempt should carry the ring’s first key').toBe(`Bearer ${KEYS[0]}`)
+    expect(sent[1], 'the retry did not move to the second key').toBe(`Bearer ${KEYS[1]}`)
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+    expect(events.some((event) => event.type === 'text' && (event.delta ?? '').includes('Nothing is on the list'))).toBe(true)
+    const extra = sqlite.prepare('SELECT last_used_at FROM chat_provider_keys WHERE provider_id = ?').get(provider.id) as { last_used_at: number | null }
+    expect(extra.last_used_at, 'the key that answered was not stamped as used').toBeGreaterThan(0)
+  })
+
+  it('charges a refusal to the extra key that earned it, and cools that key for the next turn', async () => {
+    const { provider } = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Ring', protocol: 'openai', baseUrl: 'https://ring.example.com',
+      apiKey: KEYS[0], models: ['ring-model'],
+    })
+    const store = await localStore()
+    await store.createProviderKey(provider.id, { label: '', apiKey: KEYS[1] })
+    // Hand the first attempt to the extra key: the provider's own key is pushed to the back of the
+    // least-recently-used order, which is the only way to say which row a refusal should land on.
+    sqlite.prepare('UPDATE chat_providers SET key_last_used_at = ? WHERE id = ?').run(Date.now() + 60_000, provider.id)
+
+    const sent: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get('authorization') ?? '')
+      return sent.length === 1
+        ? new Response(JSON.stringify({ error: { message: 'invalid key' } }), {
+          status: 401, headers: { 'content-type': 'application/json' },
+        })
+        : new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    let events: ChatStreamEvent[] = []
+    try {
+      events = await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(sent[0]).toBe(`Bearer ${KEYS[1]}`)
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+
+    const row = sqlite.prepare('SELECT error_count, last_error FROM chat_provider_keys WHERE provider_id = ?')
+      .get(provider.id) as { error_count: number, last_error: string | null }
+    expect(row.error_count).toBe(1)
+    expect(row.last_error).toMatch(/^auth:/)
+
+    // The cooled key goes to the back of the ring, so the next turn is answered by the other one first.
+    const next = await store.pickProviderKey((await store.providerRecord(provider.id))!)
+    expect(next?.keyId).toBe('')
+  })
+})
+
 describe('drafts', () => {
   const newConversation = async (title = 'Planning') =>
     (await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title })).conversation

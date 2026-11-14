@@ -36826,6 +36826,9 @@ const allowed = new Map([
     "/**\n   * A scheduled routine: no conversation, read-only tools, and a reply that becomes a notification.\n   *\n   * The reader is not watching, so nothing here may write. That is enforced by the executor's mode\n   * rather than by the prompt, because a routine that has drifted is exactly the case where a model\n   * reaches for a write tool.\n   *\n   * `options.tools` narrows that further for a run whose prompt is built from untrusted text. `'none'`\n   * leaves the request with an empty tool list, and a list is the only set this run may reach — both\n   * are enforced where tools are offered, so a prompt asking the model to fetch something cannot turn\n   * into a call.\n   */",
     "// `'none'` is expressed as both an empty allowance and an empty whitelist: the first keeps the",
     "// request's tool array empty, the second stops a tool looked up by name from being run anyway.",
+    "// The caller's copy is the turn's opening snapshot. A retry has to see the `key_last_used_at` the",
+    "// previous attempt just wrote, or the ring hands back the same key the provider refused and the",
+    "// transport reads \"nothing else to try\" from a ring it never actually rotated.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -47828,6 +47831,11 @@ const allowed = new Map([
     "// stays exactly where they put it instead of being replaced by the first suggestion.",
     "/**\n     * Everything the runner sent as prompt text, read the way the model reads it.\n     *\n     * The standing instructions are the system message, while the clock, the pins and the turn's own\n     * context travel as a tail block on the user message, so both halves have to be read to see what the\n     * model was told.\n     */",
     "// Anthropic sends its instructions as a block list once a cache breakpoint is attached.",
+    "/**\n * A refused key is answered by the next one in the ring.\n *\n * The ring's parts are each tested where they live — the store's ordering, the transport's retry — but\n * nothing joined them. A 401 on the first key and a working second one is the case a reader buys several\n * keys for, and the only proof that one bad credential does not cost the turn.\n */",
+    "/** The same store the routes read, for the rows only it can write. */",
+    "// Hand the first attempt to the extra key: the provider's own key is pushed to the back of the",
+    "// least-recently-used order, which is the only way to say which row a refusal should land on.",
+    "// The cooled key goes to the back of the ring, so the next turn is answered by the other one first.",
   ]],
   ["tests/assistant-routing.test.ts", [
     "/**\n * Which model answers a turn when the reader asked the assistant to choose.\n *\n * The rule is a policy, so it is tested as one: what may be picked at all (tools, a window that fits\n * with room to answer), and which of the eligible models wins (the smallest declared window, with an\n * undeclared one treated as the reader's default rather than as a small model).\n */",

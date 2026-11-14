@@ -1653,7 +1653,11 @@ export class AssistantRunner {
    * so a turn that takes several steps spreads across the ring instead of pinning the first one.
    */
   private async signKey(provider: ProviderRow): Promise<string> {
-    const picked = await this.store.pickProviderKey(provider)
+    // The caller's copy is the turn's opening snapshot. A retry has to see the `key_last_used_at` the
+    // previous attempt just wrote, or the ring hands back the same key the provider refused and the
+    // transport reads "nothing else to try" from a ring it never actually rotated.
+    const fresh = await this.store.providerRecord(provider.id) ?? provider
+    const picked = await this.store.pickProviderKey(fresh)
     if (!picked) return ''
     await this.store.markProviderKeyUsed(provider.id, picked.keyId)
     // Kept for the length of this turn only: the request carries the key, not the row it came from, and
