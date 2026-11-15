@@ -157,6 +157,7 @@ describe('the multi-model workspace', () => {
       expect.objectContaining({ conversationId: pane.conversationId, modelId: 'm2', message: 'same question', noTools: true }),
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.objectContaining({ batchMs: expect.any(Number) }),
     )
     expect(useAssistant.getState().send).toHaveBeenCalledWith('same question', expect.objectContaining({ onAccepted: expect.any(Function) }))
     expect(mocks.confirm).toHaveBeenCalled()
@@ -197,6 +198,7 @@ describe('the multi-model workspace', () => {
       expect.objectContaining({ message: 'first question', noTools: true }),
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.objectContaining({ batchMs: expect.any(Number) }),
     )
   })
 

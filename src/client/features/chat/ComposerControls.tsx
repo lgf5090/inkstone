@@ -10,7 +10,7 @@
  * All four are per-conversation settings the assistant already stores — the chips are the same switches
  * the settings page has, moved to where the decision is actually made.
  */
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import {
   Brain,
   Bot,
@@ -678,12 +678,12 @@ export function VoiceButton({ onText }: { onText: (chunk: string) => void }) {
 
   const blocker = voiceBlocker()
 
-  const stopListening = () => {
+  const stopListening = useCallback(() => {
     const engine = engineRef.current
     engineRef.current = null
     engine?.stop()
     setListening(false)
-  }
+  }, [])
 
   // Unmount is the panel closing, the route changing, the dock shutting: all of them end the turn's
   // dictation, and none of them has a reader left to press the button again.
@@ -701,7 +701,7 @@ export function VoiceButton({ onText }: { onText: (chunk: string) => void }) {
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
-  })
+  }, [stopListening])
 
   const toggle = () => {
     // A new press is a new question: the last answer must not still be hanging under the button when the

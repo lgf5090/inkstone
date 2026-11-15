@@ -958,7 +958,7 @@ function reportFailure(error: unknown, report?: ReportFailure): void {
  * still reads as arriving word by word; long enough that a fast vendor does not repaint the whole thread
  * once per token.
  */
-const STREAM_TEXT_BATCH_MS = 64
+export const STREAM_TEXT_BATCH_MS = 64
 
 /** How often a popup is asked whether the reader has finished logging in, and how long to keep asking. */
 const POPUP_POLL_MS = 700

@@ -24,7 +24,7 @@ import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { randomLocalId } from '../../lib/random-id'
 import { useUi } from '../../store/ui'
-import { useAssistant, chatModels, modelLabelOf } from './assistant-store'
+import { useAssistant, chatModels, modelLabelOf, STREAM_TEXT_BATCH_MS } from './assistant-store'
 import { streamAssistantTurn } from './stream'
 
 export type MultiModelLayout = 0 | 2 | 3 | 4 | 6
@@ -502,6 +502,7 @@ async function runPaneTurn(
       },
       apply,
       controller.signal,
+      { batchMs: STREAM_TEXT_BATCH_MS },
     )
   } catch (error) {
     if (!controller.signal.aborted) {
