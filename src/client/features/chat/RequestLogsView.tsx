@@ -391,7 +391,7 @@ function LogCell({ entry, column, facets }: {
 }) {
   switch (column.id) {
     case 'at':
-      return <span className="truncate font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{when(entry.at).slice(5)}</span>
+      return <span title={when(entry.at)} className="truncate font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{when(entry.at).slice(5)}</span>
     case 'status':
       return <StatusBadge entry={entry} />
     case 'model':

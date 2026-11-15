@@ -5562,6 +5562,8 @@ const allowed = new Map([
     "// A spreadsheet executes a cell whose text starts with a formula marker. Error messages, notes and",
     "// request bodies come from an upstream provider or the reader, so strings that begin with one are",
     "// neutralised while numbers keep their numeric shape.",
+    "// A hidden tab has nobody to read a fresh report, and a short interval would keep a full-table",
+    "// aggregation running in the worker. Coming back asks once instead of waiting out the interval.",
   ]],
   ["src/client/features/chat/request-views.test.ts", [
     "/**\n * The two surfaces that read the request log: the log itself and the statistics behind it.\n *\n * These cases pin what the screens claim rather than how they paint: the filters the worker supports are\n * the filters on screen, a filtered page shows its total and its rows, and the statistics name their\n * dimensions and their numbers. A chart is not drawn here — the canvas is stubbed, because the claim is\n * that the numbers reached the panel, not that chart.js can paint in jsdom.\n */",

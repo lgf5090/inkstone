@@ -476,7 +476,12 @@ export function ProviderKeys({ provider, wallet, onProbes }: {
           <KeyRound size={12} className="shrink-0" />
           {t('assistant.keys.title')}
           {ringSize > 0 && (
-            <span className="rounded-full bg-[var(--accent-soft)] px-1.5 text-[length:var(--text-10-5)] tabular text-[var(--accent-on-soft)]">
+            <span
+              role="img"
+              aria-label={t('assistant.keys.count', { count: ringSize })}
+              title={t('assistant.keys.count', { count: ringSize })}
+              className="rounded-full bg-[var(--accent-soft)] px-1.5 text-[length:var(--text-10-5)] tabular text-[var(--accent-on-soft)]"
+            >
               {ringSize}
             </span>
           )}

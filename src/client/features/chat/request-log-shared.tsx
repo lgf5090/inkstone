@@ -283,8 +283,16 @@ export function useAutoRefresh(intervalSeconds: number, reload: () => void): voi
   useEffect(() => { latest.current = reload }, [reload])
   useEffect(() => {
     if (intervalSeconds <= 0) return
-    const timer = window.setInterval(() => latest.current(), intervalSeconds * 1_000)
-    return () => window.clearInterval(timer)
+    // A hidden tab has nobody to read a fresh report, and a short interval would keep a full-table
+    // aggregation running in the worker. Coming back asks once instead of waiting out the interval.
+    const visible = () => document.visibilityState === 'visible'
+    const onVisibility = () => { if (visible()) latest.current() }
+    const timer = window.setInterval(() => { if (visible()) latest.current() }, intervalSeconds * 1_000)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [intervalSeconds])
 }
 

@@ -8164,6 +8164,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.settings.key_stored_hint": "已保存密钥 ····{hint}",
     "assistant.settings.key_missing": "未保存密钥",
     "assistant.keys.title": "API 密钥",
+    "assistant.keys.count": "共 {count} 把密钥",
     "assistant.keys.hint": "同一个服务商可以放多把密钥：一把被限流或被拒时会换下一把，按最久没用过的先用。密钥只写入不回显，这里只保留末四位。",
     "assistant.insights.title": "{name} · 统计与日志",
     "assistant.insights.hint": "数字来自按日汇总，单条记录来自每次上游尝试。三个层级可以互相比较。",

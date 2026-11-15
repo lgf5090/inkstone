@@ -187,7 +187,7 @@ export function RequestStatsView() {
               <Stat
                 icon={<Coins size={13} />}
                 label={t('assistant.stats.last_at')}
-                value={summary.lastAt === null ? '—' : when(summary.lastAt).slice(5)}
+                value={summary.lastAt === null ? '—' : when(summary.lastAt)}
               />
             </div>
 
@@ -329,7 +329,7 @@ function TrendChart({ series, hourly, metric, kind }: {
             label: t('assistant.stats.metric_failure'),
             data: series.map((p) => (p.requests ? Math.round((p.failed / p.requests) * 100) : 0)),
             borderColor: danger,
-            backgroundColor: withAlpha('#d05252', 0.15),
+            backgroundColor: withAlpha(danger, 0.15),
             fill: true,
             tension: 0.25,
             pointRadius: 2,

@@ -62,7 +62,8 @@ function tokens(value: number): string {
 
 function when(at: number): string {
   const date = new Date(at)
-  return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
 /** One figure with its label, sized so four of them fit on a phone. */

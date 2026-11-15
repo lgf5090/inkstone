@@ -8172,6 +8172,7 @@ const CORE_MESSAGES_TAIL = {
     "assistant.settings.key_stored_hint": "key stored ····{hint}",
     "assistant.settings.key_missing": "no key",
     "assistant.keys.title": "API keys",
+    "assistant.keys.count": "{count} keys in the ring",
     "assistant.keys.hint": "A provider can hold several keys: when one is rate-limited or refused the next one answers, least recently used first. A key is written once and never shown again \u2014 only its last four characters are kept here.",
     "assistant.insights.title": "{name} · stats and logs",
     "assistant.insights.hint": "Totals come from the daily rollups, the individual rows from every upstream attempt. The three levels compare against each other.",
