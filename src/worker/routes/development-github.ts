@@ -32,6 +32,11 @@ import {
 } from '@shared/development/github/schemas'
 import type { GistItem, GithubRepoDetailPart, GithubTag, GithubTrackedApp } from '@shared/development/github/types'
 import { utf8ByteLength } from '@shared/text-utils'
+import {
+  MAX_GITHUB_IMAGE_URL_CHARS,
+  checkGithubImageUrl,
+  normalizeGithubImageUrl,
+} from '@shared/development/github/image'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { contentDisposition } from '../lib/http-range'
@@ -407,20 +412,25 @@ developmentGithubRoutes.get('/health', (c) => c.json({ ok: true, data: { ready: 
 developmentGithubRoutes.get('/image', async (c) => {
   imageBudget(userIdOf(c))
   const raw = c.req.query('url')
-  if (!raw || raw.length > 2048) throw ApiError.badRequest('An image URL is required')
+  if (!raw || raw.length > MAX_GITHUB_IMAGE_URL_CHARS) throw ApiError.badRequest('An image URL is required')
+  const checked = checkGithubImageUrl(raw)
+  if (!checked.ok) throw ApiError.badRequest(checked.reason)
   try {
-    const { bytes, type } = await downloadReadmeImage(raw)
+    const { bytes, type } = await downloadReadmeImage(normalizeGithubImageUrl(checked.url))
     return new Response(bytes, {
       status: 200,
       headers: {
         'Content-Type': type,
+        'Content-Disposition': 'inline',
         'Cache-Control': 'private, max-age=86400',
         'X-Content-Type-Options': 'nosniff',
         'Content-Security-Policy': "default-src 'none'; sandbox; img-src 'none'; form-action 'none'; base-uri 'none'",
       },
     })
   } catch (error) {
-    if (error instanceof ApiError && error.status === 400) throw error
+    if (error instanceof ApiError) {
+      throw new ApiError(error.status === 400 ? 502 : error.status, 'github_upstream', error.message)
+    }
     throw new ApiError(502, 'github_upstream', 'The image could not be loaded')
   }
 })
