@@ -3377,6 +3377,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/RequestLogsView.tsx", [
     "/** Only the newest read may paint: a filter change can leave two requests in flight at once. */",
+    "/* The same menu a right click opens, reachable from the keyboard through a real button. */",
   ]],
   ["src/client/features/chat/RequestStatsView.tsx", [
     "// Two providers may carry the same label — a rename or a second account — so a shared name keeps the",

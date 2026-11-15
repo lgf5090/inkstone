@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronsUpDown, Columns3, Copy, Download,
-  ExternalLink, FileText, RefreshCw, Trash2, XCircle,
+  ExternalLink, FileText, MoreHorizontal, RefreshCw, Trash2, XCircle,
 } from 'lucide-react'
 import type {
   AssistantLogPage, AssistantLogSortDir, AssistantLogSortKey, AssistantRequestLog,
@@ -123,7 +123,7 @@ export function RequestLogsView() {
   const pages = Math.max(1, Math.ceil((answer?.total ?? 0) / LOG_PAGE_SIZE))
   const allOnPage = logs.length > 0 && logs.every((entry) => selected.has(entry.id))
   const visible = COLUMNS.filter((column) => columns.includes(column.id))
-  const template = useMemo(() => `24px ${visible.map((column) => column.width).join(' ')} 28px 28px`, [visible])
+  const template = useMemo(() => `24px ${visible.map((column) => column.width).join(' ')} 28px 28px 28px`, [visible])
 
   const cycleSort = (key: AssistantLogSortKey) => {
     if (sort.by !== key) setSort({ by: key, dir: 'desc' })
@@ -283,7 +283,7 @@ export function RequestLogsView() {
                   className="grid items-center gap-2 border-b border-[var(--border-subtle)] px-2 pb-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]"
                   style={{ gridTemplateColumns: template }}
                 >
-                  <span />
+                  <span role="columnheader" />
                   {visible.map((column) => (
                     <button
                       key={column.id}
@@ -312,10 +312,11 @@ export function RequestLogsView() {
                         : <ChevronsUpDown size={9} className="opacity-50" />)}
                     </button>
                   ))}
-                  <span className="text-center">{t('assistant.logs.columns.star')}</span>
-                  <span />
+                  <span role="columnheader" className="text-center">{t('assistant.logs.columns.star')}</span>
+                  <span role="columnheader" />
+                  <span role="columnheader" />
                 </div>
-                <ul className="flex flex-col">
+                <ul role="rowgroup" className="flex flex-col">
                   {logs.map((entry) => (
                     <LogRow
                       key={entry.id}
@@ -562,23 +563,41 @@ function LogRow({ entry, columns, template, selected, expanded, facets, onToggle
       onContextMenu={contextMenu.onContextMenu}
     >
       <div className="grid items-center gap-2 px-2 py-1.5 text-[length:var(--text-11)]" style={{ gridTemplateColumns: template }}>
-        <input type="checkbox" checked={selected} aria-label={t('assistant.logs.select_one')} onChange={onToggle} />
+        <div role="cell">
+          <input type="checkbox" checked={selected} aria-label={t('assistant.logs.select_one')} onChange={onToggle} />
+        </div>
         {columns.map((column) => (
-          <button
-            key={column.id}
-            type="button"
-            onClick={onExpand}
-            aria-expanded={expanded}
-            title={t('assistant.logs.detail_hint')}
-            className={cn('flex min-w-0 items-center', column.end && 'justify-end')}
-          >
-            <LogCell entry={entry} column={column} facets={facets} />
-          </button>
+          <div key={column.id} role="cell" className={cn('flex min-w-0 items-center', column.end && 'justify-end')}>
+            <button
+              type="button"
+              onClick={onExpand}
+              aria-expanded={expanded}
+              title={t('assistant.logs.detail_hint')}
+              className="flex min-w-0 flex-1 items-center"
+            >
+              <LogCell entry={entry} column={column} facets={facets} />
+            </button>
+          </div>
         ))}
-        <span className="flex justify-center"><StarButton entry={entry} onChange={onChange} /></span>
-        <IconButton size="xs" label={t('assistant.logs.delete')} onClick={() => void removeOne()}>
-          <Trash2 size={12} />
-        </IconButton>
+        <div role="cell" className="flex justify-center"><StarButton entry={entry} onChange={onChange} /></div>
+        <div role="cell">
+          <IconButton size="xs" label={t('assistant.logs.delete')} onClick={() => void removeOne()}>
+            <Trash2 size={12} />
+          </IconButton>
+        </div>
+        {/* The same menu a right click opens, reachable from the keyboard through a real button. */}
+        <div role="cell">
+          <IconButton
+            size="xs"
+            label={t('assistant.logs.row_menu')}
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect()
+              contextMenu.openAt({ x: rect.left, y: rect.bottom })
+            }}
+          >
+            <MoreHorizontal size={12} />
+          </IconButton>
+        </div>
       </div>
       {expanded && (
         <div className="flex flex-col gap-2 border-t border-[var(--border-subtle)] px-2.5 py-2 text-[length:var(--text-11)]">

@@ -216,3 +216,21 @@ describe('overlapping reads', () => {
     expect(document.body.textContent).not.toContain('Oldest-model')
   })
 })
+
+describe('the row menu and the table', () => {
+  it('opens the row menu from a keyboard button and names every cell', async () => {
+    vi.spyOn(api.assistant, 'requestLogs').mockResolvedValue({
+      logs: [entry()], total: 1, page: 1, pageSize: 25,
+    })
+    await show(createElement(RequestLogsView))
+    const menuButton = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
+      .find((node) => node.getAttribute('aria-label') === t('assistant.logs.row_menu'))
+    expect(menuButton).toBeTruthy()
+    await act(async () => { menuButton!.click() })
+    expect(document.body.textContent).toContain(t('assistant.logs.copy_id'))
+
+    const table = document.body.querySelector('[role="table"]')!
+    expect(table.querySelector('[role="rowgroup"]')).toBeTruthy()
+    expect(table.querySelectorAll('[role="cell"]').length).toBeGreaterThan(0)
+  })
+})
