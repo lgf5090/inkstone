@@ -475,10 +475,11 @@ export function ChatView() {
    * top of the answer being replaced — so it asks first. The newest answer is the one the bubble's own
    * button already means, and it goes straight through.
    */
-  const regenerate = useCallback(async (messageId: string) => {
+  const regenerate = useCallback(async (messageId: string, modelId?: string) => {
     const state = useAssistant.getState()
+    const chosen = modelId ? { modelId } : {}
     if (state.messages.at(-1)?.id === messageId) {
-      void state.send('', { retry: true })
+      void state.send('', { retry: true, ...chosen })
       return
     }
     const agreed = await confirm({
@@ -487,7 +488,7 @@ export function ChatView() {
       confirmLabel: t('assistant.chat.regenerate'),
       tone: 'danger',
     })
-    if (agreed) void state.send('', { retry: true, messageId })
+    if (agreed) void state.send('', { retry: true, messageId, ...chosen })
   }, [])
   /**
    * The one retry control handed to every answer row.
@@ -497,6 +498,11 @@ export function ChatView() {
    * passed in instead, and which door the press opens is read from the store's own rows: the newest answer
    * is the plain retry, an older one confirms first.
    */
+  // The row is memoised on callback identity, so one stable callback serves every answer.
+  const rerunWithModel = useCallback((messageId: string, modelId: string) => {
+    void regenerate(messageId, modelId)
+  }, [regenerate])
+
   const retryAnswer = useCallback((messageId: string) => {
     if (useAssistant.getState().messages.at(-1)?.id === messageId) {
       retryLast()
@@ -562,11 +568,11 @@ export function ChatView() {
           if (isImeComposing(event)) return
           // Both chords are read from `CHAT_SHORTCUTS`, which is the same table the overview prints, so a
           // rebinding has one place to go through rather than two that can disagree.
-          if (isChatShortcut(event.nativeEvent, 'find')) {
+          if (isChatShortcut(event.nativeEvent, 'find', useAssistant.getState().settings?.shortcuts)) {
             event.preventDefault()
             setFinding(true)
           }
-          if (isChatShortcut(event.nativeEvent, 'closePanel') && finding) setFinding(false)
+          if (isChatShortcut(event.nativeEvent, 'closePanel', useAssistant.getState().settings?.shortcuts) && finding) setFinding(false)
         }}
       >
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-2">
@@ -856,6 +862,7 @@ export function ChatView() {
                   // Every stored answer can be asked again; the newest one is the plain retry, an older
                   // one confirms that the turns below it will be removed with it.
                   onRetry={message.role === 'assistant' && !streaming ? retryAnswer : undefined}
+                  onRerunWithModel={message.role === 'assistant' && !streaming ? rerunWithModel : undefined}
                   canContinue={canContinueAnswer(message, streaming, lastAnswer?.id ?? null)}
                   canAskNext={canAskNextAnswer(message, streaming, lastAnswer?.id ?? null)}
                   onStartPicking={startPicking}
@@ -884,6 +891,9 @@ export function ChatView() {
                     streaming={!turnHere.done}
                     stage={turnHere.stage}
                     sources={turnHere.sources}
+                    ttftMs={turnHere.ttftMs ?? null}
+                    usage={turnHere.usage ?? null}
+                    durationMs={turnHere.startedAt ? Date.now() - turnHere.startedAt : 0}
                   />
                 </>
               )}
@@ -1100,10 +1110,11 @@ export function transcriptRevision(messages: readonly AssistantMessage[], turn: 
  * states that show on it. The callbacks are compared because the row passes one through to its own
  * controls — which is why the view hands them over with a single identity rather than a closure per row.
  */
-export const MessageRow = memo(function MessageRow({ message, onRetry, canContinue = false, canAskNext = false, busy = false, selection, onStartPicking, onShare }: {
+export const MessageRow = memo(function MessageRow({ message, onRetry, onRerunWithModel, canContinue = false, canAskNext = false, busy = false, selection, onStartPicking, onShare }: {
   message: AssistantMessage
   /** The row answers for its own id, so one callback serves the whole list. */
   onRetry?: (messageId: string) => void
+  onRerunWithModel?: (messageId: string, modelId: string) => void
   /** Only the newest settled answer: continuing anything else would append to a turn already read past. */
   canContinue?: boolean
   /** Only the newest settled answer: a follow-up asked under an older one would be answered by the whole thread. */
@@ -1167,6 +1178,8 @@ export const MessageRow = memo(function MessageRow({ message, onRetry, canContin
       onStartPicking={onStartPicking}
       onShare={onShare}
       durationMs={message.durationMs ?? 0}
+      ttftMs={message.ttftMs ?? null}
+      onRerunWithModel={onRerunWithModel ? (modelId) => onRerunWithModel(message.id, modelId) : undefined}
       modelLabel={message.modelLabel ?? ''}
       versionCount={message.versionCount ?? 0}
       loadVersions={() => useAssistant.getState().loadAnswerVersions(message.id)}
@@ -1178,6 +1191,7 @@ export const MessageRow = memo(function MessageRow({ message, onRetry, canContin
   && previous.canContinue === next.canContinue
   && previous.canAskNext === next.canAskNext
   && previous.onRetry === next.onRetry
+  && previous.onRerunWithModel === next.onRerunWithModel
   && previous.onStartPicking === next.onStartPicking
   && previous.onShare === next.onShare
   // The selection object is rebuilt by the list on every render; what a row draws from it is these two.
@@ -2073,6 +2087,36 @@ export const ChatComposer = memo(function ChatComposer({
   const ephemeral = useAssistant((state) => state.ephemeral)
   const draftScopeId = draftScope(activeId, ephemeral)
   const [value, setValue] = useState(() => readDraft(draftScopeId))
+  const valueRef = useRef(value)
+  valueRef.current = value
+  useEffect(() => {
+    const replay = (event: Event) => {
+      const text = (event as CustomEvent<{ text?: unknown }>).detail?.text
+      if (typeof text === 'string' && text) setValue((current) => current ? `${current}\n${text}` : text)
+    }
+    // While offline a half-written question has nowhere to go. It is handed to the queue on the way
+    // out (blur, hide, or the browser's own offline event), never on every keystroke: one draft is
+    // one entry. Nothing is sent, and the text comes back into the box when the connection returns.
+    const capture = () => {
+      const text = valueRef.current.trim()
+      if (text && navigator.onLine === false) {
+        window.dispatchEvent(new CustomEvent('inkstone:offline-capture', { detail: { text } }))
+      }
+    }
+    const box = ref.current
+    window.addEventListener('inkstone:offline-replay', replay)
+    window.addEventListener('offline', capture)
+    window.addEventListener('pagehide', capture)
+    document.addEventListener('visibilitychange', capture)
+    box?.addEventListener('blur', capture)
+    return () => {
+      window.removeEventListener('inkstone:offline-replay', replay)
+      window.removeEventListener('offline', capture)
+      window.removeEventListener('pagehide', capture)
+      document.removeEventListener('visibilitychange', capture)
+      box?.removeEventListener('blur', capture)
+    }
+  }, [])
   const loadedScope = useRef(draftScopeId)
   // Each thread owns its own unsent words. A scope change reads the other thread's draft; every other
   // render writes the words that are in the box now, so a reload finds them where they were left.
@@ -2440,7 +2484,7 @@ ${current}` : seed))
     // Escape is the reader's way out of a reply that is taking too long, and the composer is where they
     // are looking when they press it. With no reply running it keeps its other meaning, so the section's
     // own Escape handling (closing the find panel) still receives it.
-    if (isChatShortcut(event.nativeEvent, 'stop')) {
+    if (isChatShortcut(event.nativeEvent, 'stop', settings?.shortcuts)) {
       if (!streaming) return
       event.preventDefault()
       event.stopPropagation()
@@ -2605,6 +2649,7 @@ ${current}` : seed))
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             maxLength={16_000}
+            aria-describedby="ink-composer-count"
             aria-label={t('assistant.chat.placeholder')}
             placeholder={t('assistant.chat.placeholder')}
             className={cn(
@@ -2612,6 +2657,13 @@ ${current}` : seed))
               'text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none',
             )}
           />
+          <span
+            id="ink-composer-count"
+            className="block px-2 text-right text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]"
+            aria-live="polite"
+          >
+            {t('assistant.chat.character_count', { count: value.length, max: 16_000 })}
+          </span>
           {/* The row is icons only: five settings, the two ways in for an attachment, dictation and send all
               share a phone's width, so nothing here carries a word. */}
           <div className="flex min-w-0 flex-wrap items-center gap-0.5 px-0.5 pt-0.5">

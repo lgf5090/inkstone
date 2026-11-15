@@ -179,6 +179,8 @@ interface LiveTurn {
   sources?: AssistantSource[]
   /** When the turn settled; absent while it is still arriving. */
   finishedAt?: number | null
+  /** Send-to-first-token; held for this session's footline, not written back to the worker. */
+  ttftMs?: number | null
 }
 
 /** A message the reader sent while a turn was still running, waiting for that turn to settle. */
@@ -1089,7 +1091,11 @@ async function adoptThread(conversationId: string, turn: LiveTurn | null): Promi
     // and the next open of this one reads it again for itself.
     if (useAssistant.getState().activeId !== conversationId) return
     useAssistant.setState({
-      messages: fillStoppedAnswer(mergeThreadPage(useAssistant.getState().messages, detail.messages), turn),
+      // TTFT is a fact about the stream this tab watched, so it is attached to the row it just
+      // adopted rather than asked of the server, which would only know when the whole turn finished.
+      messages: fillStoppedAnswer(mergeThreadPage(useAssistant.getState().messages, detail.messages), turn)
+        .map((message) => turn?.ttftMs != null && message.id === turn.assistantId
+          ? { ...message, ttftMs: turn.ttftMs } : message),
       messagesReady: true,
       messagesError: null,
       // Merged rather than replaced: the rows this turn already had are still the reader's, and a
@@ -2759,7 +2765,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // False until a frame arrives. A stream that threw before its first frame is a request the worker
     // never took, which is the one case where the draft is still the reader's.
     let accepted = false
+    let firstTokenAt: number | null = null
     const apply = (event: ChatStreamEvent) => {
+      // The first text frame is the only clock the reader actually experiences as "waiting for an
+      // answer"; start/usage/tool frames arrive before it and must not be counted as the first token.
+      if (event.type === 'text' && event.delta && firstTokenAt === null) firstTokenAt = Date.now()
       if (event.type !== 'title') {
         // The promise `send` returns only settles when the stream ends. A caller that has work to start
         // beside this turn needs to know the worker took it, not that it finished.
@@ -2811,8 +2821,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
               },
               activeId: current.activeId ?? event.conversationId ?? null,
             }
-          case 'text':
-            return { turn: { ...turn, text: turn.text + (event.delta ?? ''), stage: undefined } }
+          case 'text': {
+            if (firstTokenAt === null) firstTokenAt = Date.now()
+            // Write the measurement as soon as the first word arrives, so the live bubble can show it
+            // while the rest of the answer is still streaming instead of only after the row is filed.
+            const measured = typeof turn.startedAt === 'number' ? Math.max(0, firstTokenAt - turn.startedAt) : null
+            return {
+              turn: {
+                ...turn, text: turn.text + (event.delta ?? ''), stage: undefined,
+                ...(turn.ttftMs === undefined && measured !== null ? { ttftMs: measured } : {}),
+              },
+            }
+          }
           case 'reasoning':
             return { turn: { ...turn, reasoning: turn.reasoning + (event.delta ?? '') } }
           case 'stage':
@@ -2994,7 +3014,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       // stop or a change of conversation, and its token is what tells the two apart.
       const mine = get().turn?.token === token ? get().turn : null
       if (mine) {
-        const finished: LiveTurn = { ...mine, done: true, finishedAt: Date.now() }
+        const finished: LiveTurn = {
+          ...mine, done: true, finishedAt: Date.now(),
+          ...(firstTokenAt !== null && mine.startedAt ? { ttftMs: Math.max(0, firstTokenAt - mine.startedAt) } : {}),
+        }
         set({ turn: finished })
         // A turn that never reached the worker has no stored row to adopt; the draft comes back instead.
         if (accepted && filedConversationId) await adoptThread(filedConversationId, finished)

@@ -2418,13 +2418,22 @@ export const api = {
         `/api/assistant/providers/${id}/rotation${model ? `?model=${encodeURIComponent(model)}` : ''}`,
       ),
 
+    /** A short-lived single-use ticket precedes every reveal; the worker binds it to this session. */
+    revealTicket: (id: string, keyId?: string) =>
+      request<{ ticket: string, expiresAt: number }>(
+        keyId
+          ? `/api/assistant/providers/${id}/keys/${encodeURIComponent(keyId)}/reveal-ticket`
+          : `/api/assistant/providers/${id}/reveal-ticket`,
+        { method: 'POST', body: {} },
+      ),
+
     /** The one call that answers with a plaintext key; the worker writes an audit line first. */
-    revealProviderKey: (id: string) =>
-      request<{ key: string, keyHint: string }>(`/api/assistant/providers/${id}/reveal`, { method: 'POST', body: {} }),
-    revealExtraKey: (id: string, keyId: string) =>
+    revealProviderKey: (id: string, ticket?: string) =>
+      request<{ key: string, keyHint: string }>(`/api/assistant/providers/${id}/reveal`, { method: 'POST', body: { ticket } }),
+    revealExtraKey: (id: string, keyId: string, ticket?: string) =>
       request<{ key: string, keyHint: string }>(
         `/api/assistant/providers/${id}/keys/${encodeURIComponent(keyId)}/reveal`,
-        { method: 'POST', body: {} },
+        { method: 'POST', body: { ticket } },
       ),
 
     /** Totals for one slice: this key, its provider, or the whole account. */
@@ -2437,32 +2446,35 @@ export const api = {
     /** The attempts behind the current filters, with the total behind the pager. */
     requestLogs: (query: LogQuery) =>
       request<AssistantLogPage>(`/api/assistant/logs?${logQueryParams(query).toString()}`),
-    requestLog: (id: string) =>
-      request<{ entry: AssistantRequestLog }>(`/api/assistant/logs/${encodeURIComponent(id)}`),
     patchRequestLog: (id: string, patch: AssistantLogPatch) =>
       request<{ entry: AssistantRequestLog }>(`/api/assistant/logs/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch }),
     logFacets: () => request<AssistantLogFacets>('/api/assistant/logs/facets'),
+    /** The long-retained security timeline: plaintext disclosures, tickets and denials. */
+    securityAudit: () => request<{ events: Array<{
+      id: string, kind: string, summary: string, sessionId: string, ip: string, userAgent: string, createdAt: number,
+    }> }>('/api/assistant/security-audit'),
     requestStats: (query: LogQuery, dimension: AssistantStatsDimension) => {
       const params = logQueryParams(query)
       params.set('dimension', dimension)
       return request<AssistantStatsReport>(`/api/assistant/stats/requests?${params.toString()}`)
     },
-    cleanupRequestLogs: (query: LogQuery, options: { days: number, rows: number, dryRun: boolean }) =>
+    cleanupRequestLogs: (query: LogQuery, options: { days: number, rows: number, dryRun: boolean, cutoff?: number }) =>
       request<AssistantLogCleanupResult>(`/api/assistant/logs/cleanup?${logQueryParams(query).toString()}`, { method: 'POST', body: options }),
-    deleteRequestLogs: (ids: string[]) =>
-      request<{ deleted: number }>('/api/assistant/logs/delete', { method: 'POST', body: { ids } }),
+    deleteRequestLogs: (ids: string[], includeStarred = false) =>
+      request<{ deleted: number }>('/api/assistant/logs/delete', { method: 'POST', body: { ids, includeStarred } }),
     deleteRequestLog: (id: string) =>
       request<{ deleted: number }>(`/api/assistant/logs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-    clearRequestLogs: (query: { providerId?: string, keyId?: string, all?: boolean }) => {
+    clearRequestLogs: (query: { providerId?: string, keyId?: string, all?: boolean, includeStarred?: boolean }) => {
       const params = new URLSearchParams()
       if (query.providerId !== undefined) params.set('providerId', query.providerId)
       if (query.keyId !== undefined) params.set('keyId', query.keyId)
       if (query.all) params.set('all', '1')
+      if (query.includeStarred) params.set('includeStarred', '1')
       return request<{ deleted: number }>(`/api/assistant/logs?${params.toString()}`, { method: 'DELETE' })
     },
 
     /** The same question about keys the reader has typed and not saved yet. Nothing is stored. */
-    probeDraftKeys: (body: { protocol: string, baseUrl: string, apiKeys: string[] }) =>
+    probeDraftKeys: (body: { protocol: string, baseUrl: string, apiKeys: string[], providerId?: string }) =>
       request<{ results: Array<Omit<AssistantKeyProbe, 'keyId' | 'probedAt'> & { keyHint: string }> }>(
         '/api/assistant/providers/probe',
         { method: 'POST', body },
