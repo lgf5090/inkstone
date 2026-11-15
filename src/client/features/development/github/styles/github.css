@@ -51,6 +51,11 @@
   vertical-align: middle;
 }
 
+.github-windowed-list > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
+}
+
 .github-readme-image-fallback {
   display: inline-flex;
   max-width: 100%;

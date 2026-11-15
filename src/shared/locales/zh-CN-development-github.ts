@@ -56,6 +56,7 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.common.expand": "展开",
   "development.github.common.load_failed": "加载失败",
   "development.github.common.loading": "加载中…",
+  "development.github.common.show_more": "显示更多（还有 {count} 项）",
   "development.github.common.grid_view": "网格视图",
   "development.github.common.list_view": "列表视图",
   "development.github.common.menu": "操作菜单",

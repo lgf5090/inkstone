@@ -11,6 +11,7 @@ import { Empty } from '../../../../components/feedback'
 import { Menu, type MenuItem } from '../../../../components/overlay'
 import { SelectMenu } from '../../../../components/select-menu'
 import { getLanguageColor, fuzzyMatchLanguages } from '../lib/languages'
+import { useWindowedRows } from '../lib/use-windowed-rows'
 import { buildMirrorDownloadUrl, formatNumber } from '../lib/format'
 import { RepoRow } from './RepoRow'
 
@@ -147,6 +148,7 @@ export function RepoList({
   const [tagOpen, setTagOpen] = useState(false)
   const [memberOpen, setMemberOpen] = useState(false)
   const [draft, setDraft] = useState(query)
+  const { visibleItems, remaining, onScroll: onListScroll, showMore } = useWindowedRows(items)
   useEffect(() => setDraft(query), [query])
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
   const hasMore = isExplore && items.length === GITHUB_PER_PAGE && page * GITHUB_PER_PAGE < Math.min(totalCount, 1000)
@@ -308,11 +310,12 @@ export function RepoList({
                   : undefined}
           />
         ) : (
-          <div className="absolute inset-0 overflow-y-auto overscroll-contain">
-            <ul className="divide-y divide-[var(--border-subtle)]">
-              {items.map((repo, index) => (
+          <div className="absolute inset-0 overflow-y-auto overscroll-contain" onScroll={onListScroll}>
+            <ul className="github-windowed-list divide-y divide-[var(--border-subtle)]">
+              {visibleItems.map((repo, index) => (
                 <RepoRow key={repo.id} repo={repo} rank={isExplore ? (page - 1) * GITHUB_PER_PAGE + index + 1 : index + 1} saved={repoMap.get(String(repo.id))} tags={tags} selected={selectedRepoId === String(repo.id)} checkable={!isExplore} checked={selectedIds.has(String(repo.id))} onCheck={onCheckRepo} mirrorUrl={currentMirror ? buildMirrorDownloadUrl(currentMirror.url, repo.url) : repo.url} onSelect={onSelectRepo} onTogglePin={onTogglePin} onToggleFav={onToggleFav} onToggleTag={onToggleTag} onRemove={onRemoveRepo} />
               ))}
+              {remaining > 0 && <li className="flex justify-center p-3"><Button variant="ghost" size="sm" onClick={showMore}>{t('development.github.common.show_more', { count: remaining })}</Button></li>}
               {loading && <li className="flex items-center justify-center gap-2 py-10 text-[length:var(--text-12)] text-[var(--text-tertiary)]"><Spinner size={14} />{t('development.github.common.loading')}</li>}
             </ul>
           </div>

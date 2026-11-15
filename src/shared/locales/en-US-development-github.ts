@@ -56,6 +56,7 @@ export const EN_US_DEVELOPMENT_GITHUB = {
   "development.github.common.expand": "Expand",
   "development.github.common.load_failed": "Failed to load",
   "development.github.common.loading": "Loading…",
+  "development.github.common.show_more": "Show more ({count} remaining)",
   "development.github.common.grid_view": "Grid view",
   "development.github.common.list_view": "List view",
   "development.github.common.menu": "Action menu",
