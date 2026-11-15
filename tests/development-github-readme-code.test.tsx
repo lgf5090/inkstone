@@ -103,6 +103,14 @@ describe('README code blocks', () => {
     expect(useUi.getState().lightbox).toBeNull()
   })
 
+  it('says the copy was refused instead of staying silent', async () => {
+    vi.mocked(copyText).mockResolvedValueOnce(false)
+    render('<pre><code class="language-bash">curl x</code></pre>')
+    const button = container.querySelector<HTMLButtonElement>('button[data-copy-code]')!
+    await act(async () => { button.click() })
+    expect(button.textContent).toBe(t('development.github.common.copy_failed'))
+  })
+
   it('copies the code text and restores the label afterwards', async () => {
     vi.useFakeTimers()
     render('<pre><code class="language-bash">curl x</code></pre>')

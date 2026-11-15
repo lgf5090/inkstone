@@ -3,7 +3,7 @@
   padding-block: 0;
   color: var(--text-primary);
   font-size: var(--text-13);
-  line-height: 1.6;
+  line-height: 1.55;
   overflow-wrap: break-word;
 }
 
@@ -120,6 +120,7 @@
   text-decoration: underline;
 }
 
+.github-readme b,
 .github-readme strong {
   font-weight: 600;
 }
@@ -385,7 +386,7 @@
   padding: 12px 14px;
   background: transparent;
   font-size: var(--text-12);
-  line-height: 1.6;
+  line-height: 1.5;
   tab-size: 2;
 }
 

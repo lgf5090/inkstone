@@ -44,8 +44,7 @@ export function ReadmeBody({
           const code = button.closest('.gh-code')?.querySelector('code')
           if (!code) return
           void copyText(code.textContent ?? '').then((ok) => {
-            if (!ok) return
-            button.textContent = t('common.copied')
+            button.textContent = ok ? t('common.copied') : t('development.github.common.copy_failed')
             window.setTimeout(() => { button.textContent = copyLabel }, 1_500)
           })
           return
