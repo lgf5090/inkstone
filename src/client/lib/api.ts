@@ -129,6 +129,13 @@ import type {
   AssistantKeyRotation,
   AssistantKeyStats,
   AssistantRequestLog,
+  AssistantLogQuery,
+  AssistantLogPage,
+  AssistantLogFacets,
+  AssistantLogPatch,
+  AssistantLogCleanupResult,
+  AssistantStatsReport,
+  AssistantStatsDimension,
   AssistantRealtimeSession,
   AssistantSearchKey,
   AssistantSettings,
@@ -829,6 +836,25 @@ function withReminderList(body: Record<string, unknown>): Record<string, unknown
   const delay = REMIND_OFFSET_MS[remind as RemindTier]
   if (delay === undefined) return rest
   return { ...rest, reminders: [dueAt - delay] }
+}
+
+/** The log screen's filters, plus the two legacy names the insights drawer still uses. */
+export type LogQuery = AssistantLogQuery & { before?: number, limit?: number }
+
+function logQueryParams(query: LogQuery): URLSearchParams {
+  const params = new URLSearchParams()
+  const values: Array<[string, string | number | boolean | undefined]> = [
+    ['q', query.q], ['providerId', query.providerId], ['keyId', query.keyId], ['model', query.model],
+    ['operation', query.operation], ['errorKind', query.errorKind], ['status', query.status],
+    ['starred', query.starred], ['from', query.from], ['to', query.to], ['sinceMs', query.sinceMs],
+    ['before', query.before], ['minLatencyMs', query.minLatencyMs], ['minInputTokens', query.minInputTokens],
+    ['page', query.page], ['pageSize', query.pageSize], ['limit', query.limit], ['order', query.order],
+    ['sortBy', query.sortBy], ['sortDir', query.sortDir],
+  ]
+  for (const [key, value] of values) {
+    if (value !== undefined && value !== '' && value !== false) params.set(key, String(value))
+  }
+  return params
 }
 
 export const api = {
@@ -2408,16 +2434,23 @@ export const api = {
       if (query.keyId !== undefined) params.set('keyId', query.keyId)
       return request<{ rows: AssistantKeyStats[] }>(`/api/assistant/stats/keys?${params.toString()}`)
     },
-    /** The attempts behind a slice, newest first. */
-    requestLogs: (query: { providerId?: string, keyId?: string, before?: number, sinceMs?: number, limit?: number }) => {
-      const params = new URLSearchParams()
-      if (query.providerId !== undefined) params.set('providerId', query.providerId)
-      if (query.keyId !== undefined) params.set('keyId', query.keyId)
-      if (query.before) params.set('before', String(query.before))
-      if (query.sinceMs) params.set('sinceMs', String(query.sinceMs))
-      if (query.limit) params.set('limit', String(query.limit))
-      return request<{ logs: AssistantRequestLog[] }>(`/api/assistant/logs?${params.toString()}`)
+    /** The attempts behind the current filters, with the total behind the pager. */
+    requestLogs: (query: LogQuery) =>
+      request<AssistantLogPage>(`/api/assistant/logs?${logQueryParams(query).toString()}`),
+    requestLog: (id: string) =>
+      request<{ entry: AssistantRequestLog }>(`/api/assistant/logs/${encodeURIComponent(id)}`),
+    patchRequestLog: (id: string, patch: AssistantLogPatch) =>
+      request<{ entry: AssistantRequestLog }>(`/api/assistant/logs/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch }),
+    logFacets: () => request<AssistantLogFacets>('/api/assistant/logs/facets'),
+    requestStats: (query: LogQuery, dimension: AssistantStatsDimension) => {
+      const params = logQueryParams(query)
+      params.set('dimension', dimension)
+      return request<AssistantStatsReport>(`/api/assistant/stats/requests?${params.toString()}`)
     },
+    cleanupRequestLogs: (query: LogQuery, options: { days: number, rows: number, dryRun: boolean }) =>
+      request<AssistantLogCleanupResult>(`/api/assistant/logs/cleanup?${logQueryParams(query).toString()}`, { method: 'POST', body: options }),
+    deleteRequestLogs: (ids: string[]) =>
+      request<{ deleted: number }>('/api/assistant/logs/delete', { method: 'POST', body: { ids } }),
     deleteRequestLog: (id: string) =>
       request<{ deleted: number }>(`/api/assistant/logs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     clearRequestLogs: (query: { providerId?: string, keyId?: string, all?: boolean }) => {

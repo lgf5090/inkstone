@@ -4435,6 +4435,35 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_key ON chat_request_logs(user_id, key_id, at DESC)`,
     ],
   },
+  {
+    version: 409,
+    skipIfColumnExists: { table: 'chat_request_logs', column: 'conversation_id' },
+    statements: [`ALTER TABLE chat_request_logs ADD COLUMN conversation_id TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 410,
+    skipIfColumnExists: { table: 'chat_request_logs', column: 'model_id' },
+    statements: [`ALTER TABLE chat_request_logs ADD COLUMN model_id TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 411,
+    skipIfColumnExists: { table: 'chat_request_logs', column: 'attempt' },
+    statements: [`ALTER TABLE chat_request_logs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`],
+  },
+  {
+    version: 412,
+    skipIfColumnExists: { table: 'chat_request_logs', column: 'note' },
+    statements: [`ALTER TABLE chat_request_logs ADD COLUMN note TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 413,
+    skipIfColumnExists: { table: 'chat_request_logs', column: 'starred' },
+    statements: [
+      `ALTER TABLE chat_request_logs ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_filter ON chat_request_logs(user_id, provider_id, ok, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_conversation ON chat_request_logs(user_id, conversation_id, at DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

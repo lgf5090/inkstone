@@ -10,7 +10,7 @@ import { t } from '../../lib/i18n'
 import { api, ApiError, type SessionImportSummary } from '../../lib/api'
 import { downloadTextFile } from '../../lib/export-note'
 import { Button, IconButton, Spinner } from '../../components/primitives'
-import { SettingRow, Switch } from '../../components/form'
+import { Select, SettingRow, Switch } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
@@ -390,6 +390,61 @@ export function DataTab() {
       {/* The numbers come first: a reader who opens this tab is usually asking what the assistant has
           been costing, and the export and delete rows below are what they do about it. */}
       <UsagePanel />
+
+      <Group title={t('assistant.settings.log_group')}>
+        <SettingRow title={t('assistant.settings.log_bodies')} description={t('assistant.settings.log_bodies_hint')}>
+          <Switch
+            checked={settings?.logRequestBodies ?? false}
+            label={t('assistant.settings.log_bodies')}
+            onChange={(checked) => void saveSettings({ logRequestBodies: checked })}
+          />
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.log_retention')} description={t('assistant.settings.log_retention_hint')}>
+          <Select
+            aria-label={t('assistant.settings.log_retention')}
+            className="w-32 text-[length:var(--text-11)]"
+            value={String(settings?.logRetentionDays ?? 7)}
+            onChange={(event) => void saveSettings({ logRetentionDays: Number(event.target.value) })}
+          >
+            {[0, 1, 3, 7, 14, 30, 90, 365].map((days) => (
+              <option key={days} value={days}>
+                {days === 0 ? t('assistant.settings.log_unlimited') : t('assistant.settings.log_days_value', { days })}
+              </option>
+            ))}
+          </Select>
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.log_max_rows')} description={t('assistant.settings.log_max_rows_hint')}>
+          <Select
+            aria-label={t('assistant.settings.log_max_rows')}
+            className="w-32 text-[length:var(--text-11)]"
+            value={String(settings?.logMaxRows ?? 2_000)}
+            onChange={(event) => void saveSettings({ logMaxRows: Number(event.target.value) })}
+          >
+            {[0, 500, 1_000, 2_000, 5_000, 10_000, 20_000].map((rows) => (
+              <option key={rows} value={rows}>
+                {rows === 0 ? t('assistant.settings.log_unlimited') : t('assistant.settings.log_rows_value', { rows })}
+              </option>
+            ))}
+          </Select>
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.log_cleanup_status')} description={t('assistant.settings.log_cleanup_status_hint')}>
+          <Select
+            aria-label={t('assistant.settings.log_cleanup_status')}
+            className="w-36 text-[length:var(--text-11)]"
+            value={settings?.logCleanupStatus ?? 'all'}
+            onChange={(event) => void saveSettings({ logCleanupStatus: event.target.value as 'all' | 'ok' | 'failed' })}
+          >
+            <option value="all">{t('assistant.settings.log_cleanup_all')}</option>
+            <option value="ok">{t('assistant.settings.log_cleanup_ok')}</option>
+            <option value="failed">{t('assistant.settings.log_cleanup_failed')}</option>
+          </Select>
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.log_open')} description={t('assistant.settings.log_open_hint')}>
+          <Button size="sm" variant="secondary" onClick={() => useAssistant.getState().setView('logs')}>
+            {t('assistant.settings.log_open')}
+          </Button>
+        </SettingRow>
+      </Group>
 
       <Group title={t('assistant.settings.config')}>
         {/* The only setting that keeps a secret on screen without an action behind it, so it carries the

@@ -124,6 +124,18 @@ export const MAX_TITLE_PROMPT_CHARS = 4_000
 /** Timeout bounds for a primary request, in milliseconds. */
 export const MIN_REQUEST_TIMEOUT_MS = 5_000
 export const MAX_REQUEST_TIMEOUT_MS = 300_000
+/** Age-based log cleanup bounds; zero keeps rows by age. */
+export const LOG_RETENTION_MIN_DAYS = 0
+export const LOG_RETENTION_MAX_DAYS = 365
+export const LOG_MAX_ROWS_LIMIT = 20_000
+export const LOG_CLEANUP_STATUSES = ['all', 'ok', 'failed'] as const
+/** One page of the log screen, and the widest page a caller may ask for. */
+export const LOG_PAGE_SIZE = 25
+/** The widest page any caller may ask for: the screen reads 25, an export reads all of it. */
+export const LOG_MAX_PAGE_SIZE = 500
+export const LOG_NOTE_MAX_CHARS = 500
+export const LOG_QUERY_MAX_CHARS = 200
+export const LOG_BATCH_DELETE_LIMIT = 200
 /** How many follow-up questions the model may volunteer under a finished answer. A shorter list is honest; padding one is not. */
 export const MAX_TITLE_SUGGESTIONS = 3
 /** The widest a single follow-up chip may run before the server trims it, so one long sentence cannot crowd the footline. */
@@ -287,6 +299,130 @@ export interface AssistantRequestLog {
   latencyMs: number | null
   /** Present only when the reader turned body logging on; null otherwise, never a truncated body. */
   requestBody: string | null
+  /** Empty when the attempt did not belong to a conversation, as with a title or a probe. */
+  conversationId: string
+  /** The model id as sent upstream; the label above is what the reader named it. */
+  modelId: string
+  /** 1-based position in the retry chain for this turn. */
+  attempt: number
+  /** The reader's own annotation, written from the log screen. */
+  note: string
+  /** Kept by the reader for a later look; never removed by automatic cleanup. */
+  starred: boolean
+}
+
+/** The columns a reader may sort by; the worker maps each to a column it owns. */
+export const LOG_SORT_KEYS = ['at', 'provider', 'model', 'key', 'operation', 'status', 'latency', 'tokens', 'attempt'] as const
+export type AssistantLogSortKey = (typeof LOG_SORT_KEYS)[number]
+/** `none` puts the list back in its own newest-first order instead of a column's. */
+export type AssistantLogSortDir = 'asc' | 'desc' | 'none'
+
+/** Every knob the log screen can turn. All boundaries are validated again on the worker. */
+export interface AssistantLogQuery {
+  q?: string
+  providerId?: string
+  keyId?: string
+  model?: string
+  operation?: string
+  status?: 'all' | 'ok' | 'failed'
+  errorKind?: string
+  starred?: boolean
+  /** Inclusive lower bound on `at`, as unix ms. */
+  from?: number
+  /** Inclusive upper bound on `at`, as unix ms. */
+  to?: number
+  /** A relative window in ms; the worker turns it into a `from` boundary. */
+  sinceMs?: number
+  minLatencyMs?: number
+  minInputTokens?: number
+  page?: number
+  pageSize?: number
+  order?: 'desc' | 'asc'
+  sortBy?: AssistantLogSortKey
+  sortDir?: AssistantLogSortDir
+}
+
+export interface AssistantLogPage {
+  logs: AssistantRequestLog[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/** What the filter menus can offer, read from the rows the account actually has. */
+export interface AssistantLogFacets {
+  providers: Array<{ id: string, label: string }>
+  keys: Array<{ id: string, label: string, providerId: string, keyHint: string }>
+  models: string[]
+  operations: string[]
+  errorKinds: string[]
+}
+
+/** The two writable fields of a log line: an annotation and a bookmark. */
+export interface AssistantLogPatch {
+  note?: string
+  starred?: boolean
+}
+
+/** A manual cleanup, or a preview of one. */
+export interface AssistantLogCleanup {
+  days?: number
+  rows?: number
+  status?: 'all' | 'ok' | 'failed'
+  providerId?: string
+  dryRun?: boolean
+}
+
+export interface AssistantLogCleanupResult {
+  matched: number
+  deleted: number
+}
+
+export type AssistantStatsDimension = 'provider' | 'key' | 'model' | 'operation' | 'status' | 'day'
+
+export interface AssistantStatsQuery extends Omit<AssistantLogQuery, 'q' | 'starred' | 'page' | 'pageSize' | 'order' | 'minLatencyMs' | 'minInputTokens' | 'errorKind'> {
+  dimension?: AssistantStatsDimension
+}
+
+export interface AssistantStatsSummary {
+  requests: number
+  succeeded: number
+  failed: number
+  successRate: number
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+  avgLatencyMs: number | null
+  p95LatencyMs: number | null
+  lastAt: number | null
+}
+
+/** One point on the trend, in the bucket the time window chose. */
+export interface AssistantStatsBucket {
+  at: number
+  requests: number
+  failed: number
+  inputTokens: number
+  outputTokens: number
+  avgLatencyMs: number | null
+}
+
+/** One row of the "by …" table, whatever dimension the reader picked. */
+export interface AssistantStatsBreakdown {
+  id: string
+  label: string
+  requests: number
+  succeeded: number
+  failed: number
+  inputTokens: number
+  outputTokens: number
+  avgLatencyMs: number | null
+}
+
+export interface AssistantStatsReport {
+  summary: AssistantStatsSummary
+  series: AssistantStatsBucket[]
+  breakdown: AssistantStatsBreakdown[]
 }
 
 /**
@@ -893,6 +1029,12 @@ export interface AssistantSettings {
    * who wants to inspect bodies can turn it on for a while and clear the log afterwards.
    */
   logRequestBodies: boolean
+  /** Delete log rows older than this many days; 0 keeps them by age. Starred rows are never deleted. */
+  logRetentionDays: number
+  /** Keep at most this many rows after a write; 0 removes the ceiling. Starred rows are never deleted. */
+  logMaxRows: number
+  /** Which rows the age-based cleanup may take: everything, only failures, or only successes. */
+  logCleanupStatus: 'all' | 'ok' | 'failed'
   /**
    * Keep stored keys visible instead of showing four characters.
    *
@@ -1070,6 +1212,9 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   autoRecover: true,
   requestTimeoutMs: 60_000,
   logRequestBodies: false,
+  logRetentionDays: 7,
+  logMaxRows: 2_000,
+  logCleanupStatus: 'all',
   revealKeysAlways: false,
   realtimeModelId: null,
   temperature: 0.4,
@@ -1252,6 +1397,9 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     autoRecover: booleanValue(raw.autoRecover, DEFAULT_ASSISTANT_SETTINGS.autoRecover),
     requestTimeoutMs: integerInRange(raw.requestTimeoutMs, MIN_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS, DEFAULT_ASSISTANT_SETTINGS.requestTimeoutMs),
     logRequestBodies: booleanValue(raw.logRequestBodies, DEFAULT_ASSISTANT_SETTINGS.logRequestBodies),
+    logRetentionDays: integerInRange(raw.logRetentionDays, LOG_RETENTION_MIN_DAYS, LOG_RETENTION_MAX_DAYS, DEFAULT_ASSISTANT_SETTINGS.logRetentionDays),
+    logMaxRows: integerInRange(raw.logMaxRows, 0, LOG_MAX_ROWS_LIMIT, DEFAULT_ASSISTANT_SETTINGS.logMaxRows),
+    logCleanupStatus: enumValue(raw.logCleanupStatus, LOG_CLEANUP_STATUSES, DEFAULT_ASSISTANT_SETTINGS.logCleanupStatus),
     revealKeysAlways: booleanValue(raw.revealKeysAlways, DEFAULT_ASSISTANT_SETTINGS.revealKeysAlways),
     realtimeModelId: typeof raw.realtimeModelId === 'string' && raw.realtimeModelId ? raw.realtimeModelId.slice(0, 26) : null,
     temperature: numberInRange(raw.temperature, 0, 1.5, DEFAULT_ASSISTANT_SETTINGS.temperature),

@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, CONVERSATION_ORIGINS, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, PROJECT_MCP_MODES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, normalizeConversationSettings, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, CONVERSATION_ORIGINS, LOG_BATCH_DELETE_LIMIT, LOG_MAX_PAGE_SIZE, LOG_MAX_ROWS_LIMIT, LOG_NOTE_MAX_CHARS, LOG_PAGE_SIZE, LOG_QUERY_MAX_CHARS, LOG_RETENTION_MAX_DAYS, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, PROJECT_MCP_MODES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, normalizeConversationSettings, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import { activePricePeriod, parsePricePeriods } from '@shared/price-periods'
 import { parseAssistantIcon } from '@shared/assistant-icons'
 import type {
@@ -47,6 +47,18 @@ import type {
   AssistantKeyProbeOutcome,
   AssistantKeyStats,
   AssistantRequestLog,
+  AssistantLogQuery,
+  AssistantLogPage,
+  AssistantLogFacets,
+  AssistantLogPatch,
+  AssistantLogCleanup,
+  AssistantLogCleanupResult,
+  AssistantStatsQuery,
+  AssistantStatsReport,
+  AssistantStatsDimension,
+  AssistantStatsSummary,
+  AssistantStatsBucket,
+  AssistantStatsBreakdown,
   AssistantStatsScope,
   AssistantKeyProbeReason,
   AssistantSearchKey,
@@ -332,10 +344,10 @@ const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, 
  */
 const KEY_COOLDOWN_MS = 60_000
 
-/** How many attempts the log keeps; the oldest are trimmed as new ones arrive. */
-const REQUEST_LOG_LIMIT = 2_000
-
-const REQUEST_LOG_QUERY_LIMIT = 500
+const REQUEST_LOG_COLUMNS = `id, at, provider_id, provider_label, key_id, key_label, key_hint,
+  model_label, operation, ok, http_status, error_kind, error_message, input_tokens,
+  output_tokens, cached_input_tokens, latency_ms, request_body, conversation_id, model_id,
+  attempt, note, starred`
 
 /** Each consecutive failure doubles the window, up to this many doublings (1 min ~= 32 min). */
 const KEY_COOLDOWN_STEPS = 5
@@ -603,6 +615,28 @@ export const TASK_VISIBLE_PREDICATE = taskVisible()
 export const TODO_TRASH_PURGE_LIMIT = 200
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const HOUR_MS = 3_600_000
+
+const LOG_SORT_COLUMNS: Record<string, string> = {
+  at: 'at',
+  provider: 'provider_label',
+  model: 'model_label',
+  key: 'key_hint',
+  operation: 'operation',
+  status: 'ok',
+  latency: 'COALESCE(latency_ms, -1)',
+  tokens: '(input_tokens + output_tokens)',
+  attempt: 'attempt',
+}
+
+const STATS_GROUP_COLUMNS: Record<AssistantStatsDimension, string> = {
+  provider: 'provider_id',
+  key: 'key_id',
+  model: `COALESCE(NULLIF(model_label, ''), model_id)`,
+  operation: 'operation',
+  status: 'CAST(ok AS TEXT)',
+  day: `CAST((at / ${DAY_MS}) * ${DAY_MS} AS TEXT)`,
+}
 
 function decodeAction(value: unknown): PendingAction | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -2131,8 +2165,11 @@ export class AssistantStore {
   }
 
   /**
-   * One line per attempt. Kept short on purpose: a log that grows without bound is a table nobody reads
-   * and everybody pays for, so the writer trims to the most recent {@link REQUEST_LOG_LIMIT} rows.
+   * One line per attempt. A turn that retried writes several, tied together by conversation and attempt.
+   *
+   * Cleanup runs in the same call: the reader's retention, row ceiling and status condition are applied
+   * before the table grows past what they chose, rather than by a timer that may never fire for an account
+   * nobody opens. Starred rows are never taken by either rule.
    */
   async recordRequestLog(entry: {
     providerId: string, providerLabel: string, keyId: string, keyLabel: string, keyHint: string,
@@ -2140,28 +2177,50 @@ export class AssistantStore {
     errorKind?: string | null, errorMessage?: string | null,
     inputTokens?: number, outputTokens?: number, cachedInputTokens?: number,
     latencyMs?: number | null, requestBody?: string | null,
+    conversationId?: string, modelId?: string, attempt?: number,
   }): Promise<string> {
     const id = newId()
     await this.write(
       `INSERT INTO chat_request_logs
          (id, user_id, at, provider_id, provider_label, key_id, key_label, key_hint, model_label,
           operation, ok, http_status, error_kind, error_message, input_tokens, output_tokens,
-          cached_input_tokens, latency_ms, request_body)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
+          cached_input_tokens, latency_ms, request_body, conversation_id, model_id, attempt)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+               ?19, ?20, ?21, ?22)`,
       id, Date.now(), entry.providerId, entry.providerLabel.slice(0, 120), entry.keyId,
       entry.keyLabel.slice(0, 60), entry.keyHint.slice(0, 8), entry.modelLabel.slice(0, 120),
       entry.operation, entry.ok ? 1 : 0, entry.httpStatus ?? null,
       entry.errorKind ?? null, (entry.errorMessage ?? '').slice(0, 300) || null,
       entry.inputTokens ?? 0, entry.outputTokens ?? 0, entry.cachedInputTokens ?? 0,
       entry.latencyMs ?? null, entry.requestBody ?? null,
+      (entry.conversationId ?? '').slice(0, 40), (entry.modelId ?? '').slice(0, 120),
+      Math.max(1, Math.trunc(entry.attempt ?? 1)),
     )
-    // Trim in the same call: the oldest rows stop existing before the table grows past its ceiling.
-    await this.write(
-      `DELETE FROM chat_request_logs WHERE user_id = ?1 AND id IN (
-         SELECT id FROM chat_request_logs WHERE user_id = ?1 ORDER BY at DESC LIMIT -1 OFFSET ?2)`,
-      REQUEST_LOG_LIMIT,
-    )
+    await this.sweepRequestLogs(await this.getSettings())
     return id
+  }
+
+  /** Applies the standing cleanup rules. Both are best-effort: a failed sweep must not lose the line. */
+  private async sweepRequestLogs(settings: AssistantSettings): Promise<void> {
+    const days = settings.logRetentionDays
+    if (days > 0) {
+      const clauses = ['user_id = ?1', 'starred = 0', 'at < ?2']
+      const binds: unknown[] = [Date.now() - days * 86_400_000]
+      if (settings.logCleanupStatus !== 'all') {
+        binds.push(settings.logCleanupStatus === 'ok' ? 1 : 0)
+        clauses.push(`ok = ?${binds.length + 1}`)
+      }
+      await this.write(`DELETE FROM chat_request_logs WHERE ${clauses.join(' AND ')}`, ...binds)
+    }
+    const rows = settings.logMaxRows
+    if (rows > 0) {
+      await this.write(
+        `DELETE FROM chat_request_logs WHERE user_id = ?1 AND starred = 0 AND id IN (
+           SELECT id FROM chat_request_logs WHERE user_id = ?1 AND starred = 0
+            ORDER BY at DESC LIMIT -1 OFFSET ?2)`,
+        rows,
+      )
+    }
   }
 
   /** Fills in the tokens an attempt only learns once the provider has finished answering. */
@@ -2178,69 +2237,106 @@ export class AssistantStore {
     )
   }
 
-  /** The attempts behind one slice, newest first. `before` pages backwards through older rows. */
-  async listRequestLogs(filter: {
-    providerId?: string, keyId?: string, before?: number | null, sinceMs?: number, limit?: number,
-  } = {}): Promise<AssistantRequestLog[]> {
+  /**
+   * The WHERE half of every log read, delete and aggregation.
+   *
+   * Only columns named here can be reached from a query; the values all travel as binds and `instr` gives
+   * a literal substring search, so a `%` typed by the reader stays a `%` rather than becoming a wildcard.
+   */
+  private logClauses(filter: AssistantLogQuery & { before?: number | null }): { where: string, binds: unknown[] } {
     const clauses = ['user_id = ?1']
-    const binds: unknown[] = [this.userId]
-    if (filter.providerId !== undefined) {
-      binds.push(filter.providerId)
-      clauses.push(`provider_id = ?${binds.length}`)
+    const binds: unknown[] = []
+    const add = (clause: string, value: unknown) => {
+      binds.push(value)
+      clauses.push(clause.replaceAll('?n', `?${binds.length + 1}`))
     }
-    if (filter.keyId !== undefined) {
-      binds.push(filter.keyId)
-      clauses.push(`key_id = ?${binds.length}`)
+    const q = (filter.q ?? '').trim().slice(0, LOG_QUERY_MAX_CHARS).toLowerCase()
+    if (q) {
+      binds.push(q)
+      const p = `?${binds.length + 1}`
+      clauses.push(`(instr(lower(provider_label), ${p}) > 0 OR instr(lower(model_label), ${p}) > 0
+        OR instr(lower(model_id), ${p}) > 0 OR instr(lower(key_hint), ${p}) > 0
+        OR instr(lower(operation), ${p}) > 0 OR instr(lower(COALESCE(error_message, '')), ${p}) > 0
+        OR instr(lower(COALESCE(note, '')), ${p}) > 0 OR instr(lower(COALESCE(request_body, '')), ${p}) > 0)`)
     }
-    if (filter.before) {
-      binds.push(filter.before)
-      clauses.push(`at < ?${binds.length}`)
-    }
-    if (filter.sinceMs) {
-      binds.push(Date.now() - filter.sinceMs)
-      clauses.push(`at > ?${binds.length}`)
-    }
-    binds.push(Math.min(Math.max(filter.limit ?? 50, 1), REQUEST_LOG_QUERY_LIMIT))
-    const rows = await this.rows<{
-      id: string, at: number, provider_id: string, provider_label: string, key_id: string,
-      key_label: string, key_hint: string, model_label: string, operation: string, ok: number,
-      http_status: number | null, error_kind: string | null, error_message: string | null,
-      input_tokens: number, output_tokens: number, cached_input_tokens: number,
-      latency_ms: number | null, request_body: string | null,
-    }>(
-      `SELECT id, at, provider_id, provider_label, key_id, key_label, key_hint, model_label, operation,
-              ok, http_status, error_kind, error_message, input_tokens, output_tokens, cached_input_tokens,
-              latency_ms, request_body
-         FROM chat_request_logs WHERE ${clauses.join(' AND ')}
-        ORDER BY at DESC LIMIT ?${binds.length}`,
-      ...binds,
-    )
-    return rows.map((row) => ({
-      id: row.id,
-      at: row.at,
-      providerId: row.provider_id,
-      providerLabel: row.provider_label,
-      keyId: row.key_id,
-      keyLabel: row.key_label,
-      keyHint: row.key_hint,
-      modelLabel: row.model_label,
-      operation: row.operation,
-      ok: Boolean(row.ok),
-      httpStatus: row.http_status,
-      errorKind: row.error_kind,
-      errorMessage: row.error_message,
-      inputTokens: row.input_tokens,
-      outputTokens: row.output_tokens,
-      cachedInputTokens: row.cached_input_tokens,
-      latencyMs: row.latency_ms,
-      requestBody: row.request_body,
-    }))
+    if (filter.providerId) add('provider_id = ?n', filter.providerId)
+    if (filter.keyId) add('key_id = ?n', filter.keyId)
+    if (filter.model) add('(model_label = ?n OR model_id = ?n)', filter.model)
+    if (filter.operation) add('operation = ?n', filter.operation)
+    if (filter.errorKind) add('error_kind = ?n', filter.errorKind)
+    if (filter.status === 'ok') clauses.push('ok = 1')
+    if (filter.status === 'failed') clauses.push('ok = 0')
+    if (filter.starred) clauses.push('starred = 1')
+    if (filter.from) add('at >= ?n', filter.from)
+    if (filter.to) add('at <= ?n', filter.to)
+    if (filter.sinceMs && filter.sinceMs > 0) add('at >= ?n', Date.now() - filter.sinceMs)
+    if (filter.before) add('at < ?n', filter.before)
+    if (filter.minLatencyMs) add('latency_ms >= ?n', filter.minLatencyMs)
+    if (filter.minInputTokens) add('input_tokens >= ?n', filter.minInputTokens)
+    return { where: clauses.join(' AND '), binds }
   }
 
-  /** Removes one attempt, or every attempt in a slice. Returns how many rows went. */
-  async deleteRequestLogs(filter: { id?: string, providerId?: string, keyId?: string, all?: boolean }): Promise<number> {
+  /** One page of attempts behind the current filters, newest first, with the total behind the pager. */
+  async listRequestLogs(filter: AssistantLogQuery & { before?: number | null } = {}): Promise<AssistantLogPage> {
+    const { where, binds } = this.logClauses(filter)
+    const total = (await this.one<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM chat_request_logs WHERE ${where}`, this.userId, ...binds,
+    ))?.total ?? 0
+    const pageSize = Math.min(Math.max(Math.trunc(filter.pageSize ?? LOG_PAGE_SIZE), 1), LOG_MAX_PAGE_SIZE)
+    const page = Math.max(Math.trunc(filter.page ?? 1), 1)
+    const sortColumn = filter.sortBy ? LOG_SORT_COLUMNS[filter.sortBy] : undefined
+    const direction = filter.sortDir === 'asc' ? 'ASC' : 'DESC'
+    const orderBy = sortColumn && filter.sortDir && filter.sortDir !== 'none'
+      ? `${sortColumn} ${direction}, at DESC, id DESC`
+      : `at ${filter.order === 'asc' ? 'ASC' : 'DESC'}, id ${filter.order === 'asc' ? 'ASC' : 'DESC'}`
+    const rows = await this.rows<RequestLogRow>(
+      `SELECT ${REQUEST_LOG_COLUMNS} FROM chat_request_logs WHERE ${where}
+        ORDER BY ${orderBy} LIMIT ?${binds.length + 2} OFFSET ?${binds.length + 3}`,
+      this.userId, ...binds, pageSize, (page - 1) * pageSize,
+    )
+    return { logs: rows.map(toRequestLog), total, page, pageSize }
+  }
+
+  async getRequestLog(id: string): Promise<AssistantRequestLog | null> {
+    const row = await this.one<RequestLogRow>(
+      `SELECT ${REQUEST_LOG_COLUMNS} FROM chat_request_logs WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    return row ? toRequestLog(row) : null
+  }
+
+  /** The only two fields a reader may write on an attempt: a note and a bookmark. */
+  async patchRequestLog(id: string, patch: AssistantLogPatch): Promise<AssistantRequestLog | null> {
+    const fields: string[] = []
+    const binds: unknown[] = [id]
+    if (patch.note !== undefined) {
+      binds.push(patch.note.slice(0, LOG_NOTE_MAX_CHARS))
+      fields.push(`note = ?${binds.length + 1}`)
+    }
+    if (patch.starred !== undefined) {
+      binds.push(patch.starred ? 1 : 0)
+      fields.push(`starred = ?${binds.length + 1}`)
+    }
+    if (fields.length) {
+      await this.write(
+        `UPDATE chat_request_logs SET ${fields.join(', ')} WHERE user_id = ?1 AND id = ?2`,
+        ...binds,
+      )
+    }
+    return await this.getRequestLog(id)
+  }
+
+  /** Removes one line, a batch of ids, a slice, or the whole log. Returns how many rows went. */
+  async deleteRequestLogs(filter: {
+    id?: string, ids?: string[], providerId?: string, keyId?: string, all?: boolean,
+  }): Promise<number> {
     if (filter.id) {
       return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1 AND id = ?2`, filter.id)
+    }
+    if (filter.ids?.length) {
+      const ids = filter.ids.slice(0, LOG_BATCH_DELETE_LIMIT)
+      const holes = ids.map((_, index) => `?${index + 2}`).join(', ')
+      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1 AND id IN (${holes})`, ...ids)
     }
     if (filter.all) {
       return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1`)
@@ -2256,6 +2352,141 @@ export class AssistantStore {
       clauses.push(`key_id = ?${binds.length + 1}`)
     }
     return await this.write(`DELETE FROM chat_request_logs WHERE ${clauses.join(' AND ')}`, ...binds)
+  }
+
+  /**
+   * A cleanup limited by the reader's current filters, by age, by how many rows to keep, or any mix.
+   *
+   * At least one of age or row count is required: a cleanup with neither would mean "delete everything
+   * matching", which is what the separate clear action is for. Starred rows are kept, and `dryRun`
+   * answers how many would go so the dialog can say the number before anything is removed.
+   */
+  async cleanupRequestLogs(options: AssistantLogCleanup & AssistantLogQuery): Promise<AssistantLogCleanupResult> {
+    const days = Math.min(Math.max(Math.trunc(options.days ?? 0), 0), LOG_RETENTION_MAX_DAYS)
+    const rows = Math.min(Math.max(Math.trunc(options.rows ?? 0), 0), LOG_MAX_ROWS_LIMIT)
+    if (days <= 0 && rows <= 0) return { matched: 0, deleted: 0 }
+    const { where, binds } = this.logClauses(options)
+    const clauses = [where, 'starred = 0']
+    const ors: string[] = []
+    if (days > 0) {
+      binds.push(Date.now() - days * DAY_MS)
+      ors.push(`at < ?${binds.length + 1}`)
+    }
+    if (rows > 0) {
+      binds.push(rows)
+      ors.push(`id IN (SELECT id FROM chat_request_logs WHERE user_id = ?1 AND starred = 0
+        ORDER BY at DESC LIMIT -1 OFFSET ?${binds.length + 1})`)
+    }
+    clauses.push(`(${ors.join(' OR ')})`)
+    const filter = clauses.join(' AND ')
+    const matched = (await this.one<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM chat_request_logs WHERE ${filter}`, this.userId, ...binds,
+    ))?.total ?? 0
+    if (options.dryRun) return { matched, deleted: 0 }
+    return { matched, deleted: await this.write(`DELETE FROM chat_request_logs WHERE ${filter}`, ...binds) }
+  }
+
+  /** The values the filter menus can offer, drawn from rows the account actually has. */
+  async logFacets(): Promise<AssistantLogFacets> {
+    const providers = await this.rows<{ id: string, label: string }>(
+      `SELECT provider_id AS id, MAX(provider_label) AS label FROM chat_request_logs
+        WHERE user_id = ?1 AND provider_id <> '' GROUP BY provider_id ORDER BY label`, this.userId,
+    )
+    const keys = await this.rows<{ id: string, label: string, provider_id: string, key_hint: string }>(
+      `SELECT key_id AS id, MAX(key_label) AS label, MAX(provider_id) AS provider_id, MAX(key_hint) AS key_hint
+         FROM chat_request_logs WHERE user_id = ?1 AND key_id <> '' GROUP BY key_id ORDER BY label`, this.userId,
+    )
+    const models = await this.rows<{ value: string }>(
+      `SELECT DISTINCT COALESCE(NULLIF(model_label, ''), model_id) AS value FROM chat_request_logs
+        WHERE user_id = ?1 AND COALESCE(NULLIF(model_label, ''), model_id) <> '' ORDER BY value`, this.userId,
+    )
+    const operations = await this.rows<{ value: string }>(
+      `SELECT DISTINCT operation AS value FROM chat_request_logs WHERE user_id = ?1 ORDER BY value`, this.userId,
+    )
+    const errorKinds = await this.rows<{ value: string }>(
+      `SELECT DISTINCT error_kind AS value FROM chat_request_logs
+        WHERE user_id = ?1 AND error_kind IS NOT NULL AND error_kind <> '' ORDER BY value`, this.userId,
+    )
+    return {
+      providers,
+      keys: keys.map((row) => ({ id: row.id, label: row.label, providerId: row.provider_id, keyHint: row.key_hint })),
+      models: models.map((row) => row.value),
+      operations: operations.map((row) => row.value),
+      errorKinds: errorKinds.map((row) => row.value),
+    }
+  }
+
+  /**
+   * The three answers the statistics screen needs from one filtered slice: totals, a trend and a ranking.
+   *
+   * All of them read the attempt log rather than the daily rollups. The rollups cannot answer a question
+   * about a model, a provider or a status, and an attempt that failed before a token was counted is
+   * exactly the row this screen exists to explain.
+   */
+  async logStats(query: AssistantStatsQuery): Promise<AssistantStatsReport> {
+    const { where, binds } = this.logClauses(query)
+    const totals = await this.one<{
+      requests: number, succeeded: number, input_tokens: number, output_tokens: number,
+      cached_input_tokens: number, avg_ms: number | null, timed: number, last_at: number | null,
+    }>(
+      `SELECT COUNT(*) AS requests, COALESCE(SUM(ok), 0) AS succeeded,
+              COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens,
+              COALESCE(SUM(cached_input_tokens), 0) AS cached_input_tokens,
+              AVG(latency_ms) AS avg_ms, COUNT(latency_ms) AS timed, MAX(at) AS last_at
+         FROM chat_request_logs WHERE ${where}`, this.userId, ...binds,
+    )
+    const requests = totals?.requests ?? 0
+    const succeeded = totals?.succeeded ?? 0
+    let p95: number | null = null
+    if (totals?.timed) {
+      const rank = Math.min(totals.timed - 1, Math.floor(totals.timed * 0.95))
+      p95 = (await this.one<{ latency_ms: number }>(
+        `SELECT latency_ms FROM chat_request_logs WHERE ${where} AND latency_ms IS NOT NULL
+          ORDER BY latency_ms LIMIT 1 OFFSET ?${binds.length + 2}`,
+        this.userId, ...binds, rank,
+      ))?.latency_ms ?? null
+    }
+    const summary: AssistantStatsSummary = {
+      requests, succeeded, failed: requests - succeeded,
+      successRate: requests ? succeeded / requests : 0,
+      inputTokens: totals?.input_tokens ?? 0,
+      outputTokens: totals?.output_tokens ?? 0,
+      cachedInputTokens: totals?.cached_input_tokens ?? 0,
+      avgLatencyMs: totals?.avg_ms ?? null,
+      p95LatencyMs: p95,
+      lastAt: totals?.last_at ?? null,
+    }
+    const from = query.from ?? (query.sinceMs && query.sinceMs > 0 ? Date.now() - query.sinceMs : 0)
+    const to = query.to ?? Date.now()
+    const bucket = to - from <= 2 * DAY_MS ? HOUR_MS : DAY_MS
+    const series = (await this.rows<{
+      bucket: number, requests: number, failed: number, input_tokens: number, output_tokens: number, avg_ms: number | null,
+    }>(
+      `SELECT (at / ${bucket}) * ${bucket} AS bucket, COUNT(*) AS requests,
+              COALESCE(SUM(1 - ok), 0) AS failed, COALESCE(SUM(input_tokens), 0) AS input_tokens,
+              COALESCE(SUM(output_tokens), 0) AS output_tokens, AVG(latency_ms) AS avg_ms
+         FROM chat_request_logs WHERE ${where} GROUP BY bucket ORDER BY bucket`, this.userId, ...binds,
+    )).map((row): AssistantStatsBucket => ({
+      at: row.bucket, requests: row.requests, failed: row.failed,
+      inputTokens: row.input_tokens, outputTokens: row.output_tokens, avgLatencyMs: row.avg_ms,
+    }))
+    const dimension = query.dimension ?? 'provider'
+    const groups = await this.rows<{
+      id: string, requests: number, succeeded: number, failed: number,
+      input_tokens: number, output_tokens: number, avg_ms: number | null,
+    }>(
+      `SELECT ${STATS_GROUP_COLUMNS[dimension]} AS id, COUNT(*) AS requests,
+              COALESCE(SUM(ok), 0) AS succeeded, COALESCE(SUM(1 - ok), 0) AS failed,
+              COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens,
+              AVG(latency_ms) AS avg_ms
+         FROM chat_request_logs WHERE ${where} GROUP BY 1 ORDER BY requests DESC LIMIT 50`,
+      this.userId, ...binds,
+    )
+    const breakdown: AssistantStatsBreakdown[] = groups.map((row) => ({
+      id: row.id, label: row.id, requests: row.requests, succeeded: row.succeeded, failed: row.failed,
+      inputTokens: row.input_tokens, outputTokens: row.output_tokens, avgLatencyMs: row.avg_ms,
+    }))
+    return { summary, series, breakdown }
   }
 
   /**
@@ -9289,6 +9520,60 @@ function toProvider(r: ProviderRow): AssistantProvider {
     sticky: bool(r.sticky ?? 0),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+  }
+}
+
+interface RequestLogRow {
+  id: string
+  at: number
+  provider_id: string
+  provider_label: string
+  key_id: string
+  key_label: string
+  key_hint: string
+  model_label: string
+  operation: string
+  ok: number
+  http_status: number | null
+  error_kind: string | null
+  error_message: string | null
+  input_tokens: number
+  output_tokens: number
+  cached_input_tokens: number
+  latency_ms: number | null
+  request_body: string | null
+  conversation_id: string | null
+  model_id: string | null
+  attempt: number | null
+  note: string | null
+  starred: number | null
+}
+
+function toRequestLog(row: RequestLogRow): AssistantRequestLog {
+  return {
+    id: row.id,
+    at: row.at,
+    providerId: row.provider_id,
+    providerLabel: row.provider_label,
+    keyId: row.key_id,
+    keyLabel: row.key_label,
+    keyHint: row.key_hint,
+    modelLabel: row.model_label,
+    operation: row.operation,
+    ok: Boolean(row.ok),
+    httpStatus: row.http_status,
+    errorKind: row.error_kind,
+    errorMessage: row.error_message,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    cachedInputTokens: row.cached_input_tokens,
+    latencyMs: row.latency_ms,
+    requestBody: row.request_body,
+    conversationId: row.conversation_id ?? '',
+    modelId: row.model_id ?? '',
+    attempt: row.attempt ?? 1,
+    note: row.note ?? '',
+    starred: Boolean(row.starred),
   }
 }
 

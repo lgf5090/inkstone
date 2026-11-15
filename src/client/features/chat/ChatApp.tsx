@@ -10,7 +10,7 @@
  * schedule in the same breath, and the tab that shows them has to be current the moment it is opened.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { BookMarked, Brain, CheckSquare, FolderKanban, LayoutList, MessageSquare, Settings2 } from 'lucide-react'
+import { BarChart3, BookMarked, Brain, CheckSquare, FolderKanban, LayoutList, MessageSquare, ScrollText, Settings2 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -23,6 +23,8 @@ import { TasksView } from './TasksView'
 import { AutomationsView } from './AutomationsView'
 import { SkillsView } from './SkillsView'
 import { AssistantSettingsView } from './AssistantSettingsView'
+import { RequestStatsView } from './RequestStatsView'
+import { RequestLogsView } from './RequestLogsView'
 import { ProjectsView } from './ProjectsView'
 import { NotificationsBell } from './NotificationCenter'
 import { DeepResearchProgress } from './DeepResearchProgress'
@@ -35,6 +37,8 @@ const VIEW_ICONS: Record<AssistantView, typeof MessageSquare> = {
   automations: LayoutList,
   skills: BookMarked,
   projects: FolderKanban,
+  stats: BarChart3,
+  logs: ScrollText,
   settings: Settings2,
 }
 
@@ -50,6 +54,8 @@ const VIEW_TAB_LABELS: Record<AssistantView, MessageKey> = {
   automations: 'assistant.view.automations',
   skills: 'assistant.view.skills',
   projects: 'assistant.projects.title',
+  stats: 'assistant.view.stats',
+  logs: 'assistant.view.logs',
   settings: 'common.settings',
 }
 
@@ -60,6 +66,8 @@ const VIEW_LABELS: Record<AssistantView, MessageKey> = {
   automations: 'assistant.view.automations',
   skills: 'assistant.view.skills',
   projects: 'assistant.projects.title',
+  stats: 'assistant.view.stats',
+  logs: 'assistant.view.logs',
   settings: 'assistant.view.settings',
 }
 
@@ -177,6 +185,8 @@ export function ChatApp() {
           {view === 'automations' && <AutomationsView />}
           {view === 'skills' && <SkillsView />}
           {view === 'projects' && <ProjectsView />}
+          {view === 'stats' && <RequestStatsView />}
+          {view === 'logs' && <RequestLogsView />}
           {view === 'settings' && <AssistantSettingsView />}
         </div>
 

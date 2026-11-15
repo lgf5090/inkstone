@@ -476,6 +476,10 @@ export class AssistantRunner {
   private attemptStartedAt = new Map<string, number>()
   /** The log line of the attempt that answered, waiting for the token count the answer reports. */
   private lastAttemptLogId: string | null = null
+  /** The thread this turn belongs to, so every attempt of a retry chain can be read together. */
+  private logConversationId = ''
+  /** 1-based position of the current attempt within this turn. */
+  private logAttemptNumber = 0
   /** The answer this turn resumes, when the reader pressed "continue" on a cut-off reply. */
   private continueFrom: AssistantMessage | null = null
   /** The caller's cancellation, kept so each attempt can combine it with its own timeout. */
@@ -518,6 +522,8 @@ export class AssistantRunner {
     this.turnModelId = input.modelId ?? null
     this.turnAllowedTools = input.allowedTools ?? null
     this.turnIsSubagent = input.subagent === true
+    this.logConversationId = ''
+    this.logAttemptNumber = 0
     // Read before the scope is resolved for the first time: `noteScope()` caches, so a scope pinned
     // for this turn has to be in place before anything asks for it.
     // A turn that may call nothing keeps no pins either: the prompt would otherwise promise the model tools
@@ -678,6 +684,7 @@ export class AssistantRunner {
       })
     }
     const conversationId = conversation.id
+    this.logConversationId = conversationId
     // The thread's own overrides are read before the model resolves, so a model named here beats the
     // Agent's standing choice and the account default. An explicit switch on this turn still wins.
     this.conversationSettings = conversation.settings ?? {}
@@ -1709,6 +1716,9 @@ export class AssistantRunner {
         keyLabel: '',
         keyHint: entry.apiKey.slice(-4),
         modelLabel: entry.model ?? '',
+        modelId: entry.model ?? '',
+        conversationId: this.logConversationId,
+        attempt: ++this.logAttemptNumber,
         operation: 'chat',
         ok: entry.ok,
         httpStatus: entry.httpStatus ?? null,

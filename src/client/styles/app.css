@@ -487,6 +487,7 @@
 }
 @media (max-width: 429px) {
   .chat-mobile-tab-label { display: none; }
+  .mobile-bottom-nav .chat-mobile-tab-content { min-width: 0; padding: 4px 2px; }
 }
 .mobile-bottom-nav [aria-current='page'] .chat-mobile-tab-content { background: var(--accent-soft); }
 @media (max-height: 500px) {

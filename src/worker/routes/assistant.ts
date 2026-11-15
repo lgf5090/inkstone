@@ -100,6 +100,17 @@ import {
   type AssistantUsageDay,
   type AssistantUsageSlice,
   type UsageFilter,
+  type AssistantLogQuery,
+  type AssistantStatsDimension,
+  LOG_BATCH_DELETE_LIMIT,
+  LOG_MAX_PAGE_SIZE,
+  LOG_MAX_ROWS_LIMIT,
+  LOG_NOTE_MAX_CHARS,
+  LOG_QUERY_MAX_CHARS,
+  LOG_RETENTION_MAX_DAYS,
+  LOG_SORT_KEYS,
+  type AssistantLogSortDir,
+  type AssistantLogSortKey,
   normalizeAssistantPageContext,
 } from '@shared/assistant'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
@@ -265,6 +276,52 @@ function optionalText(value: unknown, max: number): string | undefined {
 function requiredId(value: unknown): string {
   if (!isValidId(value)) throw ApiError.notFound('Not found')
   return value
+}
+
+/**
+ * Every log filter as a bounded value.
+ *
+ * A query string is reader input: an unparseable number is dropped rather than defaulted, because a
+ * window that silently became "everything" is the one mistake a reader cannot see on the screen.
+ */
+function requestLogQuery(c: Context<AppBindings>): AssistantLogQuery & { before?: number | null } {
+  const raw = (name: string) => c.req.query(name)
+  const short = (name: string, max: number): string | undefined => {
+    const value = raw(name)
+    return value ? value.trim().slice(0, max) : undefined
+  }
+  const number = (name: string, max: number): number | undefined => {
+    const value = raw(name)
+    if (!value) return undefined
+    const parsed = Number(value)
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.min(Math.trunc(parsed), max) : undefined
+  }
+  const status = raw('status')
+  const sortBy = raw('sortBy')
+  const sortDir = raw('sortDir')
+  return {
+    ...(short('q', LOG_QUERY_MAX_CHARS) ? { q: short('q', LOG_QUERY_MAX_CHARS) } : {}),
+    ...(short('providerId', 40) ? { providerId: short('providerId', 40) } : {}),
+    ...(short('keyId', 40) ? { keyId: short('keyId', 40) } : {}),
+    ...(short('model', 120) ? { model: short('model', 120) } : {}),
+    ...(short('operation', 40) ? { operation: short('operation', 40) } : {}),
+    ...(short('errorKind', 40) ? { errorKind: short('errorKind', 40) } : {}),
+    ...(status === 'ok' ? { status: 'ok' as const } : status === 'failed' ? { status: 'failed' as const } : {}),
+    ...(raw('starred') === '1' ? { starred: true } : {}),
+    ...(number('from', Number.MAX_SAFE_INTEGER) !== undefined ? { from: number('from', Number.MAX_SAFE_INTEGER) } : {}),
+    ...(number('to', Number.MAX_SAFE_INTEGER) !== undefined ? { to: number('to', Number.MAX_SAFE_INTEGER) } : {}),
+    ...(number('sinceMs', LOG_RETENTION_MAX_DAYS * 86_400_000) !== undefined
+      ? { sinceMs: number('sinceMs', LOG_RETENTION_MAX_DAYS * 86_400_000) } : {}),
+    ...(number('minLatencyMs', 3_600_000) !== undefined ? { minLatencyMs: number('minLatencyMs', 3_600_000) } : {}),
+    ...(number('minInputTokens', 10_000_000) !== undefined ? { minInputTokens: number('minInputTokens', 10_000_000) } : {}),
+    ...(number('before', Number.MAX_SAFE_INTEGER) !== undefined ? { before: number('before', Number.MAX_SAFE_INTEGER) } : {}),
+    ...(number('page', 100_000) !== undefined ? { page: Math.max(1, number('page', 100_000)!) } : {}),
+    ...(number('limit', LOG_MAX_PAGE_SIZE) !== undefined ? { pageSize: Math.max(1, number('limit', LOG_MAX_PAGE_SIZE)!) } : {}),
+    ...(number('pageSize', LOG_MAX_PAGE_SIZE) !== undefined ? { pageSize: Math.max(1, number('pageSize', LOG_MAX_PAGE_SIZE)!) } : {}),
+    ...(raw('order') === 'asc' ? { order: 'asc' as const } : {}),
+    ...(LOG_SORT_KEYS.includes(sortBy as AssistantLogSortKey) ? { sortBy: sortBy as AssistantLogSortKey } : {}),
+    ...(sortDir === 'asc' || sortDir === 'desc' || sortDir === 'none' ? { sortDir: sortDir as AssistantLogSortDir } : {}),
+  }
 }
 
 /** The end of the reader's local day, so "today" is theirs and not the server's. */
@@ -3484,21 +3541,59 @@ assistantRoutes.get('/stats/keys', async (c) => {
   return c.json({ rows })
 })
 
-/** The attempts behind a slice, newest first. `before` is the `at` of the last row already shown. */
-assistantRoutes.get('/logs', async (c) => {
-  const s = store(c)
-  const before = Number(c.req.query('before') ?? 0)
-  const limit = Number(c.req.query('limit') ?? 50)
-  const sinceMs = Number(c.req.query('sinceMs') ?? 0)
-  return c.json({
-    logs: await s.listRequestLogs({
-      ...(c.req.query('providerId') !== undefined ? { providerId: c.req.query('providerId')! } : {}),
-      ...(c.req.query('keyId') !== undefined ? { keyId: c.req.query('keyId')! } : {}),
-      before: Number.isFinite(before) && before > 0 ? before : null,
-      ...(Number.isFinite(sinceMs) && sinceMs > 0 ? { sinceMs } : {}),
-      limit: Number.isFinite(limit) ? limit : 50,
-    }),
+/** The attempts behind the current filters, with the total behind the pager. */
+assistantRoutes.get('/logs', async (c) => c.json(await store(c).listRequestLogs(requestLogQuery(c))))
+
+/** The values the filter menus can offer, drawn from the account's own rows. */
+assistantRoutes.get('/logs/facets', async (c) => c.json(await store(c).logFacets()))
+
+/** Totals, trend and ranking over the same filtered slice the log screen reads. */
+assistantRoutes.get('/stats/requests', async (c) => {
+  const dimension = c.req.query('dimension')
+  const dimensions: AssistantStatsDimension[] = ['provider', 'key', 'model', 'operation', 'status', 'day']
+  return c.json(await store(c).logStats({
+    ...requestLogQuery(c),
+    dimension: dimensions.includes(dimension as AssistantStatsDimension)
+      ? dimension as AssistantStatsDimension : 'provider',
+  }))
+})
+
+assistantRoutes.get('/logs/:id', async (c) => {
+  const entry = await store(c).getRequestLog(requiredId(c.req.param('id')))
+  if (!entry) throw ApiError.notFound('Log entry not found')
+  return c.json({ entry })
+})
+
+assistantRoutes.patch('/logs/:id', async (c) => {
+  const body = await readJson<{ note?: unknown, starred?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const entry = await store(c).patchRequestLog(requiredId(c.req.param('id')), {
+    ...(body.note !== undefined ? { note: optionalText(body.note, LOG_NOTE_MAX_CHARS) ?? '' } : {}),
+    ...(body.starred !== undefined ? { starred: body.starred === true } : {}),
   })
+  if (!entry) throw ApiError.notFound('Log entry not found')
+  return c.json({ entry })
+})
+
+assistantRoutes.post('/logs/delete', async (c) => {
+  const body = await readJson<{ ids?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const ids = (Array.isArray(body.ids) ? body.ids : [])
+    .filter((id): id is string => typeof id === 'string' && isValidId(id))
+    .slice(0, LOG_BATCH_DELETE_LIMIT)
+  if (!ids.length) throw ApiError.badRequest('No log ids were given.')
+  return c.json({ deleted: await store(c).deleteRequestLogs({ ids }) })
+})
+
+/** A manual cleanup, or a preview of one. An age or a row count is required so it cannot mean "all". */
+assistantRoutes.post('/logs/cleanup', async (c) => {
+  const body = await readJson<{ days?: unknown, rows?: unknown, dryRun?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const bounded = (value: unknown, max: number): number =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(Math.trunc(value), max)) : 0
+  const days = bounded(body.days, LOG_RETENTION_MAX_DAYS)
+  const rows = bounded(body.rows, LOG_MAX_ROWS_LIMIT)
+  if (days <= 0 && rows <= 0) throw ApiError.badRequest('A cleanup needs an age or a row count.')
+  return c.json(await store(c).cleanupRequestLogs({
+    ...requestLogQuery(c), days, rows, dryRun: body.dryRun === true,
+  }))
 })
 
 /** Removes one attempt, or every attempt in a slice, or the whole log. */

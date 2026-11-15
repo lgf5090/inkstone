@@ -92,10 +92,17 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     cached_input_tokens INTEGER NOT NULL DEFAULT 0,
     latency_ms INTEGER,
     request_body TEXT,
+    conversation_id TEXT NOT NULL DEFAULT '',
+    model_id TEXT NOT NULL DEFAULT '',
+    attempt INTEGER NOT NULL DEFAULT 1,
+    note TEXT NOT NULL DEFAULT '',
+    starred INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_at ON chat_request_logs(user_id, at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_key ON chat_request_logs(user_id, key_id, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_filter ON chat_request_logs(user_id, provider_id, ok, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_conversation ON chat_request_logs(user_id, conversation_id, at DESC)`,
 
 
   /**
@@ -1004,7 +1011,8 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_provider_key_model_cooldowns: ['user_id', 'provider_id', 'key_id', 'model', 'cooling_until'],
   chat_request_logs: ['user_id', 'id', 'at', 'provider_id', 'provider_label', 'key_id', 'key_label', 'key_hint',
     'model_label', 'operation', 'ok', 'http_status', 'error_kind', 'error_message',
-    'input_tokens', 'output_tokens', 'cached_input_tokens', 'latency_ms', 'request_body'],
+    'input_tokens', 'output_tokens', 'cached_input_tokens', 'latency_ms', 'request_body',
+    'conversation_id', 'model_id', 'attempt', 'note', 'starred'],
   chat_search_keys: ['user_id', 'engine', 'key_ciphertext', 'key_hint', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'icon', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens',
     'vendor_context_tokens', 'vendor_max_output_tokens', 'vision',

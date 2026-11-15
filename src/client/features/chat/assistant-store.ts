@@ -73,9 +73,9 @@ import { downloadSkillBundle } from './skill-bundle'
 import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 
-export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'skills' | 'projects' | 'settings'
+export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'skills' | 'projects' | 'stats' | 'logs' | 'settings'
 
-export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'skills', 'projects', 'settings']
+export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'skills', 'projects', 'stats', 'logs', 'settings']
 
 /** The picks the conversation list's tab strip offers, in the order it draws them. */
 export type ConversationListTab = 'folders' | 'projects' | 'tags' | 'starred' | 'pinned' | 'archived' | 'saved'
