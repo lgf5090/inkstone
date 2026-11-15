@@ -477,6 +477,11 @@ function LogRow({ entry, columns, template, selected, expanded, facets, onToggle
   }
 
   const removeOne = async () => {
+    const agreed = await confirm({
+      title: t('assistant.logs.delete'),
+      tone: 'danger',
+    })
+    if (!agreed) return
     try {
       await api.assistant.deleteRequestLog(entry.id)
       await onDeleted()

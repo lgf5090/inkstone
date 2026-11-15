@@ -21,6 +21,7 @@ import { Modal, confirm } from '../../components/overlay'
 import { cn } from '../../lib/cn'
 import { useUi } from '../../store/ui'
 import { csvCell } from './request-log-shared'
+import { LoadFailure } from './assistant-settings-shared'
 
 /** A number with thousands separators; the panel is about magnitudes, not exact digits. */
 const count = (value: number): string => value.toLocaleString()
@@ -109,6 +110,8 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
   const [rows, setRows] = useState<AssistantKeyStats[] | null>(null)
   const [logs, setLogs] = useState<AssistantRequestLog[] | null>(null)
   const [busy, setBusy] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+  const [reload, setReload] = useState(0)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [sinceMs, setSinceMs] = useState<number | null>(null)
 
@@ -169,11 +172,18 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
   useEffect(() => {
     if (!open) return
     setBusy(true)
+    setFailure(null)
     const work = tab === 'stats' ? loadStats() : loadLogs()
     void work
-      .catch((error: unknown) => toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' }))
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        // A failed read keeps its own surface. Without this the log tab would spin forever and the
+        // statistics tab would show nothing at all, which reads as "no data" rather than "no answer".
+        setFailure(message)
+        toast({ title: message, tone: 'danger' })
+      })
       .finally(() => setBusy(false))
-  }, [open, tab, scope, loadStats, loadLogs, toast])
+  }, [open, tab, scope, loadStats, loadLogs, toast, reload])
 
   const total = rows?.[0] ?? null
   const scopeName = scope === 'all'
@@ -236,7 +246,15 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
 
         {busy && <div className="flex justify-center py-8"><Spinner /></div>}
 
-        {!busy && tab === 'stats' && total && (
+        {!busy && failure && (
+          <LoadFailure
+            messageKey="assistant.insights.load_failed"
+            detail={failure}
+            onRetry={() => setReload((value) => value + 1)}
+          />
+        )}
+
+        {!busy && !failure && tab === 'stats' && total && (
           <>
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
               <Stat icon={<Hash size={10} />} label={t('assistant.insights.requests')} value={count(total.requests)} />
@@ -278,8 +296,13 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
             )}
           </>
         )}
+        {!busy && !failure && tab === 'stats' && !total && (
+          <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">
+            {t('assistant.insights.empty')}
+          </p>
+        )}
 
-        {!busy && tab === 'logs' && (
+        {!busy && !failure && tab === 'logs' && (
           <>
             <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center gap-1.5">
@@ -329,12 +352,17 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
                         tone: 'danger',
                       })
                       if (!agreed) return
-                      await api.assistant.clearRequestLogs({
-                        ...(scope === 'key' ? { providerId: provider.id, keyId } : {}),
-                        ...(scope === 'provider' ? { providerId: provider.id } : {}),
-                        ...(scope === 'all' ? { all: true } : {}),
-                      })
-                      await loadLogs()
+                      try {
+                        await api.assistant.clearRequestLogs({
+                          ...(scope === 'key' ? { providerId: provider.id, keyId } : {}),
+                          ...(scope === 'provider' ? { providerId: provider.id } : {}),
+                          ...(scope === 'all' ? { all: true } : {}),
+                        })
+                        setExpanded(null)
+                        await loadLogs()
+                      } catch (error) {
+                        toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
+                      }
                     })()
                   }}
                 >
@@ -343,7 +371,7 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
               </div>
               <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.insights.logs_hint')}</p>
             </div>
-            {logs === null ? <div className="flex justify-center py-6"><Spinner /></div> : logs.length === 0 ? (
+            {!logs || logs.length === 0 ? (
               <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.insights.logs_empty')}</p>
             ) : (
               <ul className="flex max-h-[52vh] flex-col gap-1 overflow-y-auto">
@@ -416,8 +444,18 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
                             label={t('assistant.insights.delete_one')}
                             onClick={() => {
                               void (async () => {
-                                await api.assistant.deleteRequestLog(entry.id)
-                                await loadLogs()
+                                const agreed = await confirm({
+                                  title: t('assistant.insights.delete_one'),
+                                  tone: 'danger',
+                                })
+                                if (!agreed) return
+                                try {
+                                  await api.assistant.deleteRequestLog(entry.id)
+                                  setExpanded(null)
+                                  await loadLogs()
+                                } catch (error) {
+                                  toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
+                                }
                               })()
                             }}
                           >

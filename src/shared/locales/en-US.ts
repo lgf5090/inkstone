@@ -8212,6 +8212,7 @@ const CORE_MESSAGES_TAIL = {
     "assistant.insights.tokens": "Tokens",
     "assistant.insights.body": "Request body",
     "assistant.insights.delete_one": "Delete this entry",
+    "assistant.insights.load_failed": "The statistics and logs could not be loaded.",
     "assistant.insights.open": "Stats and logs",
     "assistant.view.stats": "Statistics",
     "assistant.view.logs": "Logs",

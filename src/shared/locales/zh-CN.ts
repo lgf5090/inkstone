@@ -8204,6 +8204,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.insights.tokens": "Token",
     "assistant.insights.body": "请求体",
     "assistant.insights.delete_one": "删除这条日志",
+    "assistant.insights.load_failed": "统计与日志加载失败。",
     "assistant.insights.open": "统计与日志",
     "assistant.view.stats": "统计",
     "assistant.view.logs": "日志",

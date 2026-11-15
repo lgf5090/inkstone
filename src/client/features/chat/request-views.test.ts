@@ -176,3 +176,19 @@ describe('a downloaded log file', () => {
     expect(csvCell('-5')).toBe("'-5")
   })
 })
+
+describe('deleting one log row', () => {
+  it('asks for confirmation before the destructive call is sent', async () => {
+    vi.spyOn(api.assistant, 'requestLogs').mockResolvedValue({
+      logs: [entry()], total: 1, page: 1, pageSize: 25,
+    })
+    const remove = vi.spyOn(api.assistant, 'deleteRequestLog').mockResolvedValue({ deleted: 1 })
+    await show(createElement(RequestLogsView))
+    const deleter = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
+      .find((node) => node.getAttribute('aria-label') === t('assistant.logs.delete'))
+    expect(deleter).toBeTruthy()
+    // With no confirm host mounted the only safe answer is to decline, not to send the delete anyway.
+    await act(async () => { deleter!.click() })
+    expect(remove).not.toHaveBeenCalled()
+  })
+})

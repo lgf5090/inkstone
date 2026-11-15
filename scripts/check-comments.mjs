@@ -1929,6 +1929,8 @@ const allowed = new Map([
     "/** Each model's share of the window, most used first, with what it cost where the reader has priced it. */",
     "// The totals and the window are two questions with two answers, so they are asked together and each",
     "// keeps its own failure: a trend that cannot be read must not take the streak down with it.",
+    "// A swallowed rejection used to look exactly like an account with no usage. Keep the two apart so",
+    "// the reader gets a retry instead of an empty chart.",
   ]],
   ["src/client/features/chat/ArtifactBody.tsx", [
     "/**\n * A draft, drawn as the document it is meant to become.\n *\n * The canvas panel edits Markdown in CodeMirror and reads it back through the notebook's own renderer,\n * which is the only thing in the app that gives a fence its highlight and its copy button, a table its\n * wrapper, a diagram its picture and a `![[note]]` its body. This module is the read-only half of that\n * pair: it hands the body to `MarkdownBody`, says plainly when the render cannot be had at all and shows\n * the text instead, and keeps out of the drawn document every control that would edit it.\n *\n * Two of those halves were not the renderer's business to decide, which is why they live here. A draft\n * has no note of its own until it is filed as one, so the embed pass needs the draft body and title\n * passed to it explicitly; left out, every `![[...]]` in an assistant's draft sat at \"Loading\" forever,\n * which reads as a document still arriving rather than a surface that never asked. And a task checkbox\n * comes out of the renderer as a live input, because the note preview answers a click by writing the\n * line it came from - a draft preview has no such line, so the box would flip on a press, change\n * nothing, and say it had edited the draft.\n */",
@@ -2949,6 +2951,8 @@ const allowed = new Map([
     "/** A small back-arrow label for the provider-wide entry, kept here so both doors read the same. */",
     "// A JSON export carries whole rows. The prompt body is not one of the columns this drawer shows,",
     "// so leave it out rather than quietly adding a reader's conversation to a downloaded file.",
+    "// A failed read keeps its own surface. Without this the log tab would spin forever and the",
+    "// statistics tab would show nothing at all, which reads as \"no data\" rather than \"no answer\".",
   ]],
   ["src/client/features/chat/MemoryView.tsx", [
     "/**\n * What the assistant remembers, and what it is unsure about.\n *\n * The list is grouped by category because a reader scanning \"where do I think I live\" reads by topic,\n * not by the order things happened to be saved. The four row actions are the interesting part: an\n * update that changes a fact keeps the old one as history rather than overwriting it, so \"what did I\n * used to say\" still answers — and a plain edit stays a plain edit, for fixing a typo.\n */",
@@ -4981,6 +4985,10 @@ const allowed = new Map([
     "// The note exists and its thread exists; only the link between them is missing, which is worth",
     "// saying and not worth failing the whole command for.",
   ]],
+  ["src/client/features/chat/insights-failure.test.ts", [
+    "/**\n * The insights drawer has to answer three different things with three different surfaces: a read in\n * flight, a read that failed, and a read that legitimately came back empty. A failed read used to leave\n * the log tab spinning forever and the statistics tab completely blank, which reads as \"no data\" rather\n * than \"no answer\".\n */",
+    "// The rejected read settles in a microtask after the first render; let it land inside act.",
+  ]],
   ["src/client/features/chat/mcp-authorize-card.test.ts", [
     "/**\n * The settings screen's answer to a server that wants a login.\n *\n * A third party that refuses a call is not broken, and the fix is not a field on this screen — it is the\n * reader pressing a button and logging in at the other end. What is pinned here is that the screen says so\n * in the one case where it is true, keeps quiet in the ordinary case where a server answers with the key it\n * was given, and that the press reaches the flow.\n */",
     "// The refusal is still shown: the button is the way out, not a reason to hide what happened.",
@@ -5548,6 +5556,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/request-views.test.ts", [
     "/**\n * The two surfaces that read the request log: the log itself and the statistics behind it.\n *\n * These cases pin what the screens claim rather than how they paint: the filters the worker supports are\n * the filters on screen, a filtered page shows its total and its rows, and the statistics name their\n * dimensions and their numbers. A chart is not drawn here — the canvas is stubbed, because the claim is\n * that the numbers reached the panel, not that chart.js can paint in jsdom.\n */",
+    "// With no confirm host mounted the only safe answer is to decline, not to send the delete anyway.",
   ]],
   ["src/client/features/chat/save-as-task.test.ts", [
     "/**\n * What one message becomes when the reader keeps it as a task.\n *\n * The interesting cases are the ones a message actually has: a heading or a list item on its first\n * line, a wall of text that has to be cut to a title, and a message with no words at all — an image the\n * reader sent with nothing typed — which must not become a task called \"Untitled\".\n */",
