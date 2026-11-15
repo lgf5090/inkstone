@@ -16,6 +16,7 @@ import {
   testR2Bucket,
 } from './doubles/bindings'
 import type { TestR2Bucket } from './doubles/bindings'
+import { testGithubLimiter } from './doubles/github-limiter'
 
 const USER_A = '0123456789abcdefghjkmnpqrs'
 const USER_B = '0123456789abcdefghjkmnpqrt'
@@ -181,6 +182,7 @@ beforeEach(() => {
       new CredentialVault(vaultState()).fetch(request),
     ),
     FILES: bucket,
+    GITHUB_LIMITER: testGithubLimiter(),
   })
   app = buildApp()
 })

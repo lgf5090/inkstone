@@ -57,6 +57,7 @@ export { WebsshSession } from './webssh/do/session'
 export { EmailMailbox } from './email/mailbox-do'
 export { MusicQueue } from './music/queue'
 export { MusicShareLimiter } from './music/share-limiter'
+export { GithubLimiter } from './durable/github-limiter'
 export { SubagentRunner } from './assistant/subagent-do'
 
 // Codex CLI drops the `iss` callback parameter while its rmcp
