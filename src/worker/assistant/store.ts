@@ -2214,12 +2214,19 @@ export class AssistantStore {
     }
     const rows = settings.logMaxRows
     if (rows > 0) {
-      await this.write(
-        `DELETE FROM chat_request_logs WHERE user_id = ?1 AND starred = 0 AND id IN (
-           SELECT id FROM chat_request_logs WHERE user_id = ?1 AND starred = 0
-            ORDER BY at DESC LIMIT -1 OFFSET ?2)`,
-        rows,
-      )
+      // The offset delete sorts the whole table. Most writes leave the table under the ceiling, so ask
+      // for the count first and only pay for the sort on the write that actually crosses it.
+      const held = (await this.one<{ total: number }>(
+        `SELECT COUNT(*) AS total FROM chat_request_logs WHERE user_id = ?1 AND starred = 0`, this.userId,
+      ))?.total ?? 0
+      if (held > rows) {
+        await this.write(
+          `DELETE FROM chat_request_logs WHERE user_id = ?1 AND starred = 0 AND id IN (
+             SELECT id FROM chat_request_logs WHERE user_id = ?1 AND starred = 0
+              ORDER BY at DESC LIMIT -1 OFFSET ?2)`,
+          rows,
+        )
+      }
     }
   }
 

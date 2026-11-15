@@ -945,3 +945,27 @@ describe('the sources a vendor reports', () => {
     expect(sourcesFromGemini({})).toEqual([])
   })
 })
+
+describe('the first frame', () => {
+  it('reaches the reader before the attempt bookkeeping finishes', async () => {
+    // A log write is several database round-trips. Holding the first frame for it would add that whole
+    // chain to the time before the reader sees any text, which is the one latency this loop owns.
+    let finish: (() => void) | undefined
+    const bookkeeping = new Promise<void>((resolve) => { finish = resolve })
+    vi.stubGlobal('fetch', vi.fn(async () => response([openAiFrame({ content: 'first' })])))
+    const iterator = streamUpstream('openai', request({
+      retry: { attempts: 0, baseMs: 0, onAttemptSucceeded: () => bookkeeping },
+    }))
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const first = await Promise.race([
+      iterator.next(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('the first frame waited for the log')), 1000)
+      }),
+    ])
+    if (timer) clearTimeout(timer)
+    expect(first.value).toMatchObject({ type: 'text', delta: 'first' })
+    finish?.()
+    await iterator.return(undefined)
+  })
+})

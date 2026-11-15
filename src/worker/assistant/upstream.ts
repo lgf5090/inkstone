@@ -468,8 +468,15 @@ export async function* streamUpstream(
       for await (const event of streamOnce(protocol, { ...request, apiKey })) {
         if (!produced) {
           produced = true
-          try { await request.retry?.onAttemptSucceeded?.(apiKey, request) } catch {
-            // Bookkeeping must not cost an answer that has already started arriving.
+          // The first frame goes out before the log row is written: a reader waits for the answer, not
+          // for the bookkeeping. The runner holds the row's promise and awaits it before the turn ends.
+          try {
+            const bookkeeping = request.retry?.onAttemptSucceeded?.(apiKey, request)
+            if (bookkeeping) void Promise.resolve(bookkeeping).catch(() => {
+              // Bookkeeping must not cost an answer that has already started arriving.
+            })
+          } catch {
+            // A synchronous failure in the hook must not cost the answer either.
           }
         }
         yield event

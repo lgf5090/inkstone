@@ -474,8 +474,8 @@ export class AssistantRunner {
   private signedKeyIds = new Map<string, string>()
   /** When each key was signed for the current attempt, so the log can carry a round-trip. */
   private attemptStartedAt = new Map<string, number>()
-  /** The log line of the attempt that answered, waiting for the token count the answer reports. */
-  private lastAttemptLogId: string | null = null
+  /** The pending log row of the attempt that answered, waiting for the token count the answer reports. */
+  private lastAttemptLog: Promise<string | null> | null = null
   /** The thread this turn belongs to, so every attempt of a retry chain can be read together. */
   private logConversationId = ''
   /** 1-based position of the current attempt within this turn. */
@@ -1757,10 +1757,14 @@ export class AssistantRunner {
   private async finishAttemptLog(usage: {
     inputTokens: number, outputTokens: number, cachedInputTokens?: number,
   }): Promise<void> {
-    const id = this.lastAttemptLogId
-    if (!id) return
-    this.lastAttemptLogId = null
+    // The row is written beside the answer rather than before its first frame. This is the point where
+    // the turn cannot finish without the id it has to fill in, so it waits for the pending write here.
+    const pending = this.lastAttemptLog
+    if (!pending) return
+    this.lastAttemptLog = null
     try {
+      const id = await pending
+      if (!id) return
       await this.store.finishRequestLog(id, {
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
@@ -1808,20 +1812,25 @@ export class AssistantRunner {
           // provider's own error, and the next failure will try to record itself again.
         }
       },
-      onAttemptSucceeded: async (apiKey, request) => {
-        this.lastAttemptLogId = await this.logAttempt({
-          provider, model, apiKey,
-          keyId: this.signedKeyIds.get(apiKey) ?? '',
-          ok: true,
-          latencyMs: this.elapsedFor(apiKey),
-          request,
-        })
-        if (!this.signedKeyIds.has(apiKey)) return
-        try {
-          await this.store.clearProviderKeyFailure(this.signedKeyIds.get(apiKey)!, provider.id, model)
-        } catch {
-          // Same rule as above: a key that answered answered, whatever the bookkeeping did about it.
-        }
+      onAttemptSucceeded: (apiKey, request) => {
+        // Started, not awaited: the transport hands the first frame to the reader before this finishes.
+        // The turn's finish step awaits the promise, so an answer cannot outrun its own token count.
+        this.lastAttemptLog = (async () => {
+          const id = await this.logAttempt({
+            provider, model, apiKey,
+            keyId: this.signedKeyIds.get(apiKey) ?? '',
+            ok: true,
+            latencyMs: this.elapsedFor(apiKey),
+            request,
+          })
+          if (!this.signedKeyIds.has(apiKey)) return id
+          try {
+            await this.store.clearProviderKeyFailure(this.signedKeyIds.get(apiKey)!, provider.id, model)
+          } catch {
+            // Same rule as above: a key that answered answered, whatever the bookkeeping did about it.
+          }
+          return id
+        })()
       },
     }
   }

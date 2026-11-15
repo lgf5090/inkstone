@@ -36966,7 +36966,6 @@ const allowed = new Map([
     "// Same rule as below: the turn still reports the provider's own error.",
     "/**\n * How long one key stays away from one model it could not serve.\n *\n * Longer than a key's own rest and independent of it: the cause is an entitlement — a plan that does not\n * include the model, a region that does not carry it — and that changes on a vendor's schedule rather than\n * in seconds. Cooling only the pair keeps the key answering every other model in the meantime.\n */",
     "/** When each key was signed for the current attempt, so the log can carry a round-trip. */",
-    "/** The log line of the attempt that answered, waiting for the token count the answer reports. */",
     "/** Milliseconds since this key was signed for the attempt in flight, or null when untimed. */",
     "/**\n   * One line in the attempt log.\n   *\n   * Never throws: a log that breaks a turn is worse than a gap in it. The label is left empty because the\n   * runner never reads key rows — the hint and the id are what a reader searches by.\n   */",
     "/**\n   * The request as the reader asked to keep it, or null when they did not.\n   *\n   * Truncated to a readable size: a body is here to answer \"what did we actually send\", and a 40k-token\n   * transcript pasted into a log row answers that no better than its first few thousand characters.\n   */",
@@ -36975,6 +36974,11 @@ const allowed = new Map([
     "/** How much of a request body the log keeps, as characters. */",
     "/** The thread this turn belongs to, so every attempt of a retry chain can be read together. */",
     "/** 1-based position of the current attempt within this turn. */",
+    "/** The pending log row of the attempt that answered, waiting for the token count the answer reports. */",
+    "// The row is written beside the answer rather than before its first frame. This is the point where",
+    "// the turn cannot finish without the id it has to fill in, so it waits for the pending write here.",
+    "// Started, not awaited: the transport hands the first frame to the reader before this finishes.",
+    "// The turn's finish step awaits the promise, so an answer cannot outrun its own token count.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -38227,6 +38231,8 @@ const allowed = new Map([
     "/**\n   * A cleanup limited by the reader's current filters, by age, by how many rows to keep, or any mix.\n   *\n   * At least one of age or row count is required: a cleanup with neither would mean \"delete everything\n   * matching\", which is what the separate clear action is for. Starred rows are kept, and `dryRun`\n   * answers how many would go so the dialog can say the number before anything is removed.\n   */",
     "/** The values the filter menus can offer, drawn from rows the account actually has. */",
     "/**\n   * The three answers the statistics screen needs from one filtered slice: totals, a trend and a ranking.\n   *\n   * All of them read the attempt log rather than the daily rollups. The rollups cannot answer a question\n   * about a model, a provider or a status, and an attempt that failed before a token was counted is\n   * exactly the row this screen exists to explain.\n   */",
+    "// The offset delete sorts the whole table. Most writes leave the table under the ceiling, so ask",
+    "// for the count first and only pay for the sort on the write that actually crosses it.",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
@@ -38647,6 +38653,9 @@ const allowed = new Map([
     "/**\n * Gemini's key rides in its own header rather than as a bearer token.\n *\n * An API key sent as `Authorization: Bearer` is read as an OAuth token and refused with 401, which is what\n * every request to this wire did before this header existed. The gateway header list already carries the\n * name, so the guard's allowlist is unchanged.\n */",
     "/**\n   * Told once, when an attempt starts producing rather than when it finishes.\n   *\n   * This is the earliest proof that the key works, and the caller is the only one that can turn that into\n   * \"the cooldown this key earned is no longer true\". Waiting for the turn to end would keep a recovered\n   * key at the back of the ring for the rest of the answer.\n   */",
     "// Bookkeeping must not cost an answer that has already started arriving.",
+    "// The first frame goes out before the log row is written: a reader waits for the answer, not",
+    "// for the bookkeeping. The runner holds the row's promise and awaits it before the turn ends.",
+    "// A synchronous failure in the hook must not cost the answer either.",
   ]],
   ["src/worker/assistant/vault.ts", [
     "/**\n * The vault as lists and counts, for the tools that answer \"what do I have\".\n *\n * `search_notes` answers a topic out of the notes; nothing answered the questions a reader asks about\n * the notebook itself — how many notes there are, which folders they sit in, which tags label them —\n * so the assistant had to guess or say it could not tell. The rows are already there, and the scope\n * every note tool obeys applies to a listing exactly as it applies to a search.\n *\n * The SQL lives here rather than in `mcp/retrieval.ts` because the shape is different: a listing pages\n * by recency rather than by relevance, and the scope is the assistant's own permission model, which the\n * MCP server does not have. What the two share is the notes schema, and that is shared through\n * `db/rows.ts`.\n */",
@@ -48570,6 +48579,8 @@ const allowed = new Map([
     "// An API key in `Authorization` is read as an OAuth token and refused; this wire names its own header.",
     "// Google's high-demand notice names the model in its body. Matching the bare word turned a 503 into",
     "// \"the provider does not know that model\", which sends the reader to edit a working model setting.",
+    "// A log write is several database round-trips. Holding the first frame for it would add that whole",
+    "// chain to the time before the reader sees any text, which is the one latency this loop owns.",
   ]],
   ["tests/assistant-usage-attribution.test.ts", [
     "/**\n * Cost follows the model, not the word it answers to; a thread can be found by the note it started from;\n * and a downvote can say what was wrong.\n *\n * Three server fixes that share a shape: each stores or reads a fact the surface used to infer from a\n * label, an absent filter, or a single verdict letter. The tests below pin the consequence, not the SQL —\n * a renamed model keeps its price, a priced-with-no-currency model is not folded into dollars, a note's\n * threads exclude another account's, and a reason survives to the transcript.\n */",
