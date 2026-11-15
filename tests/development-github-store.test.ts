@@ -362,6 +362,32 @@ describe('GitHub store optimistic writes', () => {
     expect(JSON.stringify(useGithubStore.getState().accounts)).not.toContain('ghp_secret')
   })
 
+  it('offers an undo that restores a deleted repository and its collection binding', async () => {
+    useGithubStore.setState({
+      status: 'ready',
+      repos: [repo('1')],
+      collections: [collection('c1', ['1'])],
+    })
+    const toast = vi.fn()
+    useUi.setState({ toast })
+    fetchMock
+      .mockResolvedValueOnce(envelope({ ok: true }))
+      .mockResolvedValueOnce(envelope({ repo: repo('1') }))
+      .mockResolvedValueOnce(envelope({ collection: collection('c1', ['1']) }))
+    await useGithubStore.getState().deleteRepo('1')
+    expect(useGithubStore.getState().repos).toHaveLength(0)
+    expect(useGithubStore.getState().collections[0]?.repoIds).toEqual([])
+
+    const last = toast.mock.calls.at(-1)?.[0] as { action?: { label: string; run: () => void } }
+    expect(last.action?.label.trim()).not.toBe('')
+    last.action!.run()
+    await vi.waitFor(() => {
+      expect(useGithubStore.getState().repos.map((entry) => entry.id)).toEqual(['1'])
+      expect(useGithubStore.getState().collections[0]?.repoIds).toEqual(['1'])
+    })
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain('/collections/c1')
+  })
+
   it('keeps the existing app order when an update check reports a newer row', async () => {
     useGithubStore.setState({
       status: 'ready',

@@ -428,6 +428,8 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     },
 
     deleteRepo: async (id) => {
+      const removed = get().repos.find((repo) => repo.id === id) ?? null
+      const boundCollections = get().collections.filter((collection) => collection.repoIds.includes(id))
       const revision = bump('repos')
       const collectionRevision = bump('collections')
       set((state) => ({
@@ -437,6 +439,21 @@ export const useGithubStore = create<GithubStore>((set, get) => {
       await enqueue(`repo:${id}`, async () => {
         try {
           await githubApi.deleteRepo(id)
+          if (removed) {
+            const restore = removed
+            const restoreCollections = boundCollections
+            useUi.getState().toast({
+              title: t('development.github.repos.deleted'),
+              duration: 8000,
+              action: {
+                label: t('development.github.common.undo'),
+                run: () => {
+                  void get().upsertRepo(restore)
+                  for (const collection of restoreCollections) void get().upsertCollection(collection)
+                },
+              },
+            })
+          }
         } catch (error) {
           notifyFailure(error)
           const pending: CollectionKey[] = []
@@ -532,11 +549,23 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     },
 
     deleteGist: async (id) => {
+      const removed = get().gists.find((gist) => gist.id === id) ?? null
       const revision = bump('gists')
       set((state) => ({ gists: state.gists.filter((gist) => gist.id !== id) }))
       await enqueue(`gist:${id}`, async () => {
         try {
           await githubApi.deleteGist(id)
+          if (removed) {
+            const restore = removed
+            useUi.getState().toast({
+              title: t('development.github.gists.deleted'),
+              duration: 8000,
+              action: {
+                label: t('development.github.common.undo'),
+                run: () => { void get().upsertGist(restore) },
+              },
+            })
+          }
         } catch (error) {
           notifyFailure(error)
           if (isCurrent('gists', revision)) await reconcile(['gists'])
