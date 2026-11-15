@@ -8384,6 +8384,7 @@ const CORE_MESSAGES_TAIL = {
     "assistant.keys.copy_failed": "The browser refused clipboard access; the key is shown on screen temporarily so you can copy it manually.",
     "assistant.keys.reset": "Wake this key",
     "assistant.keys.disable_invalid": "Disable {count} invalid keys",
+    "assistant.keys.disable_partial": "{count} keys could not be disabled. Please retry.",
     "assistant.keys.disable_invalid_title": "Disable {count} invalid keys?",
     "assistant.keys.disable_invalid_body": "The provider refused these keys during the test. They stop rotating but can be enabled again at any time.",
     "assistant.keys.cooling": "resting {mins} min",

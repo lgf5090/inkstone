@@ -89,22 +89,28 @@ export function RequestLogsView() {
   const [sort, setSort] = useState<{ by?: AssistantLogSortKey, dir: AssistantLogSortDir }>({ dir: 'none' })
   const columnsRef = useRef<HTMLButtonElement>(null)
   const [columnsOpen, setColumnsOpen] = useState(false)
+  /** Only the newest read may paint: a filter change can leave two requests in flight at once. */
+  const loadId = useRef(0)
 
   const load = useCallback(async () => {
+    const id = ++loadId.current
     setBusy(true)
     setFailure(null)
     try {
-      setAnswer(await api.assistant.requestLogs({
+      const answer = await api.assistant.requestLogs({
         ...controls.query,
         page,
         pageSize: LOG_PAGE_SIZE,
         ...(sort.by ? { sortBy: sort.by, sortDir: sort.dir } : {}),
-      }))
+      })
+      if (id !== loadId.current) return
+      setAnswer(answer)
     } catch (error) {
+      if (id !== loadId.current) return
       setAnswer(null)
       setFailure(error instanceof Error ? error.message : String(error))
     } finally {
-      setBusy(false)
+      if (id === loadId.current) setBusy(false)
     }
   }, [controls.query, page, sort])
 

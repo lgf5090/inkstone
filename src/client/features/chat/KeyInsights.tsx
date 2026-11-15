@@ -9,7 +9,7 @@
  * failed. A prompt body is shown only when the reader turned body logging on; the column is null
  * otherwise, so the panel has nothing to hide.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Activity, AlertTriangle, CheckCircle2, ChevronLeft, Clock, Coins, Download, FileText, Hash, Trash2, XCircle } from 'lucide-react'
 import type { AssistantKeyStats, AssistantProvider, AssistantRequestLog, AssistantStatsScope } from '@shared/assistant'
 import { t } from '../../lib/i18n'
@@ -112,6 +112,10 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
+  /** Each read owns a sequence: a fast scope or tab switch must not let the older answer paint. */
+  const statsId = useRef(0)
+  const logsId = useRef(0)
+  const effectId = useRef(0)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [sinceMs, setSinceMs] = useState<number | null>(null)
 
@@ -121,20 +125,24 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
   }), [scope, provider.id, keyId])
 
   const loadStats = useCallback(async () => {
+    const id = ++statsId.current
     const answer = await api.assistant.keyStats({
       scope,
       ...(scope === 'key' ? { providerId: provider.id, keyId } : {}),
       ...(scope === 'provider' ? { providerId: provider.id } : {}),
     })
+    if (id !== statsId.current) return
     setRows(answer.rows)
   }, [scope, provider.id, keyId])
 
   const loadLogs = useCallback(async () => {
+    const id = ++logsId.current
     const answer = await api.assistant.requestLogs({
       ...logScope(),
       ...(sinceMs !== null ? { sinceMs } : {}),
       limit: 50,
     })
+    if (id !== logsId.current) return
     setLogs(answer.logs)
   }, [logScope, sinceMs])
 
@@ -171,18 +179,20 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
 
   useEffect(() => {
     if (!open) return
+    const id = ++effectId.current
     setBusy(true)
     setFailure(null)
     const work = tab === 'stats' ? loadStats() : loadLogs()
     void work
       .catch((error: unknown) => {
+        if (id !== effectId.current) return
         const message = error instanceof Error ? error.message : String(error)
         // A failed read keeps its own surface. Without this the log tab would spin forever and the
         // statistics tab would show nothing at all, which reads as "no data" rather than "no answer".
         setFailure(message)
         toast({ title: message, tone: 'danger' })
       })
-      .finally(() => setBusy(false))
+      .finally(() => { if (id === effectId.current) setBusy(false) })
   }, [open, tab, scope, loadStats, loadLogs, toast, reload])
 
   const total = rows?.[0] ?? null

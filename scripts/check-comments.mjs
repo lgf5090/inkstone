@@ -2953,6 +2953,7 @@ const allowed = new Map([
     "// so leave it out rather than quietly adding a reader's conversation to a downloaded file.",
     "// A failed read keeps its own surface. Without this the log tab would spin forever and the",
     "// statistics tab would show nothing at all, which reads as \"no data\" rather than \"no answer\".",
+    "/** Each read owns a sequence: a fast scope or tab switch must not let the older answer paint. */",
   ]],
   ["src/client/features/chat/MemoryView.tsx", [
     "/**\n * What the assistant remembers, and what it is unsure about.\n *\n * The list is grouped by category because a reader scanning \"where do I think I live\" reads by topic,\n * not by the order things happened to be saved. The four row actions are the interesting part: an\n * update that changes a fact keeps the old one as history rather than overwriting it, so \"what did I\n * used to say\" still answers — and a plain edit stays a plain edit, for fixing a typo.\n */",
@@ -3347,6 +3348,9 @@ const allowed = new Map([
     "// price of the choice: a screen full of plaintext is a screen whose readings are countable.",
     "// One unreadable key must not stop the rest of the ring from being shown.",
     "/* Who a turn would sign with, before the reader has to open anything: the one fact that makes\n            \"three keys\" mean something at a glance. */",
+    "/** Switching providers must not let the previous ring's answer land in the new panel. */",
+    "// Every attempt is settled before run() reloads the ring, so a partial failure still shows what",
+    "// was actually stored rather than the state the panel had before the button was pressed.",
   ]],
   ["src/client/features/chat/PushDevicesSection.tsx", [
     "/**\n   * The press, and the two things it can turn into.\n   *\n   * A refusal stays on the row as an inline block rather than a toast that leaves: the reader is looking at\n   * the switch that did not move, and the reason has to be where their attention already is.\n   */",
@@ -3371,9 +3375,13 @@ const allowed = new Map([
     "// The answer is already here; promote it rather than asking the model again in the sidebar, which",
     "// would write a different answer and bill the reader for it twice.",
   ]],
+  ["src/client/features/chat/RequestLogsView.tsx", [
+    "/** Only the newest read may paint: a filter change can leave two requests in flight at once. */",
+  ]],
   ["src/client/features/chat/RequestStatsView.tsx", [
     "// Two providers may carry the same label — a rename or a second account — so a shared name keeps the",
     "// last four characters of the id, which is what tells the rows apart without widening the column.",
+    "/** A dimension switch and an auto refresh can overlap; the older answer must not win. */",
   ]],
   ["src/client/features/chat/SavedShelf.tsx", [
     "/**\n * The shelf: the answers the reader kept, in the sidebar's own tab strip.\n *\n * It sits beside the starred/pinned/archived shortlists because it does the same job — a list of pointers\n * into threads — with one difference: its rows name a turn rather than a conversation, so pressing one\n * opens the thread *at* that turn. The rows come from `GET /api/assistant/saved-messages` through\n * `saved-shelf.ts`, which is the only place this screen's paging state lives.\n *\n * Every state a read can answer with is drawn: the spinner while the shelf is unread, the route's own line\n * and a retry when it was refused, an empty shelf that says how a keep gets here, and the list. An empty\n * list and a refused one are two different facts, so they never share a block.\n */",

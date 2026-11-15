@@ -8376,6 +8376,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.keys.copy_failed": "浏览器拒绝写入剪贴板，密钥已临时显示在屏幕上，请手动复制。",
     "assistant.keys.reset": "恢复使用",
     "assistant.keys.disable_invalid": "禁用 {count} 把无效密钥",
+    "assistant.keys.disable_partial": "有 {count} 把密钥未能禁用，请重试。",
     "assistant.keys.disable_invalid_title": "禁用 {count} 把无效密钥？",
     "assistant.keys.disable_invalid_body": "检测时服务商拒绝了这些密钥。禁用后它们不再参与轮询，随时可以重新启用。",
     "assistant.keys.cooling": "冷却 {mins} 分钟",

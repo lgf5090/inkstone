@@ -192,3 +192,27 @@ describe('deleting one log row', () => {
     expect(remove).not.toHaveBeenCalled()
   })
 })
+
+describe('overlapping reads', () => {
+  it('keeps the newest page when an older request finishes late', async () => {
+    let releaseOld: (() => void) | undefined
+    let calls = 0
+    vi.spyOn(api.assistant, 'requestLogs').mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) {
+        await new Promise<void>((resolve) => { releaseOld = resolve })
+        return { logs: [entry({ modelLabel: 'Oldest-model' })], total: 1, page: 1, pageSize: 25 }
+      }
+      return { logs: [entry({ modelLabel: 'Newest-model' })], total: 1, page: 1, pageSize: 25 }
+    })
+    await show(createElement(RequestLogsView))
+    const hour = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
+      .find((node) => node.textContent?.trim() === t('assistant.logs.window_1h'))
+    expect(hour).toBeTruthy()
+    await act(async () => { hour!.click() })
+    await act(async () => { await Promise.resolve() })
+    await act(async () => { releaseOld?.(); await Promise.resolve() })
+    expect(document.body.textContent).toContain('Newest-model')
+    expect(document.body.textContent).not.toContain('Oldest-model')
+  })
+})

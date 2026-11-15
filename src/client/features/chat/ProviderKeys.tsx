@@ -12,7 +12,7 @@
  * without having to open anything first — `useProviderBalances` is the one owner and the card hands the
  * readings to both the header chips and these rows.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Activity, AlertTriangle, CheckCircle2, ChevronDown, Copy, Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
 import type { AssistantKeyProbe, AssistantKeyRotation, AssistantProvider, AssistantProviderKey } from '@shared/assistant'
 import type { KeyBalance, ProviderBalanceAnswer } from '@shared/provider-balance'
@@ -246,7 +246,11 @@ export function ProviderKeys({ provider, wallet, onProbes }: {
   /** Which slice the stats/logs panel is open on: a key, or the provider as a whole. */
   const [insights, setInsights] = useState<{ keyId?: string, keyLabel?: string, keyHint?: string } | null>(null)
 
+  /** Switching providers must not let the previous ring's answer land in the new panel. */
+  const loadId = useRef(0)
+
   const load = useCallback(async () => {
+    const id = ++loadId.current
     try {
       const [answer, order] = await Promise.all([
         api.assistant.providerKeys(provider.id),
@@ -256,12 +260,14 @@ export function ProviderKeys({ provider, wallet, onProbes }: {
           .then(() => api.assistant.keyRotation(provider.id))
           .catch(() => ({ order: [] as AssistantKeyRotation[] })),
       ])
+      if (id !== loadId.current) return
       setKeys(answer.keys)
       setProbes(answer.probes)
       onProbes?.(answer.probes)
       setPrimaryLastUsedAt(answer.primaryLastUsedAt)
       setRotation(order.order)
     } catch (error) {
+      if (id !== loadId.current) return
       toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
       setKeys([])
     }
@@ -418,9 +424,13 @@ export function ProviderKeys({ provider, wallet, onProbes }: {
     })
     if (!agreed) return
     await run(async () => {
-      for (const keyId of invalidKeys) {
-        await api.assistant.updateProviderKey(provider.id, keyId, { enabled: false })
-      }
+      // Every attempt is settled before run() reloads the ring, so a partial failure still shows what
+      // was actually stored rather than the state the panel had before the button was pressed.
+      const settled = await Promise.allSettled(
+        invalidKeys.map((keyId) => api.assistant.updateProviderKey(provider.id, keyId, { enabled: false })),
+      )
+      const missed = settled.filter((entry) => entry.status === 'rejected').length
+      if (missed > 0) toast({ title: t('assistant.keys.disable_partial', { count: missed }), tone: 'danger' })
     })
   }
 

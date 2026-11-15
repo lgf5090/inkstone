@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, AlertTriangle, CheckCircle2, Clock, Coins, Download, Gauge, Hash, Layers, RefreshCw,
   Sparkles, XCircle,
@@ -45,17 +45,23 @@ export function RequestStatsView() {
   const [failure, setFailure] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [refreshSeconds, setRefreshSeconds] = useState(0)
+  /** A dimension switch and an auto refresh can overlap; the older answer must not win. */
+  const loadId = useRef(0)
 
   const load = useCallback(async () => {
+    const id = ++loadId.current
     setBusy(true)
     setFailure(null)
     try {
-      setReport(await api.assistant.requestStats(controls.query, dimension))
+      const answer = await api.assistant.requestStats(controls.query, dimension)
+      if (id !== loadId.current) return
+      setReport(answer)
     } catch (error) {
+      if (id !== loadId.current) return
       setReport(null)
       setFailure(error instanceof Error ? error.message : String(error))
     } finally {
-      setBusy(false)
+      if (id === loadId.current) setBusy(false)
     }
   }, [controls.query, dimension])
 
