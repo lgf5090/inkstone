@@ -9373,6 +9373,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.model.vision_short": "图片",
     "assistant.model.tools_short": "工具",
     "assistant.model.reasoning_short": "推理",
+    "assistant.model.default": "默认",
     "assistant.model.max_output": "最大输出 Token",
     "assistant.model.max_output_hint": "这个模型的回答可以花多少。留空时继承助手设置里的「最大输出词元」；填了就按这个值发送。",
     "assistant.model.limit_over_vendor": "超过了供应商声明的这个模型 {tokens} 的回答上限，再长会被上游拒绝。",

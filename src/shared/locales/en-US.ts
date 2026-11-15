@@ -9381,6 +9381,7 @@ const CORE_MESSAGES_TAIL = {
     "assistant.model.vision_short": "Picture",
     "assistant.model.tools_short": "Tools",
     "assistant.model.reasoning_short": "Reasoning",
+    "assistant.model.default": "Default",
     "assistant.model.max_output": "Max output tokens",
     "assistant.model.max_output_hint": "What this model's answer may spend. Empty falls back to the assistant's own max output tokens; a number here is what the request asks for.",
     "assistant.model.limit_over_vendor": "Above the {tokens} this model's vendor says it can answer with, which the provider refuses.",

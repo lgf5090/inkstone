@@ -69,6 +69,15 @@
   contain-intrinsic-size: auto 120px;
 }
 
+/* The model row has one small control where six crowded icons used to be. A touch screen still needs
+   that one control to be the size a finger expects, even though a precise pointer is happy with 24px. */
+@media (pointer: coarse) {
+  .ink-model-options button {
+    min-width: var(--tap-target);
+    min-height: var(--tap-target);
+  }
+}
+
 /*
  * Motion that the chat asks the reader to look at, and what happens when they ask not to see it.
  *

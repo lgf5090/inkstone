@@ -5,8 +5,8 @@
  * arrives — including the question it asks the vendor before anything is saved, so the ids it stores are
  * the ones that key can really call rather than a preset's guess.
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { AudioLines, Brain, Check, ChevronDown, Download, Eye, EyeOff, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { AudioLines, Brain, Check, ChevronDown, Download, Eye, EyeOff, GalleryVerticalEnd, Image, KeyRound, MoreHorizontal, Plus, Power, Search, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
 import { type AssistantKeyProbe, type AssistantKeyProbeOutcome, type AssistantKeyProbeReason, type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProtocol, type AssistantProvider, type AssistantSettings, type ReasoningDialect } from '@shared/assistant'
 import { ASSISTANT_PROTOCOLS, MAX_PROVIDER_KEYS, PROVIDER_PRESETS, endpointFieldState, parseProviderKeys } from '@shared/assistant'
 import { iconForModel, iconForProvider } from '@shared/assistant-icons'
@@ -22,38 +22,130 @@ import { matchesQuery } from '../../lib/fuzzy'
 import { t, type MessageKey } from '../../lib/i18n'
 import { Button, Divider, IconButton } from '../../components/primitives'
 import { Field, Input, Select, SettingRow, Switch, Textarea, useRovingRadio } from '../../components/form'
-import { Modal, Tooltip, confirm, useClickOutside, useEscape } from '../../components/overlay'
+import { Menu, Modal, Tooltip, confirm, useClickOutside, useEscape, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant, type ReportFailure, type WriteFailure } from './assistant-store'
 import { DIALECT_LABELS, Group, modelOptionLabel, PROTOCOL_LABELS, SaveFailure, refusalFor, storedKeyLabel } from './assistant-settings-shared'
 
 /**
- * One capability, drawn as the switch that sets it.
- *
- * The model list is where a reader changes these — a reply that came back wrong is noticed here, not in a
- * dialog three presses away — so the icon is the control rather than a badge reporting one. Its on state is
- * the accent fill the rest of the app uses for a pressed toggle, and the word behind it lives in the
- * accessible name and the tooltip, which is the only place a phone has room for it.
+ * One model in the choice: the radio, a short read-only account of what it can do, and one menu holding
+ * every control that changes it. Six unlabelled icons in a row could not say which was a switch, which
+ * was pressed and which was about to delete the row; the words and the checked menu rows do, and the
+ * row keeps a single extra tab stop.
  */
-function CapabilityToggle({ on, label, icon, onToggle }: { on: boolean, label: string, icon: React.ReactNode, onToggle: () => void }) {
+function ModelRow({ provider, model, active, itemRef, tabIndex, keyHandler, onEdit }: {
+  provider: AssistantProvider
+  model: AssistantModel
+  active: boolean
+  itemRef: (element: HTMLButtonElement | null) => void
+  tabIndex: 0 | -1
+  keyHandler: (event: ReactKeyboardEvent<HTMLButtonElement>) => void
+  onEdit: (model: AssistantModel) => void
+}) {
+  const activateModel = useAssistant((state) => state.activateModel)
+  const updateModel = useAssistant((state) => state.updateModel)
+  const removeModel = useAssistant((state) => state.removeModel)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const anchor = useRef<HTMLSpanElement>(null)
+  const mark = specialMark(model)
+  const capabilities = [
+    model.reasoning !== 'off' ? t('assistant.model.reasoning_short') : null,
+    model.supportsTools ? t('assistant.model.tools_short') : null,
+    model.vision ? t('assistant.model.vision_short') : null,
+  ].filter((label): label is string => label !== null)
+  const optionsLabel = t('assistant.chat.options', { title: model.label })
+
+  const remove = () => {
+    // Deleting a model is one click from a row of them and there is no way back: its turns keep the
+    // label but the fallback chain that named it stops one model short.
+    void confirm({
+      title: t('assistant.settings.delete_model'),
+      description: t('assistant.settings.delete_model_hint', { label: model.label }),
+      confirmLabel: t('assistant.settings.delete_model'),
+      tone: 'danger',
+    }).then((yes) => { if (yes) void removeModel(model.id) })
+  }
+
+  const items: MenuItem[] = [
+    { id: 'edit', label: t('assistant.model.edit'), icon: <Settings2 size={13} />, onSelect: () => onEdit(model) },
+    {
+      id: 'reasoning', label: t('assistant.model.reasoning_short'), icon: <Brain size={13} />,
+      checked: model.reasoning !== 'off', separatorBefore: true,
+      onSelect: () => void updateModel(model.id, { reasoning: model.reasoning === 'off' ? 'auto' : 'off' }),
+    },
+    {
+      id: 'tools', label: t('assistant.model.tools_short'), icon: <Wrench size={13} />,
+      checked: model.supportsTools,
+      onSelect: () => void updateModel(model.id, { supportsTools: !model.supportsTools }),
+    },
+    {
+      id: 'vision', label: t('assistant.model.vision_short'), icon: <Eye size={13} />,
+      checked: model.vision,
+      onSelect: () => void updateModel(model.id, { vision: !model.vision }),
+    },
+    {
+      id: 'shown', label: t('assistant.model.shown'), icon: <Power size={13} />,
+      checked: model.enabled,
+      onSelect: () => void updateModel(model.id, { enabled: !model.enabled }),
+    },
+    {
+      id: 'delete', label: t('assistant.settings.delete_model'), icon: <Trash2 size={13} />,
+      tone: 'danger', separatorBefore: true, onSelect: remove,
+    },
+  ]
+
   return (
-    <Tooltip label={label}>
+    <div className={cn(
+      'relative flex items-center rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5',
+      'transition-[background-color,border-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+      active ? 'bg-[var(--accent-softer)]' : 'hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]',
+    )}>
+      {/* The default is named by a bar and a word; danger red on this screen belongs to failures. */}
+      {active && <span aria-hidden className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-[var(--r-sm)] bg-[var(--accent)]" />}
       <button
+        ref={itemRef}
         type="button"
-        aria-label={label}
-        aria-pressed={on}
-        onClick={onToggle}
+        role="radio"
+        aria-checked={active}
+        tabIndex={tabIndex}
+        onKeyDown={keyHandler}
+        onClick={() => void activateModel(model.id)}
         className={cn(
-          'inline-flex size-6 shrink-0 items-center justify-center rounded-[var(--r-md)]',
-          'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-          on
-            ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-            : 'text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+          'flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-left text-[length:var(--text-12-5)]',
+          active ? 'text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)]',
         )}
       >
-        {icon}
+        <AssistantIcon
+          value={iconForModel(model, provider)}
+          size={20}
+          className={active ? 'ring-1 ring-[var(--accent)]' : undefined}
+        />
+        {mark && (
+          <Tooltip label={t(mark.key)}>
+            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]">{mark.icon}</span>
+          </Tooltip>
+        )}
+        <span className="min-w-0 flex-1 truncate">{model.label}</span>
+        {active && (
+          <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-1.5 text-[length:var(--text-10-5)] text-[var(--accent-on-soft)]">
+            {t('assistant.model.default')}
+          </span>
+        )}
+        <span className="hidden shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:block">{model.model}</span>
       </button>
-    </Tooltip>
+      {/* Read-only words: a capability is no longer something a colour has to say on its own. */}
+      {capabilities.length > 0 && (
+        <span className="ml-1 hidden max-w-[120px] shrink-0 truncate text-[length:var(--text-10-5)] text-[var(--text-tertiary)] lg:block">
+          {capabilities.join(' · ')}
+        </span>
+      )}
+      <span ref={anchor} className="ink-model-options ml-1 shrink-0">
+        <IconButton label={optionsLabel} size="sm" onClick={() => setMenuOpen((open) => !open)}>
+          <MoreHorizontal size={14} />
+        </IconButton>
+      </span>
+      <Menu anchor={anchor} open={menuOpen} onClose={() => setMenuOpen(false)} items={items} label={optionsLabel} />
+    </div>
   )
 }
 
@@ -121,108 +213,21 @@ function ModelList({ provider, models, activeModelId, labelId, onEdit }: {
   onEdit: (model: AssistantModel) => void
 }) {
   const activateModel = useAssistant((state) => state.activateModel)
-  const updateModel = useAssistant((state) => state.updateModel)
-  const removeModel = useAssistant((state) => state.removeModel)
   const roving = useRovingRadio(models.map((model) => model.id), activeModelId ?? '', (id) => void activateModel(id))
   return (
     <div role="radiogroup" aria-labelledby={labelId} className="flex flex-col gap-1 pl-9">
-      {models.map((model, index) => {
-        const mark = specialMark(model)
-        const active = activeModelId === model.id
-        return (
-          <div
-            key={model.id}
-            className={cn(
-              'flex items-center rounded-[var(--r-md)] border px-2 py-1.5',
-              'transition-[background-color,border-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-              active
-                ? 'border-[var(--accent)] bg-[var(--accent-softer)]'
-                : 'border-[var(--border-subtle)] hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]',
-            )}
-          >
-            {/* One line of controls, no words: a phone-width card had two selects and two
-                switches stacked under every model, which pushed the list itself off the screen.
-                What a model can do is now the icons themselves — they are the switches — and the
-                level behind each one (how much thinking, whose context window) is a fact the
-                editor dialog holds. */}
-            <div className="flex min-w-0 flex-1 items-center gap-0.5">
-              <button
-                ref={roving.setItemRef(index)}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                tabIndex={roving.tabIndexFor(index)}
-                onKeyDown={roving.keyHandlerFor(index)}
-                onClick={() => void activateModel(model.id)}
-                className={cn(
-                  'flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-left text-[length:var(--text-12-5)]',
-                  active
-                    ? 'text-[var(--accent-on-soft)]'
-                    : 'text-[var(--text-secondary)]',
-                )}
-              >
-                <AssistantIcon
-                  value={iconForModel(model, provider)}
-                  size={20}
-                  className={active ? 'ring-1 ring-[var(--accent)]' : undefined}
-                />
-                {mark && (
-                  <Tooltip label={t(mark.key)}>
-                    <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]">{mark.icon}</span>
-                  </Tooltip>
-                )}
-                <span className="min-w-0 flex-1 truncate">{model.label}</span>
-                <span className="hidden shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:block">{model.model}</span>
-              </button>
-              <CapabilityToggle
-                on={model.reasoning !== 'off'}
-                label={t('assistant.model.reasoning_short')}
-                icon={<Brain size={12} />}
-                onToggle={() => void updateModel(model.id, { reasoning: model.reasoning === 'off' ? 'auto' : 'off' })}
-              />
-              <CapabilityToggle
-                on={model.supportsTools}
-                label={t('assistant.model.tools_short')}
-                icon={<Wrench size={12} />}
-                onToggle={() => void updateModel(model.id, { supportsTools: !model.supportsTools })}
-              />
-              <CapabilityToggle
-                on={model.vision}
-                label={t('assistant.model.vision_short')}
-                icon={<Eye size={12} />}
-                onToggle={() => void updateModel(model.id, { vision: !model.vision })}
-              />
-              <CapabilityToggle
-                on={model.enabled}
-                label={t('assistant.model.shown')}
-                icon={<Power size={12} />}
-                onToggle={() => void updateModel(model.id, { enabled: !model.enabled })}
-              />
-              <IconButton label={t('assistant.model.edit')} size="xs" onClick={() => onEdit(model)}>
-                <Settings2 size={12} />
-              </IconButton>
-              <IconButton
-                label={t('assistant.settings.delete_model')}
-                size="xs"
-                onClick={() => {
-                // Deleting a model is one click from a row of them and there is no way back: its turns
-                // keep the label but the fallback chain that named it stops one model short.
-                void confirm({
-                  title: t('assistant.settings.delete_model'),
-                  description: t('assistant.settings.delete_model_hint', { label: model.label }),
-                  confirmLabel: t('assistant.settings.delete_model'),
-                  tone: 'danger',
-                }).then((yes) => {
-                  if (yes) void removeModel(model.id)
-                })
-              }}
-                >
-                <Trash2 size={12} />
-              </IconButton>
-            </div>
-          </div>
-        )
-      })}
+      {models.map((model, index) => (
+        <ModelRow
+          key={model.id}
+          provider={provider}
+          model={model}
+          active={activeModelId === model.id}
+          itemRef={roving.setItemRef(index)}
+          tabIndex={roving.tabIndexFor(index)}
+          keyHandler={roving.keyHandlerFor(index)}
+          onEdit={onEdit}
+        />
+      ))}
     </div>
   )
 }
