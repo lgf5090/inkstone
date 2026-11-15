@@ -61,6 +61,24 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   ref?: Ref<HTMLButtonElement>
 }
 
+export function buttonClass(options: {
+  variant?: Variant
+  size?: Size
+  block?: boolean
+  className?: string
+} = {}): string {
+  const { variant = 'secondary', size = 'md', block, className } = options
+  return cn(
+    'relative inline-flex items-center justify-center font-medium whitespace-nowrap select-none',
+    'transition-[background-color,border-color,color,opacity,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+    'active:translate-y-px disabled:pointer-events-none disabled:opacity-45',
+    VARIANTS[variant],
+    SIZES[size],
+    block && 'w-full',
+    className,
+  )
+}
+
 export function Button({
   variant = 'secondary',
   size = 'md',
@@ -81,15 +99,7 @@ export function Button({
       type={type}
       disabled={disabled || loading}
       aria-busy={loading ? true : ariaBusy}
-      className={cn(
-        'relative inline-flex items-center justify-center font-medium whitespace-nowrap select-none',
-        'transition-[background-color,border-color,color,opacity,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-        'active:translate-y-px disabled:pointer-events-none disabled:opacity-45',
-        VARIANTS[variant],
-        SIZES[size],
-        block && 'w-full',
-        className,
-      )}
+      className={buttonClass({ variant, size, block, className })}
     >
       {loading ? <Spinner size={size === 'lg' ? 15 : 13} /> : icon}
       {/* The label is its own inline row. Tailwind's preflight turns every `svg` into a block box, so an

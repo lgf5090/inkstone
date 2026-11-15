@@ -55,7 +55,7 @@ export function FavoritesView({
   }
   const items: MenuItem[] = target ? [
     { id: 'open', label: t('development.github.store.menu.open_detail'), icon: <ExternalLink size={13} />, onSelect: () => onOpenRepo(target.data) },
-    { id: 'github', label: t('development.github.store.menu.open_github'), icon: <ExternalLink size={13} />, disabled: !target.data.url, onSelect: () => { if (target.data.url) window.open(target.data.url, '_blank', 'noopener,noreferrer') } },
+    { id: 'github', label: t('development.github.store.menu.open_github'), icon: <ExternalLink size={13} />, disabled: !target.data.url, href: target.data.url || undefined },
     { id: 'copy-name', label: t('development.github.store.menu.copy_name'), icon: <Copy size={13} />, separatorBefore: true, onSelect: () => void copy(target.fullName) },
     { id: 'copy-link', label: t('development.github.store.menu.copy_link'), icon: <Copy size={13} />, onSelect: () => void copy(target.data.url) },
     { id: 'track', label: t('development.github.store.menu.track'), icon: <PackagePlus size={13} />, separatorBefore: true, onSelect: () => onTrack(target.data) },

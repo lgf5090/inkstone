@@ -7,7 +7,7 @@ import { navigateToPath } from '../../../../lib/app-history'
 import { useAssistant } from '../../../chat/assistant-store'
 import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
-import { Button, IconButton, Spinner } from '../../../../components/primitives'
+import { Button, IconButton, Spinner, buttonClass } from '../../../../components/primitives'
 import { Textarea } from '../../../../components/form'
 import { Empty } from '../../../../components/feedback'
 import { Menu, type MenuItem } from '../../../../components/overlay'
@@ -344,10 +344,17 @@ export function RepoDetail({ repo, mirror, notes, favorited = false, onToggleFav
                 {currentAsset ? (
                   <>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button size="sm" disabled={!downloadUrl} onClick={() => { if (downloadUrl) window.open(downloadUrl, '_blank', 'noopener,noreferrer') }}>
-                        <Download size={12} />
-                        {t('development.github.store.download_asset_short', { format: currentAsset.name.includes('.') ? currentAsset.name.slice(currentAsset.name.lastIndexOf('.') + 1).toUpperCase() : '' })}
-                      </Button>
+                      {downloadUrl ? (
+                        <a href={downloadUrl} target="_blank" rel="noopener noreferrer" className={buttonClass({ size: 'sm' })}>
+                          <Download size={12} />
+                          {t('development.github.store.download_asset_short', { format: currentAsset.name.includes('.') ? currentAsset.name.slice(currentAsset.name.lastIndexOf('.') + 1).toUpperCase() : '' })}
+                        </a>
+                      ) : (
+                        <Button size="sm" disabled>
+                          <Download size={12} />
+                          {t('development.github.store.download_asset_short', { format: currentAsset.name.includes('.') ? currentAsset.name.slice(currentAsset.name.lastIndexOf('.') + 1).toUpperCase() : '' })}
+                        </Button>
+                      )}
                       <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-secondary)]" title={currentAsset.name}>{currentAsset.name}</span>
                       <span className="shrink-0 text-[length:var(--text-10)] tabular-nums text-[var(--text-quaternary)]">{formatFileSize(currentAsset.size)}</span>
                       {downloadPlatform && <span className="shrink-0 rounded-full border border-[var(--border-subtle)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{platformLabel(downloadPlatform)}</span>}

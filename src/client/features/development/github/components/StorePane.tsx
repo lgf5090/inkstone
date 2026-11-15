@@ -345,14 +345,14 @@ export function StorePane({
   const cardTracked = Boolean(cardTarget && apps.some((app) => app.id === String(cardTarget.repo.id)))
   const cardMenuItems: MenuItem[] = cardTarget ? [
     { id: 'open', label: t('development.github.store.menu.open_detail'), onSelect: () => setSelectedRepo(cardTarget.repo) },
-    { id: 'github', label: t('development.github.store.menu.open_github'), icon: <ExternalLink size={13} />, disabled: !cardTarget.repo.url, onSelect: () => { if (cardTarget.repo.url) window.open(cardTarget.repo.url, '_blank', 'noopener,noreferrer') } },
+    { id: 'github', label: t('development.github.store.menu.open_github'), icon: <ExternalLink size={13} />, disabled: !cardTarget.repo.url, href: cardTarget.repo.url || undefined },
     {
       id: 'download',
       label: t('development.github.store.menu.download'),
       icon: <Download size={13} />,
       disabled: !cardDownloadUrl,
       reason: cardDownloadUrl ? undefined : t('development.github.store.no_asset_hint'),
-      onSelect: () => { if (cardDownloadUrl) window.open(cardDownloadUrl, '_blank', 'noopener,noreferrer') },
+      href: cardDownloadUrl || undefined,
     },
     { id: 'copy-name', label: t('development.github.store.menu.copy_name'), icon: <Copy size={13} />, separatorBefore: true, onSelect: () => void copyValue(cardTarget.repo.fullName) },
     { id: 'copy-link', label: t('development.github.store.menu.copy_link'), icon: <Copy size={13} />, onSelect: () => void copyValue(cardTarget.repo.url) },
