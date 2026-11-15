@@ -1,6 +1,7 @@
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import { normalizeGithubImageUrl } from '@shared/development/github/image'
+import { t } from '../../../../lib/i18n'
 
 export interface ReadmeRenderOptions {
   fullName: string
@@ -20,13 +21,14 @@ const ALLOWED_TAGS = [
 const ALLOWED_ATTR = [
   'class', 'id', 'title', 'alt', 'href', 'target', 'rel', 'src', 'width',
   'height', 'loading', 'referrerpolicy', 'align', 'valign', 'colspan', 'rowspan', 'start',
-  'open', 'dir', 'lang',
+  'open', 'dir', 'lang', 'role',
 ]
 
 const FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'link', 'meta', 'base']
 const FORBID_ATTR = ['style', 'srcset', 'sizes', 'formaction']
 const EXTERNAL_URL = /^(?:https?:|mailto:|tel:)/i
-const SAFE_CLASS = /^(?:language-[A-Za-z0-9+#._-]+|github-md-table)$/
+const SAFE_CLASS = /^(?:language-[A-Za-z0-9+#._-]+|github-md-table|gh-task-item|gh-task|gh-task-done)$/
+const TASK_MARKER = /^\[([ xX])\]\s+/
 const README_ID_PREFIX = 'readme-'
 
 function isExternalUrl(value: string): boolean {
@@ -140,6 +142,17 @@ function renderMarkdown(md: string, options: ReadmeRenderOptions): string {
     return self.renderToken(tokens, index, renderOptions)
   }
 
+  instance.renderer.rules.th_open = (tokens, index, renderOptions, _env, self) => {
+    const token = tokens[index]!
+    const match = /text-align:\s*(left|center|right)/i.exec(token.attrGet('style') ?? '')
+    if (match) {
+      token.attrSet('align', match[1]!.toLowerCase())
+      token.attrSet('style', '')
+    }
+    return self.renderToken(tokens, index, renderOptions)
+  }
+  instance.renderer.rules.td_open = instance.renderer.rules.th_open
+
   instance.renderer.rules.image = (tokens, index, renderOptions, _env, self) => {
     const token = tokens[index]!
     const resolved = resolveUrl(token.attrGet('src') ?? '', options, 'image')
@@ -176,6 +189,25 @@ function resolveHtmlUrls(html: string, options: ReadmeRenderOptions): string {
       element.setAttribute('loading', 'lazy')
       element.setAttribute('referrerpolicy', 'no-referrer')
     }
+  }
+
+  for (const item of Array.from(template.content.querySelectorAll('li'))) {
+    const holder = item.querySelector(':scope > p') ?? item
+    const first = holder.firstChild
+    if (!first || first.nodeType !== Node.TEXT_NODE) continue
+    const text = first.textContent ?? ''
+    const match = TASK_MARKER.exec(text)
+    if (!match) continue
+    first.textContent = text.slice(match[0].length)
+    const done = match[1]!.toLowerCase() === 'x'
+    const mark = document.createElement('span')
+    mark.className = done ? 'gh-task gh-task-done' : 'gh-task'
+    mark.setAttribute('role', 'img')
+    mark.setAttribute('aria-label', t(done
+      ? 'development.github.repos.task_done'
+      : 'development.github.repos.task_todo'))
+    holder.insertBefore(mark, first)
+    item.classList.add('gh-task-item')
   }
   return template.innerHTML
 }

@@ -3,14 +3,19 @@ import { highlightWithPrism } from './prism'
 export interface CodeBlockLabels {
   copy: string
   plainText: string
+  expand: string
+  collapse: string
 }
+
+const COLLAPSE_LINES = 20
 
 export function decorateCodeBlocks(root: HTMLElement, labels: CodeBlockLabels): void {
   for (const pre of Array.from(root.querySelectorAll('pre'))) {
     const code = pre.querySelector('code')
     const language = /language-([\w-]+)/.exec(code?.className ?? '')?.[1] ?? ''
+    const decorated = pre.parentElement?.classList.contains('gh-code') ?? false
 
-    if (!pre.parentElement?.classList.contains('gh-code')) {
+    if (!decorated) {
       const wrapper = document.createElement('div')
       wrapper.className = 'gh-code'
       pre.replaceWith(wrapper)
@@ -31,6 +36,20 @@ export function decorateCodeBlocks(root: HTMLElement, labels: CodeBlockLabels): 
 
       head.append(label, button)
       wrapper.append(head, pre)
+
+      const lines = (code?.textContent ?? '').replace(/\n$/, '').split('\n').length
+      if (lines > COLLAPSE_LINES) {
+        wrapper.classList.add('is-collapsed')
+        const expand = document.createElement('button')
+        expand.type = 'button'
+        expand.className = 'gh-code-expand'
+        expand.dataset.expandCode = ''
+        expand.dataset.expandLabel = labels.expand
+        expand.dataset.collapseLabel = labels.collapse
+        expand.setAttribute('aria-expanded', 'false')
+        expand.textContent = labels.expand
+        wrapper.append(expand)
+      }
     }
 
     if (!language || !code || code.querySelector('.token')) continue

@@ -129,6 +129,24 @@ describe('GitHub README rendering', () => {
     expect(html).not.toContain('url=%2Fapi%2F')
   })
 
+  it('turns task markers into inert check marks, never an input', () => {
+    const html = renderGithubReadme('- [x] installed\n- [ ] configured\n- plain', OPTIONS)
+    expect(html).toContain('class="gh-task gh-task-done"')
+    expect(html).toContain('class="gh-task"')
+    expect(html).toContain('class="gh-task-item"')
+    expect(html).toContain('role="img"')
+    expect(html).not.toContain('<input')
+    expect(html).toContain('installed')
+    expect(html).toContain('configured')
+  })
+
+  it('recognises task markers in loose list items as well', () => {
+    const html = renderGithubReadme('- [x] installed\n\n- [ ] configured', OPTIONS)
+    expect(html).toContain('gh-task-done')
+    expect(html).toContain('class="gh-task"')
+    expect(html).not.toContain('<input')
+  })
+
   it('drops form-control attributes while keeping layout attributes', () => {
     const html = renderGithubReadme([
       '<table><tbody><tr><td align="center" valign="top" colspan="2">cell</td></tr></tbody></table>',

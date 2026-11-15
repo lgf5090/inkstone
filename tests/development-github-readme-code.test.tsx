@@ -7,6 +7,7 @@ import { copyText } from '../src/client/lib/clipboard'
 import { initI18n, t } from '../src/client/lib/i18n'
 import { highlightWithPrism } from '../src/client/lib/markdown/prism'
 import { installTestGlobals } from '../src/client/lib/test-render'
+import { useUi } from '../src/client/store/ui'
 
 vi.mock('../src/client/lib/markdown/prism', () => ({
   highlightWithPrism: vi.fn(async (source: string) => ({
@@ -40,6 +41,7 @@ afterEach(() => {
   document.body.innerHTML = ''
   vi.clearAllMocks()
   vi.useRealTimers()
+  useUi.setState({ lightbox: null })
 })
 
 describe('README code blocks', () => {
@@ -64,6 +66,41 @@ describe('README code blocks', () => {
     await act(async () => { await Promise.resolve() })
     expect(highlightWithPrism).toHaveBeenCalledWith('curl x', 'bash')
     expect(container.querySelector('code .token.keyword')?.textContent).toBe('curl x')
+  })
+
+  it('folds a long block and expands it on request', () => {
+    const lines = Array.from({ length: 30 }, (_, index) => `line ${index}`).join('\n')
+    render(`<pre><code class="language-bash">${lines}</code></pre>`)
+    const block = container.querySelector('.gh-code')!
+    expect(block.classList.contains('is-collapsed')).toBe(true)
+    const button = container.querySelector<HTMLButtonElement>('[data-expand-code]')!
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    act(() => { button.click() })
+    expect(block.classList.contains('is-expanded')).toBe(true)
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    expect(button.textContent).toBe(t('common.collapse'))
+    act(() => { button.click() })
+    expect(block.classList.contains('is-collapsed')).toBe(true)
+    expect(button.textContent).toBe(t('development.github.common.expand'))
+  })
+
+  it('leaves a short block unfolded', () => {
+    render('<pre><code class="language-bash">one\ntwo</code></pre>')
+    expect(container.querySelector('[data-expand-code]')).toBeNull()
+  })
+
+  it('opens the shared lightbox for a README image', () => {
+    useUi.setState({ lightbox: null })
+    render('<p><img src="https://example.com/a.png" alt="shot"></p>')
+    act(() => { container.querySelector('img')!.click() })
+    expect(useUi.getState().lightbox).toEqual({ src: 'https://example.com/a.png', alt: 'shot' })
+  })
+
+  it('leaves an image that is already a link alone', () => {
+    useUi.setState({ lightbox: null })
+    render('<p><a href="https://example.com"><img src="https://example.com/a.png" alt="shot"></a></p>')
+    act(() => { container.querySelector('img')!.click() })
+    expect(useUi.getState().lightbox).toBeNull()
   })
 
   it('copies the code text and restores the label afterwards', async () => {
