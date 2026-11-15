@@ -8,8 +8,8 @@
  *
  * Raw HTML is kept because a template README is documentation, not a prompt: a README that lays its
  * screenshots out with a `<table>` would otherwise show its markup as text. DOMPurify is the trust
- * boundary, and remote images are rewritten to the worker's image proxy because the page's own
- * `img-src` does not allow the documentation host.
+ * boundary, and remote images are rewritten to the worker's image proxy so that a host named in
+ * somebody else's README never sees the reader's address.
  */
 import { useEffect, useMemo, useRef } from 'react'
 import MarkdownIt from 'markdown-it'

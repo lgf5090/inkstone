@@ -417,7 +417,7 @@ async function fetchGuarded(
 
 const MAX_README_BYTES = 512 * 1024
 
-/** The template's README, read by the worker because the reader's CSP does not allow the catalog host. */
+/** The template's README, read by the worker because the page's connect-src only allows this origin. */
 export async function downloadReadme(rawUrl: string): Promise<string> {
   const response = await fetchGuarded(
     rawUrl,
