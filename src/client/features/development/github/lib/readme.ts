@@ -20,7 +20,7 @@ const ALLOWED_TAGS = [
 const ALLOWED_ATTR = [
   'class', 'id', 'title', 'alt', 'href', 'target', 'rel', 'src', 'width',
   'height', 'loading', 'referrerpolicy', 'align', 'valign', 'colspan', 'rowspan', 'start',
-  'type', 'value', 'open', 'dir', 'lang',
+  'open', 'dir', 'lang',
 ]
 
 const FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'link', 'meta', 'base']

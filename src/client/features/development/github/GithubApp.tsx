@@ -35,10 +35,15 @@ export function GithubApp() {
   const [accountsOpen, setAccountsOpen] = useState(false)
   const [mirrorsOpen, setMirrorsOpen] = useState(false)
   const [currentMirrorId, setCurrentMirrorId] = useState(loadCurrentMirrorId)
+  const [mountedTabs, setMountedTabs] = useState<GithubTab[]>(() => [tab])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    setMountedTabs((current) => (current.includes(tab) ? current : [...current, tab]))
+  }, [tab])
 
   const normalizedMirrors = mirrors.length > 0 ? mirrors : DEFAULT_GITHUB_MIRRORS
   const currentMirror = resolveMirror(normalizedMirrors, currentMirrorId) ?? normalizedMirrors[0]
@@ -74,15 +79,21 @@ export function GithubApp() {
 
   return (
     <div data-testid="github-app-root" className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-base)]">
-      <div data-testid="github-tab-repos" className={tab === 'repos' ? 'contents' : 'hidden'}>
-        <ReposPane {...shared} deepLinkRepo={route.repoFullName} deepLinkView={route.viewId} active={tab === 'repos'} />
-      </div>
-      <div data-testid="github-tab-gists" className={tab === 'gists' ? 'contents' : 'hidden'}>
-        <GistsPane tab={tab} onTabChange={changeTab} onOpenAccounts={shared.onOpenAccounts} onOpenMirrors={shared.onOpenMirrors} currentMirrorId={shared.currentMirrorId} deepLinkGistId={route.gistId} active={tab === 'gists'} />
-      </div>
-      <div data-testid="github-tab-store" className={tab === 'store' ? 'contents' : 'hidden'}>
-        <StorePane tab={tab} onTabChange={changeTab} onOpenAccounts={shared.onOpenAccounts} onOpenMirrors={shared.onOpenMirrors} currentMirrorId={shared.currentMirrorId} initialView={route.storeView} active={tab === 'store'} />
-      </div>
+      {mountedTabs.includes('repos') && (
+        <div data-testid="github-tab-repos" className={tab === 'repos' ? 'contents' : 'hidden'}>
+          <ReposPane {...shared} deepLinkRepo={route.repoFullName} deepLinkView={route.viewId} active={tab === 'repos'} />
+        </div>
+      )}
+      {mountedTabs.includes('gists') && (
+        <div data-testid="github-tab-gists" className={tab === 'gists' ? 'contents' : 'hidden'}>
+          <GistsPane tab={tab} onTabChange={changeTab} onOpenAccounts={shared.onOpenAccounts} onOpenMirrors={shared.onOpenMirrors} currentMirrorId={shared.currentMirrorId} deepLinkGistId={route.gistId} active={tab === 'gists'} />
+        </div>
+      )}
+      {mountedTabs.includes('store') && (
+        <div data-testid="github-tab-store" className={tab === 'store' ? 'contents' : 'hidden'}>
+          <StorePane tab={tab} onTabChange={changeTab} onOpenAccounts={shared.onOpenAccounts} onOpenMirrors={shared.onOpenMirrors} currentMirrorId={shared.currentMirrorId} initialView={route.storeView} active={tab === 'store'} />
+        </div>
+      )}
       <AccountsDialog
         open={accountsOpen}
         onClose={() => setAccountsOpen(false)}

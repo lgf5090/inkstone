@@ -245,7 +245,7 @@ export function RepoList({
             <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto xl:flex">
               {GITHUB_RANGE_OPTIONS.map((option) => {
                 const active = prefs.range === option.value
-                return <button key={option.value} type="button" onClick={() => onUpdatePrefs({ range: option.value }, draft)} data-active={active || undefined} className={cn('shrink-0 rounded-full px-2.5 py-1 text-[length:var(--text-11)] font-medium transition-colors', active ? 'bg-[var(--accent)] text-[var(--accent-contrast)]' : 'bg-[var(--bg-raised)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]')}>{t(option.labelKey)}</button>
+                return <Button key={option.value} variant="ghost" size="sm" onClick={() => onUpdatePrefs({ range: option.value }, draft)} data-active={active || undefined} className={cn('h-auto shrink-0 rounded-full px-2.5 py-1 text-[length:var(--text-11)] font-medium', active ? 'bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent)] hover:text-[var(--accent-contrast)]' : 'bg-[var(--bg-raised)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]')}>{t(option.labelKey)}</Button>
               })}
               <LanguageMenu value={prefs.language} onChange={(language) => onUpdatePrefs({ language }, draft)} />
             </div>

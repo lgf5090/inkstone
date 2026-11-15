@@ -129,6 +129,21 @@ describe('GitHub README rendering', () => {
     expect(html).not.toContain('url=%2Fapi%2F')
   })
 
+  it('drops form-control attributes while keeping layout attributes', () => {
+    const html = renderGithubReadme([
+      '<table><tbody><tr><td align="center" valign="top" colspan="2">cell</td></tr></tbody></table>',
+      '<ol start="3"><li value="9">item</li></ol>',
+      '<p dir="rtl" lang="ar">rtl</p>',
+    ].join('\n\n'), OPTIONS)
+    expect(html).toContain('align="center"')
+    expect(html).toContain('valign="top"')
+    expect(html).toContain('colspan="2"')
+    expect(html).toContain('start="3"')
+    expect(html).toContain('dir="rtl"')
+    expect(html).toContain('lang="ar"')
+    expect(html).not.toContain('value="9"')
+  })
+
   it('canonicalizes absolute GitHub blob and raw image links and upgrades plain HTTP', () => {
     const html = renderGithubReadme([
       '![blob](https://github.com/acme/repo/blob/main/docs/shot.png?raw=true)',
