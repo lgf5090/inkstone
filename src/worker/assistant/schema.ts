@@ -103,7 +103,56 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_key ON chat_request_logs(user_id, key_id, at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_filter ON chat_request_logs(user_id, provider_id, ok, at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_conversation ON chat_request_logs(user_id, conversation_id, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_status ON chat_request_logs(user_id, ok, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_model ON chat_request_logs(user_id, model_label, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_key_hint ON chat_request_logs(user_id, key_hint, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_operation ON chat_request_logs(user_id, operation, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_attempt ON chat_request_logs(user_id, attempt, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_latency ON chat_request_logs(user_id, latency_ms, at DESC)`,
 
+  /**
+   * Security events are deliberately separate from `chat_activity`: that feed keeps only its newest
+   * rows, so an ordinary turn could quietly evict the record of a plaintext key disclosure. These rows
+   * carry which session and address asked, and are never trimmed by the activity sweep.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_security_audit (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    session_id TEXT NOT NULL DEFAULT '',
+    ip TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_security_audit_user ON chat_security_audit(user_id, created_at DESC)`,
+
+  /**
+   * A reveal ticket is redeemed once by the session that asked for it, seconds after it is issued.
+   * Keeping it in D1 makes redemption atomic across isolates; the plaintext itself is never stored here.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_reveal_tickets (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    consumed_at INTEGER,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_reveal_tickets_expiry ON chat_reveal_tickets(user_id, expires_at)`,
+
+  /** One atomic counter per account, scope and fixed window, shared by probe and Worker throttles. */
+  `CREATE TABLE IF NOT EXISTS chat_rate_limits (
+    user_id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    window_start INTEGER NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, scope, window_start)
+  )`,
 
   /**
    * A model one key could not serve, asked apart from the key's own health.
@@ -945,6 +994,9 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_cursor_commands',
   'chat_subagent_tasks',
   'chat_reader_embeddings',
+  'chat_security_audit',
+  'chat_reveal_tickets',
+  'chat_rate_limits',
 ]
 
 export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
@@ -995,6 +1047,18 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_prompts_user',
   'idx_chat_answer_versions_message',
   'idx_chat_mcp_servers_user',
+  'idx_chat_request_logs_at',
+  'idx_chat_request_logs_key',
+  'idx_chat_request_logs_filter',
+  'idx_chat_request_logs_conversation',
+  'idx_chat_request_logs_status',
+  'idx_chat_request_logs_model',
+  'idx_chat_request_logs_key_hint',
+  'idx_chat_request_logs_operation',
+  'idx_chat_request_logs_attempt',
+  'idx_chat_request_logs_latency',
+  'idx_chat_security_audit_user',
+  'idx_chat_reveal_tickets_expiry',
 ]
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -1037,6 +1101,9 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'args', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'cached_input_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],
   chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
+  chat_security_audit: ['user_id', 'id', 'kind', 'summary', 'session_id', 'ip', 'user_agent', 'created_at'],
+  chat_reveal_tickets: ['user_id', 'id', 'provider_id', 'key_id', 'session_id', 'expires_at', 'consumed_at', 'created_at'],
+  chat_rate_limits: ['user_id', 'scope', 'window_start', 'count'],
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until', 'partial_text'],
   chat_questions: ['user_id', 'id', 'conversation_id', 'call_id', 'questions', 'status', 'answers', 'created_at', 'expires_at', 'answered_at'],
   chat_cursor_commands: ['user_id', 'id', 'label', 'instruction', 'execution', 'enabled', 'position', 'created_at', 'updated_at'],

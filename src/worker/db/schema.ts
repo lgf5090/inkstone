@@ -4464,6 +4464,66 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_conversation ON chat_request_logs(user_id, conversation_id, at DESC)`,
     ],
   },
+  {
+    // Security events outlive the general activity feed: that feed is capped at a few hundred rows, so
+    // ordinary chatter can push a plaintext disclosure out of the account's own history. These rows keep
+    // the session, address and agent that asked, and are never pruned by the activity sweep.
+    version: 414,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_security_audit (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        session_id TEXT NOT NULL DEFAULT '',
+        ip TEXT NOT NULL DEFAULT '',
+        user_agent TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_security_audit_user ON chat_security_audit(user_id, created_at DESC)`,
+    ],
+  },
+  {
+    // A reveal is redeemed once, within seconds, by the session that asked for it. The rate-limit rows
+    // are shared by probe and Worker-level throttles so both read one atomic counter per window.
+    version: 415,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_reveal_tickets (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        consumed_at INTEGER,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_reveal_tickets_expiry ON chat_reveal_tickets(user_id, expires_at)`,
+      `CREATE TABLE IF NOT EXISTS chat_rate_limits (
+        user_id TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        window_start INTEGER NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, scope, window_start)
+      )`,
+    ],
+  },
+  {
+    // The log table's custom sort columns had no leading index, so every "sort by provider / model /
+    // status" paged read sorted the whole account. Each index starts with the tenant key and ends with
+    // the default tie-breaker, so the ORDER BY in listRequestLogs can walk the index instead.
+    version: 416,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_status ON chat_request_logs(user_id, ok, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_model ON chat_request_logs(user_id, model_label, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_key_hint ON chat_request_logs(user_id, key_hint, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_operation ON chat_request_logs(user_id, operation, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_attempt ON chat_request_logs(user_id, attempt, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_latency ON chat_request_logs(user_id, latency_ms, at DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
