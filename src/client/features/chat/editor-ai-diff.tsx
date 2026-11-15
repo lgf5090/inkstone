@@ -246,7 +246,7 @@ export function WriteDiffView({ diff, accepted, onToggle }: {
   )
 }
 
-const BASE_ROW = 'whitespace-pre-wrap break-words rounded-[2px] px-1'
+const BASE_ROW = 'whitespace-pre-wrap break-words rounded-[var(--r-2)] px-1'
 
 function DiffRowView({ row, accepted, onToggle }: {
   row: DiffRow
@@ -259,7 +259,7 @@ function DiffRowView({ row, accepted, onToggle }: {
   if (row.kind === 'change') {
     const keep = row.hunk === undefined || !accepted || accepted.has(row.hunk)
     return (
-      <div className={cn('rounded-[2px]', !keep && 'opacity-55')}>
+      <div className={cn('rounded-[var(--r-2)]', !keep && 'opacity-55')}>
         {onToggle && row.hunk !== undefined && (
           <label className="flex items-center gap-1 border-b border-[var(--border-subtle)] px-1 py-0.5 font-sans text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
             <input
