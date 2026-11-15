@@ -12,7 +12,7 @@
  * without having to open anything first — `useProviderBalances` is the one owner and the card hands the
  * readings to both the header chips and these rows.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, AlertTriangle, CheckCircle2, ChevronDown, Copy, Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
 import type { AssistantKeyProbe, AssistantKeyRotation, AssistantProvider, AssistantProviderKey } from '@shared/assistant'
 import type { KeyBalance, ProviderBalanceAnswer } from '@shared/provider-balance'
@@ -26,6 +26,7 @@ import { useUi } from '../../store/ui'
 import { storedKeyLabel } from './assistant-settings-shared'
 import { KeyInsights } from './KeyInsights'
 import { useAssistant } from './assistant-store'
+import { BALANCE_FAILED_COUNT, REVEAL_PARTIAL } from './request-log-keys'
 
 /** How long a revealed key stays on screen before it hides itself. */
 const REVEAL_MS = 15_000
@@ -100,10 +101,13 @@ function BalanceChip({ reading, name }: { reading: KeyBalance | undefined, name:
     <Tooltip label={t('assistant.balance.tip', { key: name, hint: reading.keyHint })} side="top">
       <span
         className={cn(
-          'shrink-0 tabular text-[length:var(--text-10-5)]',
-          reading.ok ? 'text-[var(--text-secondary)]' : 'text-[var(--text-quaternary)]',
+          'flex shrink-0 items-center gap-1 tabular text-[length:var(--text-10-5)]',
+          reading.ok
+            ? 'text-[var(--text-secondary)]'
+            : 'rounded-full bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] px-1.5 font-medium text-[var(--danger)]',
         )}
       >
+        {!reading.ok && <AlertTriangle size={10} aria-hidden />}
         {balanceWords(reading)}
       </span>
     </Tooltip>
@@ -204,14 +208,23 @@ export function useProviderBalances(provider: AssistantProvider): ProviderWallet
  * ring is where that gets said out loud.
  */
 export function WalletChips({ wallet }: { wallet: ProviderWallet }) {
-  const readable = (wallet.balances?.readings ?? [])
-    .filter((entry): entry is KeyBalance & { ok: true } => entry.ok)
-  if (readable.length === 0) return null
+  const readings = wallet.balances?.readings ?? []
+  const readable = readings.filter((entry): entry is KeyBalance & { ok: true } => entry.ok)
+  const failed = readings.length - readable.length
+  if (readable.length === 0 && failed === 0) return null
+  // The failure marker is a plain span, not a Tooltip chip: the header states plainly how many reads
+  // failed, with the same danger colour and icon a failed probe badge uses.
   return (
     <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-x-2">
       {readable.map((reading) => (
         <BalanceChip key={reading.keyId || 'own'} reading={reading} name={keyName(reading)} />
       ))}
+      {failed > 0 && (
+        <span className="flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] px-1.5 font-medium text-[length:var(--text-10-5)] text-[var(--danger)]">
+          <AlertTriangle size={10} aria-hidden />
+          {t(BALANCE_FAILED_COUNT, { count: failed })}
+        </span>
+      )}
     </div>
   )
 }
@@ -307,54 +320,61 @@ export function ProviderKeys({ provider, wallet, onProbes }: {
   const rotationOf = (keyId: string): AssistantKeyRotation | undefined =>
     rotation.find((entry) => entry.keyId === keyId)
 
-  /**
-   * Asks the worker for one plaintext key.
-   *
-   * The worker writes an activity line before it answers, so this is a thing the reader did rather than a
-   * thing that happened. The plaintext lives in this component for {REVEAL_MS} and then goes away on its
-   * own — a key left on screen is a key in the next screenshot.
-   */
-  const revealKey = async (keyId: string): Promise<string | null> => {
-    setRevealing(keyId)
-    try {
-      const answer = keyId
-        ? await api.assistant.revealExtraKey(provider.id, keyId)
-        : await api.assistant.revealProviderKey(provider.id)
-      return answer.key
-    } catch (error) {
-      toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
-      return null
-    } finally {
-      setRevealing(null)
-    }
-  }
+  /** Redeems one reveal, with a one-time ticket when supplied; throws so every caller owns the error. */
+  const redeemKey = useCallback(async (keyId: string, ticket?: string): Promise<string> => {
+    const answer = keyId
+      ? await api.assistant.revealExtraKey(provider.id, keyId, ticket)
+      : await api.assistant.revealProviderKey(provider.id, ticket)
+    return answer.key
+  }, [provider.id])
+
+  /** Anything that leaves plaintext on screen takes a single-use ticket first, then redeems it immediately. */
+  const revealForDisplay = useCallback(async (keyId: string): Promise<string> => {
+    const { ticket } = await api.assistant.revealTicket(provider.id, keyId || undefined)
+    return redeemKey(keyId, ticket)
+  }, [provider.id, redeemKey])
 
   const toggleReveal = async (keyId: string) => {
     if (revealed?.keyId === keyId) {
       setRevealed(null)
       return
     }
-    const key = await revealKey(keyId)
-    if (key) setRevealed({ keyId, key })
+    setRevealing(keyId)
+    try {
+      const key = await revealForDisplay(keyId)
+      setRevealed({ keyId, key })
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
+    } finally {
+      setRevealing(null)
+    }
   }
 
   const copyKey = async (keyId: string) => {
-    const key = plainOf(keyId) ?? await revealKey(keyId)
-    if (!key) return
-    let copied = false
+    setRevealing(keyId)
     try {
-      await navigator.clipboard.writeText(key)
-      copied = true
+      // Copy keeps the one-call reveal during the ticket deprecation window, preserving its behaviour.
+      const key = plainOf(keyId) ?? await redeemKey(keyId)
+      if (!key) return
+      let copied = false
+      try {
+        await navigator.clipboard.writeText(key)
+        copied = true
+      } catch (error) {
+        console.warn('clipboard write refused', error)
+      }
+      if (copied) {
+        toast({ title: t('assistant.keys.copied'), tone: 'default' })
+        return
+      }
+      // A browser that refuses the clipboard still gets the plaintext on screen, which is the fallback.
+      setRevealed({ keyId, key })
+      toast({ title: t('assistant.keys.copy_failed'), tone: 'warning' })
     } catch (error) {
-      console.warn('clipboard write refused', error)
+      toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
+    } finally {
+      setRevealing(null)
     }
-    if (copied) {
-      toast({ title: t('assistant.keys.copied'), tone: 'default' })
-      return
-    }
-    // A browser that refuses the clipboard still gets the plaintext on screen, which is the fallback.
-    setRevealed({ keyId, key })
-    toast({ title: t('assistant.keys.copy_failed'), tone: 'warning' })
   }
 
   useEffect(() => {
@@ -368,32 +388,38 @@ export function ProviderKeys({ provider, wallet, onProbes }: {
     return () => clearTimeout(timer)
   }, [revealed])
 
-  // The standing choice reads the whole ring once per open. Each read is an audited reveal, which is the
-  // price of the choice: a screen full of plaintext is a screen whose readings are countable.
+  // The standing choice reveals the whole ring in parallel once per open. A stable id signature keeps a
+  // key edit that merely reloads `keys` by reference from re-running every audited reveal.
+  const revealSignature = useMemo(
+    () => [''].concat((keys ?? []).filter((entry) => entry.hasKey).map((entry) => entry.id)).join('|'),
+    [keys],
+  )
+
   useEffect(() => {
     if (!open || !revealAlways) {
       setAlwaysShown({})
       return
     }
     let cancelled = false
-    void (async () => {
-      const next: Record<string, string> = {}
-      const ids = [''].concat((keys ?? []).filter((entry) => entry.hasKey).map((entry) => entry.id))
-      for (const keyId of ids) {
-        try {
-          const answer = keyId
-            ? await api.assistant.revealExtraKey(provider.id, keyId)
-            : await api.assistant.revealProviderKey(provider.id)
-          next[keyId] = answer.key
-        } catch {
-          // One unreadable key must not stop the rest of the ring from being shown.
-        }
+    const ids = revealSignature.split('|')
+    void Promise.allSettled(ids.map((keyId) => revealForDisplay(keyId)))
+      .then((settled) => {
         if (cancelled) return
-      }
-      if (!cancelled) setAlwaysShown(next)
-    })()
+        const next: Record<string, string> = {}
+        let missed = 0
+        settled.forEach((result, index) => {
+          if (result.status === 'fulfilled') next[ids[index]!] = result.value
+          else missed += 1
+        })
+        setAlwaysShown(next)
+        if (missed > 0) {
+          const first = settled.find((result) => result.status === 'rejected')
+          const detail = first && first.status === 'rejected' && first.reason instanceof Error ? first.reason.message : undefined
+          toast({ title: t(REVEAL_PARTIAL, { count: missed }), description: detail, tone: 'danger' })
+        }
+      })
     return () => { cancelled = true }
-  }, [open, revealAlways, keys, provider.id])
+  }, [open, revealAlways, provider.id, revealSignature, revealForDisplay, toast])
 
   /** The reading for one row of the ring, or nothing to say about it yet. */
   const balanceOf = (keyId: string): KeyBalance | undefined => wallet.balances?.readings.find((entry) => entry.keyId === keyId)

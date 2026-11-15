@@ -10,17 +10,18 @@
  * otherwise, so the panel has nothing to hide.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Activity, AlertTriangle, CheckCircle2, ChevronLeft, Clock, Coins, Download, FileText, Hash, Trash2, XCircle } from 'lucide-react'
+import { Activity, AlertTriangle, CheckCircle2, Clock, Coins, Download, FileText, Hash, Trash2, XCircle } from 'lucide-react'
 import type { AssistantKeyStats, AssistantProvider, AssistantRequestLog, AssistantStatsScope } from '@shared/assistant'
 import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { Button, IconButton, Spinner } from '../../components/primitives'
-import { Switch } from '../../components/form'
+import { Segmented, Switch } from '../../components/form'
 import { useAssistant } from './assistant-store'
 import { Modal, confirm } from '../../components/overlay'
 import { cn } from '../../lib/cn'
 import { useUi } from '../../store/ui'
-import { csvCell } from './request-log-shared'
+import { csvCell, csvParts, downloadParts, fetchAllLogs, jsonParts } from './request-log-shared'
+import { EXPORT_DONE, EXPORT_PARTIAL, INSIGHT_SCOPE, INSIGHT_TABS } from './request-log-keys'
 import { LoadFailure } from './assistant-settings-shared'
 
 /** A number with thousands separators; the panel is about magnitudes, not exact digits. */
@@ -36,8 +37,9 @@ const LOG_WINDOWS = [
 
 const CSV_HEADER = 'at,provider,model,key_hint,ok,http_status,error_kind,input_tokens,output_tokens,cached,latency_ms'
 
-function toCsv(logs: AssistantRequestLog[]): string {
-  const rows = logs.map((entry) => [
+/** Pre-rendered CSV rows; csvParts joins them into bounded Blob fragments at download time. */
+function csvRows(logs: AssistantRequestLog[]): string[] {
+  return logs.map((entry) => [
     new Date(entry.at).toISOString(),
     entry.providerLabel || entry.providerId,
     entry.modelLabel || entry.operation,
@@ -49,8 +51,7 @@ function toCsv(logs: AssistantRequestLog[]): string {
     entry.outputTokens,
     entry.cachedInputTokens,
     entry.latencyMs,
-  ])
-  return '\uFEFF' + [CSV_HEADER, ...rows.map((row) => row.map(csvCell).join(','))].join('\r\n') + '\r\n'
+  ].map(csvCell).join(','))
 }
 
 /** Tokens in the reader's own units: 43,397 is fine, 4,330,000 is not. */
@@ -149,26 +150,25 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
 
   const exportLogs = async (format: 'json' | 'csv') => {
     try {
-      const answer = await api.assistant.requestLogs({
+      const { logs, total, truncated } = await fetchAllLogs({
         ...logScope(),
         ...(sinceMs !== null ? { sinceMs } : {}),
-        limit: 500,
       })
-      // A JSON export carries whole rows. The prompt body is not one of the columns this drawer shows,
-      // so leave it out rather than quietly adding a reader's conversation to a downloaded file.
-      const safe = answer.logs.map((entry) => ({ ...entry, requestBody: null }))
-      const text = format === 'json' ? JSON.stringify(safe, null, 2) : toCsv(answer.logs)
-      const blob = new Blob([text], {
-        type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8',
+      // includeBody=false semantics for both formats: whole rows in JSON, but never the prompt body, so a
+      // reader's conversation is not quietly added to a downloaded file.
+      const safe = logs.map((entry) => ({ ...entry, requestBody: null }))
+      const parts = format === 'json' ? jsonParts(safe) : csvParts(CSV_HEADER, csvRows(logs))
+      downloadParts(
+        parts,
+        format === 'json' ? 'application/json' : 'text/csv;charset=utf-8',
+        `key-logs${truncated ? '-partial' : ''}.${format}`,
+      )
+      toast({
+        title: truncated
+          ? t(EXPORT_PARTIAL, { count: logs.length, total })
+          : t(EXPORT_DONE, { count: logs.length }),
+        tone: truncated ? 'warning' : 'default',
       })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `key-logs.${format}`
-      document.body.append(link)
-      link.click()
-      link.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 0)
     } catch (error) {
       toast({
         title: t('assistant.insights.export_failed'),
@@ -215,44 +215,30 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
       description={t('assistant.insights.hint')}
     >
       <div className="flex flex-col gap-3">
-        {/* Two questions, one surface: "how much" and "which one failed". */}
-        <div className="flex items-center gap-1.5">
-          {(['stats', 'logs'] as const).map((entry) => (
-            <button
-              key={entry}
-              type="button"
-              aria-pressed={tab === entry}
-              onClick={() => setTab(entry)}
-              className={cn(
-                'rounded-[var(--r-md)] px-2.5 py-1 text-[length:var(--text-11-5)] transition-colors duration-[var(--dur-fast)]',
-                tab === entry
-                  ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
-                  : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]',
-              )}
-            >
-              {entry === 'stats' ? t('assistant.insights.tab_stats') : t('assistant.insights.tab_logs')}
-            </button>
-          ))}
-          <span className="mx-1 h-3 w-px bg-[var(--border-subtle)]" />
-          {(['key', 'provider', 'all'] as const).map((entry) => {
-            if (entry === 'key' && keyId === undefined) return null
-            return (
-              <button
-                key={entry}
-                type="button"
-                aria-pressed={scope === entry}
-                onClick={() => setScope(entry)}
-                className={cn(
-                  'rounded-[var(--r-md)] px-2.5 py-1 text-[length:var(--text-11-5)] transition-colors duration-[var(--dur-fast)]',
-                  scope === entry
-                    ? 'bg-[var(--bg-elevated)] font-medium text-[var(--text-primary)] ring-1 ring-[var(--border-strong)]'
-                    : 'text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)]',
-                )}
-              >
-                {entry === 'key' ? `····${keyHint ?? ''}` : entry === 'provider' ? t('assistant.insights.scope_provider') : t('assistant.insights.scope_all')}
-              </button>
-            )
-          })}
+        {/* Two questions, one surface: "how much" and "which one failed". Segmented supplies the
+            radiogroup, roving tabindex and arrow/Home/End keys the old aria-pressed buttons lacked. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Segmented
+            size="sm"
+            label={t(INSIGHT_TABS)}
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: 'stats' as const, label: t('assistant.insights.tab_stats') },
+              { value: 'logs' as const, label: t('assistant.insights.tab_logs') },
+            ]}
+          />
+          <Segmented
+            size="sm"
+            label={t(INSIGHT_SCOPE)}
+            value={scope}
+            onChange={setScope}
+            options={[
+              ...(keyId !== undefined ? [{ value: 'key' as const, label: `····${keyHint ?? ''}` }] : []),
+              { value: 'provider' as const, label: t('assistant.insights.scope_provider') },
+              { value: 'all' as const, label: t('assistant.insights.scope_all') },
+            ]}
+          />
         </div>
 
         {busy && <div className="flex justify-center py-8"><Spinner /></div>}
@@ -485,9 +471,3 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
     </Modal>
   )
 }
-
-/** The icon a row wears to open the panel; exported so the two entry points stay identical. */
-export const InsightsIcon = Activity
-
-/** A small back-arrow label for the provider-wide entry, kept here so both doors read the same. */
-export const InsightsBackIcon = ChevronLeft

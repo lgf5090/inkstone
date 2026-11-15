@@ -112,8 +112,18 @@ function ActivityHeatmap({ activity, mode, today }: {
   mode: HeatMode
   today: string
 }) {
+  const locale = useLocale()
   const cells = useMemo(() => heatCells(activity, mode, today), [activity, mode, today])
   const months = useMemo(() => monthLabels(cells), [cells])
+  // A year of squares used to call t() and toLocaleString() twice per cell. One Map computes each label
+  // once; the locale is a dependency so a language switch is not answered with last locale's wording.
+  const labels = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const cell of cells) {
+      map.set(cell.day, t('assistant.stats.day_tokens', { day: cell.day, tokens: cell.tokens.toLocaleString() }))
+    }
+    return map
+  }, [cells, locale])
   return (
     <div className="no-scrollbar overflow-x-auto pb-1">
       <div className="inline-block">
@@ -128,13 +138,13 @@ function ActivityHeatmap({ activity, mode, today }: {
             </span>
           ))}
         </div>
-        <div role="group" aria-label={t('assistant.stats.heatmap')} className="mt-1 inline-grid grid-flow-col grid-rows-7 gap-[3px]">
+        <div role="group" aria-label={t('assistant.stats.heatmap')} className="mt-1 inline-grid grid-flow-col grid-rows-7 gap-[var(--sp-0-75)]">
           {cells.map((cell) => (
             <span
               key={cell.day}
-              title={t('assistant.stats.day_tokens', { day: cell.day, tokens: cell.tokens.toLocaleString() })}
-              aria-label={t('assistant.stats.day_tokens', { day: cell.day, tokens: cell.tokens.toLocaleString() })}
-              className={cn('size-3 rounded-[3px]', cell.level === 0 && 'bg-[var(--bg-inset)]')}
+              title={labels.get(cell.day)}
+              aria-label={labels.get(cell.day)}
+              className={cn('size-3 rounded-[var(--r-3)]', cell.level === 0 && 'bg-[var(--bg-inset)]')}
               style={cell.level > 0 ? { background: `color-mix(in oklab, var(--accent) ${cell.level * 25}%, var(--bg-inset))` } : undefined}
             />
           ))}

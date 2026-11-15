@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { RotateCcw, Search, Star } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefreshCw, RotateCcw, Search, Star } from 'lucide-react'
 import type { AssistantLogFacets, AssistantRequestLog } from '@shared/assistant'
 import { LOG_MAX_PAGE_SIZE } from '@shared/assistant'
 import { t } from '../../lib/i18n'
+import { REFRESH_FACETS } from './request-log-keys'
 import { api, type LogQuery } from '../../lib/api'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
@@ -62,26 +63,30 @@ export function useLogFilters() {
 
 export type LogFilterControls = ReturnType<typeof useLogFilters>
 
-export function useLogFacets(): AssistantLogFacets {
+export function useLogFacets(): { facets: AssistantLogFacets, refresh: () => void } {
   const [facets, setFacets] = useState<AssistantLogFacets>({ providers: [], keys: [], models: [], operations: [], errorKinds: [] })
+  const [revision, setRevision] = useState(0)
+  const refresh = useCallback(() => setRevision((value) => value + 1), [])
   useEffect(() => {
     let cancelled = false
-    // The menus are an aid, not the data: a refused facet read leaves the filters usable with empty lists.
+    // The menus are an aid, not the data: a refused read keeps the lists the reader already has, so a
+    // failed refresh never blanks the provider/model options they were filtering by.
     void api.assistant.logFacets()
       .then((answer) => { if (!cancelled) setFacets(answer) })
       .catch((error: unknown) => console.warn('log facets unavailable', error))
     return () => { cancelled = true }
-  }, [])
-  return facets
+  }, [revision])
+  return { facets, refresh }
 }
 
 const FILTER_LABEL = 'w-full min-w-0 md:w-auto text-[length:var(--text-11)]'
 
-export function LogFilterBar({ controls, facets, children, showStarred = true }: {
+export function LogFilterBar({ controls, facets, children, showStarred = true, onRefreshFacets }: {
   controls: LogFilterControls
   facets: AssistantLogFacets
   children?: React.ReactNode
   showStarred?: boolean
+  onRefreshFacets?: () => void
 }) {
   const { filters, setFilter, reset, active } = controls
   return (
@@ -166,6 +171,11 @@ export function LogFilterBar({ controls, facets, children, showStarred = true }:
             {t('assistant.logs.starred_only')}
           </button>
         )}
+        {onRefreshFacets && (
+          <IconButton size="sm" label={t(REFRESH_FACETS)} onClick={onRefreshFacets}>
+            <RefreshCw size={12} />
+          </IconButton>
+        )}
         <Button size="sm" variant="ghost" icon={<RotateCcw size={12} />} disabled={active === 0} onClick={reset}>
           {t('assistant.logs.reset_filters')}
         </Button>
@@ -246,34 +256,98 @@ export function csvCell(value: string | number | boolean | null): string {
   return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
 }
 
-export function toCsv(logs: AssistantRequestLog[], includeBody: boolean): string {
-  const header = includeBody ? `${CSV_HEADER},request_body` : CSV_HEADER
-  const rows = logs.map((entry) => {
-    const cells: Array<string | number | boolean | null> = [
-      new Date(entry.at).toISOString(), entry.providerLabel, entry.providerId, entry.keyId, entry.keyHint,
-      entry.modelLabel, entry.modelId, entry.operation, entry.ok, entry.httpStatus, entry.errorKind,
-      entry.errorMessage, entry.inputTokens, entry.outputTokens, entry.cachedInputTokens, entry.latencyMs,
-      entry.attempt, entry.conversationId, entry.starred, entry.note,
-    ]
-    if (includeBody) cells.push(entry.requestBody)
-    return cells.map(csvCell).join(',')
-  })
-  return '\uFEFF' + [header, ...rows].join('\r\n') + '\r\n'
+/** One export walks at most this many pages of LOG_MAX_PAGE_SIZE rows, so a huge account cannot pin the tab. */
+export const EXPORT_MAX_PAGES = 40
+/** Rows per Blob fragment: the download is assembled in bounded pieces rather than one multi-megabyte string. */
+export const EXPORT_CHUNK_ROWS = 200
+
+export interface ExportResult {
+  exported: number
+  total: number
+  truncated: boolean
 }
 
-export async function exportLogs(query: LogQuery, format: 'json' | 'csv', includeBody: boolean): Promise<void> {
-  const answer = await api.assistant.requestLogs({ ...query, page: 1, pageSize: LOG_MAX_PAGE_SIZE })
-  const logs = includeBody ? answer.logs : answer.logs.map((entry) => ({ ...entry, requestBody: null }))
-  const text = format === 'json' ? JSON.stringify(logs, null, 2) : toCsv(logs, includeBody)
-  const blob = new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' })
+/** Reads every matching log by walking pages until the server's total is reached or the cap trips. */
+export async function fetchAllLogs(query: LogQuery): Promise<{ logs: AssistantRequestLog[], total: number, truncated: boolean }> {
+  const all: AssistantRequestLog[] = []
+  let total = 0
+  for (let page = 1; page <= EXPORT_MAX_PAGES; page += 1) {
+    const answer = await api.assistant.requestLogs({ ...query, page, pageSize: LOG_MAX_PAGE_SIZE, limit: undefined })
+    total = answer.total
+    all.push(...answer.logs)
+    if (answer.logs.length === 0 || all.length >= total) break
+  }
+  return { logs: all, total, truncated: all.length < total }
+}
+
+function csvRow(entry: AssistantRequestLog, includeBody: boolean): string {
+  const cells: Array<string | number | boolean | null> = [
+    new Date(entry.at).toISOString(), entry.providerLabel, entry.providerId, entry.keyId, entry.keyHint,
+    entry.modelLabel, entry.modelId, entry.operation, entry.ok, entry.httpStatus, entry.errorKind,
+    entry.errorMessage, entry.inputTokens, entry.outputTokens, entry.cachedInputTokens, entry.latencyMs,
+    entry.attempt, entry.conversationId, entry.starred, entry.note,
+  ]
+  if (includeBody) cells.push(entry.requestBody)
+  return cells.map(csvCell).join(',')
+}
+
+/** CSV as Blob fragments — a header part, then one part per chunk of rows. */
+export function csvParts(header: string, rows: string[]): string[] {
+  const parts: string[] = ['\uFEFF' + header + '\r\n']
+  for (let i = 0; i < rows.length; i += EXPORT_CHUNK_ROWS) {
+    let chunk = ''
+    const end = Math.min(i + EXPORT_CHUNK_ROWS, rows.length)
+    for (let j = i; j < end; j += 1) chunk += rows[j]! + '\r\n'
+    parts.push(chunk)
+  }
+  return parts
+}
+
+/** JSON as Blob fragments, byte-for-byte the pretty text JSON.stringify(logs, null, 2) would print. */
+export function jsonParts(logs: readonly unknown[]): string[] {
+  if (logs.length === 0) return ['[]']
+  const parts: string[] = ['[\n']
+  for (let i = 0; i < logs.length; i += EXPORT_CHUNK_ROWS) {
+    let chunk = ''
+    const end = Math.min(i + EXPORT_CHUNK_ROWS, logs.length)
+    for (let j = i; j < end; j += 1) {
+      const indented = '  ' + JSON.stringify(logs[j], null, 2).replaceAll('\n', '\n  ')
+      chunk += indented + (j === logs.length - 1 ? '\n' : ',\n')
+    }
+    parts.push(chunk)
+  }
+  parts.push(']')
+  return parts
+}
+
+export function toCsv(logs: AssistantRequestLog[], includeBody: boolean): string {
+  const header = includeBody ? `${CSV_HEADER},request_body` : CSV_HEADER
+  return csvParts(header, logs.map((entry) => csvRow(entry, includeBody))).join('')
+}
+
+/** Downloads Blob fragments and releases the object URL on the next tick. */
+export function downloadParts(parts: BlobPart[], type: string, filename: string): void {
+  const blob = new Blob(parts, { type })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `request-logs.${format}`
+  link.download = filename
   document.body.append(link)
   link.click()
   link.remove()
   window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+export async function exportLogs(query: LogQuery, format: 'json' | 'csv', includeBody: boolean): Promise<ExportResult> {
+  const { logs, total, truncated } = await fetchAllLogs(query)
+  // A body-less JSON export keeps the reader's conversation out of the downloaded file.
+  const safe = includeBody ? logs : logs.map((entry) => ({ ...entry, requestBody: null }))
+  const parts = format === 'json'
+    ? jsonParts(safe)
+    : csvParts(includeBody ? `${CSV_HEADER},request_body` : CSV_HEADER, logs.map((entry) => csvRow(entry, includeBody)))
+  const filename = `request-logs${truncated ? '-partial' : ''}.${format}`
+  downloadParts(parts, format === 'json' ? 'application/json' : 'text/csv;charset=utf-8', filename)
+  return { exported: logs.length, total, truncated }
 }
 
 export function useAutoRefresh(intervalSeconds: number, reload: () => void): void {

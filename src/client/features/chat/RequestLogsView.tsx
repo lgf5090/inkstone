@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronsUpDown, Columns3, Copy, Download,
   ExternalLink, FileText, MoreHorizontal, RefreshCw, Trash2, XCircle,
 } from 'lucide-react'
 import type {
-  AssistantLogPage, AssistantLogSortDir, AssistantLogSortKey, AssistantRequestLog,
+  AssistantLogFacets, AssistantLogPage, AssistantLogSortDir, AssistantLogSortKey, AssistantRequestLog,
 } from '@shared/assistant'
 import { LOG_PAGE_SIZE } from '@shared/assistant'
 import type { MessageKey } from '@shared/locales/en-US'
@@ -21,6 +21,7 @@ import {
   REFRESH_INTERVALS, LogFilterBar, StarButton, count, exportLogs,
   ms, tokens, useAutoRefresh, useLogFacets, useLogFilters, when,
 } from './request-log-shared'
+import { EXPORT_DONE, EXPORT_PARTIAL } from './request-log-keys'
 
 type ColumnId = 'at' | 'status' | 'model' | 'provider' | 'key' | 'tokens' | 'latency' | 'error' | 'operation' | 'attempt' | 'conversation' | 'note'
 
@@ -75,7 +76,7 @@ function saveColumns(columns: ColumnId[]): void {
 export function RequestLogsView() {
   const toast = useUi((state) => state.toast)
   const controls = useLogFilters()
-  const facets = useLogFacets()
+  const { facets, refresh: refreshFacets } = useLogFacets()
   const [page, setPage] = useState(1)
   const [answer, setAnswer] = useState<AssistantLogPage | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -107,7 +108,7 @@ export function RequestLogsView() {
       setAnswer(answer)
     } catch (error) {
       if (id !== loadId.current) return
-      setAnswer(null)
+      // A failed auto refresh keeps the last good page instead of blanking the list under the reader.
       setFailure(error instanceof Error ? error.message : String(error))
     } finally {
       if (id === loadId.current) setBusy(false)
@@ -122,7 +123,8 @@ export function RequestLogsView() {
   const logs = answer?.logs ?? []
   const pages = Math.max(1, Math.ceil((answer?.total ?? 0) / LOG_PAGE_SIZE))
   const allOnPage = logs.length > 0 && logs.every((entry) => selected.has(entry.id))
-  const visible = COLUMNS.filter((column) => columns.includes(column.id))
+  // Memoised so `template` (and every memoized LogRow) keeps a stable prop across renders.
+  const visible = useMemo(() => COLUMNS.filter((column) => columns.includes(column.id)), [columns])
   const template = useMemo(() => `24px ${visible.map((column) => column.width).join(' ')} 28px 28px 28px`, [visible])
 
   const cycleSort = (key: AssistantLogSortKey) => {
@@ -132,18 +134,29 @@ export function RequestLogsView() {
     else setSort({ by: key, dir: 'desc' })
   }
 
-  const replace = (entry: AssistantRequestLog) => {
+  const replace = useCallback((entry: AssistantRequestLog) => {
     setAnswer((current) => current ? { ...current, logs: current.logs.map((row) => row.id === entry.id ? entry : row) } : current)
-  }
+  }, [])
 
-  const toggle = (id: string) => {
+  const toggle = useCallback((id: string) => {
     setSelected((current) => {
       const next = new Set(current)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
     })
-  }
+  }, [])
+
+  const expand = useCallback((id: string) => {
+    setExpanded((current) => current === id ? null : id)
+  }, [])
+
+  // setFilter is recreated with the filters object; a ref keeps the row callback itself stable.
+  const setFilterRef = useRef(controls.setFilter)
+  setFilterRef.current = controls.setFilter
+  const onFilter = useCallback((key: 'providerId' | 'keyId' | 'model', value: string) => {
+    setFilterRef.current(key, value)
+  }, [])
 
   const remove = async (ids: string[]) => {
     if (!ids.length) return
@@ -167,7 +180,13 @@ export function RequestLogsView() {
 
   const download = async (format: 'json' | 'csv') => {
     try {
-      await exportLogs(controls.query, format, includeBody)
+      const result = await exportLogs(controls.query, format, includeBody)
+      toast({
+        title: result.truncated
+          ? t(EXPORT_PARTIAL, { count: result.exported, total: result.total })
+          : t(EXPORT_DONE, { count: result.exported }),
+        tone: result.truncated ? 'warning' : 'default',
+      })
     } catch (error) {
       toast({ title: t('assistant.logs.export_failed'), description: error instanceof Error ? error.message : String(error), tone: 'danger' })
     }
@@ -198,7 +217,7 @@ export function RequestLogsView() {
           <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.logs.hint')}</p>
         </div>
 
-        <LogFilterBar controls={controls} facets={facets}>
+        <LogFilterBar controls={controls} facets={facets} onRefreshFacets={refreshFacets}>
           <Select
             aria-label={t('assistant.logs.auto_refresh')}
             className="w-[120px] shrink-0 text-[length:var(--text-11)]"
@@ -326,11 +345,11 @@ export function RequestLogsView() {
                       selected={selected.has(entry.id)}
                       expanded={expanded === entry.id}
                       facets={facets}
-                      onToggle={() => toggle(entry.id)}
-                      onExpand={() => setExpanded((current) => current === entry.id ? null : entry.id)}
+                      onToggle={toggle}
+                      onExpand={expand}
                       onChange={replace}
                       onDeleted={load}
-                      onFilter={(key, value) => controls.setFilter(key, value)}
+                      onFilter={onFilter}
                     />
                   ))}
                 </ul>
@@ -357,7 +376,13 @@ export function RequestLogsView() {
         <CleanupDialog
           query={controls.query}
           onClose={() => setCleanupOpen(false)}
-          onDone={(deleted) => { setCleanupOpen(false); toast({ title: t('assistant.logs.cleanup_done', { count: deleted }), tone: 'default' }); void load() }}
+          onDone={(deleted) => {
+            setCleanupOpen(false)
+            toast({ title: t('assistant.logs.cleanup_done', { count: deleted }), tone: 'default' })
+            // Deleting rows can empty the page the reader was on, so go back to the first one.
+            setPage(1)
+            void load()
+          }}
         />
       )}
     </div>
@@ -387,7 +412,7 @@ function StatusBadge({ entry }: { entry: AssistantRequestLog }) {
 function LogCell({ entry, column, facets }: {
   entry: AssistantRequestLog
   column: ColumnDef
-  facets: ReturnType<typeof useLogFacets>
+  facets: AssistantLogFacets
 }) {
   switch (column.id) {
     case 'at':
@@ -446,15 +471,15 @@ function LogCell({ entry, column, facets }: {
   }
 }
 
-function LogRow({ entry, columns, template, selected, expanded, facets, onToggle, onExpand, onChange, onDeleted, onFilter }: {
+const LogRow = memo(function LogRow({ entry, columns, template, selected, expanded, facets, onToggle, onExpand, onChange, onDeleted, onFilter }: {
   entry: AssistantRequestLog
   columns: ColumnDef[]
   template: string
   selected: boolean
   expanded: boolean
-  facets: ReturnType<typeof useLogFacets>
-  onToggle: () => void
-  onExpand: () => void
+  facets: AssistantLogFacets
+  onToggle: (id: string) => void
+  onExpand: (id: string) => void
   onChange: (entry: AssistantRequestLog) => void
   onDeleted: () => Promise<void>
   onFilter: (key: 'providerId' | 'keyId' | 'model', value: string) => void
@@ -507,7 +532,7 @@ function LogRow({ entry, columns, template, selected, expanded, facets, onToggle
   }
 
   const items: MenuItem[] = [
-    { id: 'expand', label: t('assistant.logs.details'), icon: <FileText size={13} />, onSelect: onExpand },
+    { id: 'expand', label: t('assistant.logs.details'), icon: <FileText size={13} />, onSelect: () => onExpand(entry.id) },
     { id: 'copy-id', label: t('assistant.logs.copy_id'), icon: <Copy size={13} />, onSelect: () => void copy(entry.id) },
     {
       id: 'copy-error',
@@ -557,20 +582,20 @@ function LogRow({ entry, columns, template, selected, expanded, facets, onToggle
     <li
       role="row"
       className={cn(
-        'rounded-[var(--r-md)] border border-transparent border-l-[3px] transition-colors hover:bg-[var(--bg-hover)]',
+        'rounded-[var(--r-md)] border border-transparent border-l-[3px] transition-colors hover:bg-[var(--bg-hover)] [content-visibility:auto]',
         entry.ok ? 'border-l-transparent' : 'border-l-[var(--danger)]',
       )}
       onContextMenu={contextMenu.onContextMenu}
     >
       <div className="grid items-center gap-2 px-2 py-1.5 text-[length:var(--text-11)]" style={{ gridTemplateColumns: template }}>
         <div role="cell">
-          <input type="checkbox" checked={selected} aria-label={t('assistant.logs.select_one')} onChange={onToggle} />
+          <input type="checkbox" checked={selected} aria-label={t('assistant.logs.select_one')} onChange={() => onToggle(entry.id)} />
         </div>
         {columns.map((column) => (
           <div key={column.id} role="cell" className={cn('flex min-w-0 items-center', column.end && 'justify-end')}>
             <button
               type="button"
-              onClick={onExpand}
+              onClick={() => onExpand(entry.id)}
               aria-expanded={expanded}
               title={t('assistant.logs.detail_hint')}
               className="flex min-w-0 flex-1 items-center"
@@ -671,7 +696,7 @@ function LogRow({ entry, columns, template, selected, expanded, facets, onToggle
       )}
     </li>
   )
-}
+})
 
 function CleanupDialog({ query, onClose, onDone }: {
   query: Parameters<typeof api.assistant.cleanupRequestLogs>[0]

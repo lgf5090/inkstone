@@ -37,7 +37,7 @@ type ChartKind = 'line' | 'bar'
 
 export function RequestStatsView() {
   const controls = useLogFilters()
-  const facets = useLogFacets()
+  const { facets, refresh: refreshFacets } = useLogFacets()
   const [dimension, setDimension] = useState<AssistantStatsDimension>('provider')
   const [metric, setMetric] = useState<Metric>('requests')
   const [kind, setKind] = useState<ChartKind>('bar')
@@ -58,7 +58,7 @@ export function RequestStatsView() {
       setReport(answer)
     } catch (error) {
       if (id !== loadId.current) return
-      setReport(null)
+      // A failed auto refresh keeps the last good report on screen rather than blanking the panel.
       setFailure(error instanceof Error ? error.message : String(error))
     } finally {
       if (id === loadId.current) setBusy(false)
@@ -93,11 +93,23 @@ export function RequestStatsView() {
     return id || t('assistant.logs.none')
   }, [dimension, facets])
 
+  // Each row used to call groupName two or three times (label, title, chart, export). One Map holds the
+  // answer per id so a refresh recomputes it once instead of on every cell that names the group.
+  const groupNames = useMemo(
+    () => new Map((report?.breakdown ?? []).map((row) => [row.id, groupName(row.id)])),
+    [report, groupName],
+  )
+  const nameOf = useCallback(
+    (id: string): string => groupNames.get(id) ?? groupName(id),
+    [groupNames, groupName],
+  )
+  const topBreakdown = useMemo(() => (report?.breakdown ?? []).slice(0, 8), [report])
+
   const exportBreakdown = () => {
     if (!report) return
     const header = 'group,requests,succeeded,failed,input_tokens,output_tokens,avg_latency_ms'
     const lines = report.breakdown.map((row) => [
-      groupName(row.id), row.requests, row.succeeded, row.failed, row.inputTokens, row.outputTokens,
+      nameOf(row.id), row.requests, row.succeeded, row.failed, row.inputTokens, row.outputTokens,
       row.avgLatencyMs === null ? '' : Math.round(row.avgLatencyMs),
     ].map((cell) => {
       const text = String(cell)
@@ -122,7 +134,7 @@ export function RequestStatsView() {
           <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.stats.hint')}</p>
         </div>
 
-        <LogFilterBar controls={controls} facets={facets} showStarred={false}>
+        <LogFilterBar controls={controls} facets={facets} showStarred={false} onRefreshFacets={refreshFacets}>
           <Select
             aria-label={t('assistant.logs.auto_refresh')}
             className="w-[120px] shrink-0 text-[length:var(--text-11)]"
@@ -248,7 +260,7 @@ export function RequestStatsView() {
                       <h3 className="text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)]">{t('assistant.stats.compare')}</h3>
                       <span className="ml-auto text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.stats.top_n', { count: 8 })}</span>
                     </div>
-                    <GroupBars breakdown={report.breakdown.slice(0, 8)} groupName={groupName} />
+                    <GroupBars breakdown={topBreakdown} nameOf={nameOf} />
                   </section>
                 </div>
 
@@ -271,10 +283,11 @@ export function RequestStatsView() {
                   <ul>
                     {report.breakdown.map((row) => {
                       const share = summary.requests ? row.requests / summary.requests : 0
+                      const name = nameOf(row.id)
                       return (
                         <li key={row.id} className="border-t border-[var(--border-subtle)] px-2.5 py-1.5">
                           <div className="grid grid-cols-[minmax(0,1fr)_72px_64px_88px_76px_72px] items-center gap-2 text-[length:var(--text-11)]">
-                            <span className="min-w-0 truncate text-[var(--text-secondary)]" title={groupName(row.id)}>{groupName(row.id)}</span>
+                            <span className="min-w-0 truncate text-[var(--text-secondary)]" title={name}>{name}</span>
                             <span className="tabular text-[var(--text-secondary)]">{count(row.requests)}</span>
                             <span className={cn('tabular', row.failed > 0 ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>{count(row.failed)}</span>
                             <span className="tabular text-[var(--text-quaternary)]">{tokens(row.inputTokens + row.outputTokens)}</span>
@@ -356,7 +369,7 @@ function TrendChart({ series, hourly, metric, kind }: {
       },
     }
   }, [series, hourly, metric, kind])
-  return <ChartCanvas height="h-52" label={t('assistant.stats.chart_label')} build={build} />
+  return <ChartCanvas height="h-52" label={t('assistant.stats.chart_label')} build={build} structureKey={`${metric}:${kind}`} />
 }
 
 function TokenDonut({ summary }: { summary: AssistantStatsReport['summary'] }) {
@@ -384,7 +397,7 @@ function TokenDonut({ summary }: { summary: AssistantStatsReport['summary'] }) {
   if (!total) return <p className="py-6 text-center text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.stats.request_empty')}</p>
   return (
     <div className="relative">
-      <ChartCanvas height="h-40" label={t('assistant.stats.composition_label')} build={build} />
+      <ChartCanvas height="h-40" label={t('assistant.stats.composition_label')} build={build} structureKey="doughnut" />
       <span className="pointer-events-none absolute inset-x-0 top-[26%] text-center tabular text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">
         {tokens(total)}
       </span>
@@ -392,9 +405,9 @@ function TokenDonut({ summary }: { summary: AssistantStatsReport['summary'] }) {
   )
 }
 
-function GroupBars({ breakdown, groupName }: {
+function GroupBars({ breakdown, nameOf }: {
   breakdown: AssistantStatsReport['breakdown']
-  groupName: (id: string) => string
+  nameOf: (id: string) => string
 }) {
   const build = useMemo(() => (colors: ChartColors): ChartConfiguration => {
     const success = themeColor('--success', colors.palette[0] ?? '#2f9e6f')
@@ -402,7 +415,7 @@ function GroupBars({ breakdown, groupName }: {
     return {
       type: 'bar',
       data: {
-        labels: breakdown.map((row) => groupName(row.id)),
+        labels: breakdown.map((row) => nameOf(row.id)),
         datasets: [
           { label: t('assistant.logs.status_ok'), data: breakdown.map((row) => row.succeeded), backgroundColor: success, borderRadius: 2, stack: 'g' },
           { label: t('assistant.logs.status_failed'), data: breakdown.map((row) => row.failed), backgroundColor: danger, borderRadius: 2, stack: 'g' },
@@ -420,7 +433,7 @@ function GroupBars({ breakdown, groupName }: {
         },
       },
     }
-  }, [breakdown, groupName])
+  }, [breakdown, nameOf])
   if (!breakdown.length) return <p className="py-6 text-center text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.stats.request_empty')}</p>
-  return <ChartCanvas height="h-52" label={t('assistant.stats.compare_label')} build={build} />
+  return <ChartCanvas height="h-52" label={t('assistant.stats.compare_label')} build={build} structureKey="bars" />
 }
