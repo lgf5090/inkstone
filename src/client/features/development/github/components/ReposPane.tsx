@@ -35,6 +35,7 @@ export function ReposPane({
   currentMirrorId,
   onCurrentMirrorChange,
   deepLinkRepo,
+  deepLinkView,
   active,
 }: {
   tab: GithubTab
@@ -44,6 +45,7 @@ export function ReposPane({
   currentMirrorId: string
   onCurrentMirrorChange: (id: string) => void
   deepLinkRepo: string | null
+  deepLinkView: GithubViewId | null
   active: boolean
 }) {
   const tags = useGithubStore((state) => state.tags)
@@ -65,7 +67,7 @@ export function ReposPane({
   const truncatedRepos = useGithubStore((state) => state.truncatedRepos)
   const [prefs, setPrefs] = useState(loadRepoPrefs)
   const [refreshing, setRefreshing] = useState(false)
-  const [selectedView, setSelectedView] = useState<GithubViewId>(GITHUB_EXPLORE_VIEW)
+  const [selectedView, setSelectedView] = useState<GithubViewId>(() => deepLinkView ?? GITHUB_EXPLORE_VIEW)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -150,8 +152,7 @@ export function ReposPane({
     const queryValue = (nextQuery ?? query).trim()
     setCommittedQuery(queryValue)
     setPage(1)
-    rememberSearch(queryValue)
-  }, [query, rememberSearch])
+  }, [query])
 
   const selectView = useCallback((view: GithubViewId) => {
     setSelectedView(view)
@@ -453,10 +454,10 @@ export function ReposPane({
             query={query}
             onQueryChange={setQuery}
             searchRef={searchRef}
-            onCommitSearch={(value) => { setQuery(value); setCommittedQuery(value.trim()); setPage(1); rememberSearch(value) }}
+            onCommitSearch={(value) => { const trimmed = value.trim(); setQuery(trimmed); setCommittedQuery(trimmed); setPage(1); rememberSearch(trimmed) }}
             onClear={() => { setQuery(''); setCommittedQuery(''); setPage(1) }}
             searchHistory={searchHistory}
-            onPickSearchHistory={(value) => { setQuery(value); setCommittedQuery(value); setPage(1) }}
+            onPickSearchHistory={(value) => { const trimmed = value.trim(); setQuery(trimmed); setCommittedQuery(trimmed); setPage(1) }}
             onGoDiscover={() => selectView(GITHUB_EXPLORE_VIEW)}
             loading={search.loading || refreshing}
             error={search.error instanceof Error ? search.error.message : null}

@@ -42,7 +42,6 @@ export interface GithubStore {
   truncatedRepos: boolean
   truncatedGists: boolean
   load: () => Promise<void>
-  reload: () => Promise<void>
   refresh: () => Promise<void>
   loadAllRepos: () => Promise<void>
   loadAllGists: () => Promise<void>
@@ -296,11 +295,6 @@ export const useGithubStore = create<GithubStore>((set, get) => {
       })
       loadPromise = pending
       return pending
-    },
-
-    reload: async () => {
-      loadPromise = null
-      await runBootstrap()
     },
 
     refresh: async () => {

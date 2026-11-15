@@ -75,7 +75,7 @@ export function GithubApp() {
   return (
     <div data-testid="github-app-root" className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-base)]">
       <div data-testid="github-tab-repos" className={tab === 'repos' ? 'contents' : 'hidden'}>
-        <ReposPane {...shared} deepLinkRepo={route.repoFullName} active={tab === 'repos'} />
+        <ReposPane {...shared} deepLinkRepo={route.repoFullName} deepLinkView={route.viewId} active={tab === 'repos'} />
       </div>
       <div data-testid="github-tab-gists" className={tab === 'gists' ? 'contents' : 'hidden'}>
         <GistsPane tab={tab} onTabChange={changeTab} onOpenAccounts={shared.onOpenAccounts} onOpenMirrors={shared.onOpenMirrors} currentMirrorId={shared.currentMirrorId} deepLinkGistId={route.gistId} active={tab === 'gists'} />
