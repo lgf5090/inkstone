@@ -43,6 +43,12 @@ import { contentDisposition } from '../lib/http-range'
 import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { createGithubBudget } from '../development/github/rate-limit'
+import {
+  deleteCollectionsAtomically,
+  deleteGistTagsAtomically,
+  deleteReposAtomically,
+  deleteTagsAtomically,
+} from '../development/github/atomic'
 import { downloadReadmeImage } from '../cloudflare/catalog'
 import { requireAuth } from '../middleware/auth'
 import {
@@ -86,14 +92,9 @@ import {
   collectDescendantTagIds,
   countGists,
   countRepos,
-  deleteCollection,
   deleteExport,
   deleteGist,
   deleteGists,
-  deleteGistTags,
-  deleteRepo,
-  deleteRepos,
-  deleteTags,
   findCollection,
   findExport,
   findGist,
@@ -111,9 +112,6 @@ import {
   patchGist,
   searchGistIds,
   toGistSummary,
-  unbindGistTags,
-  unbindReposFromCollections,
-  unbindRepoTags,
   upsertCollection,
   upsertGist,
   upsertGistTag,
@@ -503,9 +501,8 @@ developmentGithubRoutes.delete('/tags/:id', async (c) => {
   const tags = await listTags(c.env.DB, userId)
   if (!tags.some((tag) => tag.id === id)) throw githubNotFound('Tag not found')
   const removedTagIds = collectDescendantTagIds(tags, id)
-  const updatedRepoIds = await unbindRepoTags(c.env.DB, userId, removedTagIds)
-  await deleteTags(c.env.DB, userId, removedTagIds)
-  return c.json({ ok: true, data: { removedTagIds, updatedRepoIds } })
+  const { updatedIds } = await deleteTagsAtomically(c.env.DB, userId, removedTagIds)
+  return c.json({ ok: true, data: { removedTagIds, updatedRepoIds: updatedIds } })
 })
 
 developmentGithubRoutes.get('/repos', async (c) => {
@@ -542,8 +539,7 @@ developmentGithubRoutes.delete('/repos/:id', async (c) => {
   const userId = userIdOf(c)
   const id = repoPathId(c)
   if (!(await findRepo(c.env.DB, userId, id))) throw githubNotFound('Repository not found')
-  await deleteRepo(c.env.DB, userId, id)
-  await unbindReposFromCollections(c.env.DB, userId, [id])
+  await deleteReposAtomically(c.env.DB, userId, [id])
   return c.json({ ok: true, data: { ok: true } })
 })
 
@@ -553,8 +549,7 @@ developmentGithubRoutes.post('/repos/batch-delete', async (c) => {
   const body = await parseBody(c, GithubBatchDeleteSchema, BATCH_BODY_LIMIT)
   const ids = body.ids.filter((id) => REPO_ID_PATTERN.test(id))
   if (ids.length !== body.ids.length) throw ApiError.badRequest('Invalid repository id')
-  const count = await deleteRepos(c.env.DB, userId, ids)
-  await unbindReposFromCollections(c.env.DB, userId, ids)
+  const { count } = await deleteReposAtomically(c.env.DB, userId, ids)
   return c.json({ ok: true, data: { count } })
 })
 
@@ -619,8 +614,8 @@ developmentGithubRoutes.delete('/collections/:id', async (c) => {
       }
     }
   }
-  for (const target of removed) await deleteCollection(c.env.DB, userId, target)
-  return c.json({ ok: true, data: { ok: true, removed: removed.size } })
+  const removedCount = await deleteCollectionsAtomically(c.env.DB, userId, Array.from(removed))
+  return c.json({ ok: true, data: { ok: true, removed: removedCount } })
 })
 
 developmentGithubRoutes.get('/gist/tags', async (c) => {
@@ -654,9 +649,8 @@ developmentGithubRoutes.delete('/gist/tags/:id', async (c) => {
   const tags = await listGistTags(c.env.DB, userId)
   if (!tags.some((tag) => tag.id === id)) throw githubNotFound('Gist tag not found')
   const removedTagIds = collectDescendantTagIds(tags, id)
-  const updatedGistIds = await unbindGistTags(c.env.DB, userId, removedTagIds)
-  await deleteGistTags(c.env.DB, userId, removedTagIds)
-  return c.json({ ok: true, data: { removedTagIds, updatedGistIds } })
+  const { updatedIds } = await deleteGistTagsAtomically(c.env.DB, userId, removedTagIds)
+  return c.json({ ok: true, data: { removedTagIds, updatedGistIds: updatedIds } })
 })
 
 developmentGithubRoutes.get('/gist/gists', async (c) => {
