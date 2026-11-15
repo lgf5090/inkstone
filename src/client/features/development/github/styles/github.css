@@ -471,3 +471,103 @@ a.github-readme-image-fallback:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+.github-readme .gh-alert {
+  padding: 8px 12px;
+  border-left: 0.25em solid var(--accent);
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+}
+
+.github-readme .gh-alert::before {
+  content: attr(data-label);
+  display: block;
+  margin-bottom: 0.25em;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.github-readme .gh-alert > :last-child {
+  margin-bottom: 0;
+}
+
+.github-readme .gh-alert-tip {
+  border-left-color: var(--success);
+  background: color-mix(in oklab, var(--success) 8%, transparent);
+}
+
+.github-readme .gh-alert-tip::before {
+  color: var(--success);
+}
+
+.github-readme .gh-alert-important {
+  border-left-color: var(--syntax-function);
+  background: color-mix(in oklab, var(--syntax-function) 8%, transparent);
+}
+
+.github-readme .gh-alert-important::before {
+  color: var(--syntax-function);
+}
+
+.github-readme .gh-alert-warning {
+  border-left-color: var(--warning);
+  background: color-mix(in oklab, var(--warning) 10%, transparent);
+}
+
+.github-readme .gh-alert-warning::before {
+  color: var(--warning);
+}
+
+.github-readme .gh-alert-caution {
+  border-left-color: var(--danger);
+  background: color-mix(in oklab, var(--danger) 8%, transparent);
+}
+
+.github-readme .gh-alert-caution::before {
+  color: var(--danger);
+}
+
+.github-readme .footnote-ref {
+  font-size: 0.85em;
+}
+
+.github-readme .footnote-ref a {
+  text-decoration: none;
+}
+
+.github-readme .footnotes {
+  margin-top: 1.6em;
+  color: var(--text-secondary);
+  font-size: 0.92em;
+}
+
+.github-readme .footnotes-list {
+  padding-left: 1.5em;
+}
+
+.github-readme .footnote-item > p {
+  margin-block: 0 0.4em;
+}
+
+.github-readme .footnote-backref {
+  text-decoration: none;
+}
+
+.github-readme picture,
+.github-readme video {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.github-readme .math-block {
+  display: block;
+  margin: 1em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.github-readme .math-block.math-source {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  text-align: left;
+}

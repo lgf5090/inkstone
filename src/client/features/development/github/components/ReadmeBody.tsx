@@ -31,6 +31,13 @@ export function ReadmeBody({
       expand: expandLabel,
       collapse: collapseLabel,
     })
+    if (node.querySelector('[data-math]')) {
+      void import('../../../../lib/markdown/enhance')
+        .then(({ renderMath }) => renderMath(node))
+        .catch((error: unknown) => {
+          console.warn('[inkstone] README math rendering failed:', error)
+        })
+    }
   }, [html, copyLabel, plainTextLabel, expandLabel, collapseLabel, ref])
 
   return (
