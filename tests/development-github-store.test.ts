@@ -362,6 +362,24 @@ describe('GitHub store optimistic writes', () => {
     expect(JSON.stringify(useGithubStore.getState().accounts)).not.toContain('ghp_secret')
   })
 
+  it('keeps the existing app order when an update check reports a newer row', async () => {
+    useGithubStore.setState({
+      status: 'ready',
+      apps: [
+        { id: 'a', updatedAt: 2 } as never,
+        { id: 'b', updatedAt: 1 } as never,
+      ],
+    })
+    fetchMock.mockResolvedValueOnce(envelope({
+      apps: [{ id: 'b', updatedAt: 9 }],
+      checked: 1,
+      failed: [],
+    }))
+    await useGithubStore.getState().checkApps(['b'])
+    expect(useGithubStore.getState().apps.map((app) => app.id)).toEqual(['a', 'b'])
+    expect(useGithubStore.getState().apps[1]?.updatedAt).toBe(9)
+  })
+
   it('loads the whole library page by page instead of one full response', async () => {
     useGithubStore.setState({ status: 'ready' })
     fetchMock

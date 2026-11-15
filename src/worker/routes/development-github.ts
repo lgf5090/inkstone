@@ -55,11 +55,9 @@ import { downloadReadmeImage } from '../cloudflare/catalog'
 import { requireAuth } from '../middleware/auth'
 import {
   addGithubAccount,
-  decryptAccountToken,
   deleteGithubAccount,
   effectiveGithubToken,
   githubTokenForUsername,
-  listAccountRecords,
   listAccountViews,
 } from '../development/github/accounts'
 import {
@@ -353,65 +351,19 @@ function assertSavedGistData(gist: GistItem): void {
   }
 }
 
-function shuffled<T>(items: readonly T[]): T[] {
-  const copy = [...items]
-  for (let index = copy.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1))
-    const current = copy[index]!
-    copy[index] = copy[swapIndex]!
-    copy[swapIndex] = current
-  }
-  return copy
-}
-
 async function resolveGistWriteToken(c: Context<AppBindings>, gistId: string): Promise<string> {
   const userId = userIdOf(c)
-  const records = await listAccountRecords(c.env.DB, userId)
-  if (records.length === 0) {
-    throw tokenRequired('Add a GitHub account before changing gists')
-  }
-  let opened = 0
-  let firstError: ApiError | null = null
-  for (const record of shuffled(records)) {
-    const token = await decryptAccountToken(c.env, record)
-    if (!token) continue
-    opened += 1
-    let gist: GistItem
-    try {
-      gist = await fetchGistDetail(gistId, token)
-    } catch (error) {
-      if (error instanceof ApiError) {
-        if (error.code === 'github_not_found') continue
-        if (!firstError) firstError = error
-        continue
-      }
-      throw error
-    }
-    const owner = gist.owner?.login ?? ''
-    const ownerAccount = records.find(
-      (candidate) => candidate.username.toLowerCase() === owner.toLowerCase(),
-    )
-    if (!ownerAccount) throw githubNotFound('Gist not found for this account')
-    if (ownerAccount.id === record.id) return token
-    const ownerToken = await decryptAccountToken(c.env, ownerAccount)
-    if (!ownerToken) {
-      throw new ApiError(
-        400,
-        'github_token_invalid',
-        'The saved GitHub token could not be read. Add the account again',
-      )
-    }
-    return ownerToken
-  }
-  if (opened === 0) {
-    throw new ApiError(
-      400,
-      'github_token_invalid',
-      'The saved GitHub token could not be read. Add the account again',
-    )
-  }
-  if (firstError) throw firstError
-  throw githubNotFound('Gist not found')
+  const token = requireToken(
+    await effectiveGithubToken(c.env, c.env.DB, userId),
+    'Add a GitHub account before changing gists',
+  )
+  const gist = await fetchGistDetail(gistId, token)
+  const owner = gist.owner?.login ?? ''
+  const ownerToken = owner
+    ? await githubTokenForUsername(c.env, c.env.DB, userId, owner)
+    : null
+  if (!ownerToken) throw githubNotFound('Gist not found for this account')
+  return ownerToken
 }
 
 developmentGithubRoutes.get('/health', (c) => c.json({ ok: true, data: { ready: true } }))
@@ -1077,7 +1029,10 @@ developmentGithubRoutes.post('/gist/github-gists', async (c) => {
 developmentGithubRoutes.get('/gist/github-gists/:id', async (c) => {
   await detailBudget.spend(c.env, userIdOf(c))
   const id = gistPathId(c)
-  const token = await resolveGistWriteToken(c, id)
+  const token = requireToken(
+    await effectiveGithubToken(c.env, c.env.DB, userIdOf(c)),
+    'Add a GitHub account before changing gists',
+  )
   const gist = await fetchGistDetail(id, token)
   return c.json({ ok: true, data: { gist } })
 })

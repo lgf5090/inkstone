@@ -660,13 +660,14 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     setActiveAccount: (id) => {
       set({ activeAccountId: id })
       saveActiveAccountId(id)
+      clearGithubCache()
     },
 
     upsertApp: async (app) => {
       const next = { ...app, updatedAt: Date.now() }
       const revision = bump('apps')
       set((state) => ({ apps: upsertById(state.apps, next) }))
-      await enqueue(`app:${app.id}`, async () => {
+      await enqueue('apps', async () => {
         try {
           const saved = await githubApi.upsertApp(next)
           if (isCurrent('apps', revision)) set((state) => ({ apps: upsertById(state.apps, saved) }))
@@ -680,7 +681,7 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     deleteApp: async (id) => {
       const revision = bump('apps')
       set((state) => ({ apps: state.apps.filter((app) => app.id !== id) }))
-      await enqueue(`app:${id}`, async () => {
+      await enqueue('apps', async () => {
         try {
           await githubApi.deleteApp(id)
         } catch (error) {
@@ -691,15 +692,15 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     },
 
     checkApps: async (ids) => {
-      const revision = bump('apps')
-      const result = await githubApi.checkApps(ids)
-      if (!isCurrent('apps', revision)) return result
-      set((state) => {
-        const byId = new Map(state.apps.map((app) => [app.id, app]))
-        for (const app of result.apps) byId.set(app.id, app)
-        return { apps: Array.from(byId.values()).sort((left, right) => right.updatedAt - left.updatedAt) }
+      return enqueue('apps', async () => {
+        const result = await githubApi.checkApps(ids)
+        set((state) => {
+          const byId = new Map(state.apps.map((app) => [app.id, app]))
+          for (const app of result.apps) byId.set(app.id, app)
+          return { apps: Array.from(byId.values()) }
+        })
+        return result
       })
-      return result
     },
   }
 })

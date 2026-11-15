@@ -799,6 +799,27 @@ describe('development github proxies', () => {
     expect((await call('GET', '/gist/users/a--b/gists')).status).toBe(400)
   })
 
+  it('reads a remote gist with a single upstream call', async () => {
+    await createAccount('octocat')
+    let calls = 0
+    stubGithub(() => {
+      calls += 1
+      return jsonResponse({
+        id: GIST_ID,
+        description: 'A gist',
+        html_url: 'https://gist.github.com/abcdef12',
+        public: true,
+        owner: { login: 'octocat', avatar_url: '' },
+        files: {},
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-02T00:00:00Z',
+      })
+    })
+    const response = await call('GET', `/gist/github-gists/${GIST_ID}`)
+    expect(response.status).toBe(200)
+    expect(calls).toBe(1)
+  })
+
   it('checks gist ownership before updating or deleting', async () => {
     const noAccount = await call('PATCH', `/gist/github-gists/${GIST_ID}`, {
       body: { description: 'Updated' },
