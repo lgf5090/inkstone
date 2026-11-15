@@ -89,7 +89,7 @@ export function isIpLiteral(hostname: string): boolean {
   return ipv4Parts(host) !== null || ipv6Groups(host) !== null
 }
 
-async function resolveWithDoh(hostname: string): Promise<string[]> {
+export async function resolveWithDoh(hostname: string): Promise<string[]> {
   const answers: string[] = []
   for (const type of ['A', 'AAAA']) {
     try {

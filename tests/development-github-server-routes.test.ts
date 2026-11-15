@@ -99,7 +99,11 @@ function stubGithub(handler: (url: string, init?: RequestInit) => Response | Pro
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      return await handler(String(input), init)
+      const url = String(input)
+      if (url.startsWith('https://cloudflare-dns.com/dns-query')) {
+        return Response.json({ Answer: [{ type: 1, data: '93.184.216.34' }] })
+      }
+      return await handler(url, init)
     }),
   )
 }

@@ -9,6 +9,7 @@
  * bucket, so a cold isolate still has something to show when the host answers 304.
  */
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
+import { isIpLiteral, isPrivateHostname, resolveWithDoh } from '../imgbed/url-guard'
 import type { Env } from '../env'
 import { newId } from '../lib/id'
 import { ApiError } from '../lib/errors'
@@ -384,6 +385,27 @@ function assertPublicHttps(rawUrl: string): URL {
   return url
 }
 
+type HostResolver = (hostname: string) => Promise<string[]>
+
+export async function assertPublicImageHttps(rawUrl: string, resolveHost?: HostResolver): Promise<URL> {
+  const url = assertPublicHttps(rawUrl)
+  if (isIpLiteral(url.hostname)) return url
+  try {
+    const addresses = await (resolveHost ?? resolveWithDoh)(url.hostname)
+    if (!addresses.length) throw new Error('The host name could not be resolved safely')
+    if (addresses.some((address) => isPrivateHostname(address))) {
+      throw ApiError.badRequest('That image host resolves to a private address')
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    console.warn(
+      '[inkstone] DoH lookup failed for an image host; using the static guard',
+      error instanceof Error ? error.message : String(error),
+    )
+  }
+  return url
+}
+
 const MAX_REDIRECT_HOPS = 5
 
 /**
@@ -396,11 +418,11 @@ const MAX_REDIRECT_HOPS = 5
 async function fetchGuarded(
   rawUrl: string,
   init: Omit<RequestInit, 'redirect'>,
-  guard: (url: string) => URL,
+  guard: (url: string) => URL | Promise<URL>,
   timeoutMs: number,
   what: string,
 ): Promise<Response> {
-  let url = guard(rawUrl)
+  let url = await guard(rawUrl)
   for (let hop = 0; ; hop += 1) {
     const response = await fetchWithTimeout(url.toString(), { ...init, redirect: 'manual' }, timeoutMs, what)
     const redirects = new Set([301, 302, 303, 307, 308])
@@ -411,7 +433,7 @@ async function fetchGuarded(
     if (hop >= MAX_REDIRECT_HOPS) {
       throw new ApiError(502, 'cloudflare_upstream', `${what} redirected too many times`)
     }
-    url = guard(new URL(location, url).toString())
+    url = await guard(new URL(location, url).toString())
   }
 }
 
@@ -452,11 +474,11 @@ function sniffImageType(bytes: Uint8Array, declared: string): string {
   return ''
 }
 
-export async function downloadReadmeImage(rawUrl: string): Promise<{ bytes: Uint8Array; type: string }> {
+export async function downloadReadmeImage(rawUrl: string, resolveHost?: HostResolver): Promise<{ bytes: Uint8Array; type: string }> {
   const response = await fetchGuarded(
     rawUrl,
     { headers: { Accept: IMAGE_ACCEPT, 'User-Agent': IMAGE_USER_AGENT } },
-    assertPublicHttps,
+    (value) => assertPublicImageHttps(value, resolveHost),
     TEMPLATE_TIMEOUT_MS,
     'The readme image',
   )
@@ -464,7 +486,15 @@ export async function downloadReadmeImage(rawUrl: string): Promise<{ bytes: Uint
     throw new ApiError(502, 'cloudflare_upstream', `The readme image answered HTTP ${response.status}`)
   }
   const declared = (response.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
-  const bytes = await readCapped(response, MAX_README_IMAGE_BYTES, 'The readme image')
+  let bytes: Uint8Array
+  try {
+    bytes = await readCapped(response, MAX_README_IMAGE_BYTES, 'The readme image')
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 400) {
+      throw new ApiError(502, 'cloudflare_upstream', error.message)
+    }
+    throw error
+  }
   const type = sniffImageType(bytes, declared)
   if (!type) {
     throw new ApiError(502, 'cloudflare_upstream', 'That readme address is not a picture')

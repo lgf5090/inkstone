@@ -429,7 +429,11 @@ developmentGithubRoutes.get('/image', async (c) => {
     })
   } catch (error) {
     if (error instanceof ApiError) {
-      throw new ApiError(error.status === 400 ? 502 : error.status, 'github_upstream', error.message)
+      throw new ApiError(
+        error.status,
+        error.status === 400 ? 'bad_request' : 'github_upstream',
+        error.message,
+      )
     }
     throw new ApiError(502, 'github_upstream', 'The image could not be loaded')
   }
