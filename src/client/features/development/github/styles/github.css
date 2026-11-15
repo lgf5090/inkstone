@@ -200,10 +200,9 @@
 }
 
 .github-readme table {
-  display: block;
-  width: max-content;
+  display: table;
+  width: 100%;
   max-width: 100%;
-  overflow: auto;
   border-spacing: 0;
   border-collapse: collapse;
 }
@@ -213,6 +212,7 @@
   padding: 6px 13px;
   border: 1px solid var(--border-default);
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 
 .github-readme table th {
