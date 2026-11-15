@@ -371,4 +371,16 @@ describe('showing a stored key to its owner', () => {
     // caller never named.
     expect((await send('POST', `/api/assistant/providers/${firstId}/keys/${foreign.id}/reveal`, {})).status).toBe(404)
   })
+
+  it('refuses to update a key through another provider path before writing anything', async () => {
+    const first = await send('POST', '/api/assistant/providers', newProvider(`${FIRST}, ${SECOND}`))
+    const firstId = (await first.json() as { provider: { id: string } }).provider.id
+    const second = await send('POST', '/api/assistant/providers', newProvider(`${THIRD}, ${REPLACEMENT}`))
+    const secondId = (await second.json() as { provider: { id: string } }).provider.id
+    const keyId = (await store.listProviderKeys(firstId))[0]!.id
+
+    const refused = await send('PATCH', `/api/assistant/providers/${secondId}/keys/${keyId}`, { enabled: false })
+    expect(refused.status).toBe(404)
+    expect((await store.listProviderKeys(firstId))[0]?.enabled).toBe(true)
+  })
 })

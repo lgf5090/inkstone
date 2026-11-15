@@ -3755,13 +3755,15 @@ assistantRoutes.patch('/providers/:id/keys/:keyId', async (c) => {
   const id = requiredId(c.req.param('id'))
   const keyId = requiredId(c.req.param('keyId'))
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  // Checked before the write: the update matches on id alone, so a key from another provider would
+  // otherwise be changed and only then reported as not found.
+  if (!(await s.listProviderKeys(id)).some((key) => key.id === keyId)) throw ApiError.notFound('Key not found')
   const updated = await s.updateProviderKey(keyId, {
     ...(body.label !== undefined ? { label: optionalText(body.label, 60) ?? '' } : {}),
     ...(body.enabled !== undefined ? { enabled: body.enabled === true } : {}),
     ...(body.apiKey === null ? { apiKey: null } : typeof body.apiKey === 'string' ? { apiKey: text(body.apiKey, 4096) } : {}),
   })
-  // The provider in the path is checked too, so a key id from another provider reads as not found.
-  if (!updated || updated.providerId !== id) throw ApiError.notFound('Key not found')
+  if (!updated) throw ApiError.notFound('Key not found')
   if (body.apiKey !== undefined) forgetProviderBalances(c, id)
   return c.json({ key: updated })
 })

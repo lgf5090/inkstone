@@ -109,4 +109,28 @@ describe('assistant config transfer', () => {
     // The skill list prints its icon as the character itself, so the importer must not normalise it.
     expect(vi.mocked(s.insertSkill).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ icon: '🦊' }))
   })
+
+  it('does not export or overwrite the logging and plaintext posture', async () => {
+    const s = store({
+      getSettings: vi.fn(async () => ({
+        ...DEFAULT_ASSISTANT_SETTINGS,
+        revealKeysAlways: true, logRequestBodies: true, logMaxRows: 4321,
+      })),
+    })
+    const bundle = await exportAssistantConfig(s)
+    expect(bundle.settings).not.toHaveProperty('revealKeysAlways')
+    expect(bundle.settings).not.toHaveProperty('logRequestBodies')
+    expect(bundle.settings).not.toHaveProperty('logMaxRows')
+
+    // A shared file that still names those switches must not lower the importing account's posture.
+    await importAssistantConfig(s, {
+      format: 'inkstone-assistant-config', version: 1,
+      settings: { ...bundle.settings, revealKeysAlways: false, logRequestBodies: false, logMaxRows: 1 },
+      providers: [], models: [], skills: [], projects: [],
+    })
+    const saved = vi.mocked(s.saveSettings).mock.calls[0]?.[0]
+    expect(saved?.revealKeysAlways).toBe(true)
+    expect(saved?.logRequestBodies).toBe(true)
+    expect(saved?.logMaxRows).toBe(4321)
+  })
 })

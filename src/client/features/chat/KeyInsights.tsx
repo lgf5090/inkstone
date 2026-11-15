@@ -20,6 +20,7 @@ import { useAssistant } from './assistant-store'
 import { Modal, confirm } from '../../components/overlay'
 import { cn } from '../../lib/cn'
 import { useUi } from '../../store/ui'
+import { csvCell } from './request-log-shared'
 
 /** A number with thousands separators; the panel is about magnitudes, not exact digits. */
 const count = (value: number): string => value.toLocaleString()
@@ -33,11 +34,6 @@ const LOG_WINDOWS = [
 ] as const
 
 const CSV_HEADER = 'at,provider,model,key_hint,ok,http_status,error_kind,input_tokens,output_tokens,cached,latency_ms'
-
-function csvCell(value: string | number | null): string {
-  const text = String(value ?? '')
-  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
-}
 
 function toCsv(logs: AssistantRequestLog[]): string {
   const rows = logs.map((entry) => [
@@ -146,7 +142,10 @@ export function KeyInsights({ open, onClose, provider, keyId, keyLabel, keyHint 
         ...(sinceMs !== null ? { sinceMs } : {}),
         limit: 500,
       })
-      const text = format === 'json' ? JSON.stringify(answer.logs, null, 2) : toCsv(answer.logs)
+      // A JSON export carries whole rows. The prompt body is not one of the columns this drawer shows,
+      // so leave it out rather than quietly adding a reader's conversation to a downloaded file.
+      const safe = answer.logs.map((entry) => ({ ...entry, requestBody: null }))
+      const text = format === 'json' ? JSON.stringify(safe, null, 2) : toCsv(answer.logs)
       const blob = new Blob([text], {
         type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8',
       })

@@ -2946,6 +2946,8 @@ const allowed = new Map([
     "/* Two questions, one surface: \"how much\" and \"which one failed\". */",
     "/** The icon a row wears to open the panel; exported so the two entry points stay identical. */",
     "/** A small back-arrow label for the provider-wide entry, kept here so both doors read the same. */",
+    "// A JSON export carries whole rows. The prompt body is not one of the columns this drawer shows,",
+    "// so leave it out rather than quietly adding a reader's conversation to a downloaded file.",
   ]],
   ["src/client/features/chat/MemoryView.tsx", [
     "/**\n * What the assistant remembers, and what it is unsure about.\n *\n * The list is grouped by category because a reader scanning \"where do I think I live\" reads by topic,\n * not by the order things happened to be saved. The four row actions are the interesting part: an\n * update that changes a fact keeps the old one as history rather than overwriting it, so \"what did I\n * used to say\" still answers — and a plain edit stays a plain edit, for fixing a typo.\n */",
@@ -5539,6 +5541,9 @@ const allowed = new Map([
     "/** A colour the theme owns, read at draw time so a light/dark switch is one repaint. */",
     "// The reader's reload callback changes on every render; the timer must not, or each keystroke in the",
     "// search box would restart the countdown and a short interval would never arrive.",
+    "// A spreadsheet executes a cell whose text starts with a formula marker. Error messages, notes and",
+    "// request bodies come from an upstream provider or the reader, so strings that begin with one are",
+    "// neutralised while numbers keep their numeric shape.",
   ]],
   ["src/client/features/chat/request-views.test.ts", [
     "/**\n * The two surfaces that read the request log: the log itself and the statistics behind it.\n *\n * These cases pin what the screens claim rather than how they paint: the filters the worker supports are\n * the filters on screen, a filtered page shows its total and its rows, and the statistics name their\n * dimensions and their numbers. A chart is not drawn here — the canvas is stubbed, because the claim is\n * that the numbers reached the panel, not that chart.js can paint in jsdom.\n */",
@@ -36049,7 +36054,6 @@ const allowed = new Map([
     "// narrower range, while a reply that carries a twenty-thousand-line patch helps nobody.",
   ]],
   ["src/worker/assistant/config-transfer.ts", [
-    "/** Settings that name a row or a decision local to the exporting account. */",
     "/** Rows whose identity already existed here. */",
     "/**\n * The portable half of an account.\n *\n * No provider key, key hint or search key is present: a config file moves what the reader configured,\n * not what proves they may use it. A restored provider therefore starts with no key, and the settings\n * screen says so until the reader types one.\n */",
     "/**\n * Merges a config file into this account.\n *\n * Identity is what makes this safe to repeat: a provider is the same one when its label and address\n * match, a model when the provider and model id do, a skill or Agent when its title or name does. A row\n * that already exists here is left alone rather than overwritten, so importing a file cannot roll back a\n * setting the reader changed after exporting it.\n */",
@@ -36059,6 +36063,7 @@ const allowed = new Map([
     "/** Protocol-keyed addresses, each vetted; null means the whole provider line has to be skipped. */",
     "// A skill's icon is the bare glyph the reader typed and the list prints as text, not a prefixed",
     "// mark; parsing it as one would erase the character. Keep the length bound, leave the value alone.",
+    "/**\n * Settings that name a row or a decision local to the exporting account.\n *\n * The logging and plaintext switches belong here as well: a config file is meant to be shared or pasted\n * into a bug report, and one that arrives with body logging or standing plaintext on would quietly lower\n * the importing account's posture. Their current values are kept on import instead of being inferred.\n */",
   ]],
   ["src/worker/assistant/image-generation.ts", [
     "/**\n * Drawing a picture, on the reader's own image model.\n *\n * The chat wire and the image wire are two different doors even when they share a host and a key, so this\n * is a client of its own rather than a mode of `upstream.ts`: there is no stream to read, no tool calls and\n * no thinking dialect — one JSON request, one picture back, either inline as base64 or behind a URL that\n * has to be fetched before the vendor forgets it.\n *\n * Only the OpenAI-compatible shape is implemented, and a model of another protocol is refused by name. Not\n * a limitation of effort but of the wire: Anthropic has no image endpoint at all, and Gemini's answers a\n * different request with a different body — calling either with this one would earn a 400 the reader would\n * have to read as a bug in this app.\n *\n * What comes back is never trusted as an image because the vendor said so. The bytes are sniffed and the\n * claimed type has to match their signature, because these bytes go into the reader's own file storage and\n * then into an `<img>` in their browser.\n */",
@@ -43342,7 +43347,6 @@ const allowed = new Map([
     "// The browser's own reading of the document, when it could make one. Absent is fine: the file is",
     "// still stored and named, and the model is told the contents were not read.",
     "/**\n * The extra keys a provider rotates through, beside the one on the provider's own row.\n *\n * The plaintext never comes back out: a key is written once and only its last four characters are ever\n * readable again, which is the same bargain the provider's own key already makes.\n */",
-    "// The provider in the path is checked too, so a key id from another provider reads as not found.",
     "/**\n * The model a reader named as this one's spare, or null for none.\n *\n * A self-reference is refused because it is a chain of one that can never answer; an id that is not one of\n * the reader's own models is refused because the turn could not resolve it. Both are answered rather than\n * stored, since a spare that silently does nothing is worse than being told the pick was wrong.\n */",
     "/** One bar's worth of a day, while the rows are still being folded into it. */",
     "/**\n * The window day by day, priced and split both ways.\n *\n * The chart's toggle asks the same days to be grouped by model and by key, so both splits are built here\n * from one set of rows — and the slices are ordered by their whole-window weight rather than per day, or a\n * stack would reorder itself every time a quiet day came round and the chart would be unreadable.\n */",
@@ -43682,6 +43686,8 @@ const allowed = new Map([
     "/** The values the filter menus can offer, drawn from the account's own rows. */",
     "/** Totals, trend and ranking over the same filtered slice the log screen reads. */",
     "/** A manual cleanup, or a preview of one. An age or a row count is required so it cannot mean \"all\". */",
+    "// Checked before the write: the update matches on id alone, so a key from another provider would",
+    "// otherwise be changed and only then reported as not found.",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",
@@ -47295,6 +47301,7 @@ const allowed = new Map([
   ]],
   ["tests/assistant-config-transfer.test.ts", [
     "// The skill list prints its icon as the character itself, so the importer must not normalise it.",
+    "// A shared file that still names those switches must not lower the importing account's posture.",
   ]],
   ["tests/assistant-context-honesty.test.ts", [
     "/**\n * What a turn is shown of its own thread, and what it says about how it ended.\n *\n * Five things were quietly untrue, all of them in the part of a turn the reader cannot see without\n * instrumenting it. The history was budgeted against the model's whole context while the same prompt still\n * owed room for its own answer and for the tool results later steps read back into it — so the arithmetic\n * contradicted the ceiling it was measuring, and the provider's refusal was the reader's error. The summary\n * mark was a millisecond, and two turns written inside one were indistinguishable to it, so a roll-up could\n * swallow the question being answered. An old tool call was replayed as `{\"ok\":true}`, which tells the model\n * it retrieved nothing, so it retrieved it again. A turn that ran out of steps was filed as a finished\n * answer, and a turn that ran out of steps with nothing written was given a \"Done.\" the model never wrote.\n * And a citation list was whatever the vendor decided to send.\n *\n * Each case is read off the body that actually left the worker, or off the row actually filed, because every\n * one of them is a claim about what the model saw or what the reader was told — and a test that only reads\n * the answer would pass on all five.\n */",

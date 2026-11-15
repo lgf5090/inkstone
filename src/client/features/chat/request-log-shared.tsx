@@ -237,9 +237,13 @@ export function ms(value: number | null): string {
 
 const CSV_HEADER = 'at,provider,provider_id,key_id,key_hint,model,model_id,operation,ok,http_status,error_kind,error_message,input_tokens,output_tokens,cached_input_tokens,latency_ms,attempt,conversation_id,starred,note'
 
-function csvCell(value: string | number | boolean | null): string {
+export function csvCell(value: string | number | boolean | null): string {
   const text = String(value ?? '')
-  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
+  // A spreadsheet executes a cell whose text starts with a formula marker. Error messages, notes and
+  // request bodies come from an upstream provider or the reader, so strings that begin with one are
+  // neutralised while numbers keep their numeric shape.
+  const safe = typeof value === 'string' && /^[=+\-@\t\r]/.test(text) ? `'${text}` : text
+  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
 }
 
 export function toCsv(logs: AssistantRequestLog[], includeBody: boolean): string {

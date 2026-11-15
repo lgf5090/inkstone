@@ -16,6 +16,7 @@ import { installTestGlobals } from '../../lib/test-render'
 import { api } from '../../lib/api'
 import { RequestLogsView } from './RequestLogsView'
 import { RequestStatsView } from './RequestStatsView'
+import { csvCell, toCsv } from './request-log-shared'
 
 vi.mock('../../components/chart-canvas', () => ({
   ChartCanvas: () => createElement('div', { 'data-chart': '1' }),
@@ -156,5 +157,22 @@ describe('the request statistics screen', () => {
     await act(async () => { byModel!.click() })
     expect(requestStats.mock.calls.some(([, dimension]) => dimension === 'model')).toBe(true)
     expect(document.body.textContent).toContain(t('assistant.stats.request_empty'))
+  })
+})
+
+describe('a downloaded log file', () => {
+  it('neutralises a spreadsheet formula written by an upstream error', () => {
+    const csv = toCsv([entry({
+      note: '=HYPERLINK("http://attacker.example","open")',
+      errorMessage: '+cmd|calc',
+    })], false)
+    expect(csv).toContain("'=HYPERLINK")
+    expect(csv).toContain("'+cmd|calc")
+    expect(csv).not.toMatch(/,\+cmd\|calc/)
+  })
+
+  it('keeps a negative number numeric while neutralising a string that looks like one', () => {
+    expect(csvCell(-5)).toBe('-5')
+    expect(csvCell('-5')).toBe("'-5")
   })
 })

@@ -22,8 +22,17 @@ import type { AssistantStore } from './store'
 export const ASSISTANT_CONFIG_FORMAT = 'inkstone-assistant-config'
 export const ASSISTANT_CONFIG_VERSION = 1
 
-/** Settings that name a row or a decision local to the exporting account. */
-const LOCAL_ONLY_SETTINGS = ['activeModelId', 'limits', 'offlineMode'] as const
+/**
+ * Settings that name a row or a decision local to the exporting account.
+ *
+ * The logging and plaintext switches belong here as well: a config file is meant to be shared or pasted
+ * into a bug report, and one that arrives with body logging or standing plaintext on would quietly lower
+ * the importing account's posture. Their current values are kept on import instead of being inferred.
+ */
+const LOCAL_ONLY_SETTINGS = [
+  'activeModelId', 'limits', 'offlineMode',
+  'revealKeysAlways', 'logRequestBodies', 'logRetentionDays', 'logMaxRows', 'logCleanupStatus',
+] as const
 
 export interface AssistantConfigProvider {
   id: string
@@ -247,6 +256,11 @@ export async function importAssistantConfig(store: AssistantStore, raw: Record<s
       activeModelId: current.activeModelId,
       limits: current.limits,
       offlineMode: current.offlineMode,
+      revealKeysAlways: current.revealKeysAlways,
+      logRequestBodies: current.logRequestBodies,
+      logRetentionDays: current.logRetentionDays,
+      logMaxRows: current.logMaxRows,
+      logCleanupStatus: current.logCleanupStatus,
     }
     await store.saveSettings(merged)
     summary.settings = true
