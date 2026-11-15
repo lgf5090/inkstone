@@ -388,6 +388,7 @@
   font-size: var(--text-12);
   line-height: 1.5;
   tab-size: 2;
+  overflow-x: auto;
 }
 
 .github-readme .gh-code.is-collapsed pre {
