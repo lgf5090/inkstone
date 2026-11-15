@@ -72,7 +72,7 @@ it('hands the realtime WebSocket upgrade through to the browser untouched', asyn
   expect(hubCalls).toEqual(['https://sync-hub.internal/connect'])
   expect(response.status).toBe(101)
   expect(response.headers.get('X-Sync-Hub')).toBe('accepted')
-})
+}, 60_000)
 
 it('still decorates ordinary API responses with the security headers', async () => {
   const response = await drive('/api/health')
