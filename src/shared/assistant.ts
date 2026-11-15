@@ -371,11 +371,15 @@ export interface AssistantLogCleanup {
   status?: 'all' | 'ok' | 'failed'
   providerId?: string
   dryRun?: boolean
+  /** The preview's clock, passed back on apply so the two runs cannot disagree about "older than". */
+  cutoff?: number
 }
 
 export interface AssistantLogCleanupResult {
   matched: number
   deleted: number
+  /** Reuse this timestamp for the apply call; the preview and the delete then share one clock. */
+  cutoff: number
 }
 
 export type AssistantStatsDimension = 'provider' | 'key' | 'model' | 'operation' | 'status' | 'day'
@@ -1164,6 +1168,8 @@ export interface AssistantSettings {
    * turn — so it is the reader's voice, not a way to overwrite what the assistant is allowed to do.
    */
   customInstructions: string
+  /** Per-action keyboard overrides; an absent action inherits the chord in CHAT_SHORTCUTS. */
+  shortcuts: AssistantShortcuts
   /**
    * Let the assistant choose which of the reader's models answers each turn.
    *
@@ -1201,6 +1207,30 @@ export interface AssistantSettings {
 }
 
 export const ASSISTANT_START_VIEWS = ['chat', 'memory', 'tasks', 'automations', 'settings'] as const
+
+/** The chords a reader may rebind; the names are the ones CHAT_SHORTCUTS answers to. */
+export const ASSISTANT_SHORTCUT_KEYS = [
+  'find', 'stop', 'closePanel', 'send', 'newLine',
+  'pickerPrevious', 'pickerNext', 'pickerPick', 'pickerPickAlternate',
+] as const
+export type AssistantShortcutName = (typeof ASSISTANT_SHORTCUT_KEYS)[number]
+export type AssistantShortcuts = Partial<Record<AssistantShortcutName, string>>
+
+const SHORTCUT_COMBO = /^[a-z0-9]+(?:\+[a-z0-9]+){0,3}$/
+
+/** Only known actions and syntactically valid chords are kept; anything else inherits the built-in. */
+export function normalizeShortcuts(value: unknown): AssistantShortcuts {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const raw = value as Record<string, unknown>
+  const out: AssistantShortcuts = {}
+  for (const key of ASSISTANT_SHORTCUT_KEYS) {
+    const combo = raw[key]
+    if (typeof combo === 'string' && combo.length <= 40 && SHORTCUT_COMBO.test(combo.trim().toLowerCase())) {
+      out[key] = combo.trim().toLowerCase()
+    }
+  }
+  return out
+}
 
 export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   agentName: 'Inkstone Assistant',
@@ -1263,6 +1293,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   exportReasoning: false,
   exportToolCalls: false,
   customInstructions: '',
+  shortcuts: {},
   autoRoute: false,
   webSearchEndpoint: '',
   webSearchEngine: DEFAULT_WEB_SEARCH_ENGINE_ID,
@@ -1450,6 +1481,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     exportReasoning: booleanValue(raw.exportReasoning, DEFAULT_ASSISTANT_SETTINGS.exportReasoning),
     exportToolCalls: booleanValue(raw.exportToolCalls, DEFAULT_ASSISTANT_SETTINGS.exportToolCalls),
     customInstructions: stringValue(raw.customInstructions, DEFAULT_ASSISTANT_SETTINGS.customInstructions, MAX_CUSTOM_INSTRUCTIONS_CHARS),
+    shortcuts: normalizeShortcuts(raw.shortcuts),
     autoRoute: booleanValue(raw.autoRoute, DEFAULT_ASSISTANT_SETTINGS.autoRoute),
     webSearchEndpoint: searchEndpointValue(raw.webSearchEndpoint),
     webSearchEngine: webSearchEngineValue(raw.webSearchEngine),
@@ -1915,6 +1947,9 @@ export interface AssistantConversation {
   origin?: AssistantConversationOrigin
 }
 
+/** Longest per-thread instruction, kept short enough that one thread cannot crowd out the built-in rules. */
+export const MAX_CONVERSATION_SYSTEM_PROMPT_CHARS = 8_000
+
 /** The places a conversation can come from; a thread started by the reader is `chat`. */
 export const CONVERSATION_ORIGINS = ['chat', 'automation', 'subagent', 'import'] as const
 export type AssistantConversationOrigin = (typeof CONVERSATION_ORIGINS)[number]
@@ -1932,9 +1967,13 @@ export interface AssistantConversationSettings {
   webSearch?: boolean
   /** A smaller prompt window for one thread, never larger than the model's own ceiling. */
   maxContext?: number | null
+  /** A per-thread output ceiling, never larger than the model's own ceiling. */
+  maxOutputTokens?: number | null
+  /** A per-thread instruction appended after the account's custom instructions. */
+  systemPrompt?: string | null
 }
 
-const CONVERSATION_SETTING_KEYS = ['modelId', 'temperature', 'topP', 'webSearch', 'maxContext'] as const
+const CONVERSATION_SETTING_KEYS = ['modelId', 'temperature', 'topP', 'webSearch', 'maxContext', 'maxOutputTokens', 'systemPrompt'] as const
 
 /**
  * Reads a stored or submitted override, keeping only the fields this version knows.
@@ -1956,6 +1995,10 @@ export function normalizeConversationSettings(raw: unknown): AssistantConversati
   if (typeof record.webSearch === 'boolean') out.webSearch = record.webSearch
   if (typeof record.maxContext === 'number' && Number.isInteger(record.maxContext) && record.maxContext >= 1_000 && record.maxContext <= 2_000_000) out.maxContext = record.maxContext
   else if (record.maxContext === null) out.maxContext = null
+  if (typeof record.maxOutputTokens === 'number' && Number.isInteger(record.maxOutputTokens) && record.maxOutputTokens >= 1 && record.maxOutputTokens <= 1_000_000) out.maxOutputTokens = record.maxOutputTokens
+  else if (record.maxOutputTokens === null) out.maxOutputTokens = null
+  if (typeof record.systemPrompt === 'string') out.systemPrompt = record.systemPrompt.slice(0, MAX_CONVERSATION_SYSTEM_PROMPT_CHARS)
+  else if (record.systemPrompt === null) out.systemPrompt = null
   return out
 }
 
@@ -3299,6 +3342,8 @@ export interface AssistantMessage {
   usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number } | null
   /** How long the model took, in milliseconds — the denominator of the tokens-per-second figure. */
   durationMs?: number
+  /** Milliseconds from the send to the first text frame; measured in the session that watched it stream. */
+  ttftMs?: number | null
   /** The model that answered, kept as text for the same reason a version keeps it. */
   modelLabel?: string
   /**

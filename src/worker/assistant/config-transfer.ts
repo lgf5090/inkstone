@@ -42,6 +42,7 @@ export interface AssistantConfigProvider {
   baseUrl: string
   endpoints: Record<string, string>
   reasoningDialect: string | null
+  sticky: boolean
 }
 
 export interface AssistantConfigModel {
@@ -118,6 +119,7 @@ export async function exportAssistantConfig(store: AssistantStore): Promise<Assi
       baseUrl: provider.baseUrl,
       endpoints: provider.endpoints,
       reasoningDialect: provider.reasoningDialect,
+      sticky: provider.sticky === true,
     })),
     models: models.map((model) => ({
       id: model.id,
@@ -299,6 +301,7 @@ export async function importAssistantConfig(store: AssistantStore, raw: Record<s
       apiKey: '',
       endpoints,
       reasoningDialect: (text(entry.reasoningDialect, 40) || null) as never,
+      sticky: entry.sticky === true,
     })
     providerIds.set(key, created.id)
     providerIds.set(`old:${text(entry.id, 64)}`, created.id)

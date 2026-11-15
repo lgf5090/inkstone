@@ -7,6 +7,15 @@
 export const BLOCKED_HOST_SUFFIXES = ['.localhost', '.internal', '.local', '.svc', '.cluster.local', '.home.arpa']
 export const BLOCKED_HOSTNAMES = ['localhost', 'metadata', 'metadata.google.internal', 'instance-data']
 
+/**
+ * Zones that answer an arbitrary address from the name itself: `127.0.0.1.nip.io` is a loopback A
+ * record, and a hostname that later repoints one is a DNS-rebinding path this runtime cannot check at
+ * connect time. They are refused as provider addresses rather than trusted as configured domains.
+ */
+export const BLOCKED_DNS_REBIND_SUFFIXES = [
+  'nip.io', 'sslip.io', 'localtest.me', 'lvh.me', 'xip.io', 'xip.name', '1u.ms',
+]
+
 export const ALLOWED_UPSTREAM_HEADERS = [
   'authorization',
   'x-api-key',
@@ -150,6 +159,7 @@ export function isBlockedTarget(hostname: string): boolean {
   if (!host) return true
   if (BLOCKED_HOSTNAMES.includes(host)) return true
   if (BLOCKED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))) return true
+  if (BLOCKED_DNS_REBIND_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return true
   if (host.includes(':')) {
     const words = ipv6Words(host)
     // Text with a colon is written as an address, so a reading that fails is not a name anyone owns.
