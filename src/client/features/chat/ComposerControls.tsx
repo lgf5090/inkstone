@@ -837,7 +837,7 @@ export function ScopeChip({ scope, onDrop, onOpenScopes }: {
   const name = t('assistant.scope.chip', { kind: t(SCOPE_KIND_LABELS[scope.kind]), name: scope.name })
   return (
     <Tooltip label={t('assistant.scope.open')}>
-      <span className="flex max-w-full items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-sunken)] py-[1px] pl-0.5 pr-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+      <span className="flex max-w-full items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-sunken)] py-[var(--r-1)] pl-0.5 pr-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
         <button
           type="button"
           aria-label={name}

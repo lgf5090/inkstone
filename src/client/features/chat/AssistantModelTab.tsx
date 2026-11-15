@@ -101,7 +101,7 @@ function ModelRow({ provider, model, active, itemRef, tabIndex, keyHandler, onEd
       active ? 'bg-[var(--accent-softer)]' : 'hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]',
     )}>
       {/* The default is named by a bar and a word; danger red on this screen belongs to failures. */}
-      {active && <span aria-hidden className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-[var(--r-sm)] bg-[var(--accent)]" />}
+      {active && <span aria-hidden className="absolute inset-y-1.5 left-0 w-[var(--sp-0-75)] rounded-r-[var(--r-sm)] bg-[var(--accent)]" />}
       <button
         ref={itemRef}
         type="button"
@@ -358,7 +358,17 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
     <>
       <Group title={t('assistant.settings.providers')}>
         {providers.length === 0 && (
-          <p className="py-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('assistant.settings.no_providers')}</p>
+          <div className="flex flex-col items-start gap-2 py-3">
+            <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('assistant.settings.no_providers')}</p>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Plus size={14} />}
+              onClick={() => setAddingProvider(true)}
+            >
+              {t('assistant.settings.add_first_provider' as MessageKey)}
+            </Button>
+          </div>
         )}
         {byProvider.map(({ provider, models: list }) => (
           <ProviderCard
@@ -630,6 +640,8 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   const [showKey, setShowKey] = useState(false)
   const [draftProbes, setDraftProbes] = useState<DraftProbe[]>([])
   const [probing, setProbing] = useState(false)
+  /** A refused probe is its own fact, not a failed save: it gets a line of its own under the test button. */
+  const [probeFailure, setProbeFailure] = useState<string | null>(null)
   /** How many keys this provider already rotates through, so an edit names the ring it is adding to. */
   const [ringCount, setRingCount] = useState(0)
   const [listing, setListing] = useState(false)
@@ -763,10 +775,18 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     if (probing) return
     setProbing(true)
     setDraftProbes([])
+    setProbeFailure(null)
     try {
       const typed = parseProviderKeys(apiKey)
       if (typed.length) {
-        const answer = await api.assistant.probeDraftKeys({ protocol, baseUrl: baseUrl.trim(), apiKeys: typed })
+        // The worker only probes addresses this account already saved. An edit names that row so the
+        // draft keys are tried against its stored baseUrl instead of an arbitrary typed host.
+        const answer = await api.assistant.probeDraftKeys({
+          protocol,
+          baseUrl: baseUrl.trim(),
+          apiKeys: typed,
+          ...(editing ? { providerId: editing.id } : {}),
+        })
         setDraftProbes(answer.results)
       } else if (editing) {
         const answer = await api.assistant.probeProviderKeys(editing.id)
@@ -776,7 +796,8 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
         setRingCount(answer.results.length)
       }
     } catch (error) {
-      setFailure({ headline: error instanceof Error ? error.message : String(error), detail: null })
+      // A refused probe says nothing about the save: report it here, never as a "save failed" line.
+      setProbeFailure(error instanceof Error ? error.message : String(error))
     } finally {
       setProbing(false)
     }
@@ -950,9 +971,9 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
           >
             {probing ? t('assistant.keys.probe_running') : t('assistant.keys.probe')}
           </Button>
-          {draftProbes.map((entry) => (
+          {draftProbes.map((entry, index) => (
             <span
-              key={entry.keyHint}
+              key={index}
               className={cn(
                 'tabular text-[length:var(--text-11)]',
                 entry.outcome === 'passed'
@@ -977,6 +998,12 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
             </span>
           )}
         </div>
+        {probeFailure && (
+          <p role="alert" className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">
+            {t('assistant.keys.probe_draft_failed' as MessageKey)}
+            {probeFailure ? ` ${probeFailure}` : ''}
+          </p>
+        )}
         {!editing && (
           <>
             <Field label={t('assistant.settings.models')} hint={t('assistant.settings.models_hint')}>

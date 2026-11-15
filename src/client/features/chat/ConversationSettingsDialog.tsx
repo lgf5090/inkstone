@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { AssistantConversation, AssistantConversationSettings } from '@shared/assistant'
-import { t } from '../../lib/i18n'
+import { t, type MessageKey } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
-import { Input, Segmented, Select } from '../../components/form'
+import { Input, Segmented, Select, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { chatModels, useAssistant } from './assistant-store'
 import { modelOptionLabel } from './assistant-settings-shared'
+
+/** The account's own ceiling for a per-thread instruction, mirrored from normalizeConversationSettings. */
+const MAX_CONVERSATION_SYSTEM_PROMPT = 8_000
 
 /**
  * One thread's own overrides.
@@ -31,6 +34,8 @@ export function ConversationSettingsDialog({
   const [temperature, setTemperature] = useState('')
   const [topP, setTopP] = useState('')
   const [maxContext, setMaxContext] = useState('')
+  const [maxOutputTokens, setMaxOutputTokens] = useState('')
+  const [systemPrompt, setSystemPrompt] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -42,6 +47,8 @@ export function ConversationSettingsDialog({
     setTemperature(stored.temperature === null || stored.temperature === undefined ? '' : String(stored.temperature))
     setTopP(stored.topP === null || stored.topP === undefined ? '' : String(stored.topP))
     setMaxContext(stored.maxContext === null || stored.maxContext === undefined ? '' : String(stored.maxContext))
+    setMaxOutputTokens(stored.maxOutputTokens === null || stored.maxOutputTokens === undefined ? '' : String(stored.maxOutputTokens))
+    setSystemPrompt(stored.systemPrompt ?? '')
     setError(null)
   }, [open, conversation.id, conversation.settings])
 
@@ -67,6 +74,15 @@ export function ConversationSettingsDialog({
       return
     }
     if (context !== null) next.maxContext = context
+    const output = maxOutputTokens.trim() === '' ? null : Number(maxOutputTokens)
+    if (output !== null && (!Number.isInteger(output) || output < 1 || output > 1_000_000)) {
+      setError(t('assistant.conversation.settings.max_output_tokens_invalid' as MessageKey))
+      return
+    }
+    if (output !== null) next.maxOutputTokens = output
+    // An empty (or blank) box means inherit: never write a 0 or an empty string as an override.
+    const prompt = systemPrompt.trim()
+    if (prompt) next.systemPrompt = prompt.slice(0, MAX_CONVERSATION_SYSTEM_PROMPT)
     setError(null)
     setBusy(true)
     const ok = await save(conversation.id, next)
@@ -133,16 +149,41 @@ export function ConversationSettingsDialog({
             />
           </label>
         </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block space-y-1.5">
+            <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('assistant.conversation.settings.max_context')}</span>
+            <Input
+              inputMode="numeric"
+              value={maxContext}
+              placeholder={t('assistant.conversation.settings.inherit')}
+              aria-label={t('assistant.conversation.settings.max_context')}
+              onChange={(event) => setMaxContext(event.target.value)}
+            />
+            <span className="block text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.conversation.settings.max_context_hint')}</span>
+          </label>
+          <label className="block space-y-1.5">
+            <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('assistant.conversation.settings.max_output_tokens' as MessageKey)}</span>
+            <Input
+              inputMode="numeric"
+              value={maxOutputTokens}
+              placeholder={t('assistant.conversation.settings.inherit')}
+              aria-label={t('assistant.conversation.settings.max_output_tokens' as MessageKey)}
+              onChange={(event) => setMaxOutputTokens(event.target.value)}
+            />
+            <span className="block text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.conversation.settings.max_output_tokens_hint' as MessageKey)}</span>
+          </label>
+        </div>
         <label className="block space-y-1.5">
-          <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('assistant.conversation.settings.max_context')}</span>
-          <Input
-            inputMode="numeric"
-            value={maxContext}
+          <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('assistant.conversation.settings.system_prompt' as MessageKey)}</span>
+          <Textarea
+            rows={4}
+            maxLength={MAX_CONVERSATION_SYSTEM_PROMPT}
+            value={systemPrompt}
             placeholder={t('assistant.conversation.settings.inherit')}
-            aria-label={t('assistant.conversation.settings.max_context')}
-            onChange={(event) => setMaxContext(event.target.value)}
+            aria-label={t('assistant.conversation.settings.system_prompt' as MessageKey)}
+            onChange={(event) => setSystemPrompt(event.target.value)}
           />
-          <span className="block text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.conversation.settings.max_context_hint')}</span>
+          <span className="block text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.conversation.settings.system_prompt_hint' as MessageKey)}</span>
         </label>
         {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
       </div>
