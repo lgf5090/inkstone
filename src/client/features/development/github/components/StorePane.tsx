@@ -345,7 +345,7 @@ export function StorePane({
   const cardTracked = Boolean(cardTarget && apps.some((app) => app.id === String(cardTarget.repo.id)))
   const cardMenuItems: MenuItem[] = cardTarget ? [
     { id: 'open', label: t('development.github.store.menu.open_detail'), onSelect: () => setSelectedRepo(cardTarget.repo) },
-    { id: 'github', label: t('development.github.store.menu.open_github'), icon: <ExternalLink size={13} />, onSelect: () => window.open(cardTarget.repo.url, '_blank', 'noopener,noreferrer') },
+    { id: 'github', label: t('development.github.store.menu.open_github'), icon: <ExternalLink size={13} />, disabled: !cardTarget.repo.url, onSelect: () => { if (cardTarget.repo.url) window.open(cardTarget.repo.url, '_blank', 'noopener,noreferrer') } },
     {
       id: 'download',
       label: t('development.github.store.menu.download'),

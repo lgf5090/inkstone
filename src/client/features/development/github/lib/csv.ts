@@ -19,7 +19,7 @@ export const REPO_CSV_HEADER = [
 ] as const
 
 function cell(value: string | number | boolean): string {
-  let text = String(value)
+  let text = String(value).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
   if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }

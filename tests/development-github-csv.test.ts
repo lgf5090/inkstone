@@ -67,4 +67,17 @@ describe('repository CSV export', () => {
     const csv = buildRepoCsv([row], [])
     expect(csv).toContain(`"'=HYPERLINK(""https://evil.example"")"`)
   })
+
+  it('strips control characters and defuses formulas hidden behind a newline', () => {
+    const row = saved()
+    row.notes = '\u0000=1+1\u0007'
+    const csv = buildRepoCsv([row], [])
+    expect(csv).not.toContain('\u0000')
+    expect(csv).not.toContain('\u0007')
+    expect(csv).toContain("'=1+1")
+
+    const multiline = saved()
+    multiline.notes = 'safe\n=cmd'
+    expect(buildRepoCsv([multiline], [])).toContain('"safe\n=cmd"')
+  })
 })

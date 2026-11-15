@@ -182,48 +182,48 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     revisions.get(collection) === revision
 
   const reloadCollection = async (collection: CollectionKey): Promise<void> => {
-    try {
-      switch (collection) {
-        case 'tags':
-          set({ tags: await githubApi.listTags() })
-          return
-        case 'repos':
-          set({ repos: await githubApi.listRepos() })
-          return
-        case 'collections':
-          set({ collections: await githubApi.listCollections() })
-          return
-        case 'gistTags':
-          set({ gistTags: await githubApi.listGistTags() })
-          return
-        case 'gists':
-          set({ gists: await githubApi.listGists() })
-          return
-        case 'mirrors':
-          set({ mirrors: await githubApi.getMirrors() })
-          return
-        case 'accounts': {
-          const accounts = await githubApi.getAccounts()
-          set((state) => {
-            const activeAccountId = accounts.some((account) => account.id === state.activeAccountId)
-              ? state.activeAccountId
-              : accounts[0]?.id ?? null
-            if (activeAccountId !== state.activeAccountId) saveActiveAccountId(activeAccountId)
-            return { accounts, activeAccountId }
-          })
-          return
-        }
-        case 'apps':
-          set({ apps: await githubApi.listApps() })
-          return
+    switch (collection) {
+      case 'tags':
+        set({ tags: await githubApi.listTags() })
+        return
+      case 'repos':
+        set({ repos: await githubApi.listRepos() })
+        return
+      case 'collections':
+        set({ collections: await githubApi.listCollections() })
+        return
+      case 'gistTags':
+        set({ gistTags: await githubApi.listGistTags() })
+        return
+      case 'gists':
+        set({ gists: await githubApi.listGists() })
+        return
+      case 'mirrors':
+        set({ mirrors: await githubApi.getMirrors() })
+        return
+      case 'accounts': {
+        const accounts = await githubApi.getAccounts()
+        set((state) => {
+          const activeAccountId = accounts.some((account) => account.id === state.activeAccountId)
+            ? state.activeAccountId
+            : accounts[0]?.id ?? null
+          if (activeAccountId !== state.activeAccountId) saveActiveAccountId(activeAccountId)
+          return { accounts, activeAccountId }
+        })
+        return
       }
-    } catch (error) {
-      console.warn('[inkstone] GitHub collection reload failed', collection, error)
+      case 'apps':
+        set({ apps: await githubApi.listApps() })
+        return
     }
   }
 
   const reconcile = async (collections: readonly CollectionKey[]): Promise<void> => {
-    await Promise.all(collections.map(reloadCollection))
+    const results = await Promise.allSettled(collections.map(reloadCollection))
+    const failed = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (failed.length === 0) return
+    console.warn('[inkstone] GitHub collection reconciliation failed', failed.map((result) => result.reason))
+    notifyFailure(failed[0]!.reason)
   }
 
   const applyBootstrap = (data: GithubBootstrap, sequence: number): void => {

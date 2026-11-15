@@ -423,7 +423,7 @@ export function ReposPane({
       toast({ title: t('development.github.repos.no_repos'), tone: 'warning' })
       return
     }
-    const url = URL.createObjectURL(new Blob([buildRepoCsv(repos, tags)], { type: 'text/csv;charset=utf-8' }))
+    const url = URL.createObjectURL(new Blob(['\uFEFF', buildRepoCsv(repos, tags)], { type: 'text/csv;charset=utf-8' }))
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = `github-repos-${new Date().toISOString().slice(0, 10)}.csv`

@@ -1137,6 +1137,7 @@ developmentGithubRoutes.get('/exports/:id', async (c) => {
       'Content-Disposition': contentDisposition('application/octet-stream', record.filename),
       'Cache-Control': 'private, no-store',
       'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox; form-action 'none'; base-uri 'none'",
     },
   })
 })

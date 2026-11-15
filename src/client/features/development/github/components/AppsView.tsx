@@ -128,7 +128,8 @@ export function AppsView({
       id: 'open',
       label: t('development.github.apps.menu.open_github'),
       icon: <ExternalLink size={13} />,
-      onSelect: () => window.open(target.repoUrl, '_blank', 'noopener,noreferrer'),
+      disabled: !target.repoUrl,
+      onSelect: () => { if (target.repoUrl) window.open(target.repoUrl, '_blank', 'noopener,noreferrer') },
     },
     {
       id: 'copy-name',
