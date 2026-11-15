@@ -13,7 +13,7 @@ describe('GitHub README rendering', () => {
       '[anchor](#install)',
       '[site](https://example.com)',
     ].join('\n\n'), OPTIONS)
-    expect(html).toContain(`src="${proxied('https://github.com/acme/repo/raw/main/images/shot.png')}"`)
+    expect(html).toContain('src="https://raw.githubusercontent.com/acme/repo/main/images/shot.png"')
     expect(html).toContain('href="https://github.com/acme/repo/blob/main/docs/guide.md"')
     expect(html).toContain('href="https://github.com/acme/repo/blob/main/LICENSE"')
     expect(html).toContain('href="#readme-install"')
@@ -29,7 +29,7 @@ describe('GitHub README rendering', () => {
 
   it('adds safe image attributes and upgrades protocol-relative URLs', () => {
     const html = renderGithubReadme('![logo](//cdn.example.com/logo.png)', OPTIONS)
-    expect(html).toContain(`src="${proxied('https://cdn.example.com/logo.png')}"`)
+    expect(html).toContain('src="https://cdn.example.com/logo.png"')
     expect(html).toContain('loading="lazy"')
     expect(html).toContain('referrerpolicy="no-referrer"')
   })
@@ -64,7 +64,7 @@ describe('GitHub README rendering', () => {
       '</p>',
       '<table><tr><td width="33%" valign="top"><h3>Feature</h3></td></tr></table>',
     ].join('\n'), OPTIONS)
-    expect(html).toContain(`src="${proxied('https://github.com/acme/repo/raw/main/assets/hero.svg')}"`)
+    expect(html).toContain('src="https://raw.githubusercontent.com/acme/repo/main/assets/hero.svg"')
     expect(html).toContain('href="https://github.com/acme/repo/blob/main/docs/guide.md"')
     expect(html).toContain('align="center"')
     expect(html).toContain('width="100%"')
@@ -118,7 +118,7 @@ describe('GitHub README rendering', () => {
     ].join('\n\n'), OPTIONS)
     expect(html).toContain('href="https://example.com/a"')
     expect(html).toContain('rel="noopener noreferrer"')
-    expect(html).toContain(`src="${proxied('https://example.com/a.png')}"`)
+    expect(html).toContain('src="https://example.com/a.png"')
     expect(html).toContain('loading="lazy"')
   })
 
@@ -127,5 +127,19 @@ describe('GitHub README rendering', () => {
     const html = renderGithubReadme(`![remote](${url})`, OPTIONS)
     expect(html).toContain(`src="${url}"`)
     expect(html).not.toContain('url=%2Fapi%2F')
+  })
+
+  it('canonicalizes absolute GitHub blob and raw image links and upgrades plain HTTP', () => {
+    const html = renderGithubReadme([
+      '![blob](https://github.com/acme/repo/blob/main/docs/shot.png?raw=true)',
+      '![raw](https://github.com/acme/repo/raw/main/docs/other.png)',
+      '![http](http://cdn.example.com/logo.png)',
+      '<img src="https://github.com/acme/repo/blob/main/assets/hero.svg" alt="Hero">',
+    ].join('\n\n'), OPTIONS)
+    expect(html).toContain('src="https://raw.githubusercontent.com/acme/repo/main/docs/shot.png"')
+    expect(html).toContain('src="https://raw.githubusercontent.com/acme/repo/main/docs/other.png"')
+    expect(html).toContain('src="https://cdn.example.com/logo.png"')
+    expect(html).toContain('src="https://raw.githubusercontent.com/acme/repo/main/assets/hero.svg"')
+    expect(html).not.toContain('/api/development/github/image?')
   })
 })

@@ -1,6 +1,6 @@
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
-import { proxiedImageUrl } from './image'
+import { normalizeGithubImageUrl } from '@shared/development/github/image'
 
 export interface ReadmeRenderOptions {
   fullName: string
@@ -46,16 +46,24 @@ function normalizeRelativePath(path: string): string {
   return output.join('/')
 }
 
+function finishImageUrl(value: string): string {
+  const upgraded = value.startsWith('http://') ? `https://${value.slice('http://'.length)}` : value
+  return normalizeGithubImageUrl(upgraded)
+}
+
 function resolveUrl(rawUrl: string, options: ReadmeRenderOptions, kind: UrlKind): string | null {
   const url = rawUrl.trim()
   if (!url) return ''
   if (url.startsWith('/api/development/github/image?')) return url
   if (url.startsWith('#')) return url
-  if (url.startsWith('//')) return `https:${url}`
+  if (url.startsWith('//')) return kind === 'image' ? finishImageUrl(`https:${url}`) : `https:${url}`
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)
   if (scheme) {
     const protocol = scheme[1]!.toLowerCase()
-    if (protocol === 'http' || protocol === 'https' || protocol === 'mailto' || protocol === 'tel') return url
+    if (protocol === 'http' || protocol === 'https') {
+      return kind === 'image' ? finishImageUrl(url) : url
+    }
+    if (protocol === 'mailto' || protocol === 'tel') return url
     if (kind === 'image' && protocol === 'data' && /^data:image\//i.test(url)) return url
     return null
   }
@@ -63,8 +71,10 @@ function resolveUrl(rawUrl: string, options: ReadmeRenderOptions, kind: UrlKind)
   const path = boundary === -1 ? url : url.slice(0, boundary)
   const suffix = boundary === -1 ? '' : url.slice(boundary)
   const relative = normalizeRelativePath(path.replace(/^\.\//, '').replace(/^\//, ''))
-  const segment = kind === 'image' ? 'raw' : 'blob'
-  return `https://github.com/${options.fullName}/${segment}/${options.defaultBranch}/${relative}${suffix}`
+  if (kind === 'image') {
+    return `https://raw.githubusercontent.com/${options.fullName}/${options.defaultBranch}/${relative}${suffix}`
+  }
+  return `https://github.com/${options.fullName}/blob/${options.defaultBranch}/${relative}${suffix}`
 }
 
 function slugifyHeading(value: string): string {
@@ -134,7 +144,7 @@ function renderMarkdown(md: string, options: ReadmeRenderOptions): string {
     const token = tokens[index]!
     const resolved = resolveUrl(token.attrGet('src') ?? '', options, 'image')
     if (resolved === null) token.attrSet('src', '')
-    else token.attrSet('src', proxiedImageUrl(resolved))
+    else token.attrSet('src', resolved)
     token.attrSet('loading', 'lazy')
     token.attrSet('referrerpolicy', 'no-referrer')
     return self.renderToken(tokens, index, renderOptions)
@@ -165,7 +175,6 @@ function resolveHtmlUrls(html: string, options: ReadmeRenderOptions): string {
     if (tag === 'img') {
       element.setAttribute('loading', 'lazy')
       element.setAttribute('referrerpolicy', 'no-referrer')
-      element.setAttribute('src', proxiedImageUrl(resolved))
     }
   }
   return template.innerHTML

@@ -19,6 +19,7 @@ import { buildMirrorDownloadUrl, formatNumber, formatDate, formatFileSize } from
 import { detectDevicePlatform } from '../lib/device'
 import { getLanguageColor } from '../lib/languages'
 import { renderGithubReadme } from '../lib/readme'
+import { attachReadmeImageFallback } from '../lib/readme-images'
 import { GithubAvatar } from './GithubAvatar'
 import { TrackAppDialog, type TrackAppValues } from './TrackAppDialog'
 import { DeveloperDialog } from './DeveloperDialog'
@@ -175,6 +176,12 @@ export function RepoDetail({ repo, mirror, notes, favorited = false, onToggleFav
     [detail?.readme, detail?.fullName, detail?.defaultBranch],
   )
   const readmeTooLarge = Boolean(detail?.readme && detail.readme.length > README_RENDER_MAX_CHARS)
+  const readmeRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const node = readmeRef.current
+    if (!node) return
+    return attachReadmeImageFallback(node, t('development.github.repos.image_unavailable'))
+  }, [readmeHtml])
 
   if (!repo) return <Empty art="select" title={t('development.github.repos.select_hint')} />
   if (loading) return <div className="flex h-full items-center justify-center gap-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]"><Spinner size={15} />{t('development.github.common.loading')}</div>
@@ -376,7 +383,7 @@ export function RepoDetail({ repo, mirror, notes, favorited = false, onToggleFav
 
       <div className="p-4">
         <div className="mb-2 flex items-center gap-2"><FileText size={15} className="text-[var(--text-tertiary)]" /><h3 className="text-[length:var(--text-13)] font-semibold">{t('development.github.repos.readme')}</h3>{detail.readmeHtmlUrl && <a href={detail.readmeHtmlUrl} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{t('development.github.repos.view_on_github')}</a>}</div>
-        {readmeHtml ? <div className={cn('github-readme ink-prose max-w-none', 'overflow-x-auto')} dangerouslySetInnerHTML={{ __html: readmeHtml }} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{readmeTooLarge ? t('development.github.repos.readme_too_large') : readmeFailed ? t('development.github.repos.readme_failed') : t('development.github.repos.no_readme')}</p>}
+        {readmeHtml ? <div ref={readmeRef} className={cn('github-readme ink-prose max-w-none', 'overflow-x-auto')} dangerouslySetInnerHTML={{ __html: readmeHtml }} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{readmeTooLarge ? t('development.github.repos.readme_too_large') : readmeFailed ? t('development.github.repos.readme_failed') : t('development.github.repos.no_readme')}</p>}
       </div>
 
       {onUpdateNotes && <div className="border-t border-[var(--border-subtle)] p-4">

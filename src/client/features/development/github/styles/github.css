@@ -51,6 +51,24 @@
   vertical-align: middle;
 }
 
+.github-readme-image-fallback {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--r-sm);
+  color: var(--text-tertiary);
+  font-size: var(--text-11);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+a.github-readme-image-fallback:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .github-readme [align='center'],
 .github-readme center {
   text-align: center;
