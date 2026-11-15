@@ -10,6 +10,8 @@ import {
   MAX_TAG_IDS,
   EXPORT_TTL_MS,
   BOOTSTRAP_ITEMS_LIMIT,
+  BOOTSTRAP_FIRST_PAGE,
+  GITHUB_PAGE_SIZE,
 } from '@shared/development/github/limits'
 import {
   GithubAccountTokenSchema,
@@ -107,7 +109,9 @@ import {
   listExports,
   listGistSummaries,
   listGistTags,
+  listGistSummariesPage,
   listRepos,
+  listReposPage,
   listTags,
   patchGist,
   searchGistIds,
@@ -189,7 +193,12 @@ const RepoDetailQuerySchema = z.object({
 })
 
 const BootstrapQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(BOOTSTRAP_ITEMS_LIMIT).default(BOOTSTRAP_ITEMS_LIMIT),
+  limit: z.coerce.number().int().min(1).max(BOOTSTRAP_ITEMS_LIMIT).default(BOOTSTRAP_FIRST_PAGE),
+})
+
+const PageQuerySchema = z.object({
+  after: z.string().trim().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(GITHUB_PAGE_SIZE).default(GITHUB_PAGE_SIZE),
 })
 
 const RepoLookupQuerySchema = z.object({
@@ -510,6 +519,13 @@ developmentGithubRoutes.get('/repos', async (c) => {
   return c.json({ ok: true, data: { repos } })
 })
 
+developmentGithubRoutes.get('/repos/page', async (c) => {
+  await listBudget.spend(c.env, userIdOf(c))
+  const query = parseQuery(c, PageQuerySchema)
+  const page = await listReposPage(c.env.DB, userIdOf(c), query.after ?? null, query.limit)
+  return c.json({ ok: true, data: { repos: page.items, nextCursor: page.nextCursor } })
+})
+
 developmentGithubRoutes.put('/repos/:id', async (c) => {
   await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
@@ -656,6 +672,13 @@ developmentGithubRoutes.delete('/gist/tags/:id', async (c) => {
 developmentGithubRoutes.get('/gist/gists', async (c) => {
   const gists = await listGistSummaries(c.env.DB, userIdOf(c))
   return c.json({ ok: true, data: { gists } })
+})
+
+developmentGithubRoutes.get('/gist/gists/page', async (c) => {
+  await listBudget.spend(c.env, userIdOf(c))
+  const query = parseQuery(c, PageQuerySchema)
+  const page = await listGistSummariesPage(c.env.DB, userIdOf(c), query.after ?? null, query.limit)
+  return c.json({ ok: true, data: { gists: page.items, nextCursor: page.nextCursor } })
 })
 
 developmentGithubRoutes.get('/gist/gists/search', async (c) => {

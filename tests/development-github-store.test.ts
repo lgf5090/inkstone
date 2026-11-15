@@ -361,4 +361,17 @@ describe('GitHub store optimistic writes', () => {
     expect(JSON.parse(String((fetchMock.mock.calls[1]![1] as RequestInit).body))).toEqual({ token: 'ghp_secret' })
     expect(JSON.stringify(useGithubStore.getState().accounts)).not.toContain('ghp_secret')
   })
+
+  it('loads the whole library page by page instead of one full response', async () => {
+    useGithubStore.setState({ status: 'ready' })
+    fetchMock
+      .mockResolvedValueOnce(envelope({ repos: [repo('1'), repo('2')], nextCursor: '2' }))
+      .mockResolvedValueOnce(envelope({ repos: [repo('3')], nextCursor: null }))
+    await useGithubStore.getState().loadAllRepos()
+    expect(useGithubStore.getState().repos.map((entry) => entry.id)).toEqual(['1', '2', '3'])
+    expect(useGithubStore.getState().repoTotal).toBe(3)
+    expect(useGithubStore.getState().truncatedRepos).toBe(false)
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/repos/page?')
+    expect(String(fetchMock.mock.calls[1]![0])).toContain('after=2')
+  })
 })

@@ -232,6 +232,28 @@ describe('development github routes authentication and bootstrap', () => {
     expect(envelope.data?.capabilities.exports).toBe(false)
   })
 
+  it('walks saved repositories and gists with a keyset cursor', async () => {
+    for (const id of ['1', '2', '3', '4', '5']) {
+      expect((await call('PUT', `/repos/${id}`, { body: repoBody(Number(id)) })).status).toBe(200)
+    }
+    const seen = new Set<string>()
+    let cursor: string | null = null
+    for (let page = 0; page < 4; page += 1) {
+      const suffix = cursor ? `&after=${encodeURIComponent(cursor)}` : ''
+      const response = await call('GET', `/repos/page?limit=2${suffix}`)
+      expect(response.status).toBe(200)
+      const envelope = await bodyOf<{ repos: { id: string }[]; nextCursor: string | null }>(response)
+      for (const item of envelope.data?.repos ?? []) seen.add(item.id)
+      cursor = envelope.data?.nextCursor ?? null
+      if (!cursor) break
+    }
+    expect([...seen].sort()).toEqual(['1', '2', '3', '4', '5'])
+
+    const empty = await call('GET', '/gist/gists/page?limit=2')
+    expect((await bodyOf<{ gists: unknown[]; nextCursor: string | null }>(empty)).data).toEqual({ gists: [], nextCursor: null })
+    expect((await call('GET', '/repos/page?limit=0')).status).toBe(400)
+  })
+
   it('caps the bootstrap collections and reports the real totals', async () => {
     expect((await call('PUT', '/repos/1', { body: repoBody(1) })).status).toBe(200)
     expect((await call('PUT', '/repos/2', { body: repoBody(2) })).status).toBe(200)

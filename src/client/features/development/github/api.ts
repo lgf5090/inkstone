@@ -36,6 +36,7 @@ import {
   type SavedGithubRepo,
 } from '@shared/development/github/types'
 import { request, type RequestOptions } from '../../../lib/api'
+import { GITHUB_PAGE_SIZE } from '@shared/development/github/limits'
 
 const BASE = '/api/development/github'
 
@@ -132,6 +133,16 @@ export const githubApi = {
     return readData<{ repos: SavedGithubRepo[] }>('/repos', { signal }).then((response) => response.repos)
   },
 
+  repoPage(
+    after: string | null,
+    limit = GITHUB_PAGE_SIZE,
+    signal?: AbortSignal,
+  ): Promise<{ repos: SavedGithubRepo[]; nextCursor: string | null }> {
+    const query = new URLSearchParams({ limit: String(limit) })
+    if (after) query.set('after', after)
+    return readData(`/repos/page?${query.toString()}`, { signal })
+  },
+
   upsertRepo(repo: SavedGithubRepo, signal?: AbortSignal): Promise<SavedGithubRepo> {
     return readData<{ repo: SavedGithubRepo }>(`/repos/${encodeURIComponent(repo.id)}`, {
       method: 'PUT',
@@ -193,6 +204,16 @@ export const githubApi = {
 
   listGists(signal?: AbortSignal): Promise<SavedGist[]> {
     return readData<{ gists: SavedGist[] }>('/gist/gists', { signal }).then((response) => response.gists)
+  },
+
+  gistPage(
+    after: string | null,
+    limit = GITHUB_PAGE_SIZE,
+    signal?: AbortSignal,
+  ): Promise<{ gists: SavedGist[]; nextCursor: string | null }> {
+    const query = new URLSearchParams({ limit: String(limit) })
+    if (after) query.set('after', after)
+    return readData(`/gist/gists/page?${query.toString()}`, { signal })
   },
 
   upsertGist(gist: SavedGist, signal?: AbortSignal): Promise<SavedGist> {

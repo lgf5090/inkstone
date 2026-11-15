@@ -325,6 +325,50 @@ export async function listRepos(
   return results.map(toRepo)
 }
 
+export interface KeysetPage<T> {
+  items: T[]
+  nextCursor: string | null
+}
+
+export async function listReposPage(
+  db: D1Database,
+  userId: string,
+  after: string | null,
+  limit: number,
+): Promise<KeysetPage<SavedGithubRepo>> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${REPO_COLUMNS} FROM development_github_repos
+        WHERE user_id = ?1 AND (?2 IS NULL OR id > ?2)
+        ORDER BY id ASC LIMIT ?3`,
+    )
+    .bind(userId, after, limit + 1)
+    .all<RepoRow>()
+  const rows = results.slice(0, limit)
+  return { items: rows.map(toRepo), nextCursor: results.length > limit ? rows[rows.length - 1]?.id ?? null : null }
+}
+
+export async function listGistSummariesPage(
+  db: D1Database,
+  userId: string,
+  after: string | null,
+  limit: number,
+): Promise<KeysetPage<SavedGist>> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${GIST_COLUMNS} FROM development_github_gists
+        WHERE user_id = ?1 AND (?2 IS NULL OR id > ?2)
+        ORDER BY id ASC LIMIT ?3`,
+    )
+    .bind(userId, after, limit + 1)
+    .all<GistRow>()
+  const rows = results.slice(0, limit)
+  return {
+    items: rows.map((row) => toGistSummary(toGist(row))),
+    nextCursor: results.length > limit ? rows[rows.length - 1]?.id ?? null : null,
+  }
+}
+
 export async function findRepo(db: D1Database, userId: string, id: string): Promise<SavedGithubRepo | null> {
   const row = await db
     .prepare(`SELECT ${REPO_COLUMNS} FROM development_github_repos WHERE user_id = ?1 AND id = ?2`)

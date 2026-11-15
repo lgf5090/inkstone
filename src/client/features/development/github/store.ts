@@ -73,6 +73,7 @@ export interface GithubStore {
 type CollectionKey = 'tags' | 'repos' | 'collections' | 'gistTags' | 'gists' | 'mirrors' | 'accounts' | 'apps'
 
 const DEFAULT_CAPABILITIES: GithubCapabilities = { exports: false }
+const MAX_LOAD_PAGES = 50
 const writeQueues = new Map<string, Promise<void>>()
 let loadPromise: Promise<void> | null = null
 let bootstrapSequence = 0
@@ -304,9 +305,16 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     loadAllRepos: async () => {
       const revision = bump('repos')
       try {
-        const repos = await githubApi.listRepos()
+        const collected: SavedGithubRepo[] = []
+        let cursor: string | null = null
+        for (let page = 0; page < MAX_LOAD_PAGES; page += 1) {
+          const result = await githubApi.repoPage(cursor)
+          collected.push(...result.repos)
+          cursor = result.nextCursor
+          if (!cursor) break
+        }
         if (isCurrent('repos', revision)) {
-          set({ repos, repoTotal: repos.length, truncatedRepos: false })
+          set({ repos: collected, repoTotal: collected.length, truncatedRepos: false })
         }
       } catch (error) {
         notifyFailure(error)
@@ -316,9 +324,16 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     loadAllGists: async () => {
       const revision = bump('gists')
       try {
-        const gists = await githubApi.listGists()
+        const collected: SavedGist[] = []
+        let cursor: string | null = null
+        for (let page = 0; page < MAX_LOAD_PAGES; page += 1) {
+          const result = await githubApi.gistPage(cursor)
+          collected.push(...result.gists)
+          cursor = result.nextCursor
+          if (!cursor) break
+        }
         if (isCurrent('gists', revision)) {
-          set({ gists, gistTotal: gists.length, truncatedGists: false })
+          set({ gists: collected, gistTotal: collected.length, truncatedGists: false })
         }
       } catch (error) {
         notifyFailure(error)
