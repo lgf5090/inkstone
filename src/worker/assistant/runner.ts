@@ -817,7 +817,10 @@ export class AssistantRunner {
       // it.
       const capFor = (entry: ResolvedCall) => {
         const modelCap = entry.model.maxOutputTokens ?? limits.maxOutputTokens
-        return project?.maxOutputTokens ? Math.min(modelCap, project.maxOutputTokens) : modelCap
+        const projectCap = project?.maxOutputTokens ?? Number.POSITIVE_INFINITY
+        const threadCap = this.conversationSettings.maxOutputTokens ?? Number.POSITIVE_INFINITY
+        // All three are ceilings, so the smallest wins; a thread can only ever ask for less.
+        return Math.min(modelCap, projectCap, threadCap)
       }
       let outputCap = capFor(primary)
       if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }, model.label))) {
@@ -937,7 +940,11 @@ export class AssistantRunner {
         project: projectInstructions ? { name: project?.name ?? '', instructions: projectInstructions } : null,
         skills: projectSkills,
         continuing: this.continueFrom !== null,
-        customInstructions: this.settings.customInstructions,
+        // A thread's instruction is the reader's voice too, appended after the account's standing
+        // rules. It rides in the same field rather than becoming a second system message that would
+        // change the prompt shape for every other thread.
+        customInstructions: [this.settings.customInstructions, this.conversationSettings.systemPrompt]
+          .filter(Boolean).join('\n\n'),
       })
       // The standing half stays the system message, so the tool block and the rules in front of it are the
       // same bytes on every request and a cache can keep them. Everything that describes this one turn —

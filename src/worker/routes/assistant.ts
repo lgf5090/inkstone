@@ -86,8 +86,6 @@ import {
   type AssistantMemoryCategory,
   type AssistantMessage,
   type AssistantProtocol,
-  type AssistantKeyProbeOutcome,
-  type AssistantKeyProbeReason,
   type AssistantSettings,
   type AssistantPricePeriod,
   type AssistantToolMode,
@@ -206,6 +204,16 @@ export const assistantRoutes = new Hono<AppBindings>()
 
 
 assistantRoutes.use('*', requireAuth)
+
+// A deployment-wide ceiling on writes: one account cannot flood the worker with key probes, reveals,
+// imports or turns from a single browser tab. Reads are deliberately not counted.
+assistantRoutes.use('*', async (c, next) => {
+  if (c.req.method !== 'GET'
+    && !(await store(c).consumeRateLimit('assistant.write', 600, 60_000))) {
+    throw new ApiError(429, 'too_many_attempts', 'Too many requests. Please wait a moment.')
+  }
+  await next()
+})
 
 /**
  * Hono types the request context as only what a middleware can see; workerd hands over the full
@@ -1750,6 +1758,7 @@ async function unstartableTurn(
 
 
 assistantRoutes.post('/chat', async (c) => {
+  await throttle(c, 'chat', 60, 60_000)
   const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, contextNav?: unknown, contextMusic?: unknown, contextInknote?: unknown, contextPage?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown, allowedTools?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
@@ -3444,6 +3453,27 @@ assistantRoutes.delete('/semantic', async (c) => {
   return c.json({ deleted: await s.clearMemoryEmbeddings() })
 })
 
+/** A non-reversible fingerprint of the calling session; raw cookies and addresses stay out of the row. */
+async function auditContext(c: Context): Promise<{ sessionId: string, ip: string, userAgent: string }> {
+  const fingerprint = async (value: string): Promise<string> => {
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+    return [...new Uint8Array(bytes)].slice(0, 12).map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  }
+  const address = c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? ''
+  return {
+    sessionId: await fingerprint(c.req.header('cookie') ?? ''),
+    ip: address ? await fingerprint(address) : '',
+    userAgent: (c.req.header('user-agent') ?? '').slice(0, 200),
+  }
+}
+
+/** One atomic throttle shared by the expensive entry points, counted per account and fixed window. */
+async function throttle(c: Context, scope: string, limit: number, windowMs: number): Promise<void> {
+  if (!(await store(c).consumeRateLimit(scope, limit, windowMs))) {
+    throw new ApiError(429, 'too_many_attempts', 'Too many requests. Please wait a moment.')
+  }
+}
+
 // ----------------------------------------------------------------- providers
 
 assistantRoutes.get('/providers', async (c) => c.json({ providers: await store(c).listProviders() }))
@@ -3575,41 +3605,50 @@ assistantRoutes.patch('/logs/:id', async (c) => {
 })
 
 assistantRoutes.post('/logs/delete', async (c) => {
-  const body = await readJson<{ ids?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ ids?: unknown, includeStarred?: unknown }>(c, JSON_BODY_LIMITS.small)
   const ids = (Array.isArray(body.ids) ? body.ids : [])
     .filter((id): id is string => typeof id === 'string' && isValidId(id))
     .slice(0, LOG_BATCH_DELETE_LIMIT)
   if (!ids.length) throw ApiError.badRequest('No log ids were given.')
-  return c.json({ deleted: await store(c).deleteRequestLogs({ ids }) })
+  return c.json({ deleted: await store(c).deleteRequestLogs({ ids, includeStarred: body.includeStarred === true }) })
 })
 
 /** A manual cleanup, or a preview of one. An age or a row count is required so it cannot mean "all". */
 assistantRoutes.post('/logs/cleanup', async (c) => {
-  const body = await readJson<{ days?: unknown, rows?: unknown, dryRun?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ days?: unknown, rows?: unknown, dryRun?: unknown, cutoff?: unknown }>(c, JSON_BODY_LIMITS.small)
   const bounded = (value: unknown, max: number): number =>
     typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(Math.trunc(value), max)) : 0
   const days = bounded(body.days, LOG_RETENTION_MAX_DAYS)
   const rows = bounded(body.rows, LOG_MAX_ROWS_LIMIT)
   if (days <= 0 && rows <= 0) throw ApiError.badRequest('A cleanup needs an age or a row count.')
+  const cutoff = typeof body.cutoff === 'number' && Number.isFinite(body.cutoff) ? Math.trunc(body.cutoff) : undefined
   return c.json(await store(c).cleanupRequestLogs({
     ...requestLogQuery(c), days, rows, dryRun: body.dryRun === true,
+    ...(cutoff !== undefined ? { cutoff } : {}),
   }))
 })
 
 /** Removes one attempt, or every attempt in a slice, or the whole log. */
 assistantRoutes.delete('/logs', async (c) => {
   const s = store(c)
+  const providerId = c.req.query('providerId')
+  const keyId = c.req.query('keyId')
+  const all = c.req.query('all') === '1'
+  if (!all && providerId === undefined && keyId === undefined) {
+    throw ApiError.badRequest('A log deletion needs an explicit scope or all=1.')
+  }
   const deleted = await s.deleteRequestLogs({
-    ...(c.req.query('providerId') !== undefined ? { providerId: c.req.query('providerId')! } : {}),
-    ...(c.req.query('keyId') !== undefined ? { keyId: c.req.query('keyId')! } : {}),
-    ...(c.req.query('all') === '1' ? { all: true } : {}),
+    ...(providerId !== undefined ? { providerId } : {}),
+    ...(keyId !== undefined ? { keyId } : {}),
+    ...(all ? { all: true } : {}),
+    ...(c.req.query('includeStarred') === '1' ? { includeStarred: true } : {}),
   })
   return c.json({ deleted })
 })
 
 assistantRoutes.delete('/logs/:id', async (c) => {
   const s = store(c)
-  const deleted = await s.deleteRequestLogs({ id: requiredId(c.req.param('id')) })
+  const deleted = await s.deleteRequestLogs({ id: requiredId(c.req.param('id')), includeStarred: true })
   if (!deleted) throw ApiError.notFound('Log entry not found')
   return c.json({ deleted })
 })
@@ -3625,25 +3664,56 @@ assistantRoutes.get('/providers/:id/rotation', async (c) => {
 /**
  * Hands the plaintext of one stored key to the reader who owns it.
  *
- * The only endpoint that answers with a key rather than four characters. Every call is written to the
- * activity log first, so "who looked at this credential and when" has an answer.
+ * New callers take a single-use ticket first. The old one-call shape still answers for a deprecation
+ * window and is marked as such, so a client that has not migrated is visible rather than broken. Both
+ * paths write the independent security audit line before a key is returned, and neither is cacheable.
  */
-assistantRoutes.post('/providers/:id/reveal', async (c) => {
+async function revealWithTicket(c: Context, providerId: string, keyId: string): Promise<Response> {
   const s = store(c)
-  const id = requiredId(c.req.param('id'))
-  const revealed = await s.revealProviderKey(id, '')
+  const body = await readJson<{ ticket?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const ticket = typeof body.ticket === 'string' ? body.ticket : ''
+  const context = await auditContext(c)
+  const legacy = !ticket
+  if (!legacy && !(await s.redeemRevealTicket(ticket, providerId, keyId, context.sessionId))) {
+    await s.recordSecurityAudit('key.reveal_denied', `${providerId}/${keyId}`, context)
+    throw ApiError.badRequest('That reveal ticket is no longer valid.')
+  }
+  await throttle(c, 'key.reveal', 30, 60_000)
+  const revealed = await s.revealProviderKey(providerId, keyId, context)
   if (!revealed) throw ApiError.notFound('Key not found')
+  c.header('Cache-Control', 'no-store')
+  if (legacy) {
+    c.header('Deprecation', 'true')
+    c.header('Sunset', 'Wed, 31 Mar 2027 00:00:00 GMT')
+  }
   return c.json(revealed)
-})
+}
 
-assistantRoutes.post('/providers/:id/keys/:keyId/reveal', async (c) => {
+assistantRoutes.post('/providers/:id/reveal', async (c) =>
+  await revealWithTicket(c, requiredId(c.req.param('id')), ''))
+
+assistantRoutes.post('/providers/:id/keys/:keyId/reveal', async (c) =>
+  await revealWithTicket(c, requiredId(c.req.param('id')), requiredId(c.req.param('keyId'))))
+
+/** Issues the single-use ticket a reveal must redeem; this answer never holds a credential. */
+async function issueTicket(c: Context, providerId: string, keyId: string): Promise<Response> {
   const s = store(c)
-  const id = requiredId(c.req.param('id'))
-  const keyId = requiredId(c.req.param('keyId'))
-  const revealed = await s.revealProviderKey(id, keyId)
-  if (!revealed) throw ApiError.notFound('Key not found')
-  return c.json(revealed)
-})
+  if (!(await s.getProvider(providerId))) throw ApiError.notFound('Provider not found')
+  if (keyId && !(await s.listProviderKeys(providerId)).some((key) => key.id === keyId)) {
+    throw ApiError.notFound('Key not found')
+  }
+  await throttle(c, 'key.reveal_ticket', 30, 60_000)
+  const context = await auditContext(c)
+  await s.recordSecurityAudit('key.reveal_ticket', `${providerId}/${keyId}`, context)
+  c.header('Cache-Control', 'no-store')
+  return c.json(await s.issueRevealTicket(providerId, keyId, context.sessionId))
+}
+
+assistantRoutes.post('/providers/:id/reveal-ticket', async (c) =>
+  await issueTicket(c, requiredId(c.req.param('id')), ''))
+
+assistantRoutes.post('/providers/:id/keys/:keyId/reveal-ticket', async (c) =>
+  await issueTicket(c, requiredId(c.req.param('id')), requiredId(c.req.param('keyId'))))
 
 /**
  * Ask the provider about keys the reader has typed but not saved.
@@ -3653,9 +3723,19 @@ assistantRoutes.post('/providers/:id/keys/:keyId/reveal', async (c) => {
  * with the same three outcomes a stored ring gets — a draft has no row to hang a probe result on.
  */
 assistantRoutes.post('/providers/probe', async (c) => {
-  const body = await readJson<{ protocol?: unknown, baseUrl?: unknown, apiKeys?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const s = store(c)
+  await throttle(c, 'key.probe', 10, 60_000)
+  const body = await readJson<{ protocol?: unknown, baseUrl?: unknown, apiKeys?: unknown, providerId?: unknown }>(c, JSON_BODY_LIMITS.small)
   const protocol = asProtocol(body.protocol)
-  const baseUrl = vetBaseUrl(body.baseUrl)
+  const saved = await s.listProviders()
+  // A credential typed into a form is still a credential: do not send it to an address this account
+  // never saved, or the form becomes a batch blind-SSRF primitive against arbitrary hosts. Naming a
+  // saved provider is the editing case — the address then comes from the row, not from the request.
+  const named = typeof body.providerId === 'string' ? saved.find((provider) => provider.id === body.providerId) : undefined
+  const baseUrl = named ? vetBaseUrl(named.baseUrl) : vetBaseUrl(body.baseUrl)
+  if (!saved.some((provider) => provider.baseUrl === baseUrl)) {
+    throw ApiError.badRequest('Draft probes are limited to an address already saved on this account.')
+  }
   const keys = (Array.isArray(body.apiKeys) ? body.apiKeys : [])
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
     .slice(0, MAX_PROVIDER_KEYS)
@@ -3694,11 +3774,7 @@ assistantRoutes.post('/providers/:id/keys/probe', async (c) => {
   const settled = await Promise.allSettled(
     ring.keys.map(async (entry) => await probeProviderKey(protocol, ring.baseUrl, entry.key)),
   )
-  const results: Array<{
-    keyId: string, label: string, keyHint: string,
-    outcome: AssistantKeyProbeOutcome, reason: AssistantKeyProbeReason | null, latencyMs: number | null, probedAt: number,
-  }> = []
-  for (const [index, entry] of ring.keys.entries()) {
+  const results = await Promise.allSettled(ring.keys.map(async (entry, index) => {
     const outcome = settled[index]
     const result = outcome?.status === 'fulfilled'
       ? outcome.value
@@ -3708,9 +3784,16 @@ assistantRoutes.post('/providers/:id/keys/probe', async (c) => {
     const saved = await s.recordKeyProbe(id, {
       keyId: entry.keyId, outcome: result.outcome, reason: result.reason, latencyMs: result.latencyMs,
     })
-    results.push({ ...entry, ...saved })
-  }
-  return c.json({ results })
+    return { ...entry, ...saved }
+  }))
+  return c.json({
+    results: results.map((outcome, index) => outcome.status === 'fulfilled'
+      ? outcome.value
+      : {
+        ...ring.keys[index], outcome: 'inconclusive' as const, reason: 'unknown' as const,
+        latencyMs: null, probedAt: Date.now(),
+      }),
+  })
 })
 
 assistantRoutes.post('/providers/:id/keys', async (c) => {
@@ -4652,6 +4735,10 @@ function foldKeyUsage(
 assistantRoutes.get('/stats/overview', async (c) => c.json({ overview: await store(c).usageOverview() }))
 
 assistantRoutes.get('/activity', async (c) => c.json({ activity: await store(c).listActivity(100) }))
+
+/** Security events are read apart from the capped activity feed, so a disclosure is never evicted. */
+assistantRoutes.get('/security-audit', async (c) =>
+  c.json({ events: await store(c).listSecurityAudit(100) }))
 
 // -------------------------------------------------------------- export/import
 

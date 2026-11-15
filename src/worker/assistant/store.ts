@@ -343,6 +343,8 @@ const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, 
  * constant is only the floor used by callers that have nothing better to say.
  */
 const KEY_COOLDOWN_MS = 60_000
+/** How long a plaintext reveal ticket may be redeemed; it is one use regardless. */
+export const REVEAL_TICKET_TTL_MS = 30_000
 
 const REQUEST_LOG_COLUMNS = `id, at, provider_id, provider_label, key_id, key_label, key_hint,
   model_label, operation, ok, http_status, error_kind, error_message, input_tokens,
@@ -616,6 +618,10 @@ export const TODO_TRASH_PURGE_LIMIT = 200
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const HOUR_MS = 3_600_000
+
+/** An auto-refresh asks for the same four aggregates again and again; ten seconds is one refresh tick. */
+const STATS_CACHE_TTL_MS = 10_000
+const statsCache = new Map<string, { at: number, signature: string, report: AssistantStatsReport }>()
 
 const LOG_SORT_COLUMNS: Record<string, string> = {
   at: 'at',
@@ -1523,6 +1529,21 @@ export class AssistantStore {
     readonly env: Env,
   ) {}
 
+  /**
+   * One decrypt per ciphertext per request. A failover chain can read the same key several times, and
+   * HKDF + AES-GCM is the expensive part of each read; the store itself is created per request, so a
+   * plaintext never outlives the turn that needed it.
+   */
+  private readonly decryptedKeys = new Map<string, string>()
+
+  private async decryptKey(ciphertext: string): Promise<string> {
+    const held = this.decryptedKeys.get(ciphertext)
+    if (held !== undefined) return held
+    const key = (await decryptAssistantKey(this.env, this.userId, ciphertext)) ?? ''
+    this.decryptedKeys.set(ciphertext, key)
+    return key
+  }
+
   private rows<T>(sql: string, ...binds: unknown[]): Promise<T[]> {
     assertScoped(sql)
     return this.db.prepare(sql).bind(...binds).all<T>().then((r) => r.results ?? [])
@@ -1928,7 +1949,7 @@ export class AssistantStore {
       return (left.lastUsedAt - right.lastUsedAt) || (left.order - right.order)
     })
     for (const candidate of ring) {
-      const key = (await decryptAssistantKey(this.env, this.userId, candidate.ciphertext)) ?? ''
+      const key = await this.decryptKey(candidate.ciphertext)
       if (key) return { keyId: candidate.keyId, key, label: candidate.label }
     }
     return null
@@ -2090,7 +2111,10 @@ export class AssistantStore {
    * writes an activity line before it does: a credential that can be read is a credential whose readings
    * are worth counting. `keyId` `''` is the provider's own key, the same way every surface names it.
    */
-  async revealProviderKey(providerId: string, keyId: string): Promise<{ key: string, keyHint: string } | null> {
+  async revealProviderKey(
+    providerId: string, keyId: string,
+    context: { sessionId?: string, ip?: string, userAgent?: string } = {},
+  ): Promise<{ key: string, keyHint: string } | null> {
     const record = await this.providerRecord(providerId)
     if (!record) return null
     const row = keyId
@@ -2107,7 +2131,90 @@ export class AssistantStore {
     if (!key) return null
     const hint = keyId ? (row?.key_hint ?? '') : (record.key_hint ?? '')
     await this.recordActivity('key.revealed', `${record.label} ····${hint}`)
+    // The capped activity feed answers "what happened recently"; the audit table answers "who read a
+    // credential", and must not lose that line to the next few hundred ordinary turns.
+    await this.recordSecurityAudit('key.revealed', `${record.label} ····${hint}`, context)
     return { key, keyHint: hint }
+  }
+
+  /** Security events live in their own table, outside the activity feed's 500-row ceiling. */
+  async recordSecurityAudit(
+    kind: string, summary: string,
+    context: { sessionId?: string, ip?: string, userAgent?: string } = {},
+  ): Promise<void> {
+    await this.write(
+      `INSERT INTO chat_security_audit (id, user_id, kind, summary, session_id, ip, user_agent, created_at)
+         VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      newId(), kind.slice(0, 60), summary.slice(0, 500),
+      (context.sessionId ?? '').slice(0, 64), (context.ip ?? '').slice(0, 64),
+      (context.userAgent ?? '').slice(0, 200), Date.now(),
+    )
+  }
+
+  /** The long-retained history behind the settings' security timeline. */
+  async listSecurityAudit(limit = 100): Promise<Array<{
+    id: string, kind: string, summary: string, sessionId: string, ip: string, userAgent: string, createdAt: number,
+  }>> {
+    const rows = await this.rows<{
+      id: string, kind: string, summary: string, session_id: string, ip: string, user_agent: string, created_at: number,
+    }>(
+      `SELECT id, kind, summary, session_id, ip, user_agent, created_at FROM chat_security_audit
+         WHERE user_id = ?1 ORDER BY created_at DESC LIMIT ?2`,
+      this.userId, Math.min(Math.max(Math.trunc(limit), 1), 500),
+    )
+    return rows.map((row) => ({
+      id: row.id, kind: row.kind, summary: row.summary, sessionId: row.session_id,
+      ip: row.ip, userAgent: row.user_agent, createdAt: row.created_at,
+    }))
+  }
+
+  /** One atomic counter per account, scope and fixed window; false means the caller is over its limit. */
+  async consumeRateLimit(scope: string, limit: number, windowMs: number): Promise<boolean> {
+    const windowStart = Math.floor(Date.now() / windowMs) * windowMs
+    await this.write(
+      `INSERT INTO chat_rate_limits (user_id, scope, window_start, count) VALUES (?1, ?2, ?3, 1)
+         ON CONFLICT(user_id, scope, window_start) DO UPDATE SET count = count + 1`,
+      scope, windowStart,
+    )
+    const row = await this.one<{ count: number }>(
+      `SELECT count FROM chat_rate_limits WHERE user_id = ?1 AND scope = ?2 AND window_start = ?3`,
+      this.userId, scope, windowStart,
+    )
+    return (row?.count ?? 0) <= limit
+  }
+
+  /** A reveal ticket is single-use, session-bound and short-lived; the plaintext itself is never stored. */
+  async issueRevealTicket(
+    providerId: string, keyId: string, sessionId: string,
+  ): Promise<{ ticket: string, expiresAt: number }> {
+    if (!(await this.providerRecord(providerId))) throw new Error('Provider not found')
+    if (keyId && !(await this.one<{ id: string }>(
+      `SELECT id FROM chat_provider_keys WHERE user_id = ?1 AND id = ?2 AND provider_id = ?3`,
+      this.userId, keyId, providerId,
+    ))) throw new Error('Key not found')
+    const ticket = newId() + newId()
+    const expiresAt = Date.now() + REVEAL_TICKET_TTL_MS
+    await this.write(
+      `INSERT INTO chat_reveal_tickets (id, user_id, provider_id, key_id, session_id, expires_at, created_at)
+         VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7)`,
+      ticket, providerId, keyId, sessionId, expiresAt, Date.now(),
+    )
+    await this.write(`DELETE FROM chat_reveal_tickets WHERE user_id = ?1 AND expires_at < ?2`, Date.now())
+    return { ticket, expiresAt }
+  }
+
+  /** Atomically redeems a ticket; a second use, an expired one or another session all fail. */
+  async redeemRevealTicket(
+    ticket: string, providerId: string, keyId: string, sessionId: string,
+  ): Promise<boolean> {
+    if (!ticket || ticket.length > 64) return false
+    const redeemed = await this.write(
+      `UPDATE chat_reveal_tickets SET consumed_at = ?2
+         WHERE user_id = ?1 AND id = ?3 AND provider_id = ?4 AND key_id = ?5
+           AND session_id = ?6 AND consumed_at IS NULL AND expires_at > ?7`,
+      Date.now(), ticket, providerId, keyId, sessionId, Date.now(),
+    )
+    return redeemed > 0
   }
 
   /**
@@ -2209,6 +2316,8 @@ export class AssistantStore {
       Math.max(1, Math.trunc(entry.attempt ?? 1)),
     )
     await this.sweepRequestLogs(await this.getSettings())
+    // A new attempt invalidates every short-lived aggregate rather than risk a stale count.
+    statsCache.clear()
     return id
   }
 
@@ -2226,15 +2335,17 @@ export class AssistantStore {
     }
     const rows = settings.logMaxRows
     if (rows > 0) {
+      const status = settings.logCleanupStatus === 'ok' ? ' AND ok = 1'
+        : settings.logCleanupStatus === 'failed' ? ' AND ok = 0' : ''
       // The offset delete sorts the whole table. Most writes leave the table under the ceiling, so ask
       // for the count first and only pay for the sort on the write that actually crosses it.
       const held = (await this.one<{ total: number }>(
-        `SELECT COUNT(*) AS total FROM chat_request_logs WHERE user_id = ?1 AND starred = 0`, this.userId,
+        `SELECT COUNT(*) AS total FROM chat_request_logs WHERE user_id = ?1 AND starred = 0${status}`, this.userId,
       ))?.total ?? 0
       if (held > rows) {
         await this.write(
-          `DELETE FROM chat_request_logs WHERE user_id = ?1 AND starred = 0 AND id IN (
-             SELECT id FROM chat_request_logs WHERE user_id = ?1 AND starred = 0
+          `DELETE FROM chat_request_logs WHERE user_id = ?1 AND starred = 0${status} AND id IN (
+             SELECT id FROM chat_request_logs WHERE user_id = ?1 AND starred = 0${status}
               ORDER BY at DESC LIMIT -1 OFFSET ?2)`,
           rows,
         )
@@ -2254,6 +2365,7 @@ export class AssistantStore {
          WHERE user_id = ?1 AND id = ?6`,
       usage.inputTokens, usage.outputTokens, usage.cachedInputTokens ?? 0, usage.latencyMs ?? null, id,
     )
+    statsCache.clear()
   }
 
   /**
@@ -2262,7 +2374,7 @@ export class AssistantStore {
    * Only columns named here can be reached from a query; the values all travel as binds and `instr` gives
    * a literal substring search, so a `%` typed by the reader stays a `%` rather than becoming a wildcard.
    */
-  private logClauses(filter: AssistantLogQuery & { before?: number | null }): { where: string, binds: unknown[] } {
+  private logClauses(filter: AssistantLogQuery): { where: string, binds: unknown[] } {
     const clauses = ['user_id = ?1']
     const binds: unknown[] = []
     const add = (clause: string, value: unknown) => {
@@ -2289,18 +2401,14 @@ export class AssistantStore {
     if (filter.from) add('at >= ?n', filter.from)
     if (filter.to) add('at <= ?n', filter.to)
     if (filter.sinceMs && filter.sinceMs > 0) add('at >= ?n', Date.now() - filter.sinceMs)
-    if (filter.before) add('at < ?n', filter.before)
     if (filter.minLatencyMs) add('latency_ms >= ?n', filter.minLatencyMs)
     if (filter.minInputTokens) add('input_tokens >= ?n', filter.minInputTokens)
     return { where: clauses.join(' AND '), binds }
   }
 
   /** One page of attempts behind the current filters, newest first, with the total behind the pager. */
-  async listRequestLogs(filter: AssistantLogQuery & { before?: number | null } = {}): Promise<AssistantLogPage> {
+  async listRequestLogs(filter: AssistantLogQuery = {}): Promise<AssistantLogPage> {
     const { where, binds } = this.logClauses(filter)
-    const total = (await this.one<{ total: number }>(
-      `SELECT COUNT(*) AS total FROM chat_request_logs WHERE ${where}`, this.userId, ...binds,
-    ))?.total ?? 0
     const pageSize = Math.min(Math.max(Math.trunc(filter.pageSize ?? LOG_PAGE_SIZE), 1), LOG_MAX_PAGE_SIZE)
     const page = Math.max(Math.trunc(filter.page ?? 1), 1)
     const sortColumn = filter.sortBy ? LOG_SORT_COLUMNS[filter.sortBy] : undefined
@@ -2308,11 +2416,17 @@ export class AssistantStore {
     const orderBy = sortColumn && filter.sortDir && filter.sortDir !== 'none'
       ? `${sortColumn} ${direction}, at DESC, id DESC`
       : `at ${filter.order === 'asc' ? 'ASC' : 'DESC'}, id ${filter.order === 'asc' ? 'ASC' : 'DESC'}`
-    const rows = await this.rows<RequestLogRow>(
-      `SELECT ${REQUEST_LOG_COLUMNS} FROM chat_request_logs WHERE ${where}
+    const rows = await this.rows<RequestLogRow & { total_count?: number }>(
+      `SELECT ${REQUEST_LOG_COLUMNS}, COUNT(*) OVER() AS total_count FROM chat_request_logs WHERE ${where}
         ORDER BY ${orderBy} LIMIT ?${binds.length + 2} OFFSET ?${binds.length + 3}`,
       this.userId, ...binds, pageSize, (page - 1) * pageSize,
     )
+    // A page past the end has no window row to read the total from, but the pager still needs it.
+    const total = rows.length
+      ? Number(rows[0]?.total_count ?? 0)
+      : (await this.one<{ total: number }>(
+        `SELECT COUNT(*) AS total FROM chat_request_logs WHERE ${where}`, this.userId, ...binds,
+      ))?.total ?? 0
     return { logs: rows.map(toRequestLog), total, page, pageSize }
   }
 
@@ -2348,17 +2462,23 @@ export class AssistantStore {
   /** Removes one line, a batch of ids, a slice, or the whole log. Returns how many rows went. */
   async deleteRequestLogs(filter: {
     id?: string, ids?: string[], providerId?: string, keyId?: string, all?: boolean,
+    /** Starring a row means "keep it"; only a caller that says so may delete one. */
+    includeStarred?: boolean,
   }): Promise<number> {
+    const keepStarred = filter.includeStarred ? '' : ' AND starred = 0'
     if (filter.id) {
-      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1 AND id = ?2`, filter.id)
+      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1 AND id = ?2${keepStarred}`, filter.id)
     }
     if (filter.ids?.length) {
       const ids = filter.ids.slice(0, LOG_BATCH_DELETE_LIMIT)
       const holes = ids.map((_, index) => `?${index + 2}`).join(', ')
-      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1 AND id IN (${holes})`, ...ids)
+      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1 AND id IN (${holes})${keepStarred}`, ...ids)
     }
     if (filter.all) {
-      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1`)
+      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1${keepStarred}`)
+    }
+    if (filter.providerId === undefined && filter.keyId === undefined) {
+      throw new Error('A log deletion needs an explicit scope or all.')
     }
     const clauses = ['user_id = ?1']
     const binds: unknown[] = []
@@ -2370,7 +2490,7 @@ export class AssistantStore {
       binds.push(filter.keyId)
       clauses.push(`key_id = ?${binds.length + 1}`)
     }
-    return await this.write(`DELETE FROM chat_request_logs WHERE ${clauses.join(' AND ')}`, ...binds)
+    return await this.write(`DELETE FROM chat_request_logs WHERE ${clauses.join(' AND ')}${keepStarred}`, ...binds)
   }
 
   /**
@@ -2383,17 +2503,20 @@ export class AssistantStore {
   async cleanupRequestLogs(options: AssistantLogCleanup & AssistantLogQuery): Promise<AssistantLogCleanupResult> {
     const days = Math.min(Math.max(Math.trunc(options.days ?? 0), 0), LOG_RETENTION_MAX_DAYS)
     const rows = Math.min(Math.max(Math.trunc(options.rows ?? 0), 0), LOG_MAX_ROWS_LIMIT)
-    if (days <= 0 && rows <= 0) return { matched: 0, deleted: 0 }
+    const cutoff = typeof options.cutoff === 'number' && Number.isFinite(options.cutoff)
+      ? Math.trunc(options.cutoff) : Date.now()
+    if (days <= 0 && rows <= 0) return { matched: 0, deleted: 0, cutoff }
     const { where, binds } = this.logClauses(options)
     const clauses = [where, 'starred = 0']
     const ors: string[] = []
     if (days > 0) {
-      binds.push(Date.now() - days * DAY_MS)
+      binds.push(cutoff - days * DAY_MS)
       ors.push(`at < ?${binds.length + 1}`)
     }
     if (rows > 0) {
       binds.push(rows)
-      ors.push(`id IN (SELECT id FROM chat_request_logs WHERE user_id = ?1 AND starred = 0
+      // "Keep N" ranks the rows the reader is looking at, not the whole account behind their back.
+      ors.push(`id IN (SELECT id FROM chat_request_logs WHERE ${where} AND starred = 0
         ORDER BY at DESC LIMIT -1 OFFSET ?${binds.length + 1})`)
     }
     clauses.push(`(${ors.join(' OR ')})`)
@@ -2401,8 +2524,8 @@ export class AssistantStore {
     const matched = (await this.one<{ total: number }>(
       `SELECT COUNT(*) AS total FROM chat_request_logs WHERE ${filter}`, this.userId, ...binds,
     ))?.total ?? 0
-    if (options.dryRun) return { matched, deleted: 0 }
-    return { matched, deleted: await this.write(`DELETE FROM chat_request_logs WHERE ${filter}`, ...binds) }
+    if (options.dryRun) return { matched, deleted: 0, cutoff }
+    return { matched, deleted: await this.write(`DELETE FROM chat_request_logs WHERE ${filter}`, ...binds), cutoff }
   }
 
   /** The values the filter menus can offer, drawn from rows the account actually has. */
@@ -2443,6 +2566,16 @@ export class AssistantStore {
    * exactly the row this screen exists to explain.
    */
   async logStats(query: AssistantStatsQuery): Promise<AssistantStatsReport> {
+    const cacheKey = JSON.stringify([this.userId, query])
+    const cached = statsCache.get(cacheKey)
+    // COUNT plus MAX(at) is a cheap indexed fingerprint: two writes inside the same millisecond still
+    // change the count, so a cached aggregate can never outlive the attempt that made it stale.
+    const marker = await this.one<{ total: number, latest: number | null }>(
+      `SELECT COUNT(*) AS total, MAX(at) AS latest FROM chat_request_logs WHERE user_id = ?1`,
+      this.userId,
+    )
+    const signature = `${marker?.total ?? 0}:${marker?.latest ?? 0}`
+    if (cached && cached.signature === signature && Date.now() - cached.at < STATS_CACHE_TTL_MS) return cached.report
     const { where, binds } = this.logClauses(query)
     const totals = await this.one<{
       requests: number, succeeded: number, input_tokens: number, output_tokens: number,
@@ -2505,7 +2638,9 @@ export class AssistantStore {
       id: row.id, label: row.id, requests: row.requests, succeeded: row.succeeded, failed: row.failed,
       inputTokens: row.input_tokens, outputTokens: row.output_tokens, avgLatencyMs: row.avg_ms,
     }))
-    return { summary, series, breakdown }
+    const report = { summary, series, breakdown }
+    statsCache.set(cacheKey, { at: Date.now(), signature, report })
+    return report
   }
 
   /**
@@ -2556,26 +2691,45 @@ export class AssistantStore {
       logBinds.push(filter.keyId)
       logClauses.push(`key_id = ?${logBinds.length}`)
     }
-    const measured = await this.rows<{ provider_id: string, key_id: string, avg_ms: number | null, last_at: number | null }>(
-      `SELECT provider_id, key_id, AVG(latency_ms) AS avg_ms, MAX(at) AS last_at
+    const measured = await this.rows<{
+      provider_id: string, key_id: string, provider_label: string, key_label: string, key_hint: string,
+      requests: number, failed: number, input_tokens: number, output_tokens: number,
+      cached_input_tokens: number, avg_ms: number | null, last_at: number | null,
+    }>(
+      `SELECT provider_id, key_id,
+              MAX(provider_label) AS provider_label, MAX(key_label) AS key_label, MAX(key_hint) AS key_hint,
+              COUNT(*) AS requests, COALESCE(SUM(1 - ok), 0) AS failed,
+              COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens,
+              COALESCE(SUM(cached_input_tokens), 0) AS cached_input_tokens,
+              AVG(latency_ms) AS avg_ms, MAX(at) AS last_at
          FROM chat_request_logs WHERE ${logClauses.join(' AND ')} GROUP BY provider_id, key_id`,
       ...logBinds,
     )
-    const timing = new Map(measured.map((row) => [`${row.provider_id}/${row.key_id}`, row]))
-    const merged = rows.map((row) => {
-      const clock = timing.get(`${row.provider_id}/${row.key_id}`)
+    const pair = (providerId: string, keyId: string): string => `${providerId}/${keyId}`
+    const timing = new Map(measured.map((row) => [pair(row.provider_id, row.key_id), row]))
+    const rollups = new Map(rows.map((row) => [pair(row.provider_id, row.key_id), row]))
+    // The union is what a reader means by "this key": a failed attempt never reaches a daily rollup,
+    // but it is the one row the insights panel exists to explain.
+    const merged = [...new Set([...rollups.keys(), ...timing.keys()])].map((pairKey) => {
+      const row = rollups.get(pairKey)
+      const clock = timing.get(pairKey)
+      const [providerId, keyId] = pairKey.split('/')
+      const requests = row?.requests ?? clock?.requests ?? 0
+      const failed = row?.errors ?? clock?.failed ?? 0
       return {
-        id: filter.scope === 'all' ? 'all' : filter.scope === 'provider' ? row.provider_id : row.key_id,
-        label: filter.scope === 'all' ? '' : filter.scope === 'provider' ? row.provider_label : row.key_label,
-        keyHint: '',
-        providerId: row.provider_id,
-        requests: row.requests ?? 0,
-        succeeded: (row.requests ?? 0) - (row.errors ?? 0),
-        failed: row.errors ?? 0,
-        inputTokens: row.input_tokens ?? 0,
-        outputTokens: row.output_tokens ?? 0,
-        cachedInputTokens: row.cached_input_tokens ?? 0,
-        toolCalls: row.tool_calls ?? 0,
+        id: filter.scope === 'all' ? 'all' : filter.scope === 'provider' ? providerId : keyId,
+        label: filter.scope === 'all' ? ''
+          : filter.scope === 'provider' ? (row?.provider_label ?? clock?.provider_label ?? '')
+            : (row?.key_label ?? clock?.key_label ?? ''),
+        keyHint: clock?.key_hint ?? '',
+        providerId,
+        requests,
+        succeeded: requests - failed,
+        failed,
+        inputTokens: row?.input_tokens ?? clock?.input_tokens ?? 0,
+        outputTokens: row?.output_tokens ?? clock?.output_tokens ?? 0,
+        cachedInputTokens: row?.cached_input_tokens ?? clock?.cached_input_tokens ?? 0,
+        toolCalls: row?.tool_calls ?? 0,
         avgLatencyMs: clock?.avg_ms ?? null,
         lastAttemptAt: clock?.last_at ?? null,
       }
