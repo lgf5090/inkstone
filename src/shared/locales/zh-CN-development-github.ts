@@ -288,6 +288,7 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.repos.no_readme": "该项目暂无 README",
   "development.github.repos.readme_too_large": "README 过大，已跳过内嵌渲染；请在 GitHub 查看。",
   "development.github.repos.readme_failed": "README 加载失败，请稍后重试。",
+  "development.github.repos.readme_text": "纯文本",
   "development.github.repos.image_unavailable": "图片无法加载，点击打开原图",
   "development.github.repos.no_release": "无可用版本",
   "development.github.repos.no_releases": "该项目暂无 Release",

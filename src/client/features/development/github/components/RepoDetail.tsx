@@ -5,7 +5,6 @@ import { assetPlatform } from '@shared/development/github/platforms'
 import { t } from '../../../../lib/i18n'
 import { navigateToPath } from '../../../../lib/app-history'
 import { useAssistant } from '../../../chat/assistant-store'
-import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
 import { Button, IconButton, Spinner, buttonClass } from '../../../../components/primitives'
 import { Textarea } from '../../../../components/form'
@@ -19,6 +18,7 @@ import { buildMirrorDownloadUrl, formatNumber, formatDate, formatFileSize } from
 import { detectDevicePlatform } from '../lib/device'
 import { getLanguageColor } from '../lib/languages'
 import { renderGithubReadme } from '../lib/readme'
+import { ReadmeBody } from './ReadmeBody'
 import { attachReadmeImageFallback } from '../lib/readme-images'
 import { GithubAvatar } from './GithubAvatar'
 import { TrackAppDialog, type TrackAppValues } from './TrackAppDialog'
@@ -390,7 +390,7 @@ export function RepoDetail({ repo, mirror, notes, favorited = false, onToggleFav
 
       <div className="p-4">
         <div className="mb-2 flex items-center gap-2"><FileText size={15} className="text-[var(--text-tertiary)]" /><h3 className="text-[length:var(--text-13)] font-semibold">{t('development.github.repos.readme')}</h3>{detail.readmeHtmlUrl && <a href={detail.readmeHtmlUrl} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{t('development.github.repos.view_on_github')}</a>}</div>
-        {readmeHtml ? <div ref={readmeRef} className={cn('github-readme ink-prose max-w-none', 'overflow-x-auto')} dangerouslySetInnerHTML={{ __html: readmeHtml }} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{readmeTooLarge ? t('development.github.repos.readme_too_large') : readmeFailed ? t('development.github.repos.readme_failed') : t('development.github.repos.no_readme')}</p>}
+        {readmeHtml ? <ReadmeBody html={readmeHtml} contentRef={readmeRef} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{readmeTooLarge ? t('development.github.repos.readme_too_large') : readmeFailed ? t('development.github.repos.readme_failed') : t('development.github.repos.no_readme')}</p>}
       </div>
 
       {onUpdateNotes && <div className="border-t border-[var(--border-subtle)] p-4">
