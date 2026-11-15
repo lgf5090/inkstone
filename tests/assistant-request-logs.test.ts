@@ -146,10 +146,25 @@ describe('writing on a log line', () => {
     expect(patched.value.entry.starred).toBe(true)
     expect((await call<Page>('GET', '/api/assistant/logs?starred=1')).value.total).toBe(1)
 
+    // A starred row means "keep it": a batch no longer deletes one unless the caller says so.
     const removed = await call<{ deleted: number }>('POST', '/api/assistant/logs/delete', { ids: [first, second] })
-    expect(removed.value.deleted).toBe(2)
+    expect(removed.value.deleted).toBe(1)
+    expect((await call<Page>('GET', '/api/assistant/logs?starred=1')).value.total).toBe(1)
+    const forced = await call<{ deleted: number }>('POST', '/api/assistant/logs/delete', { ids: [first], includeStarred: true })
+    expect(forced.value.deleted).toBe(1)
     expect((await call<Page>('GET', '/api/assistant/logs')).value.total).toBe(0)
     expect((await call<{ deleted: number }>('POST', '/api/assistant/logs/delete', { ids: [] })).status).toBe(400)
+  })
+
+  it('refuses a clear with no scope and keeps starred rows even for all=1', async () => {
+    await write()
+    await call<{ entry: Log }>('PATCH', `/api/assistant/logs/${(await call<Page>('GET', '/api/assistant/logs')).value.logs[0]!.id}`, { starred: true })
+    expect((await call('DELETE', '/api/assistant/logs')).status).toBe(400)
+    const cleared = await call<{ deleted: number }>('DELETE', '/api/assistant/logs?all=1')
+    expect(cleared.value.deleted).toBe(0)
+    expect((await call<Page>('GET', '/api/assistant/logs')).value.total).toBe(1)
+    const forced = await call<{ deleted: number }>('DELETE', '/api/assistant/logs?all=1&includeStarred=1')
+    expect(forced.value.deleted).toBe(1)
   })
 
   it('refuses a row that belongs to nobody', async () => {

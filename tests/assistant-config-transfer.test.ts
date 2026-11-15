@@ -133,4 +133,23 @@ describe('assistant config transfer', () => {
     expect(saved?.logRequestBodies).toBe(true)
     expect(saved?.logMaxRows).toBe(4321)
   })
+
+  it('carries the sticky pin through an export and import instead of silently clearing it', async () => {
+    const s = store({
+      listProviders: vi.fn(async () => [{
+        id: 'p1', label: 'Vendor', icon: 'sparkles', protocol: 'openai', baseUrl: 'https://api.test',
+        endpoints: {}, keyLastUsedAt: null, reasoningDialect: null, sticky: true, hasKey: true,
+        keyHint: '1234', createdAt: 1, updatedAt: 1,
+      }]),
+    })
+    const bundle = await exportAssistantConfig(s)
+    expect(bundle.providers[0]?.sticky).toBe(true)
+
+    const target = store({ listProviders: vi.fn(async () => []) })
+    await importAssistantConfig(target, {
+      ...bundle,
+      providers: bundle.providers.map((entry) => ({ ...entry, label: 'Restored Vendor' })),
+    })
+    expect(vi.mocked(target.createProvider).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ sticky: true }))
+  })
 })
