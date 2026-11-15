@@ -269,6 +269,21 @@ describe('a model one key cannot serve', () => {
     await store.clearProviderKeyFailure(keyId, id, 'model-a')
     expect((await store.pickProviderKey(record!, 'model-a'))?.keyId).toBe(keyId)
   })
+
+  it('a manual reset clears every model the key was resting for', async () => {
+    const response = await send('POST', '/api/assistant/providers', newProvider(`${FIRST}, ${SECOND}`))
+    const id = (await response.json() as { provider: { id: string } }).provider.id
+    const keyId = (await store.listProviderKeys(id))[0]!.id
+    await store.recordKeyModelCooldown(keyId, id, 'model-a', 60_000)
+    await store.recordKeyModelCooldown(keyId, id, 'model-b', 60_000)
+
+    // The reset endpoint names no model, so both narrow cooldowns have to go rather than one of them.
+    await store.clearProviderKeyFailure(keyId, id)
+
+    const rows = sqlite.prepare('SELECT COUNT(*) AS total FROM chat_provider_key_model_cooldowns WHERE key_id = ?')
+      .get(keyId) as { total: number }
+    expect(rows.total).toBe(0)
+  })
 })
 
 describe('a provider that keeps one key', () => {

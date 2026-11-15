@@ -3781,7 +3781,7 @@ assistantRoutes.post('/providers/:id/keys/:keyId/reset', async (c) => {
   const id = requiredId(c.req.param('id'))
   const keyId = requiredId(c.req.param('keyId'))
   if (!(await s.listProviderKeys(id)).some((key) => key.id === keyId)) throw ApiError.notFound('Key not found')
-  await s.clearProviderKeyFailure(keyId)
+  await s.clearProviderKeyFailure(keyId, id)
   return c.json({ ok: true })
 })
 

@@ -1664,12 +1664,12 @@ export class AssistantRunner {
    * Marking it is what makes the rotation rotate: the next call sorts the least recently used key first,
    * so a turn that takes several steps spreads across the ring instead of pinning the first one.
    */
-  private async signKey(provider: ProviderRow, model?: string): Promise<string> {
+  private async signKey(provider: ProviderRow, model?: string, refused?: ReadonlySet<string>): Promise<string> {
     // The caller's copy is the turn's opening snapshot. A retry has to see the `key_last_used_at` the
     // previous attempt just wrote, or the ring hands back the same key the provider refused and the
     // transport reads "nothing else to try" from a ring it never actually rotated.
     const fresh = await this.store.providerRecord(provider.id) ?? provider
-    const picked = await this.store.pickProviderKey(fresh, model)
+    const picked = await this.store.pickProviderKey(fresh, model, refused)
     if (!picked) return ''
     await this.store.markProviderKeyUsed(provider.id, picked.keyId)
     // Kept for the length of this turn only: the request carries the key, not the row it came from, and
@@ -1776,9 +1776,12 @@ export class AssistantRunner {
   }
 
   private retryFor(provider: ProviderRow, model?: string): UpstreamRetry {
+    // A key refused during this turn steps aside for the rest of it. The provider's own key has no row
+    // where a refusal can be recorded, and sticky ordering would otherwise hand it back on every retry.
+    const refused = new Set<string>()
     return {
       attempts: UPSTREAM_RETRY_ATTEMPTS,
-      rotateKey: async () => await this.signKey(provider, model),
+      rotateKey: async () => await this.signKey(provider, model, refused),
       onAttemptFailed: async (error, apiKey, request) => {
         await this.logAttempt({
           provider, model, apiKey,
@@ -1805,6 +1808,7 @@ export class AssistantRunner {
           return
         }
         if (error.kind !== 'auth' && error.kind !== 'quota' && error.kind !== 'rate') return
+        refused.add(keyId)
         try {
           await this.store.recordProviderKeyError(keyId, `${error.kind}: ${error.message}`, cooldownFor(error))
         } catch {

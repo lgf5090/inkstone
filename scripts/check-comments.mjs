@@ -36979,6 +36979,8 @@ const allowed = new Map([
     "// the turn cannot finish without the id it has to fill in, so it waits for the pending write here.",
     "// Started, not awaited: the transport hands the first frame to the reader before this finishes.",
     "// The turn's finish step awaits the promise, so an answer cannot outrun its own token count.",
+    "// A key refused during this turn steps aside for the rest of it. The provider's own key has no row",
+    "// where a refusal can be recorded, and sticky ordering would otherwise hand it back on every retry.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -38206,8 +38208,6 @@ const allowed = new Map([
     "// Which keys cannot serve *this* model, as distinct from which keys are resting for their own reasons.",
     "// Callers that are not about a model (a balance reading, a voice session) pass nothing and see none.",
     "// The provider's own row has no place to keep a key-level refusal, so it cannot rest for one. A",
-    "// model it could not serve is a different fact and is kept here like any other key's.",
-    "/**\n   * A key that just answered is a key that works.\n   *\n   * The failure count and the cooldown are cleared together: keeping the count would make the next\n   * unrelated slip double a window the reader had already recovered from. `model` clears that model's own\n   * narrower cooldown in the same pass, because both facts were proved by the same answer.\n   */",
     "/**\n   * Records that one key could not serve one model, without touching the key's own health.\n   *\n   * Written by the failures that name the request rather than the credential — a model this key has no\n   * access to. Cooling the whole key for it would take a working credential out of every other turn, which\n   * is exactly the confusion multi-key rings exist to avoid.\n   */",
     "// Sticky keeps the ring's own order: the same key answers every turn, which is what a vendor's",
     "// prompt cache keys on. Rotation is the default because it spreads a rate limit across keys, and a",
@@ -38233,6 +38233,9 @@ const allowed = new Map([
     "/**\n   * The three answers the statistics screen needs from one filtered slice: totals, a trend and a ranking.\n   *\n   * All of them read the attempt log rather than the daily rollups. The rollups cannot answer a question\n   * about a model, a provider or a status, and an attempt that failed before a token was counted is\n   * exactly the row this screen exists to explain.\n   */",
     "// The offset delete sorts the whole table. Most writes leave the table under the ceiling, so ask",
     "// for the count first and only pay for the sort on the write that actually crosses it.",
+    "// model it could not serve is a different fact and is kept here like any other key's. A refusal",
+    "// from this turn is held by the caller and rests the key for the turn only.",
+    "/**\n   * A key that just answered is a key that works.\n   *\n   * The failure count and the cooldown are cleared together: keeping the count would make the next\n   * unrelated slip double a window the reader had already recovered from. `model` clears that model's own\n   * narrower cooldown in the same pass, because both facts were proved by the same answer. A manual\n   * reset names no model, so every narrower cooldown the key earned goes with it.\n   */",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
@@ -47684,6 +47687,7 @@ const allowed = new Map([
     "// The one door that returns a secret counts how often it was opened.",
     "// The path's provider and the key's provider must agree, or the plaintext belongs to a row the",
     "// caller never named.",
+    "// The reset endpoint names no model, so both narrow cooldowns have to go rather than one of them.",
   ]],
   ["tests/assistant-reading-tools.test.ts", [
     "/**\n * The reading tools, and the reader's lookups.\n *\n * The tools read the account's synced shelf through the real `ReaderLibraryStore` over an in-memory\n * D1, because what is being pinned is that a question about \"my books\" is answered from stored rows —\n * a stub shelf would pass while the account scoping was missing. The second half pins the lookup path:\n * a selection's explanation now goes through the assistant's account model, and the drawing engine's\n * browser-local key is not read at all.\n */",

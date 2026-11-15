@@ -312,6 +312,36 @@ describe('a provider with more than one key', () => {
     const next = await store.pickProviderKey((await store.providerRecord(provider.id))!)
     expect(next?.keyId).toBe('')
   })
+
+  it('still moves past a refused primary key when sticky ordering is on', async () => {
+    const sent: string[] = []
+    const { provider } = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Sticky ring', protocol: 'openai', baseUrl: 'https://ring.example.com',
+      apiKey: KEYS[0], models: ['ring-model'],
+    })
+    const store = await localStore()
+    await store.createProviderKey(provider.id, { label: '', apiKey: KEYS[1] })
+    sqlite.prepare('UPDATE chat_providers SET sticky = 1 WHERE id = ?').run(provider.id)
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get('authorization') ?? '')
+      return sent.length === 1
+        ? new Response(JSON.stringify({ error: { message: 'invalid key' } }), {
+          status: 401, headers: { 'content-type': 'application/json' },
+        })
+        : new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    let events: ChatStreamEvent[] = []
+    try {
+      events = await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(sent[0]).toBe(`Bearer ${KEYS[0]}`)
+    expect(sent[1], 'a refused primary key left the whole sticky ring stuck').toBe(`Bearer ${KEYS[1]}`)
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+  })
 })
 
 /**

@@ -1874,7 +1874,11 @@ export class AssistantStore {
    * cursor to keep — a key never used sorts ahead of one used a minute ago, and `created_at` breaks the
    * tie so the order is stable rather than whichever row the database happened to return.
    */
-  async pickProviderKey(record: ProviderRow, model?: string): Promise<{ keyId: string, key: string, label: string } | null> {
+  async pickProviderKey(
+    record: ProviderRow,
+    model?: string,
+    refused?: ReadonlySet<string>,
+  ): Promise<{ keyId: string, key: string, label: string } | null> {
     // Which keys cannot serve *this* model, as distinct from which keys are resting for their own reasons.
     // Callers that are not about a model (a balance reading, a voice session) pass nothing and see none.
     const blocked = new Set<string>()
@@ -1895,8 +1899,9 @@ export class AssistantStore {
         order: -1,
         label: record.label,
         // The provider's own row has no place to keep a key-level refusal, so it cannot rest for one. A
-        // model it could not serve is a different fact and is kept here like any other key's.
-        cooling: blocked.has(''),
+        // model it could not serve is a different fact and is kept here like any other key's. A refusal
+        // from this turn is held by the caller and rests the key for the turn only.
+        cooling: blocked.has('') || Boolean(refused?.has('')),
       })
     }
     const extras = await this.rows<ProviderKeyRow>(
@@ -1909,7 +1914,7 @@ export class AssistantStore {
       ring.push({
         keyId: row.id, ciphertext: row.key_ciphertext,
         lastUsedAt: row.last_used_at ?? 0, order: row.created_at, label: row.label,
-        cooling: (row.cooling_until ?? 0) > Date.now() || blocked.has(row.id),
+        cooling: (row.cooling_until ?? 0) > Date.now() || blocked.has(row.id) || Boolean(refused?.has(row.id)),
       })
     }
     if (!ring.length) return null
@@ -2003,7 +2008,8 @@ export class AssistantStore {
    *
    * The failure count and the cooldown are cleared together: keeping the count would make the next
    * unrelated slip double a window the reader had already recovered from. `model` clears that model's own
-   * narrower cooldown in the same pass, because both facts were proved by the same answer.
+   * narrower cooldown in the same pass, because both facts were proved by the same answer. A manual
+   * reset names no model, so every narrower cooldown the key earned goes with it.
    */
   async clearProviderKeyFailure(keyId: string, providerId?: string, model?: string): Promise<void> {
     if (!keyId) return
@@ -2017,6 +2023,12 @@ export class AssistantStore {
         `DELETE FROM chat_provider_key_model_cooldowns
           WHERE user_id = ?1 AND provider_id = ?2 AND key_id = ?3 AND model = ?4`,
         providerId, keyId, model,
+      )
+    } else if (providerId) {
+      await this.write(
+        `DELETE FROM chat_provider_key_model_cooldowns
+          WHERE user_id = ?1 AND provider_id = ?2 AND key_id = ?3`,
+        providerId, keyId,
       )
     }
   }
