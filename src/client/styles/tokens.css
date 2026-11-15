@@ -300,6 +300,7 @@
   --memo-filter-chip-max-width: 240px;
   --memo-field-min-width: 160px;
   --memo-token-field-min-width: 180px;
+  --assistant-settings-width: 720px;
   --memo-field-wide-width: 280px;
 }
 

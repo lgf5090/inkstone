@@ -54,6 +54,8 @@ interface Ref {
  * site no longer misses fails here just the same.
  */
 const RECORDED_MISSES = new Map<string, string>([
+  ['src/worker/assistant/store.ts # cleanupRequestLogs # chat_request_logs',
+    'The filter prefix comes from logClauses(), whose first clause is `user_id = ?1`; the scanner reads SQL literals and cannot follow the interpolated variable, so the tenant predicate is present but invisible to it.'],
 ])
 
 const keyOf = (ref: Ref): string => `${ref.file} # ${ref.scope} # ${ref.table}`
