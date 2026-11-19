@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react'
 import {
   Check,
+  Download,
+  FileCode2,
+  FileText,
   GitBranch,
   LayoutGrid,
   Link2,
@@ -17,7 +20,7 @@ import {
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { Button, IconButton } from '../../../components/primitives'
-import { Tooltip } from '../../../components/overlay'
+import { Menu, Tooltip, type MenuItem } from '../../../components/overlay'
 import { ToolbarPanel } from './ToolbarPanel'
 import type { DiagramIssue } from './diagram-issues'
 
@@ -39,6 +42,7 @@ export interface ErdToolbarProps {
   onResetLayout: () => void
   onSave: () => void
   onSelectIssue: (issue: DiagramIssue) => void
+  onExport: (format: 'png' | 'svg' | 'mermaid' | 'markdown') => void
 }
 
 export function diagramIssueText(issue: DiagramIssue): string {
@@ -111,9 +115,12 @@ export function ErdToolbar({
   onResetLayout,
   onSave,
   onSelectIssue,
+  onExport,
 }: ErdToolbarProps) {
   const issuesAnchor = useRef<HTMLButtonElement>(null)
+  const exportAnchor = useRef<HTMLButtonElement>(null)
   const [issuesOpen, setIssuesOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
@@ -162,6 +169,17 @@ export function ErdToolbar({
 
       <div className="flex-1" />
 
+      <Button
+        ref={exportAnchor}
+        variant="secondary"
+        size="sm"
+        aria-expanded={exportOpen}
+        onClick={() => setExportOpen((open) => !open)}
+      >
+        <Download size={13} />
+        {t('development.database.doc.export_menu')}
+      </Button>
+
       {dirty && (
         <span className="flex items-center gap-1 text-[length:var(--text-11)] text-[var(--warning)]" role="status">
           <span aria-hidden="true" className="size-1.5 rounded-full bg-[var(--warning)]" />
@@ -191,6 +209,20 @@ export function ErdToolbar({
         {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
         {t('development.database.diagram.save')}
       </Button>
+
+      <Menu
+        anchor={exportAnchor}
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        label={t('development.database.doc.export_menu')}
+        width={220}
+        items={[
+          { id: 'png', label: t('development.database.doc.export_png'), icon: <FileCode2 size={13} aria-hidden="true" />, onSelect: () => { setExportOpen(false); onExport('png') } },
+          { id: 'svg', label: t('development.database.doc.export_svg'), icon: <FileCode2 size={13} aria-hidden="true" />, onSelect: () => { setExportOpen(false); onExport('svg') } },
+          { id: 'mermaid', label: t('development.database.doc.export_mermaid'), icon: <FileText size={13} aria-hidden="true" />, onSelect: () => { setExportOpen(false); onExport('mermaid') } },
+          { id: 'markdown', label: t('development.database.doc.export_markdown'), icon: <FileText size={13} aria-hidden="true" />, onSelect: () => { setExportOpen(false); onExport('markdown') } },
+        ] satisfies MenuItem[]}
+      />
 
       <ToolbarPanel
         open={issuesOpen}

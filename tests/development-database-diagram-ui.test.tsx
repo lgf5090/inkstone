@@ -175,6 +175,19 @@ describe('ErdView edit mode', () => {
     expect(container.textContent).toContain(t('development.database.diagram.dirty'))
   })
 
+  it('offers the four export formats', () => {
+    const { container } = mount()
+    enterEdit(container)
+    click(t('development.database.doc.export_menu'), container)
+    const labels = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((entry) => entry.textContent)
+    expect(labels).toEqual([
+      t('development.database.doc.export_png'),
+      t('development.database.doc.export_svg'),
+      t('development.database.doc.export_mermaid'),
+      t('development.database.doc.export_markdown'),
+    ])
+  })
+
   it('lists structure issues and selects the affected table', () => {
     const { container } = mount([USERS, NO_KEY])
     enterEdit(container)

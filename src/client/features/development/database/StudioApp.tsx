@@ -47,6 +47,8 @@ import { deleteConnection, listConnections, saveConnectionOrder, unlockConnectio
 import { loadSchema } from './schema-utils'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import { downloadBlob, downloadTextFile, toSchemaSql } from './export-utils'
+import { schemaToMarkdown } from './export-doc'
+import { documentLabels } from './export-doc-labels'
 import { loadStudioLayout, saveStudioLayout, DRAFT_MAX_CHARS, STUDIO_SIDEBAR_WIDTH } from './layout'
 import { DEFAULT_GUARD, loadGuards, saveGuards, type ConnectionGuard } from './guards'
 import { StudioCommandPalette } from './StudioCommandPalette'
@@ -527,6 +529,21 @@ export function StudioApp() {
     notify(t('development.database.app.export_schema_done', { count }), undefined, 'success')
   }
 
+  const handleExportDoc = () => {
+    if (!schema) return
+    if (schema.tables.length === 0) {
+      notify(t('development.database.app.no_objects'), undefined, 'warning')
+      return
+    }
+    const base = (activeSaved?.name ?? localFile?.name.replace(/\.[^.]+$/, '') ?? 'database').replace(/[\/:*?"<>|]+/g, '-')
+    downloadTextFile(
+      `${base}.md`,
+      schemaToMarkdown(schema, documentLabels(), { title: base }),
+      'text/markdown',
+    )
+    notify(t('development.database.doc.export_done'), undefined, 'success')
+  }
+
   const handleDownloadLocal = async () => {
     if (!driver?.exportFile || selection?.kind !== 'local') return
     try {
@@ -871,6 +888,7 @@ export function StudioApp() {
       onOpenData={openDataTab}
       onOpenSchema={openSchemaTab}
       onExportSchema={handleExportSchema}
+      onExportDoc={handleExportDoc}
       onSearchData={() => setSearchOpen(true)}
       onExportDatabase={() => setDumpOpen(true)}
       guard={guard}

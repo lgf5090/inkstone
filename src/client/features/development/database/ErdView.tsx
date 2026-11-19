@@ -35,6 +35,10 @@ import {
   type DiagramHistory,
 } from './diagram-history'
 import { loadDiagramPositions, saveDiagramPositions } from './diagram-layout'
+import { downloadFlowPng, downloadFlowSvg } from './flow-export'
+import { downloadTextFile } from './export-utils'
+import { schemaToMarkdown, schemaToMermaid } from './export-doc'
+import { documentLabels } from './export-doc-labels'
 import { buildDiagramDdl, type DiagramDdlPlan } from './diagram-ddl'
 import { validateDiagram, type DiagramIssue } from './diagram-issues'
 import { SvgFlow, type FlowExportNode, type Viewport } from './SvgFlow'
@@ -515,6 +519,55 @@ export function ErdView({
     }
   }
 
+  const exportSchema = (): SchemaModel => {
+    if (!draft) return fullSchema
+    const indexes = draft.tables.flatMap((table) => table.indexes.map((index) => ({
+      name: index.name,
+      unique: index.unique,
+      columns: [...index.columns],
+      origin: 'c',
+      sql: index.raw,
+      table: table.name,
+    })))
+    return {
+      tables: diagramTablesToParsedTables(draft),
+      views: fullSchema.views,
+      triggers: fullSchema.triggers,
+      indexes,
+    }
+  }
+
+  const handleExport = async (format: 'png' | 'svg' | 'mermaid' | 'markdown') => {
+    try {
+      if (format === 'png') {
+        await downloadFlowPng(nodes, edges, exportNode, 'inkstone-erd')
+        return
+      }
+      if (format === 'svg') {
+        downloadFlowSvg(nodes, edges, exportNode, 'inkstone-erd')
+        return
+      }
+      if (format === 'mermaid') {
+        downloadTextFile(
+          'inkstone-erd.md',
+          `\`\`\`mermaid
+${schemaToMermaid(exportSchema())}
+\`\`\`
+`,
+          'text/markdown',
+        )
+        return
+      }
+      downloadTextFile(
+        'inkstone-erd.md',
+        schemaToMarkdown(exportSchema(), documentLabels(), { title: 'inkstone-erd' }),
+        'text/markdown',
+      )
+    } catch (error) {
+      notify(error instanceof Error ? error.message : t('development.database.flow.export_failed'), 'danger')
+    }
+  }
+
   const selectIssue = (issue: DiagramIssue) => {
     if (issue.relationshipId) {
       setSelectedEdgeId(issue.relationshipId)
@@ -698,6 +751,7 @@ export function ErdView({
           onResetLayout={resetLayout}
           onSave={save}
           onSelectIssue={selectIssue}
+          onExport={(format) => void handleExport(format)}
         />
       )}
 
