@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Loader2, Pencil, Plus, Save, Table2, Trash2, Undo2 
 import type { ParsedTable, SchemaModel } from '@shared/development/database/types'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import { t } from '../../../lib/i18n'
+import { isImeComposing } from '../../../lib/ime'
 import { cn } from '../../../lib/cn'
 import { useUi } from '../../../store/ui'
 import { Button, IconButton } from '../../../components/primitives'
@@ -40,7 +41,6 @@ export interface SchemaEditorProps {
   schemaModel?: SchemaModel
   onSchemaChanged?: () => void
   onError: (message: string) => void
-  onOpenSql?: (sql: string) => void
   onTableCreated?: (name: string) => void
 }
 
@@ -71,7 +71,6 @@ export function SchemaEditor({
   onSchemaChanged,
   ensureWritable,
   onError,
-  onOpenSql,
   onTableCreated,
 }: SchemaEditorProps) {
   const [tableDraft, setTableDraft] = useState<DiagramTable | null>(null)
@@ -251,7 +250,6 @@ export function SchemaEditor({
         { confirmProduction: true, foreignKeysOff: true },
       )
       setPreview(null)
-      onOpenSql?.(runnable.join('\n'))
       onSchemaChanged?.()
       if (pendingCreate) {
         onTableCreated?.(pendingCreate)
@@ -360,6 +358,7 @@ export function SchemaEditor({
           value={renameValue}
           onChange={(event) => setRenameValue(event.target.value)}
           onKeyDown={(event) => {
+            if (isImeComposing(event)) return
             if (event.key === 'Enter') {
               event.preventDefault()
               confirmRename()

@@ -797,7 +797,6 @@ export function StudioApp() {
           onSchemaChanged={() => void reloadSchema(driver)}
           ensureWritable={ensureWritable}
           onError={notifyError}
-          onOpenSql={(sql) => openQueryTab(sql)}
           onTableCreated={(name) => openDataTab(name)}
         />
       )
