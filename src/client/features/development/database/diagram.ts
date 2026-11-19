@@ -14,6 +14,7 @@ import { buildErdLayout, ERD_NODE_WIDTH } from './flow-layout'
 export interface DiagramColumn {
   id: string
   name: string
+  sourceName?: string
   type: string
   notNull: boolean
   pk: boolean
@@ -62,6 +63,12 @@ export interface DiagramRelationship {
 export interface DiagramDraft {
   tables: DiagramTable[]
   relationships: DiagramRelationship[]
+  renames?: DiagramRename[]
+}
+
+export interface DiagramRename {
+  from: string
+  to: string
 }
 
 export interface DiagramPosition {
@@ -82,6 +89,7 @@ function diagramColumn(column: ParsedColumn, tableName: string, index: number): 
   return {
     id: `col:${tableName}:${index}`,
     name: column.name,
+    sourceName: column.name,
     type: column.type,
     notNull: column.notNull,
     pk: column.pk,
@@ -182,7 +190,30 @@ export function buildRelationships(tables: DiagramTable[]): DiagramRelationship[
 }
 
 export function syncRelationships(draft: DiagramDraft): DiagramDraft {
-  return { tables: draft.tables, relationships: buildRelationships(draft.tables) }
+  return {
+    tables: draft.tables,
+    relationships: buildRelationships(draft.tables),
+    ...(draft.renames && draft.renames.length > 0 ? { renames: draft.renames } : {}),
+  }
+}
+
+export function parsedTableToDiagramTable(
+  table: ParsedTable,
+  indexes: DiagramIndex[] = [],
+  position: DiagramPosition = { x: 0, y: 0 },
+): DiagramTable {
+  return {
+    id: table.name,
+    name: table.name,
+    columns: table.columns.map((column, index) => diagramColumn(column, table.name, index)),
+    constraints: constraintsFromTable(table),
+    indexes,
+    withoutRowid: table.withoutRowid,
+    strict: table.strict,
+    x: position.x,
+    y: position.y,
+    width: ERD_NODE_WIDTH,
+  }
 }
 
 export function schemaToDiagram(schema: SchemaModel, positions: DiagramPositions = {}): DiagramDraft {
@@ -192,18 +223,13 @@ export function schemaToDiagram(schema: SchemaModel, positions: DiagramPositions
   const tables: DiagramTable[] = schema.tables.map((table) => {
     const node = nodeByName.get(table.name)
     const stored = positions[table.name]
-    return {
-      id: table.name,
-      name: table.name,
-      columns: table.columns.map((column, index) => diagramColumn(column, table.name, index)),
-      constraints: constraintsFromTable(table),
-      indexes: indexesForTable(schema, table.name),
-      withoutRowid: table.withoutRowid,
-      strict: table.strict,
-      x: stored ? clampPosition(stored.x) : (node?.x ?? 0),
-      y: stored ? clampPosition(stored.y) : (node?.y ?? 0),
-      width: ERD_NODE_WIDTH,
-    }
+    return parsedTableToDiagramTable(
+      table,
+      indexesForTable(schema, table.name),
+      stored
+        ? { x: clampPosition(stored.x), y: clampPosition(stored.y) }
+        : { x: node?.x ?? 0, y: node?.y ?? 0 },
+    )
   })
 
   return { tables, relationships: buildRelationships(tables) }
@@ -252,9 +278,17 @@ function columnSignature(column: DiagramColumn): unknown[] {
   ]
 }
 
-function tableSignature(table: DiagramTable): unknown[] {
-  return [
-    table.name,
+export function tableStructureSignature(table: DiagramTable): string {
+  return JSON.stringify([
+    table.columns.map(columnSignature),
+    table.constraints.map(constraintSignature).sort(),
+    table.withoutRowid,
+    table.strict,
+  ])
+}
+
+export function tableContentSignature(table: DiagramTable): string {
+  return JSON.stringify([
     table.columns.map(columnSignature),
     table.constraints.map(constraintSignature).sort(),
     table.indexes
@@ -262,14 +296,14 @@ function tableSignature(table: DiagramTable): unknown[] {
       .sort((left, right) => String(left[0]).localeCompare(String(right[0]))),
     table.withoutRowid,
     table.strict,
-  ]
+  ])
 }
 
 export function diagramSignature(draft: DiagramDraft): string {
   const tables = [...draft.tables]
     .sort((left, right) => left.name.localeCompare(right.name))
-    .map(tableSignature)
-  return JSON.stringify(tables)
+    .map((table) => [table.name, tableContentSignature(table)])
+  return JSON.stringify([tables, draft.renames ?? []])
 }
 
 export function findTable(draft: DiagramDraft, tableId: string): DiagramTable | null {
@@ -278,7 +312,7 @@ export function findTable(draft: DiagramDraft, tableId: string): DiagramTable | 
 
 export function renameTableInDraft(draft: DiagramDraft, tableId: string, nextName: string): DiagramDraft {
   const name = nextName.trim()
-  if (!name) return draft
+  if (!name || name === tableId) return draft
   const tables = draft.tables.map((table) => {
     if (table.id === tableId) return { ...table, id: name, name }
     const constraints = table.constraints.map((constraint) => (
@@ -286,7 +320,19 @@ export function renameTableInDraft(draft: DiagramDraft, tableId: string, nextNam
     ))
     return { ...table, constraints }
   })
-  return syncRelationships({ tables, relationships: [] })
+
+  const renames = [...(draft.renames ?? [])]
+  const chainIndex = renames.findIndex((entry) => entry.to === tableId)
+  if (chainIndex >= 0) {
+    const chain = renames[chainIndex]!
+    const next = { ...chain, to: name }
+    renames.splice(chainIndex, 1)
+    if (next.from !== next.to) renames.push(next)
+  } else {
+    renames.push({ from: tableId, to: name })
+  }
+
+  return syncRelationships({ tables, relationships: [], ...(renames.length > 0 ? { renames } : {}) })
 }
 
 export function nextTablePosition(draft: DiagramDraft): DiagramPosition {
@@ -295,7 +341,7 @@ export function nextTablePosition(draft: DiagramDraft): DiagramPosition {
   return { x: clampPosition(maxX + 40), y: 0 }
 }
 
-function isUniqueKey(table: DiagramTable, columns: string[]): boolean {
+export function isUniqueKey(table: DiagramTable, columns: string[]): boolean {
   if (columns.length === 0) return false
   const target = columns.map((column) => column.toLowerCase()).join('\u0000')
   const primaryKey = table.columns

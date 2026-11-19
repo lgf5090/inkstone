@@ -215,8 +215,8 @@ export function serializeConstraint(constraint: DiagramConstraint): string {
     const columns = constraint.columns ?? []
     const refColumns = constraint.refColumns ?? []
     const actions = [
-      constraint.onUpdate ? `ON UPDATE ${constraint.onUpdate}` : '',
-      constraint.onDelete ? `ON DELETE ${constraint.onDelete}` : '',
+      constraint.onUpdate && constraint.onUpdate !== 'NO ACTION' ? `ON UPDATE ${constraint.onUpdate}` : '',
+      constraint.onDelete && constraint.onDelete !== 'NO ACTION' ? `ON DELETE ${constraint.onDelete}` : '',
     ].filter(Boolean)
     return (
       `${prefix}FOREIGN KEY (${columns.map(quoteIdent).join(', ')}) ` +

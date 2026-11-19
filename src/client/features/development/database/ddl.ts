@@ -10,6 +10,14 @@ export type DdlWarningCode =
   | 'index_references_removed_column'
   | 'trigger_references_removed_column'
   | 'without_rowid_without_primary_key'
+  | 'dropped_table_has_dependents'
+  | 'data_loss_drop_table'
+  | 'data_loss_drop_column'
+  | 'unknown_constraint_preserved'
+  | 'fk_target_not_key'
+  | 'fk_type_mismatch'
+  | 'fk_cycle'
+  | 'no_primary_key'
 
 export interface DdlWarning {
   code: DdlWarningCode
