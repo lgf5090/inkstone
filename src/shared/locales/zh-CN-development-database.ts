@@ -33,6 +33,7 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.app.connections": "连接",
   "development.database.app.schema": "结构",
   "development.database.app.new_connection": "新建连接",
+  "development.database.app.new_local": "新建空白本地库",
   "development.database.app.search_connections": "搜索连接",
   "development.database.app.search_tables": "搜索表名",
   "development.database.app.filter_all": "全部",

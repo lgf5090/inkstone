@@ -58,6 +58,8 @@ import type { StudioSelection, StudioTab, StudioTabKind } from './types'
 
 const EMPTY_SCHEMA: SchemaModel = { tables: [], views: [], triggers: [], indexes: [] }
 
+const NEW_LOCAL_NAME = 'untitled.sqlite'
+
 let tabSeq = 0
 function nextTabId(): string {
   tabSeq += 1
@@ -101,7 +103,7 @@ export function StudioApp() {
   const [connectionsLoading, setConnectionsLoading] = useState(true)
   const [connectionsError, setConnectionsError] = useState<string | null>(null)
   const [selection, setSelection] = useState<StudioSelection | null>(null)
-  const [localFile, setLocalFile] = useState<{ name: string; file: File } | null>(null)
+  const [localFile, setLocalFile] = useState<{ name: string; file?: File } | null>(null)
   const [schema, setSchema] = useState<SchemaModel | null>(null)
   const [schemaError, setSchemaError] = useState<string | null>(null)
   const [schemaLoading, setSchemaLoading] = useState(false)
@@ -458,6 +460,15 @@ export function StudioApp() {
     })()
   }
 
+  const handleNewLocal = () => {
+    void (async () => {
+      if (!(await confirmDiscardLocal())) return
+      setLocalFile({ name: NEW_LOCAL_NAME })
+      setSelection({ kind: 'local', name: NEW_LOCAL_NAME })
+      setMobileSidebarOpen(false)
+    })()
+  }
+
   const handleDelete = async (connection: DatabaseConnectionView) => {
     const ok = await confirm({
       title: t('development.database.app.delete_title', { name: connection.name }),
@@ -496,7 +507,7 @@ export function StudioApp() {
     if (!driver?.exportFile || selection?.kind !== 'local') return
     try {
       const bytes = await driver.exportFile()
-      const source = localFile?.name ?? 'database.sqlite'
+      const source = localFile?.name ?? (selection?.kind === 'local' ? selection.name : 'database.sqlite')
       const filename = /\.(?:sqlite3?|db3?)$/i.test(source) ? source : `${source}.sqlite`
       downloadBlob(filename, new Blob([new Uint8Array(bytes)], { type: 'application/x-sqlite3' }))
       driver.markSaved()
@@ -780,6 +791,7 @@ export function StudioApp() {
       onRetryConnections={() => void refreshConnections()}
       selection={selection}
       localName={localFile?.name}
+      onNewLocal={handleNewLocal}
       schema={schema}
       schemaError={schemaError}
       schemaLoading={schemaLoading}
@@ -840,7 +852,7 @@ export function StudioApp() {
   const connectionId = selection?.kind === 'saved'
     ? selection.id
     : selection?.kind === 'local'
-      ? `local:${selection.name}:${localFile?.file.size ?? 0}:${localFile?.file.lastModified ?? 0}`
+      ? `local:${selection.name}:${localFile?.file?.size ?? 0}:${localFile?.file?.lastModified ?? 0}`
       : ''
   const connectionType = driver?.type ?? 'd1'
 

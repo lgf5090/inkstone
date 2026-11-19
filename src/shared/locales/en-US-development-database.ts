@@ -33,6 +33,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.app.connections": "Connections",
   "development.database.app.schema": "Schema",
   "development.database.app.new_connection": "New connection",
+  "development.database.app.new_local": "New local database",
   "development.database.app.search_connections": "Search connections",
   "development.database.app.search_tables": "Search tables",
   "development.database.app.filter_all": "All",
