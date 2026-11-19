@@ -189,7 +189,10 @@ function validateColumns(
   table: DiagramTable,
   add: (issue: DiagramIssueDraft, slot: string | number) => void,
 ): void {
-  const groups = groupBy(table.columns, (column) => normalizeName(column.name))
+  const groups = groupBy(
+    table.columns.filter((column) => normalizeName(column.name) !== ''),
+    (column) => normalizeName(column.name),
+  )
   table.columns.forEach((column, columnIndex) => {
     if (normalizeName(column.name) === '') {
       add({
@@ -218,7 +221,10 @@ function validateIndexes(
   table: DiagramTable,
   add: (issue: DiagramIssueDraft, slot: string | number) => void,
 ): void {
-  const groups = groupBy(table.indexes, (index) => normalizeName(index.name))
+  const groups = groupBy(
+    table.indexes.filter((index) => normalizeName(index.name) !== ''),
+    (index) => normalizeName(index.name),
+  )
   table.indexes.forEach((index, indexPosition) => {
     if (normalizeName(index.name) === '') {
       add({

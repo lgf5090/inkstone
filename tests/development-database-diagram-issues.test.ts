@@ -153,6 +153,7 @@ describe('table issues', () => {
 
   it('accepts unique table names', () => {
     expect(issuesOf(validateDiagram(CLEAN), 'table_duplicate_name')).toEqual([])
+    expect(issuesOf(validateDiagram(CLEAN), 'table_empty_name')).toEqual([])
   })
 })
 
@@ -173,6 +174,12 @@ describe('column issues', () => {
 
   it('accepts distinct column names', () => {
     expect(issuesOf(validateDiagram(CLEAN), 'column_duplicate_name')).toEqual([])
+    expect(issuesOf(validateDiagram(CLEAN), 'column_empty_name')).toEqual([])
+  })
+
+  it('does not treat empty column names as duplicates', () => {
+    const draft = literalDraft([diagramTable('widgets', [pk(), { name: '' }, { name: '  ' }])])
+    expect(issuesOf(validateDiagram(draft), 'column_duplicate_name')).toEqual([])
   })
 })
 
@@ -207,6 +214,7 @@ describe('foreign key issues', () => {
 
   it('accepts a foreign key whose target table exists', () => {
     expect(issuesOf(validateDiagram(CLEAN), 'fk_missing_table')).toEqual([])
+    expect(issuesOf(validateDiagram(CLEAN), 'fk_missing_column')).toEqual([])
   })
 
   it('flags a foreign key whose local column is missing', () => {
@@ -390,6 +398,7 @@ describe('index issues', () => {
 
   it('accepts unique index names', () => {
     expect(issuesOf(validateDiagram(CLEAN), 'index_duplicate_name')).toEqual([])
+    expect(issuesOf(validateDiagram(CLEAN), 'index_empty_name')).toEqual([])
   })
 
   it('flags an index with neither columns nor SQL', () => {
