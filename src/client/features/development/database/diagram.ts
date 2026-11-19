@@ -10,6 +10,7 @@ import {
   type RefAction,
 } from './constraints'
 import { buildErdLayout, ERD_NODE_WIDTH } from './flow-layout'
+import { rewriteSqlIdentifiers } from './schema-parse'
 
 export interface DiagramColumn {
   id: string
@@ -189,7 +190,9 @@ export function buildRelationships(tables: DiagramTable[]): DiagramRelationship[
   return relationships
 }
 
-export function syncRelationships(draft: DiagramDraft): DiagramDraft {
+export function syncRelationships(
+  draft: { tables: DiagramTable[]; relationships?: DiagramRelationship[]; renames?: DiagramRename[] },
+): DiagramDraft {
   return {
     tables: draft.tables,
     relationships: buildRelationships(draft.tables),
@@ -332,13 +335,46 @@ export function renameTableInDraft(draft: DiagramDraft, tableId: string, nextNam
     renames.push({ from: tableId, to: name })
   }
 
-  return syncRelationships({ tables, relationships: [], ...(renames.length > 0 ? { renames } : {}) })
+  return syncRelationships({ tables, ...(renames.length > 0 ? { renames } : {}) })
 }
 
 export function nextTablePosition(draft: DiagramDraft): DiagramPosition {
   if (draft.tables.length === 0) return { x: 0, y: 0 }
   const maxX = Math.max(...draft.tables.map((table) => table.x + table.width))
   return { x: clampPosition(maxX + 40), y: 0 }
+}
+
+export function duplicateTable(
+  table: DiagramTable,
+  name: string,
+  position: DiagramPosition,
+): DiagramTable {
+  const mapping = new Map([[table.name.toLowerCase(), name]])
+  return {
+    id: name,
+    name,
+    columns: table.columns.map((column, index) => ({
+      ...column,
+      id: `col:${name}:${index}`,
+      sourceName: undefined,
+    })),
+    constraints: table.constraints.map((constraint) => ({
+      ...constraint,
+      id: `constraint-${table.name}-${constraint.id}`,
+      ...(constraint.kind === 'unknown' ? { raw: rewriteSqlIdentifiers(constraint.raw, mapping) } : {}),
+    })),
+    indexes: table.indexes.map((index) => ({
+      ...index,
+      id: `index-${table.name}-${index.id}`,
+      name: `${name}_${index.name}`,
+      raw: index.raw ? rewriteSqlIdentifiers(index.raw, mapping) : null,
+    })),
+    x: position.x,
+    y: position.y,
+    width: table.width,
+    withoutRowid: table.withoutRowid,
+    strict: table.strict,
+  }
 }
 
 export function isUniqueKey(table: DiagramTable, columns: string[]): boolean {

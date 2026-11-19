@@ -6,12 +6,13 @@ import { t } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
 import { useUi } from '../../../store/ui'
 import { Button, IconButton } from '../../../components/primitives'
-import { Checkbox, Field, Input } from '../../../components/form'
+import { Checkbox, Input } from '../../../components/form'
 import { Modal, confirm } from '../../../components/overlay'
 import { SelectMenu } from '../../../components/select-menu'
 import type { StudioDriver } from './drivers'
 import type { ColumnDraft } from './types'
 import { buildCreateTableSql, buildRebuildSql, type DdlWarning, type RebuildObjects } from './ddl'
+import { TableCreateDialog, type CreateTableColumn } from './TableCreateDialog'
 
 const COMMON_TYPES = ['INTEGER', 'REAL', 'TEXT', 'BLOB', 'NUMERIC', 'BOOLEAN', 'DATE', 'DATETIME', 'JSON', 'VARCHAR(255)', 'VARCHAR(64)', 'DOUBLE', 'BIGINT', 'TIMESTAMP']
 
@@ -43,6 +44,20 @@ function toDraft(column: ParsedColumn): ColumnDraft {
 
 function emptyDraft(): ColumnDraft {
   return { id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`, name: '', type: 'TEXT', notNull: false, pk: false, unique: false, default: '', isNew: true, deleted: false }
+}
+
+function toColumnDrafts(columns: CreateTableColumn[]): ColumnDraft[] {
+  return columns.map((column) => ({
+    id: column.id,
+    name: column.name,
+    type: column.type,
+    notNull: column.notNull,
+    pk: column.pk,
+    unique: column.unique,
+    default: column.default,
+    isNew: true,
+    deleted: false,
+  }))
 }
 
 function warningText(warning: DdlWarning): string {
@@ -89,6 +104,20 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
 
   const rebuild = useMemo(() => table ? buildRebuildSql(table, drafts, tableObjects(table, schemaModel)) : { sql: '', warnings: [] }, [drafts, table, schemaModel])
 
+  const createTable = async (name: string, columns: CreateTableColumn[]): Promise<boolean> => {
+    if (ensureWritable && !(await ensureWritable())) return false
+    const built = buildCreateTableSql(name, toColumnDrafts(columns))
+    try {
+      await driver.query(built.sql, undefined, { confirmProduction: true })
+      onSchemaChanged?.()
+      onTableCreated?.(name.trim())
+      return true
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : String(cause))
+      return false
+    }
+  }
+
   if (!table) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--text-tertiary)]">
@@ -98,18 +127,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
           <Plus size={14} />
           {t('development.database.schema.create_table')}
         </Button>
-        <CreateTableDialog open={createOpen} onClose={() => setCreateOpen(false)} onConfirm={async (name, columns) => {
-          if (ensureWritable && !(await ensureWritable())) return
-          const built = buildCreateTableSql(name, columns)
-          try {
-            await driver.query(built.sql, undefined, { confirmProduction: true })
-            onSchemaChanged?.()
-            onTableCreated?.(name.trim())
-            setCreateOpen(false)
-          } catch (cause) {
-            onError(cause instanceof Error ? cause.message : String(cause))
-          }
-        }} />
+        <TableCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} onConfirm={createTable} />
       </div>
     )
   }
@@ -301,18 +319,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
         </pre>
       </Modal>
 
-      <CreateTableDialog open={createOpen} onClose={() => setCreateOpen(false)} onConfirm={async (name, columns) => {
-        if (ensureWritable && !(await ensureWritable())) return
-        const built = buildCreateTableSql(name, columns)
-        try {
-          await driver.query(built.sql, undefined, { confirmProduction: true })
-          onSchemaChanged?.()
-          onTableCreated?.(name.trim())
-          setCreateOpen(false)
-        } catch (cause) {
-          onError(cause instanceof Error ? cause.message : String(cause))
-        }
-      }} />
+      <TableCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} onConfirm={createTable} />
     </div>
   )
 }
@@ -324,65 +331,4 @@ function columnDefinition(draft: ColumnDraft): string {
   if (draft.unique) parts.push('UNIQUE')
   if (draft.default !== '') parts.push(`DEFAULT ${draft.default}`)
   return parts.join(' ')
-}
-
-function CreateTableDialog({
-  open,
-  onClose,
-  onConfirm,
-}: {
-  open: boolean
-  onClose: () => void
-  onConfirm: (name: string, columns: ColumnDraft[]) => Promise<void>
-}) {
-  const [name, setName] = useState('')
-  const [columns, setColumns] = useState<ColumnDraft[]>([
-    { id: 'c1', name: 'id', type: 'INTEGER', notNull: false, pk: true, unique: false, default: '', isNew: true, deleted: false },
-    { id: 'c2', name: 'name', type: 'TEXT', notNull: false, pk: false, unique: false, default: '', isNew: true, deleted: false },
-  ])
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    if (!open) return
-    setName('')
-    setColumns([
-      { id: 'c1', name: 'id', type: 'INTEGER', notNull: false, pk: true, unique: false, default: '', isNew: true, deleted: false },
-      { id: 'c2', name: 'name', type: 'TEXT', notNull: false, pk: false, unique: false, default: '', isNew: true, deleted: false },
-    ])
-  }, [open])
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={t('development.database.schema.create_table')}
-      width={520}
-      footer={
-        <>
-          <Button variant="ghost" size="sm" onClick={onClose}>{t('development.database.common.cancel')}</Button>
-          <Button size="sm" disabled={!name.trim() || busy} onClick={() => {
-            setBusy(true)
-            void onConfirm(name, columns).finally(() => setBusy(false))
-          }}>{busy ? <Loader2 size={13} className="animate-spin" /> : null}{t('development.database.schema.create')}</Button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <Field label={t('development.database.schema.table_name')} required>
-          <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('development.database.schema.table_name_placeholder')} />
-        </Field>
-        <div className="space-y-1.5">
-          {columns.map((column, index) => (
-            <div key={column.id} className="grid grid-cols-[1fr_1.2fr_auto_auto] items-center gap-1.5">
-              <Input value={column.name} onChange={(event) => setColumns((current) => current.map((entry) => entry.id === column.id ? { ...entry, name: event.target.value } : entry))} placeholder={t('development.database.schema.name')} aria-label={`${t('development.database.schema.name')} ${index + 1}`} className="h-7" />
-              <SelectMenu label={`${t('development.database.schema.type')} ${column.name || index + 1}`} value={column.type} options={COMMON_TYPES.map((type) => ({ value: type, label: type }))} onChange={(value) => setColumns((current) => current.map((entry) => entry.id === column.id ? { ...entry, type: value } : entry))} size="sm" />
-                <Checkbox checked={column.pk} ariaLabel={`${t('development.database.schema.primary_key')} ${column.name || index + 1}`} onChange={(next) => setColumns((current) => current.map((entry) => entry.id === column.id ? { ...entry, pk: next } : entry))} label={t('development.database.schema.primary_key')} />
-              <IconButton label={`${t('development.database.schema.delete_column')} ${column.name || index + 1}`} size="xs" onClick={() => setColumns((current) => current.filter((entry) => entry.id !== column.id))}><Trash2 size={12} /></IconButton>
-            </div>
-          ))}
-          <Button variant="secondary" size="sm" className="w-full" onClick={() => setColumns((current) => [...current, { ...emptyDraft(), id: `c${Date.now()}` }])}><Plus size={13} />{t('development.database.schema.add_column')}</Button>
-        </div>
-      </div>
-    </Modal>
-  )
 }

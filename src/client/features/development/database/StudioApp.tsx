@@ -110,6 +110,7 @@ export function StudioApp() {
   const [guards, setGuards] = useState<Record<string, ConnectionGuard>>(loadGuards)
   const [unlocks, setUnlocks] = useState<Record<string, number>>({})
   const [localDirty, setLocalDirty] = useState(false)
+  const [diagramDirty, setDiagramDirty] = useState(false)
   const [unlockAsk, setUnlockAsk] = useState<{ resolve: (ok: boolean) => void } | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -375,6 +376,18 @@ export function StudioApp() {
     }
   }, [notifyError])
 
+  const applyDiagramDdl = useCallback(async (statements: string[]) => {
+    if (!driver) throw new Error(t('development.database.diagram.no_connection'))
+    const runnable = statements.filter((statement) => (
+      !/^(?:begin|commit|rollback|pragma\s+foreign_keys)\b/i.test(statement.trim())
+    ))
+    await driver.transaction(
+      runnable.map((sql) => ({ sql })),
+      { confirmProduction: true, foreignKeysOff: true },
+    )
+    await reloadSchema(driver)
+  }, [driver, reloadSchema])
+
   useEffect(() => {
     setSchema(null)
     setSchemaError(null)
@@ -424,7 +437,18 @@ export function StudioApp() {
     }
   }, [selection, localFile, activeSaved?.type, notifyError, reloadSchema, initialLayout])
 
+  const confirmDiagramDiscard = async (): Promise<boolean> => {
+    if (!diagramDirty) return true
+    return await confirm({
+      title: t('development.database.diagram.discard_title'),
+      description: t('development.database.diagram.discard_description'),
+      confirmLabel: t('development.database.diagram.exit'),
+      tone: 'danger',
+    })
+  }
+
   const confirmDiscardLocal = async (): Promise<boolean> => {
+    if (!(await confirmDiagramDiscard())) return false
     if (selection?.kind !== 'local' || !localDirty) return true
     return await confirm({
       title: t('development.database.app.local_discard_title'),
@@ -681,17 +705,21 @@ export function StudioApp() {
   }
 
   const closeTab = (id: string) => {
-    const index = tabs.findIndex((tab) => tab.id === id)
-    if (index < 0) return
-    const next = tabs.filter((tab) => tab.id !== id)
-    if (next.length === 0) {
-      const replacement = queryTab()
-      setTabs([replacement])
-      setActiveTabId(replacement.id)
-      return
-    }
-    if (activeTabId === id) setActiveTabId(next[Math.min(index, next.length - 1)]!.id)
-    setTabs(next)
+    void (async () => {
+      const target = tabs.find((tab) => tab.id === id)
+      if (target?.kind === 'erd' && !(await confirmDiagramDiscard())) return
+      const index = tabs.findIndex((tab) => tab.id === id)
+      if (index < 0) return
+      const next = tabs.filter((tab) => tab.id !== id)
+      if (next.length === 0) {
+        const replacement = queryTab()
+        setTabs([replacement])
+        setActiveTabId(replacement.id)
+        return
+      }
+      if (activeTabId === id) setActiveTabId(next[Math.min(index, next.length - 1)]!.id)
+      setTabs(next)
+    })()
   }
 
   const tabTitle = (tab: StudioTab) => {
@@ -773,7 +801,14 @@ export function StudioApp() {
       return (
         <ErdView
           tables={schema?.tables ?? []}
+          schema={schema ?? EMPTY_SCHEMA}
           className="h-full w-full"
+          editable={Boolean(driver)}
+          connectionKey={connectionId}
+          ensureWritable={ensureWritable}
+          onApplyDdl={applyDiagramDdl}
+          onDirtyChange={setDiagramDirty}
+          remote={driver?.type !== 'sqlite'}
           onOpenData={openDataTab}
           onOpenSchema={openSchemaTab}
         />
