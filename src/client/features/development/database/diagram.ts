@@ -338,6 +338,48 @@ export function renameTableInDraft(draft: DiagramDraft, tableId: string, nextNam
   return syncRelationships({ tables, ...(renames.length > 0 ? { renames } : {}) })
 }
 
+export interface NewDiagramColumn {
+  name: string
+  type: string
+  pk: boolean
+  notNull: boolean
+  unique: boolean
+  default: string
+}
+
+export function createDiagramTable(
+  name: string,
+  columns: NewDiagramColumn[],
+  position: DiagramPosition = { x: 0, y: 0 },
+): DiagramTable {
+  let pkPosition = 0
+  return {
+    id: name,
+    name,
+    columns: columns.map((column, index) => ({
+      id: `col:${name}:${index}`,
+      name: column.name.trim() || `column_${index + 1}`,
+      type: column.type,
+      notNull: column.notNull,
+      pk: column.pk,
+      pkPosition: column.pk ? ++pkPosition : 0,
+      default: column.default.trim() === '' ? null : column.default,
+      unique: column.unique,
+      check: null,
+      collate: null,
+      generated: null,
+      autoIncrement: false,
+    })),
+    constraints: [],
+    indexes: [],
+    withoutRowid: false,
+    strict: false,
+    x: position.x,
+    y: position.y,
+    width: ERD_NODE_WIDTH,
+  }
+}
+
 export function nextTablePosition(draft: DiagramDraft): DiagramPosition {
   if (draft.tables.length === 0) return { x: 0, y: 0 }
   const maxX = Math.max(...draft.tables.map((table) => table.x + table.width))

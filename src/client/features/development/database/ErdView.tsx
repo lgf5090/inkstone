@@ -10,12 +10,12 @@ import { Menu, Modal, type MenuItem, confirm } from '../../../components/overlay
 import {
   ERD_NODE_HEADER_HEIGHT,
   ERD_NODE_ROW_HEIGHT,
-  ERD_NODE_WIDTH,
   buildErdLayout,
   erdNodeHeight,
 } from './flow-layout'
 import {
   clampPosition,
+  createDiagramTable,
   diagramSignature,
   diagramTablesToParsedTables,
   duplicateTable,
@@ -421,33 +421,15 @@ export function ErdView({
       notify(t('development.database.diagram.name_exists'), 'warning')
       return false
     }
-    let pkPosition = 0
     const position = nextTablePosition(present)
-    const table: DiagramTable = {
-      id: trimmed,
-      name: trimmed,
-      columns: columns.map((column, index) => ({
-        id: `col:${trimmed}:${index}`,
-        name: column.name.trim() || `column_${index + 1}`,
-        type: column.type,
-        notNull: column.notNull,
-        pk: column.pk,
-        pkPosition: column.pk ? ++pkPosition : 0,
-        default: column.default.trim() === '' ? null : column.default,
-        unique: column.unique,
-        check: null,
-        collate: null,
-        generated: null,
-        autoIncrement: false,
-      })),
-      constraints: [],
-      indexes: [],
-      withoutRowid: false,
-      strict: false,
-      x: position.x,
-      y: position.y,
-      width: ERD_NODE_WIDTH,
-    }
+    const table: DiagramTable = createDiagramTable(trimmed, columns.map((column) => ({
+      name: column.name,
+      type: column.type,
+      pk: column.pk,
+      notNull: column.notNull,
+      unique: column.unique,
+      default: column.default,
+    })), position)
     pushDraft(syncRelationships({ tables: [...present.tables, table], renames: present.renames }))
     setSelectedIds(new Set([trimmed]))
     return true

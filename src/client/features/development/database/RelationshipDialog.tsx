@@ -22,6 +22,7 @@ export interface RelationshipInput {
 export interface RelationshipDialogProps {
   draft: DiagramDraft
   initial?: Partial<RelationshipInput>
+  lockSource?: boolean
   onClose: () => void
   onSubmit: (input: RelationshipInput) => void
   onDelete?: (constraintId: string, startTableId: string) => void
@@ -32,7 +33,7 @@ interface ColumnPair {
   remote: string
 }
 
-export function RelationshipDialog({ draft, initial, onClose, onSubmit, onDelete }: RelationshipDialogProps) {
+export function RelationshipDialog({ draft, initial, lockSource = false, onClose, onSubmit, onDelete }: RelationshipDialogProps) {
   const [startTableId, setStartTableId] = useState(initial?.startTableId ?? draft.tables[0]?.id ?? '')
   const [endTableId, setEndTableId] = useState(initial?.endTableId ?? '')
   const [pairs, setPairs] = useState<ColumnPair[]>(() => {
@@ -125,6 +126,7 @@ export function RelationshipDialog({ draft, initial, onClose, onSubmit, onDelete
               label={t('development.database.diagram.source_table')}
               value={startTableId}
               options={tableOptions}
+              disabled={lockSource}
               onChange={(value) => {
                 setStartTableId(value)
                 setPairs((current) => current.map((pair) => ({ ...pair, local: '' })))

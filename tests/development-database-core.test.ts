@@ -2,7 +2,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { parseCreateTable, parseCreateIndex } from '../src/client/features/development/database/schema-parse'
-import { buildRebuildSql } from '../src/client/features/development/database/ddl'
 import { buildTableDataSql, loadSchema, stableOrderBy } from '../src/client/features/development/database/schema-utils'
 import { buildDistinctSql } from '../src/client/features/development/database/distinct-ops'
 import { buildDataSearchSql, searchableColumns } from '../src/client/features/development/database/data-search'
@@ -87,47 +86,6 @@ describe('development database core', () => {
     expect(findPlaceholders(sql)).toEqual(['id', 'n'])
     expect(replacePlaceholders('SELECT * FROM t LIMIT :n', { n: '10' })).toBe('SELECT * FROM t LIMIT 10')
     expect(replacePlaceholders('SELECT :s', { s: "a'b" })).toBe("SELECT 'a''b'")
-  })
-
-  it('rebuilds a table copying only shared columns and restoring views/indexes', () => {
-    const table = parseCreateTable(`CREATE TABLE "t" ("id" INTEGER PRIMARY KEY, "name" TEXT)`)!
-    const result = buildRebuildSql(
-      table,
-      [
-        { id: '1', name: 'id', type: 'INTEGER', notNull: false, pk: true, unique: false, default: '', original: table.columns[0] },
-        { id: '2', name: 'name', type: 'TEXT', notNull: false, pk: false, unique: false, default: '', original: table.columns[1] },
-        { id: '3', name: 'added', type: 'TEXT', notNull: false, pk: false, unique: false, default: '', isNew: true },
-      ],
-      {
-        indexes: [{ name: 'idx_t_name', columns: ['name'], sql: 'CREATE INDEX idx_t_name ON t(name)' }],
-        views: [{ name: 'v_t', sql: 'CREATE VIEW v_t AS SELECT name FROM t' }],
-      },
-    )
-    expect(result.sql).toContain('DROP VIEW "v_t";')
-    expect(result.sql).toContain('INSERT INTO "t__rebuild" ("id", "name") SELECT "id", "name" FROM "t";')
-    expect(result.sql).not.toContain('"added") SELECT')
-    expect(result.sql).toContain('CREATE VIEW v_t AS SELECT name FROM t;')
-    expect(result.sql).toContain('CREATE INDEX idx_t_name ON t(name);')
-  })
-
-  it('rewrites index and constraint identifiers when a rebuilt column is renamed', () => {
-    const table = parseCreateTable(
-      'CREATE TABLE "t" ("a" INTEGER, "b" TEXT, UNIQUE ("a"))',
-    )!
-    const result = buildRebuildSql(
-      table,
-      [
-        { id: '1', name: 'c', type: 'INTEGER', notNull: true, pk: false, unique: false, default: '', original: table.columns[0] },
-        { id: '2', name: 'b', type: 'TEXT', notNull: false, pk: false, unique: false, default: '', original: table.columns[1] },
-      ],
-      {
-        indexes: [{ name: 'idx_t_a', columns: ['a'], sql: 'CREATE INDEX idx_t_a ON t(a)', unique: false }],
-      },
-    )
-    expect(result.sql).toContain('"c" INTEGER NOT NULL')
-    expect(result.sql).toContain('UNIQUE("c")')
-    expect(result.sql).toContain('CREATE INDEX "idx_t_a" ON "t" ("c");')
-    expect(result.sql).not.toContain('CREATE INDEX idx_t_a ON t(a)')
   })
 
   it('projects columns and row values together when a column is hidden', () => {

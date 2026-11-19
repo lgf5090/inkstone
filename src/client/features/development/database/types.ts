@@ -1,5 +1,3 @@
-import type { ParsedColumn } from '@shared/development/database/types'
-
 export interface SavedConnectionSelection {
   kind: 'saved'
   id: string
@@ -43,19 +41,6 @@ export interface FilterCondition {
   column: string
   op: FilterOperator
   value: string
-}
-
-export interface ColumnDraft {
-  id: string
-  name: string
-  type: string
-  notNull: boolean
-  pk: boolean
-  unique: boolean
-  default: string
-  isNew?: boolean
-  deleted?: boolean
-  original?: ParsedColumn
 }
 
 export interface RowKeyPk {
