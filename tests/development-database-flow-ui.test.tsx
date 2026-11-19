@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import { act, type ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ParsedColumn, ParsedTable } from '../src/shared/development/database/types'
 import { initI18n, t } from '../src/client/lib/i18n'
@@ -60,10 +60,10 @@ function press(element: Element, key: string, init: KeyboardEventInit = {}): voi
   })
 }
 
-function pointer(element: Element, type: string, x: number, y: number): void {
+function pointer(element: Element, type: string, x: number, y: number, init: PointerEventInit = {}): void {
   act(() => {
     element.dispatchEvent(
-      new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerId: 1, clientX: x, clientY: y }),
+      new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerId: 1, clientX: x, clientY: y, ...init }),
     )
   })
 }
@@ -203,6 +203,94 @@ describe('ErdView', () => {
     rendered = renderElement(<ErdView tables={[]} />)
     expect(rendered.container.textContent).toContain(t('development.database.erd.empty'))
     expect(rendered.container.querySelectorAll('[data-flow-node]')).toHaveLength(0)
+  })
+})
+
+describe('SvgFlow editing interactions', () => {
+  const NODES = [
+    { id: 'a', x: 0, y: 0, width: 100, height: 60 },
+    { id: 'b', x: 200, y: 0, width: 100, height: 60 },
+  ]
+  const EDGES = [{ id: 'e1', source: 'a', target: 'b', label: 'a_id' }]
+
+  function mountFlow(props: Partial<ComponentProps<typeof SvgFlow>> = {}): HTMLElement {
+    rendered = renderElement(
+      <SvgFlow
+        nodes={NODES}
+        edges={EDGES}
+        renderNode={(id) => <div style={{ height: '100%' }}>{id}</div>}
+        {...props}
+      />,
+    )
+    return rendered.container
+  }
+
+  it('selects nodes with a marquee drag', () => {
+    const onSelectionChange = vi.fn()
+    const container = mountFlow({ selectionMode: 'marquee', onSelectionChange })
+    const view = canvas(container)
+
+    pointer(view, 'pointerdown', 240, 10)
+    pointer(view, 'pointermove', 320, 70)
+    expect(container.querySelector('[data-flow-marquee]')).not.toBeNull()
+    pointer(view, 'pointerup', 320, 70)
+
+    expect(onSelectionChange).toHaveBeenCalled()
+    const last = onSelectionChange.mock.calls.at(-1)?.[0] as Set<string>
+    expect([...last]).toEqual(['b'])
+    expect(container.querySelector('[data-flow-marquee]')).toBeNull()
+  })
+
+  it('adds to the selection with the control key', () => {
+    const onSelectionChange = vi.fn()
+    const container = mountFlow({
+      selectedIds: new Set(['a']),
+      onSelectionChange,
+    })
+    pointer(node(container, 'b'), 'pointerdown', 220, 20, { ctrlKey: true })
+    pointer(node(container, 'b'), 'pointerup', 220, 20, { ctrlKey: true })
+
+    const last = onSelectionChange.mock.calls.at(-1)?.[0] as Set<string>
+    expect([...last].sort()).toEqual(['a', 'b'])
+  })
+
+  it('snaps node drags to the configured grid', () => {
+    const onNodesChange = vi.fn()
+    const container = mountFlow({ onNodesChange, snapGrid: 24 })
+    const a = node(container, 'a')
+    pointer(a, 'pointerdown', 10, 10)
+    pointer(a, 'pointermove', 40, 38)
+    pointer(a, 'pointerup', 40, 38)
+    expect(onNodesChange).toHaveBeenCalledWith('a', 24, 24)
+  })
+
+  it('selects an edge on pointer down', () => {
+    const onEdgeSelect = vi.fn()
+    const container = mountFlow({ onEdgeSelect })
+    const edge = container.querySelector('[data-flow-edge="e1"] path')
+    expect(edge).not.toBeNull()
+    pointer(edge!, 'pointerdown', 140, 20)
+    expect(onEdgeSelect).toHaveBeenCalledWith('e1')
+  })
+
+  it('honors a controlled viewport and reports zoom changes', () => {
+    const onViewportChange = vi.fn()
+    const container = mountFlow({ viewport: { x: 10, y: 20, zoom: 2 }, onViewportChange })
+    const layer = container.querySelector<HTMLElement>('[data-flow-node-layer]')
+    expect(layer?.style.transform).toContain('translate(10px,20px) scale(2)')
+
+    const zoomIn = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.getAttribute('aria-label') === t('development.database.flow.zoom_in'),
+    )
+    act(() => zoomIn?.click())
+    expect(onViewportChange).toHaveBeenCalledWith(expect.objectContaining({ zoom: 2.4 }))
+  })
+
+  it('calls onDeleteSelection for a selected node when delete is pressed', () => {
+    const onDeleteSelection = vi.fn()
+    const container = mountFlow({ selectedIds: new Set(['a']), onDeleteSelection })
+    press(canvas(container), 'Delete')
+    expect(onDeleteSelection).toHaveBeenCalledTimes(1)
   })
 })
 

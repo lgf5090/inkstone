@@ -38,12 +38,32 @@ export interface SvgFlowProps {
   exportName?: string
   onError?: (message: string) => void
   className?: string
+  selectionMode?: 'pan' | 'marquee'
+  selectedIds?: ReadonlySet<string>
+  onSelectionChange?: (ids: Set<string>) => void
+  selectedEdgeId?: string | null
+  onEdgeSelect?: (edgeId: string | null) => void
+  onDeleteSelection?: () => void
+  snapGrid?: number
+  viewport?: Viewport
+  onViewportChange?: (viewport: Viewport) => void
+  renderOverlay?: (viewport: Viewport) => ReactNode
+  onNodeDoubleClick?: (id: string) => void
 }
 
-interface Viewport {
+export interface Viewport {
   x: number
   y: number
   zoom: number
+}
+
+interface MarqueeState {
+  startX: number
+  startY: number
+  currentX: number
+  currentY: number
+  additive: boolean
+  moved: boolean
 }
 
 interface DragState {
@@ -269,19 +289,46 @@ export function SvgFlow({
   exportName = 'flow',
   onError,
   className,
+  selectionMode = 'pan',
+  selectedIds,
+  onSelectionChange,
+  selectedEdgeId,
+  onEdgeSelect,
+  onDeleteSelection,
+  snapGrid,
+  viewport: controlledViewport,
+  onViewportChange,
+  renderOverlay,
+  onNodeDoubleClick,
 }: SvgFlowProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
+  const pointerFocus = useRef(false)
   const fittedSignature = useRef<string | null>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
-  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
+  const [internalViewport, setInternalViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
   const [internalSelected, setInternalSelected] = useState<string | null>(null)
+  const [internalSelectedIds, setInternalSelectedIds] = useState<Set<string>>(() => new Set())
+  const [internalEdge, setInternalEdge] = useState<string | null>(null)
+  const [marquee, setMarquee] = useState<MarqueeState | null>(null)
   const [exporting, setExporting] = useState(false)
 
+  const viewport = controlledViewport ?? internalViewport
   const selected = selectedId !== undefined ? selectedId : internalSelected
+  const activeEdge = selectedEdgeId !== undefined ? selectedEdgeId : internalEdge
+  const selection = useMemo(() => {
+    if (selectedIds) return selectedIds
+    if (internalSelectedIds.size > 0) return internalSelectedIds
+    return selected ? new Set([selected]) : new Set<string>()
+  }, [internalSelectedIds, selected, selectedIds])
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes])
   const nodeSignature = nodes.map((node) => node.id).join('|')
   const shouldCull = nodes.length > 120
+
+  const updateViewport = useCallback((next: Viewport) => {
+    if (onViewportChange) onViewportChange(next)
+    else setInternalViewport(next)
+  }, [onViewportChange])
 
   const visibleRect = useMemo(() => {
     if (!shouldCull || size.width === 0 || size.height === 0) return null
@@ -319,10 +366,30 @@ export function SvgFlow({
 
   const select = useCallback(
     (id: string | null) => {
-      if (onSelect) onSelect(id)
+      if (onSelectionChange) onSelectionChange(id ? new Set([id]) : new Set())
+      else if (onSelect) onSelect(id)
       else setInternalSelected(id)
+      if (onEdgeSelect) onEdgeSelect(null)
+      else setInternalEdge(null)
     },
-    [onSelect],
+    [onEdgeSelect, onSelect, onSelectionChange],
+  )
+
+  const applySelection = useCallback(
+    (ids: Set<string>) => {
+      if (onSelectionChange) onSelectionChange(ids)
+      else setInternalSelectedIds(ids)
+      if (!onSelectionChange && onSelect) onSelect(ids.size === 1 ? [...ids][0] ?? null : null)
+    },
+    [onSelect, onSelectionChange],
+  )
+
+  const selectEdge = useCallback(
+    (id: string | null) => {
+      if (onEdgeSelect) onEdgeSelect(id)
+      else setInternalEdge(id)
+    },
+    [onEdgeSelect],
   )
 
   useEffect(() => {
@@ -349,12 +416,12 @@ export function SvgFlow({
       FIT_MIN_ZOOM,
       FIT_MAX_ZOOM,
     )
-    setViewport({
+    updateViewport({
       zoom,
       x: (size.width - boxWidth * zoom) / 2 - minX * zoom,
       y: (size.height - boxHeight * zoom) / 2 - minY * zoom,
     })
-  }, [nodes, size])
+  }, [nodes, size, updateViewport])
 
   useEffect(() => {
     if (nodes.length === 0 || size.width === 0 || size.height === 0) return
@@ -364,17 +431,15 @@ export function SvgFlow({
   }, [fitView, nodeSignature, nodes.length, size.height, size.width])
 
   const zoomBy = useCallback((factor: number, centerX?: number, centerY?: number) => {
-    setViewport((previous) => {
-      const zoom = clamp(previous.zoom * factor, MIN_ZOOM, MAX_ZOOM)
-      if (zoom === previous.zoom) return previous
-      const rect = containerRef.current?.getBoundingClientRect()
-      const pointX = centerX ?? (rect ? rect.width / 2 : 0)
-      const pointY = centerY ?? (rect ? rect.height / 2 : 0)
-      const worldX = (pointX - previous.x) / previous.zoom
-      const worldY = (pointY - previous.y) / previous.zoom
-      return { zoom, x: pointX - worldX * zoom, y: pointY - worldY * zoom }
-    })
-  }, [])
+    const zoom = clamp(viewport.zoom * factor, MIN_ZOOM, MAX_ZOOM)
+    if (zoom === viewport.zoom) return
+    const rect = containerRef.current?.getBoundingClientRect()
+    const pointX = centerX ?? (rect ? rect.width / 2 : 0)
+    const pointY = centerY ?? (rect ? rect.height / 2 : 0)
+    const worldX = (pointX - viewport.x) / viewport.zoom
+    const worldY = (pointY - viewport.y) / viewport.zoom
+    updateViewport({ zoom, x: pointX - worldX * zoom, y: pointY - worldY * zoom })
+  }, [updateViewport, viewport])
 
   useEffect(() => {
     const element = containerRef.current
@@ -395,6 +460,25 @@ export function SvgFlow({
       if (event.button !== 0 && event.button !== 1) return
       const target = event.target instanceof Element ? event.target : null
       if (target?.closest('[data-flow-node], button, a, input, textarea, select, [role="menu"]')) return
+      selectEdge(null)
+      if (selectionMode === 'marquee' && event.button === 0) {
+        const rect = event.currentTarget.getBoundingClientRect()
+        const startX = event.clientX - rect.left
+        const startY = event.clientY - rect.top
+        setMarquee({
+          startX,
+          startY,
+          currentX: startX,
+          currentY: startY,
+          additive: event.ctrlKey || event.metaKey,
+          moved: false,
+        })
+        if (typeof event.currentTarget.setPointerCapture === 'function') {
+          event.currentTarget.setPointerCapture(event.pointerId)
+        }
+        event.currentTarget.focus({ preventScroll: true })
+        return
+      }
       dragRef.current = {
         mode: 'pan',
         startX: event.clientX,
@@ -406,7 +490,7 @@ export function SvgFlow({
       }
       event.currentTarget.focus({ preventScroll: true })
     },
-    [viewport],
+    [selectEdge, selectionMode, viewport],
   )
 
   const onNodePointerDown = useCallback(
@@ -416,7 +500,17 @@ export function SvgFlow({
       if (target?.closest('button, a, input, textarea, select, [contenteditable="true"]')) return
       event.preventDefault()
       event.stopPropagation()
-      select(id)
+      const additive = event.ctrlKey || event.metaKey
+      if (additive && (onSelectionChange || selectedIds)) {
+        const next = new Set(selection)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        applySelection(next)
+      } else if (!selection.has(id) || selection.size > 1) {
+        select(id)
+      } else {
+        selectEdge(null)
+      }
       const node = nodeById.get(id)
       if (!node) return
       dragRef.current = {
@@ -430,32 +524,80 @@ export function SvgFlow({
       if (typeof event.currentTarget.setPointerCapture === 'function') {
         event.currentTarget.setPointerCapture(event.pointerId)
       }
+      pointerFocus.current = true
       event.currentTarget.focus({ preventScroll: true })
+      pointerFocus.current = false
     },
-    [nodeById, select, viewport],
+    [applySelection, nodeById, onSelectionChange, select, selectEdge, selectedIds, selection, viewport],
   )
 
   const onPointerMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (marquee) {
+        const rect = containerRef.current?.getBoundingClientRect()
+        if (!rect) return
+        const currentX = event.clientX - rect.left
+        const currentY = event.clientY - rect.top
+        setMarquee({
+          ...marquee,
+          currentX,
+          currentY,
+          moved: marquee.moved || Math.abs(currentX - marquee.startX) > 3 || Math.abs(currentY - marquee.startY) > 3,
+        })
+        return
+      }
       const drag = dragRef.current
       if (!drag) return
       if (drag.mode === 'pan') {
         const dx = event.clientX - drag.startX
         const dy = event.clientY - drag.startY
-        setViewport({ ...drag.origin, x: drag.origin.x + dx, y: drag.origin.y + dy })
+        updateViewport({ ...drag.origin, x: drag.origin.x + dx, y: drag.origin.y + dy })
         return
       }
       if (!drag.nodeId || !drag.nodeStart) return
       const dx = (event.clientX - drag.startX) / drag.origin.zoom
       const dy = (event.clientY - drag.startY) / drag.origin.zoom
-      onNodesChange?.(drag.nodeId, drag.nodeStart.x + dx, drag.nodeStart.y + dy)
+      let nextX = drag.nodeStart.x + dx
+      let nextY = drag.nodeStart.y + dy
+      if (snapGrid && snapGrid > 0) {
+        nextX = Math.round(nextX / snapGrid) * snapGrid
+        nextY = Math.round(nextY / snapGrid) * snapGrid
+      }
+      onNodesChange?.(drag.nodeId, nextX, nextY)
     },
-    [onNodesChange],
+    [marquee, onNodesChange, snapGrid, updateViewport],
   )
 
   const onPointerUp = useCallback(() => {
+    if (marquee) {
+      const rect = containerRef.current?.getBoundingClientRect()
+      if (rect) {
+        const left = Math.min(marquee.startX, marquee.currentX)
+        const top = Math.min(marquee.startY, marquee.currentY)
+        const right = Math.max(marquee.startX, marquee.currentX)
+        const bottom = Math.max(marquee.startY, marquee.currentY)
+        const worldLeft = (left - viewport.x) / viewport.zoom
+        const worldTop = (top - viewport.y) / viewport.zoom
+        const worldRight = (right - viewport.x) / viewport.zoom
+        const worldBottom = (bottom - viewport.y) / viewport.zoom
+        const hits = new Set<string>()
+        if (marquee.moved) {
+          for (const node of nodes) {
+            const intersects = node.x + node.width >= worldLeft
+              && node.x <= worldRight
+              && node.y + node.height >= worldTop
+              && node.y <= worldBottom
+            if (intersects) hits.add(node.id)
+          }
+        }
+        const next = marquee.additive ? new Set([...selection, ...hits]) : hits
+        applySelection(next)
+        if (next.size === 0) selectEdge(null)
+      }
+      setMarquee(null)
+    }
     dragRef.current = null
-  }, [])
+  }, [applySelection, marquee, nodes, selectEdge, selection, viewport])
 
   const onNodeKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>, id: string) => {
@@ -503,6 +645,15 @@ export function SvgFlow({
   const onCanvasKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       if (event.defaultPrevented) return
+      const target = event.target instanceof Element ? event.target : null
+      const editing = target?.closest('input, textarea, select, [contenteditable="true"]')
+      if (!editing && onDeleteSelection && (selection.size > 0 || activeEdge)) {
+        if (event.key === 'Delete' || event.key === 'Backspace') {
+          event.preventDefault()
+          onDeleteSelection()
+          return
+        }
+      }
       if (event.key === '+' || event.key === '=') {
         event.preventDefault()
         zoomBy(ZOOM_STEP, size.width / 2, size.height / 2)
@@ -513,7 +664,7 @@ export function SvgFlow({
         zoomBy(1 / ZOOM_STEP, size.width / 2, size.height / 2)
       }
     },
-    [size.height, size.width, zoomBy],
+    [activeEdge, onDeleteSelection, selection, size.height, size.width, zoomBy],
   )
 
   const downloadPng = useCallback(async () => {
@@ -599,15 +750,31 @@ export function SvgFlow({
             const target = nodeById.get(edge.target)
             if (!source || !target) return null
             const geometry = edgeGeometry(source, target)
+            const isSelectedEdge = activeEdge === edge.id
+            const interactive = Boolean(onEdgeSelect)
             return (
-              <g key={edge.id} data-flow-edge={edge.id}>
+              <g key={edge.id} data-flow-edge={edge.id} data-flow-edge-selected={isSelectedEdge ? 'true' : undefined}>
+                {interactive && (
+                  <path
+                    d={geometry.d}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={12}
+                    style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+                    onPointerDown={(event) => {
+                      event.stopPropagation()
+                      selectEdge(edge.id)
+                    }}
+                  />
+                )}
                 <path
                   d={geometry.d}
                   fill="none"
                   stroke="var(--accent)"
-                  strokeWidth={1.2}
-                  strokeOpacity={0.65}
+                  strokeWidth={isSelectedEdge ? 2.2 : 1.2}
+                  strokeOpacity={isSelectedEdge ? 1 : 0.65}
                   markerEnd={`url(#${ARROW_MARKER_ID})`}
+                  style={interactive ? { pointerEvents: 'stroke', cursor: 'pointer' } : undefined}
                 />
                 {edge.label && (
                   <text
@@ -617,6 +784,7 @@ export function SvgFlow({
                     fontFamily={EXPORT_FONT_FAMILY}
                     fill="var(--text-tertiary)"
                     textAnchor="middle"
+                    style={{ pointerEvents: 'none' }}
                   >
                     {edge.label}
                   </text>
@@ -627,6 +795,12 @@ export function SvgFlow({
         </g>
       </svg>
 
+      {renderOverlay && (
+        <div className="pointer-events-none absolute inset-0" data-flow-overlay="true">
+          {renderOverlay(viewport)}
+        </div>
+      )}
+
       <div
         data-flow-node-layer="true"
         className="absolute top-0 left-0"
@@ -636,7 +810,7 @@ export function SvgFlow({
         }}
       >
         {visibleNodes.map((node) => {
-          const isSelected = selected === node.id
+          const isSelected = selection.has(node.id)
           return (
             <div
               key={node.id}
@@ -652,7 +826,8 @@ export function SvgFlow({
               )}
               style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
               onPointerDown={(event) => onNodePointerDown(event, node.id)}
-              onFocus={() => select(node.id)}
+              onDoubleClick={() => onNodeDoubleClick?.(node.id)}
+              onFocus={() => { if (!pointerFocus.current) select(node.id) }}
               onKeyDown={(event) => onNodeKeyDown(event, node.id)}
               onContextMenu={(event) => onNodeContextMenuEvent(event, node.id)}
             >
@@ -661,6 +836,20 @@ export function SvgFlow({
           )
         })}
       </div>
+
+      {marquee && marquee.moved && (
+        <div
+          data-flow-marquee="true"
+          aria-hidden="true"
+          className="pointer-events-none absolute z-10 border border-[var(--accent)] bg-[var(--accent-soft)] opacity-70"
+          style={{
+            left: Math.min(marquee.startX, marquee.currentX),
+            top: Math.min(marquee.startY, marquee.currentY),
+            width: Math.abs(marquee.currentX - marquee.startX),
+            height: Math.abs(marquee.currentY - marquee.startY),
+          }}
+        />
+      )}
 
       <div
         data-flow-controls="true"
