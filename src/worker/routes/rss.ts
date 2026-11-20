@@ -297,12 +297,16 @@ rssRoutes.get('/relay', async (c) => {
       upstream = await fetch(url.href, { headers, redirect: NO_REDIRECT, signal: controller.signal })
       if (!isRedirectResponse(upstream) || upstream.status === 304) break
       const location = upstream.headers.get('location')
-      if (!location || hop >= MAX_HOPS) throw ApiError.badRequest('The media could not be reached')
+      if (!location || hop >= MAX_HOPS) {
+        controller.abort()
+        throw ApiError.badRequest('The media could not be reached')
+      }
       url = assertFeedUrl(new URL(location, url).href)
     }
   }
   catch (error) {
     if (error instanceof ApiError) throw error
+    controller.abort()
     throw ApiError.badRequest('The media could not be reached')
   }
   finally {
@@ -311,10 +315,19 @@ rssRoutes.get('/relay', async (c) => {
     clearTimeout(timer)
   }
   const contentType = upstream.headers.get('content-type') || ''
-  if (!upstream.ok) throw ApiError.notFound('The media could not be reached')
-  if (!RELAY_TYPES.test(contentType)) throw ApiError.badRequest('Only images and audio can be relayed')
+  if (!upstream.ok) {
+    controller.abort()
+    throw ApiError.notFound('The media could not be reached')
+  }
+  if (!RELAY_TYPES.test(contentType)) {
+    controller.abort()
+    throw ApiError.badRequest('Only images and audio can be relayed')
+  }
   const declared = Number(upstream.headers.get('content-length') || '0')
-  if (declared > MAX_RELAY_BYTES) throw ApiError.tooLarge('That file is too large to relay')
+  if (declared > MAX_RELAY_BYTES) {
+    controller.abort()
+    throw ApiError.tooLarge('That file is too large to relay')
+  }
   const out = new Headers()
   for (const [name, value] of [
     ['content-type', contentType],

@@ -86,21 +86,31 @@ async function fetchWithPolicy(rawUrl: string, init: RequestInit, policy: UrlPol
           signal,
         })
       } catch (error) {
+        controller.abort()
         throw sourceUnavailable('The music source could not be reached', error)
       }
       if (!isRedirect(response.status)) return response
 
       const location = response.headers.get('location')
       await cancelBody(response)
-      if (!location) throw sourceUnavailable('The music source redirected without a location')
-      if (redirects >= MAX_REDIRECTS) throw sourceUnavailable('The music source redirected too many times')
+      if (!location) {
+        controller.abort()
+        throw sourceUnavailable('The music source redirected without a location')
+      }
+      if (redirects >= MAX_REDIRECTS) {
+        controller.abort()
+        throw sourceUnavailable('The music source redirected too many times')
+      }
       let next: URL | null
       try {
         next = policy(new URL(location, url).toString())
       } catch {
         next = null
       }
-      if (!next) throw sourceUnavailable('The music source redirected to an address this worker will not follow')
+      if (!next) {
+        controller.abort()
+        throw sourceUnavailable('The music source redirected to an address this worker will not follow')
+      }
       url = next
     }
   } finally {

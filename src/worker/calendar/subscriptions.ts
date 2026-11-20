@@ -467,6 +467,7 @@ async function fetchFeed(
         },
       })
     } catch {
+      controller.abort()
       throw new ApiError(502, 'internal', 'The calendar feed could not be reached')
     } finally {
       clearTimeout(timeout)
@@ -477,20 +478,26 @@ async function fetchFeed(
     if (isRedirectResponse(response)) {
       const location = response.headers.get('location')
       if (!location || hop === MAX_REDIRECTS) {
+        controller.abort()
         throw new ApiError(502, 'internal', 'The calendar feed redirected too many times')
       }
       current = validateFeedUrl(new URL(location, current).href)
       continue
     }
     if (!response.ok) {
+      controller.abort()
       throw new ApiError(502, 'internal', `The calendar feed answered ${response.status}`)
     }
     const declared = Number(response.headers.get('content-length') ?? '')
     if (Number.isFinite(declared) && declared > MAX_ICS_BYTES) {
+      controller.abort()
       throw ApiError.tooLarge('That calendar feed is too large')
     }
     const text = await readStreamTextWithinLimit(response.body, MAX_ICS_BYTES)
-    if (text === null) throw ApiError.tooLarge('That calendar feed is too large')
+    if (text === null) {
+      controller.abort()
+      throw ApiError.tooLarge('That calendar feed is too large')
+    }
     return {
       notModified: false,
       text,
