@@ -10,7 +10,7 @@ import { AlertTriangle, Check, Copy, Link2, UserPlus, Trash2 } from 'lucide-reac
 import type { CalendarDto, CalendarGroupDto, CalendarMemberDto, CalendarShareDto } from '@shared/calendar/model'
 import { MAX_CALENDAR_NAME, MAX_GROUP_NAME, MAX_ICS_BYTES } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { copyText } from '../../lib/clipboard'
 import { fullTime } from '../../lib/time'
 import { COPY_RESET_MS } from '../../lib/motion'
@@ -219,7 +219,7 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
               if (isImeComposing(event)) return
-              if (event.key === 'Enter') {
+              if (isEnterKey(event)) {
                 event.preventDefault()
                 void submit()
               }
@@ -324,7 +324,7 @@ export function GroupDialog({ open, mode, group, onClose, onSaved }: GroupDialog
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
               if (isImeComposing(event)) return
-              if (event.key === 'Enter') {
+              if (isEnterKey(event)) {
                 event.preventDefault()
                 void submit()
               }
@@ -687,7 +687,7 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
             onChange={(event) => setUrl(event.target.value)}
             onKeyDown={(event) => {
               if (isImeComposing(event)) return
-              if (event.key === 'Enter') {
+              if (isEnterKey(event)) {
                 event.preventDefault()
                 void submit()
               }

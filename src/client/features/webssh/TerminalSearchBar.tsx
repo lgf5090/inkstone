@@ -3,7 +3,7 @@ import { CaseSensitive, ChevronDown, ChevronUp, Regex, Search, X } from 'lucide-
 import { Input } from '../../components/form'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { t } from '../../lib/i18n'
 
 export function TerminalSearchBar({
@@ -68,7 +68,7 @@ export function TerminalSearchBar({
           if (event.key === 'Escape') {
             event.preventDefault()
             onClose()
-          } else if (event.key === 'Enter') {
+          } else if (isEnterKey(event)) {
             event.preventDefault()
             if (event.shiftKey) onPrevious()
             else onNext()

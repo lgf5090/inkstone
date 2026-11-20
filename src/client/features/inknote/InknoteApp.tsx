@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Library, LayoutTemplate, MoreHorizontal, PanelRight, Plus, Settings, Sparkles, Upload, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { cn } from '../../lib/cn'
 import { useBreakpoint } from '../../lib/hooks'
 import { navigateToPath, replaceAddress } from '../../lib/app-history'
@@ -376,7 +376,7 @@ export function InknoteApp() {
           value={title}
           onChange={(event) => setTitle(event.target.value)}
           onBlur={persistTitle}
-          onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() } }}
+          onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event)) { event.preventDefault(); event.currentTarget.blur() } }}
           placeholder={t('inknote.untitled')}
           aria-label={t('inknote.rename')}
           className="min-w-0 flex-1 bg-transparent text-[length:var(--text-14)] font-semibold outline-none"

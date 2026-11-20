@@ -504,7 +504,7 @@ export const ResultGrid = memo(function ResultGrid({
                             onChange={(event) => onEditValueChange?.(event.target.value)}
                             onKeyDown={(event) => {
                               if (isImeComposing(event)) return
-                              if (event.key === 'Enter') {
+                              if (isEnterKey(event)) {
                                 event.stopPropagation()
                                 onEditCommit?.()
                               } else if (event.key === 'Escape') {

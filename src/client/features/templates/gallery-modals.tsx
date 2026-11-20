@@ -16,7 +16,7 @@ import { TemplateCodeEditor } from '../templater/template-code-editor'
 import { useNoteTemplates } from '../../store/note-templates'
 import { useUi } from '../../store/ui'
 import { t, useLocale } from '../../lib/i18n'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 
 const EDITOR_MODAL_WIDTH = 680
 const NARROW_MODAL_WIDTH = 420
@@ -111,7 +111,7 @@ export function TemplateRenameDialog({ template, onClose }: {
       <Input ref={inputRef} invalid={isError} maxLength={TEMPLATE_IMPORT_LIMITS.maxNameLength} value={name} onChange={(event) => {
         setName(event.target.value)
         setIsError(false)
-      }} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') save(); }} placeholder={t('templates.template_name')}/>
+      }} onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event)) save(); }} placeholder={t('templates.template_name')}/>
     </Field>
   </Modal>)
 }
@@ -174,7 +174,7 @@ export function CategoryDialog({ dialog, onClose }: {
       <Input ref={inputRef} invalid={isError} maxLength={TEMPLATE_IMPORT_LIMITS.maxNameLength} value={name} onChange={(event) => {
         setName(event.target.value)
         setIsError(false)
-      }} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') save(); }} placeholder={t('templates.category_name')}/>
+      }} onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event)) save(); }} placeholder={t('templates.category_name')}/>
     </Field>
     <div className='flex flex-wrap gap-2 pt-1'>
       <FolderIconMenu icon={icon} onSelectIcon={(value) => setIcon(value)}/>

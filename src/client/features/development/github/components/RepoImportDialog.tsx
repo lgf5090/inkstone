@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Download } from 'lucide-react'
 import type { GithubRepo } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 import { githubApi } from '../api'
 import { parseRepoInput } from '../routes'
 import { Button } from '../../../../components/primitives'
@@ -42,7 +42,7 @@ export function RepoImportDialog({ open, onClose, onImport }: { open: boolean; o
       footer={<><Button variant="secondary" onClick={onClose} disabled={loading}>{t('common.cancel')}</Button><Button onClick={() => void importRepo()} disabled={loading || !value.trim()} loading={loading}><Download size={13} />{loading ? t('development.github.repos.importing') : t('development.github.repos.import_repo')}</Button></>}
     >
       <div className="space-y-2">
-        <Input value={value} onChange={(event) => { setValue(event.target.value); setError(null) }} placeholder={t('development.github.repos.import_placeholder')} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && value.trim() && !loading) { event.preventDefault(); void importRepo() } }} autoFocus />
+        <Input value={value} onChange={(event) => { setValue(event.target.value); setError(null) }} placeholder={t('development.github.repos.import_placeholder')} onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event) && value.trim() && !loading) { event.preventDefault(); void importRepo() } }} autoFocus />
         {error && <p className="text-[length:var(--text-11)] text-[var(--danger)]" role="alert">{error}</p>}
       </div>
     </Modal>

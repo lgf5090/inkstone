@@ -11,7 +11,7 @@ import { Server, ShieldCheck, TriangleAlert } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../../lib/api'
 import { navigateToPath } from '../../../lib/app-history'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { formatBytes } from '@shared/music/format'
 import { Badge, Button } from '../../../components/primitives'
 import { Input, SettingRow } from '../../../components/form'
@@ -222,7 +222,7 @@ export function CloudSourceSettings(): ReactElement {
                   onBlur={saveDir}
                   onKeyDown={(event) => {
                     if (isImeComposing(event)) return
-                    if (event.key === 'Enter') {
+                    if (isEnterKey(event)) {
                       event.preventDefault()
                       saveDir()
                     }

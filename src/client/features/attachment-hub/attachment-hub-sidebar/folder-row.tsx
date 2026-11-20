@@ -11,7 +11,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { cn } from '../../../lib/cn'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
 import { treeIndent } from '../../../lib/tree/indent'
 import type { FolderNode } from '../../../store/notes'
@@ -215,7 +215,7 @@ function FolderRowBody(props: FolderRowBodyProps) {
             // Enter accepts an IME candidate as well as it commits a name, so a reader typing a
             // folder in pinyin would finish with half a word and a closed field.
             if (isImeComposing(e)) return
-            if (e.key === 'Enter') onFinishRename(node.id, nameInput.trim() || node.name)
+            if (isEnterKey(e)) onFinishRename(node.id, nameInput.trim() || node.name)
             if (e.key === 'Escape') onFinishRename(node.id, node.name)
           }}
           className='min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-[var(--sp-1)] py-[var(--sp-0-5)] text-[length:var(--text-12)] text-[var(--text-primary)] outline-none'

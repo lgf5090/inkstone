@@ -2,7 +2,7 @@ import { memo, useEffect, useId, useRef, useState } from 'react'
 import { ChevronDown, Smile } from 'lucide-react'
 import { useClickOutside, useEscape } from '../../../../components/overlay'
 import { t, useLocaleRepaint } from '../../../i18n'
-import { isImeComposing } from '../../../ime'
+import { isImeComposing, isEnterKey } from '../../../ime'
 import { getKanbanDotColor } from '../colors'
 import { getKanbanDueDate } from '../date-fields'
 import { formatKanbanOptionLabel, formatKanbanPropertyName } from '../i18n-helpers'
@@ -142,7 +142,7 @@ function DetailTitleDraft({
       onBlur={commitDraft}
       onKeyDown={(e) => {
         if (isImeComposing(e)) return
-        if (e.key === 'Enter') commitDraft()
+        if (isEnterKey(e)) commitDraft()
         if (e.key === 'Escape') {
           setDraft(lastSent.current)
           // The field claims Escape so cancelling a rename does not close the card. It has to give

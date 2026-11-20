@@ -7,7 +7,7 @@
  */
 import { compileQuery } from '../../../lib/query-match'
 import { FilterInput } from '../../../components/FilterInput'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { cn } from '../../../lib/cn'
 
 export function SearchField({
@@ -40,7 +40,7 @@ export function SearchField({
       className={cn('mt-0', className)}
       onKeyDown={(event) => {
         if (!onSubmit || isImeComposing(event)) return
-        if (event.key === 'Enter') {
+        if (isEnterKey(event)) {
           event.preventDefault()
           onSubmit()
         }

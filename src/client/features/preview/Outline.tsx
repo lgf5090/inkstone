@@ -24,7 +24,7 @@ import { renderMarkdown, renderOutlineLabel } from '../../lib/markdown/renderer'
 import { createPortal } from 'react-dom';
 import { popoverPosition, type AnchorRect } from './outline-float';
 import { cn } from '../../lib/cn';
-import { isImeComposing } from '../../lib/ime';
+import { isImeComposing, isEnterKey } from '../../lib/ime';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { useFilterInput } from '../../components/FilterInput';
 import { treeItemProps, useExpandedSet, useTreeKeyboard } from '../../lib/tree';
@@ -712,7 +712,7 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
                 onCommitRename(node.index, event.currentTarget.value);
             }} onKeyDown={(event) => {
                 if (isImeComposing(event)) return;
-                if (event.key === 'Enter') {
+                if (isEnterKey(event)) {
                     event.preventDefault();
                     event.stopPropagation();
                     committedRef.current = true;

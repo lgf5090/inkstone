@@ -4,7 +4,7 @@ import type { GithubCollection, GithubTag, GithubViewId, SavedGithubRepo } from 
 import { GITHUB_ALL_VIEW, GITHUB_COLLECTION_VIEW_PREFIX, GITHUB_EXPLORE_VIEW, GITHUB_FAV_VIEW, GITHUB_PINNED_VIEW } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { copyText } from '../../../../lib/clipboard'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { Modal, Menu, confirm, type MenuItem } from '../../../../components/overlay'
@@ -327,7 +327,7 @@ export const RepoSidebar = memo(function RepoSidebar({
             className="w-full"
           />
         ) : (
-          <Input autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={t('development.github.sidebar.name')} aria-label={t('development.github.sidebar.name')} onKeyDown={(event) => { if (event.key === 'Enter' && !isImeComposing(event)) saveDialog() }} />
+          <Input autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={t('development.github.sidebar.name')} aria-label={t('development.github.sidebar.name')} onKeyDown={(event) => { if (isEnterKey(event) && !isImeComposing(event)) saveDialog() }} />
         )}
         <p className="mt-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.sidebar.dialog_hint')}</p>
       </Modal>

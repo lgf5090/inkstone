@@ -24,7 +24,7 @@ import { t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { useDropState } from '../../lib/drop-state'
 import { useMediaQuery, useNow } from '../../lib/hooks'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { TagPill } from '../../components/TagChip'
 import { Input } from '../../components/form'
 import { Menu, useContextMenu } from '../../components/overlay'
@@ -956,7 +956,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
                 // Enter is the commit and Escape the way back out. Both cancel the keystroke: the first
                 // so the browser does not activate the row behind the field, the second so the app's
                 // own Escape does not step the reader out of a screen they were never on.
-                if (event.key === 'Enter') { event.preventDefault(); commitTitle() }
+                if (isEnterKey(event)) { event.preventDefault(); commitTitle() }
                 else if (event.key === 'Escape') { event.preventDefault(); closeTitleBox() }
               }}
               className={cn(

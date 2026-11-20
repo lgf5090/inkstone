@@ -15,7 +15,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 import type { SubscriptionItem } from '@shared/subscriptions/model'
 import { CSV_BOM, csvFilename, parseCsv, rowToInput, toCsv } from './csv'
 import { downloadTextFile } from '../../lib/export-note'
@@ -125,7 +125,7 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
                 onChange={(event) => setCategoryDraft(event.target.value)}
                 onKeyDown={(event) => {
                   if (isImeComposing(event)) return
-                  if (event.key === 'Enter') void applyCategory()
+                  if (isEnterKey(event)) void applyCategory()
                   if (event.key === 'Escape') setCategoryDraft(null)
                 }}
               />

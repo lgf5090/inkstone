@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Event, ICalendarApp } from '@dayflow/react'
 import { t, useLocale } from '../../lib/i18n'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { Button } from '../../components/primitives'
 import { Field, Input } from '../../components/form'
 import { Modal } from '../../components/overlay'
@@ -84,7 +84,7 @@ export function CalendarQuickAdd({ open, app, timeZone, onClose }: CalendarQuick
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
               if (isImeComposing(event)) return
-              if (event.key === 'Enter') {
+              if (isEnterKey(event)) {
                 event.preventDefault()
                 submit()
               }

@@ -3,7 +3,7 @@ import { Copy, GitBranch, KeyRound, Link2, Pencil, Table2, Trash2 } from 'lucide
 import type { ParsedTable, SchemaModel } from '@shared/development/database/types'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { useUi } from '../../../store/ui'
 import { Button } from '../../../components/primitives'
 import { Field, Input } from '../../../components/form'
@@ -956,7 +956,7 @@ ${schemaToMermaid(exportSchema())}
             onChange={(event) => setRename((current) => current ? { ...current, value: event.target.value } : current)}
             onKeyDown={(event) => {
               if (isImeComposing(event)) return
-              if (event.key === 'Enter') {
+              if (isEnterKey(event)) {
                 event.preventDefault()
                 confirmRename()
               }

@@ -25,7 +25,7 @@ import {
 import type { QueryHistoryEntry, QueryResult, SavedQuery, SchemaModel } from '@shared/development/database/types'
 import { HISTORY_LIMIT_MAX, MAX_QUERY_BYTES, MAX_QUERY_ROWS } from '@shared/development/database/types'
 import { splitSqlStatements, isWriteSql, isDestructiveSql, isSchemaChangeSql } from '@shared/development/database/sql-utils'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { useUi } from '../../../store/ui'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
@@ -718,7 +718,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                   <Input
                     value={String(placeholderValues[name] ?? '')}
                     onChange={(event) => setPlaceholderValues((current) => ({ ...current, [name]: event.target.value }))}
-                    onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') void execute() }}
+                    onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event)) void execute() }}
                     placeholder={t('development.database.query.placeholder_value')}
                     className="h-7 w-36 text-[length:var(--text-11)]"
                   />

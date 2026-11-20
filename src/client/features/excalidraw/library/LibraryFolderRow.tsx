@@ -28,7 +28,7 @@ import { queryMatches } from '../../../lib/query-match'
 import type { Query } from '../../../lib/query-match'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { treeIndent, treeItemProps, useTreeChildrenMount, useTreeKeyboard, type MoveMenuFolder } from '../../../lib/tree'
 import { useMediaQuery } from '../../../lib/hooks'
 import { FolderMotionIcon } from '../../../components/FolderMotionIcon'
@@ -392,7 +392,7 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
               onChange={(event) => ctx.onRenameChange(event.target.value)}
               onKeyDown={(event) => {
                 if (isImeComposing(event)) return
-                if (event.key === 'Enter') ctx.onRenameCommit(node.id)
+                if (isEnterKey(event)) ctx.onRenameCommit(node.id)
                 else if (event.key === 'Escape') ctx.onRenameCancel()
               }}
               className="h-6 w-full rounded border border-[var(--accent)] bg-[var(--bg-surface)] px-1.5 text-xs text-[var(--text-primary)] focus:outline-none"
@@ -507,7 +507,7 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
             onChange={(event) => ctx.onAddChildChange(event.target.value)}
             onKeyDown={(event) => {
               if (isImeComposing(event)) return
-              if (event.key === 'Enter') ctx.onAddChildCommit(node.id)
+              if (isEnterKey(event)) ctx.onAddChildCommit(node.id)
               else if (event.key === 'Escape') ctx.onAddCancel()
             }}
             className="h-6 flex-1 rounded border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"

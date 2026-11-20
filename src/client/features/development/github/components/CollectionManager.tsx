@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Check, Layers, Pencil, Plus, Trash2, X } from 'lucide-react'
 import type { GithubCollection } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { Modal, confirm } from '../../../../components/overlay'
@@ -136,8 +136,8 @@ export function CollectionManager({
       <div className="space-y-4">
         <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
           <h3 className="mb-2 flex items-center gap-1.5 text-[length:var(--text-13)] font-medium"><Layers size={14} /> {t('development.github.collections.create_new')}</h3>
-          <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('development.github.collections.name_placeholder')} className="h-8" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') add() }} />
-          <Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder={t('development.github.collections.description_placeholder')} className="mt-2 h-8" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') add() }} />
+          <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('development.github.collections.name_placeholder')} className="h-8" onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event)) add() }} />
+          <Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder={t('development.github.collections.description_placeholder')} className="mt-2 h-8" onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event)) add() }} />
           <SelectMenu
             label={t('development.github.collections.parent')}
             value={parentId}
@@ -164,7 +164,7 @@ export function CollectionManager({
                     {editing ? (
                       <div className="flex min-w-0 flex-1 flex-col gap-2">
                         <div className="flex items-center gap-2">
-                          <Input autoFocus value={editName} onChange={(event) => { setEditName(event.target.value); setEditError(null) }} className="h-7 flex-1" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') saveEdit(); if (event.key === 'Escape') setEditingId(null) }} />
+                          <Input autoFocus value={editName} onChange={(event) => { setEditName(event.target.value); setEditError(null) }} className="h-7 flex-1" onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event)) saveEdit(); if (event.key === 'Escape') setEditingId(null) }} />
                           <IconButton label={t('common.save')} size="sm" disabled={!editName.trim()} onClick={saveEdit}><Check size={14} /></IconButton>
                           <IconButton label={t('common.cancel')} size="sm" onClick={() => { setEditingId(null); setEditError(null) }}><X size={14} /></IconButton>
                         </div>

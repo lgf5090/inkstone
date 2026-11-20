@@ -20,7 +20,7 @@ import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Menu, prompt, submenuFor, type MenuItem } from '../../../components/overlay'
 import { optionColorItems } from '../card-menu'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { useEvent } from '../../../lib/hooks'
 import { useProjectPeople } from '../people-context'
 import { QuickAdd, ViewShell } from './shell'
@@ -583,7 +583,7 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
             onChange={(event) => onDraft(event.target.value)}
             onBlur={onCommit}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !isImeComposing(event)) { event.preventDefault(); onCommit() }
+              if (isEnterKey(event) && !isImeComposing(event)) { event.preventDefault(); onCommit() }
               else if (event.key === 'Escape' && !isImeComposing(event)) { event.preventDefault(); onCancelRename() }
             }}
           />

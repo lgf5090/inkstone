@@ -6,7 +6,7 @@
  * mind map has with its drawing library. A note full of JSON that is only ever read as text pays nothing.
  */
 import { t } from '../../lib/i18n';
-import { isImeComposing } from '../../lib/ime';
+import { isImeComposing, isEnterKey } from '../../lib/ime';
 import { applyFencePatchAtSource, fenceAt } from '../../lib/markdown/fence-edit';
 import type { JsonDocument, JsonFailure, JsonNode, JsonPath } from '../../lib/markdown/json-view';
 import {
@@ -674,7 +674,7 @@ function startInlineEdit(
     input.addEventListener('blur', () => finish(true));
     input.addEventListener('keydown', (event: KeyboardEvent) => {
         if (isImeComposing(event)) return;
-        if (event.key === 'Enter') {
+        if (isEnterKey(event)) {
             event.preventDefault();
             event.stopPropagation();
             finish(true);

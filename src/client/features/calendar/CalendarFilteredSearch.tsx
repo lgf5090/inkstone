@@ -4,7 +4,7 @@ import { CalendarDays, CalendarSearch } from 'lucide-react'
 import type { CalendarDto, CalendarEventDto, CalendarSearchResultDto } from '@shared/calendar/model'
 import { parseTemporalValue } from '@shared/calendar/model'
 import { t, useLocale } from '../../lib/i18n'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Input, Select } from '../../components/form'
 import { DatePicker } from '../../components/date-picker'
@@ -108,7 +108,7 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
               onChange={(event) => setKeyword(event.target.value)}
               onKeyDown={(event) => {
                 if (isImeComposing(event)) return
-                if (event.key === 'Enter') {
+                if (isEnterKey(event)) {
                   event.preventDefault()
                   void submit()
                 }

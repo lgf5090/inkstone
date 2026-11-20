@@ -44,6 +44,7 @@ import { vaultEntries, vaultFeedId } from './vault'
 import { useNotes } from '../../store/notes'
 import { openSavedNote } from './notes'
 import { shortSince } from '../../lib/time'
+import { isEnterKey } from '../../lib/ime'
 
 const PAGE = 60
 
@@ -194,7 +195,7 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
         window.open(entries[current].link, '_blank', 'noopener,noreferrer')
         return
       }
-      if (event.key === 'Enter') {
+      if (isEnterKey(event)) {
         if (current < 0) return
         event.preventDefault()
         state.openEntry(entries[current].id)

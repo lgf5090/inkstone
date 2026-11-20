@@ -30,7 +30,7 @@ import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox, Input } from '../../../components/form'
 import { SelectMenu } from '../../../components/select-menu'
 import { prompt } from '../../../components/overlay'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { createProjectCard } from '../api'
 import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
@@ -500,7 +500,7 @@ export function GanttView(props: GanttProps): ReactElement {
                     onChange={(event) => setRenaming({ id: card.id, value: event.target.value })}
                     onBlur={() => { void commitRename() }}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !isImeComposing(event)) { event.preventDefault(); void commitRename() }
+                      if (isEnterKey(event) && !isImeComposing(event)) { event.preventDefault(); void commitRename() }
                       else if (event.key === 'Escape' && !isImeComposing(event)) { event.preventDefault(); setRenaming(null) }
                     }}
                   />

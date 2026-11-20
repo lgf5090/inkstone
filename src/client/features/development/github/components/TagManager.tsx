@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Check, Pencil, Plus, Tag as TagIcon, Trash2, X } from 'lucide-react'
 import type { GithubTag } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { Modal, confirm } from '../../../../components/overlay'
@@ -104,7 +104,7 @@ export function TagManager({
             <TagIcon size={14} /> {t('development.github.tags.create_new')}
           </h3>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('development.github.tags.name_placeholder')} className="h-8" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') add() }} />
+            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('development.github.tags.name_placeholder')} className="h-8" onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event)) add() }} />
             <SelectMenu value={parentId} options={parentOptions} onChange={setParentId} label={t('development.github.tags.top_level')} size="sm" searchable />
           </div>
           <div className="mt-2">
@@ -134,7 +134,7 @@ export function TagManager({
                     {editing ? (
                       <div className="flex min-w-0 flex-1 flex-col gap-2">
                         <div className="flex items-center gap-2">
-                          <Input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className="h-7 flex-1" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') saveEdit(); if (event.key === 'Escape') setEditingId(null) }} />
+                          <Input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className="h-7 flex-1" onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event)) saveEdit(); if (event.key === 'Escape') setEditingId(null) }} />
                           <IconButton label={t('common.save')} size="sm" onClick={saveEdit}><Check size={14} /></IconButton>
                           <IconButton label={t('common.cancel')} size="sm" onClick={() => setEditingId(null)}><X size={14} /></IconButton>
                         </div>

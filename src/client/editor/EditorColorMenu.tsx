@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Ban } from 'lucide-react';
 import { isOrganizerColor, organizerColorContrast, organizerColorLabel } from '@shared/organizer-colors';
 import { t } from '../lib/i18n';
-import { isImeComposing } from '../lib/ime';
+import { isImeComposing, isEnterKey } from '../lib/ime';
 import { cn } from '../lib/cn';
 import { normalizeHexColor } from './text-format';
 import {
@@ -90,7 +90,7 @@ export function EditorColorPanel({ kind, current, onPick }: {
                     return;
                 // Enter hands the field over rather than offering itself: the panel is about to
                 // unmount, and a second offer of the same colour would read as the toggle-off.
-                if (event.key === 'Enter') {
+                if (isEnterKey(event)) {
                     event.preventDefault();
                     event.currentTarget.blur();
                 }

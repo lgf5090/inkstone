@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CircleDot, 
 import type { GithubCollection, GithubMirrorSource, GithubPrefs, GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 import { GITHUB_PER_PAGE, GITHUB_RANGE_OPTIONS, GITHUB_SORT_OPTIONS } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 import { cn } from '../../../../lib/cn'
 import { Button, IconButton, Spinner } from '../../../../components/primitives'
 import { Checkbox, Input } from '../../../../components/form'
@@ -224,7 +224,7 @@ export function RepoList({
                   }
                   return
                 }
-                if (event.key === 'Enter' && isExplore) {
+                if (isEnterKey(event) && isExplore) {
                   event.preventDefault()
                   onCommitSearch(draft)
                 }

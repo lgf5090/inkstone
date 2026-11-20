@@ -19,7 +19,7 @@ import { t, useLocale } from '../../../lib/i18n'
 import { IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Menu, type MenuItem } from '../../../components/overlay'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { useEvent } from '../../../lib/hooks'
 import { CardBadges, OptionChip } from '../CardBadges'
 import { useProjectPeople } from '../people-context'
@@ -140,7 +140,7 @@ const ListRow = memo(function ListRow({ card, child, api, expanded, renaming, dr
               onChange={(event) => api.onRenameChange(card.id, event.target.value)}
               onBlur={() => { void api.onRenameCommit() }}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && !isImeComposing(event)) { event.preventDefault(); void api.onRenameCommit() }
+                if (isEnterKey(event) && !isImeComposing(event)) { event.preventDefault(); void api.onRenameCommit() }
                 else if (event.key === 'Escape' && !isImeComposing(event)) { event.preventDefault(); api.onRenameCancel() }
               }}
             />

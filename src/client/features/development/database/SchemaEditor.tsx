@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, Loader2, Pencil, Plus, Save, Table2, Trash2, Undo2 
 import type { ParsedTable, SchemaModel } from '@shared/development/database/types'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import { t } from '../../../lib/i18n'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { cn } from '../../../lib/cn'
 import { useUi } from '../../../store/ui'
 import { Button, IconButton } from '../../../components/primitives'
@@ -359,7 +359,7 @@ export function SchemaEditor({
           onChange={(event) => setRenameValue(event.target.value)}
           onKeyDown={(event) => {
             if (isImeComposing(event)) return
-            if (event.key === 'Enter') {
+            if (isEnterKey(event)) {
               event.preventDefault()
               confirmRename()
             }
