@@ -2023,7 +2023,7 @@ export const useTodos = create<TodosState>((set, get) => ({
             try {
               await api.todos.restore(id)
             } catch (error) {
-              throw new Error(`A deleted task could not be restored: ${error instanceof Error ? error.message : String(error)}`)
+              throw new Error(`A deleted task could not be restored: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
             }
           }
           await get().load()

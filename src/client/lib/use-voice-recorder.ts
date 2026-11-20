@@ -230,9 +230,8 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     if (stopPromiseRef.current) return stopPromiseRef.current
     const recorder = recorderRef.current
     if (!recorder || recorder.state === 'inactive') return Promise.resolve(null)
-    const promise = new Promise<File | null>((resolve) => {
-      stopResolveRef.current = resolve
-    })
+    const { promise, resolve } = Promise.withResolvers<File | null>()
+    stopResolveRef.current = resolve
     stopPromiseRef.current = promise
     setStatus('stopping')
     try {

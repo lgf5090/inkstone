@@ -42,7 +42,7 @@ export function assertTursoUrl(raw: string): string {
     const reason = error instanceof Error
       ? error.message.replace(/AI provider/g, 'database host')
       : 'the address is not reachable'
-    throw new Error(`The Turso URL is not reachable: ${reason}`)
+    throw new Error(`The Turso URL is not reachable: ${reason}`, { cause: error })
   }
   return parsed.toString()
 }

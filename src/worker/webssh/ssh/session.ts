@@ -285,17 +285,16 @@ export class SSHSession {
       exitSignal: null,
     }
     this.channels.set(localId, entry)
-    const opened = new Promise<void>((resolve, reject) => {
-      entry.openResolve = resolve
-      entry.openReject = reject
-    })
+    const opened = Promise.withResolvers<void>()
+    entry.openResolve = opened.resolve
+    entry.openReject = opened.reject
     entry.timer = setTimeout(() => {
       this.failAuxiliary(entry, new SSHSessionError('channel_rejected', `The SSH server did not open the ${name} channel in time`))
     }, SUBSYSTEM_OPEN_TIMEOUT_MS)
 
     try {
       await this.sendEncrypted(buildOpen(channel, localId))
-      await opened
+      await opened.promise
     } catch (error) {
       this.removeAuxiliary(entry)
       throw error instanceof SSHSessionError

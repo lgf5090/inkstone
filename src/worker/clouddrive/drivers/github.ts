@@ -258,13 +258,13 @@ export class GitHubDriver extends HttpDriverBase implements MountDriver {
   /** Runs `work` after the previous write on this driver has finished. */
   private async withWriteQueue<T>(work: () => Promise<T>): Promise<T> {
     const previous = this.writeQueue
-    let release!: () => void
-    this.writeQueue = new Promise<void>((resolve) => { release = resolve })
+    const queue = Promise.withResolvers<void>()
+    this.writeQueue = queue.promise
     await previous
     try {
       return await work()
     } finally {
-      release()
+      queue.resolve()
     }
   }
 
