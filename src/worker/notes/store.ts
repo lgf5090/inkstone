@@ -867,6 +867,15 @@ export class NotesStore {
     ).run()
   }
 
+  async hasOtherNoteWithTitle(title: string, exceptId: string): Promise<boolean> {
+    const row = await this.db.prepare(
+      `SELECT 1 AS found FROM notes
+        WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key = ?3
+        LIMIT 1`,
+    ).bind(this.userId, exceptId, normalizeLinkKey(title)).first()
+    return Boolean(row)
+  }
+
   // ------------------------------------------------------------ trash, restore
 
   /** The next page of trashed ids, keyset-paged: a bulk purge must never hold the whole trash. */

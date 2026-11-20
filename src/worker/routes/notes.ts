@@ -351,19 +351,19 @@ notesRoutes.patch('/:id', async (c) => {
         contentChanged = true
         newHash = hash
         newContent = body.content
-        newTitle = resolvedTitle
         const { words, chars } = countText(body.content)
         columns.content = body.content
         columns.content_hash = hash
-        columns.title = newTitle
         columns.excerpt = deriveExcerpt(body.content)
         columns.word_count = words
         columns.char_count = chars
       }
-    } else if (resolvedTitle !== row.title) {
+    }
+    if (resolvedTitle !== row.title) {
       newTitle = resolvedTitle
       titleChanged = true
       columns.title = newTitle
+      columns.title_key = normalizeLinkKey(newTitle)
     }
   }
 
@@ -410,7 +410,8 @@ notesRoutes.patch('/:id', async (c) => {
   }
   let rewroteInbound = false
   if (titleChanged && row.is_encrypted === 0) {
-    if (!patch.ambiguous) {
+    const oldTitleTaken = patch.ambiguous && await s.hasOtherNoteWithTitle(row.title, id)
+    if (!oldTitleTaken) {
       const rewrite = await rewriteInboundWikiLinks(
         c.env.DB,
         userId,
