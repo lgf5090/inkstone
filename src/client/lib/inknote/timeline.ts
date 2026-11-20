@@ -50,7 +50,7 @@ export function applyTimelineEvent(content: InknotePageContent, event: InknoteTi
 
 /** Deep copy of the pages a replay will touch, so the recording cannot leave its ink behind. */
 export function snapshotReplayPages(pages: readonly { id: string; content: InknotePageContent }[]): Map<string, InknotePageContent> {
-  return new Map(pages.map((page) => [page.id, JSON.parse(JSON.stringify(page.content)) as InknotePageContent]))
+  return new Map(pages.map((page) => [page.id, structuredClone(page.content)]))
 }
 
 /** Timeline events in recorded order, capped to the byte budget the server accepts. */

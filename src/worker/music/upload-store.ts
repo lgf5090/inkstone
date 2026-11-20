@@ -481,7 +481,7 @@ export async function completeMusicUpload(
     snapshot.upload.size,
     snapshot.upload.size <= MUSIC_LIMITS.uploadSinglePartBytes ? snapshot.upload.size : MUSIC_LIMITS.uploadPartBytes,
   )
-  const parts = [...snapshot.parts].sort((left, right) => left.partNumber - right.partNumber)
+  const parts = snapshot.parts.toSorted((left, right) => left.partNumber - right.partNumber)
   if (parts.length !== expectedParts || parts.some((part, index) => part.partNumber !== index + 1)) {
     throw invalidUpload('The upload is missing one or more parts')
   }

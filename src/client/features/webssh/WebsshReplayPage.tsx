@@ -7,6 +7,7 @@ import { ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { CastPlayer } from './CastPlayer'
 import { websshApi } from './api'
+import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../lib/autocomplete'
 
 type Phase = 'loading' | 'password' | 'ready' | 'missing' | 'rate' | 'error'
 
@@ -90,7 +91,7 @@ export function WebsshReplayPage({ slug }: { slug: string }) {
               <h2 className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{t('webssh.replay.password_title')}</h2>
             </div>
             <Field label={t('webssh.replay.password_label')}>
-              <Input value={password} autoFocus type="password" onChange={(event) => setPassword(event.target.value)} />
+              <Input value={password} autoFocus type="password" autoComplete={NON_CREDENTIAL_AUTOCOMPLETE} onChange={(event) => setPassword(event.target.value)} />
             </Field>
             {error && <p className="text-[length:var(--text-11-5)] text-[var(--danger)]">{error}</p>}
             <Button variant="primary" type="submit" block>{t('webssh.replay.open_public')}</Button>

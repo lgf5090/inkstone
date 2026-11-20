@@ -7,7 +7,7 @@ import { parseProjectDateValue, projectStampToDay } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import { hasProjectCardBadges } from '@shared/project/badges'
 import { projectOptionCssColor } from '@shared/project/option-color'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import { useProjectPeople } from './people-context'
 
 import { TagPill } from '../../components/TagChip'
@@ -48,17 +48,17 @@ export function CardBadges({ badges, subtaskCount = 0, subtaskDone = 0 }: { badg
         <FileText size={13} role="img" aria-label={t('project.card.badge_description')} />
       )}
       {badges.comments > 0 && (
-        <span className="flex items-center gap-0.5" aria-label={t('project.card.badge_comments', { count: badges.comments })}>
+        <span role="img" className="flex items-center gap-0.5" aria-label={t('project.card.badge_comments', { count: badges.comments })}>
           <MessageSquare size={13} aria-hidden="true" />{badges.comments}
         </span>
       )}
       {badges.checkboxes > 0 && (
-        <span className="flex items-center gap-0.5" aria-label={t('project.card.badge_tasks', { checked: badges.checked, total: badges.checkboxes })}>
+        <span role="img" className="flex items-center gap-0.5" aria-label={t('project.card.badge_tasks', { checked: badges.checked, total: badges.checkboxes })}>
           <CheckSquare size={13} aria-hidden="true" />{badges.checked}/{badges.checkboxes}
         </span>
       )}
       {hasSubtasks && (
-        <span className="flex items-center gap-0.5 text-[var(--accent)] font-medium" aria-label={t('project.card.subtask_progress')}>
+        <span role="img" className="flex items-center gap-0.5 text-[var(--accent)] font-medium" aria-label={t('project.card.subtask_progress')}>
           <ListTodo size={13} aria-hidden="true" />{subtaskDone}/{subtaskCount}
         </span>
       )}
@@ -85,7 +85,7 @@ function isOverdue(card: ProjectCard, property: ProjectProperty, properties: rea
   const value = parseProjectDateValue(card.values[property.id] ?? '')
   if (value?.from === undefined) return false
   if (isProjectCardDone(card, properties)) return false
-  return projectStampToDay(value.to ?? value.from, value.includeTime === true).getTime() < todayStamp
+  return projectStampToDay(value.to ?? value.from, value.includeTime === true, value.timeZone).getTime() < todayStamp
 }
 
 /**
@@ -105,6 +105,7 @@ export function CardPropertyChips({ card, properties, excludePropertyId, max = 4
 }): ReactElement | null {
   const today = todayStamp ?? startOfToday()
   const people = useProjectPeople()
+  const locale = useLocale()
   const shown = properties
     .filter((property) => property.id !== excludePropertyId && !PROJECT_PROPERTY_CAPABILITIES[property.type].readOnly && card.values[property.id])
     .slice(0, max)
@@ -122,7 +123,8 @@ export function CardPropertyChips({ card, properties, excludePropertyId, max = 4
             className={`inline-flex max-w-full items-center gap-1 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] ${overdue ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--bg-sunken)] text-[var(--text-secondary)]'}`}
           >
             <Icon size={11} aria-hidden="true" className="shrink-0" />
-            <span className="truncate">{projectPropertyDisplayText(card, property, people)}</span>
+            <span className="truncate">{projectPropertyDisplayText(card, property, people, locale)}</span>
+            {overdue && <span className="sr-only"> {t('project.card.overdue')}</span>}
           </span>
         )
       })}

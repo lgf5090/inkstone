@@ -61,7 +61,7 @@ const supportsUserNamespaces = typeof entries === 'function' && typeof delMany =
 let forceUserNamespaces = false
 
 /** The kind of record a queued write names; replay dispatches on it. */
-export type OutboxEntity = 'note' | 'todo'
+export type OutboxEntity = 'note' | 'todo' | 'project'
 
 export interface OutboxItem {
   id: string
@@ -117,8 +117,10 @@ export interface QuickAddData {
 export function normalizeOutboxItem(value: unknown): OutboxItem | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const candidate = value as Partial<OutboxItem> & { noteId?: unknown }
-  if (candidate.entity !== undefined && candidate.entity !== 'note' && candidate.entity !== 'todo') return null
-  const entity: OutboxEntity = candidate.entity === 'todo' ? 'todo' : 'note'
+  if (candidate.entity !== undefined && candidate.entity !== 'note'
+      && candidate.entity !== 'todo' && candidate.entity !== 'project') return null
+  const entity: OutboxEntity = candidate.entity === 'todo' || candidate.entity === 'project'
+    ? candidate.entity : 'note'
   const entityId = typeof candidate.entityId === 'string'
     ? candidate.entityId
     : typeof candidate.noteId === 'string'

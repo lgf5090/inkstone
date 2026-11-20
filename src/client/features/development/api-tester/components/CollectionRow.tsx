@@ -25,7 +25,7 @@ import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { treeIndent } from '../../../../lib/tree/indent'
 import { StatusPill } from './StatusPill'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 import { childrenOf, subtreeIds } from '../lib/tree'
 
 export interface CollectionFolderOption {
@@ -378,7 +378,7 @@ export function CollectionRow({
             onFocus={(event) => event.target.select()}
             onKeyDown={(event) => {
               if (isImeComposing(event)) return
-              if (event.key === 'Enter') {
+              if (isEnterKey(event)) {
                 event.preventDefault()
                 finishRename(true)
               } else if (event.key === 'Escape') {

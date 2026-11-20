@@ -21,7 +21,7 @@ import { Empty } from '../../components/feedback'
 import { Field, Input } from '../../components/form'
 import { Modal, Tooltip, confirm } from '../../components/overlay'
 import { ApiError } from '../../lib/api'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { websshApi } from './api'
@@ -123,7 +123,7 @@ export function SftpPanel({
         if (cancelled) return
         setPath(listing.path)
         setPathDraft(listing.path)
-        setEntries([...listing.entries].sort((left, right) => {
+        setEntries(listing.entries.toSorted((left, right) => {
           if (left.kind === 'directory' && right.kind !== 'directory') return -1
           if (right.kind === 'directory' && left.kind !== 'directory') return 1
           return left.name.localeCompare(right.name)
@@ -390,7 +390,7 @@ export function SftpPanel({
           className="h-7 min-w-0 flex-1 font-mono text-[length:var(--text-11-5)]"
           onChange={(event) => setPathDraft(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') {
+            if (isEnterKey(event)) {
               if (isImeComposing(event)) return
               event.preventDefault()
               setPath(pathDraft.trim() || '/')

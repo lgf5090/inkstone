@@ -13,6 +13,7 @@ import { Input, Segmented, Select, SettingRow, Slider, Switch, Textarea } from '
 import { useAssistant, type WriteFailure } from './assistant-store'
 import { ToolManagerSection } from './ToolManagerSection'
 import { Group, modelOptionLabel, SaveFailure, storedKeyLabel } from './assistant-settings-shared'
+import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../lib/autocomplete'
 
 export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   const saveSettings = useAssistant((state) => state.saveSettings)
@@ -430,7 +431,7 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
                 type="password"
                 value={keyDraft}
                 maxLength={MAX_SEARCH_KEY_CHARS}
-                autoComplete="off"
+                autoComplete={NON_CREDENTIAL_AUTOCOMPLETE}
                 spellCheck={false}
                 disabled={keyBusy}
                 invalid={keyProblem !== null}

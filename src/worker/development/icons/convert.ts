@@ -98,7 +98,7 @@ async function convertPng(env: Env, shard: string, asset: JobAssetRow, options: 
 
 async function convertIco(env: Env, shard: string, asset: JobAssetRow, options: Extract<IconJobOptions, { kind: 'ico' }>, budget: Budget): Promise<ConvertedItem> {
   const entries = []
-  for (const size of [...options.sizes].sort((left, right) => left - right)) {
+  for (const size of options.sizes.toSorted((left, right) => left - right)) {
     const rendered = await pngAt(env, asset, size)
     entries.push({ size, png: rendered.png })
   }

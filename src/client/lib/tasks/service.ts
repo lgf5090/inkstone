@@ -82,7 +82,7 @@ export async function toggleTaskLine(noteId: string, line: number, text: string)
 export function toggleTaskLinesInSource(source: string, lineIndexes: number[], now: Date = new Date()): string | null {
   const settings = toggleSettings()
   let out = source
-  for (const index of [...lineIndexes].sort((a, b) => b - a)) {
+  for (const index of lineIndexes.toSorted((a, b) => b - a)) {
     const line = out.split(/\r?\n/u)[index]
     if (line === undefined) continue
     const task = parseTaskLine(line, unknownPosition('', ''), {

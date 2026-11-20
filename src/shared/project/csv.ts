@@ -20,15 +20,30 @@ const MULTI_VALUE_TYPES = new Set(['multiSelect', 'multiPerson'])
 const ROW_SEPARATOR = '\r\n'
 const BOM = '\uFEFF'
 
+/**
+ * Spreadsheet apps evaluate a cell whose text starts with `=`, `+`, `-` or `@` even when the field is
+ * quoted, so a card title can become a formula. A leading apostrophe is the portable text marker and
+ * is hidden by Excel itself; a plain negative number is not a formula and keeps its numeric cell.
+ */
+function formulaSafe(value: string): string {
+  if (/^[=+@\t\r]/.test(value)) return `'${value}`
+  if (/^-(?![\d.])/.test(value)) return `'${value}`
+  return value
+}
+
 function escapeCell(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`
+  return `"${formulaSafe(value).replace(/"/g, '""')}"`
+}
+
+function escapeNumberCell(raw: string): string {
+  return /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw.trim()) ? raw : escapeCell(raw)
 }
 
 function exportCell(card: ProjectCard, property: ProjectProperty, people: ProjectPeople): string {
   const raw = card.values[property.id] ?? ''
   switch (property.type) {
     case 'number':
-      return raw
+      return escapeNumberCell(raw)
     case 'createdBy':
       return escapeCell(projectPersonLabel(people, card.createdBy))
     case 'updatedBy':

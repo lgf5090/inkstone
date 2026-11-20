@@ -18,7 +18,7 @@ export function filterPopular(
     return cutoff === null || published >= cutoff
   })
   if (sort === 'relevance') return inRange
-  return inRange.slice().sort((left, right) => {
+  return inRange.toSorted((left, right) => {
     if (sort === 'viewCount') return right.viewCount - left.viewCount
     if (sort === 'rating') return right.likeCount - left.likeCount
     return Date.parse(right.publishedAt) - Date.parse(left.publishedAt)

@@ -12,6 +12,8 @@
  * the fallback for a provider that has not caught up.
  */
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
+import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
+import { readStreamWithinLimit } from '../lib/request'
 
 export interface RealtimeSession {
   /** The short-lived credential the WebRTC handshake is signed with. Never the provider's own key. */
@@ -54,6 +56,9 @@ export class RealtimeSessionError extends Error {
 
 /** How long a ModelBest socket waits for an explicit queue event before initializing anyway. */
 export const MODELBEST_INIT_FALLBACK_MS = 600
+
+/** A session answer is a short JSON document; anything larger is not one. */
+const MAX_SESSION_BYTES = 64 * 1024
 
 /** The most one browser audio frame may carry. A 100 ms 16 kHz Float32 frame is about 8.6 KB. */
 export const MODELBEST_MAX_FRAME_CHARS = 256_000
@@ -169,10 +174,10 @@ function readExpiry(payload: SessionShape): number | null {
 
 async function postSession(url: string, apiKey: string, body: Record<string, unknown>): Promise<Response> {
   const target = assertRelayableEndpoint(url)
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 15_000)
+  const signal = AbortSignal.timeout(15_000)
+  let response: Response
   try {
-    return await fetch(target, {
+    response = await fetch(target, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -180,13 +185,18 @@ async function postSession(url: string, apiKey: string, body: Record<string, unk
         Accept: 'application/json',
       },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      redirect: NO_REDIRECT,
+      signal,
     })
   } catch {
     throw new RealtimeSessionError(502, 'The realtime provider could not be reached.')
-  } finally {
-    clearTimeout(timer)
   }
+  // The guard vetted the first address only. Following a 30x would carry the account's long-lived key
+  // to a target that was never checked, so a redirect ends the request instead of being followed.
+  if (isRedirectResponse(response)) {
+    throw new RealtimeSessionError(502, 'The realtime provider redirected instead of answering; redirects are refused.')
+  }
+  return response
 }
 
 /**
@@ -213,7 +223,11 @@ export async function mintRealtimeSession(input: {
   }
   let payload: SessionShape
   try {
-    payload = await response.json() as SessionShape
+    const declared = Number(response.headers.get('content-length') ?? 0)
+    if (declared > MAX_SESSION_BYTES) throw new Error('session body too large')
+    const bytes = await readStreamWithinLimit(response.body, MAX_SESSION_BYTES)
+    if (!bytes) throw new Error('session body too large')
+    payload = JSON.parse(new TextDecoder().decode(bytes)) as SessionShape
   } catch {
     throw new RealtimeSessionError(502, 'The realtime provider answered with something that is not a session.')
   }

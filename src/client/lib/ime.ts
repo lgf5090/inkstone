@@ -21,3 +21,8 @@ export function isImeComposing(event: ReactKeyboardEvent | KeyboardEvent): boole
   const native = 'nativeEvent' in event ? event.nativeEvent : event
   return native.isComposing || event.keyCode === IME_PROCESS_KEY_CODE
 }
+
+export function isEnterKey(event: ReactKeyboardEvent | KeyboardEvent): boolean {
+  const native = 'nativeEvent' in event ? event.nativeEvent : event
+  return native.key === 'Enter'
+}

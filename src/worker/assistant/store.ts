@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, CONVERSATION_ORIGINS, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, PROJECT_MCP_MODES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, normalizeConversationSettings, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, CONVERSATION_ORIGINS, LOG_BATCH_DELETE_LIMIT, LOG_MAX_PAGE_SIZE, LOG_MAX_ROWS_LIMIT, LOG_NOTE_MAX_CHARS, LOG_PAGE_SIZE, LOG_QUERY_MAX_CHARS, LOG_RETENTION_MAX_DAYS, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, PROJECT_MCP_MODES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, normalizeConversationSettings, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import { activePricePeriod, parsePricePeriods } from '@shared/price-periods'
 import { parseAssistantIcon } from '@shared/assistant-icons'
 import type {
@@ -43,6 +43,24 @@ import type {
   AssistantNotification,
   AssistantProvider,
   AssistantProviderKey,
+  AssistantKeyProbe,
+  AssistantKeyProbeOutcome,
+  AssistantKeyStats,
+  AssistantRequestLog,
+  AssistantLogQuery,
+  AssistantLogPage,
+  AssistantLogFacets,
+  AssistantLogPatch,
+  AssistantLogCleanup,
+  AssistantLogCleanupResult,
+  AssistantStatsQuery,
+  AssistantStatsReport,
+  AssistantStatsDimension,
+  AssistantStatsSummary,
+  AssistantStatsBucket,
+  AssistantStatsBreakdown,
+  AssistantStatsScope,
+  AssistantKeyProbeReason,
   AssistantSearchKey,
   AssistantReasoning,
   AssistantSettings,
@@ -311,10 +329,33 @@ function applyMemoryScope(q: Query, scope: MemoryScope | undefined, column = 'pr
  * `length(key_ciphertext) > 0` answers "is a key stored" without the ciphertext ever leaving the row,
  * so no provider listing can carry a key out even if a route is added carelessly later.
  */
-const PROVIDER_COLUMNS = `id, label, protocol, base_url, endpoints, reasoning_dialect, key_hint, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
+const PROVIDER_COLUMNS = `id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_hint, key_last_used_at, length(key_ciphertext) > 0 AS has_key, sticky, created_at, updated_at`
 
 /** A provider key row, ciphertext included: read only by the rotation, never by a listing. */
-const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, enabled, last_used_at, error_count, last_error, created_at, updated_at`
+const PROVIDER_KEY_COLUMNS = `id, provider_id, label, key_ciphertext, key_hint, enabled, last_used_at, error_count, last_error, cooling_until, created_at, updated_at`
+
+/**
+ * How long a refused key rests, at the rate the compiler decides.
+ *
+ * Short at the bottom on purpose: a 429 is about the moment, not the credential, and a long first window
+ * would take a working key out of rotation on one bad answer. The caller passes the base — a rate limit's
+ * own `Retry-After` when the vendor gave one, a longer figure for a refusal that names the key — and this
+ * constant is only the floor used by callers that have nothing better to say.
+ */
+const KEY_COOLDOWN_MS = 60_000
+/** How long a plaintext reveal ticket may be redeemed; it is one use regardless. */
+export const REVEAL_TICKET_TTL_MS = 30_000
+
+const REQUEST_LOG_COLUMNS = `id, at, provider_id, provider_label, key_id, key_label, key_hint,
+  model_label, operation, ok, http_status, error_kind, error_message, input_tokens,
+  output_tokens, cached_input_tokens, latency_ms, request_body, conversation_id, model_id,
+  attempt, note, starred`
+
+/** Each consecutive failure doubles the window, up to this many doublings (1 min ~= 32 min). */
+const KEY_COOLDOWN_STEPS = 5
+
+/** The ceiling of that doubling, so a key that keeps failing is still retried once an hour. */
+const KEY_COOLDOWN_CAP_MS = 60 * 60_000
 
 /**
  * A search engine's key, ciphertext included.
@@ -576,6 +617,32 @@ export const TASK_VISIBLE_PREDICATE = taskVisible()
 export const TODO_TRASH_PURGE_LIMIT = 200
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const HOUR_MS = 3_600_000
+
+/** An auto-refresh asks for the same four aggregates again and again; ten seconds is one refresh tick. */
+const STATS_CACHE_TTL_MS = 10_000
+const statsCache = new Map<string, { at: number, signature: string, report: AssistantStatsReport }>()
+
+const LOG_SORT_COLUMNS: Record<string, string> = {
+  at: 'at',
+  provider: 'provider_label',
+  model: 'model_label',
+  key: 'key_hint',
+  operation: 'operation',
+  status: 'ok',
+  latency: 'COALESCE(latency_ms, -1)',
+  tokens: '(input_tokens + output_tokens)',
+  attempt: 'attempt',
+}
+
+const STATS_GROUP_COLUMNS: Record<AssistantStatsDimension, string> = {
+  provider: 'provider_id',
+  key: 'key_id',
+  model: `COALESCE(NULLIF(model_label, ''), model_id)`,
+  operation: 'operation',
+  status: 'CAST(ok AS TEXT)',
+  day: `CAST((at / ${DAY_MS}) * ${DAY_MS} AS TEXT)`,
+}
 
 function decodeAction(value: unknown): PendingAction | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -1462,6 +1529,21 @@ export class AssistantStore {
     readonly env: Env,
   ) {}
 
+  /**
+   * One decrypt per ciphertext per request. A failover chain can read the same key several times, and
+   * HKDF + AES-GCM is the expensive part of each read; the store itself is created per request, so a
+   * plaintext never outlives the turn that needed it.
+   */
+  private readonly decryptedKeys = new Map<string, string>()
+
+  private async decryptKey(ciphertext: string): Promise<string> {
+    const held = this.decryptedKeys.get(ciphertext)
+    if (held !== undefined) return held
+    const key = (await decryptAssistantKey(this.env, this.userId, ciphertext)) ?? ''
+    this.decryptedKeys.set(ciphertext, key)
+    return key
+  }
+
   private rows<T>(sql: string, ...binds: unknown[]): Promise<T[]> {
     assertScoped(sql)
     return this.db.prepare(sql).bind(...binds).all<T>().then((r) => r.results ?? [])
@@ -1558,7 +1640,7 @@ export class AssistantStore {
   /** Includes the ciphertext: only the worker may hold it, and only to sign one upstream request. */
   async providerRecord(id: string): Promise<ProviderRow | null> {
     const stored = await this.one<Omit<ProviderRow, 'protocol'> & { protocol: string }>(
-      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, key_last_used_at, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, key_last_used_at, sticky, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -1578,6 +1660,7 @@ export class AssistantStore {
     label: string, icon?: string, protocol: AssistantProtocol, baseUrl: string, apiKey: string,
     endpoints?: Partial<Record<AssistantProtocol, string>>,
     reasoningDialect?: ReasoningDialect | null,
+    sticky?: boolean,
   }): Promise<AssistantProvider> {
     const id = newId()
     const at = Date.now()
@@ -1589,10 +1672,13 @@ export class AssistantStore {
     // characters have to travel with the row the way an extra key's already do.
     const hint = key ? key.slice(-4) : ''
     await this.write(
-      `INSERT INTO chat_providers (id, user_id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?12, ?4, ?5, ?9, ?10, ?6, ?11, ?7, ?8)`,
+      `INSERT INTO chat_providers (id, user_id, label, icon, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, sticky, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?12, ?4, ?5, ?9, ?10, ?6, ?11, ?13, ?7, ?8)`,
       id, input.label, input.protocol, input.baseUrl, ciphertext, at, at,
-      JSON.stringify(input.endpoints ?? {}), dialect, hint, icon,
+      // A database created by an earlier migration made this column NOT NULL DEFAULT '' while the
+      // current DDL lets it be null. Both read back as "no pin" through `reasoningDialectValue`, so the
+      // empty string is written here as the value both shapes accept.
+      JSON.stringify(input.endpoints ?? {}), dialect ?? '', hint, icon, input.sticky ? 1 : 0,
     )
     return {
       id,
@@ -1602,8 +1688,10 @@ export class AssistantStore {
       baseUrl: input.baseUrl,
       endpoints: input.endpoints ?? {},
       reasoningDialect: dialect,
+      sticky: Boolean(input.sticky),
       hasKey: Boolean(ciphertext),
       keyHint: hint,
+      keyLastUsedAt: null,
       createdAt: at,
       updatedAt: at,
     }
@@ -1615,6 +1703,7 @@ export class AssistantStore {
       label?: string, icon?: string, protocol?: AssistantProtocol, baseUrl?: string, apiKey?: string | null,
       endpoints?: Partial<Record<AssistantProtocol, string>>,
       reasoningDialect?: ReasoningDialect | null,
+      sticky?: boolean,
     },
   ): Promise<AssistantProvider | null> {
     const existing = await this.providerRecord(id)
@@ -1639,7 +1728,9 @@ export class AssistantStore {
       protocol,
       patch.reasoningDialect !== undefined ? patch.reasoningDialect : reasoningDialectValue(existing.reasoning_dialect),
     )
-    if (patch.reasoningDialect !== undefined || patch.protocol !== undefined) set('reasoning_dialect', dialect)
+    // Same reason as the insert above: an older database's column is NOT NULL, and '' is what both
+    // shapes read as "no pin".
+    if (patch.reasoningDialect !== undefined || patch.protocol !== undefined) set('reasoning_dialect', dialect ?? '')
     // A patch that says nothing about the key keeps the stored ciphertext and its hint: the row still
     // holds that key, and clearing the hint would make a saved key look missing on the next listing.
     if (patch.apiKey === null) {
@@ -1649,6 +1740,7 @@ export class AssistantStore {
       set('key_ciphertext', await encryptAssistantKey(this.env, this.userId, patch.apiKey))
       set('key_hint', patch.apiKey.trim().slice(-4))
     }
+    if (patch.sticky !== undefined) set('sticky', patch.sticky ? 1 : 0)
     set('updated_at', Date.now())
     await this.partialUpdate('chat_providers', id, fields)
     return await this.getProvider(id)
@@ -1685,7 +1777,7 @@ export class AssistantStore {
     )
     return {
       id, providerId, label, hasKey: true, keyHint: key.slice(-4), enabled: true,
-      lastUsedAt: null, errorCount: 0, lastError: null, createdAt: at, updatedAt: at,
+      lastUsedAt: null, errorCount: 0, lastError: null, coolingUntil: null, createdAt: at, updatedAt: at,
     }
   }
 
@@ -1803,8 +1895,23 @@ export class AssistantStore {
    * cursor to keep — a key never used sorts ahead of one used a minute ago, and `created_at` breaks the
    * tie so the order is stable rather than whichever row the database happened to return.
    */
-  async pickProviderKey(record: ProviderRow): Promise<{ keyId: string, key: string, label: string } | null> {
-    const ring: Array<{ keyId: string, ciphertext: string, lastUsedAt: number, order: number, label: string }> = []
+  async pickProviderKey(
+    record: ProviderRow,
+    model?: string,
+    refused?: ReadonlySet<string>,
+  ): Promise<{ keyId: string, key: string, label: string } | null> {
+    // Which keys cannot serve *this* model, as distinct from which keys are resting for their own reasons.
+    // Callers that are not about a model (a balance reading, a voice session) pass nothing and see none.
+    const blocked = new Set<string>()
+    if (model) {
+      const rows = await this.rows<{ key_id: string }>(
+        `SELECT key_id FROM chat_provider_key_model_cooldowns
+          WHERE user_id = ?1 AND provider_id = ?2 AND model = ?3 AND cooling_until > ?4`,
+        this.userId, record.id, model, Date.now(),
+      )
+      for (const row of rows) blocked.add(row.key_id)
+    }
+    const ring: Array<{ keyId: string, ciphertext: string, lastUsedAt: number, order: number, label: string, cooling: boolean }> = []
     if (record.key_ciphertext) {
       ring.push({
         keyId: '',
@@ -1812,6 +1919,10 @@ export class AssistantStore {
         lastUsedAt: record.key_last_used_at ?? 0,
         order: -1,
         label: record.label,
+        // The provider's own row has no place to keep a key-level refusal, so it cannot rest for one. A
+        // model it could not serve is a different fact and is kept here like any other key's. A refusal
+        // from this turn is held by the caller and rests the key for the turn only.
+        cooling: blocked.has('') || Boolean(refused?.has('')),
       })
     }
     const extras = await this.rows<ProviderKeyRow>(
@@ -1821,12 +1932,24 @@ export class AssistantStore {
     )
     for (const row of extras) {
       if (!row.key_ciphertext) continue
-      ring.push({ keyId: row.id, ciphertext: row.key_ciphertext, lastUsedAt: row.last_used_at ?? 0, order: row.created_at, label: row.label })
+      ring.push({
+        keyId: row.id, ciphertext: row.key_ciphertext,
+        lastUsedAt: row.last_used_at ?? 0, order: row.created_at, label: row.label,
+        cooling: (row.cooling_until ?? 0) > Date.now() || blocked.has(row.id) || Boolean(refused?.has(row.id)),
+      })
     }
     if (!ring.length) return null
-    ring.sort((left, right) => (left.lastUsedAt - right.lastUsedAt) || (left.order - right.order))
+    ring.sort((left, right) => {
+      const resting = Number(left.cooling) - Number(right.cooling)
+      if (resting !== 0) return resting
+      // Sticky keeps the ring's own order: the same key answers every turn, which is what a vendor's
+      // prompt cache keys on. Rotation is the default because it spreads a rate limit across keys, and a
+      // reader who chose sticky chose the other trade.
+      if (record.sticky) return left.order - right.order
+      return (left.lastUsedAt - right.lastUsedAt) || (left.order - right.order)
+    })
     for (const candidate of ring) {
-      const key = (await decryptAssistantKey(this.env, this.userId, candidate.ciphertext)) ?? ''
+      const key = await this.decryptKey(candidate.ciphertext)
       if (key) return { keyId: candidate.keyId, key, label: candidate.label }
     }
     return null
@@ -1874,14 +1997,768 @@ export class AssistantStore {
     await this.write(`UPDATE chat_providers SET key_last_used_at = ?2 WHERE user_id = ?1 AND id = ?3`, at, providerId)
   }
 
-  /** What a key last said when it failed, for the row that has to show which one is broken. */
-  async recordProviderKeyError(keyId: string, message: string): Promise<void> {
+  /**
+   * What a key last said when it failed, and how long that keeps it out of the rotation.
+   *
+   * The deadline is stored rather than derived from `updated_at`, because that column is also touched by
+   * a rename or a switch — a cooldown a name change can extend is not a cooldown. Each consecutive failure
+   * doubles the window; `clearProviderKeyFailure` puts it back to zero the moment the key answers again,
+   * which is the only evidence that beats a guess.
+   */
+  async recordProviderKeyError(keyId: string, message: string, baseCoolingMs = KEY_COOLDOWN_MS): Promise<void> {
+    if (!keyId) return
+    const row = await this.one<{ error_count: number }>(
+      `SELECT error_count FROM chat_provider_keys WHERE user_id = ?1 AND id = ?2`,
+      this.userId, keyId,
+    )
+    if (!row) return
+    const at = Date.now()
+    const window = Math.min(
+      Math.max(baseCoolingMs, 1_000) * 2 ** Math.min(row.error_count ?? 0, KEY_COOLDOWN_STEPS),
+      KEY_COOLDOWN_CAP_MS,
+    )
+    await this.write(
+      `UPDATE chat_provider_keys SET error_count = error_count + 1, last_error = ?2, cooling_until = ?3, updated_at = ?4
+         WHERE user_id = ?1 AND id = ?5`,
+      message.slice(0, 300), at + window, at, keyId,
+    )
+  }
+
+  /**
+   * A key that just answered is a key that works.
+   *
+   * The failure count and the cooldown are cleared together: keeping the count would make the next
+   * unrelated slip double a window the reader had already recovered from. `model` clears that model's own
+   * narrower cooldown in the same pass, because both facts were proved by the same answer. A manual
+   * reset names no model, so every narrower cooldown the key earned goes with it.
+   */
+  async clearProviderKeyFailure(keyId: string, providerId?: string, model?: string): Promise<void> {
     if (!keyId) return
     await this.write(
-      `UPDATE chat_provider_keys SET error_count = error_count + 1, last_error = ?2, updated_at = ?3
-         WHERE user_id = ?1 AND id = ?4`,
-      message.slice(0, 300), Date.now(), keyId,
+      `UPDATE chat_provider_keys SET error_count = 0, last_error = NULL, cooling_until = NULL
+         WHERE user_id = ?1 AND id = ?2 AND (error_count > 0 OR cooling_until IS NOT NULL)`,
+      keyId,
     )
+    if (providerId && model) {
+      await this.write(
+        `DELETE FROM chat_provider_key_model_cooldowns
+          WHERE user_id = ?1 AND provider_id = ?2 AND key_id = ?3 AND model = ?4`,
+        providerId, keyId, model,
+      )
+    } else if (providerId) {
+      await this.write(
+        `DELETE FROM chat_provider_key_model_cooldowns
+          WHERE user_id = ?1 AND provider_id = ?2 AND key_id = ?3`,
+        providerId, keyId,
+      )
+    }
+  }
+
+  /**
+   * Records that one key could not serve one model, without touching the key's own health.
+   *
+   * Written by the failures that name the request rather than the credential — a model this key has no
+   * access to. Cooling the whole key for it would take a working credential out of every other turn, which
+   * is exactly the confusion multi-key rings exist to avoid.
+   */
+  async recordKeyModelCooldown(keyId: string, providerId: string, model: string, coolingMs: number): Promise<void> {
+    const until = Date.now() + Math.max(coolingMs, 1_000)
+    await this.write(
+      `INSERT INTO chat_provider_key_model_cooldowns (user_id, provider_id, key_id, model, cooling_until)
+       VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(user_id, provider_id, key_id, model) DO UPDATE SET cooling_until = excluded.cooling_until`,
+      providerId, keyId, model, until,
+    )
+  }
+
+  /** Replaces this key's last probe result: one row per key, because a history would be a log nobody reads. */
+  async recordKeyProbe(
+    providerId: string,
+    probe: { keyId: string, outcome: AssistantKeyProbeOutcome, reason: AssistantKeyProbeReason | null, latencyMs: number | null },
+  ): Promise<AssistantKeyProbe> {
+    const at = Date.now()
+    await this.write(
+      `INSERT INTO chat_provider_key_probes (user_id, provider_id, key_id, outcome, reason, latency_ms, probed_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+       ON CONFLICT(user_id, provider_id, key_id) DO UPDATE SET
+         outcome = excluded.outcome, reason = excluded.reason,
+         latency_ms = excluded.latency_ms, probed_at = excluded.probed_at`,
+      providerId, probe.keyId, probe.outcome, probe.reason, probe.latencyMs, at,
+    )
+    return { ...probe, probedAt: at }
+  }
+
+  /** What the last probe concluded about each of this provider's keys, keyed by the empty string for its own. */
+  async listKeyProbes(providerId: string): Promise<AssistantKeyProbe[]> {
+    const rows = await this.rows<{ key_id: string, outcome: string, reason: string | null, latency_ms: number | null, probed_at: number }>(
+      `SELECT key_id, outcome, reason, latency_ms, probed_at FROM chat_provider_key_probes
+        WHERE user_id = ?1 AND provider_id = ?2`,
+      this.userId, providerId,
+    )
+    return rows.map((row) => ({
+      keyId: row.key_id,
+      outcome: row.outcome as AssistantKeyProbeOutcome,
+      reason: (row.reason as AssistantKeyProbeReason | null) ?? null,
+      latencyMs: row.latency_ms,
+      probedAt: row.probed_at,
+    }))
+  }
+
+  /**
+   * Decrypts one stored key for the reader who asked to see it.
+   *
+   * Every other door hands out four characters. This is the only one that returns the plaintext, and it
+   * writes an activity line before it does: a credential that can be read is a credential whose readings
+   * are worth counting. `keyId` `''` is the provider's own key, the same way every surface names it.
+   */
+  async revealProviderKey(
+    providerId: string, keyId: string,
+    context: { sessionId?: string, ip?: string, userAgent?: string } = {},
+  ): Promise<{ key: string, keyHint: string } | null> {
+    const record = await this.providerRecord(providerId)
+    if (!record) return null
+    const row = keyId
+      ? await this.one<ProviderKeyRow>(
+        `SELECT ${PROVIDER_KEY_COLUMNS} FROM chat_provider_keys
+           WHERE user_id = ?1 AND id = ?2 AND provider_id = ?3`,
+        this.userId, keyId, providerId,
+      )
+      : null
+    if (keyId && !row?.key_ciphertext) return null
+    const ciphertext = keyId ? (row?.key_ciphertext ?? '') : (record.key_ciphertext ?? '')
+    if (!ciphertext) return null
+    const key = (await decryptAssistantKey(this.env, this.userId, ciphertext)) ?? ''
+    if (!key) return null
+    const hint = keyId ? (row?.key_hint ?? '') : (record.key_hint ?? '')
+    await this.recordActivity('key.revealed', `${record.label} ····${hint}`)
+    // The capped activity feed answers "what happened recently"; the audit table answers "who read a
+    // credential", and must not lose that line to the next few hundred ordinary turns.
+    await this.recordSecurityAudit('key.revealed', `${record.label} ····${hint}`, context)
+    return { key, keyHint: hint }
+  }
+
+  /** Security events live in their own table, outside the activity feed's 500-row ceiling. */
+  async recordSecurityAudit(
+    kind: string, summary: string,
+    context: { sessionId?: string, ip?: string, userAgent?: string } = {},
+  ): Promise<void> {
+    await this.write(
+      `INSERT INTO chat_security_audit (id, user_id, kind, summary, session_id, ip, user_agent, created_at)
+         VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      newId(), kind.slice(0, 60), summary.slice(0, 500),
+      (context.sessionId ?? '').slice(0, 64), (context.ip ?? '').slice(0, 64),
+      (context.userAgent ?? '').slice(0, 200), Date.now(),
+    )
+  }
+
+  /** The long-retained history behind the settings' security timeline. */
+  async listSecurityAudit(limit = 100): Promise<Array<{
+    id: string, kind: string, summary: string, sessionId: string, ip: string, userAgent: string, createdAt: number,
+  }>> {
+    const rows = await this.rows<{
+      id: string, kind: string, summary: string, session_id: string, ip: string, user_agent: string, created_at: number,
+    }>(
+      `SELECT id, kind, summary, session_id, ip, user_agent, created_at FROM chat_security_audit
+         WHERE user_id = ?1 ORDER BY created_at DESC LIMIT ?2`,
+      this.userId, Math.min(Math.max(Math.trunc(limit), 1), 500),
+    )
+    return rows.map((row) => ({
+      id: row.id, kind: row.kind, summary: row.summary, sessionId: row.session_id,
+      ip: row.ip, userAgent: row.user_agent, createdAt: row.created_at,
+    }))
+  }
+
+  /** One atomic counter per account, scope and fixed window; false means the caller is over its limit. */
+  async consumeRateLimit(scope: string, limit: number, windowMs: number): Promise<boolean> {
+    const windowStart = Math.floor(Date.now() / windowMs) * windowMs
+    await this.write(
+      `INSERT INTO chat_rate_limits (user_id, scope, window_start, count) VALUES (?1, ?2, ?3, 1)
+         ON CONFLICT(user_id, scope, window_start) DO UPDATE SET count = count + 1`,
+      scope, windowStart,
+    )
+    const row = await this.one<{ count: number }>(
+      `SELECT count FROM chat_rate_limits WHERE user_id = ?1 AND scope = ?2 AND window_start = ?3`,
+      this.userId, scope, windowStart,
+    )
+    return (row?.count ?? 0) <= limit
+  }
+
+  /** A reveal ticket is single-use, session-bound and short-lived; the plaintext itself is never stored. */
+  async issueRevealTicket(
+    providerId: string, keyId: string, sessionId: string,
+  ): Promise<{ ticket: string, expiresAt: number }> {
+    if (!(await this.providerRecord(providerId))) throw new Error('Provider not found')
+    if (keyId && !(await this.one<{ id: string }>(
+      `SELECT id FROM chat_provider_keys WHERE user_id = ?1 AND id = ?2 AND provider_id = ?3`,
+      this.userId, keyId, providerId,
+    ))) throw new Error('Key not found')
+    const ticket = newId() + newId()
+    const expiresAt = Date.now() + REVEAL_TICKET_TTL_MS
+    await this.write(
+      `INSERT INTO chat_reveal_tickets (id, user_id, provider_id, key_id, session_id, expires_at, created_at)
+         VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7)`,
+      ticket, providerId, keyId, sessionId, expiresAt, Date.now(),
+    )
+    await this.write(`DELETE FROM chat_reveal_tickets WHERE user_id = ?1 AND expires_at < ?2`, Date.now())
+    return { ticket, expiresAt }
+  }
+
+  /** Atomically redeems a ticket; a second use, an expired one or another session all fail. */
+  async redeemRevealTicket(
+    ticket: string, providerId: string, keyId: string, sessionId: string,
+  ): Promise<boolean> {
+    if (!ticket || ticket.length > 64) return false
+    const redeemed = await this.write(
+      `UPDATE chat_reveal_tickets SET consumed_at = ?2
+         WHERE user_id = ?1 AND id = ?3 AND provider_id = ?4 AND key_id = ?5
+           AND session_id = ?6 AND consumed_at IS NULL AND expires_at > ?7`,
+      Date.now(), ticket, providerId, keyId, sessionId, Date.now(),
+    )
+    return redeemed > 0
+  }
+
+  /**
+   * The ring in the order the next turn would walk it, including the keys it would skip.
+   *
+   * `pickProviderKey` hands out one key and says nothing about the rest, which leaves a reader unable to
+   * answer "who goes next, and why is that one resting". This is the same ordering, published: position
+   * one is the key a turn takes, and every row carries the reason it sits where it does.
+   */
+  async keyRingOrder(providerId: string, model?: string): Promise<Array<{
+    keyId: string, label: string, keyHint: string, position: number,
+    lastUsedAt: number | null, coolingUntil: number | null, cooling: boolean, modelBlocked: boolean,
+  }>> {
+    const record = await this.providerRecord(providerId)
+    if (!record) return []
+    const blocked = new Set<string>()
+    if (model) {
+      const rows = await this.rows<{ key_id: string }>(
+        `SELECT key_id FROM chat_provider_key_model_cooldowns
+          WHERE user_id = ?1 AND provider_id = ?2 AND model = ?3 AND cooling_until > ?4`,
+        this.userId, record.id, model, Date.now(),
+      )
+      for (const row of rows) blocked.add(row.key_id)
+    }
+    const entries: Array<{
+      keyId: string, label: string, keyHint: string, lastUsedAt: number | null,
+      coolingUntil: number | null, cooling: boolean, modelBlocked: boolean, order: number,
+    }> = []
+    if (record.key_ciphertext) {
+      entries.push({
+        keyId: '', label: record.label, keyHint: record.key_hint ?? '',
+        lastUsedAt: record.key_last_used_at ?? null, coolingUntil: null,
+        cooling: blocked.has(''), modelBlocked: blocked.has(''), order: -1,
+      })
+    }
+    const extras = await this.rows<ProviderKeyRow>(
+      `SELECT ${PROVIDER_KEY_COLUMNS} FROM chat_provider_keys
+        WHERE user_id = ?1 AND provider_id = ?2 AND enabled = 1 ORDER BY created_at`,
+      this.userId, record.id,
+    )
+    for (const row of extras) {
+      if (!row.key_ciphertext) continue
+      const coolingUntil = row.cooling_until ?? null
+      entries.push({
+        keyId: row.id, label: row.label, keyHint: row.key_hint ?? '',
+        lastUsedAt: row.last_used_at ?? null, coolingUntil,
+        cooling: (coolingUntil ?? 0) > Date.now() || blocked.has(row.id),
+        modelBlocked: blocked.has(row.id), order: row.created_at,
+      })
+    }
+    entries.sort((left, right) => {
+      const resting = Number(left.cooling) - Number(right.cooling)
+      if (resting !== 0) return resting
+      if (record.sticky) return left.order - right.order
+      return ((left.lastUsedAt ?? 0) - (right.lastUsedAt ?? 0)) || (left.order - right.order)
+    })
+    return entries.map((entry, index) => ({
+      keyId: entry.keyId,
+      label: entry.label,
+      keyHint: entry.keyHint,
+      position: index + 1,
+      lastUsedAt: entry.lastUsedAt,
+      coolingUntil: entry.coolingUntil,
+      cooling: entry.cooling,
+      modelBlocked: entry.modelBlocked,
+    }))
+  }
+
+  /**
+   * One line per attempt. A turn that retried writes several, tied together by conversation and attempt.
+   *
+   * Cleanup runs in the same call: the reader's retention, row ceiling and status condition are applied
+   * before the table grows past what they chose, rather than by a timer that may never fire for an account
+   * nobody opens. Starred rows are never taken by either rule.
+   */
+  async recordRequestLog(entry: {
+    providerId: string, providerLabel: string, keyId: string, keyLabel: string, keyHint: string,
+    modelLabel: string, operation: string, ok: boolean, httpStatus?: number | null,
+    errorKind?: string | null, errorMessage?: string | null,
+    inputTokens?: number, outputTokens?: number, cachedInputTokens?: number,
+    latencyMs?: number | null, requestBody?: string | null,
+    conversationId?: string, modelId?: string, attempt?: number,
+  }): Promise<string> {
+    const id = newId()
+    await this.write(
+      `INSERT INTO chat_request_logs
+         (id, user_id, at, provider_id, provider_label, key_id, key_label, key_hint, model_label,
+          operation, ok, http_status, error_kind, error_message, input_tokens, output_tokens,
+          cached_input_tokens, latency_ms, request_body, conversation_id, model_id, attempt)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+               ?19, ?20, ?21, ?22)`,
+      id, Date.now(), entry.providerId, entry.providerLabel.slice(0, 120), entry.keyId,
+      entry.keyLabel.slice(0, 60), entry.keyHint.slice(0, 8), entry.modelLabel.slice(0, 120),
+      entry.operation, entry.ok ? 1 : 0, entry.httpStatus ?? null,
+      entry.errorKind ?? null, (entry.errorMessage ?? '').slice(0, 300) || null,
+      entry.inputTokens ?? 0, entry.outputTokens ?? 0, entry.cachedInputTokens ?? 0,
+      entry.latencyMs ?? null, entry.requestBody ?? null,
+      (entry.conversationId ?? '').slice(0, 40), (entry.modelId ?? '').slice(0, 120),
+      Math.max(1, Math.trunc(entry.attempt ?? 1)),
+    )
+    await this.sweepRequestLogs(await this.getSettings())
+    // A new attempt invalidates every short-lived aggregate rather than risk a stale count.
+    statsCache.clear()
+    return id
+  }
+
+  /** Applies the standing cleanup rules. Both are best-effort: a failed sweep must not lose the line. */
+  private async sweepRequestLogs(settings: AssistantSettings): Promise<void> {
+    const days = settings.logRetentionDays
+    if (days > 0) {
+      const clauses = ['user_id = ?1', 'starred = 0', 'at < ?2']
+      const binds: unknown[] = [Date.now() - days * 86_400_000]
+      if (settings.logCleanupStatus !== 'all') {
+        binds.push(settings.logCleanupStatus === 'ok' ? 1 : 0)
+        clauses.push(`ok = ?${binds.length + 1}`)
+      }
+      await this.write(`DELETE FROM chat_request_logs WHERE ${clauses.join(' AND ')}`, ...binds)
+    }
+    const rows = settings.logMaxRows
+    if (rows > 0) {
+      const status = settings.logCleanupStatus === 'ok' ? ' AND ok = 1'
+        : settings.logCleanupStatus === 'failed' ? ' AND ok = 0' : ''
+      // The offset delete sorts the whole table. Most writes leave the table under the ceiling, so ask
+      // for the count first and only pay for the sort on the write that actually crosses it.
+      const held = (await this.one<{ total: number }>(
+        `SELECT COUNT(*) AS total FROM chat_request_logs WHERE user_id = ?1 AND starred = 0${status}`, this.userId,
+      ))?.total ?? 0
+      if (held > rows) {
+        await this.write(
+          `DELETE FROM chat_request_logs WHERE user_id = ?1 AND starred = 0${status} AND id IN (
+             SELECT id FROM chat_request_logs WHERE user_id = ?1 AND starred = 0${status}
+              ORDER BY at DESC LIMIT -1 OFFSET ?2)`,
+          rows,
+        )
+      }
+    }
+  }
+
+  /** Fills in the tokens an attempt only learns once the provider has finished answering. */
+  async finishRequestLog(id: string, usage: {
+    inputTokens: number, outputTokens: number, cachedInputTokens?: number, latencyMs?: number | null,
+  }): Promise<void> {
+    await this.write(
+      // `COALESCE` keeps the round-trip the attempt already measured: this call only fills in tokens, and
+      // writing null over a known latency is how a log loses the number it exists to show.
+      `UPDATE chat_request_logs SET input_tokens = ?2, output_tokens = ?3, cached_input_tokens = ?4,
+              latency_ms = COALESCE(?5, latency_ms)
+         WHERE user_id = ?1 AND id = ?6`,
+      usage.inputTokens, usage.outputTokens, usage.cachedInputTokens ?? 0, usage.latencyMs ?? null, id,
+    )
+    statsCache.clear()
+  }
+
+  /**
+   * The WHERE half of every log read, delete and aggregation.
+   *
+   * Only columns named here can be reached from a query; the values all travel as binds and `instr` gives
+   * a literal substring search, so a `%` typed by the reader stays a `%` rather than becoming a wildcard.
+   */
+  private logClauses(filter: AssistantLogQuery): { where: string, binds: unknown[] } {
+    const clauses = ['user_id = ?1']
+    const binds: unknown[] = []
+    const add = (clause: string, value: unknown) => {
+      binds.push(value)
+      clauses.push(clause.replaceAll('?n', `?${binds.length + 1}`))
+    }
+    const q = (filter.q ?? '').trim().slice(0, LOG_QUERY_MAX_CHARS).toLowerCase()
+    if (q) {
+      binds.push(q)
+      const p = `?${binds.length + 1}`
+      clauses.push(`(instr(lower(provider_label), ${p}) > 0 OR instr(lower(model_label), ${p}) > 0
+        OR instr(lower(model_id), ${p}) > 0 OR instr(lower(key_hint), ${p}) > 0
+        OR instr(lower(operation), ${p}) > 0 OR instr(lower(COALESCE(error_message, '')), ${p}) > 0
+        OR instr(lower(COALESCE(note, '')), ${p}) > 0 OR instr(lower(COALESCE(request_body, '')), ${p}) > 0)`)
+    }
+    if (filter.providerId) add('provider_id = ?n', filter.providerId)
+    if (filter.keyId) add('key_id = ?n', filter.keyId)
+    if (filter.model) add('(model_label = ?n OR model_id = ?n)', filter.model)
+    if (filter.operation) add('operation = ?n', filter.operation)
+    if (filter.errorKind) add('error_kind = ?n', filter.errorKind)
+    if (filter.status === 'ok') clauses.push('ok = 1')
+    if (filter.status === 'failed') clauses.push('ok = 0')
+    if (filter.starred) clauses.push('starred = 1')
+    if (filter.from) add('at >= ?n', filter.from)
+    if (filter.to) add('at <= ?n', filter.to)
+    if (filter.sinceMs && filter.sinceMs > 0) add('at >= ?n', Date.now() - filter.sinceMs)
+    if (filter.minLatencyMs) add('latency_ms >= ?n', filter.minLatencyMs)
+    if (filter.minInputTokens) add('input_tokens >= ?n', filter.minInputTokens)
+    return { where: clauses.join(' AND '), binds }
+  }
+
+  /** One page of attempts behind the current filters, newest first, with the total behind the pager. */
+  async listRequestLogs(filter: AssistantLogQuery = {}): Promise<AssistantLogPage> {
+    const { where, binds } = this.logClauses(filter)
+    const pageSize = Math.min(Math.max(Math.trunc(filter.pageSize ?? LOG_PAGE_SIZE), 1), LOG_MAX_PAGE_SIZE)
+    const page = Math.max(Math.trunc(filter.page ?? 1), 1)
+    const sortColumn = filter.sortBy ? LOG_SORT_COLUMNS[filter.sortBy] : undefined
+    const direction = filter.sortDir === 'asc' ? 'ASC' : 'DESC'
+    const orderBy = sortColumn && filter.sortDir && filter.sortDir !== 'none'
+      ? `${sortColumn} ${direction}, at DESC, id DESC`
+      : `at ${filter.order === 'asc' ? 'ASC' : 'DESC'}, id ${filter.order === 'asc' ? 'ASC' : 'DESC'}`
+    const rows = await this.rows<RequestLogRow & { total_count?: number }>(
+      `SELECT ${REQUEST_LOG_COLUMNS}, COUNT(*) OVER() AS total_count FROM chat_request_logs WHERE ${where}
+        ORDER BY ${orderBy} LIMIT ?${binds.length + 2} OFFSET ?${binds.length + 3}`,
+      this.userId, ...binds, pageSize, (page - 1) * pageSize,
+    )
+    // A page past the end has no window row to read the total from, but the pager still needs it.
+    const total = rows.length
+      ? Number(rows[0]?.total_count ?? 0)
+      : (await this.one<{ total: number }>(
+        `SELECT COUNT(*) AS total FROM chat_request_logs WHERE ${where}`, this.userId, ...binds,
+      ))?.total ?? 0
+    return { logs: rows.map(toRequestLog), total, page, pageSize }
+  }
+
+  async getRequestLog(id: string): Promise<AssistantRequestLog | null> {
+    const row = await this.one<RequestLogRow>(
+      `SELECT ${REQUEST_LOG_COLUMNS} FROM chat_request_logs WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    return row ? toRequestLog(row) : null
+  }
+
+  /** The only two fields a reader may write on an attempt: a note and a bookmark. */
+  async patchRequestLog(id: string, patch: AssistantLogPatch): Promise<AssistantRequestLog | null> {
+    const fields: string[] = []
+    const binds: unknown[] = [id]
+    if (patch.note !== undefined) {
+      binds.push(patch.note.slice(0, LOG_NOTE_MAX_CHARS))
+      fields.push(`note = ?${binds.length + 1}`)
+    }
+    if (patch.starred !== undefined) {
+      binds.push(patch.starred ? 1 : 0)
+      fields.push(`starred = ?${binds.length + 1}`)
+    }
+    if (fields.length) {
+      await this.write(
+        `UPDATE chat_request_logs SET ${fields.join(', ')} WHERE user_id = ?1 AND id = ?2`,
+        ...binds,
+      )
+    }
+    return await this.getRequestLog(id)
+  }
+
+  /** Removes one line, a batch of ids, a slice, or the whole log. Returns how many rows went. */
+  async deleteRequestLogs(filter: {
+    id?: string, ids?: string[], providerId?: string, keyId?: string, all?: boolean,
+    /** Starring a row means "keep it"; only a caller that says so may delete one. */
+    includeStarred?: boolean,
+  }): Promise<number> {
+    const keepStarred = filter.includeStarred ? '' : ' AND starred = 0'
+    if (filter.id) {
+      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1 AND id = ?2${keepStarred}`, filter.id)
+    }
+    if (filter.ids?.length) {
+      const ids = filter.ids.slice(0, LOG_BATCH_DELETE_LIMIT)
+      const holes = ids.map((_, index) => `?${index + 2}`).join(', ')
+      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1 AND id IN (${holes})${keepStarred}`, ...ids)
+    }
+    if (filter.all) {
+      return await this.write(`DELETE FROM chat_request_logs WHERE user_id = ?1${keepStarred}`)
+    }
+    if (filter.providerId === undefined && filter.keyId === undefined) {
+      throw new Error('A log deletion needs an explicit scope or all.')
+    }
+    const clauses = ['user_id = ?1']
+    const binds: unknown[] = []
+    if (filter.providerId !== undefined) {
+      binds.push(filter.providerId)
+      clauses.push(`provider_id = ?${binds.length + 1}`)
+    }
+    if (filter.keyId !== undefined) {
+      binds.push(filter.keyId)
+      clauses.push(`key_id = ?${binds.length + 1}`)
+    }
+    return await this.write(`DELETE FROM chat_request_logs WHERE ${clauses.join(' AND ')}${keepStarred}`, ...binds)
+  }
+
+  /**
+   * A cleanup limited by the reader's current filters, by age, by how many rows to keep, or any mix.
+   *
+   * At least one of age or row count is required: a cleanup with neither would mean "delete everything
+   * matching", which is what the separate clear action is for. Starred rows are kept, and `dryRun`
+   * answers how many would go so the dialog can say the number before anything is removed.
+   */
+  async cleanupRequestLogs(options: AssistantLogCleanup & AssistantLogQuery): Promise<AssistantLogCleanupResult> {
+    const days = Math.min(Math.max(Math.trunc(options.days ?? 0), 0), LOG_RETENTION_MAX_DAYS)
+    const rows = Math.min(Math.max(Math.trunc(options.rows ?? 0), 0), LOG_MAX_ROWS_LIMIT)
+    const cutoff = typeof options.cutoff === 'number' && Number.isFinite(options.cutoff)
+      ? Math.trunc(options.cutoff) : Date.now()
+    if (days <= 0 && rows <= 0) return { matched: 0, deleted: 0, cutoff }
+    const { where, binds } = this.logClauses(options)
+    const clauses = [where, 'starred = 0']
+    const ors: string[] = []
+    if (days > 0) {
+      binds.push(cutoff - days * DAY_MS)
+      ors.push(`at < ?${binds.length + 1}`)
+    }
+    if (rows > 0) {
+      binds.push(rows)
+      // "Keep N" ranks the rows the reader is looking at, not the whole account behind their back.
+      ors.push(`id IN (SELECT id FROM chat_request_logs WHERE ${where} AND starred = 0
+        ORDER BY at DESC LIMIT -1 OFFSET ?${binds.length + 1})`)
+    }
+    clauses.push(`(${ors.join(' OR ')})`)
+    const filter = clauses.join(' AND ')
+    const matched = (await this.one<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM chat_request_logs WHERE ${filter}`, this.userId, ...binds,
+    ))?.total ?? 0
+    if (options.dryRun) return { matched, deleted: 0, cutoff }
+    return { matched, deleted: await this.write(`DELETE FROM chat_request_logs WHERE ${filter}`, ...binds), cutoff }
+  }
+
+  /** The values the filter menus can offer, drawn from rows the account actually has. */
+  async logFacets(): Promise<AssistantLogFacets> {
+    const providers = await this.rows<{ id: string, label: string }>(
+      `SELECT provider_id AS id, MAX(provider_label) AS label FROM chat_request_logs
+        WHERE user_id = ?1 AND provider_id <> '' GROUP BY provider_id ORDER BY label`, this.userId,
+    )
+    const keys = await this.rows<{ id: string, label: string, provider_id: string, key_hint: string }>(
+      `SELECT key_id AS id, MAX(key_label) AS label, MAX(provider_id) AS provider_id, MAX(key_hint) AS key_hint
+         FROM chat_request_logs WHERE user_id = ?1 AND key_id <> '' GROUP BY key_id ORDER BY label`, this.userId,
+    )
+    const models = await this.rows<{ value: string }>(
+      `SELECT DISTINCT COALESCE(NULLIF(model_label, ''), model_id) AS value FROM chat_request_logs
+        WHERE user_id = ?1 AND COALESCE(NULLIF(model_label, ''), model_id) <> '' ORDER BY value`, this.userId,
+    )
+    const operations = await this.rows<{ value: string }>(
+      `SELECT DISTINCT operation AS value FROM chat_request_logs WHERE user_id = ?1 ORDER BY value`, this.userId,
+    )
+    const errorKinds = await this.rows<{ value: string }>(
+      `SELECT DISTINCT error_kind AS value FROM chat_request_logs
+        WHERE user_id = ?1 AND error_kind IS NOT NULL AND error_kind <> '' ORDER BY value`, this.userId,
+    )
+    return {
+      providers,
+      keys: keys.map((row) => ({ id: row.id, label: row.label, providerId: row.provider_id, keyHint: row.key_hint })),
+      models: models.map((row) => row.value),
+      operations: operations.map((row) => row.value),
+      errorKinds: errorKinds.map((row) => row.value),
+    }
+  }
+
+  /**
+   * The three answers the statistics screen needs from one filtered slice: totals, a trend and a ranking.
+   *
+   * All of them read the attempt log rather than the daily rollups. The rollups cannot answer a question
+   * about a model, a provider or a status, and an attempt that failed before a token was counted is
+   * exactly the row this screen exists to explain.
+   */
+  async logStats(query: AssistantStatsQuery): Promise<AssistantStatsReport> {
+    const cacheKey = JSON.stringify([this.userId, query])
+    const cached = statsCache.get(cacheKey)
+    // COUNT plus MAX(at) is a cheap indexed fingerprint: two writes inside the same millisecond still
+    // change the count, so a cached aggregate can never outlive the attempt that made it stale.
+    const marker = await this.one<{ total: number, latest: number | null }>(
+      `SELECT COUNT(*) AS total, MAX(at) AS latest FROM chat_request_logs WHERE user_id = ?1`,
+      this.userId,
+    )
+    const signature = `${marker?.total ?? 0}:${marker?.latest ?? 0}`
+    if (cached && cached.signature === signature && Date.now() - cached.at < STATS_CACHE_TTL_MS) return cached.report
+    const { where, binds } = this.logClauses(query)
+    const totals = await this.one<{
+      requests: number, succeeded: number, input_tokens: number, output_tokens: number,
+      cached_input_tokens: number, avg_ms: number | null, timed: number, last_at: number | null,
+    }>(
+      `SELECT COUNT(*) AS requests, COALESCE(SUM(ok), 0) AS succeeded,
+              COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens,
+              COALESCE(SUM(cached_input_tokens), 0) AS cached_input_tokens,
+              AVG(latency_ms) AS avg_ms, COUNT(latency_ms) AS timed, MAX(at) AS last_at
+         FROM chat_request_logs WHERE ${where}`, this.userId, ...binds,
+    )
+    const requests = totals?.requests ?? 0
+    const succeeded = totals?.succeeded ?? 0
+    let p95: number | null = null
+    if (totals?.timed) {
+      const rank = Math.min(totals.timed - 1, Math.floor(totals.timed * 0.95))
+      p95 = (await this.one<{ latency_ms: number }>(
+        `SELECT latency_ms FROM chat_request_logs WHERE ${where} AND latency_ms IS NOT NULL
+          ORDER BY latency_ms LIMIT 1 OFFSET ?${binds.length + 2}`,
+        this.userId, ...binds, rank,
+      ))?.latency_ms ?? null
+    }
+    const summary: AssistantStatsSummary = {
+      requests, succeeded, failed: requests - succeeded,
+      successRate: requests ? succeeded / requests : 0,
+      inputTokens: totals?.input_tokens ?? 0,
+      outputTokens: totals?.output_tokens ?? 0,
+      cachedInputTokens: totals?.cached_input_tokens ?? 0,
+      avgLatencyMs: totals?.avg_ms ?? null,
+      p95LatencyMs: p95,
+      lastAt: totals?.last_at ?? null,
+    }
+    const from = query.from ?? (query.sinceMs && query.sinceMs > 0 ? Date.now() - query.sinceMs : 0)
+    const to = query.to ?? Date.now()
+    const bucket = to - from <= 2 * DAY_MS ? HOUR_MS : DAY_MS
+    const series = (await this.rows<{
+      bucket: number, requests: number, failed: number, input_tokens: number, output_tokens: number, avg_ms: number | null,
+    }>(
+      `SELECT (at / ${bucket}) * ${bucket} AS bucket, COUNT(*) AS requests,
+              COALESCE(SUM(1 - ok), 0) AS failed, COALESCE(SUM(input_tokens), 0) AS input_tokens,
+              COALESCE(SUM(output_tokens), 0) AS output_tokens, AVG(latency_ms) AS avg_ms
+         FROM chat_request_logs WHERE ${where} GROUP BY bucket ORDER BY bucket`, this.userId, ...binds,
+    )).map((row): AssistantStatsBucket => ({
+      at: row.bucket, requests: row.requests, failed: row.failed,
+      inputTokens: row.input_tokens, outputTokens: row.output_tokens, avgLatencyMs: row.avg_ms,
+    }))
+    const dimension = query.dimension ?? 'provider'
+    const groups = await this.rows<{
+      id: string, requests: number, succeeded: number, failed: number,
+      input_tokens: number, output_tokens: number, avg_ms: number | null,
+    }>(
+      `SELECT ${STATS_GROUP_COLUMNS[dimension]} AS id, COUNT(*) AS requests,
+              COALESCE(SUM(ok), 0) AS succeeded, COALESCE(SUM(1 - ok), 0) AS failed,
+              COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens,
+              AVG(latency_ms) AS avg_ms
+         FROM chat_request_logs WHERE ${where} GROUP BY 1 ORDER BY requests DESC LIMIT 50`,
+      this.userId, ...binds,
+    )
+    const breakdown: AssistantStatsBreakdown[] = groups.map((row) => ({
+      id: row.id, label: row.id, requests: row.requests, succeeded: row.succeeded, failed: row.failed,
+      inputTokens: row.input_tokens, outputTokens: row.output_tokens, avgLatencyMs: row.avg_ms,
+    }))
+    const report = { summary, series, breakdown }
+    statsCache.set(cacheKey, { at: Date.now(), signature, report })
+    return report
+  }
+
+  /**
+   * Totals for one scope, read from the daily rollups and joined with the log's own latencies.
+   *
+   * The rollups answer the counts and the tokens; only the log knows how long an attempt took or when the
+   * last one happened. A slice with no rollup row but with log rows is still reported, because an attempt
+   * that failed before any token was counted is exactly the line a reader is looking for.
+   */
+  async keyStats(filter: {
+    scope: AssistantStatsScope, providerId?: string, keyId?: string, sinceDay?: string,
+  }): Promise<AssistantKeyStats[]> {
+    const clauses = ['user_id = ?1']
+    const binds: unknown[] = [this.userId]
+    if (filter.sinceDay) {
+      binds.push(filter.sinceDay)
+      clauses.push(`day >= ?${binds.length}`)
+    }
+    if (filter.providerId !== undefined) {
+      binds.push(filter.providerId)
+      clauses.push(`provider_id = ?${binds.length}`)
+    }
+    if (filter.keyId !== undefined) {
+      binds.push(filter.keyId)
+      clauses.push(`key_id = ?${binds.length}`)
+    }
+    const rows = await this.rows<{
+      provider_id: string, provider_label: string, key_id: string, key_label: string,
+      requests: number, errors: number, input_tokens: number, output_tokens: number,
+      cached_input_tokens: number, tool_calls: number,
+    }>(
+      `SELECT provider_id, MAX(provider_label) AS provider_label, key_id, MAX(key_label) AS key_label,
+              SUM(requests) AS requests, SUM(errors) AS errors, SUM(input_tokens) AS input_tokens,
+              SUM(output_tokens) AS output_tokens, SUM(cached_input_tokens) AS cached_input_tokens,
+              SUM(tool_calls) AS tool_calls
+         FROM chat_usage_daily_key WHERE ${clauses.join(' AND ')}
+        GROUP BY provider_id, key_id`,
+      ...binds,
+    )
+    // Latency and last-use come from the attempt log: the rollup has a count, not a clock.
+    const logClauses = ['user_id = ?1']
+    const logBinds: unknown[] = [this.userId]
+    if (filter.providerId !== undefined) {
+      logBinds.push(filter.providerId)
+      logClauses.push(`provider_id = ?${logBinds.length}`)
+    }
+    if (filter.keyId !== undefined) {
+      logBinds.push(filter.keyId)
+      logClauses.push(`key_id = ?${logBinds.length}`)
+    }
+    const measured = await this.rows<{
+      provider_id: string, key_id: string, provider_label: string, key_label: string, key_hint: string,
+      requests: number, failed: number, input_tokens: number, output_tokens: number,
+      cached_input_tokens: number, avg_ms: number | null, last_at: number | null,
+    }>(
+      `SELECT provider_id, key_id,
+              MAX(provider_label) AS provider_label, MAX(key_label) AS key_label, MAX(key_hint) AS key_hint,
+              COUNT(*) AS requests, COALESCE(SUM(1 - ok), 0) AS failed,
+              COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens,
+              COALESCE(SUM(cached_input_tokens), 0) AS cached_input_tokens,
+              AVG(latency_ms) AS avg_ms, MAX(at) AS last_at
+         FROM chat_request_logs WHERE ${logClauses.join(' AND ')} GROUP BY provider_id, key_id`,
+      ...logBinds,
+    )
+    const pair = (providerId: string, keyId: string): string => `${providerId}/${keyId}`
+    const timing = new Map(measured.map((row) => [pair(row.provider_id, row.key_id), row]))
+    const rollups = new Map(rows.map((row) => [pair(row.provider_id, row.key_id), row]))
+    // The union is what a reader means by "this key": a failed attempt never reaches a daily rollup,
+    // but it is the one row the insights panel exists to explain.
+    const merged = [...new Set([...rollups.keys(), ...timing.keys()])].map((pairKey) => {
+      const row = rollups.get(pairKey)
+      const clock = timing.get(pairKey)
+      const [providerId, keyId] = pairKey.split('/')
+      const requests = row?.requests ?? clock?.requests ?? 0
+      const failed = row?.errors ?? clock?.failed ?? 0
+      return {
+        id: filter.scope === 'all' ? 'all' : filter.scope === 'provider' ? providerId : keyId,
+        label: filter.scope === 'all' ? ''
+          : filter.scope === 'provider' ? (row?.provider_label ?? clock?.provider_label ?? '')
+            : (row?.key_label ?? clock?.key_label ?? ''),
+        keyHint: clock?.key_hint ?? '',
+        providerId,
+        requests,
+        succeeded: requests - failed,
+        failed,
+        inputTokens: row?.input_tokens ?? clock?.input_tokens ?? 0,
+        outputTokens: row?.output_tokens ?? clock?.output_tokens ?? 0,
+        cachedInputTokens: row?.cached_input_tokens ?? clock?.cached_input_tokens ?? 0,
+        toolCalls: row?.tool_calls ?? 0,
+        avgLatencyMs: clock?.avg_ms ?? null,
+        lastAttemptAt: clock?.last_at ?? null,
+      }
+    })
+    if (filter.scope !== 'key') {
+      // One row per provider (or one row for everything) is what the two outer levels ask for.
+      const grouped = new Map<string, AssistantKeyStats>()
+      for (const row of merged) {
+        const key = filter.scope === 'all' ? 'all' : row.providerId
+        const held = grouped.get(key)
+        if (!held) {
+          grouped.set(key, { ...row, id: key })
+          continue
+        }
+        held.requests += row.requests
+        held.succeeded += row.succeeded
+        held.failed += row.failed
+        held.inputTokens += row.inputTokens
+        held.outputTokens += row.outputTokens
+        held.cachedInputTokens += row.cachedInputTokens
+        held.toolCalls += row.toolCalls
+        held.avgLatencyMs = held.avgLatencyMs === null || row.avgLatencyMs === null
+          ? (held.avgLatencyMs ?? row.avgLatencyMs)
+          : Math.round((held.avgLatencyMs + row.avgLatencyMs) / 2)
+        held.lastAttemptAt = Math.max(held.lastAttemptAt ?? 0, row.lastAttemptAt ?? 0) || null
+      }
+      return [...grouped.values()]
+    }
+    return merged
   }
 
   /**
@@ -1893,7 +2770,7 @@ export class AssistantStore {
    */
   async vendorAccess(id: string): Promise<{ protocol: AssistantProtocol, baseUrl: string, apiKey: string } | null> {
     const row = await this.one<ProviderRow>(
-      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, key_last_used_at, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, reasoning_dialect, key_ciphertext, key_hint, key_last_used_at, sticky, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -8782,6 +9659,8 @@ export interface ProviderRow {
   /** When the provider's own key last signed a call; null until it has been used once. */
   key_last_used_at?: number | null
   has_key?: number | null
+  /** 1 when this provider should keep one key for every turn rather than rotating. */
+  sticky?: number | null
   created_at: number
   updated_at: number
 }
@@ -8810,8 +9689,64 @@ function toProvider(r: ProviderRow): AssistantProvider {
     hasKey: bool(r.has_key ?? Boolean(r.key_ciphertext)),
     // Stored beside the ciphertext, so the listing proves which key it holds without decrypting it.
     keyHint: r.key_hint ?? '',
+    keyLastUsedAt: r.key_last_used_at ?? null,
+    sticky: bool(r.sticky ?? 0),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+  }
+}
+
+interface RequestLogRow {
+  id: string
+  at: number
+  provider_id: string
+  provider_label: string
+  key_id: string
+  key_label: string
+  key_hint: string
+  model_label: string
+  operation: string
+  ok: number
+  http_status: number | null
+  error_kind: string | null
+  error_message: string | null
+  input_tokens: number
+  output_tokens: number
+  cached_input_tokens: number
+  latency_ms: number | null
+  request_body: string | null
+  conversation_id: string | null
+  model_id: string | null
+  attempt: number | null
+  note: string | null
+  starred: number | null
+}
+
+function toRequestLog(row: RequestLogRow): AssistantRequestLog {
+  return {
+    id: row.id,
+    at: row.at,
+    providerId: row.provider_id,
+    providerLabel: row.provider_label,
+    keyId: row.key_id,
+    keyLabel: row.key_label,
+    keyHint: row.key_hint,
+    modelLabel: row.model_label,
+    operation: row.operation,
+    ok: Boolean(row.ok),
+    httpStatus: row.http_status,
+    errorKind: row.error_kind,
+    errorMessage: row.error_message,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    cachedInputTokens: row.cached_input_tokens,
+    latencyMs: row.latency_ms,
+    requestBody: row.request_body,
+    conversationId: row.conversation_id ?? '',
+    modelId: row.model_id ?? '',
+    attempt: row.attempt ?? 1,
+    note: row.note ?? '',
+    starred: Boolean(row.starred),
   }
 }
 
@@ -8825,6 +9760,7 @@ interface ProviderKeyRow {
   last_used_at?: number | null
   error_count: number
   last_error?: string | null
+  cooling_until?: number | null
   created_at: number
   updated_at: number
 }
@@ -8840,6 +9776,7 @@ function toProviderKey(r: ProviderKeyRow): AssistantProviderKey {
     lastUsedAt: r.last_used_at ?? null,
     errorCount: r.error_count ?? 0,
     lastError: r.last_error ?? null,
+    coolingUntil: r.cooling_until ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }
@@ -8873,7 +9810,7 @@ function toSearchKeyPresence(r: { engine: string, has_key?: unknown, key_hint?: 
  * The columns a model row is read with. One list, because two hand-copied ones are how a new column
  * ends up written but never read back: the editor saved `purpose` and the reader saw the old value.
  */
-export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, icon, temperature, max_output_tokens,
+const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, icon, temperature, max_output_tokens,
   reasoning, context_tokens, vendor_context_tokens, vendor_max_output_tokens, vision, purpose, kind, supports_tools, no_tools, max_input_tokens, modalities, top_p,
   custom_params, protocol, fallback_model_id, input_price, output_price, price_currency, price_periods, enabled, position`
 

@@ -17,6 +17,7 @@
  */
 import DOMPurify from 'dompurify'
 import { safeHttpUrl } from '@shared/rss/model'
+import { sanitizedElement } from '../../lib/sanitized-dom'
 
 const ALLOWED_TAGS = [
   'a', 'abbr', 'article', 'aside', 'b', 'bdi', 'bdo', 'blockquote', 'br', 'caption', 'cite', 'code',
@@ -57,9 +58,8 @@ const CONFIG = {
 export function sanitizeFeedHtml(html: string, base?: string): string {
   const clean = DOMPurify.sanitize(html || '', CONFIG)
   if (!base) return clean
-  const host = document.createElement('template')
-  host.innerHTML = clean
-  for (const node of Array.from(host.content.querySelectorAll('[src],[href]'))) {
+  const root = sanitizedElement(clean)
+  for (const node of Array.from(root.querySelectorAll('[src],[href]'))) {
     const attribute = node.hasAttribute('src') ? 'src' : 'href'
     const raw = node.getAttribute(attribute) || ''
     const resolved = safeHttpUrl(raw, base)
@@ -68,7 +68,7 @@ export function sanitizeFeedHtml(html: string, base?: string): string {
     if (resolved) node.setAttribute(attribute, resolved.href)
     else node.removeAttribute(attribute)
   }
-  return host.innerHTML
+  return root.innerHTML
 }
 
 export interface DisplayOptions {
@@ -140,9 +140,8 @@ export function htmlToText(html: string, max = 400): string {
   const spaced = (html || '')
     .replace(/<\/(?:p|div|li|h[1-6]|blockquote|tr|td|th|pre|ul|ol|section|article|figcaption)>/gi, ' ')
     .replace(/<br\s*\/?>/gi, ' ')
-  const host = document.createElement('div')
-  host.innerHTML = DOMPurify.sanitize(spaced, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })
-  return (host.textContent || '').replace(/\s+/g, ' ').trim().slice(0, max)
+  const root = sanitizedElement(DOMPurify.sanitize(spaced, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] }))
+  return (root.textContent || '').replace(/\s+/g, ' ').trim().slice(0, max)
 }
 
 const minutesCache = new Map<string, number>()

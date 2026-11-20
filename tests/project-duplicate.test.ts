@@ -34,7 +34,7 @@ beforeAll(async () => {
 beforeEach(() => {
   sqlite.exec(`DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
     DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_views;
-    DELETE FROM project_card_contents; DELETE FROM project_comments`)
+    DELETE FROM project_card_contents; DELETE FROM project_comments; DELETE FROM project_card_links`)
 })
 
 const pid = (n: number) => `p${String(n).padStart(26, '0')}`
@@ -111,6 +111,23 @@ describe('duplicating a board', () => {
     expect(result.members.map((m) => m.userId)).toEqual(['bob'])
   })
 
+  it('keeps parents, recurrence and dependency edges inside the copy', async () => {
+    const board = await createBoard('alice', { title: 'Tree' })
+    const parent = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Parent' })).json()) as { card: ProjectCard }).card
+    const child = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, {
+      title: 'Child', parentId: parent.id, recurrence: { freq: 'daily', interval: 1 },
+    })).json()) as { card: ProjectCard }).card
+    expect((await req('alice', 'POST', `/cards/${child.id}/links`, { toCardId: parent.id, kind: 'blocks' })).status).toBe(201)
+    const copy = ((await (await req('alice', 'POST', `/boards/${board.id}/duplicate`)).json()) as { board: ProjectBoard }).board
+    const result = await bundle('alice', copy.id)
+    const copiedParent = result.cards.find((card) => card.title === 'Parent')!
+    const copiedChild = result.cards.find((card) => card.title === 'Child')!
+    expect(copiedChild.parentId).toBe(copiedParent.id)
+    expect(copiedChild.recurrence).toEqual({ freq: 'daily', interval: 1 })
+    const links = sqlite.prepare('SELECT from_card_id, to_card_id, kind FROM project_card_links WHERE board_id = ?').all(copy.id) as { from_card_id: string, to_card_id: string, kind: string }[]
+    expect(links).toEqual([{ from_card_id: copiedChild.id, to_card_id: copiedParent.id, kind: 'blocks' }])
+  })
+
   it('hides a private board from a stranger', async () => {
     const { board } = await richBoard()
     expect((await req('carol', 'POST', `/boards/${board.id}/duplicate`)).status).toBe(404)
@@ -132,6 +149,19 @@ describe('duplicating a card', () => {
     expect(copy.contentOrder).toEqual([copiedContents[0]!.id])
     expect(result.comments.filter((m) => m.cardId === copy.id)).toEqual([])
     expect(result.cards.filter((c) => c.id === card.id)).toHaveLength(1)
+  })
+
+  it('keeps the parent and the recurrence rule on a single-card copy', async () => {
+    const board = await createBoard('alice', { title: 'Tree' })
+    const parent = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Parent' })).json()) as { card: ProjectCard }).card
+    const child = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, {
+      title: 'Child', parentId: parent.id, recurrence: { freq: 'weekly', interval: 2 },
+    })).json()) as { card: ProjectCard }).card
+    const copy = ((await (await req('alice', 'POST', `/cards/${child.id}/duplicate`)).json()) as { card: ProjectCard }).card
+    expect(copy.parentId).toBe(parent.id)
+    expect(copy.recurrence).toEqual({ freq: 'weekly', interval: 2 })
+    const result = await bundle('alice', board.id)
+    expect(result.cards.find((card) => card.id === copy.id)!.parentId).toBe(parent.id)
   })
 
   it('refuses a viewer', async () => {

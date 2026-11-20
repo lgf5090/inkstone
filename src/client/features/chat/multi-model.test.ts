@@ -101,7 +101,10 @@ beforeEach(async () => {
     settings: { ...DEFAULT_ASSISTANT_SETTINGS, activeModelId: 'm1' },
     pending: [],
     turn: null,
-    send: vi.fn(async () => true),
+    send: vi.fn(async (_text: string, opts?: { onAccepted?: () => void }) => {
+      opts?.onAccepted?.()
+      return true
+    }),
   })
   useMultiModel.getState().syncConversation('main')
   mocks.fork.mockImplementation(async () => ({ conversation: sideConversation(`side-${++sideSeq}`), messages: [] }))
@@ -154,9 +157,18 @@ describe('the multi-model workspace', () => {
       expect.objectContaining({ conversationId: pane.conversationId, modelId: 'm2', message: 'same question', noTools: true }),
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.objectContaining({ batchMs: expect.any(Number) }),
     )
-    expect(useAssistant.getState().send).toHaveBeenCalledWith('same question')
+    expect(useAssistant.getState().send).toHaveBeenCalledWith('same question', expect.objectContaining({ onAccepted: expect.any(Function) }))
     expect(mocks.confirm).toHaveBeenCalled()
+  })
+
+  it('starts no side pane when the main turn was refused', async () => {
+    await act(async () => { await useMultiModel.getState().setLayout(2) })
+    useAssistant.setState({ send: vi.fn(async () => false) })
+    await act(async () => { await useMultiModel.getState().sendAll('same question') })
+    await act(async () => { await Promise.resolve() })
+    expect(mocks.stream).not.toHaveBeenCalled()
   })
 
   it('takes a closed pane and its ephemeral thread away', async () => {
@@ -186,6 +198,7 @@ describe('the multi-model workspace', () => {
       expect.objectContaining({ message: 'first question', noTools: true }),
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.objectContaining({ batchMs: expect.any(Number) }),
     )
   })
 

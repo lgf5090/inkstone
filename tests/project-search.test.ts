@@ -58,6 +58,17 @@ describe('cross-board search respects visibility', () => {
     expect((await search('carol', 'Launch')).cards).toEqual([])
   })
 
+  it('finds a card by a body block or a comment, not only its title', async () => {
+    const created = await req('alice', 'POST', '/boards', { title: 'Search body' })
+    const board = ((await created.json()) as { board: ProjectBoard }).board
+    const cardRes = await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Unrelated title' })
+    const card = ((await cardRes.json()) as { card: { id: string } }).card
+    await req('alice', 'POST', `/cards/${card.id}/contents`, { type: 'text', title: 'ship the exporter' })
+    await req('alice', 'POST', `/cards/${card.id}/comments`, { body: 'internal discussion' })
+    expect((await search('alice', 'exporter')).cards.map((entry) => entry.id)).toEqual([card.id])
+    expect((await search('alice', 'internal discussion')).cards.map((entry) => entry.id)).toEqual([card.id])
+  })
+
   it('returns empty for a blank query and escapes LIKE wildcards', async () => {
     const created = await req('alice', 'POST', '/boards', { title: '100% done' })
     const board = ((await created.json()) as { board: ProjectBoard }).board
@@ -65,5 +76,18 @@ describe('cross-board search respects visibility', () => {
     expect((await search('alice', '')).cards).toEqual([])
     expect((await search('alice', '50%')).cards.map((c) => c.title)).toEqual(['50% off'])
     expect((await search('alice', '50_')).cards).toEqual([])
+  })
+
+  it('finds a card by a property value and still escapes LIKE wildcards there', async () => {
+    const propertyId = 'p'.repeat(27)
+    const created = await req('alice', 'POST', '/boards', {
+      title: 'Values',
+      cardProperties: [{ id: propertyId, name: 'Notes', type: 'text', options: [] }],
+    })
+    const board = ((await created.json()) as { board: ProjectBoard }).board
+    const cardRes = await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Plain title', values: { [propertyId]: 'invoice-42' } })
+    const card = ((await cardRes.json()) as { card: { id: string } }).card
+    expect((await search('alice', 'invoice-42')).cards.map((entry) => entry.id)).toEqual([card.id])
+    expect((await search('alice', 'invoice_42')).cards).toEqual([])
   })
 })

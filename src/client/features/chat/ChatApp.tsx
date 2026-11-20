@@ -9,12 +9,12 @@
  * The five surfaces share one store on purpose: a turn in the chat can write a memory, a task and a
  * schedule in the same breath, and the tab that shows them has to be current the moment it is opened.
  */
-import { useEffect, useMemo, useState } from 'react'
-import { BookMarked, Brain, CheckSquare, FolderKanban, LayoutList, MessageSquare, Settings2 } from 'lucide-react'
-import type { MessageKey } from '@shared/locales/en-US'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { BarChart3, BookMarked, Brain, CheckSquare, FolderKanban, LayoutList, MessageSquare, ScrollText, Settings2 } from 'lucide-react'
 import { cn } from '../../lib/cn'
-import { t } from '../../lib/i18n'
+import { t, type MessageKey } from '../../lib/i18n'
 import { Tooltip } from '../../components/overlay'
+import { LoadingBlock } from '../../components/feedback'
 import { useAssistant, type AssistantView } from './assistant-store'
 import { ASSISTANT_VIEWS } from './assistant-store'
 import { ChatView } from './ChatView'
@@ -27,6 +27,21 @@ import { ProjectsView } from './ProjectsView'
 import { NotificationsBell } from './NotificationCenter'
 import { DeepResearchProgress } from './DeepResearchProgress'
 import { MermaidViewer } from './MermaidViewer'
+import {
+  clearOfflineQueue,
+  enqueueOfflineText,
+  OFFLINE_CAPTURE_EVENT,
+  OFFLINE_REPLAY_EVENT,
+  offlineQueueSize,
+  readOfflineQueue,
+} from './offline-queue'
+
+/**
+ * The two report views are heavy (charts, log tables, filter panels) and most readers never open them.
+ * They arrive when their tab is opened instead of sitting in the chat shell's own bytes.
+ */
+const RequestStatsView = lazy(() => import('./RequestStatsView').then((m) => ({ default: m.RequestStatsView })))
+const RequestLogsView = lazy(() => import('./RequestLogsView').then((m) => ({ default: m.RequestLogsView })))
 
 const VIEW_ICONS: Record<AssistantView, typeof MessageSquare> = {
   chat: MessageSquare,
@@ -35,6 +50,8 @@ const VIEW_ICONS: Record<AssistantView, typeof MessageSquare> = {
   automations: LayoutList,
   skills: BookMarked,
   projects: FolderKanban,
+  stats: BarChart3,
+  logs: ScrollText,
   settings: Settings2,
 }
 
@@ -50,6 +67,8 @@ const VIEW_TAB_LABELS: Record<AssistantView, MessageKey> = {
   automations: 'assistant.view.automations',
   skills: 'assistant.view.skills',
   projects: 'assistant.projects.title',
+  stats: 'assistant.view.stats',
+  logs: 'assistant.view.logs',
   settings: 'common.settings',
 }
 
@@ -60,6 +79,8 @@ const VIEW_LABELS: Record<AssistantView, MessageKey> = {
   automations: 'assistant.view.automations',
   skills: 'assistant.view.skills',
   projects: 'assistant.projects.title',
+  stats: 'assistant.view.stats',
+  logs: 'assistant.view.logs',
   settings: 'assistant.view.settings',
 }
 
@@ -72,10 +93,46 @@ export function ChatApp() {
   const agentName = useAssistant((state) => state.settings?.agentName)
   const chatScale = useAssistant((state) => state.settings?.chatScale ?? 1)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false)
+  const [pending, setPending] = useState(() => offlineQueueSize())
 
   useEffect(() => {
     void bootstrap()
   }, [bootstrap])
+
+  /**
+   * Offline is a shelf, not an engine. While the tab has no connection an input surface may hand its
+   * draft to OFFLINE_CAPTURE_EVENT; this container keeps the count on the banner, and on 'online' it
+   * hands the queued text back through OFFLINE_REPLAY_EVENT for the composer to put in the input box.
+   * It never sends a message, runs no local model, and stores no request body, key or provider.
+   */
+  useEffect(() => {
+    const onOnline = () => {
+      setOffline(false)
+      const queued = readOfflineQueue()
+      if (queued.length) {
+        // One event with the drafts joined by a blank line, so a composer that replaces its box still
+        // keeps every queued draft instead of only the last one.
+        window.dispatchEvent(new CustomEvent(OFFLINE_REPLAY_EVENT, { detail: { text: queued.join('\n\n') } }))
+        clearOfflineQueue()
+      }
+      setPending(0)
+    }
+    const onOffline = () => setOffline(true)
+    const onCapture = (event: Event) => {
+      const text = (event as CustomEvent<{ text?: unknown }>).detail?.text
+      if (typeof text !== 'string') return
+      setPending(enqueueOfflineText(text))
+    }
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    window.addEventListener(OFFLINE_CAPTURE_EVENT, onCapture)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+      window.removeEventListener(OFFLINE_CAPTURE_EVENT, onCapture)
+    }
+  }, [])
 
   /**
    * The door a push notice walks through.
@@ -160,6 +217,12 @@ export function ChatApp() {
           </div>
         </header>
 
+        {offline && (
+          <div role="status" className="border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+            {t('assistant.offline.banner' as MessageKey, { count: pending })}
+          </div>
+        )}
+
         {error && !loaded && (
           <div role="alert" className="border-b border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--danger)_12%,transparent)] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]">
             {error}
@@ -177,6 +240,12 @@ export function ChatApp() {
           {view === 'automations' && <AutomationsView />}
           {view === 'skills' && <SkillsView />}
           {view === 'projects' && <ProjectsView />}
+          {view === 'stats' && (
+            <Suspense fallback={<LoadingBlock />}><RequestStatsView /></Suspense>
+          )}
+          {view === 'logs' && (
+            <Suspense fallback={<LoadingBlock />}><RequestLogsView /></Suspense>
+          )}
           {view === 'settings' && <AssistantSettingsView />}
         </div>
 

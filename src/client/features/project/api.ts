@@ -1,6 +1,8 @@
 /** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */
 import { CLIENT_HEADER } from '@shared/constants'
-import { request } from '../../lib/api'
+import { ApiError, request as baseRequest, type RequestOptions } from '../../lib/api'
+import { t } from '../../lib/i18n'
+import { enqueueProjectWrite } from './offline-outbox'
 import type {
   ProjectActivityEntry,
   ProjectAttachment,
@@ -12,11 +14,15 @@ import type {
   ProjectBoardSummary,
   ProjectCard,
   ProjectCardLink,
+  ProjectCardMarks,
+  ProjectMyTask,
+  ProjectTimeEntry,
   ProjectCategory,
   ProjectCategoryBoard,
   ProjectComment,
   ProjectContent,
   ProjectPeople,
+  ProjectProperty,
   ProjectRole,
   ProjectShare,
   ProjectSubscription,
@@ -25,11 +31,64 @@ import type {
   ProjectViewType,
 } from '@shared/project/model'
 import type { ProjectContentCreateInput, ProjectContentPatchInput } from '@shared/project/validation'
+import type { ProjectRelationBackReference, ProjectRelationOption } from '@shared/project/relation'
+import type { ProjectAutomation, ProjectAutomationAction, ProjectAutomationCondition, ProjectAutomationTrigger } from '@shared/project/automation'
+import type { ProjectSprint, ProjectSprintBurndown, ProjectSprintStatus } from '@shared/project/stats'
 import type { ProjectBoardCreateInput, ProjectCardCreateInput } from '@shared/project/validation'
+
+/**
+ * Every request in this module passes through one door, so an edit made without a network is kept in
+ * the outbox instead of being lost. Reads, uploads and the anonymous share reader are excluded: the
+ * first two have nothing to replay, and the third is a POST that reads rather than writes.
+ */
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  try {
+    return await baseRequest<T>(path, options)
+  } catch (error) {
+    const method = (options.method ?? 'GET').toUpperCase()
+    const queueable = method !== 'GET' && method !== 'HEAD' && options.formData === undefined
+      && !path.includes('/public/')
+    if (queueable && error instanceof ApiError && (error.isOffline || error.status >= 500)) {
+      let queued = false
+      try {
+        await enqueueProjectWrite(path, method, options.body)
+        queued = true
+      } catch (cause) {
+        console.warn('[inkstone] project offline queue enqueue failed:', cause)
+      }
+      if (queued) throw new Error(t('project.offline.queued'))
+    }
+    throw error
+  }
+}
 
 export async function fetchProjectBoards(signal?: AbortSignal): Promise<ProjectBoardSummary[]> {
   const body = await request<{ boards: ProjectBoardSummary[] }>('/api/project/boards', { signal })
   return body.boards
+}
+
+export async function fetchMyProjectTasks(signal?: AbortSignal): Promise<ProjectMyTask[]> {
+  const body = await request<{ tasks: ProjectMyTask[] }>('/api/project/my-tasks', { signal })
+  return body.tasks
+}
+
+export async function fetchCardTime(cardId: string, signal?: AbortSignal): Promise<ProjectTimeEntry[]> {
+  const body = await request<{ entries: ProjectTimeEntry[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/time`, { signal })
+  return body.entries
+}
+
+export async function startCardTimer(cardId: string): Promise<ProjectTimeEntry> {
+  const body = await request<{ entry: ProjectTimeEntry }>(`/api/project/cards/${encodeURIComponent(cardId)}/time/start`, { method: 'POST', body: {} })
+  return body.entry
+}
+
+export async function stopCardTimer(cardId: string): Promise<ProjectTimeEntry | null> {
+  const body = await request<{ entry: ProjectTimeEntry | null }>(`/api/project/cards/${encodeURIComponent(cardId)}/time/stop`, { method: 'POST', body: {} })
+  return body.entry
+}
+
+export async function deleteCardTime(cardId: string, entryId: string): Promise<void> {
+  await request(`/api/project/cards/${encodeURIComponent(cardId)}/time/${encodeURIComponent(entryId)}`, { method: 'DELETE' })
 }
 
 export async function createProjectBoard(input: Partial<ProjectBoardCreateInput>): Promise<ProjectBoardSummary> {
@@ -49,6 +108,25 @@ export async function duplicateProjectBoard(id: string): Promise<ProjectBoardSum
 export async function renameProjectBoard(id: string, title: string): Promise<ProjectBoard> {
   const body = await request<{ board: ProjectBoard }>(`/api/project/boards/${encodeURIComponent(id)}`, { method: 'PATCH', body: { title } })
   return body.board
+}
+
+export async function fetchProjectCardMarks(boardId: string, signal?: AbortSignal): Promise<ProjectCardMarks> {
+  const body = await request<{ marks: ProjectCardMarks }>(`/api/project/boards/${encodeURIComponent(boardId)}/card-marks`, { signal })
+  return body.marks
+}
+
+export async function saveProjectCardMarks(boardId: string, marks: ProjectCardMarks): Promise<ProjectCardMarks> {
+  const body = await request<{ marks: ProjectCardMarks }>(`/api/project/boards/${encodeURIComponent(boardId)}/card-marks`, { method: 'PUT', body: marks })
+  return body.marks
+}
+
+export async function fetchBoardDefaultView(boardId: string, signal?: AbortSignal): Promise<string | null> {
+  const body = await request<{ viewId: string | null }>(`/api/project/boards/${encodeURIComponent(boardId)}/default-view`, { signal })
+  return body.viewId
+}
+
+export async function saveBoardDefaultView(boardId: string, viewId: string | null): Promise<void> {
+  await request<{ viewId: string | null }>(`/api/project/boards/${encodeURIComponent(boardId)}/default-view`, { method: 'PUT', body: { viewId } })
 }
 
 export async function fetchProjectBoardBundle(id: string, signal?: AbortSignal): Promise<ProjectBoardBundle> {
@@ -110,8 +188,8 @@ export async function moveProjectCard(id: string, targetBoardId: string): Promis
   return body.card
 }
 
-export async function createProjectView(boardId: string, viewType: ProjectViewType): Promise<ProjectView> {
-  const body = await request<{ view: ProjectView }>(`/api/project/boards/${encodeURIComponent(boardId)}/views`, { method: 'POST', body: { viewType } })
+export async function createProjectView(boardId: string, viewType: ProjectViewType, title = ''): Promise<ProjectView> {
+  const body = await request<{ view: ProjectView }>(`/api/project/boards/${encodeURIComponent(boardId)}/views`, { method: 'POST', body: { viewType, title } })
   return body.view
 }
 
@@ -137,8 +215,17 @@ export async function fetchBoardMetadata(id: string): Promise<ProjectBoardMetada
   return request<ProjectBoardMetadata>(`/api/project/boards/${encodeURIComponent(id)}/metadata`)
 }
 
+export async function fetchBoardProperties(id: string, signal?: AbortSignal): Promise<ProjectProperty[]> {
+  const body = await request<{ properties: ProjectProperty[] }>(`/api/project/boards/${encodeURIComponent(id)}/properties`, { signal })
+  return body.properties
+}
+
 export function projectBoardExportUrl(id: string, kind: 'csv' | 'archive' | 'markdown'): string {
   return `/api/project/boards/${encodeURIComponent(id)}/${kind}`
+}
+
+export async function fetchCardDetail(cardId: string, signal?: AbortSignal): Promise<{ contents: ProjectContent[], comments: ProjectComment[] }> {
+  return request<{ contents: ProjectContent[], comments: ProjectComment[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/detail`, { signal })
 }
 
 export async function fetchCardComments(cardId: string, signal?: AbortSignal): Promise<ProjectComment[]> {
@@ -170,6 +257,11 @@ export async function patchCardContent(id: string, patch: ProjectContentPatchInp
   return result.content
 }
 
+export async function moveCardContent(id: string, targetId: string, where: 'before' | 'after'): Promise<ProjectContent> {
+  const result = await request<{ content: ProjectContent }>(`/api/project/contents/${encodeURIComponent(id)}/move`, { method: 'POST', body: { targetId, where } })
+  return result.content
+}
+
 export async function deleteCardContent(id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/contents/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
@@ -192,8 +284,9 @@ export async function createBoardFromTemplate(templateId: string, locale = ''): 
   return body.board
 }
 
-export async function saveBoardAsTemplate(id: string): Promise<void> {
-  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(id)}/save-as-template`, { method: 'POST', body: {} })
+export async function saveBoardAsTemplate(id: string): Promise<ProjectBoardSummary> {
+  const body = await request<{ template: ProjectBoardSummary }>(`/api/project/boards/${encodeURIComponent(id)}/save-as-template`, { method: 'POST', body: {} })
+  return body.template
 }
 
 export async function fetchProjectCategories(signal?: AbortSignal): Promise<{ categories: ProjectCategory[], categoryBoards: ProjectCategoryBoard[] }> {
@@ -238,7 +331,7 @@ export async function getProjectShare(boardId: string): Promise<ProjectShare | n
   return body.share
 }
 
-export async function putProjectShare(boardId: string, input: { password?: string | null, expiresAt?: number | null }): Promise<ProjectShare> {
+export async function putProjectShare(boardId: string, input: { password?: string | null, expiresAt?: number | null, showComments?: boolean }): Promise<ProjectShare> {
   const body = await request<{ share: ProjectShare }>(`/api/project/boards/${encodeURIComponent(boardId)}/share`, { method: 'PUT', body: input })
   return body.share
 }
@@ -265,6 +358,21 @@ export async function importProjectArchive(bytes: Uint8Array): Promise<ProjectBo
   }
   const body = await response.json() as { board: ProjectBoardSummary }
   return body.board
+}
+
+export async function importProjectAccountArchive(bytes: Uint8Array): Promise<ProjectBoardSummary[]> {
+  const response = await fetch('/api/project/boards/import-account', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/zip', [CLIENT_HEADER]: '1' },
+    body: bytes as BodyInit,
+    credentials: 'same-origin',
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: { message?: string } } | null
+    throw new Error(body?.error?.message ?? `Import failed (${response.status})`)
+  }
+  const body = await response.json() as { boards: ProjectBoardSummary[] }
+  return body.boards
 }
 
 export async function fetchCardLinks(cardId: string): Promise<ProjectCardLink[]> {
@@ -373,4 +481,144 @@ export async function fetchBoardTrash(boardId: string, signal?: AbortSignal): Pr
 
 export async function restoreProjectBoard(boardId: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/undelete`, { method: 'POST', body: {} })
+}
+
+export async function fetchRelationCards(targetBoardId: string, signal?: AbortSignal): Promise<ProjectRelationOption[] | null> {
+  const body = await request<{ cards: ProjectRelationOption[] | null }>(`/api/project/boards/${encodeURIComponent(targetBoardId)}/relation-cards`, { signal })
+  return body.cards
+}
+
+export async function fetchCardRelations(cardId: string, signal?: AbortSignal): Promise<ProjectRelationBackReference[]> {
+  const body = await request<{ references: ProjectRelationBackReference[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/relations`, { signal })
+  return body.references
+}
+
+export interface ProjectAutomationInput {
+  trigger: ProjectAutomationTrigger
+  condition: ProjectAutomationCondition | null
+  action: ProjectAutomationAction
+  enabled?: boolean
+}
+
+export async function fetchProjectAutomations(boardId: string, signal?: AbortSignal): Promise<ProjectAutomation[]> {
+  const body = await request<{ automations: ProjectAutomation[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/automations`, { signal })
+  return body.automations
+}
+
+export async function createProjectAutomation(boardId: string, input: ProjectAutomationInput): Promise<ProjectAutomation> {
+  const body = await request<{ automation: ProjectAutomation }>(`/api/project/boards/${encodeURIComponent(boardId)}/automations`, { method: 'POST', body: input })
+  return body.automation
+}
+
+export async function patchProjectAutomation(boardId: string, id: string, patch: Partial<ProjectAutomationInput>): Promise<ProjectAutomation> {
+  const body = await request<{ automation: ProjectAutomation }>(`/api/project/boards/${encodeURIComponent(boardId)}/automations/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
+  return body.automation
+}
+
+export async function deleteProjectAutomation(boardId: string, id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/automations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export interface ProjectApiTokenSummary {
+  id: string
+  name: string
+  scope: 'read' | 'write'
+  boardId: string
+  expiresAt: number | null
+  createdAt: number
+  revokedAt: number | null
+}
+
+export interface ProjectWebhookSummary {
+  id: string
+  url: string
+  events: string[]
+  enabled: boolean
+  createdAt: number
+  pending: number
+  lastError: string
+}
+
+export async function fetchProjectApiTokens(signal?: AbortSignal): Promise<ProjectApiTokenSummary[]> {
+  const body = await request<{ tokens: ProjectApiTokenSummary[] }>('/api/project/tokens', { signal })
+  return body.tokens
+}
+
+export async function createProjectApiToken(input: {
+  name: string, scope: 'read' | 'write', boardId?: string, expiresAt?: number | null,
+}): Promise<{ token: ProjectApiTokenSummary, secret: string }> {
+  return request<{ token: ProjectApiTokenSummary, secret: string }>('/api/project/tokens', { method: 'POST', body: input })
+}
+
+export async function revokeProjectApiToken(id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function fetchProjectWebhooks(boardId: string, signal?: AbortSignal): Promise<ProjectWebhookSummary[]> {
+  const body = await request<{ webhooks: ProjectWebhookSummary[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/webhooks`, { signal })
+  return body.webhooks
+}
+
+export async function createProjectWebhook(boardId: string, input: {
+  url: string, events?: string[], enabled?: boolean,
+}): Promise<{ webhook: ProjectWebhookSummary, secret: string }> {
+  return request<{ webhook: ProjectWebhookSummary, secret: string }>(
+    `/api/project/boards/${encodeURIComponent(boardId)}/webhooks`, { method: 'POST', body: input },
+  )
+}
+
+export async function patchProjectWebhook(boardId: string, id: string, patch: { enabled?: boolean }): Promise<ProjectWebhookSummary> {
+  const body = await request<{ webhook: ProjectWebhookSummary }>(
+    `/api/project/boards/${encodeURIComponent(boardId)}/webhooks/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch },
+  )
+  return body.webhook
+}
+
+export async function deleteProjectWebhook(boardId: string, id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export interface ProjectSprintInput {
+  name: string
+  goal?: string
+  startAt: number
+  endAt: number
+  status?: ProjectSprintStatus
+}
+
+export async function fetchProjectSprints(boardId: string, signal?: AbortSignal): Promise<ProjectSprint[]> {
+  const body = await request<{ sprints: ProjectSprint[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints`, { signal })
+  return body.sprints
+}
+
+export async function createProjectSprint(boardId: string, input: ProjectSprintInput): Promise<ProjectSprint> {
+  const body = await request<{ sprint: ProjectSprint }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints`, { method: 'POST', body: input })
+  return body.sprint
+}
+
+export async function patchProjectSprint(boardId: string, id: string, patch: Partial<ProjectSprintInput>): Promise<ProjectSprint> {
+  const body = await request<{ sprint: ProjectSprint }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
+  return body.sprint
+}
+
+export async function deleteProjectSprint(boardId: string, id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export interface ProjectSprintDetail {
+  sprint: ProjectSprint
+  cards: ProjectCard[]
+  burndown: ProjectSprintBurndown
+}
+
+export async function fetchProjectSprintDetail(boardId: string, sprintId: string, signal?: AbortSignal): Promise<ProjectSprintDetail> {
+  return request<ProjectSprintDetail>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints/${encodeURIComponent(sprintId)}`, { signal })
+}
+
+export async function assignCardToSprint(boardId: string, sprintId: string, cardId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints/${encodeURIComponent(sprintId)}/cards/${encodeURIComponent(cardId)}`, { method: 'PUT' })
+}
+
+export async function removeCardFromSprint(boardId: string, sprintId: string, cardId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/sprints/${encodeURIComponent(sprintId)}/cards/${encodeURIComponent(cardId)}`, { method: 'DELETE' })
 }

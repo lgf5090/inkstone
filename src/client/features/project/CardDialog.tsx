@@ -1,17 +1,18 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
-import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, Repeat, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
+import { Archive, AtSign, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, Repeat, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectPeople, ProjectProperty } from '@shared/project/model'
-import { isProjectCardDone, projectPersonLabel } from '@shared/project/model'
+import { isProjectCardDone, projectDonePatch, projectPersonLabel } from '@shared/project/model'
 import { moveContentOrder } from '@shared/project/content-order'
 import { t, useLocale } from '../../lib/i18n'
 import { Avatar, Button, IconButton } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input, Textarea } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
-import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
+import { confirm, Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
 import { sendForAnswerDetailed } from '../chat/editor-ai'
-import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardLinks, listBoardFiles, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
+import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardDetail, fetchCardLinks, listBoardFiles, moveCardContent, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
 import { RecurrenceEditor } from './RecurrenceEditor'
+import { CardTimeTracker } from './CardTimeTracker'
 import { useBandDrag } from './views/use-band-drag'
 import { useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
@@ -25,6 +26,7 @@ interface CardDialogProps {
   contents: ProjectContent[]
   siblings: ProjectCard[]
   canEdit: boolean
+  detailTruncated?: boolean
   onClose: () => void
   onUpdated: (card: ProjectCard) => void
   onRefresh: () => void
@@ -48,7 +50,7 @@ function ArchivedFile(): ReactElement {
   )
 }
 
-export function CardDialog({ card, properties, members, people, contents, siblings, canEdit, onClose, onUpdated, onRefresh, onDelete, onOpenCard }: CardDialogProps): ReactElement {
+export function CardDialog({ card, properties, members, people, contents, siblings, canEdit, detailTruncated, onClose, onUpdated, onRefresh, onDelete, onOpenCard }: CardDialogProps): ReactElement {
   const [title, setTitle] = useState(card.title)
   const [comments, setComments] = useState<ProjectComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
@@ -62,6 +64,8 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   const [addOpen, setAddOpen] = useState(false)
   const menuAnchor = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const mentionAnchor = useRef<HTMLButtonElement>(null)
+  const [mentionOpen, setMentionOpen] = useState(false)
   const toast = useUi((state) => state.toast)
   const currentUserId = useSession((state) => state.user?.id)
   const watch = useProjectWatch('card', card.id)
@@ -69,6 +73,14 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   const answerIn = locale === 'zh-CN' ? 'Answer in Simplified Chinese.' : 'Answer in English.'
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
+
+  const run = useCallback(async (action: () => Promise<void>): Promise<void> => {
+    try {
+      await action()
+    } catch (reason) {
+      toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
+    }
+  }, [toast])
 
   const duplicateCard = async () => {
     try {
@@ -113,7 +125,10 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     }
   }
 
+  const [aiSummarizing, setAiSummarizing] = useState(false)
   const summarizeCardWithAi = async () => {
+    if (aiSummarizing) return
+    setAiSummarizing(true)
     try {
       const parts = [
         `Card title: ${card.title}`,
@@ -123,13 +138,15 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       const promptText = `${answerIn} Summarize the following card and its discussion into a concise 2-3 sentence overview:\n${parts}`
       const res = await sendForAnswerDetailed(promptText)
       if (res.status === 'ok') {
-        const comment = await createCardComment(card.id, `🤖 **AI Summary**\n${res.text}`)
+        const comment = await createCardComment(card.id, `🤖 ${t('project.card.ai_summary_heading')}\n${res.text}`)
         setComments((current) => [...current, comment])
       } else {
         toast({ title: t('project.card.ai_summarize_failed'), tone: 'danger' })
       }
     } catch {
       toast({ title: t('project.card.ai_summarize_failed'), tone: 'danger' })
+    } finally {
+      setAiSummarizing(false)
     }
   }
 
@@ -139,11 +156,35 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   }, [card.id, card.boardId])
 
   const attachFile = async (file: File) => {
-    const uploaded = await uploadBoardFile(card.boardId, file, card.id)
-    setFiles((current) => [uploaded, ...current])
+    await run(async () => {
+      const uploaded = await uploadBoardFile(card.boardId, file, card.id)
+      setFiles((current) => [uploaded, ...current])
+    })
   }
 
   useEffect(() => { setTitle(card.title) }, [card.title])
+  useEffect(() => {
+    if (detailTruncated) return
+    setBlocks((current) => {
+      const incoming = new Map(contents.map((block) => [block.id, block]))
+      const known = new Set(current.map((block) => block.id))
+      let changed = false
+      const next = current
+        .filter((block) => incoming.has(block.id))
+        .map((block) => {
+          const fresh = incoming.get(block.id)!
+          if (fresh.updateAt === block.updateAt) return block
+          changed = true
+          return fresh
+        })
+      for (const block of contents) {
+        if (known.has(block.id)) continue
+        next.push(block)
+        changed = true
+      }
+      return changed ? next : current
+    })
+  }, [contents, detailTruncated])
   useEffect(() => {
     const controller = new AbortController()
     fetchCardComments(card.id, controller.signal)
@@ -151,6 +192,18 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       .catch(() => { if (!controller.signal.aborted) setComments([]) })
     return () => controller.abort()
   }, [card.id])
+  useEffect(() => {
+    if (!detailTruncated) return
+    const controller = new AbortController()
+    fetchCardDetail(card.id, controller.signal)
+      .then((detail) => {
+        if (controller.signal.aborted) return
+        setBlocks(detail.contents)
+        setComments(detail.comments)
+      })
+      .catch(() => { /* best-effort: the bundle copy stays on screen */ })
+    return () => controller.abort()
+  }, [card.id, detailTruncated])
 
   const patch = useCallback(async (body: Record<string, unknown>) => {
     const updated = await patchProjectCard(card.id, body)
@@ -158,7 +211,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   }, [card.id, onUpdated])
 
   const commitTitle = () => {
-    if (title !== card.title) void patch({ title })
+    if (title !== card.title) void run(() => patch({ title }))
   }
 
   const postComment = async () => {
@@ -166,9 +219,11 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     if (!body || posting) return
     setPosting(true)
     try {
-      const comment = await createCardComment(card.id, body)
-      setComments((current) => [...current, comment])
-      setCommentDraft('')
+      await run(async () => {
+        const comment = await createCardComment(card.id, body)
+        setComments((current) => [...current, comment])
+        setCommentDraft('')
+      })
     } finally {
       setPosting(false)
     }
@@ -178,23 +233,31 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     if (!editingCommentId) return
     const body = editDraft.trim()
     if (!body) return
-    const updated = await patchCardComment(editingCommentId, body)
-    setComments((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)))
-    setEditingCommentId(null)
+    await run(async () => {
+      const updated = await patchCardComment(editingCommentId, body)
+      setComments((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)))
+      setEditingCommentId(null)
+    })
   }
   const removeComment = async (id: string) => {
-    await deleteCardComment(id)
-    setComments((current) => current.filter((entry) => entry.id !== id))
+    const ok = await confirm({ title: t('project.card.delete_comment'), tone: 'danger', confirmLabel: t('common.delete') })
+    if (!ok) return
+    await run(async () => {
+      await deleteCardComment(id)
+      setComments((current) => current.filter((entry) => entry.id !== id))
+    })
   }
   const pasteImage = async (event: ClipboardEvent) => {
     if (!canEdit) return
     const image = [...event.clipboardData.files].find((file) => file.type.startsWith('image/'))
     if (!image) return
     event.preventDefault()
-    const uploaded = await uploadBoardFile(card.boardId, image, card.id)
-    const block = await createCardContent(card.id, { type: 'image', title: image.name, fields: { attachmentId: uploaded.id } })
-    setFiles((current) => [uploaded, ...current])
-    setBlocks((current) => [...current, block])
+    await run(async () => {
+      const uploaded = await uploadBoardFile(card.boardId, image, card.id)
+      const block = await createCardContent(card.id, { type: 'image', title: image.name, fields: { attachmentId: uploaded.id } })
+      setFiles((current) => [uploaded, ...current])
+      setBlocks((current) => [...current, block])
+    })
   }
 
   const addBlock = async (type: ProjectContent['type']) => {
@@ -204,25 +267,35 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       if (entered === null) return
       title = entered
     }
-    const block = await createCardContent(card.id, { type, title, fields: type === 'checkbox' ? { checked: false } : {} })
-    setBlocks((current) => [...current, block])
+    await run(async () => {
+      const block = await createCardContent(card.id, { type, title, fields: type === 'checkbox' ? { checked: false } : {} })
+      setBlocks((current) => [...current, block])
+    })
   }
 
   const toggleBlock = async (block: ProjectContent, checked: boolean) => {
-    const updated = await patchCardContent(block.id, { fields: { ...block.fields, checked } })
-    setBlocks((current) => current.map((entry) => (entry.id === block.id ? updated : entry)))
+    await run(async () => {
+      const updated = await patchCardContent(block.id, { fields: { ...block.fields, checked } })
+      setBlocks((current) => current.map((entry) => (entry.id === block.id ? updated : entry)))
+    })
   }
 
   const removeBlock = async (block: ProjectContent) => {
-    await deleteCardContent(block.id)
-    setBlocks((current) => current.filter((entry) => entry.id !== block.id))
+    const ok = await confirm({ title: t('project.card.delete_block'), tone: 'danger', confirmLabel: t('common.delete') })
+    if (!ok) return
+    await run(async () => {
+      await deleteCardContent(block.id)
+      setBlocks((current) => current.filter((entry) => entry.id !== block.id))
+    })
   }
   const reorderBlock = async (id: string, targetId: string, where: 'before' | 'after') => {
-    const newOrder = moveContentOrder(card.contentOrder, id, targetId, where)
-    const updated = await patchProjectCard(card.id, { contentOrder: newOrder })
-    onUpdated(updated)
-    const flat = newOrder.flat()
-    setBlocks((current) => [...current].sort((a, b) => flat.indexOf(a.id) - flat.indexOf(b.id)))
+    await run(async () => {
+      const order = moveContentOrder(card.contentOrder, id, targetId, where)
+      await moveCardContent(id, targetId, where)
+      onUpdated({ ...card, contentOrder: order })
+      const flat = order.flat()
+      setBlocks((current) => current.toSorted((a, b) => flat.indexOf(a.id) - flat.indexOf(b.id)))
+    })
   }
   const blocksRef = useRef<HTMLDivElement>(null)
   const blockDrag = useBandDrag({
@@ -265,43 +338,38 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   }, [card.id, card.parentId, siblings])
 
   const subtasks = siblings.filter((sibling) => sibling.parentId === card.id)
-  const doneLabel = t('project.card.done_label').toLowerCase()
   const subtaskDone = subtasks.filter((s) => isProjectCardDone(s, properties)).length
   const toggleSubtask = async (subtask: ProjectCard, checked: boolean) => {
-    const statusProperty = properties.find((property) => property.type === 'select')
-    if (statusProperty && statusProperty.options.length > 0) {
-      const doneOption = statusProperty.options.find((entry) => {
-        const value = entry.value.toLowerCase()
-        return value === doneLabel || /done|complete|finished/i.test(value)
-      })
-      const todoOption = statusProperty.options.find((entry) => entry !== doneOption) ?? statusProperty.options[0]
-      await patchProjectCard(subtask.id, { values: { [statusProperty.id]: checked ? (doneOption?.id ?? null) : (todoOption?.id ?? null) } })
+    const values = projectDonePatch(properties, checked)
+    if (!values) return
+    await run(async () => {
+      await patchProjectCard(subtask.id, { values })
       onRefresh()
-      return
-    }
-    const checkboxProperty = properties.find((property) => property.type === 'checkbox')
-    if (checkboxProperty) {
-      await patchProjectCard(subtask.id, { values: { [checkboxProperty.id]: checked ? 'true' : 'false' } })
-      onRefresh()
-    }
+    })
   }
   const blockers = links.filter((link) => link.toCardId === card.id && link.kind === 'blocks')
 
   const addSubtask = async () => {
     const name = await prompt({ title: t('project.card.add_subtask'), confirmLabel: t('project.card.add_subtask') })
     if (name === null || !name.trim()) return
-    await createProjectCard(card.boardId, { title: name.trim(), parentId: card.id })
-    onRefresh()
+    await run(async () => {
+      await createProjectCard(card.boardId, { title: name.trim(), parentId: card.id })
+      onRefresh()
+    })
   }
   const addDependency = async () => {
     if (!blocker) return
-    await addCardLink(blocker, card.id, 'blocks')
-    setLinks(await fetchCardLinks(card.id))
-    setBlocker('')
+    await run(async () => {
+      await addCardLink(blocker, card.id, 'blocks')
+      setLinks(await fetchCardLinks(card.id))
+      setBlocker('')
+    })
   }
   const removeDependency = async (fromId: string) => {
-    await removeCardLink(fromId, card.id, 'blocks')
-    setLinks(await fetchCardLinks(card.id))
+    await run(async () => {
+      await removeCardLink(fromId, card.id, 'blocks')
+      setLinks(await fetchCardLinks(card.id))
+    })
   }
 
   return (
@@ -336,7 +404,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
         />
         <div className="flex items-center gap-1">
           {canEdit && (
-            <Button size="sm" variant="ghost" onClick={() => { void saveCardAsTemplate(card.id).then(onRefresh) }}>{t('project.card.save_as_template')}</Button>
+            <Button size="sm" variant="ghost" onClick={() => { void run(async () => { await saveCardAsTemplate(card.id); onRefresh() }) }}>{t('project.card.save_as_template')}</Button>
           )}
           <Button size="sm" variant={watch.watching ? 'primary' : 'ghost'} icon={<Bell size={14} />} onClick={() => { void watch.toggle() }}>
             {watch.watching ? t('project.watch.off') : t('project.watch.on')}
@@ -352,7 +420,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
             items={[
               ...(canEdit ? [
                 { id: 'duplicate', label: t('project.card.duplicate'), icon: <Copy size={15} />, onSelect: () => { void duplicateCard() } },
-                { id: 'ai-summarize', label: t('project.card.ai_summarize'), icon: <Sparkles size={15} />, onSelect: () => { void summarizeCardWithAi() } },
+                { id: 'ai-summarize', label: t(aiSummarizing ? 'project.card.ai_summarizing' : 'project.card.ai_summarize'), icon: <Sparkles size={15} />, disabled: aiSummarizing, onSelect: () => { void summarizeCardWithAi() } },
               ] : []),
               { id: 'copy-link', label: t('project.card.copy_link'), icon: <Link2 size={15} />, onSelect: () => { void copyLink() } },
               ...(canEdit ? [{ id: 'delete', label: t('project.board.delete_card'), icon: <Trash2 size={15} />, tone: 'danger' as const, separatorBefore: true, onSelect: () => { onClose(); onDelete(card.id) } }] : []),
@@ -361,7 +429,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
         </div>
         <section aria-label={t('project.card.properties')} className="space-y-2">
           <SectionHeading icon={SlidersHorizontal} label={t('project.card.properties')} />
-          {properties.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</p>}
+          {properties.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.value.empty')}</p>}
           {properties.map((property) => (
             <div key={property.id} className="flex items-start gap-3">
               <span className="w-28 shrink-0 pt-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">{property.name}</span>
@@ -373,7 +441,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
                   members={members}
                   people={people}
                   disabled={!canEdit}
-                  onChange={(value) => void patch({ values: { [property.id]: value } })}
+                  onChange={(value) => void run(() => patch({ values: { [property.id]: value } }))}
                 />
               </div>
             </div>
@@ -381,7 +449,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
         </section>
         <section aria-label={t('project.card.recurrence')} className="space-y-2">
           <SectionHeading icon={Repeat} label={t('project.card.recurrence')} />
-          <RecurrenceEditor value={card.recurrence} disabled={!canEdit} onChange={(rule) => void patch({ recurrence: rule })} />
+          <RecurrenceEditor value={card.recurrence} disabled={!canEdit} onChange={(rule) => void run(() => patch({ recurrence: rule }))} />
         </section>
         <section aria-label={t('project.card.content')} className="space-y-2" onPaste={(event) => void pasteImage(event)}>
           <div className="flex items-center gap-2">
@@ -393,7 +461,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
               </>
             )}
           </div>
-          {blocks.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</p>}
+          {blocks.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.value.empty')}</p>}
           <div className="space-y-2" ref={blocksRef}>
             {blocks.map((block) => (
               <div
@@ -484,7 +552,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
                     <IconButton
                       label={t('common.delete')}
                       size="sm"
-                      className="opacity-0 transition-opacity group-hover:opacity-100"
+                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100" data-touch-reveal=""
                       onClick={() => {
                         onDelete(subtask.id)
                       }}
@@ -528,13 +596,29 @@ export function CardDialog({ card, properties, members, people, contents, siblin
             {files.map((file) => (
               <li key={file.id} className="flex items-center gap-2">
                 <a className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--accent)]" href={projectFileUrl(file.id)} target="_blank" rel="noreferrer">{file.filename}</a>
-                {canEdit && <IconButton label={t('common.delete')} size="sm" onClick={() => { void deleteProjectFile(file.id).then(() => setFiles((current) => current.filter((f) => f.id !== file.id))) }}><Trash2 size={14} /></IconButton>}
+                {canEdit && (
+                  <IconButton
+                    label={t('common.delete')}
+                    size="sm"
+                    onClick={() => {
+                      void run(async () => {
+                        const ok = await confirm({ title: t('project.card.delete_attachment'), tone: 'danger', confirmLabel: t('common.delete') })
+                        if (!ok) return
+                        await deleteProjectFile(file.id)
+                        setFiles((current) => current.filter((f) => f.id !== file.id))
+                      })
+                    }}
+                  >
+                    <Trash2 size={14} />
+                  </IconButton>
+                )}
               </li>
             ))}
           </ul>
         </section>
       </div>
       <div className="min-w-0 flex-1 space-y-2 border-t border-[var(--border-subtle)] pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0">
+        <CardTimeTracker cardId={card.id} canEdit={canEdit} />
         <section aria-label={t('project.card.comments')} className="space-y-2">
           <SectionHeading icon={MessageSquare} label={t('project.card.comments')} />
           {comments.length === 0 && (
@@ -578,6 +662,24 @@ export function CardDialog({ card, properties, members, people, contents, siblin
               placeholder={t('project.card.comment_placeholder')}
               aria-label={t('project.card.comment_placeholder')}
               onChange={(event) => setCommentDraft(event.target.value)}
+            />
+            <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.card.mention_hint')}</span>
+            <IconButton ref={mentionAnchor} label={t('project.card.mention')} size="sm" onClick={() => setMentionOpen(true)}>
+              <AtSign size={13} />
+            </IconButton>
+            <Menu
+              anchor={mentionAnchor}
+              open={mentionOpen}
+              onClose={() => setMentionOpen(false)}
+              label={t('project.card.mention')}
+              items={members.map((member) => ({
+                id: member.userId,
+                label: projectPersonLabel(people, member.userId),
+                onSelect: () => {
+                  setMentionOpen(false)
+                  setCommentDraft((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}@${projectPersonLabel(people, member.userId)} `)
+                },
+              }))}
             />
             <Button type="submit" variant="primary" size="sm" disabled={posting || !commentDraft.trim()}>
               {t('project.card.post_comment')}

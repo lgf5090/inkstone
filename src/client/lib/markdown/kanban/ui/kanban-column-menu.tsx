@@ -1,7 +1,7 @@
 import { memo, useId, useState } from 'react'
 import { ChevronLeft, Palette, Trash2 } from 'lucide-react'
 import { t, useLocaleRepaint } from '../../../i18n'
-import { isImeComposing } from '../../../ime'
+import { isImeComposing, isEnterKey } from '../../../ime'
 import { getKanbanDotColor } from '../colors'
 import { normalizeKanbanWipLimit } from '../filter-sort'
 import { formatKanbanColorName } from '../i18n-helpers'
@@ -126,7 +126,7 @@ function ColumnRenameInput({
         onBlur={handleRenameSubmit}
         onKeyDown={(e) => {
           if (isImeComposing(e)) return
-          if (e.key === 'Enter') {
+          if (isEnterKey(e)) {
             handleRenameSubmit()
             onClose()
           }
@@ -191,7 +191,7 @@ function ColumnWipLimitField({
           onBlur={() => submit(false)}
           onKeyDown={(e) => {
             if (isImeComposing(e)) return
-            if (e.key === 'Enter') submit(true)
+            if (isEnterKey(e)) submit(true)
           }}
           aria-invalid={invalid || undefined}
           aria-describedby={noticeId}

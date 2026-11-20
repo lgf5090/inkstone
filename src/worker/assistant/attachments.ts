@@ -129,10 +129,9 @@ async function linkedImages(markdown: string, room: number): Promise<{ mime: str
   for (const raw of urls) {
     let target: URL
     try { target = assertRelayableEndpoint(raw) } catch { continue }
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 5_000)
+    const signal = AbortSignal.timeout(5_000)
     try {
-      const response = await fetch(target, { signal: controller.signal, redirect: 'error' })
+      const response = await fetch(target, { signal, redirect: 'error' })
       const type = response.headers.get('content-type') ?? ''
       if (!response.ok || !type.startsWith('image/')) continue
       const bytes = new Uint8Array(await response.arrayBuffer())
@@ -141,8 +140,6 @@ async function linkedImages(markdown: string, room: number): Promise<{ mime: str
       out.push({ mime, dataUrl: `data:${mime};base64,${base64FromBytes(bytes)}` })
     } catch {
       // A broken link is simply not added; the file's words are still there and the model can cite those.
-    } finally {
-      clearTimeout(timer)
     }
   }
   return out

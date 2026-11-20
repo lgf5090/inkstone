@@ -332,10 +332,7 @@ async function flushSettingsPatch(set: SessionSetter, get: () => SessionState): 
   pendingSettingsShouldNotify = false
   inFlightSettingsPatch = outgoing
   settingsSaveInFlight = true
-  let resolveCompletion!: () => void
-  const completion = new Promise<void>((resolve) => {
-    resolveCompletion = resolve
-  })
+  const { promise: completion, resolve: resolveCompletion } = Promise.withResolvers<void>()
   settingsSaveCompletion = completion
   const epoch = settingsEpoch
   const token = ++settingsSaveToken

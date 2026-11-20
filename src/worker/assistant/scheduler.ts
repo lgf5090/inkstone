@@ -204,13 +204,7 @@ async function spendBlocker(
 
 /** One scheduled model call, bounded so a hung upstream cannot hold the claim past the next sweep. */
 async function askScheduledPrompt(runner: AssistantRunner, entry: Automation): Promise<string> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), SCHEDULED_PROMPT_DEADLINE_MS)
-  try {
-    return await runner.runScheduledPrompt(entry.message || entry.name, controller.signal)
-  } finally {
-    clearTimeout(timer)
-  }
+  return runner.runScheduledPrompt(entry.message || entry.name, AbortSignal.timeout(SCHEDULED_PROMPT_DEADLINE_MS))
 }
 
 /** Where a note-writing routine's answer goes: into a folder as a new page, or onto one page it refills. */

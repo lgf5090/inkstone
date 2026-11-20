@@ -22,6 +22,7 @@ import {
   findLinkedBacklinks,
   findUnlinkedMentions,
   linkMentionInNote,
+  purgeNotePlaintextProjections,
   rewriteInboundWikiLinks,
   type NotePatchColumns,
   type NotesListCursor,
@@ -79,26 +80,9 @@ function store(c: Context<AppBindings>): NotesStore {
  */
 async function purgePlaintextProjections(c: Context<AppBindings>, userId: string, noteId: string, previousTitle: string): Promise<void> {
   const ftsEnabled = c.get('database').ftsEnabled
-  const previousKey = normalizeLinkKey(previousTitle)
-  const statements = [
-    c.env.DB.prepare(`DELETE FROM note_versions WHERE note_id = ?1 AND user_id = ?2`).bind(noteId, userId),
-    c.env.DB.prepare(`DELETE FROM ai_note_embeddings WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-    c.env.DB.prepare(`DELETE FROM ai_index_queue WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-    c.env.DB.prepare(`DELETE FROM fts_index_queue WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-    // Both resolved and unresolved wiki links name the old title; a row that never found the note
-    // still carries it in `target_title`.
-    c.env.DB.prepare(`DELETE FROM links WHERE user_id = ?1 AND (target_note_id = ?2 OR target_key = ?3)`)
-      .bind(userId, noteId, previousKey),
-    c.env.DB.prepare(`DELETE FROM rewrite_queue WHERE user_id = ?1 AND (source_id = ?2 OR old_value = ?3)`)
-      .bind(userId, noteId, previousTitle),
-    c.env.DB.prepare(`UPDATE shares SET is_enabled = 0 WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-    c.env.DB.prepare(`UPDATE blog_pages SET published_at = NULL WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-    c.env.DB.prepare(`UPDATE blog_posts SET status = 'withdrawn' WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-  ]
-  if (ftsEnabled) {
-    statements.push(c.env.DB.prepare(`DELETE FROM notes_fts WHERE note_id = ?1`).bind(noteId))
-  }
-  await c.env.DB.batch(statements)
+  // Both resolved and unresolved wiki links name the old title; a row that never found the note
+  // still carries it in `target_title`.
+  await purgeNotePlaintextProjections(c.env.DB, userId, noteId, previousTitle, ftsEnabled)
 }
 
 /**
@@ -367,19 +351,19 @@ notesRoutes.patch('/:id', async (c) => {
         contentChanged = true
         newHash = hash
         newContent = body.content
-        newTitle = resolvedTitle
         const { words, chars } = countText(body.content)
         columns.content = body.content
         columns.content_hash = hash
-        columns.title = newTitle
         columns.excerpt = deriveExcerpt(body.content)
         columns.word_count = words
         columns.char_count = chars
       }
-    } else if (resolvedTitle !== row.title) {
+    }
+    if (resolvedTitle !== row.title) {
       newTitle = resolvedTitle
       titleChanged = true
       columns.title = newTitle
+      columns.title_key = normalizeLinkKey(newTitle)
     }
   }
 
@@ -426,7 +410,8 @@ notesRoutes.patch('/:id', async (c) => {
   }
   let rewroteInbound = false
   if (titleChanged && row.is_encrypted === 0) {
-    if (!patch.ambiguous) {
+    const oldTitleTaken = patch.ambiguous && await s.hasOtherNoteWithTitle(row.title, id)
+    if (!oldTitleTaken) {
       const rewrite = await rewriteInboundWikiLinks(
         c.env.DB,
         userId,

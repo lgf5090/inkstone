@@ -8,7 +8,7 @@ function store(over: Record<string, unknown> = {}) {
     getSettings: vi.fn(async () => ({ ...DEFAULT_ASSISTANT_SETTINGS, activeModelId: 'm-local', limits: { ...DEFAULT_ASSISTANT_SETTINGS.limits, maxRequestsPerDay: 7 } })),
     listProviders: vi.fn(async () => [{
       id: 'p1', label: 'Vendor', icon: 'sparkles', protocol: 'openai', baseUrl: 'https://api.test',
-      endpoints: {}, reasoningDialect: null, hasKey: true, keyHint: '1234', createdAt: 1, updatedAt: 1,
+      endpoints: {}, keyLastUsedAt: null, reasoningDialect: null, sticky: false, hasKey: true, keyHint: '1234', createdAt: 1, updatedAt: 1,
     }]),
     listModels: vi.fn(async () => [{
       id: 'm1', providerId: 'p1', model: 'gpt', label: 'GPT', icon: '', temperature: 0.4,
@@ -78,5 +78,78 @@ describe('assistant config transfer', () => {
     expect(summary.models).toBe(1)
     expect(vi.mocked(s.createProvider).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ apiKey: '' }))
     expect(vi.mocked(s.createModel).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ providerId: 'p-new', model: 'new-model' }))
+  })
+
+  it('skips a provider whose address points inside the network', async () => {
+    const s = store()
+    const summary = await importAssistantConfig(s, {
+      format: 'inkstone-assistant-config', version: 1,
+      providers: [
+        { id: 'p-bad', label: 'Inside', baseUrl: 'http://127.0.0.1:8080/v1', protocol: 'openai' },
+        { id: 'p-bad2', label: 'Endpoint', baseUrl: 'https://new.test/v1', protocol: 'openai', endpoints: { anthropic: 'http://169.254.169.254/' } },
+      ],
+      models: [], skills: [], projects: [],
+    })
+    expect(summary.providers).toBe(0)
+    expect(summary.skipped).toBe(2)
+    expect(s.createProvider).not.toHaveBeenCalled()
+  })
+
+  it('keeps an uploaded icon intact and leaves a bare skill glyph alone', async () => {
+    const s = store()
+    const png = `data:image/png;base64,${'A'.repeat(200)}`
+    await importAssistantConfig(s, {
+      format: 'inkstone-assistant-config', version: 1,
+      providers: [{ id: 'p-new', label: 'New Vendor', baseUrl: 'https://new.test/v1', protocol: 'openai', icon: png }],
+      models: [], skills: [{ id: 's1', title: 'A skill', content: 'Body', icon: '🦊' }],
+      projects: [{ id: 'pr1', name: 'Notes', icon: png }],
+    })
+    expect(vi.mocked(s.createProvider).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ icon: png }))
+    expect(vi.mocked(s.createProject).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ icon: png }))
+    // The skill list prints its icon as the character itself, so the importer must not normalise it.
+    expect(vi.mocked(s.insertSkill).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ icon: '🦊' }))
+  })
+
+  it('does not export or overwrite the logging and plaintext posture', async () => {
+    const s = store({
+      getSettings: vi.fn(async () => ({
+        ...DEFAULT_ASSISTANT_SETTINGS,
+        revealKeysAlways: true, logRequestBodies: true, logMaxRows: 4321,
+      })),
+    })
+    const bundle = await exportAssistantConfig(s)
+    expect(bundle.settings).not.toHaveProperty('revealKeysAlways')
+    expect(bundle.settings).not.toHaveProperty('logRequestBodies')
+    expect(bundle.settings).not.toHaveProperty('logMaxRows')
+
+    // A shared file that still names those switches must not lower the importing account's posture.
+    await importAssistantConfig(s, {
+      format: 'inkstone-assistant-config', version: 1,
+      settings: { ...bundle.settings, revealKeysAlways: false, logRequestBodies: false, logMaxRows: 1 },
+      providers: [], models: [], skills: [], projects: [],
+    })
+    const saved = vi.mocked(s.saveSettings).mock.calls[0]?.[0]
+    expect(saved?.revealKeysAlways).toBe(true)
+    expect(saved?.logRequestBodies).toBe(true)
+    expect(saved?.logMaxRows).toBe(4321)
+  })
+
+  it('carries the sticky pin through an export and import instead of silently clearing it', async () => {
+    const s = store({
+      listProviders: vi.fn(async () => [{
+        id: 'p1', label: 'Vendor', icon: 'sparkles', protocol: 'openai', baseUrl: 'https://api.test',
+        endpoints: {}, keyLastUsedAt: null, reasoningDialect: null, sticky: true, hasKey: true,
+        keyHint: '1234', createdAt: 1, updatedAt: 1,
+      }]),
+    })
+    const bundle = await exportAssistantConfig(s)
+    expect(bundle.providers[0]?.sticky).toBe(true)
+
+    const target = store({ listProviders: vi.fn(async () => []) })
+    await importAssistantConfig(target, {
+      ...bundle,
+      providers: bundle.providers.map((entry) => ({ ...entry, label: 'Restored Vendor' })),
+    })
+    expect(vi.mocked(target.createProvider).mock.calls[0]?.[0]).toEqual(expect.objectContaining({ sticky: true }))
   })
 })

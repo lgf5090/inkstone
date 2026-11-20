@@ -336,6 +336,10 @@ function freezeChart(block: HTMLElement, source: HTMLElement): void {
 export const SLIDE_CONTROL_SELECTORS = [
   'a.heading-anchor',
   '[data-copy]',
+  '[data-copy-code]',
+  '[data-expand-code]',
+  '[data-expand-label]',
+  '[data-collapse-label]',
   '[data-tab-button]',
   '[data-kanban-fullscreen]',
   '[data-mindmap-fullscreen]',

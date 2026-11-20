@@ -323,7 +323,7 @@ export function MultiModelView({ messages, live, fileIndex }: {
       toast({ title: ok ? t('assistant.panes.copied') : t('assistant.panes.copy_failed'), tone: ok ? 'default' : 'danger' })
     })
   }
-  const mainCopyText = mainLive?.text || [...messages].reverse().find((message) => message.role === 'assistant')?.content || ''
+  const mainCopyText = mainLive?.text || messages.findLast((message) => message.role === 'assistant')?.content || ''
   const gridClass = layout === 4
     ? 'md:grid-cols-2 md:grid-rows-2'
     : layout === 6
@@ -361,7 +361,7 @@ export function MultiModelView({ messages, live, fileIndex }: {
     </PaneFrame>,
     ...visible.map((pane) => {
       const current = turns[pane.id] ?? null
-      const paneCopy = current?.text || [...pane.messages].reverse().find((message) => message.role === 'assistant')?.content || ''
+      const paneCopy = current?.text || pane.messages.findLast((message) => message.role === 'assistant')?.content || ''
       return (
         <PaneFrame
           key={pane.id}

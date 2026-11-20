@@ -66,7 +66,7 @@ export function normaliseGroups(value: unknown): BookGroup[] {
 
 /** Newest touched first, so a group a reader just edited stays where they left it. */
 export function sortGroups(groups: BookGroup[]): BookGroup[] {
-  return [...groups].sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name, 'zh-CN'))
+  return groups.toSorted((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name, 'zh-CN'))
 }
 
 export function createGroup(groups: BookGroup[], name: string): GroupResult {

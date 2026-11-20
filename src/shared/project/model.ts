@@ -17,7 +17,7 @@ export type ProjectMinimumRole = '' | ProjectRole
 
 export const PROJECT_PROPERTY_TYPES = [
   'text', 'number', 'select', 'multiSelect', 'date', 'person', 'multiPerson', 'file',
-  'checkbox', 'url', 'email', 'phone', 'createdTime', 'createdBy', 'updatedTime', 'updatedBy', 'unknown',
+  'checkbox', 'url', 'email', 'phone', 'formula', 'relation', 'rollup', 'createdTime', 'createdBy', 'updatedTime', 'updatedBy', 'unknown',
 ] as const
 export type ProjectPropertyType = (typeof PROJECT_PROPERTY_TYPES)[number]
 
@@ -85,6 +85,9 @@ export const PROJECT_PROPERTY_CAPABILITIES: Readonly<Record<ProjectPropertyType,
   url: EDITABLE_TEXT,
   email: EDITABLE_TEXT,
   phone: EDITABLE_TEXT,
+  formula: { canFilter: false, filterValueType: 'none', canGroup: false, readOnly: true },
+  relation: { canFilter: true, filterValueType: 'text', canGroup: false, readOnly: false },
+  rollup: { canFilter: true, filterValueType: 'number', canGroup: false, readOnly: true },
   createdTime: SERVER_STAMP,
   createdBy: SERVER_AUTHOR,
   updatedTime: SERVER_STAMP,
@@ -102,7 +105,7 @@ export const PROJECT_CALCULATIONS = [
 export type ProjectCalculation = (typeof PROJECT_CALCULATIONS)[number]
 
 /** Four the reference draws, then four this port adds; an imported archive only ever names the first four. */
-export const PROJECT_VIEW_TYPES = ['board', 'table', 'gallery', 'calendar', 'list', 'timeline', 'gantt', 'chart', 'dashboard', 'collection'] as const
+export const PROJECT_VIEW_TYPES = ['board', 'table', 'gallery', 'calendar', 'list', 'timeline', 'gantt', 'chart', 'dashboard', 'collection', 'sprint'] as const
 export type ProjectViewType = (typeof PROJECT_VIEW_TYPES)[number]
 
 export const PROJECT_CONTENT_TYPES = ['text', 'checkbox', 'divider', 'image', 'attachment'] as const
@@ -121,6 +124,37 @@ export interface ProjectCardLink {
   fromCardId: string
   toCardId: string
   kind: ProjectCardLinkKind
+}
+
+export interface ProjectCardRelation {
+  boardId: string
+  fromCardId: string
+  toCardId: string
+  propertyId: string
+  createdAt: number
+}
+
+/** A worked interval on a card; `endedAt` null while the timer runs. */
+export interface ProjectTimeEntry {
+  id: string
+  boardId: string
+  cardId: string
+  userId: string
+  note: string
+  startedAt: number
+  endedAt: number | null
+  createdAt: number
+}
+
+/** One row of the cross-board "my tasks" list: the card, its board and its earliest date. */
+export interface ProjectMyTask {
+  cardId: string
+  boardId: string
+  boardTitle: string
+  boardIcon: string
+  title: string
+  dueAt: number | null
+  updatedAt: number
 }
 
 export interface ProjectActivityEntry {
@@ -180,11 +214,34 @@ export interface ProjectPropertyOption {
   color: string
 }
 
+/**
+ * Settings a property type needs beyond its column: which board a relation points at, the formula to
+ * evaluate, and which roles may read or write this property. Empty arrays mean every role.
+ */
+export const PROJECT_ROLLUP_AGGREGATIONS = ['count', 'sum', 'avg', 'min', 'max'] as const
+export type ProjectRollupAggregation = (typeof PROJECT_ROLLUP_AGGREGATIONS)[number]
+
+export interface ProjectRollupConfig {
+  relationPropertyId: string
+  targetPropertyId: string
+  aggregation: ProjectRollupAggregation
+}
+
+export interface ProjectPropertyConfig {
+  targetBoardId?: string
+  multiple?: boolean
+  expression?: string
+  viewRoles?: ProjectRole[]
+  editRoles?: ProjectRole[]
+  rollup?: ProjectRollupConfig
+}
+
 export interface ProjectProperty {
   id: string
   name: string
   type: ProjectPropertyType
   options: ProjectPropertyOption[]
+  config?: ProjectPropertyConfig
 }
 
 export interface ProjectSortOption {
@@ -202,6 +259,8 @@ export interface ProjectKanbanCalculation {
  * same cards differently, so `cardOrder` lives here and not on the card.
  */
 export interface ProjectViewFields {
+  /** The weakest role that sees this tab; absent means everyone who can read the board. */
+  minimumRole?: ProjectMinimumRole
   groupById?: string
   dateDisplayPropertyId?: string
   cardSize?: 'compact' | 'comfortable' | 'spacious'
@@ -336,6 +395,7 @@ export interface ProjectRecurrence {
   freq: ProjectRecurrenceFreq
   interval: number
   byWeekday?: number[]
+  anchor?: number
 }
 
 export interface ProjectCard {
@@ -350,6 +410,7 @@ export interface ProjectCard {
   values: Record<string, string>
   /** A repeating card spawns its next instance when completed; absent is an ordinary card. */
   recurrence?: ProjectRecurrence | null
+  completedAt?: number
   createdBy: string
   modifiedBy: string
   createAt: number
@@ -368,7 +429,7 @@ export interface ProjectCardPatch {
 // A board's "done" column is named by whoever made the board, so the reader recognises the word in
 // the languages the interface ships: U+5B8C U+6210 is "finished". The lookbehind keeps the negated
 // form (U+672A / U+6CA1 / U+4E0D in front of it) out of the match.
-const CARD_DONE_PATTERN = /done|complete|finished|(?<![\u672a\u6ca1\u4e0d])\u5b8c\u6210/i
+export const CARD_DONE_PATTERN = /done|complete|finished|(?<![\u672a\u6ca1\u4e0d])\u5b8c\u6210/i
 
 export function isProjectCardDone(card: ProjectCard, properties: readonly ProjectProperty[]): boolean {
   for (const property of properties) {
@@ -518,12 +579,18 @@ export interface ProjectSubscription {
 }
 
 /** What a signed-in member sees about a board's public link; the hash itself never leaves the server. */
+export interface ProjectCardMarks {
+  starred: string[]
+  pinned: string[]
+}
+
 export interface ProjectShare {
   slug: string
   boardId: string
   hasPassword: boolean
   expiresAt: number | null
   views: number
+  showComments: boolean
   createdAt: number
 }
 
@@ -584,8 +651,13 @@ export interface ProjectBoardBundle {
   views: ProjectView[]
   cards: ProjectCard[]
   contents: ProjectContent[]
+  /** Set when the board holds more detail rows than one read carries; open a card for the rest. */
+  contentsTruncated?: boolean
   comments: ProjectComment[]
+  commentsTruncated?: boolean
   members: ProjectBoardMember[]
+  /** Carried only by an import path that already has the edges; a board read leaves it undefined. */
+  links?: ProjectCardLink[]
   /** Everyone the board refers to: members, card authors, comment authors and assigned people. */
   people: ProjectPeople
   /** The caller's effective role, already resolved against the board's minimum role. */

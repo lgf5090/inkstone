@@ -54,7 +54,7 @@ const PROVIDER: AssistantProvider = {
   endpoints: {},
   hasKey: true,
   icon: '', keyHint: 'abcd',
-  reasoningDialect: null,
+  keyLastUsedAt: null, reasoningDialect: null, sticky: false,
   createdAt: 1,
   updatedAt: 1,
 }

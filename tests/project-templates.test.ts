@@ -51,17 +51,21 @@ describe('templates', () => {
     expect(bundle.contents.length).toBeGreaterThan(0)
   })
 
-  it('saves a board as a template and lists it among own templates', async () => {
+  it('saves a snapshot template and leaves the original board live', async () => {
     const created = await req('POST', '/boards', { title: 'Mine' })
     const board = ((await created.json()) as { board: ProjectBoard }).board
-    expect((await req('POST', `/boards/${board.id}/save-as-template`)).status).toBe(200)
+    const saved = await req('POST', `/boards/${board.id}/save-as-template`)
+    expect(saved.status).toBe(201)
+    const template = ((await saved.json()) as { template: ProjectBoard }).template
+    expect(template.id).not.toBe(board.id)
+    expect(template.isTemplate).toBe(true)
     const list = ((await (await req('GET', '/templates')).json()) as { templates: { id: string, isBuiltIn: boolean }[] }).templates
-    const own = list.find((t) => t.id === board.id)
-    expect(own).toBeDefined()
-    expect(own!.isBuiltIn).toBe(false)
-    const fromOwn = await req('POST', '/boards/from-template', { templateId: board.id })
+    expect(list.find((entry) => entry.id === template.id)).toMatchObject({ isBuiltIn: false })
+    const live = ((await (await req('GET', '/boards')).json()) as { boards: ProjectBoard[] }).boards
+    expect(live.some((entry) => entry.id === board.id)).toBe(true)
+    const fromOwn = await req('POST', '/boards/from-template', { templateId: template.id })
     expect(fromOwn.status).toBe(201)
     const copy = ((await fromOwn.json()) as { board: ProjectBoard }).board
-    expect(copy.id).not.toBe(board.id)
+    expect(copy.id).not.toBe(template.id)
   })
 })

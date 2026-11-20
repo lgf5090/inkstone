@@ -55,7 +55,7 @@ export function sortCommunityItems<T extends { name: string; authorName: string;
   sort: CommunitySort,
 ): T[] {
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
-  return [...items].sort((a, b) => {
+  return items.toSorted((a, b) => {
     if (sort === 'name') return collator.compare(a.name, b.name) || collator.compare(a.id, b.id)
     if (sort === 'author') return collator.compare(a.authorName, b.authorName) || collator.compare(a.name, b.name)
     if (sort === 'popular') return b.uses - a.uses || collator.compare(b.id, a.id)
@@ -103,7 +103,7 @@ export function filterGalleryTemplates(templates: NoteTemplate[], filter: Galler
     if (filter.kind === 'tag') return template.tags.includes(filter.tag) && matchesQuery(template)
     return matchesQuery(template)
   })
-  return [...list].sort(compareTemplates)
+  return list.toSorted(compareTemplates)
 }
 
 export function useGalleryDerived(

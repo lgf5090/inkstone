@@ -20,6 +20,15 @@ vi.mock('../src/client/features/cloudflare/api/dashboard', () => ({
   getDashboardResources: vi.fn(async (accountId: string) => ({ accountId, counts: [], usage: [] })),
   getDashboardZones: vi.fn(async () => ({ zones: [] })),
   getAuditLogs: vi.fn(async () => ({ logs: [], total: 0, actions: [] })),
+  getCloudflareStatus: vi.fn(async () => ({
+    indicator: 'none',
+    description: 'All Systems Operational',
+    components: [],
+    incidents: [],
+    fetched_at: 0,
+  })),
+  getCloudflareAudit: vi.fn(async () => ({ accountId: '', accountName: '', entries: [], cursor: null })),
+  getSubscriptions: vi.fn(async (accountId: string) => ({ accountId, subscriptions: [] })),
 }))
 
 let root: Root

@@ -171,6 +171,7 @@ function QuotaBody({ data, percent }: { data: YouTubeQuotaData; percent: number 
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(percent)}
+          aria-valuetext={`${t('youtube.quota.today')} ${percent.toFixed(1)}%`}
           className="mt-[var(--sp-2)] h-2.5 w-full overflow-hidden rounded-full bg-[var(--bg-hover)]"
         >
           <div

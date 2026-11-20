@@ -136,7 +136,7 @@ function buildBuiltinLibrary(): TemplateLibraryData {
 }
 
 function orderedCategories(categories: NoteTemplateCategory[]): NoteTemplateCategory[] {
-  return [...categories].sort((a, b) => {
+  return categories.toSorted((a, b) => {
     const aPos = BUILTIN_CATEGORY_POSITION.get(a.id)
     const bPos = BUILTIN_CATEGORY_POSITION.get(b.id)
     if (aPos !== undefined && bPos !== undefined) return aPos - bPos

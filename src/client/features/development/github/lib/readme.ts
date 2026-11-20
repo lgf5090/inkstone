@@ -1,6 +1,10 @@
 import MarkdownIt from 'markdown-it'
+import footnote from 'markdown-it-footnote'
 import DOMPurify from 'dompurify'
-import { proxiedImageUrl } from './image'
+import { normalizeGithubImageUrl } from '@shared/development/github/image'
+import { t } from '../../../../lib/i18n'
+import { encodeDataValue } from '../../../../lib/markdown/data-attr'
+import { sanitizedElement } from '../../../../lib/sanitized-dom'
 
 export interface ReadmeRenderOptions {
   fullName: string
@@ -15,18 +19,29 @@ const ALLOWED_TAGS = [
   'a', 'span', 'strong', 'em', 'b', 'i', 'u', 'del', 'ins', 's', 'sub', 'sup',
   'mark', 'kbd', 'abbr', 'cite', 'q', 'small', 'details', 'summary', 'figure',
   'figcaption', 'dl', 'dt', 'dd', 'ruby', 'rt', 'rp', 'img', 'center',
+  'picture', 'source', 'video',
 ]
 
 const ALLOWED_ATTR = [
   'class', 'id', 'title', 'alt', 'href', 'target', 'rel', 'src', 'width',
   'height', 'loading', 'referrerpolicy', 'align', 'valign', 'colspan', 'rowspan', 'start',
-  'type', 'value', 'open', 'dir', 'lang',
+  'open', 'dir', 'lang', 'role', 'srcset', 'sizes', 'media', 'type', 'controls', 'poster', 'playsinline',
+  'data-math',
 ]
 
 const FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'link', 'meta', 'base']
-const FORBID_ATTR = ['style', 'srcset', 'sizes', 'formaction']
+const FORBID_ATTR = ['style', 'formaction']
 const EXTERNAL_URL = /^(?:https?:|mailto:|tel:)/i
-const SAFE_CLASS = /^(?:language-[A-Za-z0-9+#._-]+|github-md-table)$/
+const SAFE_CLASS = /^(?:language-[A-Za-z0-9+#._-]+|github-md-table|gh-task-item|gh-task|gh-task-done|gh-alert|gh-alert-note|gh-alert-tip|gh-alert-important|gh-alert-warning|gh-alert-caution|footnote-ref|footnotes|footnotes-list|footnote-item|footnote-backref|footnotes-sep|math-inline|math-block)$/
+const TASK_MARKER = /^\[([ xX])\]\s+/
+const ALERT_MARKER = /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i
+const ALERT_LABELS = {
+  note: 'development.github.repos.alert_note',
+  tip: 'development.github.repos.alert_tip',
+  important: 'development.github.repos.alert_important',
+  warning: 'development.github.repos.alert_warning',
+  caution: 'development.github.repos.alert_caution',
+} as const
 const README_ID_PREFIX = 'readme-'
 
 function isExternalUrl(value: string): boolean {
@@ -46,16 +61,24 @@ function normalizeRelativePath(path: string): string {
   return output.join('/')
 }
 
+function finishImageUrl(value: string): string {
+  const upgraded = value.startsWith('http://') ? `https://${value.slice('http://'.length)}` : value
+  return normalizeGithubImageUrl(upgraded)
+}
+
 function resolveUrl(rawUrl: string, options: ReadmeRenderOptions, kind: UrlKind): string | null {
   const url = rawUrl.trim()
   if (!url) return ''
   if (url.startsWith('/api/development/github/image?')) return url
   if (url.startsWith('#')) return url
-  if (url.startsWith('//')) return `https:${url}`
+  if (url.startsWith('//')) return kind === 'image' ? finishImageUrl(`https:${url}`) : `https:${url}`
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)
   if (scheme) {
     const protocol = scheme[1]!.toLowerCase()
-    if (protocol === 'http' || protocol === 'https' || protocol === 'mailto' || protocol === 'tel') return url
+    if (protocol === 'http' || protocol === 'https') {
+      return kind === 'image' ? finishImageUrl(url) : url
+    }
+    if (protocol === 'mailto' || protocol === 'tel') return url
     if (kind === 'image' && protocol === 'data' && /^data:image\//i.test(url)) return url
     return null
   }
@@ -63,8 +86,10 @@ function resolveUrl(rawUrl: string, options: ReadmeRenderOptions, kind: UrlKind)
   const path = boundary === -1 ? url : url.slice(0, boundary)
   const suffix = boundary === -1 ? '' : url.slice(boundary)
   const relative = normalizeRelativePath(path.replace(/^\.\//, '').replace(/^\//, ''))
-  const segment = kind === 'image' ? 'raw' : 'blob'
-  return `https://github.com/${options.fullName}/${segment}/${options.defaultBranch}/${relative}${suffix}`
+  if (kind === 'image') {
+    return `https://raw.githubusercontent.com/${options.fullName}/${options.defaultBranch}/${relative}${suffix}`
+  }
+  return `https://github.com/${options.fullName}/blob/${options.defaultBranch}/${relative}${suffix}`
 }
 
 function slugifyHeading(value: string): string {
@@ -77,9 +102,9 @@ function slugifyHeading(value: string): string {
   return slug || 'section'
 }
 
-function assignHeadingIds(template: HTMLTemplateElement): void {
+function assignHeadingIds(root: ParentNode): void {
   const used = new Set<string>()
-  for (const heading of Array.from(template.content.querySelectorAll('h1, h2, h3, h4, h5, h6'))) {
+  for (const heading of Array.from(root.querySelectorAll('h1, h2, h3, h4, h5, h6'))) {
     const existing = heading.getAttribute('id')
     if (existing) {
       used.add(existing)
@@ -113,6 +138,59 @@ function renderMarkdown(md: string, options: ReadmeRenderOptions): string {
     typographer: false,
   })
 
+  instance.use(footnote)
+
+  instance.inline.ruler.before('escape', 'math_inline', (state, silent) => {
+    const start = state.pos
+    if (state.src[start] !== '$' || state.src[start + 1] === '$') return false
+    if (start > 0 && state.src[start - 1] === '\\') return false
+    let end = start + 1
+    while (end < state.posMax) {
+      if (state.src[end] === '$') break
+      end += 1
+    }
+    if (end >= state.posMax) return false
+    const content = state.src.slice(start + 1, end)
+    if (!content.trim() || content.startsWith(' ') || content.endsWith(' ')) return false
+    if (!silent) state.push('math_inline', 'span', 0).content = content
+    state.pos = end + 1
+    return true
+  })
+
+  instance.renderer.rules.math_inline = (tokens, index) => {
+    const content = tokens[index]!.content
+    return `<span class="math-inline" data-math="${encodeDataValue(content)}">${escapeHtml(content)}</span>`
+  }
+
+  instance.block.ruler.before('fence', 'math_block', (state, startLine, endLine, silent) => {
+    const start = state.bMarks[startLine] + state.tShift[startLine]
+    const firstLine = state.src.slice(start, state.eMarks[startLine])
+    if (!firstLine.startsWith('$$')) return false
+    const single = /^\$\$(.+?)\$\$\s*$/.exec(firstLine)
+    if (single) {
+      if (!silent) state.push('math_block', 'span', 0).content = single[1]!.trim()
+      state.line = startLine + 1
+      return true
+    }
+    if (firstLine.trim() !== '$$') return false
+    const lines: string[] = []
+    for (let next = startLine + 1; next < endLine; next += 1) {
+      const text = state.src.slice(state.bMarks[next] + state.tShift[next], state.eMarks[next])
+      if (text.trim() === '$$') {
+        if (!silent) state.push('math_block', 'span', 0).content = lines.join('\n').trim()
+        state.line = next + 1
+        return true
+      }
+      lines.push(text)
+    }
+    return false
+  })
+
+  instance.renderer.rules.math_block = (tokens, index) => {
+    const content = tokens[index]!.content
+    return `<span class="math-block" data-math="${encodeDataValue(content)}">${escapeHtml(content)}</span>`
+  }
+
   instance.renderer.rules.link_open = (tokens, index, renderOptions, _env, self) => {
     const token = tokens[index]!
     const resolved = resolveUrl(token.attrGet('href') ?? '', options, 'link')
@@ -130,11 +208,22 @@ function renderMarkdown(md: string, options: ReadmeRenderOptions): string {
     return self.renderToken(tokens, index, renderOptions)
   }
 
+  instance.renderer.rules.th_open = (tokens, index, renderOptions, _env, self) => {
+    const token = tokens[index]!
+    const match = /text-align:\s*(left|center|right)/i.exec(token.attrGet('style') ?? '')
+    if (match) {
+      token.attrSet('align', match[1]!.toLowerCase())
+      token.attrSet('style', '')
+    }
+    return self.renderToken(tokens, index, renderOptions)
+  }
+  instance.renderer.rules.td_open = instance.renderer.rules.th_open
+
   instance.renderer.rules.image = (tokens, index, renderOptions, _env, self) => {
     const token = tokens[index]!
     const resolved = resolveUrl(token.attrGet('src') ?? '', options, 'image')
     if (resolved === null) token.attrSet('src', '')
-    else token.attrSet('src', proxiedImageUrl(resolved))
+    else token.attrSet('src', resolved)
     token.attrSet('loading', 'lazy')
     token.attrSet('referrerpolicy', 'no-referrer')
     return self.renderToken(tokens, index, renderOptions)
@@ -165,8 +254,57 @@ function resolveHtmlUrls(html: string, options: ReadmeRenderOptions): string {
     if (tag === 'img') {
       element.setAttribute('loading', 'lazy')
       element.setAttribute('referrerpolicy', 'no-referrer')
-      element.setAttribute('src', proxiedImageUrl(resolved))
     }
+  }
+
+  for (const node of Array.from(template.content.querySelectorAll('source[srcset], img[srcset]'))) {
+    const value = node.getAttribute('srcset') ?? ''
+    const entries = value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const [url, ...descriptor] = entry.split(/\s+/)
+        if (!url) return ''
+        const resolved = resolveUrl(url, options, 'image')
+        if (resolved === null || resolved === '') return ''
+        return [resolved, ...descriptor].join(' ')
+      })
+      .filter(Boolean)
+    if (entries.length > 0) node.setAttribute('srcset', entries.join(', '))
+    else node.removeAttribute('srcset')
+  }
+
+  for (const item of Array.from(template.content.querySelectorAll('li'))) {
+    const holder = item.querySelector(':scope > p') ?? item
+    const first = holder.firstChild
+    if (!first || first.nodeType !== Node.TEXT_NODE) continue
+    const text = first.textContent ?? ''
+    const match = TASK_MARKER.exec(text)
+    if (!match) continue
+    first.textContent = text.slice(match[0].length)
+    const done = match[1]!.toLowerCase() === 'x'
+    const mark = document.createElement('span')
+    mark.className = done ? 'gh-task gh-task-done' : 'gh-task'
+    mark.setAttribute('role', 'img')
+    mark.setAttribute('aria-label', t(done
+      ? 'development.github.repos.task_done'
+      : 'development.github.repos.task_todo'))
+    holder.insertBefore(mark, first)
+    item.classList.add('gh-task-item')
+  }
+
+  for (const quote of Array.from(template.content.querySelectorAll('blockquote'))) {
+    const first = quote.querySelector(':scope > p')
+    if (!first) continue
+    const match = ALERT_MARKER.exec(first.textContent ?? '')
+    if (!match) continue
+    const kind = match[1]!.toLowerCase() as keyof typeof ALERT_LABELS
+    quote.classList.add('gh-alert', `gh-alert-${kind}`)
+    quote.setAttribute('data-label', t(ALERT_LABELS[kind]))
+    const walker = document.createTreeWalker(first, NodeFilter.SHOW_TEXT)
+    const text = walker.nextNode()
+    if (text?.nodeValue) text.nodeValue = text.nodeValue.slice(match[0].length).replace(/^\s+/, '')
   }
   return template.innerHTML
 }
@@ -181,10 +319,9 @@ function sanitizeHtml(html: string, options: ReadmeRenderOptions): string {
     KEEP_CONTENT: true,
   })
   if (typeof document === 'undefined') return clean
-  const template = document.createElement('template')
-  template.innerHTML = clean
+  const root = sanitizedElement(clean)
 
-  for (const element of Array.from(template.content.querySelectorAll('*'))) {
+  for (const element of Array.from(root.querySelectorAll('*'))) {
     const tag = element.tagName.toLowerCase()
     for (const attribute of Array.from(element.attributes)) {
       if (attribute.name === 'style' || attribute.name.startsWith('on')) element.removeAttribute(attribute.name)
@@ -220,17 +357,17 @@ function sanitizeHtml(html: string, options: ReadmeRenderOptions): string {
     }
   }
 
-  assignHeadingIds(template)
-  for (const element of Array.from(template.content.querySelectorAll('[id]'))) {
+  assignHeadingIds(root)
+  for (const element of Array.from(root.querySelectorAll('[id]'))) {
     const id = element.getAttribute('id')
     if (id) element.setAttribute('id', `${README_ID_PREFIX}${id}`)
   }
-  for (const link of Array.from(template.content.querySelectorAll('a[href^="#"]'))) {
+  for (const link of Array.from(root.querySelectorAll('a[href^="#"]'))) {
     const href = link.getAttribute('href') ?? ''
     if (href.length <= 1) continue
     link.setAttribute('href', `#${README_ID_PREFIX}${href.slice(1)}`)
   }
-  return template.innerHTML
+  return root.innerHTML
 }
 
 export function renderGithubReadme(md: string, options: ReadmeRenderOptions, emptyHtml = ''): string {

@@ -472,6 +472,14 @@ export class AssistantRunner {
   private attachmentPayloads = new Map<string, AttachmentPayload>()
   /** Which row each key on the wire came from, so a refusal can be written onto the key that caused it. */
   private signedKeyIds = new Map<string, string>()
+  /** When each key was signed for the current attempt, so the log can carry a round-trip. */
+  private attemptStartedAt = new Map<string, number>()
+  /** The pending log row of the attempt that answered, waiting for the token count the answer reports. */
+  private lastAttemptLog: Promise<string | null> | null = null
+  /** The thread this turn belongs to, so every attempt of a retry chain can be read together. */
+  private logConversationId = ''
+  /** 1-based position of the current attempt within this turn. */
+  private logAttemptNumber = 0
   /** The answer this turn resumes, when the reader pressed "continue" on a cut-off reply. */
   private continueFrom: AssistantMessage | null = null
   /** The caller's cancellation, kept so each attempt can combine it with its own timeout. */
@@ -514,6 +522,8 @@ export class AssistantRunner {
     this.turnModelId = input.modelId ?? null
     this.turnAllowedTools = input.allowedTools ?? null
     this.turnIsSubagent = input.subagent === true
+    this.logConversationId = ''
+    this.logAttemptNumber = 0
     // Read before the scope is resolved for the first time: `noteScope()` caches, so a scope pinned
     // for this turn has to be in place before anything asks for it.
     // A turn that may call nothing keeps no pins either: the prompt would otherwise promise the model tools
@@ -674,6 +684,7 @@ export class AssistantRunner {
       })
     }
     const conversationId = conversation.id
+    this.logConversationId = conversationId
     // The thread's own overrides are read before the model resolves, so a model named here beats the
     // Agent's standing choice and the account default. An explicit switch on this turn still wins.
     this.conversationSettings = conversation.settings ?? {}
@@ -806,7 +817,10 @@ export class AssistantRunner {
       // it.
       const capFor = (entry: ResolvedCall) => {
         const modelCap = entry.model.maxOutputTokens ?? limits.maxOutputTokens
-        return project?.maxOutputTokens ? Math.min(modelCap, project.maxOutputTokens) : modelCap
+        const projectCap = project?.maxOutputTokens ?? Number.POSITIVE_INFINITY
+        const threadCap = this.conversationSettings.maxOutputTokens ?? Number.POSITIVE_INFINITY
+        // All three are ceilings, so the smallest wins; a thread can only ever ask for less.
+        return Math.min(modelCap, projectCap, threadCap)
       }
       let outputCap = capFor(primary)
       if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }, model.label))) {
@@ -926,7 +940,11 @@ export class AssistantRunner {
         project: projectInstructions ? { name: project?.name ?? '', instructions: projectInstructions } : null,
         skills: projectSkills,
         continuing: this.continueFrom !== null,
-        customInstructions: this.settings.customInstructions,
+        // A thread's instruction is the reader's voice too, appended after the account's standing
+        // rules. It rides in the same field rather than becoming a second system message that would
+        // change the prompt shape for every other thread.
+        customInstructions: [this.settings.customInstructions, this.conversationSettings.systemPrompt]
+          .filter(Boolean).join('\n\n'),
       })
       // The standing half stays the system message, so the tool block and the rules in front of it are the
       // same bytes on every request and a cache can keep them. Everything that describes this one turn —
@@ -1085,7 +1103,7 @@ export class AssistantRunner {
           extraBody: { ...customParamBody(entry.model.customParams), ...(project ? customParamBody(project.customParams) : {}) },
           reasoning: entry.model.reasoning,
           reasoningDialect: entry.call.reasoningDialect,
-          retry: this.retryFor(entry.provider),
+          retry: this.retryFor(entry.provider, entry.model.model),
           signal,
         }), calls, usage, project?.stream === false && schemas.length === 0)) {
           if (event.type === 'text') {
@@ -1222,6 +1240,7 @@ export class AssistantRunner {
         conversation: turns.reduce((total, turn) => total + estimateTokens(turn.content ?? '') + (turn.calls?.length ? estimateTokens(JSON.stringify(turn.calls)) : 0), 0),
         reasoning: estimateTokens(reasoning),
       }
+      await this.finishAttemptLog(usage)
       yield { type: 'usage', usage: usage.cachedInputTokens ? usage : { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }, contextBreakdown }
       // Read the signal again here: every `yield` above hands control back to the response writer, and
       // a reader who stopped the turn in the meantime must not have their half answer filed as whole.
@@ -1400,7 +1419,7 @@ export class AssistantRunner {
         const attemptUsage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }
         const timed = this.attemptSignal()
         try {
-          const apiKey = await this.signKey(entry.provider)
+          const apiKey = await this.signKey(entry.provider, entry.model.model)
           // An Agent that turned streaming off answers a tool-less step in one request. A step with tools
           // stays streamed: the non-streaming door returns words, not the calls the loop exists to run.
           if (preferOnce) {
@@ -1435,7 +1454,7 @@ export class AssistantRunner {
           if (attempt === 2 && timed.timedOut() && this.settings.autoRecover) {
             this.rollbackAttempt(sourcesBefore, truncatedBefore, blockedBefore)
             try {
-              const apiKey = await this.signKey(entry.provider)
+              const apiKey = await this.signKey(entry.provider, entry.model.model)
               const once = await fetchOnce(entry.call.protocol, requestFor(entry, apiKey, this.turnSignal ?? new AbortController().signal))
               if (once.text.trim()) {
                 usage.inputTokens += once.inputTokens
@@ -1652,13 +1671,18 @@ export class AssistantRunner {
    * Marking it is what makes the rotation rotate: the next call sorts the least recently used key first,
    * so a turn that takes several steps spreads across the ring instead of pinning the first one.
    */
-  private async signKey(provider: ProviderRow): Promise<string> {
-    const picked = await this.store.pickProviderKey(provider)
+  private async signKey(provider: ProviderRow, model?: string, refused?: ReadonlySet<string>): Promise<string> {
+    // The caller's copy is the turn's opening snapshot. A retry has to see the `key_last_used_at` the
+    // previous attempt just wrote, or the ring hands back the same key the provider refused and the
+    // transport reads "nothing else to try" from a ring it never actually rotated.
+    const fresh = await this.store.providerRecord(provider.id) ?? provider
+    const picked = await this.store.pickProviderKey(fresh, model, refused)
     if (!picked) return ''
     await this.store.markProviderKeyUsed(provider.id, picked.keyId)
     // Kept for the length of this turn only: the request carries the key, not the row it came from, and
     // this is what lets a refusal be charged to the key that earned it.
-    if (picked.keyId) this.signedKeyIds.set(picked.key, picked.keyId)
+    this.signedKeyIds.set(picked.key, picked.keyId)
+    this.attemptStartedAt.set(picked.key, Date.now())
     return picked.key
   }
 
@@ -1674,20 +1698,150 @@ export class AssistantRunner {
    * host or a malformed request says nothing about the key, and counting it would send the reader to the
    * wrong row.
    */
-  private retryFor(provider: ProviderRow): UpstreamRetry {
+  /** Milliseconds since this key was signed for the attempt in flight, or null when untimed. */
+  private elapsedFor(apiKey: string): number | null {
+    const started = this.attemptStartedAt.get(apiKey)
+    return started ? Date.now() - started : null
+  }
+
+  /**
+   * One line in the attempt log.
+   *
+   * Never throws: a log that breaks a turn is worse than a gap in it. The label is left empty because the
+   * runner never reads key rows — the hint and the id are what a reader searches by.
+   */
+  private async logAttempt(entry: {
+    provider: ProviderRow, model?: string, apiKey: string, keyId: string, ok: boolean,
+    httpStatus?: number | null, errorKind?: string | null, errorMessage?: string | null,
+    latencyMs?: number | null, request?: UpstreamRequest,
+  }): Promise<string | null> {
+    try {
+      return await this.store.recordRequestLog({
+        providerId: entry.provider.id,
+        providerLabel: entry.provider.label,
+        keyId: entry.keyId,
+        keyLabel: '',
+        keyHint: entry.apiKey.slice(-4),
+        modelLabel: entry.model ?? '',
+        modelId: entry.model ?? '',
+        conversationId: this.logConversationId,
+        attempt: ++this.logAttemptNumber,
+        operation: 'chat',
+        ok: entry.ok,
+        httpStatus: entry.httpStatus ?? null,
+        errorKind: entry.errorKind ?? null,
+        errorMessage: entry.errorMessage ?? null,
+        latencyMs: entry.latencyMs ?? null,
+        requestBody: this.describeRequest(entry.request),
+      })
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * The request as the reader asked to keep it, or null when they did not.
+   *
+   * Truncated to a readable size: a body is here to answer "what did we actually send", and a 40k-token
+   * transcript pasted into a log row answers that no better than its first few thousand characters.
+   */
+  private describeRequest(request?: UpstreamRequest): string | null {
+    if (!request || !this.settings.logRequestBodies) return null
+    try {
+      const body = JSON.stringify({
+        model: request.model,
+        system: request.system,
+        turns: request.turns,
+        tools: request.tools?.map((tool) => tool.name ?? tool),
+      })
+      return body.length > LOG_BODY_LIMIT ? `${body.slice(0, LOG_BODY_LIMIT)}…` : body
+    } catch {
+      return null
+    }
+  }
+
+  /** Writes the tokens onto the line the successful attempt opened, then forgets it. */
+  private async finishAttemptLog(usage: {
+    inputTokens: number, outputTokens: number, cachedInputTokens?: number,
+  }): Promise<void> {
+    // The row is written beside the answer rather than before its first frame. This is the point where
+    // the turn cannot finish without the id it has to fill in, so it waits for the pending write here.
+    const pending = this.lastAttemptLog
+    if (!pending) return
+    this.lastAttemptLog = null
+    try {
+      const id = await pending
+      if (!id) return
+      await this.store.finishRequestLog(id, {
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cachedInputTokens: usage.cachedInputTokens ?? 0,
+      })
+    } catch {
+      // A missing token count on one line is not worth failing a finished answer over.
+    }
+  }
+
+  private retryFor(provider: ProviderRow, model?: string): UpstreamRetry {
+    // A key refused during this turn steps aside for the rest of it. The provider's own key has no row
+    // where a refusal can be recorded, and sticky ordering would otherwise hand it back on every retry.
+    const refused = new Set<string>()
     return {
       attempts: UPSTREAM_RETRY_ATTEMPTS,
-      rotateKey: async () => await this.signKey(provider),
-      onAttemptFailed: async (error, apiKey) => {
+      rotateKey: async () => await this.signKey(provider, model, refused),
+      onAttemptFailed: async (error, apiKey, request) => {
+        await this.logAttempt({
+          provider, model, apiKey,
+          keyId: this.signedKeyIds.get(apiKey) ?? '',
+          ok: false,
+          httpStatus: error.status ?? null,
+          errorKind: error.kind,
+          errorMessage: error.message,
+          latencyMs: this.elapsedFor(apiKey),
+          request,
+        })
+        // `has`, not the value: the provider's own key is named by the empty string, and it can still be
+        // the key a model was not entitled to.
+        if (!this.signedKeyIds.has(apiKey)) return
+        const keyId = this.signedKeyIds.get(apiKey)!
+        // A failure that names the request rather than the credential is narrowed to this model. The key
+        // may serve every other model it is entitled to, and cooling it whole would idle a working key.
+        if (model && (error.kind === 'bad-request' || error.kind === 'unsupported')) {
+          try {
+            await this.store.recordKeyModelCooldown(keyId, provider.id, model, MODEL_COOLDOWN_MS)
+          } catch {
+            // Same rule as below: the turn still reports the provider's own error.
+          }
+          return
+        }
         if (error.kind !== 'auth' && error.kind !== 'quota' && error.kind !== 'rate') return
-        const keyId = this.signedKeyIds.get(apiKey)
-        if (!keyId) return
+        refused.add(keyId)
         try {
-          await this.store.recordProviderKeyError(keyId, `${error.kind}: ${error.message}`)
+          await this.store.recordProviderKeyError(keyId, `${error.kind}: ${error.message}`, cooldownFor(error))
         } catch {
           // A diagnostic must not replace the failure it was describing: the turn still reports the
           // provider's own error, and the next failure will try to record itself again.
         }
+      },
+      onAttemptSucceeded: (apiKey, request) => {
+        // Started, not awaited: the transport hands the first frame to the reader before this finishes.
+        // The turn's finish step awaits the promise, so an answer cannot outrun its own token count.
+        this.lastAttemptLog = (async () => {
+          const id = await this.logAttempt({
+            provider, model, apiKey,
+            keyId: this.signedKeyIds.get(apiKey) ?? '',
+            ok: true,
+            latencyMs: this.elapsedFor(apiKey),
+            request,
+          })
+          if (!this.signedKeyIds.has(apiKey)) return id
+          try {
+            await this.store.clearProviderKeyFailure(this.signedKeyIds.get(apiKey)!, provider.id, model)
+          } catch {
+            // Same rule as above: a key that answered answered, whatever the bookkeeping did about it.
+          }
+          return id
+        })()
       },
     }
   }
@@ -1737,14 +1891,13 @@ export class AssistantRunner {
     const transcript = overflow
       .map((entry) => `${entry.role === 'user' ? 'Reader' : 'Assistant'}: ${entry.content.slice(0, 1500)}`)
       .join('\n')
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), SUMMARIZE_DEADLINE_MS)
+    const signal = AbortSignal.timeout(SUMMARIZE_DEADLINE_MS)
     let text = ''
     try {
       if (!(await this.reserve(1, this.settings.limits.maxRequestsPerDay))) return null
       for await (const event of streamUpstream(call.protocol, {
         baseUrl: call.baseUrl,
-        apiKey: await this.signKey(resolved.provider),
+        apiKey: await this.signKey(resolved.provider, resolved.model.model),
         model: resolved.model.model,
         system: promptCatalog(this.settings.language).summarizer_system,
         turns: [{ role: 'user', content: summarizerPrompt(this.settings.language, previous, transcript) }],
@@ -1754,8 +1907,8 @@ export class AssistantRunner {
         // A summary is arithmetic on text, not a question: thinking only costs the reader's budget.
         reasoning: 'off',
         reasoningDialect: call.reasoningDialect,
-        retry: this.retryFor(resolved.provider),
-        signal: controller.signal,
+        retry: this.retryFor(resolved.provider, resolved.model.model),
+        signal,
       })) {
         if (event.type === 'text') text += event.delta
       }
@@ -1765,8 +1918,6 @@ export class AssistantRunner {
       // and the log line is for whoever operates the deployment, not for the reader.
       console.warn('[inkstone] assistant summarization skipped:', error instanceof Error ? error.name : error)
       return null
-    } finally {
-      clearTimeout(timer)
     }
     const summary = text.trim().slice(0, 2000)
     if (!summary) return null
@@ -2570,13 +2721,12 @@ export class AssistantRunner {
     const call = modelEndpoint(resolved.model, resolved.provider)
     if (!(await this.reserve(1, this.settings.limits.maxRequestsPerDay))) return null
     const catalog = promptCatalog(this.settings.language)
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), CONFLICT_JUDGE_DEADLINE_MS)
+    const signal = AbortSignal.timeout(CONFLICT_JUDGE_DEADLINE_MS)
     let text = ''
     try {
       for await (const event of streamUpstream(call.protocol, {
         baseUrl: call.baseUrl,
-        apiKey: await this.signKey(resolved.provider),
+        apiKey: await this.signKey(resolved.provider, resolved.model.model),
         model: resolved.model.model,
         system: catalog.conflict_system,
         turns: [{
@@ -2596,8 +2746,8 @@ export class AssistantRunner {
         structured: true,
         reasoning: 'off',
         reasoningDialect: call.reasoningDialect,
-        retry: this.retryFor(resolved.provider),
-        signal: controller.signal,
+        retry: this.retryFor(resolved.provider, resolved.model.model),
+        signal,
       })) {
         if (event.type === 'text') text += event.delta
       }
@@ -2608,8 +2758,6 @@ export class AssistantRunner {
       // `null` is the answer "no opinion", which is what the caller was built to take.
       await this.store.incrementUsage({ errors: 1 })
       return null
-    } finally {
-      clearTimeout(timer)
     }
     return parseVerdict(text)
   }
@@ -2698,7 +2846,7 @@ export class AssistantRunner {
         temperature: this.settings.temperature,
         reasoning: entry.model.reasoning,
         reasoningDialect: entry.call.reasoningDialect,
-        retry: this.retryFor(entry.provider),
+        retry: this.retryFor(entry.provider, entry.model.model),
         signal: attemptSignal,
       }), calls, usage)) {
         if (event.type === 'text') text += event.delta ?? ''
@@ -3011,3 +3159,35 @@ function syntheticContext(): ExecutionContext {
     passThroughOnException: () => {},
   } as unknown as ExecutionContext
 }
+
+/**
+ * How long one key stays away from one model it could not serve.
+ *
+ * Longer than a key's own rest and independent of it: the cause is an entitlement — a plan that does not
+ * include the model, a region that does not carry it — and that changes on a vendor's schedule rather than
+ * in seconds. Cooling only the pair keeps the key answering every other model in the meantime.
+ */
+const MODEL_COOLDOWN_MS = 30 * 60_000
+
+/** How much of a request body the log keeps, as characters. */
+const LOG_BODY_LIMIT = 8_000
+
+/**
+ * How long one refusal keeps a key out of the rotation.
+ *
+ * The vendor's own `Retry-After` wins when it gave one: it is the only party that knows when its window
+ * reopens. Failing that the kind decides — a rate limit is a moment, a refusal that names the key is worth
+ * a longer rest, and a quota is an allowance that refills on the vendor's schedule rather than in seconds.
+ *
+ * These are bases only. `recordProviderKeyError` doubles the window per consecutive failure, so a key that
+ * keeps failing is retried less and less insistently without ever being switched off for good; one answer
+ * from that key resets it.
+ */
+export function cooldownFor(error: UpstreamError): number {
+  const after = error.retryAfterMs
+  if (after !== undefined && after > 0) return Math.min(after, 60 * 60_000)
+  if (error.kind === 'quota') return 60 * 60_000
+  if (error.kind === 'auth') return 5 * 60_000
+  return 60_000
+}
+

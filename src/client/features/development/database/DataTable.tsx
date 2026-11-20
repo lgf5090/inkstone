@@ -22,7 +22,7 @@ import {
 import type { ParsedTable, QueryResult, TableSortRule } from '@shared/development/database/types'
 import { MAX_QUERY_BYTES, MAX_QUERY_ROWS } from '@shared/development/database/types'
 import { quoteIdent } from '@shared/development/database/sql-utils'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
 import { useUi } from '../../../store/ui'
@@ -885,7 +885,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
             onChange={(event) => setSearch(event.target.value)}
             onKeyDown={(event) => {
               if (isImeComposing(event)) return
-              if (event.key === 'Enter') {
+              if (isEnterKey(event)) {
                 if (searchTimer.current) clearTimeout(searchTimer.current)
                 setDebouncedSearch(search)
                 void load(0, pageSize, sort, buildWhere(filters, search, searchColumns))
@@ -1223,7 +1223,7 @@ function FilterDialog({
         </div>
         {op !== 'isNull' && op !== 'notNull' && (
           <Field label={t('development.database.table.value')}>
-            <Input value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') add() }} />
+            <Input value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event)) add() }} />
           </Field>
         )}
         {filters.length > 0 && (

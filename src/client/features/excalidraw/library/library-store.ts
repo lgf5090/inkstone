@@ -537,7 +537,7 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
       id,
       folderId: targetFolder,
       name: title,
-      elements: JSON.parse(JSON.stringify(elements)),
+      elements: structuredClone(elements),
       status: 'unpublished',
       created: Date.now(),
       svgPreview,

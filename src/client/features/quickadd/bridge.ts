@@ -47,8 +47,7 @@ export function useQuickAddBridge(owner: string | undefined): void {
 
   useEffect(() => {
     if (!enabled) return
-    const wanted = [...choices]
-      .sort((a, b) => a.position - b.position)
+    const wanted = choices.toSorted((a, b) => a.position - b.position)
       .filter((choice) => choice.enabled && choice.type !== 'group' && choice.hotkey)
     const claimed = new Set<string>()
     const disposers = wanted

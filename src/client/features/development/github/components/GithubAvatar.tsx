@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { cn } from '../../../../lib/cn'
-import { proxiedImageUrl } from '../lib/image'
 
 export function GithubAvatar({ src, name, size = 24, className }: { src: string; name: string; size?: number; className?: string }) {
   const [failed, setFailed] = useState(false)
@@ -18,7 +17,7 @@ export function GithubAvatar({ src, name, size = 24, className }: { src: string;
   }
   return (
     <img
-      src={proxiedImageUrl(src)}
+      src={src}
       alt=""
       width={size}
       height={size}

@@ -36,7 +36,7 @@ export function AggregatePanel({ columns, rows, selectedRows }: AggregatePanelPr
     const index = columns.indexOf(column)
     if (index < 0) return null
     const values = (scope === 'selected'
-      ? [...selectedRows].sort((left, right) => left - right).map((row) => rows[row]?.[index])
+      ? Array.from(selectedRows).sort((left, right) => left - right).map((row) => rows[row]?.[index])
       : rows.map((row) => row[index])
     ).filter((value) => value !== null && value !== undefined)
     if (fn === 'count') return { label: t('development.database.aggregate.non_null'), value: values.length }

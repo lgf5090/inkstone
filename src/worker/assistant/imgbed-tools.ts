@@ -39,6 +39,7 @@ import {
 import { deleteWholeFile, getWholeFile } from '../imgbed/storage'
 import { AssistantStore } from './store'
 import { ToolError, type ToolContext, type ToolDefinition } from './tools'
+import { asciiAt } from '@shared/bytes'
 
 const FILE_TYPES = ['image', 'video', 'audio', 'other'] as const
 const SORTS = ['time', 'size', 'fileName'] as const
@@ -189,7 +190,7 @@ async function fileOrThrow(ctx: ToolContext, id: string): Promise<ImgbedFile> {
 function imageType(bytes: Uint8Array): string | null {
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg'
   if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png'
-  if (String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' && String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP') return 'image/webp'
+  if (asciiAt(bytes, 0, 'RIFF') && asciiAt(bytes, 8, 'WEBP')) return 'image/webp'
   return null
 }
 

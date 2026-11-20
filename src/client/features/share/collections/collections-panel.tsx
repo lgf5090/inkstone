@@ -29,6 +29,7 @@ import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { fullTime } from '../../../lib/time'
 import { CollectionEditorDialog } from './collection-editor'
+import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../../lib/autocomplete'
 
 /** The public address of one directory, on whatever origin the hub is being read from. */
 function directoryUrl(slug: string): string {
@@ -469,7 +470,7 @@ function CollectionPreviewDialog({ slug, onClose, onOpen }: { slug: string, onCl
             <Input
               type="password"
               value={password}
-              autoComplete="off"
+              autoComplete={NON_CREDENTIAL_AUTOCOMPLETE}
               aria-label={t('share.passcode')}
               placeholder={t('share.enter_a_passcode')}
               onChange={(event) => setPassword(event.target.value)}

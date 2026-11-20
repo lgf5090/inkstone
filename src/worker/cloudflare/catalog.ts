@@ -8,6 +8,8 @@
  * and the ETag; the parsed documents live in a five-minute in-memory cache in front of a copy in the
  * bucket, so a cold isolate still has something to show when the host answers 304.
  */
+import { isBlockedTarget } from '@shared/ai-proxy-guard'
+import { isIpLiteral, isPrivateHostname, resolveWithDoh } from '../imgbed/url-guard'
 import type { Env } from '../env'
 import { newId } from '../lib/id'
 import { ApiError } from '../lib/errors'
@@ -371,29 +373,40 @@ export async function loadCatalog(
 /** The template source bytes, capped at 2 MB so a hostile URL cannot exhaust the isolate. */
 /** Hosts a worker must never be talked into reaching: loopback, private, link-local, CGNAT. */
 function isPrivateHost(host: string): boolean {
-  const name = host.toLowerCase()
-  if (name === 'localhost' || name.endsWith('.localhost') || name === '::1' || name === '[::1]') return true
-  if (name === '0.0.0.0' || name === '[::]' || name === '169.254.169.254') return true
-  if (name.startsWith('fc') || name.startsWith('fd') || name.startsWith('fe80:')) return true
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(name)) {
-    const [a, b] = name.split('.').map(Number)
-    if (a === 0 || a === 10 || a === 127) return true
-    if (a === 169 && b === 254) return true
-    if (a === 192 && b === 168) return true
-    if (a === 172 && b >= 16 && b <= 31) return true
-    if (a === 100 && b >= 64 && b <= 127) return true
-  }
-  return false
+  return isBlockedTarget(host)
 }
 
 /** A README, an image or a template package is someone else's text: it may not name our own network. */
 function assertPublicHttps(rawUrl: string): URL {
   const url = assertTemplateUrl(rawUrl)
+  if (url.username || url.password) throw ApiError.badRequest('That address may not carry credentials')
+  if (url.port && url.port !== '443') throw ApiError.badRequest('That address may not use a custom port')
   if (isPrivateHost(url.hostname)) throw ApiError.badRequest('That address is not a public host')
   return url
 }
 
-const MAX_REDIRECT_HOPS = 3
+type HostResolver = (hostname: string) => Promise<string[]>
+
+export async function assertPublicImageHttps(rawUrl: string, resolveHost?: HostResolver): Promise<URL> {
+  const url = assertPublicHttps(rawUrl)
+  if (isIpLiteral(url.hostname)) return url
+  try {
+    const addresses = await (resolveHost ?? resolveWithDoh)(url.hostname)
+    if (!addresses.length) throw new Error('The host name could not be resolved safely')
+    if (addresses.some((address) => isPrivateHostname(address))) {
+      throw ApiError.badRequest('That image host resolves to a private address')
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    console.warn(
+      '[inkstone] DoH lookup failed for an image host; using the static guard',
+      error instanceof Error ? error.message : String(error),
+    )
+  }
+  return url
+}
+
+const MAX_REDIRECT_HOPS = 5
 
 /**
  * Fetch with the URL guard applied to every hop, not just the first one.
@@ -405,11 +418,11 @@ const MAX_REDIRECT_HOPS = 3
 async function fetchGuarded(
   rawUrl: string,
   init: Omit<RequestInit, 'redirect'>,
-  guard: (url: string) => URL,
+  guard: (url: string) => URL | Promise<URL>,
   timeoutMs: number,
   what: string,
 ): Promise<Response> {
-  let url = guard(rawUrl)
+  let url = await guard(rawUrl)
   for (let hop = 0; ; hop += 1) {
     const response = await fetchWithTimeout(url.toString(), { ...init, redirect: 'manual' }, timeoutMs, what)
     const redirects = new Set([301, 302, 303, 307, 308])
@@ -420,13 +433,13 @@ async function fetchGuarded(
     if (hop >= MAX_REDIRECT_HOPS) {
       throw new ApiError(502, 'cloudflare_upstream', `${what} redirected too many times`)
     }
-    url = guard(new URL(location, url).toString())
+    url = await guard(new URL(location, url).toString())
   }
 }
 
 const MAX_README_BYTES = 512 * 1024
 
-/** The template's README, read by the worker because the reader's CSP does not allow the catalog host. */
+/** The template's README, read by the worker because the page's connect-src only allows this origin. */
 export async function downloadReadme(rawUrl: string): Promise<string> {
   const response = await fetchGuarded(
     rawUrl,
@@ -442,28 +455,53 @@ export async function downloadReadme(rawUrl: string): Promise<string> {
   return new TextDecoder().decode(bytes)
 }
 
-const MAX_README_IMAGE_BYTES = 2 * 1024 * 1024
+const MAX_README_IMAGE_BYTES = 8 * 1024 * 1024
+const IMAGE_USER_AGENT = 'Inkstone-ImageProxy/1.0 (+https://github.com/shuaiplus/inkstone)'
+const IMAGE_ACCEPT = 'image/avif,image/webp,image/apng,image/svg+xml,image/png,image/jpeg,image/gif'
+const SVG_SCRIPT = /<\s*script\b|\son\w+\s*=|\bjavascript\s*:|<\s*foreignObject\b/i
 
-/**
- * A picture a README refers to, read by the worker for the same reason as the README itself: the
- * reader's `img-src` does not allow the documentation host.
- */
-export async function downloadReadmeImage(rawUrl: string): Promise<{ bytes: Uint8Array; type: string }> {
+function sniffImageType(bytes: Uint8Array, declared: string): string {
+  if (declared.startsWith('image/')) return declared
+  const head = bytes.subarray(0, 16)
+  if (head.length >= 4 && head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) return 'image/png'
+  if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'image/jpeg'
+  if (head.length >= 4 && new TextDecoder().decode(head.subarray(0, 4)) === 'GIF8') return 'image/gif'
+  if (head.length >= 12 && new TextDecoder().decode(head.subarray(0, 4)) === 'RIFF'
+    && new TextDecoder().decode(head.subarray(8, 12)) === 'WEBP') return 'image/webp'
+  if (head.length >= 12 && new TextDecoder().decode(head.subarray(4, 12)).includes('ftyp')) return 'image/avif'
+  const text = new TextDecoder().decode(bytes.subarray(0, 256)).replace(/^\s+/, '')
+  if (/^<\?xml[\s\S]*?>\s*<svg[\s>]/i.test(text) || /^<svg[\s>]/i.test(text)) return 'image/svg+xml'
+  return ''
+}
+
+export async function downloadReadmeImage(rawUrl: string, resolveHost?: HostResolver): Promise<{ bytes: Uint8Array; type: string }> {
   const response = await fetchGuarded(
     rawUrl,
-    { headers: { Accept: 'image/*' } },
-    assertPublicHttps,
+    { headers: { Accept: IMAGE_ACCEPT, 'User-Agent': IMAGE_USER_AGENT } },
+    (value) => assertPublicImageHttps(value, resolveHost),
     TEMPLATE_TIMEOUT_MS,
     'The readme image',
   )
   if (!response.ok) {
     throw new ApiError(502, 'cloudflare_upstream', `The readme image answered HTTP ${response.status}`)
   }
-  const type = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
-  if (!type.startsWith('image/')) {
+  const declared = (response.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
+  let bytes: Uint8Array
+  try {
+    bytes = await readCapped(response, MAX_README_IMAGE_BYTES, 'The readme image')
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 400) {
+      throw new ApiError(502, 'cloudflare_upstream', error.message)
+    }
+    throw error
+  }
+  const type = sniffImageType(bytes, declared)
+  if (!type) {
     throw new ApiError(502, 'cloudflare_upstream', 'That readme address is not a picture')
   }
-  const bytes = await readCapped(response, MAX_README_IMAGE_BYTES, 'The readme image')
+  if (type === 'image/svg+xml' && SVG_SCRIPT.test(new TextDecoder().decode(bytes))) {
+    throw new ApiError(502, 'cloudflare_upstream', 'That readme picture is not an inert SVG')
+  }
   return { bytes, type }
 }
 

@@ -22,6 +22,10 @@ export const PROJECT_LIMITS = {
   idLength: 27,
   batchOperations: 200,
   searchResults: 50,
+  bundleContents: 2000,
+  bundleComments: 2000,
+  attachmentsPerBoard: 500,
+  attachmentBytesPerBoard: 200 * 1024 * 1024,
 } as const
 
 /** The leading character of an id says what it names, the spelling the reference's archives use. */
@@ -36,6 +40,12 @@ export const PROJECT_ID_PREFIXES = {
   property: 'p',
   share: 'k',
   activity: 'e',
+  time: 'd',
+  automation: 'm',
+  token: 'q',
+  webhook: 'h',
+  delivery: 'n',
+  sprint: 'r',
   unknown: '7',
 } as const
 

@@ -11,7 +11,7 @@ import { CalendarRange, Maximize2, Plus, Settings2, Trash2, ZoomIn, ZoomOut } fr
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectScheduleScale, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
-import { projectDayToStamp } from '@shared/project/date'
+import { projectDateValue, projectTimeZoneName } from '@shared/project/date'
 import {
   PROJECT_TIMELINE_COLUMN_PX,
   PROJECT_TIMELINE_DAY_MS,
@@ -30,14 +30,14 @@ import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox, Input } from '../../../components/form'
 import { SelectMenu } from '../../../components/select-menu'
 import { prompt } from '../../../components/overlay'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { createProjectCard } from '../api'
 import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
 import { DependencyEdges, RowToggle, ScheduleBar, UnscheduledTray, type BarGeometry } from './schedule-parts'
 
-const ROW_H = 40
-const BAR_H = 24
+const GANTT_ROW_H = 40
+const GANTT_BAR_H = 24
 const SCALES: ProjectScheduleScale[] = ['day', 'week', 'month', 'quarter']
 
 export interface GanttProps {
@@ -75,7 +75,7 @@ export function GanttView(props: GanttProps): ReactElement {
   const [showTray, setShowTray] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
   const viewport = useRef<HTMLDivElement | null>(null)
-  const today = Date.now()
+  const today = useMemo(() => Date.now(), [])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const isDone = useCallback((card: ProjectCard) => isProjectCardDone(card, properties), [properties])
   const planning = canEdit && Boolean(propertyId)
@@ -84,7 +84,7 @@ export function GanttView(props: GanttProps): ReactElement {
     .map((card) => ({ card, days: projectCardDays(card, propertyId) }))
     .filter((entry): entry is { card: ProjectCard, days: { start: number, end: number } } => entry.days !== null), [cards, propertyId])
   const unscheduled = useMemo(() => cards.filter((card) => projectCardDays(card, propertyId) === null), [cards, propertyId])
-  const ranges = dated.map((entry) => ({ from: entry.days.start, to: entry.days.end }))
+  const ranges = useMemo(() => dated.map((entry) => ({ from: entry.days.start, to: entry.days.end })), [dated])
   const axisWindow = useMemo(() => projectTimelineWindow(ranges, today), [ranges, today])
   const days = useMemo(() => projectTimelineDays(axisWindow, today), [axisWindow, today])
   const columnPx = PROJECT_TIMELINE_COLUMN_PX[scale]
@@ -124,8 +124,17 @@ export function GanttView(props: GanttProps): ReactElement {
 
   const writeRange = (cardId: string, from: number, to: number): void => {
     if (!propertyId) return
-    const value = to === from ? { from: projectDayToStamp(new Date(from)) } : { from: projectDayToStamp(new Date(from)), to: projectDayToStamp(new Date(to)) }
+    const value = projectDateValue(new Date(from), { to: to === from ? undefined : new Date(to), timeZone: projectTimeZoneName() })
     void props.onPatchCard(cardId, { values: { [propertyId]: JSON.stringify(value) } })
+  }
+
+  const shiftRange = (cardId: string, mode: 'start' | 'end', delta: number): void => {
+    const range = daysByCard.get(cardId)
+    if (!range) return
+    const shift = delta * PROJECT_TIMELINE_DAY_MS
+    const from = mode === 'start' ? Math.min(range.end, range.start + shift) : range.start
+    const to = mode === 'end' ? Math.max(from, range.end + shift) : range.end
+    writeRange(cardId, from, to)
   }
 
   /** One pointer path for moving a bar and for pulling either of its ends. */
@@ -155,10 +164,7 @@ export function GanttView(props: GanttProps): ReactElement {
         writeRange(card.id, next.from, next.to)
         return
       }
-      const shift = columns * PROJECT_TIMELINE_DAY_MS
-      const from = mode === 'start' ? Math.min(range.end, range.start + shift) : range.start
-      const to = mode === 'end' ? Math.max(from, range.end + shift) : range.end
-      writeRange(card.id, from, to)
+      shiftRange(card.id, mode, columns)
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
@@ -200,13 +206,13 @@ export function GanttView(props: GanttProps): ReactElement {
     if (from === undefined || to === undefined) return
     const name = await prompt({
       title: t('project.view.create_card_here'),
-      description: `${new Date(from).toLocaleDateString()} → ${new Date(to).toLocaleDateString()}`,
+      description: `${new Date(from).toLocaleDateString(locale)} → ${new Date(to).toLocaleDateString(locale)}`,
       confirmLabel: t('common.save'),
     })
     if (!name || !name.trim()) return
     const groupProperty = properties.find((property) => property.id === (fields.scheduleGroupById ?? statusProperty?.id))
     const values: Record<string, string> = {
-      [propertyId]: JSON.stringify(to === from ? { from: projectDayToStamp(new Date(from)) } : { from: projectDayToStamp(new Date(from)), to: projectDayToStamp(new Date(to)) }),
+      [propertyId]: JSON.stringify(projectDateValue(new Date(from), { to: to === from ? undefined : new Date(to), timeZone: projectTimeZoneName() })),
     }
     if (groupProperty && laneKey) values[groupProperty.id] = laneKey
     await createProjectCard(props.boardId, { title: name.trim(), values })
@@ -317,6 +323,7 @@ export function GanttView(props: GanttProps): ReactElement {
         <Seg
           value={scale}
           label={t('project.view.scale')}
+          disabled={!canEdit}
           onChange={(next) => props.onPatchFields({ scheduleScale: next })}
           options={SCALES.map((entry) => ({ value: entry, label: t(`project.view.scale_${entry}` as Parameters<typeof t>[0]) }))}
         />
@@ -349,7 +356,7 @@ export function GanttView(props: GanttProps): ReactElement {
           days={days}
           columnPx={columnPx}
           rowCount={rows.length}
-          rowHeight={ROW_H}
+          rowHeight={GANTT_ROW_H}
           axis="single"
           hourTicks={scale === 'day'}
           corner={t('project.view.gantt_lanes')}
@@ -359,6 +366,7 @@ export function GanttView(props: GanttProps): ReactElement {
           onViewport={bindViewport}
           focusColumn={todayIndex}
           onCanvasPointerDown={startDraw}
+          onCanvasCreate={planning ? () => { void createOnSpan('', Math.max(0, todayIndex), Math.max(0, todayIndex)) } : undefined}
           emptyHint={planning ? t('project.view.draw_hint') : t('project.view.no_dates')}
           canvasExtra={draft
             ? (
@@ -368,20 +376,20 @@ export function GanttView(props: GanttProps): ReactElement {
                 style={{
                   left: `${Math.min(draft.from, draft.to) * columnPx}px`,
                   width: `${(Math.abs(draft.to - draft.from) + 1) * columnPx}px`,
-                  top: `${draft.row * ROW_H + (ROW_H - BAR_H) / 2}px`,
+                  top: `${draft.row * GANTT_ROW_H + (GANTT_ROW_H - GANTT_BAR_H) / 2}px`,
                 }}
                 aria-hidden="true"
               />
             )
             : null}
           overlay={() => showDeps
-            ? <DependencyEdges links={links} geometry={geometry} rowHeight={ROW_H} columnPx={columnPx} width={days.length * columnPx} height={rows.length * ROW_H} />
+            ? <DependencyEdges links={links} geometry={geometry} rowHeight={GANTT_ROW_H} columnPx={columnPx} width={days.length * columnPx} height={rows.length * GANTT_ROW_H} />
             : null}
           renderLeftRow={(index) => {
             const row = rows[index]!
             if (row.kind === 'lane') {
               return (
-                <div key={row.id} className="pv-sched-lanehead" style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties}>
+                <div key={row.id} className="pv-sched-lanehead" style={{ top: `${index * GANTT_ROW_H}px`, height: `${GANTT_ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties}>
                   <RowToggle collapsed={collapsed.has(row.id)} label={row.label || t('project.view.no_value')} onToggle={() => toggle(row.id)} />
                   <span className="min-w-0 flex-1 truncate">{row.label || t('project.view.no_value')}</span>
                   {effortProperty && <span className="pv-lane-sum">{t('project.view.lane_effort', { value: laneEffort(row.laneKey) })}</span>}
@@ -395,11 +403,11 @@ export function GanttView(props: GanttProps): ReactElement {
                 key={row.id}
                 className="pv-sched-rowhead"
                 data-selected={selected === card.id}
-                style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }}
+                style={{ top: `${index * GANTT_ROW_H}px`, height: `${GANTT_ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }}
                 data-schedule-row={card.id}
               >
                 {row.childCount > 0
-                  ? <RowToggle collapsed={collapsed.has(card.id)} label={t('project.card.expand_subtasks')} onToggle={() => toggle(card.id)} />
+                  ? <RowToggle collapsed={collapsed.has(card.id)} label={collapsed.has(card.id) ? t('project.card.expand_subtasks') : t('project.card.collapse_subtasks')} onToggle={() => toggle(card.id)} />
                   : <span className="size-6 shrink-0" aria-hidden="true" />}
                 <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: row.color }} aria-hidden="true" />
                 <button type="button" className="pv-sched-rowtitle" onClick={() => props.onOpenCard(card.id)}>{card.title || t('project.board.untitled_card')}</button>
@@ -410,7 +418,7 @@ export function GanttView(props: GanttProps): ReactElement {
           renderRow={(index) => {
             const row = rows[index]!
             if (row.kind === 'lane') {
-              return <div key={row.id} className="pv-sched-laneband" style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties} aria-hidden="true" />
+              return <div key={row.id} className="pv-sched-laneband" style={{ top: `${index * GANTT_ROW_H}px`, height: `${GANTT_ROW_H}px`, '--pv-lane-color': row.color } as React.CSSProperties} aria-hidden="true" />
             }
             const card = row.card!
             const place = geometry.get(card.id)!
@@ -422,15 +430,16 @@ export function GanttView(props: GanttProps): ReactElement {
             const width = Math.max(columnPx, (place.width - growStart + growEnd) * columnPx)
             const range = daysByCard.get(card.id)!
             const milestone = range.start === range.end && scale !== 'day'
+            const barTop = index * GANTT_ROW_H + (GANTT_ROW_H - GANTT_BAR_H) / 2
             return (
-              <div key={card.id}>
+              <div key={card.id} className="pv-bar-slot">
                 <ScheduleBar
                   card={card}
                   color={row.color}
                   left={left}
                   width={width}
-                  top={index * ROW_H + (ROW_H - BAR_H) / 2}
-                  height={BAR_H}
+                  top={barTop}
+                  height={GANTT_BAR_H}
                   done={isDone(card)}
                   progress={projectCardProgress(card, subtasksByParent.get(card.id) ?? [], isDone)}
                   conflict={conflicts.has(card.id)}
@@ -448,25 +457,50 @@ export function GanttView(props: GanttProps): ReactElement {
                     setSelected(card.id)
                     setPalette({ id: card.id, x: Math.min(event.clientX, window.innerWidth - 240), y: Math.min(event.clientY, window.innerHeight - 120) })
                   }}
-                >
-                  {planning && !milestone && (
-                    <>
-                      <span className="pv-bar-handle" data-side="start" data-bar-handle="start" onPointerDown={(event) => startBarDrag(event, card, 'start')} />
-                      <span className="pv-bar-handle" data-side="end" data-bar-handle="end" onPointerDown={(event) => startBarDrag(event, card, 'end')} />
-                    </>
-                  )}
-                </ScheduleBar>
+                />
+                {planning && !milestone && (
+                  <>
+                    <button
+                      type="button"
+                      className="pv-bar-handle"
+                      data-side="start"
+                      data-bar-handle="start"
+                      aria-label={t('project.view.handle_start', { title: card.title || t('project.board.untitled_card') })}
+                      style={{ left: `${left}px`, top: `${barTop}px`, height: `${GANTT_BAR_H}px` }}
+                      onPointerDown={(event) => startBarDrag(event, card, 'start')}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                        event.preventDefault()
+                        shiftRange(card.id, 'start', event.key === 'ArrowRight' ? 1 : -1)
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="pv-bar-handle"
+                      data-side="end"
+                      data-bar-handle="end"
+                      aria-label={t('project.view.handle_end', { title: card.title || t('project.board.untitled_card') })}
+                      style={{ left: `${left + width - 8}px`, top: `${barTop}px`, height: `${GANTT_BAR_H}px` }}
+                      onPointerDown={(event) => startBarDrag(event, card, 'end')}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                        event.preventDefault()
+                        shiftRange(card.id, 'end', event.key === 'ArrowRight' ? 1 : -1)
+                      }}
+                    />
+                  </>
+                )}
                 {renaming?.id === card.id && (
                   <Input
                     className="pv-rename"
-                    style={{ left: `${left}px`, width: `${Math.max(160, width)}px`, top: `${index * ROW_H + (ROW_H - BAR_H) / 2}px` }}
+                    style={{ left: `${left}px`, width: `${Math.max(160, width)}px`, top: `${index * GANTT_ROW_H + (GANTT_ROW_H - GANTT_BAR_H) / 2}px` }}
                     autoFocus
                     value={renaming.value}
                     aria-label={t('project.view.rename_card')}
                     onChange={(event) => setRenaming({ id: card.id, value: event.target.value })}
                     onBlur={() => { void commitRename() }}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !isImeComposing(event)) { event.preventDefault(); void commitRename() }
+                      if (isEnterKey(event) && !isImeComposing(event)) { event.preventDefault(); void commitRename() }
                       else if (event.key === 'Escape' && !isImeComposing(event)) { event.preventDefault(); setRenaming(null) }
                     }}
                   />
@@ -491,6 +525,7 @@ export function GanttView(props: GanttProps): ReactElement {
             <Seg
               value={scale}
               label={t('project.view.scale')}
+              disabled={!canEdit}
               onChange={(next) => props.onPatchFields({ scheduleScale: next })}
               options={SCALES.map((entry) => ({ value: entry, label: t(`project.view.scale_${entry}` as Parameters<typeof t>[0]) }))}
             />

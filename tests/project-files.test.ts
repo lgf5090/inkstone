@@ -12,6 +12,11 @@ import { testBindings, testR2Bucket } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const app = createApp()
+const PNG = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52,
+  0, 0, 0, 1, 0, 0, 0, 1,
+])
 let sqlite: DatabaseSync
 let env: Env
 let token: string
@@ -44,7 +49,7 @@ describe('project attachments', () => {
   it('uploads to a categorized R2 key, lists, serves and deletes', async () => {
     const board = await makeBoard()
     const form = new FormData()
-    form.append('file', new File([new Uint8Array([1, 2, 3])], 'pic.png', { type: 'image/png' }))
+    form.append('file', new File([PNG], 'pic.png', { type: 'image/png' }))
     const upload = await app.fetch(new Request(`http://localhost/api/project/boards/${board.id}/files`, {
       method: 'POST', headers: { Cookie: `${LEGACY_SESSION_COOKIE}=${token}`, [CLIENT_HEADER]: '1' }, body: form,
     }), env)
@@ -58,6 +63,21 @@ describe('project attachments', () => {
     expect(served.headers.get('Content-Type')).toBe('image/png')
     expect((await req('DELETE', `/files/${file.id}`)).status).toBe(200)
     expect(((await (await req('GET', `/boards/${board.id}/files`)).json()) as { files: unknown[] }).files).toEqual([])
+  })
+
+  it('downgrades a declared image whose bytes do not match its signature', async () => {
+    const board = await makeBoard()
+    const form = new FormData()
+    form.append('file', new File(['<script>alert(1)</script>'], 'fake.png', { type: 'image/png' }))
+    const upload = await app.fetch(new Request(`http://localhost/api/project/boards/${board.id}/files`, {
+      method: 'POST', headers: { Cookie: `${LEGACY_SESSION_COOKIE}=${token}`, [CLIENT_HEADER]: '1' }, body: form,
+    }), env)
+    expect(upload.status, await upload.clone().text()).toBe(201)
+    const file = ((await upload.json()) as { file: ProjectAttachment }).file
+    expect(file.mime).toBe('application/octet-stream')
+    const served = await req('GET', `/files/${file.id}`)
+    expect(served.headers.get('Content-Type')).toBe('application/octet-stream')
+    expect(served.headers.get('Content-Disposition')).toMatch(/^attachment;/)
   })
 
   it('serves unsafe mime as an opaque download, never inline in this origin (R2-3)', async () => {

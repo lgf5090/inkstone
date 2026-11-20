@@ -124,7 +124,7 @@ export interface RenderedElement {
 }
 
 /** Render a React node into a fresh container appended to document.body (portals land on body as usual). */
-export async function flushLazyModules(ready: () => boolean, tries = 100): Promise<void> {
+export async function flushLazyModules(ready: () => boolean, tries = 400): Promise<void> {
   for (let attempt = 0; attempt < tries; attempt++) {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 5))

@@ -34,7 +34,7 @@ export function compareValues(a: unknown, b: unknown): number {
 export function sortRows<T>(rows: readonly T[], state: SortState, accessor: (row: T) => unknown): T[] {
   if (!state.key || !state.dir) return [...rows]
   const direction = state.dir
-  return [...rows].sort((left, right) => {
+  return rows.toSorted((left, right) => {
     const compared = compareValues(accessor(left), accessor(right))
     return direction === 'asc' ? compared : -compared
   })

@@ -66,7 +66,7 @@ export function projectFilterPrefill(filter: ProjectFilterGroup | undefined): Re
 }
 
 /** Human-readable cell text shared by the table cells and the compact list rows. */
-export function projectPropertyDisplayText(card: ProjectCard, property: ProjectProperty, people?: ProjectPeople): string {
+export function projectPropertyDisplayText(card: ProjectCard, property: ProjectProperty, people?: ProjectPeople, locale?: string): string {
   const raw = card.values[property.id] ?? ''
   switch (property.type) {
     case 'select': return raw ? projectOptionLabel(property, raw) : ''
@@ -78,13 +78,13 @@ export function projectPropertyDisplayText(card: ProjectCard, property: ProjectP
       const range = parseProjectDateValue(raw)
       if (range?.from === undefined) return ''
       const includeTime = range.includeTime === true
-      const from = projectStampToDay(range.from, includeTime).toLocaleDateString()
-      return range.to !== undefined && range.to !== range.from ? `${from} – ${projectStampToDay(range.to, includeTime).toLocaleDateString()}` : from
+      const from = projectStampToDay(range.from, includeTime, range.timeZone).toLocaleDateString(locale)
+      return range.to !== undefined && range.to !== range.from ? `${from} – ${projectStampToDay(range.to, includeTime, range.timeZone).toLocaleDateString(locale)}` : from
     }
     case 'createdBy': return projectPersonLabel(people, card.createdBy)
     case 'updatedBy': return projectPersonLabel(people, card.modifiedBy)
-    case 'createdTime': return new Date(card.createAt).toLocaleDateString()
-    case 'updatedTime': return new Date(card.updateAt).toLocaleDateString()
+    case 'createdTime': return new Date(card.createAt).toLocaleDateString(locale)
+    case 'updatedTime': return new Date(card.updateAt).toLocaleDateString(locale)
     default: return raw
   }
 }
@@ -181,17 +181,64 @@ function compareValues(a: string, b: string): number {
   return a.localeCompare(b)
 }
 
+/**
+ * The value a column sorts by, which is not always the string it stores: a date is a JSON object, a
+ * select is an opaque option id, and a person is a user id. Ordering those raw would put January after
+ * December and beat the board's own option order.
+ */
+function projectSortKey(
+  card: ProjectCard,
+  propertyId: string,
+  properties: readonly ProjectProperty[],
+  people?: ProjectPeople,
+): string {
+  const raw = projectCardDisplayValue(card, propertyId, properties)
+  if (!raw) return ''
+  const property = properties.find((entry) => entry.id === propertyId)
+  if (!property) return raw
+  switch (property.type) {
+    case 'date': {
+      const range = parseProjectDateValue(raw)
+      return range?.from === undefined ? '' : String(range.from).padStart(16, '0')
+    }
+    case 'select': {
+      const index = property.options.findIndex((entry) => entry.id === raw)
+      return index < 0 ? raw : String(index).padStart(6, '0')
+    }
+    case 'multiSelect':
+      return asArray(raw)
+        .map((id) => String(property.options.findIndex((entry) => entry.id === id)).padStart(6, '0'))
+        .join(',')
+    case 'multiPerson':
+      return asArray(raw).map((id) => projectPersonLabel(people, id)).join(',')
+    case 'person':
+    case 'createdBy':
+    case 'updatedBy':
+      return projectPersonLabel(people, raw)
+    default:
+      return raw
+  }
+}
+
 /** Multi-key sort; an empty value sorts last regardless of direction, as the reference does. */
 export function sortProjectCards(
   cards: readonly ProjectCard[],
   sortOptions: readonly ProjectSortOption[],
   properties: readonly ProjectProperty[],
+  people?: ProjectPeople,
 ): ProjectCard[] {
   if (sortOptions.length === 0) return [...cards]
-  return [...cards].sort((a, b) => {
-    for (const option of sortOptions) {
-      const av = projectCardDisplayValue(a, option.propertyId, properties)
-      const bv = projectCardDisplayValue(b, option.propertyId, properties)
+  const keys = new Map<string, string[]>()
+  for (const card of cards) {
+    keys.set(card.id, sortOptions.map((option) => projectSortKey(card, option.propertyId, properties, people)))
+  }
+  return cards.toSorted((a, b) => {
+    const ak = keys.get(a.id)!
+    const bk = keys.get(b.id)!
+    for (let index = 0; index < sortOptions.length; index += 1) {
+      const option = sortOptions[index]!
+      const av = ak[index]!
+      const bv = bk[index]!
       if (av === bv) continue
       if (av === '') return 1
       if (bv === '') return -1
@@ -223,6 +270,50 @@ export function groupProjectCards(
     }
   }
   return groups
+}
+
+/** Every key a grouped view has to draw: the property's own options plus whatever the cards hold. */
+export function projectGroupKeys(
+  cards: readonly ProjectCard[],
+  groupById: string | undefined,
+  properties: readonly ProjectProperty[],
+): string[] {
+  if (!groupById) return ['']
+  const property = properties.find((entry) => entry.id === groupById)
+  const keys = new Set<string>()
+  if (property && (property.type === 'select' || property.type === 'multiSelect')) {
+    for (const option of property.options) keys.add(option.id)
+  }
+  for (const key of groupProjectCards(cards, groupById, properties).keys()) keys.add(key)
+  keys.add('')
+  return [...keys]
+}
+
+/** A group key as a reader sees it, including people and dates that are not option ids. */
+export function projectGroupLabel(
+  property: ProjectProperty | undefined,
+  key: string,
+  people?: ProjectPeople,
+  locale?: string,
+): string {
+  if (!property) return key
+  switch (property.type) {
+    case 'select':
+    case 'multiSelect':
+      return projectOptionLabel(property, key)
+    case 'person':
+    case 'multiPerson':
+    case 'createdBy':
+    case 'updatedBy':
+      return projectPersonLabel(people, key)
+    case 'date': {
+      const range = parseProjectDateValue(key)
+      if (range?.from === undefined) return key
+      return projectStampToDay(range.from, range.includeTime === true, range.timeZone).toLocaleDateString(locale)
+    }
+    default:
+      return key
+  }
 }
 
 /**
@@ -264,7 +355,7 @@ export function matchProjectViewSearch(
 export function orderProjectCards(cards: readonly ProjectCard[], cardOrder: readonly string[]): ProjectCard[] {
   if (cardOrder.length === 0) return [...cards]
   const rank = new Map(cardOrder.map((id, index) => [id, index]))
-  return [...cards].sort((left, right) => {
+  return cards.toSorted((left, right) => {
     const a = rank.get(left.id)
     const b = rank.get(right.id)
     if (a === undefined && b === undefined) return 0

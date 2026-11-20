@@ -86,41 +86,36 @@ export async function generateImage(input: ImageRequest): Promise<GeneratedImage
 
   // One deadline for the whole exchange, the second fetch included: a vendor that hands back a URL instead
   // of bytes has not finished the job, and the clock on "one picture" covers both halves of it.
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), IMAGE_GENERATION_TIMEOUT_MS)
+  const signal = AbortSignal.timeout(IMAGE_GENERATION_TIMEOUT_MS)
+  let response: Response
   try {
-    let response: Response
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-        // The address was vetted, the redirect target was not: a provider that answers with one is not
-        // allowed to move the request to an address this app never checked.
-        redirect: NO_REDIRECT,
-      })
-    } catch (error) {
-      if (controller.signal.aborted) throw new ImageGenerationError(`The image model did not answer within ${IMAGE_GENERATION_TIMEOUT_MS / 1000} seconds.`)
-      throw new ImageGenerationError(`Could not reach the image model: ${error instanceof Error ? error.message : 'the request failed'}.`)
-    }
-    if (isRedirectResponse(response)) throw new ImageGenerationError('The image model answered with a redirect, which this app refuses to follow.')
-    if (!response.ok) throw new ImageGenerationError(await describeFailure(response))
-
-    const payload = await response.json().catch(() => null) as { data?: unknown } | null
-    const first = Array.isArray(payload?.data) ? payload.data[0] as Record<string, unknown> | undefined : undefined
-    if (!first) throw new ImageGenerationError('The image model answered with no picture in it.')
-
-    if (typeof first.b64_json === 'string' && first.b64_json) {
-      return decodeInline(first.b64_json)
-    }
-    if (typeof first.url === 'string' && first.url) {
-      return await fetchVendorImage(first.url, controller.signal)
-    }
-    throw new ImageGenerationError('The image model answered with no picture in it.')
-  } finally {
-    clearTimeout(timer)
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal,
+      // The address was vetted, the redirect target was not: a provider that answers with one is not
+      // allowed to move the request to an address this app never checked.
+      redirect: NO_REDIRECT,
+    })
+  } catch (error) {
+    if (signal.aborted) throw new ImageGenerationError(`The image model did not answer within ${IMAGE_GENERATION_TIMEOUT_MS / 1000} seconds.`)
+    throw new ImageGenerationError(`Could not reach the image model: ${error instanceof Error ? error.message : 'the request failed'}.`)
   }
+    if (isRedirectResponse(response)) throw new ImageGenerationError('The image model answered with a redirect, which this app refuses to follow.')
+  if (!response.ok) throw new ImageGenerationError(await describeFailure(response))
+
+  const payload = await response.json().catch(() => null) as { data?: unknown } | null
+  const first = Array.isArray(payload?.data) ? payload.data[0] as Record<string, unknown> | undefined : undefined
+  if (!first) throw new ImageGenerationError('The image model answered with no picture in it.')
+
+  if (typeof first.b64_json === 'string' && first.b64_json) {
+    return decodeInline(first.b64_json)
+  }
+  if (typeof first.url === 'string' && first.url) {
+    return await fetchVendorImage(first.url, signal)
+  }
+  throw new ImageGenerationError('The image model answered with no picture in it.')
 }
 
 /** Base64 straight from the vendor, checked against its own signature before it is called an image. */

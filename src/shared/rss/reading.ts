@@ -371,7 +371,7 @@ export function groupedFeeds(library: RssLibrary): GroupedFeeds[] {
     list.push(feed)
     byGroup.set(feed.groupId, list)
   }
-  const ordered = [...library.groups].sort((a, b) => a.position - b.position || a.createdAt - b.createdAt)
+  const ordered = library.groups.toSorted((a, b) => a.position - b.position || a.createdAt - b.createdAt)
   const out: GroupedFeeds[] = ordered
     .filter(group => (byGroup.get(group.id)?.length ?? 0) > 0)
     .map(group => ({ group, feeds: sortFeeds(byGroup.get(group.id) ?? []) }))
@@ -381,7 +381,7 @@ export function groupedFeeds(library: RssLibrary): GroupedFeeds[] {
 }
 
 function sortFeeds(feeds: RssFeed[]): RssFeed[] {
-  return [...feeds].sort((a, b) => a.order - b.order || a.title.localeCompare(b.title))
+  return feeds.toSorted((a, b) => a.order - b.order || a.title.localeCompare(b.title))
 }
 
 /**
@@ -455,7 +455,7 @@ export function feedWantsRefresh(feed: RssFeed, now: number, force: boolean, sta
 
 /** Stale first, failures last, so fresh content paints early during a long sync. */
 export function orderByStaleness(feeds: RssFeed[]): RssFeed[] {
-  return [...feeds].sort((a, b) => {
+  return feeds.toSorted((a, b) => {
     const failing = (a.errorCount > 0 ? 1 : 0) - (b.errorCount > 0 ? 1 : 0)
     if (failing) return failing
     return Math.max(a.updatedAt, a.lastAttemptAt) - Math.max(b.updatedAt, b.lastAttemptAt)

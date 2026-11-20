@@ -33,6 +33,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     -- without the ciphertext ever being decrypted for a listing. Empty when no key is stored.
     key_hint TEXT NOT NULL DEFAULT '',
     key_last_used_at INTEGER,
+    sticky INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -54,12 +55,141 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     last_used_at INTEGER,
     error_count INTEGER NOT NULL DEFAULT 0,
     last_error TEXT,
+    cooling_until INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_provider_keys_provider
      ON chat_provider_keys(user_id, provider_id, created_at)`,
+
+  /**
+   * One line per attempt at the provider, because "which key, which model, how did it go" is a question
+   * the daily rollups cannot answer: they keep totals per day, and a reader debugging a key needs the
+   * individual attempts — including the ones that never produced a token count.
+   *
+   * The request body is not here unless the reader turned that on in settings. A prompt is the reader's
+   * own writing and this table is the one place it would outlive the conversation, so the column stays
+   * null by default rather than being written and hidden.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_request_logs (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    provider_id TEXT NOT NULL DEFAULT '',
+    provider_label TEXT NOT NULL DEFAULT '',
+    key_id TEXT NOT NULL DEFAULT '',
+    key_label TEXT NOT NULL DEFAULT '',
+    key_hint TEXT NOT NULL DEFAULT '',
+    model_label TEXT NOT NULL DEFAULT '',
+    operation TEXT NOT NULL DEFAULT 'chat',
+    ok INTEGER NOT NULL,
+    http_status INTEGER,
+    error_kind TEXT,
+    error_message TEXT,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+    latency_ms INTEGER,
+    request_body TEXT,
+    conversation_id TEXT NOT NULL DEFAULT '',
+    model_id TEXT NOT NULL DEFAULT '',
+    attempt INTEGER NOT NULL DEFAULT 1,
+    note TEXT NOT NULL DEFAULT '',
+    starred INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_at ON chat_request_logs(user_id, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_key ON chat_request_logs(user_id, key_id, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_filter ON chat_request_logs(user_id, provider_id, ok, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_conversation ON chat_request_logs(user_id, conversation_id, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_status ON chat_request_logs(user_id, ok, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_model ON chat_request_logs(user_id, model_label, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_key_hint ON chat_request_logs(user_id, key_hint, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_operation ON chat_request_logs(user_id, operation, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_attempt ON chat_request_logs(user_id, attempt, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_latency ON chat_request_logs(user_id, latency_ms, at DESC)`,
+
+  /**
+   * Security events are deliberately separate from `chat_activity`: that feed keeps only its newest
+   * rows, so an ordinary turn could quietly evict the record of a plaintext key disclosure. These rows
+   * carry which session and address asked, and are never trimmed by the activity sweep.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_security_audit (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    session_id TEXT NOT NULL DEFAULT '',
+    ip TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_security_audit_user ON chat_security_audit(user_id, created_at DESC)`,
+
+  /**
+   * A reveal ticket is redeemed once by the session that asked for it, seconds after it is issued.
+   * Keeping it in D1 makes redemption atomic across isolates; the plaintext itself is never stored here.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_reveal_tickets (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    consumed_at INTEGER,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_reveal_tickets_expiry ON chat_reveal_tickets(user_id, expires_at)`,
+
+  /** One atomic counter per account, scope and fixed window, shared by probe and Worker throttles. */
+  `CREATE TABLE IF NOT EXISTS chat_rate_limits (
+    user_id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    window_start INTEGER NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, scope, window_start)
+  )`,
+
+  /**
+   * A model one key could not serve, asked apart from the key's own health.
+   *
+   * Keys on the same provider can carry different entitlements, so "this key has no access to that model"
+   * is not the same fact as "this key is broken" — cooling the whole key for a model it was never allowed
+   * to reach takes a working credential out of every other turn. One row per key and model, expiring on
+   * its own.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_provider_key_model_cooldowns (
+    user_id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    cooling_until INTEGER NOT NULL,
+    PRIMARY KEY (user_id, provider_id, key_id, model)
+  )`,
+
+  /**
+   * The last time one stored key was asked whether it still works.
+   *
+   * Its own table rather than four more columns on two tables, because the subject is "one key of one
+   * provider" and that already has a key shape: the provider's own credential has no row in
+   * `chat_provider_keys`, so `key_id = ''` names it here without inventing a second column set. One row
+   * per key, replaced on every probe — a history of probe results would be a log nobody reads, and the
+   * usage tables already answer "which key did the work".
+   */
+  `CREATE TABLE IF NOT EXISTS chat_provider_key_probes (
+    user_id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    reason TEXT,
+    latency_ms INTEGER,
+    probed_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, provider_id, key_id)
+  )`,
 
   /**
    * The key the reader stores for one hosted web-search engine.
@@ -864,6 +994,9 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_cursor_commands',
   'chat_subagent_tasks',
   'chat_reader_embeddings',
+  'chat_security_audit',
+  'chat_reveal_tickets',
+  'chat_rate_limits',
 ]
 
 export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
@@ -914,6 +1047,18 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_prompts_user',
   'idx_chat_answer_versions_message',
   'idx_chat_mcp_servers_user',
+  'idx_chat_request_logs_at',
+  'idx_chat_request_logs_key',
+  'idx_chat_request_logs_filter',
+  'idx_chat_request_logs_conversation',
+  'idx_chat_request_logs_status',
+  'idx_chat_request_logs_model',
+  'idx_chat_request_logs_key_hint',
+  'idx_chat_request_logs_operation',
+  'idx_chat_request_logs_attempt',
+  'idx_chat_request_logs_latency',
+  'idx_chat_security_audit_user',
+  'idx_chat_reveal_tickets_expiry',
 ]
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -924,8 +1069,14 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_usage_daily_key: ['user_id', 'day', 'model_label', 'provider_id', 'provider_label', 'key_id', 'key_label', 'requests', 'input_tokens', 'output_tokens', 'cached_input_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_period: ['user_id', 'day', 'model_label', 'model_id', 'period_id', 'provider_id', 'key_id', 'input_tokens', 'output_tokens', 'cached_input_tokens'],
   chat_share_links: ['slug', 'conversation_id', 'user_id', 'scope', 'password_hash', 'expires_at', 'views', 'created_at'],
-  chat_providers: ['user_id', 'id', 'label', 'icon', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_hint', 'key_last_used_at', 'created_at', 'updated_at'],
-  chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'created_at', 'updated_at'],
+  chat_providers: ['user_id', 'id', 'label', 'icon', 'protocol', 'base_url', 'endpoints', 'reasoning_dialect', 'key_ciphertext', 'key_hint', 'key_last_used_at', 'sticky', 'created_at', 'updated_at'],
+  chat_provider_keys: ['user_id', 'id', 'provider_id', 'label', 'key_ciphertext', 'key_hint', 'enabled', 'last_used_at', 'error_count', 'last_error', 'cooling_until', 'created_at', 'updated_at'],
+  chat_provider_key_probes: ['user_id', 'provider_id', 'key_id', 'outcome', 'reason', 'latency_ms', 'probed_at'],
+  chat_provider_key_model_cooldowns: ['user_id', 'provider_id', 'key_id', 'model', 'cooling_until'],
+  chat_request_logs: ['user_id', 'id', 'at', 'provider_id', 'provider_label', 'key_id', 'key_label', 'key_hint',
+    'model_label', 'operation', 'ok', 'http_status', 'error_kind', 'error_message',
+    'input_tokens', 'output_tokens', 'cached_input_tokens', 'latency_ms', 'request_body',
+    'conversation_id', 'model_id', 'attempt', 'note', 'starred'],
   chat_search_keys: ['user_id', 'engine', 'key_ciphertext', 'key_hint', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'icon', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens',
     'vendor_context_tokens', 'vendor_max_output_tokens', 'vision',
@@ -950,6 +1101,9 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'args', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'cached_input_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],
   chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
+  chat_security_audit: ['user_id', 'id', 'kind', 'summary', 'session_id', 'ip', 'user_agent', 'created_at'],
+  chat_reveal_tickets: ['user_id', 'id', 'provider_id', 'key_id', 'session_id', 'expires_at', 'consumed_at', 'created_at'],
+  chat_rate_limits: ['user_id', 'scope', 'window_start', 'count'],
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until', 'partial_text'],
   chat_questions: ['user_id', 'id', 'conversation_id', 'call_id', 'questions', 'status', 'answers', 'created_at', 'expires_at', 'answered_at'],
   chat_cursor_commands: ['user_id', 'id', 'label', 'instruction', 'execution', 'enabled', 'position', 'created_at', 'updated_at'],

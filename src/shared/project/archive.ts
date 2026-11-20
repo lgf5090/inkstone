@@ -8,13 +8,15 @@
  */
 import { z } from 'zod'
 
-export const PROJECT_ARCHIVE_VERSION = 2
+export const PROJECT_ARCHIVE_VERSION = 3
 
 /**
  * The reference's writer emits three line kinds and its reader accepts four: `board_block` is an
- * older spelling of `block` that still appears in archives people have on disk.
+ * older spelling of `block` that still appears in archives people have on disk. `cardLink` is this
+ * port's addition: the reference never wrote dependency edges, so a v3 archive carries them on a line
+ * of their own instead of pretending they are content blocks.
  */
-export const PROJECT_ARCHIVE_LINE_TYPES = ['board', 'block', 'board_block', 'boardMember'] as const
+export const PROJECT_ARCHIVE_LINE_TYPES = ['board', 'block', 'board_block', 'boardMember', 'cardLink', 'attachment'] as const
 export type ProjectArchiveLineType = (typeof PROJECT_ARCHIVE_LINE_TYPES)[number]
 
 export const ProjectArchiveHeaderSchema = z.object({
@@ -49,10 +51,36 @@ export const ProjectArchiveMemberSchema = z.object({
 })
 export type ProjectArchiveMember = z.infer<typeof ProjectArchiveMemberSchema>
 
+export const ProjectArchiveCardLinkSchema = z.object({
+  fromCardId: z.string().min(1),
+  toCardId: z.string().min(1),
+  kind: z.enum(['blocks', 'parent']),
+})
+export type ProjectArchiveCardLink = z.infer<typeof ProjectArchiveCardLinkSchema>
+
+/**
+ * A file the ZIP carries beside the JSONL. `path` is archive-relative and is checked by the importer
+ * against the board directory, so an uploaded archive cannot point a row at an arbitrary entry.
+ */
+export const ProjectArchiveAttachmentSchema = z.object({
+  id: z.string().min(1),
+  cardId: z.string().default(''),
+  filename: z.string().min(1),
+  mime: z.string().min(1),
+  size: z.number().int().nonnegative(),
+  storage: z.enum(['r2', 'kv']).default('r2'),
+  width: z.number().int().nullable().default(null),
+  height: z.number().int().nullable().default(null),
+  path: z.string().min(1),
+})
+export type ProjectArchiveAttachment = z.infer<typeof ProjectArchiveAttachmentSchema>
+
 export type ProjectArchiveLine =
   | { type: 'board'; data: Record<string, unknown> }
   | { type: 'block'; data: ProjectArchiveBlock }
   | { type: 'boardMember'; data: ProjectArchiveMember }
+  | { type: 'cardLink'; data: ProjectArchiveCardLink }
+  | { type: 'attachment'; data: ProjectArchiveAttachment }
 
 export class ProjectArchiveError extends Error {
   constructor(message: string, readonly line: number) {
@@ -94,6 +122,14 @@ export function parseProjectArchiveLines(text: string): ProjectArchiveLine[] {
       const member = ProjectArchiveMemberSchema.safeParse(data)
       if (!member.success) throw new ProjectArchiveError('member line is not a member', index + 1)
       out.push({ type: 'boardMember', data: member.data })
+    } else if (type === 'cardLink') {
+      const link = ProjectArchiveCardLinkSchema.safeParse(data)
+      if (!link.success) throw new ProjectArchiveError('cardLink line is not a link', index + 1)
+      out.push({ type: 'cardLink', data: link.data })
+    } else if (type === 'attachment') {
+      const attachment = ProjectArchiveAttachmentSchema.safeParse(data)
+      if (!attachment.success) throw new ProjectArchiveError('attachment line is not a file', index + 1)
+      out.push({ type: 'attachment', data: attachment.data })
     } else {
       throw new ProjectArchiveError(`unsupported archive line type: ${type}`, index + 1)
     }

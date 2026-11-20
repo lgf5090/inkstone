@@ -12,7 +12,7 @@ describe('GitHub avatar', () => {
 
     const broken = renderElement(<GithubAvatar src="https://avatars.example.com/octo.png" name="zed" />)
     const image = broken.container.querySelector('img')
-    expect(image).not.toBeNull()
+    expect(image?.getAttribute('src')).toBe('https://avatars.example.com/octo.png')
     act(() => { image!.dispatchEvent(new Event('error')) })
     expect(broken.container.textContent).toBe('Z')
     broken.unmount()

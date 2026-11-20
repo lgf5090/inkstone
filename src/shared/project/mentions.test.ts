@@ -15,4 +15,10 @@ describe('comment notification targets (D-7)', () => {
     expect(projectCommentNotificationTargets(['u1'], ['u9'], '@stranger', 'u1')).toEqual(['u9'])
     expect(projectCommentNotificationTargets(['u1'], [], 'plain comment', 'u1')).toEqual([])
   })
+
+  it('matches the display name a reader actually types, including CJK and spaces', () => {
+    const names = { u1: 'Alice', u2: '张三', u3: 'Bob Smith' }
+    expect(projectCommentNotificationTargets(['u1', 'u2', 'u3'], [], '请 @张三 看一下 @Bob Smith', 'u9', names).sort()).toEqual(['u2', 'u3'])
+    expect(projectCommentNotificationTargets(['u1'], [], 'hi @alice', 'u9', names)).toEqual(['u1'])
+  })
 })

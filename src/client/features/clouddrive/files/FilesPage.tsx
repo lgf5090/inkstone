@@ -50,7 +50,7 @@ import {
 } from '@shared/clouddrive/model'
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { IS_DEMO_MODE } from '../../../lib/runtime'
 import { useUi } from '../../../store/ui'
 import { AssistantDock } from '../../chat/AssistantDock'
@@ -1251,7 +1251,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       >
         <p className="mb-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('clouddrive.meta.locked_body')}</p>
         <Field label={t('clouddrive.meta.password')}>
-          <Input type="password" value={lockPassword} autoFocus onChange={(event) => setLockPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !isImeComposing(event)) void unlockFolder() }} />
+          <Input type="password" value={lockPassword} autoFocus onChange={(event) => setLockPassword(event.target.value)} onKeyDown={(event) => { if (isEnterKey(event) && !isImeComposing(event)) void unlockFolder() }} />
         </Field>
       </Modal>
 

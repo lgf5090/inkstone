@@ -1,4 +1,5 @@
 
+import { asciiAt } from '@shared/bytes'
 
 
 export function readImageSize(bytes: Uint8Array, mime: string): { width: number; height: number } | null {
@@ -21,7 +22,7 @@ function view(bytes: Uint8Array): DataView {
 }
 
 function pngSize(b: Uint8Array) {
-  if (b.length < 24 || ascii(b, 12, 16) !== 'IHDR') return null
+  if (b.length < 24 || !asciiAt(b, 12, 'IHDR')) return null
   const dv = view(b)
   return { width: dv.getUint32(16), height: dv.getUint32(20) }
 }
@@ -54,15 +55,14 @@ function jpegSize(b: Uint8Array) {
 function webpSize(b: Uint8Array) {
   if (b.length < 30) return null
   const dv = view(b)
-  const format = String.fromCharCode(b[12]!, b[13]!, b[14]!, b[15]!)
-  if (format === 'VP8 ') {
+  if (asciiAt(b, 12, 'VP8 ')) {
     return { width: dv.getUint16(26, true) & 0x3fff, height: dv.getUint16(28, true) & 0x3fff }
   }
-  if (format === 'VP8L') {
+  if (asciiAt(b, 12, 'VP8L')) {
     const bits = dv.getUint32(21, true)
     return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 }
   }
-  if (format === 'VP8X') {
+  if (asciiAt(b, 12, 'VP8X')) {
     const w = (b[24]! | (b[25]! << 8) | (b[26]! << 16)) + 1
     const h = (b[27]! | (b[28]! << 8) | (b[29]! << 16)) + 1
     return { width: w, height: h }
@@ -70,16 +70,11 @@ function webpSize(b: Uint8Array) {
   return null
 }
 
-function ascii(bytes: Uint8Array, start: number, end: number): string {
-  return String.fromCharCode(...bytes.subarray(start, end))
-}
-
-
 export function hasExpectedImageSignature(bytes: Uint8Array, mime: string): boolean {
   if (mime === 'image/png') {
     return bytes.length >= 24 &&
       bytes[0] === 0x89 &&
-      ascii(bytes, 1, 4) === 'PNG' &&
+      asciiAt(bytes, 1, 'PNG') &&
       bytes[4] === 0x0d &&
       bytes[5] === 0x0a &&
       bytes[6] === 0x1a &&
@@ -89,19 +84,17 @@ export function hasExpectedImageSignature(bytes: Uint8Array, mime: string): bool
     return bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
   }
   if (mime === 'image/gif') {
-    const header = ascii(bytes, 0, 6)
-    return header === 'GIF87a' || header === 'GIF89a'
+    return asciiAt(bytes, 0, 'GIF87a') || asciiAt(bytes, 0, 'GIF89a')
   }
   if (mime === 'image/webp') {
-    return bytes.length >= 16 && ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 12) === 'WEBP'
+    return bytes.length >= 16 && asciiAt(bytes, 0, 'RIFF') && asciiAt(bytes, 8, 'WEBP')
   }
   if (mime === 'image/avif') {
-    if (bytes.length < 16 || ascii(bytes, 4, 8) !== 'ftyp') return false
+    if (bytes.length < 16 || !asciiAt(bytes, 4, 'ftyp')) return false
     const boxSize = view(bytes).getUint32(0)
     if (boxSize < 16 || boxSize > bytes.length) return false
     for (let offset = 8; offset + 4 <= Math.min(boxSize, 64); offset += 4) {
-      const brand = ascii(bytes, offset, offset + 4)
-      if (brand === 'avif' || brand === 'avis') return true
+      if (asciiAt(bytes, offset, 'avif') || asciiAt(bytes, offset, 'avis')) return true
     }
     return false
   }

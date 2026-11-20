@@ -419,8 +419,31 @@ export function formatBytes(bytes: number): string {
   return `${value >= 100 || i === 0 ? Math.round(value) : value.toFixed(1)} ${units[i]}`
 }
 
+type NativeDurationFormat = { format(parts: Record<string, number>): string }
+
+const nativeDurationFormats = new Map<string, NativeDurationFormat | null>()
+
+function nativeDurationFormat(): NativeDurationFormat | null {
+  const locale = localeTag()
+  const cached = nativeDurationFormats.get(locale)
+  if (cached !== undefined) return cached
+  const ctor = (Intl as unknown as {
+    DurationFormat?: new (locale?: string, options?: { style?: string }) => NativeDurationFormat
+  }).DurationFormat
+  const formatter = ctor ? new ctor(locale, { style: 'long' }) : null
+  nativeDurationFormats.set(locale, formatter)
+  return formatter
+}
+
 export function formatDuration(ms: number): string {
   const duration = Number.isFinite(ms) ? Math.max(0, ms) : 0
+  const native = nativeDurationFormat()
+  if (native && duration >= 1000 && Number.isInteger(duration / 1000)) {
+    const totalSeconds = duration / 1000
+    return totalSeconds < 60
+      ? native.format({ seconds: totalSeconds })
+      : native.format({ minutes: Math.floor(totalSeconds / 60), seconds: totalSeconds % 60 })
+  }
   if (duration < 1000) return formatUnit(Math.round(duration), 'millisecond')
   const totalSeconds = Math.round(duration / 1000)
   if (totalSeconds < 60) return formatUnit(Number((duration / 1000).toFixed(1)), 'second')

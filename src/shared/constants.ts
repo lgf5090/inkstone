@@ -635,6 +635,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   project: {
     pinnedBoards: [],
     starredBoards: [],
+    notifications: {},
   },
 }
 
@@ -1098,6 +1099,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.todo.workday = todoWorkdaySettings(todo.workday)
   base.project.pinnedBoards = projectBoardIds(project.pinnedBoards)
   base.project.starredBoards = projectBoardIds(project.starredBoards)
+  base.project.notifications = projectNotificationSettings(project.notifications)
 
   base.appearance.theme = enumValue(appearance.theme, THEMES, base.appearance.theme)
   base.appearance.language = enumValue(
@@ -1767,6 +1769,24 @@ function projectBoardIds(value: unknown): string[] {
   return out
 }
 
+export const PROJECT_NOTIFICATION_LEVELS = ['all', 'mentions', 'off'] as const
+export type ProjectNotificationLevel = (typeof PROJECT_NOTIFICATION_LEVELS)[number]
+
+/** Per-board choice: everything worth telling, only an @mention or assignment, or nothing at all. */
+function projectNotificationSettings(value: unknown): Record<string, ProjectNotificationLevel> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, ProjectNotificationLevel> = {}
+  let count = 0
+  for (const [rawId, level] of Object.entries(value as Record<string, unknown>)) {
+    if (count >= PROJECT_BOARD_MARKS_MAX) break
+    const id = rawId.trim().slice(0, 64)
+    if (!id || !(PROJECT_NOTIFICATION_LEVELS as readonly string[]).includes(String(level))) continue
+    out[id] = level as ProjectNotificationLevel
+    count += 1
+  }
+  return out
+}
+
 function halfStepInRange(value: unknown, range: readonly [number, number], fallback: number): number {
   const clamped = numberInRange(value, range[0], range[1], fallback)
   return Math.round(clamped * 2) / 2
@@ -2077,6 +2097,15 @@ export function mergeSettingsPatch(current: unknown, patch: unknown): UserSettin
       ? { ...asRecord(previous[section]), ...delta }
       : previous[section]
   }
+  // A board-keyed map is patched one entry at a time; a shallow merge would drop the other boards.
+  const notificationPatch = asRecord(asRecord(incoming.project).notifications)
+  if (Object.keys(notificationPatch).length) {
+    combined.project = {
+      ...asRecord(previous.project),
+      ...asRecord(incoming.project),
+      notifications: { ...asRecord(asRecord(previous.project).notifications), ...notificationPatch },
+    }
+  }
   const next: Record<string, unknown> = { ...mergeSettings(combined) }
   for (const section of SETTINGS_SECTIONS) {
     const before = asRecord(previous[section])
@@ -2161,6 +2190,7 @@ function cloneDefaultSettings(): UserSettings {
     project: {
       pinnedBoards: [...DEFAULT_SETTINGS.project.pinnedBoards],
       starredBoards: [...DEFAULT_SETTINGS.project.starredBoards],
+      notifications: { ...DEFAULT_SETTINGS.project.notifications },
     },
   }
 }

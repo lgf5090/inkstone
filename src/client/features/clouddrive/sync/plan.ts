@@ -74,7 +74,7 @@ export function planMirror(
     if (!remoteFolders.has(foldedName(path))) foldersToCreate.add(path)
   }
 
-  for (const folder of [...localFolders].sort((left, right) => depth(left) - depth(right))) {
+  for (const folder of localFolders.toSorted((left, right) => depth(left) - depth(right))) {
     if (!options.includeHidden && hiddenPath(folder)) continue
     let current = folder
     while (current) {

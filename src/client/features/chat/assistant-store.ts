@@ -73,9 +73,9 @@ import { downloadSkillBundle } from './skill-bundle'
 import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 
-export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'skills' | 'projects' | 'settings'
+export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'skills' | 'projects' | 'stats' | 'logs' | 'settings'
 
-export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'skills', 'projects', 'settings']
+export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'skills', 'projects', 'stats', 'logs', 'settings']
 
 /** The picks the conversation list's tab strip offers, in the order it draws them. */
 export type ConversationListTab = 'folders' | 'projects' | 'tags' | 'starred' | 'pinned' | 'archived' | 'saved'
@@ -179,6 +179,8 @@ interface LiveTurn {
   sources?: AssistantSource[]
   /** When the turn settled; absent while it is still arriving. */
   finishedAt?: number | null
+  /** Send-to-first-token; held for this session's footline, not written back to the worker. */
+  ttftMs?: number | null
 }
 
 /** A message the reader sent while a turn was still running, waiting for that turn to settle. */
@@ -612,6 +614,8 @@ interface AssistantState {
     noTools?: boolean
     /** A whitelist from a caller that owns the turn's tools (a template's capability declaration). */
     allowedTools?: readonly string[]
+    /** Called once the worker's first frame proves the turn was accepted, before the stream ends. */
+    onAccepted?: () => void
   }) => Promise<boolean>
   /** Drop one message that was queued while a turn was running. */
   removeQueued: (id: string) => void
@@ -846,6 +850,39 @@ function toast(error: unknown): void {
 }
 
 /**
+ * One write per picked row, and one answer for the whole batch.
+ *
+ * A sequence of awaits used to stop at the first refusal: the rows before it had already changed on the
+ * server, but neither list was re-read and the whole selection stayed on the screen, so the reader saw
+ * old data and pressed the button again. Every row is attempted, both lists are refreshed whatever
+ * happened, and only the rows that refused stay picked.
+ */
+async function settlePicked(
+  picks: ReadonlySet<string>,
+  work: (id: string) => Promise<unknown>,
+  activeId: string | null,
+): Promise<void> {
+  const ids = [...picks]
+  const results = await Promise.allSettled(ids.map(work))
+  const failed = ids.filter((_id, index) => results[index]?.status === 'rejected')
+  useAssistant.setState({ conversationPicks: failed.length ? new Set(failed) : null })
+  // Leaving the thread is only right when its own row really went; a refused delete must not empty a
+  // conversation that is still there.
+  if (activeId && picks.has(activeId) && results[ids.indexOf(activeId)]?.status === 'fulfilled') {
+    useAssistant.getState().newConversation()
+  }
+  try {
+    await useAssistant.getState().loadConversations()
+    await useAssistant.getState().loadFlagged()
+  } catch (error) {
+    toast(error)
+  }
+  if (failed.length) {
+    useUi.getState().toast({ title: t('assistant.chat.batch_partial', { count: failed.length }), tone: 'danger' })
+  }
+}
+
+/**
  * The two lines of a failure as one, for the places that hold a single string instead of a headline and a
  * description: a stopped turn's bubble, a tool row's reason, a vendor listing that never arrived.
  *
@@ -917,6 +954,13 @@ function reportFailure(error: unknown, report?: ReportFailure): void {
   if (report) report(describeFailure(error))
   else toast(error)
 }
+
+/**
+ * How long a live turn holds text frames before handing them to the store. Short enough that the answer
+ * still reads as arriving word by word; long enough that a fast vendor does not repaint the whole thread
+ * once per token.
+ */
+export const STREAM_TEXT_BATCH_MS = 64
 
 /** How often a popup is asked whether the reader has finished logging in, and how long to keep asking. */
 const POPUP_POLL_MS = 700
@@ -1047,7 +1091,11 @@ async function adoptThread(conversationId: string, turn: LiveTurn | null): Promi
     // and the next open of this one reads it again for itself.
     if (useAssistant.getState().activeId !== conversationId) return
     useAssistant.setState({
-      messages: fillStoppedAnswer(mergeThreadPage(useAssistant.getState().messages, detail.messages), turn),
+      // TTFT is a fact about the stream this tab watched, so it is attached to the row it just
+      // adopted rather than asked of the server, which would only know when the whole turn finished.
+      messages: fillStoppedAnswer(mergeThreadPage(useAssistant.getState().messages, detail.messages), turn)
+        .map((message) => turn?.ttftMs != null && message.id === turn.assistantId
+          ? { ...message, ttftMs: turn.ttftMs } : message),
       messagesReady: true,
       messagesError: null,
       // Merged rather than replaced: the rows this turn already had are still the reader's, and a
@@ -1702,31 +1750,13 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   archivePickedConversations: async () => {
     const picks = get().conversationPicks
     if (!picks?.size) return
-    try {
-      // One request per row, because the route files one conversation at a time; a reader picking a
-      // handful is the case this exists for, and a batch endpoint would be a second way to do the same.
-      for (const id of picks) await api.assistant.setConversationArchived(id, true)
-      set({ conversationPicks: null })
-      await get().loadConversations()
-      await get().loadFlagged()
-    } catch (error) {
-      toast(error)
-    }
+    await settlePicked(picks, (id) => api.assistant.setConversationArchived(id, true), null)
   },
 
   deletePickedConversations: async () => {
     const picks = get().conversationPicks
     if (!picks?.size) return
-    try {
-      for (const id of picks) await api.assistant.deleteConversation(id)
-      const active = get().activeId
-      set({ conversationPicks: null })
-      if (active && picks.has(active)) get().newConversation()
-      await get().loadConversations()
-      await get().loadFlagged()
-    } catch (error) {
-      toast(error)
-    }
+    await settlePicked(picks, (id) => api.assistant.deleteConversation(id), get().activeId)
   },
 
   loadMoreConversations: async () => {
@@ -2735,8 +2765,17 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // False until a frame arrives. A stream that threw before its first frame is a request the worker
     // never took, which is the one case where the draft is still the reader's.
     let accepted = false
+    let firstTokenAt: number | null = null
     const apply = (event: ChatStreamEvent) => {
-      if (event.type !== 'title') accepted = true
+      // The first text frame is the only clock the reader actually experiences as "waiting for an
+      // answer"; start/usage/tool frames arrive before it and must not be counted as the first token.
+      if (event.type === 'text' && event.delta && firstTokenAt === null) firstTokenAt = Date.now()
+      if (event.type !== 'title') {
+        // The promise `send` returns only settles when the stream ends. A caller that has work to start
+        // beside this turn needs to know the worker took it, not that it finished.
+        if (!accepted) opts.onAccepted?.()
+        accepted = true
+      }
       if (event.type === 'start' && event.conversationId) filedConversationId = event.conversationId
       // A draft arrives whole rather than as deltas: the tool writes a row and the row is what the
       // panel draws. It belongs to the turn that asked for it, so the same token check the other frames
@@ -2782,8 +2821,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
               },
               activeId: current.activeId ?? event.conversationId ?? null,
             }
-          case 'text':
-            return { turn: { ...turn, text: turn.text + (event.delta ?? ''), stage: undefined } }
+          case 'text': {
+            if (firstTokenAt === null) firstTokenAt = Date.now()
+            // Write the measurement as soon as the first word arrives, so the live bubble can show it
+            // while the rest of the answer is still streaming instead of only after the row is filed.
+            const measured = typeof turn.startedAt === 'number' ? Math.max(0, firstTokenAt - turn.startedAt) : null
+            return {
+              turn: {
+                ...turn, text: turn.text + (event.delta ?? ''), stage: undefined,
+                ...(turn.ttftMs === undefined && measured !== null ? { ttftMs: measured } : {}),
+              },
+            }
+          }
           case 'reasoning':
             return { turn: { ...turn, reasoning: turn.reasoning + (event.delta ?? '') } }
           case 'stage':
@@ -2940,6 +2989,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         },
         apply,
         controller.signal,
+        { batchMs: STREAM_TEXT_BATCH_MS },
       )
     } catch (error) {
       if (!controller.signal.aborted) {
@@ -2964,7 +3014,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       // stop or a change of conversation, and its token is what tells the two apart.
       const mine = get().turn?.token === token ? get().turn : null
       if (mine) {
-        const finished: LiveTurn = { ...mine, done: true, finishedAt: Date.now() }
+        const finished: LiveTurn = {
+          ...mine, done: true, finishedAt: Date.now(),
+          ...(firstTokenAt !== null && mine.startedAt ? { ttftMs: Math.max(0, firstTokenAt - mine.startedAt) } : {}),
+        }
         set({ turn: finished })
         // A turn that never reached the worker has no stored row to adopt; the draft comes back instead.
         if (accepted && filedConversationId) await adoptThread(filedConversationId, finished)
@@ -3068,6 +3121,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         set({ activeId: null, messages: [], turn: null, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false })
       }
       await get().loadConversations()
+      await get().loadFlagged()
     } catch (error) {
       toast(error)
     }

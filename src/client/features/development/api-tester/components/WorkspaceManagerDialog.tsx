@@ -8,7 +8,7 @@ import { Input, Select } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { useUi } from '../../../../store/ui'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 import { tagColorValue } from '../lib/tag-colors'
 import { useApiTesterStore } from '../store'
 
@@ -70,7 +70,7 @@ export function WorkspaceManagerDialog({ open, onClose }: { open: boolean; onClo
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
               if (isImeComposing(event)) return
-              if (event.key === 'Enter') create()
+              if (isEnterKey(event)) create()
             }}
             placeholder={t('development.apitester.workspace_name_placeholder')}
             aria-label={t('development.apitester.workspace_name_placeholder')}
@@ -104,7 +104,7 @@ export function WorkspaceManagerDialog({ open, onClose }: { open: boolean; onClo
                   onChange={(event) => setEditName(event.target.value)}
                   onKeyDown={(event) => {
                     if (isImeComposing(event)) return
-                    if (event.key === 'Enter' && editName.trim()) {
+                    if (isEnterKey(event) && editName.trim()) {
                       void renameWorkspace(workspace.id, editName.trim()).then(() => setEditingId(null)).catch(fail)
                     }
                     if (event.key === 'Escape') setEditingId(null)

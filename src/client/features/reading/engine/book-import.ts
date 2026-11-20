@@ -119,7 +119,7 @@ async function readCbz(file: File, archive: ZipArchive): Promise<{ record: BookR
     IMAGE_TYPE.test(pkgMediaType(member.name)) || /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(member.name)
   ))
   if (!pages.length) throw new ImportRejected('format')
-  const sorted = pages.slice().sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }))
+  const sorted = pages.toSorted((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }))
   const first = sorted[0]
   const cover = first ? await archive.read(first.name).catch(() => null) : null
   return {

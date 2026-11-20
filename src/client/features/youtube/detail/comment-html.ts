@@ -9,6 +9,7 @@
  */
 import DOMPurify from 'dompurify'
 import type { YouTubeComment } from '@shared/youtube/model'
+import { sanitizedElement } from '../../../lib/sanitized-dom'
 
 const ALLOWED_TAGS = ['a', 'br', 'b', 'i', 'em', 'strong', 'span']
 const ALLOWED_ATTR = ['href']
@@ -28,15 +29,14 @@ export function sanitizeCommentHtml(html: string): string {
     KEEP_CONTENT: true,
   })
 
-  const template = document.createElement('template')
-  template.innerHTML = clean
-  for (const link of Array.from(template.content.querySelectorAll('a'))) {
+  const root = sanitizedElement(clean)
+  for (const link of Array.from(root.querySelectorAll('a'))) {
     const href = link.getAttribute('href')
     if (href === null || !isSafeHref(href)) link.removeAttribute('href')
     link.setAttribute('target', '_blank')
     link.setAttribute('rel', LINK_REL)
   }
-  return template.innerHTML
+  return root.innerHTML
 }
 
 /**

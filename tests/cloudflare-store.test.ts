@@ -36,6 +36,9 @@ beforeEach(() => {
   jsonCalls = []
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url)
+    if (url.hostname === 'cloudflare-dns.com') {
+      return Response.json({ Answer: [{ type: 1, data: '93.184.216.34' }] })
+    }
     if (url.hostname === 'catalog.test') {
       if (url.pathname.endsWith('/readme.md')) return new Response(README, { headers: { 'content-type': 'text/markdown' } })
       const entry = catalogs.get(url.pathname)

@@ -504,7 +504,7 @@ export function exportOpml(
   const byTitle = (a: { title: string }, b: { title: string }): number => a.title.localeCompare(b.title)
   const branch = (node: OpmlBranch, depth: number): string[] => {
     const pad = '  '.repeat(depth + 3)
-    const own = [...node.feeds].sort(byTitle).map(feed => outline(feed, pad))
+    const own = node.feeds.toSorted(byTitle).map(feed => outline(feed, pad))
     const kids = [...node.kids.values()]
       .sort((a, b) => a.name.localeCompare(b.name))
       .flatMap((kid) => {

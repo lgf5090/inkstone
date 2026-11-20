@@ -5,8 +5,11 @@ import { projectRoleAtLeast, emptyProjectViewFields } from '@shared/project/mode
 import { projectFilterPrefill } from '@shared/project/view-eval'
 import { buildProjectAssistantFacts } from '@shared/project/assistant-context'
 import type { AssistantPageContext } from '@shared/assistant'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import { navigateToPath, useSearch } from '../../lib/app-history'
+import { createRefreshQueue } from '../../lib/refresh-queue'
+import { PROJECT_OUTBOX_CHANGED_EVENT, PROJECT_OUTBOX_FLUSHED_EVENT } from '../../lib/runtime'
+import { pendingProjectWrites } from './offline-outbox'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
 import { useUi } from '../../store/ui'
@@ -15,13 +18,14 @@ import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Modal } from '../../components/overlay'
-import { createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchBoardCursor, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard } from './api'
+import { batchPatchProjectBoard, createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchBoardCursor, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard } from './api'
 import { createUndoStack } from './undo'
 import { newProjectId } from '@shared/project/limits'
 import type { SkinTone } from '@shared/types'
 import { EmojiPicker } from '../emoji/EmojiPicker'
 import { randomProjectIcon, readRandomIconPref } from './project-icon'
 import { readSidebarOpenPref, writeSidebarOpenPref } from './project-prefs'
+import { useSession } from '../../store/session'
 import { useProjectStore } from './store'
 import { ProjectSidebar } from './ProjectSidebar'
 import { ImportDialog } from './ImportDialog'
@@ -37,6 +41,13 @@ import { PROJECT_WRITE_TOOL_NAMES } from '@shared/project/assistant-tools'
 
 type Status = 'loading' | 'ready' | 'error' | 'notfound'
 
+const ACTIVITY_VERB: Record<string, Parameters<typeof t>[0]> = {
+  post: 'project.dashboard.act_created',
+  patch: 'project.dashboard.act_updated',
+  delete: 'project.dashboard.act_deleted',
+  reminder: 'project.dashboard.act_reminder',
+}
+
 export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const search = useSearch()
   const [bundle, setBundle] = useState<ProjectBoardBundle | null>(null)
@@ -51,10 +62,35 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [iconOpen, setIconOpen] = useState(false)
   const [iconTone, setIconTone] = useState<SkinTone>(0)
   const [undoStack] = useState(() => createUndoStack())
-  const refresh = useCallback(async () => {
-    setBundle(await fetchProjectBoardBundle(boardId))
-  }, [boardId])
+  const refreshBoard = useRef(boardId)
+  refreshBoard.current = boardId
+  const refresh = useMemo(
+    () => createRefreshQueue(
+      () => fetchProjectBoardBundle(boardId),
+      (result) => setBundle(result),
+      () => refreshBoard.current === boardId,
+    ),
+    [boardId],
+  )
   useEffect(() => { undoStack.clear() }, [boardId, undoStack])
+  const [pendingWrites, setPendingWrites] = useState(0)
+  useEffect(() => {
+    let alive = true
+    const read = (): void => {
+      void pendingProjectWrites()
+        .then((count) => { if (alive) setPendingWrites(count) })
+        .catch((cause: unknown) => { console.warn('[inkstone] project outbox count failed:', cause) })
+    }
+    const onFlushed = (): void => { read(); void refresh() }
+    read()
+    window.addEventListener(PROJECT_OUTBOX_CHANGED_EVENT, read)
+    window.addEventListener(PROJECT_OUTBOX_FLUSHED_EVENT, onFlushed)
+    return () => {
+      alive = false
+      window.removeEventListener(PROJECT_OUTBOX_CHANGED_EVENT, read)
+      window.removeEventListener(PROJECT_OUTBOX_FLUSHED_EVENT, onFlushed)
+    }
+  }, [refresh])
   const [showProps, setShowProps] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
@@ -65,11 +101,18 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [showImport, setShowImport] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpenPref)
   const [activity, setActivity] = useState<ProjectActivityEntry[]>([])
+  const [activityStatus, setActivityStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const locale = useLocale()
 
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const currentUserId = useSession((state) => state.user?.id)
   const boards = useProjectStore((state) => state.boards)
   const ensureBoards = useProjectStore((state) => state.ensureBoards)
   useEffect(() => { void ensureBoards() }, [ensureBoards])
+  // The sidebar renames and recolours through the store; the open header must read the same copy.
+  const listedBoard = boards.find((entry) => entry.id === boardId)
+  const headerTitle = listedBoard?.title || bundle?.board.title || t('project.boards.untitled')
+  const headerIcon = listedBoard?.icon || bundle?.board.icon
 
   const activeView = bundle?.views.find((v) => v.id === activeViewId) ?? bundle?.views[0]
   const assistantContext = useMemo<AssistantPageContext | null>(() => {
@@ -96,7 +139,10 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
 
   const openActivity = () => {
     setShowActivity(true)
-    fetchBoardActivity(boardId).then(setActivity).catch(() => setActivity([]))
+    setActivityStatus('loading')
+    fetchBoardActivity(boardId)
+      .then((entries) => { setActivity(entries); setActivityStatus('ready') })
+      .catch(() => { setActivity([]); setActivityStatus('error') })
   }
   const exportMarkdown = () => {
     window.open(`/api/project/boards/${encodeURIComponent(boardId)}/markdown`, '_blank')
@@ -170,6 +216,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         redo: async () => { await undeleteProjectCard(card.id); await refresh() },
       })
       setTitle('')
+    } catch (reason) {
+      useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -192,11 +240,41 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === id ? updated : card)) } : current))
     if (previous) {
       undoStack.push({
-        undo: async () => { await patchProjectCard(id, { title: previous.title, values: previous.values, icon: previous.icon }); await refresh() },
+        undo: async () => { await patchProjectCard(id, { title: previous.title, values: previous.values, icon: previous.icon, parentId: previous.parentId, contentOrder: previous.contentOrder, recurrence: previous.recurrence ?? null }); await refresh() },
         redo: async () => { await patchProjectCard(id, patch); await refresh() },
       })
     }
   }, [bundle, undoStack, refresh])
+
+  const patchCardsBatch = useCallback(async (patches: { id: string, patch: Record<string, unknown> }[]): Promise<void> => {
+    const previous = bundle?.cards.filter((card) => patches.some((entry) => entry.id === card.id)) ?? []
+    await batchPatchProjectBoard(boardId, { cards: patches })
+    setBundle((current) => current ? {
+      ...current,
+      cards: current.cards.map((card) => {
+        const values = patches.find((entry) => entry.id === card.id)?.patch.values as Record<string, string | null> | undefined
+        if (!values) return card
+        const merged = { ...card.values }
+        for (const [key, value] of Object.entries(values)) {
+          if (value === null) delete merged[key]
+          else merged[key] = value
+        }
+        return { ...card, values: merged }
+      }),
+    } : current)
+    if (previous.length) {
+      undoStack.push({
+        undo: async () => {
+          await batchPatchProjectBoard(boardId, { cards: previous.map((card) => ({ id: card.id, patch: { values: { ...card.values } } })) })
+          await refresh()
+        },
+        redo: async () => {
+          await batchPatchProjectBoard(boardId, { cards: patches })
+          await refresh()
+        },
+      })
+    }
+  }, [bundle, boardId, undoStack, refresh])
 
   const addGroupOption = useCallback(async (propertyId: string, value: string) => {
     if (!bundle) return
@@ -227,7 +305,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   }, [bundle, boardId])
 
   const setIcon = useCallback(async (icon: string) => {
-    await patchProjectBoard(boardId, { icon })
+    await useProjectStore.getState().setBoardIcon(boardId, icon)
     setBundle((current) => (current ? { ...current, board: { ...current.board, icon } } : current))
   }, [boardId])
 
@@ -263,6 +341,9 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     })
   }, [])
+  const guardedPatchCard = useCallback((id: string, patch: Record<string, unknown>) => guard(() => patchCard(id, patch)), [guard, patchCard])
+  const guardedPatchCardsBatch = useCallback((patches: { id: string, patch: Record<string, unknown> }[]) => guard(() => patchCardsBatch(patches)), [guard, patchCardsBatch])
+  const guardedDeleteCard = useCallback((id: string) => guard(() => removeCard(id)), [guard, removeCard])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -273,7 +354,10 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) void undoStack.redo(); else void undoStack.undo() }
       else if (mod && key === 'y') { event.preventDefault(); void undoStack.redo() }
       else if (mod && key === 'd' && openCardId) { event.preventDefault(); void duplicateProjectCard(openCardId).then(refresh) }
-      else if ((event.key === 'Delete' || event.key === 'Backspace') && openCardId) { event.preventDefault(); void removeCard(openCardId) }
+      else if ((event.key === 'Delete' || event.key === 'Backspace') && openCardId && !document.querySelector('[role="dialog"]')) {
+        event.preventDefault()
+        void removeCard(openCardId)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -286,13 +370,14 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   }
 
   const canEdit = projectRoleAtLeast(bundle.role, 'editor')
+  const isOwner = bundle.board.ownerId === currentUserId
   const openCard = bundle.cards.find((card) => card.id === openCardId) ?? null
 
   return (
     <div className="flex h-full w-full min-w-0 bg-[var(--bg-base)]" data-project-board-page={boardId}>
       {sidebarOpen && <ProjectSidebar boards={boards} onImport={() => setShowImport(true)} />}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
+        <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
           <IconButton label={t('project.board.back')} size="sm" onClick={() => navigateToPath('/project')}>
             <ArrowLeft size={16} />
           </IconButton>
@@ -304,12 +389,17 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           >
             <PanelLeft size={16} />
           </IconButton>
-          <button type="button" aria-label={t('project.board.change_icon')} className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[length:var(--text-14)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => setIconOpen(true)}>
-            {bundle.board.icon || <SquareKanban size={16} className="text-[var(--accent-on-soft)]" />}
+          <button type="button" aria-label={t('project.board.change_icon')} disabled={!canEdit} className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[length:var(--text-14)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:opacity-50" onClick={() => setIconOpen(true)}>
+            {headerIcon || <SquareKanban size={16} className="text-[var(--accent-on-soft)]" />}
           </button>
           <h1 className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-            {bundle.board.title || t('project.boards.untitled')}
+            {headerTitle}
           </h1>
+          {pendingWrites > 0 && (
+            <span role="status" className="shrink-0 rounded-[var(--r-sm)] bg-[var(--accent-soft)] px-2 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+              {t('project.offline.pending', { count: pendingWrites })}
+            </span>
+          )}
           <span className="ml-auto shrink-0 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {t('project.board.cards_count', { count: bundle.cards.length })}
           </span>
@@ -319,14 +409,14 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
             </IconButton>
           )}
           {bundle.role === 'admin' && (
-            <>
-              <IconButton label={t('project.members.title')} size="sm" onClick={() => setShowMembers(true)}>
-                <Users size={16} />
-              </IconButton>
-              <IconButton label={t('project.share.title')} size="sm" onClick={() => setShowShare(true)}>
-                <Share2 size={16} />
-              </IconButton>
-            </>
+            <IconButton label={t('project.members.title')} size="sm" onClick={() => setShowMembers(true)}>
+              <Users size={16} />
+            </IconButton>
+          )}
+          {isOwner && (
+            <IconButton label={t('project.share.title')} size="sm" onClick={() => setShowShare(true)}>
+              <Share2 size={16} />
+            </IconButton>
           )}
           <IconButton label={boardWatch.watching ? t('project.watch.off') : t('project.watch.on')} size="sm" active={boardWatch.watching} onClick={() => { void boardWatch.toggle() }}><Bell size={16} /></IconButton>
           {bundle.role === 'admin' && (
@@ -369,7 +459,9 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
               placeholder={t('project.card.from_template')}
               onChange={(templateId) => {
                 if (!templateId) return
-                void createCardFromTemplate(boardId, templateId).then((card) => setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current)))
+                void createCardFromTemplate(boardId, templateId)
+                  .then((card) => setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current)))
+                  .catch((reason: unknown) => { useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' }) })
               }}
               options={bundle.cards.filter((card) => card.isTemplate).map((card) => ({ value: card.id, label: card.title }))}
             />
@@ -379,17 +471,19 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       <BoardViews
         bundle={bundle}
         canEdit={canEdit}
-        onDeleteCard={(id) => void removeCard(id)}
+        onDeleteCard={guardedDeleteCard}
         onCreateView={(type) => guard(() => addView(type))}
         onOpenCard={setOpenCardId}
-        onPatchView={(id, patch) => guard(() => patchView(id, patch))}
+        onPatchView={patchView}
         onDeleteView={(id) => guard(() => removeView(id))}
         onDuplicateView={(id) => guard(() => copyView(id))}
         onActiveViewChange={setActiveViewId}
-        onPatchCard={patchCard}
+        onPatchCard={guardedPatchCard}
+        onPatchCardsBatch={guardedPatchCardsBatch}
         onAddGroupOption={addGroupOption}
         onRenameGroupOption={renameGroupOption}
         onSetGroupOptionColor={setGroupOptionColor}
+        onCardCreated={(card) => setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current))}
         onRefresh={refresh}
       />
       </div>
@@ -412,11 +506,12 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           boardId={boardId}
           boardType={bundle.board.type}
           minimumRole={bundle.board.minimumRole}
+          canManageVisibility={isOwner}
           onClose={() => setShowMembers(false)}
-          onBoardPatched={async (patch) => {
+          onBoardPatched={(patch) => guard(async () => {
             const result = await patchProjectBoard(boardId, patch)
             setBundle((current) => (current ? { ...current, board: result.board } : current))
-          }}
+          })}
         />
       )}
       {iconOpen && (
@@ -432,14 +527,26 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       )}
       {showActivity && (
         <Modal open onClose={() => setShowActivity(false)} title={t('project.board.activity')} width={480}>
-          <ul className="space-y-2">
-            {activity.map((entry) => (
-              <li key={entry.id} className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
-                <span className="text-[var(--text-tertiary)]">{new Date(entry.createdAt).toLocaleString()}</span> — {entry.summary}
-              </li>
-            ))}
-            {activity.length === 0 && <li className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</li>}
-          </ul>
+          {activityStatus === 'loading'
+            ? <LoadingBlock />
+            : activityStatus === 'error'
+              ? <p className="text-[length:var(--text-12)] text-[var(--danger)]">{t('project.boards.load_failed')}</p>
+              : (
+                <ul className="space-y-2">
+                  {activity.map((entry) => {
+                    const verb = ACTIVITY_VERB[entry.type]
+                    const target = bundle.cards.find((card) => card.id === entry.targetId)
+                    return (
+                      <li key={entry.id} className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                        <span className="text-[var(--text-tertiary)]">{new Date(entry.createdAt).toLocaleString(locale)}</span> — {verb
+                          ? `${t(verb)}${target ? ` ${target.title || t('project.board.untitled_card')}` : ''}`
+                          : entry.summary}
+                      </li>
+                    )
+                  })}
+                  {activity.length === 0 && <li className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.value.empty')}</li>}
+                </ul>
+              )}
         </Modal>
       )}
       {openCard && (
@@ -452,6 +559,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           contents={bundle.contents.filter((content) => content.cardId === openCard.id)}
           siblings={bundle.cards}
           canEdit={canEdit}
+          detailTruncated={Boolean(bundle.contentsTruncated || bundle.commentsTruncated)}
           onClose={() => setOpenCardId(null)}
           onDelete={(id) => void removeCard(id)}
           onUpdated={(updated) => setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current))}

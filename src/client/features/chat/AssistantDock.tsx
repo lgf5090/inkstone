@@ -443,7 +443,7 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   const lastInknoteAnswer = useMemo(() => {
     if (surface !== 'inknote') return ''
     if (turnHere?.done && turnHere.text.trim()) return turnHere.text.trim()
-    const settled = [...messages].reverse().find((message) => message.role === 'assistant' && message.status === 'complete' && message.content.trim())
+    const settled = messages.findLast((message) => message.role === 'assistant' && message.status === 'complete' && message.content.trim())
     return settled?.content.trim() ?? ''
   }, [surface, turnHere?.done, turnHere?.text, messages])
 

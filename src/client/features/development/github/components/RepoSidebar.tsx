@@ -3,13 +3,15 @@ import { ChevronDown, ChevronRight, Clock, Compass, Download, FileText, Layers, 
 import type { GithubCollection, GithubTag, GithubViewId, SavedGithubRepo } from '@shared/development/github/types'
 import { GITHUB_ALL_VIEW, GITHUB_COLLECTION_VIEW_PREFIX, GITHUB_EXPLORE_VIEW, GITHUB_FAV_VIEW, GITHUB_PINNED_VIEW } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
-import { isImeComposing } from '../../../../lib/ime'
+import { copyText } from '../../../../lib/clipboard'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { Modal, Menu, confirm, type MenuItem } from '../../../../components/overlay'
 import { SelectMenu } from '../../../../components/select-menu'
 import { useUi } from '../../../../store/ui'
 import { SidebarItem, SectionLabel, TagTreeList } from './TagSidebarParts'
+import { collectionAddress, tagAddress } from '../routes'
 import type { RecentRepoRef } from '../prefs'
 
 type TreeKind = 'tag' | 'collection'
@@ -127,12 +129,8 @@ export const RepoSidebar = memo(function RepoSidebar({
   const targetName = targetTag?.name ?? targetCollection?.name ?? ''
 
   const copy = async (value: string, message: string) => {
-    try {
-      await navigator.clipboard.writeText(value)
-      toast({ title: message, tone: 'success' })
-    } catch {
-      toast({ title: t('development.github.common.copy_failed'), tone: 'danger' })
-    }
+    const ok = await copyText(value)
+    toast({ title: ok ? message : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' })
   }
 
   const openDialog = (mode: TreeDialog['mode']) => {
@@ -155,7 +153,7 @@ export const RepoSidebar = memo(function RepoSidebar({
     {
       id: 'copy-link',
       label: t('development.github.sidebar.copy_link'),
-      onSelect: () => void copy(`${location.origin}/development/github#${context.kind}-${context.id}`, t('development.github.sidebar.copied')),
+      onSelect: () => void copy(`${location.origin}${context.kind === 'tag' ? tagAddress(context.id) : collectionAddress(context.id)}`, t('development.github.sidebar.copied')),
     },
     {
       id: 'delete',
@@ -329,7 +327,7 @@ export const RepoSidebar = memo(function RepoSidebar({
             className="w-full"
           />
         ) : (
-          <Input autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={t('development.github.sidebar.name')} aria-label={t('development.github.sidebar.name')} onKeyDown={(event) => { if (event.key === 'Enter' && !isImeComposing(event)) saveDialog() }} />
+          <Input autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={t('development.github.sidebar.name')} aria-label={t('development.github.sidebar.name')} onKeyDown={(event) => { if (isEnterKey(event) && !isImeComposing(event)) saveDialog() }} />
         )}
         <p className="mt-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.sidebar.dialog_hint')}</p>
       </Modal>

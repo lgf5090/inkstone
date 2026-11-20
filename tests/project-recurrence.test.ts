@@ -78,7 +78,8 @@ describe('completing a recurring card', () => {
     expect(original.values[STATUS]).toBe(DONE)
     expect(next.title).toBe('Standup')
     expect(next.values[STATUS]).toBe(OPEN)
-    expect(next.recurrence).toEqual({ freq: 'daily', interval: 1 })
+    expect(next.recurrence).toMatchObject({ freq: 'daily', interval: 1 })
+    expect(next.recurrence?.anchor).toBeTypeOf('number')
     const nextDate = JSON.parse(next.values[DATE]!) as { from: number }
     expect(projectStampToDay(nextDate.from).getDate()).toBe(31)
   })
@@ -98,5 +99,22 @@ describe('completing a recurring card', () => {
     const afterSecond = await cards(board.id)
     expect(afterSecond.filter((entry) => entry.recurrence !== null && entry.recurrence !== undefined)).toHaveLength(3)
     expect(afterSecond.filter((entry) => entry.id === plain.id)).toHaveLength(1)
+  })
+
+  it('keeps the original month-end day across a chain of spawned instances', async () => {
+    const board = await boardWithProperties()
+    const start = projectDayToStamp(new Date(2026, 0, 31))
+    const first = await createCard(board.id, { [STATUS]: OPEN, [DATE]: JSON.stringify({ from: start }) }, { freq: 'monthly', interval: 1 })
+    await req('PATCH', `/cards/${first.id}`, { values: { [STATUS]: DONE } })
+    const afterFirst = await cards(board.id)
+    const second = afterFirst.find((entry) => entry.id !== first.id)!
+    const secondDate = JSON.parse(second.values[DATE]!) as { from: number }
+    expect(projectStampToDay(secondDate.from).getDate()).toBe(28)
+    await req('PATCH', `/cards/${second.id}`, { values: { [STATUS]: DONE } })
+    const afterSecond = await cards(board.id)
+    const third = afterSecond.find((entry) => entry.id !== first.id && entry.id !== second.id)!
+    const thirdDate = JSON.parse(third.values[DATE]!) as { from: number }
+    expect(projectStampToDay(thirdDate.from).getDate()).toBe(31)
+    expect(third.recurrence?.anchor).toBe(second.recurrence?.anchor)
   })
 })

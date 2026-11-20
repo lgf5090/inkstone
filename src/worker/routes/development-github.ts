@@ -10,6 +10,8 @@ import {
   MAX_TAG_IDS,
   EXPORT_TTL_MS,
   BOOTSTRAP_ITEMS_LIMIT,
+  BOOTSTRAP_FIRST_PAGE,
+  GITHUB_PAGE_SIZE,
 } from '@shared/development/github/limits'
 import {
   GithubAccountTokenSchema,
@@ -32,21 +34,30 @@ import {
 } from '@shared/development/github/schemas'
 import type { GistItem, GithubRepoDetailPart, GithubTag, GithubTrackedApp } from '@shared/development/github/types'
 import { utf8ByteLength } from '@shared/text-utils'
+import {
+  MAX_GITHUB_IMAGE_URL_CHARS,
+  checkGithubImageUrl,
+  normalizeGithubImageUrl,
+} from '@shared/development/github/image'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { contentDisposition } from '../lib/http-range'
 import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
-import { createMinuteBudget } from '../lib/rate-limit'
+import { createGithubBudget } from '../development/github/rate-limit'
+import {
+  deleteCollectionsAtomically,
+  deleteGistTagsAtomically,
+  deleteReposAtomically,
+  deleteTagsAtomically,
+} from '../development/github/atomic'
 import { downloadReadmeImage } from '../cloudflare/catalog'
 import { requireAuth } from '../middleware/auth'
 import {
   addGithubAccount,
-  decryptAccountToken,
   deleteGithubAccount,
   effectiveGithubToken,
   githubTokenForUsername,
-  listAccountRecords,
   listAccountViews,
 } from '../development/github/accounts'
 import {
@@ -81,14 +92,9 @@ import {
   collectDescendantTagIds,
   countGists,
   countRepos,
-  deleteCollection,
   deleteExport,
   deleteGist,
   deleteGists,
-  deleteGistTags,
-  deleteRepo,
-  deleteRepos,
-  deleteTags,
   findCollection,
   findExport,
   findGist,
@@ -101,14 +107,13 @@ import {
   listExports,
   listGistSummaries,
   listGistTags,
+  listGistSummariesPage,
   listRepos,
+  listReposPage,
   listTags,
   patchGist,
   searchGistIds,
   toGistSummary,
-  unbindGistTags,
-  unbindReposFromCollections,
-  unbindRepoTags,
   upsertCollection,
   upsertGist,
   upsertGistTag,
@@ -120,14 +125,14 @@ export const developmentGithubRoutes = new Hono<AppBindings>()
 
 developmentGithubRoutes.use('*', requireAuth)
 
-const searchBudget = createMinuteBudget(20, 'Too many GitHub searches. Try again in a minute.')
-const detailBudget = createMinuteBudget(40, 'Too many GitHub detail requests. Try again in a minute.')
-const listBudget = createMinuteBudget(60, 'Too many GitHub list requests. Try again in a minute.')
-const writeBudget = createMinuteBudget(30, 'Too many GitHub write requests. Try again in a minute.')
-const imageBudget = createMinuteBudget(120, 'Too many GitHub image requests. Try again in a minute.')
-const probeBudget = createMinuteBudget(20, 'Too many mirror probes. Try again in a minute.')
-const discoverBudget = createMinuteBudget(20, 'Too many GitHub discovery requests. Try again in a minute.')
-const appCheckBudget = createMinuteBudget(10, 'Too many update checks. Try again in a minute.')
+const searchBudget = createGithubBudget(20, 'search', 'Too many GitHub searches. Try again in a minute.')
+const detailBudget = createGithubBudget(40, 'detail', 'Too many GitHub detail requests. Try again in a minute.')
+const listBudget = createGithubBudget(60, 'list', 'Too many GitHub list requests. Try again in a minute.')
+const writeBudget = createGithubBudget(30, 'write', 'Too many GitHub write requests. Try again in a minute.')
+const imageBudget = createGithubBudget(120, 'image', 'Too many GitHub image requests. Try again in a minute.')
+const probeBudget = createGithubBudget(20, 'probe', 'Too many mirror probes. Try again in a minute.')
+const discoverBudget = createGithubBudget(20, 'discover', 'Too many GitHub discovery requests. Try again in a minute.')
+const appCheckBudget = createGithubBudget(10, 'app-check', 'Too many update checks. Try again in a minute.')
 
 const SLUG_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/
 const REPO_ID_PATTERN = /^[0-9]{1,20}$/
@@ -186,7 +191,12 @@ const RepoDetailQuerySchema = z.object({
 })
 
 const BootstrapQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(BOOTSTRAP_ITEMS_LIMIT).default(BOOTSTRAP_ITEMS_LIMIT),
+  limit: z.coerce.number().int().min(1).max(BOOTSTRAP_ITEMS_LIMIT).default(BOOTSTRAP_FIRST_PAGE),
+})
+
+const PageQuerySchema = z.object({
+  after: z.string().trim().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(GITHUB_PAGE_SIZE).default(GITHUB_PAGE_SIZE),
 })
 
 const RepoLookupQuerySchema = z.object({
@@ -341,86 +351,49 @@ function assertSavedGistData(gist: GistItem): void {
   }
 }
 
-function shuffled<T>(items: readonly T[]): T[] {
-  const copy = [...items]
-  for (let index = copy.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1))
-    const current = copy[index]!
-    copy[index] = copy[swapIndex]!
-    copy[swapIndex] = current
-  }
-  return copy
-}
-
 async function resolveGistWriteToken(c: Context<AppBindings>, gistId: string): Promise<string> {
   const userId = userIdOf(c)
-  const records = await listAccountRecords(c.env.DB, userId)
-  if (records.length === 0) {
-    throw tokenRequired('Add a GitHub account before changing gists')
-  }
-  let opened = 0
-  let firstError: ApiError | null = null
-  for (const record of shuffled(records)) {
-    const token = await decryptAccountToken(c.env, record)
-    if (!token) continue
-    opened += 1
-    let gist: GistItem
-    try {
-      gist = await fetchGistDetail(gistId, token)
-    } catch (error) {
-      if (error instanceof ApiError) {
-        if (error.code === 'github_not_found') continue
-        if (!firstError) firstError = error
-        continue
-      }
-      throw error
-    }
-    const owner = gist.owner?.login ?? ''
-    const ownerAccount = records.find(
-      (candidate) => candidate.username.toLowerCase() === owner.toLowerCase(),
-    )
-    if (!ownerAccount) throw githubNotFound('Gist not found for this account')
-    if (ownerAccount.id === record.id) return token
-    const ownerToken = await decryptAccountToken(c.env, ownerAccount)
-    if (!ownerToken) {
-      throw new ApiError(
-        400,
-        'github_token_invalid',
-        'The saved GitHub token could not be read. Add the account again',
-      )
-    }
-    return ownerToken
-  }
-  if (opened === 0) {
-    throw new ApiError(
-      400,
-      'github_token_invalid',
-      'The saved GitHub token could not be read. Add the account again',
-    )
-  }
-  if (firstError) throw firstError
-  throw githubNotFound('Gist not found')
+  const token = requireToken(
+    await effectiveGithubToken(c.env, c.env.DB, userId),
+    'Add a GitHub account before changing gists',
+  )
+  const gist = await fetchGistDetail(gistId, token)
+  const owner = gist.owner?.login ?? ''
+  const ownerToken = owner
+    ? await githubTokenForUsername(c.env, c.env.DB, userId, owner)
+    : null
+  if (!ownerToken) throw githubNotFound('Gist not found for this account')
+  return ownerToken
 }
 
 developmentGithubRoutes.get('/health', (c) => c.json({ ok: true, data: { ready: true } }))
 
 developmentGithubRoutes.get('/image', async (c) => {
-  imageBudget(userIdOf(c))
+  await imageBudget.spend(c.env, userIdOf(c))
   const raw = c.req.query('url')
-  if (!raw || raw.length > 2048) throw ApiError.badRequest('An image URL is required')
+  if (!raw || raw.length > MAX_GITHUB_IMAGE_URL_CHARS) throw ApiError.badRequest('An image URL is required')
+  const checked = checkGithubImageUrl(raw)
+  if (!checked.ok) throw ApiError.badRequest(checked.reason)
   try {
-    const { bytes, type } = await downloadReadmeImage(raw)
+    const { bytes, type } = await downloadReadmeImage(normalizeGithubImageUrl(checked.url))
     return new Response(bytes, {
       status: 200,
       headers: {
         'Content-Type': type,
+        'Content-Disposition': 'inline',
         'Cache-Control': 'private, max-age=86400',
         'X-Content-Type-Options': 'nosniff',
         'Content-Security-Policy': "default-src 'none'; sandbox; img-src 'none'; form-action 'none'; base-uri 'none'",
       },
     })
   } catch (error) {
-    if (error instanceof ApiError && error.status === 400) throw error
+    if (error instanceof ApiError) {
+      throw new ApiError(
+        error.status,
+        error.status === 400 ? 'bad_request' : 'github_upstream',
+        error.message,
+      )
+    }
     throw new ApiError(502, 'github_upstream', 'The image could not be loaded')
   }
 })
@@ -464,6 +437,7 @@ developmentGithubRoutes.get('/tags', async (c) => {
 })
 
 developmentGithubRoutes.put('/tags/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = slugId(c)
   const body = await parseBody(c, GithubTagInputSchema, SMALL_BODY_LIMIT)
@@ -482,14 +456,14 @@ developmentGithubRoutes.put('/tags/:id', async (c) => {
 })
 
 developmentGithubRoutes.delete('/tags/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = slugId(c)
   const tags = await listTags(c.env.DB, userId)
   if (!tags.some((tag) => tag.id === id)) throw githubNotFound('Tag not found')
   const removedTagIds = collectDescendantTagIds(tags, id)
-  const updatedRepoIds = await unbindRepoTags(c.env.DB, userId, removedTagIds)
-  await deleteTags(c.env.DB, userId, removedTagIds)
-  return c.json({ ok: true, data: { removedTagIds, updatedRepoIds } })
+  const { updatedIds } = await deleteTagsAtomically(c.env.DB, userId, removedTagIds)
+  return c.json({ ok: true, data: { removedTagIds, updatedRepoIds: updatedIds } })
 })
 
 developmentGithubRoutes.get('/repos', async (c) => {
@@ -497,7 +471,15 @@ developmentGithubRoutes.get('/repos', async (c) => {
   return c.json({ ok: true, data: { repos } })
 })
 
+developmentGithubRoutes.get('/repos/page', async (c) => {
+  await listBudget.spend(c.env, userIdOf(c))
+  const query = parseQuery(c, PageQuerySchema)
+  const page = await listReposPage(c.env.DB, userIdOf(c), query.after ?? null, query.limit)
+  return c.json({ ok: true, data: { repos: page.items, nextCursor: page.nextCursor } })
+})
+
 developmentGithubRoutes.put('/repos/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = repoPathId(c)
   const body = await parseBody(c, SavedGithubRepoInputSchema, REPO_BODY_LIMIT)
@@ -521,25 +503,26 @@ developmentGithubRoutes.put('/repos/:id', async (c) => {
 })
 
 developmentGithubRoutes.delete('/repos/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = repoPathId(c)
   if (!(await findRepo(c.env.DB, userId, id))) throw githubNotFound('Repository not found')
-  await deleteRepo(c.env.DB, userId, id)
-  await unbindReposFromCollections(c.env.DB, userId, [id])
+  await deleteReposAtomically(c.env.DB, userId, [id])
   return c.json({ ok: true, data: { ok: true } })
 })
 
 developmentGithubRoutes.post('/repos/batch-delete', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const body = await parseBody(c, GithubBatchDeleteSchema, BATCH_BODY_LIMIT)
   const ids = body.ids.filter((id) => REPO_ID_PATTERN.test(id))
   if (ids.length !== body.ids.length) throw ApiError.badRequest('Invalid repository id')
-  const count = await deleteRepos(c.env.DB, userId, ids)
-  await unbindReposFromCollections(c.env.DB, userId, ids)
+  const { count } = await deleteReposAtomically(c.env.DB, userId, ids)
   return c.json({ ok: true, data: { count } })
 })
 
 developmentGithubRoutes.post('/repos/batch-update', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const body = await parseBody(c, GithubBatchUpdateSchema, BATCH_BODY_LIMIT)
   const ids = body.ids.filter((id) => REPO_ID_PATTERN.test(id))
@@ -561,6 +544,7 @@ developmentGithubRoutes.get('/collections', async (c) => {
 })
 
 developmentGithubRoutes.put('/collections/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = slugId(c)
   const body = await parseBody(c, GithubCollectionInputSchema, SMALL_BODY_LIMIT)
@@ -582,6 +566,7 @@ developmentGithubRoutes.put('/collections/:id', async (c) => {
 })
 
 developmentGithubRoutes.delete('/collections/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = slugId(c)
   if (!(await findCollection(c.env.DB, userId, id))) throw githubNotFound('Collection not found')
@@ -597,8 +582,8 @@ developmentGithubRoutes.delete('/collections/:id', async (c) => {
       }
     }
   }
-  for (const target of removed) await deleteCollection(c.env.DB, userId, target)
-  return c.json({ ok: true, data: { ok: true, removed: removed.size } })
+  const removedCount = await deleteCollectionsAtomically(c.env.DB, userId, Array.from(removed))
+  return c.json({ ok: true, data: { ok: true, removed: removedCount } })
 })
 
 developmentGithubRoutes.get('/gist/tags', async (c) => {
@@ -607,6 +592,7 @@ developmentGithubRoutes.get('/gist/tags', async (c) => {
 })
 
 developmentGithubRoutes.put('/gist/tags/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = slugId(c)
   const body = await parseBody(c, GithubTagInputSchema, SMALL_BODY_LIMIT)
@@ -625,14 +611,14 @@ developmentGithubRoutes.put('/gist/tags/:id', async (c) => {
 })
 
 developmentGithubRoutes.delete('/gist/tags/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = slugId(c)
   const tags = await listGistTags(c.env.DB, userId)
   if (!tags.some((tag) => tag.id === id)) throw githubNotFound('Gist tag not found')
   const removedTagIds = collectDescendantTagIds(tags, id)
-  const updatedGistIds = await unbindGistTags(c.env.DB, userId, removedTagIds)
-  await deleteGistTags(c.env.DB, userId, removedTagIds)
-  return c.json({ ok: true, data: { removedTagIds, updatedGistIds } })
+  const { updatedIds } = await deleteGistTagsAtomically(c.env.DB, userId, removedTagIds)
+  return c.json({ ok: true, data: { removedTagIds, updatedGistIds: updatedIds } })
 })
 
 developmentGithubRoutes.get('/gist/gists', async (c) => {
@@ -640,9 +626,16 @@ developmentGithubRoutes.get('/gist/gists', async (c) => {
   return c.json({ ok: true, data: { gists } })
 })
 
+developmentGithubRoutes.get('/gist/gists/page', async (c) => {
+  await listBudget.spend(c.env, userIdOf(c))
+  const query = parseQuery(c, PageQuerySchema)
+  const page = await listGistSummariesPage(c.env.DB, userIdOf(c), query.after ?? null, query.limit)
+  return c.json({ ok: true, data: { gists: page.items, nextCursor: page.nextCursor } })
+})
+
 developmentGithubRoutes.get('/gist/gists/search', async (c) => {
   const userId = userIdOf(c)
-  listBudget(userId)
+  await listBudget.spend(c.env, userId)
   const query = parseQuery(c, GistSearchQuerySchema)
   return c.json({ ok: true, data: { ids: await searchGistIds(c.env.DB, userId, query.q) } })
 })
@@ -657,7 +650,7 @@ developmentGithubRoutes.get('/gist/gists/:id', async (c) => {
 
 developmentGithubRoutes.patch('/gist/gists/:id', async (c) => {
   const userId = userIdOf(c)
-  writeBudget(userId)
+  await writeBudget.spend(c.env, userId)
   const id = gistPathId(c)
   const body = await parseBody(c, SavedGistPatchSchema, SMALL_BODY_LIMIT)
   if (body.tagIds) await assertGistTags(c, userId, body.tagIds)
@@ -667,6 +660,7 @@ developmentGithubRoutes.patch('/gist/gists/:id', async (c) => {
 })
 
 developmentGithubRoutes.put('/gist/gists/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = gistPathId(c)
   const body = await parseBody(c, SavedGistInputSchema, GIST_BODY_LIMIT)
@@ -688,6 +682,7 @@ developmentGithubRoutes.put('/gist/gists/:id', async (c) => {
 })
 
 developmentGithubRoutes.delete('/gist/gists/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = gistPathId(c)
   if (!(await findGist(c.env.DB, userId, id))) throw githubNotFound('Gist not found')
@@ -696,6 +691,7 @@ developmentGithubRoutes.delete('/gist/gists/:id', async (c) => {
 })
 
 developmentGithubRoutes.post('/gist/gists/batch-delete', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const body = await parseBody(c, GithubBatchDeleteSchema, BATCH_BODY_LIMIT)
   const ids = body.ids.filter((id) => isGistId(id))
@@ -705,6 +701,7 @@ developmentGithubRoutes.post('/gist/gists/batch-delete', async (c) => {
 })
 
 developmentGithubRoutes.post('/gist/gists/batch-update', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const body = await parseBody(c, GithubBatchUpdateSchema, BATCH_BODY_LIMIT)
   const ids = body.ids.filter((id) => isGistId(id))
@@ -726,6 +723,7 @@ developmentGithubRoutes.get('/mirrors', async (c) => {
 })
 
 developmentGithubRoutes.put('/mirrors', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const body = await parseBody(c, GithubMirrorListSchema, SMALL_BODY_LIMIT)
   const saved = await replaceMirrors(c.env.DB, userId, body.mirrors)
@@ -735,7 +733,7 @@ developmentGithubRoutes.put('/mirrors', async (c) => {
 
 developmentGithubRoutes.post('/mirrors/probe', async (c) => {
   const userId = userIdOf(c)
-  probeBudget(userId)
+  await probeBudget.spend(c.env, userId)
   const body = await parseBody(c, GithubMirrorProbeSchema, SMALL_BODY_LIMIT)
   for (const mirror of body.mirrors) assertMirrorUrl(mirror.url)
   const results = await probeMirrors(body.mirrors)
@@ -748,12 +746,14 @@ developmentGithubRoutes.get('/accounts', async (c) => {
 })
 
 developmentGithubRoutes.post('/accounts', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const body = await parseBody(c, GithubAccountTokenSchema, SMALL_BODY_LIMIT)
   const account = await addGithubAccount(c.env, c.env.DB, userIdOf(c), body.token)
   return c.json({ ok: true, data: { account } })
 })
 
 developmentGithubRoutes.delete('/accounts/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = accountPathId(c)
   if (!(await deleteGithubAccount(c.env.DB, userId, id))) throw githubNotFound('GitHub account not found')
@@ -762,7 +762,7 @@ developmentGithubRoutes.delete('/accounts/:id', async (c) => {
 
 developmentGithubRoutes.get('/search', async (c) => {
   const userId = userIdOf(c)
-  searchBudget(userId)
+  await searchBudget.spend(c.env, userId)
   const query = parseQuery(c, GithubSearchQuerySchema)
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
   const result = await searchRepositories(
@@ -782,7 +782,7 @@ developmentGithubRoutes.get('/search', async (c) => {
 
 developmentGithubRoutes.get('/discover', async (c) => {
   const userId = userIdOf(c)
-  discoverBudget(userId)
+  await discoverBudget.spend(c.env, userId)
   const query = parseQuery(c, GithubDiscoverQuerySchema)
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
   const tracked = createTrackedLookup(await listApps(c.env.DB, userId))
@@ -811,7 +811,7 @@ developmentGithubRoutes.get('/discover', async (c) => {
 
 developmentGithubRoutes.get('/search/store', async (c) => {
   const userId = userIdOf(c)
-  searchBudget(userId)
+  await searchBudget.spend(c.env, userId)
   const query = parseQuery(c, GithubStoreSearchQuerySchema)
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
   const tracked = createTrackedLookup(await listApps(c.env.DB, userId))
@@ -839,7 +839,7 @@ developmentGithubRoutes.get('/search/store', async (c) => {
 
 developmentGithubRoutes.get('/dev-profile', async (c) => {
   const userId = userIdOf(c)
-  detailBudget(userId)
+  await detailBudget.spend(c.env, userId)
   const query = parseQuery(c, GithubDevProfileQuerySchema)
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
   return c.json({ ok: true, data: { profile: await fetchDeveloperProfile(query.login, token) } })
@@ -852,7 +852,7 @@ developmentGithubRoutes.get('/apps', async (c) => {
 
 developmentGithubRoutes.put('/apps/:id', async (c) => {
   const userId = userIdOf(c)
-  writeBudget(userId)
+  await writeBudget.spend(c.env, userId)
   const id = slugId(c)
   const body = await parseBody(c, GithubTrackedAppInputSchema, SMALL_BODY_LIMIT)
   if (id !== `${body.repoId}-${body.platform}`) {
@@ -876,7 +876,7 @@ developmentGithubRoutes.put('/apps/:id', async (c) => {
 
 developmentGithubRoutes.delete('/apps/:id', async (c) => {
   const userId = userIdOf(c)
-  writeBudget(userId)
+  await writeBudget.spend(c.env, userId)
   const id = slugId(c)
   if (!(await deleteApp(c.env.DB, userId, id))) throw githubNotFound('Tracked app not found')
   return c.json({ ok: true, data: { ok: true } })
@@ -884,7 +884,7 @@ developmentGithubRoutes.delete('/apps/:id', async (c) => {
 
 developmentGithubRoutes.post('/apps/check', async (c) => {
   const userId = userIdOf(c)
-  appCheckBudget(userId)
+  await appCheckBudget.spend(c.env, userId)
   const body = await parseBody(c, GithubAppsCheckSchema, SMALL_BODY_LIMIT)
   const token = requireToken(
     await effectiveGithubToken(c.env, c.env.DB, userId),
@@ -914,7 +914,7 @@ developmentGithubRoutes.post('/apps/check', async (c) => {
 
 developmentGithubRoutes.get('/starred', async (c) => {
   const userId = userIdOf(c)
-  listBudget(userId)
+  await listBudget.spend(c.env, userId)
   const query = parseQuery(c, StarredQuerySchema)
   const token = requireToken(
     await effectiveGithubToken(c.env, c.env.DB, userId),
@@ -924,7 +924,7 @@ developmentGithubRoutes.get('/starred', async (c) => {
 })
 developmentGithubRoutes.get('/repo-lookup', async (c) => {
   const userId = userIdOf(c)
-  detailBudget(userId)
+  await detailBudget.spend(c.env, userId)
   const query = parseQuery(c, RepoLookupQuerySchema)
   if (!parseRepoFullName(query.repo)) throw ApiError.badRequest('A repository must be named owner/name')
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
@@ -933,7 +933,7 @@ developmentGithubRoutes.get('/repo-lookup', async (c) => {
 
 developmentGithubRoutes.get('/repo-detail', async (c) => {
   const userId = userIdOf(c)
-  detailBudget(userId)
+  await detailBudget.spend(c.env, userId)
   const query = parseQuery(c, RepoDetailQuerySchema)
   if (!parseRepoFullName(query.repo)) throw ApiError.badRequest('A repository must be named owner/name')
   const requestedParts = query.parts
@@ -956,7 +956,7 @@ developmentGithubRoutes.get('/repo-detail', async (c) => {
 
 developmentGithubRoutes.get('/gist/detail', async (c) => {
   const userId = userIdOf(c)
-  detailBudget(userId)
+  await detailBudget.spend(c.env, userId)
   const query = parseQuery(c, GistDetailQuerySchema)
   if (!isGistId(query.gist)) throw ApiError.badRequest('Invalid gist id')
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
@@ -966,7 +966,7 @@ developmentGithubRoutes.get('/gist/detail', async (c) => {
 
 developmentGithubRoutes.get('/gist/public', async (c) => {
   const userId = userIdOf(c)
-  listBudget(userId)
+  await listBudget.spend(c.env, userId)
   const query = parseQuery(c, GithubGistListQuerySchema)
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
   const result = await listGithubGists('public', {
@@ -979,7 +979,7 @@ developmentGithubRoutes.get('/gist/public', async (c) => {
 
 developmentGithubRoutes.get('/gist/mine', async (c) => {
   const userId = userIdOf(c)
-  listBudget(userId)
+  await listBudget.spend(c.env, userId)
   const query = parseQuery(c, GithubGistListQuerySchema)
   const token = requireToken(
     await effectiveGithubToken(c.env, c.env.DB, userId, query.account),
@@ -995,7 +995,7 @@ developmentGithubRoutes.get('/gist/mine', async (c) => {
 
 developmentGithubRoutes.get('/gist/users/:username/gists', async (c) => {
   const userId = userIdOf(c)
-  listBudget(userId)
+  await listBudget.spend(c.env, userId)
   const username = c.req.param('username')
   if (!username || !isGithubUsername(username)) throw ApiError.badRequest('Invalid GitHub username')
   const query = parseQuery(c, GithubGistListQuerySchema)
@@ -1013,7 +1013,7 @@ developmentGithubRoutes.get('/gist/users/:username/gists', async (c) => {
 
 developmentGithubRoutes.post('/gist/github-gists', async (c) => {
   const userId = userIdOf(c)
-  writeBudget(userId)
+  await writeBudget.spend(c.env, userId)
   const body = await parseBody(c, GithubGistCreateSchema, GIST_BODY_LIMIT)
   const token = requireToken(
     await effectiveGithubToken(c.env, c.env.DB, userId, body.account),
@@ -1027,15 +1027,18 @@ developmentGithubRoutes.post('/gist/github-gists', async (c) => {
 })
 
 developmentGithubRoutes.get('/gist/github-gists/:id', async (c) => {
-  detailBudget(userIdOf(c))
+  await detailBudget.spend(c.env, userIdOf(c))
   const id = gistPathId(c)
-  const token = await resolveGistWriteToken(c, id)
+  const token = requireToken(
+    await effectiveGithubToken(c.env, c.env.DB, userIdOf(c)),
+    'Add a GitHub account before changing gists',
+  )
   const gist = await fetchGistDetail(id, token)
   return c.json({ ok: true, data: { gist } })
 })
 
 developmentGithubRoutes.patch('/gist/github-gists/:id', async (c) => {
-  writeBudget(userIdOf(c))
+  await writeBudget.spend(c.env, userIdOf(c))
   const id = gistPathId(c)
   const body = await parseBody(c, GithubGistUpdateSchema, GIST_BODY_LIMIT)
   const token = await resolveGistWriteToken(c, id)
@@ -1044,7 +1047,7 @@ developmentGithubRoutes.patch('/gist/github-gists/:id', async (c) => {
 })
 
 developmentGithubRoutes.delete('/gist/github-gists/:id', async (c) => {
-  writeBudget(userIdOf(c))
+  await writeBudget.spend(c.env, userIdOf(c))
   const id = gistPathId(c)
   const token = await resolveGistWriteToken(c, id)
   await deleteGithubGist(id, token)
@@ -1052,6 +1055,7 @@ developmentGithubRoutes.delete('/gist/github-gists/:id', async (c) => {
 })
 
 developmentGithubRoutes.post('/gists/:id/exports', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = gistPathId(c)
   const body = await parseBody(c, GithubExportSchema, SMALL_BODY_LIMIT)
@@ -1127,11 +1131,13 @@ developmentGithubRoutes.get('/exports/:id', async (c) => {
       'Content-Disposition': contentDisposition('application/octet-stream', record.filename),
       'Cache-Control': 'private, no-store',
       'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox; form-action 'none'; base-uri 'none'",
     },
   })
 })
 
 developmentGithubRoutes.delete('/exports/:id', async (c) => {
+  await writeBudget.spend(c.env, userIdOf(c))
   const userId = userIdOf(c)
   const id = exportPathId(c)
   assertExportStorage(c.env)

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CheckCircle2, ExternalLink, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, Trash2 } from 'lucide-react'
 import type { GithubAccountView } from '@shared/development/github/types'
 import { localeTag, t } from '../../../../lib/i18n'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 import { Button, Badge, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { Empty } from '../../../../components/feedback'
@@ -122,7 +122,7 @@ export function AccountsView({
             type={showToken ? 'text' : 'password'}
             value={token}
             onChange={(event) => { setToken(event.target.value); setError(null) }}
-            onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && token.trim() && !pending) { event.preventDefault(); void add() } }}
+            onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event) && token.trim() && !pending) { event.preventDefault(); void add() } }}
             autoComplete="off"
             autoCapitalize="off"
             spellCheck={false}

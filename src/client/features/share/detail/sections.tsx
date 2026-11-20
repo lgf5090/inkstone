@@ -1,7 +1,7 @@
 import { useId, type ReactNode } from 'react';
 import { Check, Copy, ExternalLink, FolderClosed, Hash, Link2, Lock, Pause, Play, QrCode, Trash2 } from 'lucide-react';
 import { LIMITS } from '@shared/constants';
-import { isImeComposing } from '../../../lib/ime';
+import { isImeComposing, isEnterKey } from '../../../lib/ime';
 import type { ShareFolder } from '@shared/share-hub';
 import { Badge, Button } from '../../../components/primitives';
 import { Checkbox, Field, Input, Segmented, Switch } from '../../../components/form';
@@ -210,7 +210,7 @@ export function TagSection(props: {
             // Enter accepts a candidate while an input method is composing, and adding the half-typed
             // tag underneath it is exactly the bug this repo's guard exists for.
             if (isImeComposing(event)) return;
-            if (event.key === 'Enter') {
+            if (isEnterKey(event)) {
               event.preventDefault();
               onAddTag();
             }

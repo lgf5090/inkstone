@@ -205,8 +205,8 @@ describe("the chat's chords stay in one table", () => {
   })
 
   it("is what the view's own handlers read, rather than a copy of the same literals", () => {
-    expect(CHAT_VIEW).toContain("isChatShortcut(event.nativeEvent, 'find')")
-    expect(CHAT_VIEW).toContain("isChatShortcut(event.nativeEvent, 'stop')")
+    expect(CHAT_VIEW).toMatch(/isChatShortcut\(event\.nativeEvent, 'find'(?:, [^)]+)?\)/)
+    expect(CHAT_VIEW).toMatch(/isChatShortcut\(event\.nativeEvent, 'stop'(?:, [^)]+)?\)/)
     expect(CHAT_VIEW).toContain('sendOnEnter ? CHAT_SHORTCUTS.send : CHAT_SHORTCUTS.newLine')
     // The chord used to be spelled out where it was answered; a second place to change is a second
     // place that can disagree with the panel.

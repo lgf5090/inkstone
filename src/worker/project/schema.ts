@@ -70,6 +70,7 @@ export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
     is_template INTEGER NOT NULL DEFAULT 0,
     content_order TEXT NOT NULL DEFAULT '[]',
     recurrence TEXT,
+    completed_at INTEGER,
     created_by TEXT NOT NULL,
     modified_by TEXT NOT NULL,
     create_at INTEGER NOT NULL,
@@ -78,6 +79,8 @@ export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_cards_board
      ON project_cards(board_id, delete_at, update_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_cards_board_create
+     ON project_cards(board_id, delete_at, create_at, id)`,
   `CREATE INDEX IF NOT EXISTS idx_project_cards_parent
      ON project_cards(parent_id, delete_at)`,
 
@@ -125,6 +128,8 @@ export const PROJECT_CONTENT_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_contents_card
      ON project_card_contents(card_id, delete_at, position)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_contents_board
+     ON project_card_contents(board_id, delete_at, position, id)`,
 
   `CREATE TABLE IF NOT EXISTS project_comments (
     id TEXT PRIMARY KEY,
@@ -138,6 +143,8 @@ export const PROJECT_CONTENT_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_comments_card
      ON project_comments(card_id, delete_at, create_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_comments_board
+     ON project_comments(board_id, delete_at, create_at, id)`,
 
   `CREATE TABLE IF NOT EXISTS project_categories (
     user_id TEXT NOT NULL,
@@ -194,6 +201,8 @@ export const PROJECT_AUX_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_attachments(card_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_project_attachments_user
      ON project_attachments(user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_attachments_board
+     ON project_attachments(board_id, created_at DESC)`,
 
   // No subscriber type column: the reference's `channel` subscribers have no counterpart here.
   `CREATE TABLE IF NOT EXISTS project_subscriptions (
@@ -215,6 +224,7 @@ export const PROJECT_AUX_SCHEMA_STATEMENTS: readonly string[] = [
     password_hash TEXT,
     expires_at INTEGER,
     views INTEGER NOT NULL DEFAULT 0,
+    show_comments INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_shares_board
@@ -227,6 +237,39 @@ export const PROJECT_AUX_SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, key)
   )`,
+]
+
+/**
+ * Per-property settings that are not part of the column list: which board a relation points at, a
+ * formula, or which roles may read and edit the property. Kept beside `project_properties` so the
+ * hot property table's shape does not change for every new capability.
+ */
+export const PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_property_configs (
+    board_id TEXT NOT NULL,
+    property_id TEXT NOT NULL,
+    config TEXT NOT NULL DEFAULT '{}',
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (board_id, property_id)
+  )`,
+]
+
+/** One row per worked interval on a card; `ended_at` null means the timer is still running. */
+export const PROJECT_TIME_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_time_entries (
+    id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    card_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_time_card
+     ON project_time_entries(card_id, started_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_time_user
+     ON project_time_entries(user_id, ended_at)`,
 ]
 
 export const PROJECT_ENHANCE_SCHEMA_STATEMENTS: readonly string[] = [
@@ -242,6 +285,8 @@ export const PROJECT_ENHANCE_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_activity_board
      ON project_activity(board_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_activity_created
+     ON project_activity(created_at)`,
 
   `CREATE TABLE IF NOT EXISTS project_card_links (
     from_card_id TEXT NOT NULL,
@@ -253,6 +298,8 @@ export const PROJECT_ENHANCE_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_card_links_to
      ON project_card_links(to_card_id, kind)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_links_board
+     ON project_card_links(board_id)`,
 
   `CREATE TABLE IF NOT EXISTS project_todo_links (
     card_id TEXT NOT NULL,
@@ -265,22 +312,123 @@ export const PROJECT_ENHANCE_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_todo_links(todo_id)`,
 ]
 
-// Its own queue rather than notes' fts_index_queue: that table keys on note_id and its drain reads
-// FROM notes, so sharing it would mean editing the notes search write path.
-export const PROJECT_FTS_SCHEMA_STATEMENTS: readonly string[] = [
-  `CREATE VIRTUAL TABLE IF NOT EXISTS project_fts USING fts5(
-    board_id, card_id, user_id, title, body,
-    tokenize = "unicode61 remove_diacritics 2"
-  )`,
-  `CREATE TABLE IF NOT EXISTS project_fts_queue (
-    user_id TEXT NOT NULL,
-    card_id TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK (kind IN ('upsert','delete')),
+export const PROJECT_RELATION_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_card_relations (
+    board_id TEXT NOT NULL,
+    from_card_id TEXT NOT NULL,
+    to_card_id TEXT NOT NULL,
+    property_id TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    PRIMARY KEY (user_id, card_id)
+    PRIMARY KEY (from_card_id, property_id, to_card_id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_project_fts_queue_due
-     ON project_fts_queue(user_id, created_at, card_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_relations_to
+     ON project_card_relations(to_card_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_relations_board
+     ON project_card_relations(board_id)`,
+]
+
+export const PROJECT_AUTOMATION_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_automations (
+    id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    condition TEXT NOT NULL DEFAULT '',
+    action TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_automations_board
+     ON project_automations(board_id, enabled)`,
+]
+
+/** Machine credentials and outbound deliveries. Token bytes are never stored; only their SHA-256. */
+export const PROJECT_INTEGRATION_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_api_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    board_id TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    scope TEXT NOT NULL CHECK (scope IN ('read','write')),
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at INTEGER,
+    created_at INTEGER NOT NULL,
+    revoked_at INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_api_tokens_user
+     ON project_api_tokens(user_id, revoked_at)`,
+
+  `CREATE TABLE IF NOT EXISTS project_webhooks (
+    id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    secret TEXT NOT NULL,
+    events TEXT NOT NULL DEFAULT '["*"]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_webhooks_board
+     ON project_webhooks(board_id, enabled)`,
+
+  `CREATE TABLE IF NOT EXISTS project_webhook_deliveries (
+    id TEXT PRIMARY KEY,
+    webhook_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivered','failed')),
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_webhook_deliveries_due
+     ON project_webhook_deliveries(status, next_attempt_at)`,
+]
+
+/** Iterations own cards through an edge table, so a card can move between sprints without an ALTER. */
+export const PROJECT_SPRINT_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_sprints (
+    id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    goal TEXT NOT NULL DEFAULT '',
+    start_at INTEGER NOT NULL,
+    end_at INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('planned','active','completed')),
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    delete_at INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_sprints_board
+     ON project_sprints(board_id, delete_at, start_at)`,
+
+  `CREATE TABLE IF NOT EXISTS project_sprint_cards (
+    card_id TEXT PRIMARY KEY,
+    sprint_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    added_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_sprint_cards_sprint
+     ON project_sprint_cards(sprint_id, board_id)`,
+]
+
+/** A replayed offline write must not create a second card. The receipt is scoped to the account. */
+export const PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_write_receipts (
+    user_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    status INTEGER NOT NULL,
+    body TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, key)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_write_receipts_created
+     ON project_write_receipts(created_at)`,
 ]
 
 export const PROJECT_REQUIRED_TABLES: readonly string[] = [
@@ -301,8 +449,16 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_activity',
   'project_card_links',
   'project_todo_links',
-  'project_fts_queue',
-  'project_fts',
+  'project_card_relations',
+  'project_automations',
+  'project_time_entries',
+  'project_property_configs',
+  'project_api_tokens',
+  'project_webhooks',
+  'project_webhook_deliveries',
+  'project_sprints',
+  'project_sprint_cards',
+  'project_write_receipts',
 ]
 
 export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
@@ -311,25 +467,37 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_members_user',
   'idx_project_properties_order',
   'idx_project_cards_board',
+  'idx_project_cards_board_create',
   'idx_project_cards_parent',
   'idx_project_values_property',
   'idx_project_views_board',
   'idx_project_contents_card',
+  'idx_project_contents_board',
   'idx_project_comments_card',
+  'idx_project_comments_board',
   'idx_project_categories_user',
   'idx_project_category_boards_board',
   'idx_project_attachments_card',
   'idx_project_attachments_user',
+  'idx_project_attachments_board',
   'idx_project_subscriptions_subscriber',
   'idx_project_shares_board',
   'idx_project_activity_board',
+  'idx_project_activity_created',
   'idx_project_card_links_to',
+  'idx_project_card_links_board',
   'idx_project_todo_links_todo',
-  'idx_project_fts_queue_due',
+  'idx_project_card_relations_to',
+  'idx_project_card_relations_board',
+  'idx_project_automations_board',
+  'idx_project_api_tokens_user',
+  'idx_project_webhooks_board',
+  'idx_project_webhook_deliveries_due',
+  'idx_project_sprints_board',
+  'idx_project_sprint_cards_sprint',
+  'idx_project_write_receipts_created',
 ]
 
-// project_fts is deliberately absent: the boot's column repair replays CREATE TABLE declarations, and
-// an fts5 virtual table has none to replay — its columns are changed by rebuilding it, not by ADD COLUMN.
 export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   project_boards: [
     'id', 'owner_id', 'type', 'minimum_role', 'title', 'description', 'icon', 'show_description',
@@ -342,7 +510,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   ],
   project_cards: [
     'id', 'board_id', 'parent_id', 'title', 'icon', 'is_template', 'content_order', 'recurrence',
-    'created_by', 'modified_by', 'create_at', 'update_at', 'delete_at',
+    'completed_at', 'created_by', 'modified_by', 'create_at', 'update_at', 'delete_at',
   ],
   project_card_values: ['card_id', 'property_id', 'value', 'updated_at'],
   project_views: [
@@ -369,11 +537,25 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
     'block_type', 'block_id', 'subscriber_id', 'notified_at', 'create_at', 'delete_at',
   ],
   project_shares: [
-    'slug', 'board_id', 'user_id', 'password_hash', 'expires_at', 'views', 'created_at',
+    // The public link is read-only; comments are internal discussion unless the owner opts in.
+    'slug', 'board_id', 'user_id', 'password_hash', 'expires_at', 'views', 'show_comments', 'created_at',
   ],
   project_settings: ['user_id', 'key', 'value', 'updated_at'],
   project_activity: ['board_id', 'id', 'actor_id', 'type', 'target_id', 'summary', 'created_at'],
   project_card_links: ['from_card_id', 'to_card_id', 'kind', 'board_id', 'created_at'],
   project_todo_links: ['card_id', 'todo_id', 'user_id', 'created_at'],
-  project_fts_queue: ['user_id', 'card_id', 'kind', 'created_at'],
+  project_card_relations: ['board_id', 'from_card_id', 'to_card_id', 'property_id', 'created_at'],
+  project_automations: ['id', 'board_id', 'trigger', 'condition', 'action', 'enabled', 'created_by', 'created_at', 'updated_at'],
+  project_api_tokens: ['id', 'user_id', 'board_id', 'name', 'scope', 'token_hash', 'expires_at', 'created_at', 'revoked_at'],
+  project_webhooks: ['id', 'board_id', 'url', 'secret', 'events', 'enabled', 'created_by', 'created_at', 'updated_at'],
+  project_webhook_deliveries: [
+    'id', 'webhook_id', 'board_id', 'event', 'payload', 'attempts', 'next_attempt_at',
+    'status', 'last_error', 'created_at',
+  ],
+  project_sprints: [
+    'id', 'board_id', 'name', 'goal', 'start_at', 'end_at', 'status',
+    'created_by', 'created_at', 'updated_at', 'delete_at',
+  ],
+  project_sprint_cards: ['card_id', 'sprint_id', 'board_id', 'added_at'],
+  project_write_receipts: ['user_id', 'key', 'status', 'body', 'created_at'],
 }

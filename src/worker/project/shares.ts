@@ -2,14 +2,17 @@
  * Public read-only sharing, modelled on the assistant's share links: a slug is the capability, an
  * optional password hash gates it, and an expiry lapses it. The hash never leaves the server; the
  * management answer carries only `hasPassword`. Reading increments the view counter and returns the
- * board bundle at viewer role, so a shared board exposes exactly what a viewer sees.
+ * board bundle at viewer role, trimmed to the entities the shared board actually renders: neither the
+ * member roster nor names referenced only by hidden comments travel to an anonymous reader.
  */
 import type { ProjectBoard, ProjectBoardBundle, ProjectShare } from '@shared/project/model'
+import { projectMultiValueIds } from '@shared/project/model'
 import { newSlug } from '../lib/id'
 import { hashPassword, verifyPassword } from '../lib/password'
 import { ApiError } from '../lib/errors'
 import { assertAttemptBudget, assertNotLocked, clearLoginFailures, consumeAttemptBudget, recordLoginFailure, type AttemptBudgetTarget } from '../lib/throttle'
 import { readProjectBoardBundle } from './bundle'
+import { redactHiddenRelations } from './relations'
 
 interface ShareRow {
   slug: string
@@ -18,6 +21,7 @@ interface ShareRow {
   password_hash: string | null
   expires_at: number | null
   views: number
+  show_comments: number
   created_at: number
 }
 
@@ -28,6 +32,7 @@ function rowToShare(row: ShareRow): ProjectShare {
     hasPassword: row.password_hash !== null,
     expiresAt: row.expires_at,
     views: row.views,
+    showComments: row.show_comments !== 0,
     createdAt: row.created_at,
   }
 }
@@ -41,7 +46,7 @@ export async function putProjectShare(
   db: D1Database,
   board: ProjectBoard,
   userId: string,
-  input: { password?: string | null, expiresAt?: number | null },
+  input: { password?: string | null, expiresAt?: number | null, showComments?: boolean },
   now: number,
 ): Promise<ProjectShare> {
   const existing = await db.prepare('SELECT * FROM project_shares WHERE board_id = ?1 AND user_id = ?2').bind(board.id, userId).first<ShareRow>()
@@ -49,15 +54,18 @@ export async function putProjectShare(
   if (input.password === null) passwordHash = null
   else if (input.password !== undefined) passwordHash = await hashPassword(input.password)
   const expiresAt = input.expiresAt === undefined ? (existing?.expires_at ?? null) : input.expiresAt
+  const showComments = input.showComments === undefined ? (existing?.show_comments ?? 0) : (input.showComments ? 1 : 0)
   if (existing) {
-    await db.prepare('UPDATE project_shares SET password_hash = ?1, expires_at = ?2 WHERE slug = ?3').bind(passwordHash, expiresAt, existing.slug).run()
-    return rowToShare({ ...existing, password_hash: passwordHash, expires_at: expiresAt })
+    const slug = input.password === undefined ? existing.slug : newSlug()
+    await db.prepare('UPDATE project_shares SET slug = ?1, password_hash = ?2, expires_at = ?3, show_comments = ?4 WHERE slug = ?5')
+      .bind(slug, passwordHash, expiresAt, showComments, existing.slug).run()
+    return rowToShare({ ...existing, slug, password_hash: passwordHash, expires_at: expiresAt, show_comments: showComments })
   }
   const slug = newSlug()
   await db.prepare(
-    'INSERT INTO project_shares (slug, board_id, user_id, password_hash, expires_at, views, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)',
-  ).bind(slug, board.id, userId, passwordHash, expiresAt, now).run()
-  return { slug, boardId: board.id, hasPassword: passwordHash !== null, expiresAt, views: 0, createdAt: now }
+    'INSERT INTO project_shares (slug, board_id, user_id, password_hash, expires_at, views, show_comments, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)',
+  ).bind(slug, board.id, userId, passwordHash, expiresAt, showComments, now).run()
+  return { slug, boardId: board.id, hasPassword: passwordHash !== null, expiresAt, views: 0, showComments: showComments !== 0, createdAt: now }
 }
 
 export async function deleteProjectShare(db: D1Database, boardId: string, userId: string): Promise<void> {
@@ -114,5 +122,19 @@ export async function readPublicProjectShare(db: D1Database, slug: string, passw
     isTemplate: boardRow.is_template === 1, templateVersion: boardRow.template_version, createdBy: boardRow.created_by, modifiedBy: boardRow.modified_by,
     createAt: boardRow.create_at, updateAt: boardRow.update_at, deleteAt: boardRow.delete_at, archived: boardRow.archived !== 0,
   }
-  return readProjectBoardBundle(db, board, 'viewer')
+  const bundle = await readProjectBoardBundle(db, board, 'viewer')
+  await redactHiddenRelations(db, bundle, undefined)
+  const comments = row.show_comments === 0 ? [] : bundle.comments
+  const referenced = new Set<string>()
+  for (const card of bundle.cards) {
+    referenced.add(card.createdBy)
+    referenced.add(card.modifiedBy)
+    for (const property of bundle.properties) {
+      if (property.type !== 'person' && property.type !== 'multiPerson') continue
+      for (const id of projectMultiValueIds(card.values[property.id] ?? '')) referenced.add(id)
+    }
+  }
+  for (const comment of comments) referenced.add(comment.authorId)
+  const people = Object.fromEntries(Object.entries(bundle.people).filter(([id]) => referenced.has(id)))
+  return { ...bundle, members: [], comments, people }
 }

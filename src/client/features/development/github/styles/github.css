@@ -1,8 +1,10 @@
 .github-readme {
   max-width: none;
   padding-block: 0;
+  color: var(--text-primary);
   font-size: var(--text-13);
-  line-height: 1.65;
+  line-height: 1.55;
+  overflow-wrap: break-word;
 }
 
 .gh-detail {
@@ -44,11 +46,210 @@
   }
 }
 
+.github-windowed-list > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
+}
+
+.github-readme > :first-child {
+  margin-top: 0;
+}
+
+.github-readme > :last-child {
+  margin-bottom: 0;
+}
+
+.github-readme p,
+.github-readme blockquote,
+.github-readme ul,
+.github-readme ol,
+.github-readme dl,
+.github-readme table,
+.github-readme .gh-code,
+.github-readme details {
+  margin-block: 0 1.1em;
+}
+
+.github-readme h1,
+.github-readme h2,
+.github-readme h3,
+.github-readme h4,
+.github-readme h5,
+.github-readme h6 {
+  margin-block: 1.6em 0.65em;
+  font-weight: 600;
+  line-height: 1.25;
+  scroll-margin-top: 16px;
+}
+
+.github-readme h1 {
+  font-size: 1.85em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.github-readme h2 {
+  font-size: 1.42em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.github-readme h3 {
+  font-size: 1.2em;
+}
+
+.github-readme h4 {
+  font-size: 1em;
+}
+
+.github-readme h5 {
+  font-size: 0.9em;
+}
+
+.github-readme h6 {
+  font-size: 0.85em;
+  color: var(--text-tertiary);
+}
+
+.github-readme a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.github-readme a:hover {
+  text-decoration: underline;
+}
+
+.github-readme b,
+.github-readme strong {
+  font-weight: 600;
+}
+
+.github-readme ul,
+.github-readme ol {
+  padding-left: 1.75em;
+}
+
+.github-readme ul {
+  list-style: disc;
+}
+
+.github-readme ol {
+  list-style: decimal;
+}
+
+.github-readme li + li {
+  margin-top: 0.25em;
+}
+
+.github-readme li > ul,
+.github-readme li > ol {
+  margin-block: 0.25em 0;
+}
+
+.github-readme li > p {
+  margin-block: 0 0.35em;
+}
+
+.github-readme blockquote {
+  padding: 0 1em;
+  border-left: 0.25em solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.github-readme blockquote > :first-child {
+  margin-top: 0;
+}
+
+.github-readme blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.github-readme hr {
+  height: 0.25em;
+  margin: 1.6em 0;
+  border: 0;
+  background: var(--border-subtle);
+}
+
+.github-readme code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  font-variant-ligatures: none;
+}
+
+.github-readme :not(pre) > code {
+  padding: 0.2em 0.4em;
+  border-radius: var(--r-xs);
+  background: var(--bg-inset);
+  color: var(--text-primary);
+  white-space: break-spaces;
+}
+
+.github-readme kbd {
+  display: inline-block;
+  padding: 0.2em 0.4em;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-xs);
+  background: var(--bg-inset);
+  box-shadow: inset 0 -1px 0 var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.github-readme table {
+  display: table;
+  width: 100%;
+  max-width: 100%;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+.github-readme table th,
+.github-readme table td {
+  padding: 6px 13px;
+  border: 1px solid var(--border-default);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.github-readme table th {
+  background: var(--bg-inset);
+  font-weight: 600;
+  text-align: left;
+}
+
+.github-readme table tbody tr:nth-child(2n) {
+  background: var(--bg-inset);
+}
+
+.github-readme th[align='center'],
+.github-readme td[align='center'] {
+  text-align: center;
+}
+
+.github-readme th[align='right'],
+.github-readme td[align='right'] {
+  text-align: right;
+}
+
 .github-readme img {
   display: inline-block;
   max-width: 100%;
   height: auto;
   vertical-align: middle;
+  cursor: zoom-in;
+}
+
+.github-readme a img {
+  cursor: pointer;
+}
+
+.github-readme summary {
+  cursor: pointer;
+  font-weight: 600;
 }
 
 .github-readme [align='center'],
@@ -56,37 +257,317 @@
   text-align: center;
 }
 
-.github-readme pre {
-  overflow-x: auto;
-  padding: 10px;
-  border-radius: var(--r-md);
-  background: var(--bg-inset);
+.github-readme .token.comment,
+.github-readme .token.prolog,
+.github-readme .token.doctype,
+.github-readme .token.cdata {
+  color: var(--syntax-comment);
 }
 
-.github-readme table {
-  display: table;
-  width: 100%;
-  border-collapse: collapse;
+.github-readme .token.punctuation {
+  color: var(--syntax-punctuation);
 }
 
-.github-readme th,
-.github-readme td {
-  padding: 6px 13px;
-  vertical-align: top;
+.github-readme .token.namespace {
+  opacity: 0.75;
 }
 
-.github-readme table.github-md-table th,
-.github-readme table.github-md-table td {
+.github-readme .token.property,
+.github-readme .token.tag,
+.github-readme .token.constant,
+.github-readme .token.symbol,
+.github-readme .token.deleted {
+  color: var(--syntax-property);
+}
+
+.github-readme .token.boolean,
+.github-readme .token.number {
+  color: var(--syntax-number);
+}
+
+.github-readme .token.selector,
+.github-readme .token.attr-name,
+.github-readme .token.string,
+.github-readme .token.char,
+.github-readme .token.builtin,
+.github-readme .token.inserted {
+  color: var(--syntax-string);
+}
+
+.github-readme .token.operator,
+.github-readme .token.entity,
+.github-readme .token.url {
+  color: var(--syntax-operator);
+}
+
+.github-readme .token.atrule,
+.github-readme .token.attr-value,
+.github-readme .token.keyword {
+  color: var(--syntax-keyword);
+}
+
+.github-readme .token.function,
+.github-readme .token.class-name {
+  color: var(--syntax-function);
+}
+
+.github-readme .token.regex,
+.github-readme .token.important,
+.github-readme .token.variable {
+  color: var(--syntax-variable);
+}
+
+.github-readme .token.bold {
+  font-weight: 600;
+}
+
+.github-readme .token.italic {
+  font-style: italic;
+}
+
+.github-readme .gh-code {
+  position: relative;
   border: 1px solid var(--border-subtle);
-}
-
-.github-readme table.github-md-table th {
+  border-radius: var(--r-sm);
   background: var(--bg-inset);
-  text-align: left;
+  overflow: hidden;
 }
 
-.github-readme h1,
-.github-readme h2,
-.github-readme h3 {
-  scroll-margin-top: 16px;
+.github-readme .gh-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 30px;
+  padding: 0 0.5rem 0 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-10);
+  line-height: 1;
+}
+
+.github-readme .gh-code-lang {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.github-readme .gh-code-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--text-10);
+  cursor: pointer;
+  transition: color 120ms var(--ease-out), background-color 120ms var(--ease-out), border-color 120ms var(--ease-out);
+}
+
+.github-readme .gh-code-copy:hover {
+  border-color: var(--border-subtle);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.github-readme .gh-code-copy:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.github-readme .gh-code pre {
+  margin: 0;
+  padding: 12px 14px;
+  background: transparent;
+  font-size: var(--text-12);
+  line-height: 1.5;
+  tab-size: 2;
+  overflow-x: auto;
+}
+
+.github-readme .gh-code.is-collapsed pre {
+  max-height: 420px;
+  overflow: hidden;
+}
+
+.github-readme .gh-code-expand {
+  display: block;
+  width: 100%;
+  padding: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--text-11);
+  text-align: center;
+  cursor: pointer;
+  transition: color 120ms var(--ease-out), background-color 120ms var(--ease-out);
+}
+
+.github-readme .gh-code-expand:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.github-readme .gh-code-expand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.github-readme li.gh-task-item {
+  list-style: none;
+}
+
+.github-readme .gh-task {
+  display: inline-block;
+  position: relative;
+  width: 1em;
+  height: 1em;
+  margin-right: 0.45em;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-xs);
+  background: var(--bg-surface);
+  vertical-align: -0.1em;
+}
+
+.github-readme .gh-task-done {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.github-readme .gh-task-done::after {
+  content: '';
+  position: absolute;
+  left: 0.3em;
+  top: 0.08em;
+  width: 0.28em;
+  height: 0.55em;
+  border: solid var(--accent-contrast);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.github-readme-image-fallback {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--r-sm);
+  color: var(--text-tertiary);
+  font-size: var(--text-11);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+a.github-readme-image-fallback:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.github-readme .gh-alert {
+  padding: 8px 12px;
+  border-left: 0.25em solid var(--accent);
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+}
+
+.github-readme .gh-alert::before {
+  content: attr(data-label);
+  display: block;
+  margin-bottom: 0.25em;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.github-readme .gh-alert > :last-child {
+  margin-bottom: 0;
+}
+
+.github-readme .gh-alert-tip {
+  border-left-color: var(--success);
+  background: color-mix(in oklab, var(--success) 8%, transparent);
+}
+
+.github-readme .gh-alert-tip::before {
+  color: var(--success);
+}
+
+.github-readme .gh-alert-important {
+  border-left-color: var(--syntax-function);
+  background: color-mix(in oklab, var(--syntax-function) 8%, transparent);
+}
+
+.github-readme .gh-alert-important::before {
+  color: var(--syntax-function);
+}
+
+.github-readme .gh-alert-warning {
+  border-left-color: var(--warning);
+  background: color-mix(in oklab, var(--warning) 10%, transparent);
+}
+
+.github-readme .gh-alert-warning::before {
+  color: var(--warning);
+}
+
+.github-readme .gh-alert-caution {
+  border-left-color: var(--danger);
+  background: color-mix(in oklab, var(--danger) 8%, transparent);
+}
+
+.github-readme .gh-alert-caution::before {
+  color: var(--danger);
+}
+
+.github-readme .footnote-ref {
+  font-size: 0.85em;
+}
+
+.github-readme .footnote-ref a {
+  text-decoration: none;
+}
+
+.github-readme .footnotes {
+  margin-top: 1.6em;
+  color: var(--text-secondary);
+  font-size: 0.92em;
+}
+
+.github-readme .footnotes-list {
+  padding-left: 1.5em;
+}
+
+.github-readme .footnote-item > p {
+  margin-block: 0 0.4em;
+}
+
+.github-readme .footnote-backref {
+  text-decoration: none;
+}
+
+.github-readme picture,
+.github-readme video {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.github-readme .math-block {
+  display: block;
+  margin: 1em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.github-readme .math-block.math-source {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  text-align: left;
 }

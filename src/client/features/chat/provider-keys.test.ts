@@ -14,7 +14,13 @@ import type { AssistantProvider, AssistantProviderKey } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { api } from '../../lib/api'
+import { useUi } from '../../store/ui'
 import { ProviderKeys, type ProviderWallet } from './ProviderKeys'
+
+vi.mock('../../components/overlay', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../components/overlay')>(),
+  confirm: async () => true,
+}))
 
 let root: Root
 let container: HTMLDivElement
@@ -30,14 +36,14 @@ const wallet = (): ProviderWallet => ({ balances: null, problem: null, busy: fal
 function provider(over: Partial<AssistantProvider> = {}): AssistantProvider {
   return {
     id: 'p1', label: 'Example', protocol: 'openai', baseUrl: 'https://api.example.com', endpoints: {},
-    hasKey: true, icon: '', keyHint: '9876', reasoningDialect: null, createdAt: 1, updatedAt: 1, ...over,
+    hasKey: true, icon: '', keyHint: '9876', keyLastUsedAt: null, reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1, ...over,
   }
 }
 
 function key(over: Partial<AssistantProviderKey> = {}): AssistantProviderKey {
   return {
     id: 'k1', providerId: 'p1', label: 'second', hasKey: true, keyHint: '4321', enabled: true,
-    lastUsedAt: null, errorCount: 0, lastError: null, createdAt: 1, updatedAt: 1, ...over,
+    lastUsedAt: null, errorCount: 0, lastError: null, coolingUntil: null, createdAt: 1, updatedAt: 1, ...over,
   }
 }
 
@@ -70,7 +76,7 @@ afterEach(() => {
 
 describe('the keys a provider rotates through', () => {
   it('reads the ring only once the section is opened, and never shows a key back', async () => {
-    const list = vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [key()] })
+    const list = vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [key()], probes: [], primaryLastUsedAt: null })
     await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
     // The panel is closed, so the request has not been made and the row is not on screen.
     expect(list).not.toHaveBeenCalled()
@@ -88,7 +94,7 @@ describe('the keys a provider rotates through', () => {
   })
 
   it('still says a stored key exists when the store kept no last-four hint', async () => {
-    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [] })
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [], probes: [], primaryLastUsedAt: null })
     await act(async () => { root.render(createElement(ProviderKeys, { provider: provider({ icon: '', keyHint: '' }), wallet: wallet() })) })
     await act(async () => { trigger()!.click() })
     // No mask is available, but the row must not read as a missing key.
@@ -97,7 +103,7 @@ describe('the keys a provider rotates through', () => {
   })
 
   it('sends a new key with its label, and takes the secret back off the form', async () => {
-    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [] })
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [], probes: [], primaryLastUsedAt: null })
     const created = vi.spyOn(api.assistant, 'createProviderKey').mockResolvedValue({ key: key() })
     await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
     await act(async () => { trigger()!.click() })
@@ -113,7 +119,7 @@ describe('the keys a provider rotates through', () => {
   })
 
   it('switches a key off without touching the others', async () => {
-    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [key()] })
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [key()], probes: [], primaryLastUsedAt: null })
     const patched = vi.spyOn(api.assistant, 'updateProviderKey').mockResolvedValue({ key: key({ enabled: false }) })
     await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
     await act(async () => { trigger()!.click() })
@@ -126,14 +132,14 @@ describe('the keys a provider rotates through', () => {
   })
 
   it('says a provider with no key at all is missing one rather than showing a blank', async () => {
-    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [] })
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [], probes: [], primaryLastUsedAt: null })
     await act(async () => { root.render(createElement(ProviderKeys, { provider: provider({ hasKey: false, icon: '', keyHint: '' }), wallet: wallet() })) })
     await act(async () => { trigger()!.click() })
     expect(document.body.textContent).toContain(t('assistant.settings.key_missing'))
   })
 
   it('renames a key that is already stored, and sends nothing but the name', async () => {
-    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [key()] })
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [key()], probes: [], primaryLastUsedAt: null })
     const patched = vi.spyOn(api.assistant, 'updateProviderKey').mockResolvedValue({ key: key({ label: 'laptop' }) })
     await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
     await act(async () => { trigger()!.click() })
@@ -150,5 +156,114 @@ describe('the keys a provider rotates through', () => {
     expect(patched).toHaveBeenCalledWith('p1', 'k1', { label: 'laptop' })
     // The row goes back to being a row once the name is in.
     expect(box(t('assistant.keys.label'))).toBeNull()
+  })
+})
+
+describe('asking the provider whether a key still works', () => {
+  it('offers the test only once the ring is open, and shows which key failed', async () => {
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [key()], probes: [], primaryLastUsedAt: null })
+    const probe = vi.spyOn(api.assistant, 'probeProviderKeys').mockResolvedValue({
+      results: [
+        { keyId: '', label: '', keyHint: '9876', outcome: 'passed', reason: null, latencyMs: 120, probedAt: 1 },
+        { keyId: 'k1', label: 'second', keyHint: '4321', outcome: 'failed', reason: 'invalid_credential', latencyMs: 40, probedAt: 1 },
+      ],
+    })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
+    // Nothing to ask about while the section is closed.
+    expect(byText(t('assistant.keys.probe'))).toBeUndefined()
+
+    await act(async () => { trigger()!.click() })
+    await act(async () => { byText(t('assistant.keys.probe'))!.click() })
+
+    expect(probe).toHaveBeenCalledWith('p1')
+    expect(document.body.textContent).toContain(t('assistant.keys.probe_passed'))
+    expect(document.body.textContent).toContain(t('assistant.keys.probe_failed'))
+    // The passing row carries its round-trip, which is the only number that separates two working keys.
+    expect(document.body.textContent).toContain(t('assistant.keys.probe_latency', { ms: 120 }))
+  })
+
+  it('offers to disable the refused keys, and switches each one off', async () => {
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({
+      keys: [key(), key({ id: 'k2', label: 'third', keyHint: '1111' })],
+      probes: [],
+      primaryLastUsedAt: null,
+    })
+    vi.spyOn(api.assistant, 'probeProviderKeys').mockResolvedValue({
+      results: [
+        { keyId: '', label: '', keyHint: '9876', outcome: 'passed', reason: null, latencyMs: 10, probedAt: 1 },
+        { keyId: 'k1', label: 'second', keyHint: '4321', outcome: 'failed', reason: 'invalid_credential', latencyMs: 10, probedAt: 1 },
+        { keyId: 'k2', label: 'third', keyHint: '1111', outcome: 'failed', reason: 'invalid_credential', latencyMs: 10, probedAt: 1 },
+      ],
+    })
+    const patched = vi.spyOn(api.assistant, 'updateProviderKey').mockImplementation(async (_id, keyId, body) => ({
+      key: key({ id: keyId, enabled: body.enabled ?? true }),
+    }))
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
+    expect(byText(t('assistant.keys.disable_invalid', { count: 2 }))).toBeUndefined()
+
+    await act(async () => { trigger()!.click() })
+    await act(async () => { byText(t('assistant.keys.probe'))!.click() })
+    const disable = byText(t('assistant.keys.disable_invalid', { count: 2 }))
+    expect(disable, 'the ring offers no way to act on a refused key').toBeTruthy()
+    await act(async () => { disable!.click() })
+
+    expect(patched).toHaveBeenCalledTimes(2)
+    expect(patched).toHaveBeenCalledWith('p1', 'k1', { enabled: false })
+    expect(patched).toHaveBeenCalledWith('p1', 'k2', { enabled: false })
+  })
+
+  it('keeps a stored result after a reload, so a bad key stays marked', async () => {
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({
+      keys: [key()],
+      probes: [{ keyId: 'k1', outcome: 'inconclusive', reason: 'rate_limited', latencyMs: 40, probedAt: 1 }],
+      primaryLastUsedAt: null,
+    })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
+    await act(async () => { trigger()!.click() })
+    // "Cannot tell" is kept as its own word: it is not a pass and must not read as a failure either.
+    expect(document.body.textContent).toContain(t('assistant.keys.probe_unknown'))
+    expect(document.body.textContent).not.toContain(t('assistant.keys.probe_failed'))
+  })
+})
+
+describe('copying a key without showing it', () => {
+  const SECRET = 'sk-copy-only-000000000000'
+
+  const openPanel = async () => {
+    vi.spyOn(api.assistant, 'providerKeys').mockResolvedValue({ keys: [], probes: [], primaryLastUsedAt: null })
+    vi.spyOn(api.assistant, 'revealProviderKey').mockResolvedValue({ key: SECRET, keyHint: '0000' })
+    await act(async () => { root.render(createElement(ProviderKeys, { provider: provider(), wallet: wallet() })) })
+    await act(async () => { trigger()!.click() })
+    return document.querySelector<HTMLButtonElement>(`button[aria-label="${t('assistant.keys.copy')}"]`)!
+  }
+
+  it('announces a successful copy and keeps the secret off the screen', async () => {
+    useUi.setState({ toasts: [] })
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } })
+    try {
+      const copy = await openPanel()
+      await act(async () => { copy.click() })
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard')
+    }
+    expect(useUi.getState().toasts.some((entry) => entry.title === t('assistant.keys.copied'))).toBe(true)
+    expect(document.body.textContent).not.toContain(SECRET)
+  })
+
+  it('explains the plaintext when the browser refuses the clipboard', async () => {
+    useUi.setState({ toasts: [] })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async () => { throw new Error('refused') } },
+    })
+    try {
+      const copy = await openPanel()
+      await act(async () => { copy.click() })
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard')
+    }
+    expect(useUi.getState().toasts.some((entry) => entry.title === t('assistant.keys.copy_failed'))).toBe(true)
+    expect(document.body.textContent).toContain(SECRET)
   })
 })

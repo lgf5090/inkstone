@@ -167,7 +167,7 @@ function recentId(input: MusicRecentInput): string {
 
 /** Pinned playlists lead, then the shelf order the server keeps; pinning should move a row now. */
 function orderedPlaylists(list: readonly MusicPlaylist[]): MusicPlaylist[] {
-  return [...list].sort((left, right) => {
+  return list.toSorted((left, right) => {
     const leftPin = left.pinnedAt ?? 0
     const rightPin = right.pinnedAt ?? 0
     if (leftPin !== rightPin) return rightPin - leftPin

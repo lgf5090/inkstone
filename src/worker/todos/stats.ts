@@ -307,7 +307,7 @@ export function countStatBuckets(from: string, to: string, bucket: TaskStatsBuck
  */
 function percentile(values: readonly number[], fraction: number): number | null {
   if (!values.length) return null
-  const sorted = [...values].sort((left, right) => left - right)
+  const sorted = values.toSorted((left, right) => left - right)
   if (sorted.length === 1) return sorted[0]!
   const position = (sorted.length - 1) * fraction
   const lower = Math.floor(position)
@@ -382,7 +382,7 @@ export function computeTodoFlow(
     done: seed.doneBefore,
   }
   const rank = (event: StatsFlowEvent): number => (event.kind === 'born' ? 0 : 1)
-  const ordered = [...events].sort((left, right) => left.at - right.at || rank(left) - rank(right))
+  const ordered = events.toSorted((left, right) => left.at - right.at || rank(left) - rank(right))
   const byBucket = new Map<string, StatsFlowEvent[]>(starts.map((day) => [day, []]))
   for (const event of ordered) {
     // An event whose day falls outside the buckets was outside the range the query asked for; a

@@ -9,7 +9,7 @@ import type {
   SavedGist,
   SavedGithubRepo,
 } from '@shared/development/github/types'
-import { chunkMarks, idChunks, runBatched } from '../../db/writes'
+import { chunkMarks, idChunks } from '../../db/writes'
 import { ApiError } from '../../lib/errors'
 
 interface TagRow {
@@ -325,6 +325,50 @@ export async function listRepos(
   return results.map(toRepo)
 }
 
+export interface KeysetPage<T> {
+  items: T[]
+  nextCursor: string | null
+}
+
+export async function listReposPage(
+  db: D1Database,
+  userId: string,
+  after: string | null,
+  limit: number,
+): Promise<KeysetPage<SavedGithubRepo>> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${REPO_COLUMNS} FROM development_github_repos
+        WHERE user_id = ?1 AND (?2 IS NULL OR id > ?2)
+        ORDER BY id ASC LIMIT ?3`,
+    )
+    .bind(userId, after, limit + 1)
+    .all<RepoRow>()
+  const rows = results.slice(0, limit)
+  return { items: rows.map(toRepo), nextCursor: results.length > limit ? rows[rows.length - 1]?.id ?? null : null }
+}
+
+export async function listGistSummariesPage(
+  db: D1Database,
+  userId: string,
+  after: string | null,
+  limit: number,
+): Promise<KeysetPage<SavedGist>> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${GIST_COLUMNS} FROM development_github_gists
+        WHERE user_id = ?1 AND (?2 IS NULL OR id > ?2)
+        ORDER BY id ASC LIMIT ?3`,
+    )
+    .bind(userId, after, limit + 1)
+    .all<GistRow>()
+  const rows = results.slice(0, limit)
+  return {
+    items: rows.map((row) => toGistSummary(toGist(row))),
+    nextCursor: results.length > limit ? rows[rows.length - 1]?.id ?? null : null,
+  }
+}
+
 export async function findRepo(db: D1Database, userId: string, id: string): Promise<SavedGithubRepo | null> {
   const row = await db
     .prepare(`SELECT ${REPO_COLUMNS} FROM development_github_repos WHERE user_id = ?1 AND id = ?2`)
@@ -489,35 +533,41 @@ export async function deleteCollection(db: D1Database, userId: string, id: strin
   return (result.meta.changes ?? 0) > 0
 }
 
+function unbindIdsSql(table: string, column: string): string {
+  return `UPDATE ${table}
+    SET ${column} = COALESCE((
+      SELECT json_group_array(kept.value) FROM json_each(${column}) AS kept
+      WHERE kept.value NOT IN (SELECT removed.value FROM json_each(?1) AS removed)
+    ), '[]'), updated_at = ?2
+    WHERE user_id = ?3
+      AND EXISTS (
+        SELECT 1 FROM json_each(${column}) AS present
+        WHERE present.value IN (SELECT removed.value FROM json_each(?1) AS removed)
+      )
+    RETURNING id`
+}
+
+export function unbindIdsStatement(
+  db: D1Database,
+  table: 'development_github_collections' | 'development_github_repos' | 'development_github_gists',
+  column: 'repo_ids' | 'tag_ids',
+  userId: string,
+  ids: readonly string[],
+  now: number,
+): D1PreparedStatement {
+  return db.prepare(unbindIdsSql(table, column)).bind(JSON.stringify(ids), now, userId)
+}
+
 export async function unbindReposFromCollections(
   db: D1Database,
   userId: string,
   repoIds: readonly string[],
 ): Promise<string[]> {
   if (repoIds.length === 0) return []
-  const removed = new Set(repoIds)
-  const { results } = await db
-    .prepare('SELECT id, repo_ids FROM development_github_collections WHERE user_id = ?1')
-    .bind(userId)
-    .all<{ id: string; repo_ids: string }>()
-  const now = Date.now()
-  const updated: string[] = []
-  const statements: D1PreparedStatement[] = []
-  for (const row of results) {
-    const current = readStringArray(row.repo_ids, 'collection repo ids')
-    const next = current.filter((repoId) => !removed.has(repoId))
-    if (next.length === current.length) continue
-    updated.push(row.id)
-    statements.push(
-      db
-        .prepare(
-          'UPDATE development_github_collections SET repo_ids = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4',
-        )
-        .bind(JSON.stringify(next), now, userId, row.id),
-    )
-  }
-  await runBatched(db, statements)
-  return updated
+  const { results } = await unbindIdsStatement(
+    db, 'development_github_collections', 'repo_ids', userId, repoIds, Date.now(),
+  ).all<{ id: string }>()
+  return results.map((row) => row.id)
 }
 
 export async function unbindRepoTags(
@@ -526,29 +576,10 @@ export async function unbindRepoTags(
   tagIds: readonly string[],
 ): Promise<string[]> {
   if (tagIds.length === 0) return []
-  const removed = new Set(tagIds)
-  const { results } = await db
-    .prepare('SELECT id, tag_ids FROM development_github_repos WHERE user_id = ?1')
-    .bind(userId)
-    .all<{ id: string; tag_ids: string }>()
-  const now = Date.now()
-  const updated: string[] = []
-  const statements: D1PreparedStatement[] = []
-  for (const row of results) {
-    const current = readStringArray(row.tag_ids, 'repo tag ids')
-    const next = current.filter((tagId) => !removed.has(tagId))
-    if (next.length === current.length) continue
-    updated.push(row.id)
-    statements.push(
-      db
-        .prepare(
-          'UPDATE development_github_repos SET tag_ids = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4',
-        )
-        .bind(JSON.stringify(next), now, userId, row.id),
-    )
-  }
-  await runBatched(db, statements)
-  return updated
+  const { results } = await unbindIdsStatement(
+    db, 'development_github_repos', 'tag_ids', userId, tagIds, Date.now(),
+  ).all<{ id: string }>()
+  return results.map((row) => row.id)
 }
 
 export async function listGistTags(db: D1Database, userId: string): Promise<GithubTag[]> {
@@ -866,35 +897,15 @@ export async function unbindGistTags(
   tagIds: readonly string[],
 ): Promise<string[]> {
   if (tagIds.length === 0) return []
-  const removed = new Set(tagIds)
-  const { results } = await db
-    .prepare('SELECT id, tag_ids FROM development_github_gists WHERE user_id = ?1')
-    .bind(userId)
-    .all<{ id: string; tag_ids: string }>()
-  const now = Date.now()
-  const updated: string[] = []
-  const statements: D1PreparedStatement[] = []
-  for (const row of results) {
-    const current = readStringArray(row.tag_ids, 'gist tag ids')
-    const next = current.filter((tagId) => !removed.has(tagId))
-    if (next.length === current.length) continue
-    updated.push(row.id)
-    statements.push(
-      db
-        .prepare(
-          'UPDATE development_github_gists SET tag_ids = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4',
-        )
-        .bind(JSON.stringify(next), now, userId, row.id),
-    )
-  }
-  await runBatched(db, statements)
-  return updated
+  const { results } = await unbindIdsStatement(
+    db, 'development_github_gists', 'tag_ids', userId, tagIds, Date.now(),
+  ).all<{ id: string }>()
+  return results.map((row) => row.id)
 }
 
 async function batchUpdateSavedRows(
   db: D1Database,
   table: SavedRowTable,
-  tagLabel: string,
   userId: string,
   ids: readonly string[],
   patch: GistBatchPatch | RepoBatchPatch,
@@ -903,49 +914,40 @@ async function batchUpdateSavedRows(
   const hasTags = patch.addTagIds !== undefined || patch.removeTagIds !== undefined
   if (!hasFlags && !hasTags) return 0
   const uniqueIds = Array.from(new Set(ids))
-  const statements: D1PreparedStatement[] = []
+  if (uniqueIds.length === 0) return 0
   const now = Date.now()
-  let updated = 0
-  for (const chunk of idChunks(uniqueIds)) {
-    const { results } = await db
+  const statements = idChunks(uniqueIds).map((chunk) => {
+    const marks = chunk.map((_, index) => `?${8 + index}`).join(', ')
+    return db
       .prepare(
-        `SELECT id, tag_ids FROM ${table} WHERE user_id = ?1 AND id IN (${chunkMarks(chunk)})`,
+        `UPDATE ${table}
+          SET pinned = COALESCE(?1, pinned),
+              favorited = COALESCE(?2, favorited),
+              tag_ids = CASE WHEN ?3 = 1 THEN COALESCE((
+                SELECT json_group_array(DISTINCT merged.value) FROM (
+                  SELECT value FROM json_each(tag_ids)
+                    WHERE value NOT IN (SELECT value FROM json_each(?5))
+                  UNION
+                  SELECT value FROM json_each(?4)
+                ) AS merged
+              ), '[]') ELSE tag_ids END,
+              updated_at = ?6
+          WHERE user_id = ?7 AND id IN (${marks})
+          RETURNING id`,
       )
-      .bind(userId, ...chunk)
-      .all<{ id: string; tag_ids: string }>()
-    for (const row of results) {
-      const sets: string[] = []
-      const values: unknown[] = []
-      if (patch.pinned !== undefined) {
-        sets.push('pinned = ?')
-        values.push(patch.pinned ? 1 : 0)
-      }
-      if (patch.favorited !== undefined) {
-        sets.push('favorited = ?')
-        values.push(patch.favorited ? 1 : 0)
-      }
-      if (hasTags) {
-        let tagIds = readStringArray(row.tag_ids, tagLabel)
-        if (patch.addTagIds) tagIds = Array.from(new Set([...tagIds, ...patch.addTagIds]))
-        if (patch.removeTagIds) {
-          const removed = new Set(patch.removeTagIds)
-          tagIds = tagIds.filter((tagId) => !removed.has(tagId))
-        }
-        sets.push('tag_ids = ?')
-        values.push(JSON.stringify(tagIds))
-      }
-      sets.push('updated_at = ?')
-      values.push(now, userId, row.id)
-      statements.push(
-        db
-          .prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE user_id = ? AND id = ?`)
-          .bind(...values),
+      .bind(
+        patch.pinned === undefined ? null : patch.pinned ? 1 : 0,
+        patch.favorited === undefined ? null : patch.favorited ? 1 : 0,
+        hasTags ? 1 : 0,
+        JSON.stringify(patch.addTagIds ?? []),
+        JSON.stringify(patch.removeTagIds ?? []),
+        now,
+        userId,
+        ...chunk,
       )
-      updated += 1
-    }
-  }
-  await runBatched(db, statements)
-  return updated
+  })
+  const results = await db.batch(statements)
+  return results.reduce((total, result) => total + (result.results?.length ?? 0), 0)
 }
 
 export async function batchUpdateGists(
@@ -954,7 +956,7 @@ export async function batchUpdateGists(
   ids: readonly string[],
   patch: GistBatchPatch,
 ): Promise<number> {
-  return batchUpdateSavedRows(db, 'development_github_gists', 'gist tag ids', userId, ids, patch)
+  return batchUpdateSavedRows(db, 'development_github_gists', userId, ids, patch)
 }
 
 export async function batchUpdateRepos(
@@ -963,7 +965,7 @@ export async function batchUpdateRepos(
   ids: readonly string[],
   patch: RepoBatchPatch,
 ): Promise<number> {
-  return batchUpdateSavedRows(db, 'development_github_repos', 'repo tag ids', userId, ids, patch)
+  return batchUpdateSavedRows(db, 'development_github_repos', userId, ids, patch)
 }
 
 type IdTable = 'development_github_tags' | 'development_github_gist_tags' | 'development_github_repos'

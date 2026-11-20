@@ -1,7 +1,9 @@
+import type { GithubViewId } from '@shared/development/github/types'
 import type { GithubTab } from './components/ModuleTabs'
 
 const GIST_ID = /^[a-f0-9]{8,64}$/i
 const REPO_SEGMENT = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/
+const VIEW_ID = /^[A-Za-z0-9_-]{1,100}$/
 
 export type GithubStoreView = 'discover' | 'apps' | 'favorites'
 
@@ -10,6 +12,7 @@ export interface GithubRoute {
   repoFullName: string | null
   gistId: string | null
   storeView: GithubStoreView
+  viewId: GithubViewId | null
 }
 
 function decodeSegment(value: string): string | null {
@@ -27,20 +30,24 @@ export function parseGithubRoute(pathname: string): GithubRoute {
   const segments = rest.split('/').filter(Boolean)
   if (segments[0] === 'gists') {
     const id = segments[1] && GIST_ID.test(segments[1]) ? segments[1].toLowerCase() : null
-    return { tab: 'gists', repoFullName: null, gistId: id, storeView: 'discover' }
+    return { tab: 'gists', repoFullName: null, gistId: id, storeView: 'discover', viewId: null }
   }
   if (segments[0] === 'store') {
     const view = segments[1] === 'apps' ? 'apps' : segments[1] === 'favorites' ? 'favorites' : 'discover'
-    return { tab: 'store', repoFullName: null, gistId: null, storeView: view }
+    return { tab: 'store', repoFullName: null, gistId: null, storeView: view, viewId: null }
+  }
+  if ((segments[0] === 'tags' || segments[0] === 'collections') && segments[1] && VIEW_ID.test(segments[1])) {
+    const prefix = segments[0] === 'tags' ? 'tag:' : 'collection:'
+    return { tab: 'repos', repoFullName: null, gistId: null, storeView: 'discover', viewId: `${prefix}${segments[1]}` }
   }
   if (segments[0] === 'repos' && segments.length >= 3) {
     const owner = decodeSegment(segments[1]!)
     const name = decodeSegment(segments[2]!)
     if (owner && name && REPO_SEGMENT.test(owner) && REPO_SEGMENT.test(name)) {
-      return { tab: 'repos', repoFullName: `${owner}/${name}`, gistId: null, storeView: 'discover' }
+      return { tab: 'repos', repoFullName: `${owner}/${name}`, gistId: null, storeView: 'discover', viewId: null }
     }
   }
-  return { tab: 'repos', repoFullName: null, gistId: null, storeView: 'discover' }
+  return { tab: 'repos', repoFullName: null, gistId: null, storeView: 'discover', viewId: null }
 }
 
 export function repoAddress(fullName: string): string {
@@ -62,6 +69,14 @@ export function storeAddress(view: GithubStoreView): string {
   if (view === 'apps') return '/development/github/store/apps'
   if (view === 'favorites') return '/development/github/store/favorites'
   return '/development/github/store'
+}
+
+export function tagAddress(id: string): string {
+  return `/development/github/tags/${encodeURIComponent(id)}`
+}
+
+export function collectionAddress(id: string): string {
+  return `/development/github/collections/${encodeURIComponent(id)}`
 }
 
 export function parseRepoInput(value: string): string | null {

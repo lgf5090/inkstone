@@ -1,7 +1,7 @@
 import { useState, type KeyboardEvent } from 'react'
 import { Pencil } from 'lucide-react'
 import { t } from '../../../i18n'
-import { isImeComposing } from '../../../ime'
+import { isImeComposing, isEnterKey } from '../../../ime'
 import { KanbanIconBadge } from './kanban-icon-badge'
 
 /**
@@ -98,7 +98,7 @@ function CardTitleEditor({
         onBlur={onBlur}
         onKeyDown={(e) => {
           if (isImeComposing(e)) return
-          if (e.key === 'Enter') onBlur()
+          if (isEnterKey(e)) onBlur()
           if (e.key === 'Escape') onCancel()
         }}
         className='w-full rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-inset)] px-[var(--sp-1-5)] py-[var(--sp-0-5)] text-[length:var(--text-14)] font-semibold text-[var(--text-primary)] outline-none'

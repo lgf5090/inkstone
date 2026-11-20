@@ -16,10 +16,11 @@ function line(type: string, data: unknown): string {
 }
 
 describe('the archive header', () => {
-  it('takes the two versions this port reads and refuses a newer one', () => {
+  it('takes every version this port reads and refuses a newer one', () => {
     expect(ProjectArchiveHeaderSchema.safeParse({ version: 1, date: 0 }).success).toBe(true)
+    expect(ProjectArchiveHeaderSchema.safeParse({ version: 2, date: 0 }).success).toBe(true)
     expect(ProjectArchiveHeaderSchema.safeParse({ version: PROJECT_ARCHIVE_VERSION, date: 1 }).success).toBe(true)
-    expect(ProjectArchiveHeaderSchema.safeParse({ version: 3, date: 0 }).success).toBe(false)
+    expect(ProjectArchiveHeaderSchema.safeParse({ version: PROJECT_ARCHIVE_VERSION + 1, date: 0 }).success).toBe(false)
     expect(ProjectArchiveHeaderSchema.safeParse({ version: 2 }).success).toBe(false)
   })
 })
@@ -33,6 +34,13 @@ describe('reading board.jsonl', () => {
     ].join('\n')
     const lines = parseProjectArchiveLines(text)
     expect(lines.map((entry) => entry.type)).toEqual(['board', 'block', 'boardMember'])
+  })
+
+  it('reads a dependency edge as its own line and refuses a malformed one', () => {
+    const [entry] = parseProjectArchiveLines(line('cardLink', { fromCardId: 'c1', toCardId: 'c2', kind: 'blocks' }))
+    expect(entry).toEqual({ type: 'cardLink', data: { fromCardId: 'c1', toCardId: 'c2', kind: 'blocks' } })
+    expect(() => parseProjectArchiveLines(line('cardLink', { fromCardId: 'c1', toCardId: 'c2', kind: 'depends' })))
+      .toThrow(ProjectArchiveError)
   })
 
   it('reads the older board_block spelling as a block', () => {

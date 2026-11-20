@@ -24,6 +24,8 @@ vi.mock('./TasksView', () => ({ TasksView: () => createElement('div', { 'data-su
 vi.mock('./AutomationsView', () => ({ AutomationsView: () => createElement('div', { 'data-surface': 'automations' }) }))
 vi.mock('./SkillsView', () => ({ SkillsView: () => createElement('div', { 'data-surface': 'skills' }) }))
 vi.mock('./ProjectsView', () => ({ ProjectsView: () => createElement('div', { 'data-surface': 'projects' }) }))
+vi.mock('./RequestStatsView', () => ({ RequestStatsView: () => createElement('div', { 'data-surface': 'stats' }) }))
+vi.mock('./RequestLogsView', () => ({ RequestLogsView: () => createElement('div', { 'data-surface': 'logs' }) }))
 vi.mock('./AssistantSettingsView', () => ({ AssistantSettingsView: () => createElement('div', { 'data-surface': 'settings' }) }))
 vi.mock('./NotificationCenter', () => ({ NotificationCenter: () => null, NotificationsBell: () => null }))
 
@@ -84,6 +86,16 @@ describe('the chat app’s phone navigation', () => {
     for (const span of contents) {
       expect(span.querySelector('.chat-mobile-tab-label'), 'the tab names itself outside a labelled span').toBeTruthy()
     }
+  })
+
+  it('puts statistics above logs, and logs above settings', async () => {
+    await show()
+    expect(ASSISTANT_VIEWS.indexOf('stats')).toBe(ASSISTANT_VIEWS.indexOf('logs') - 1)
+    expect(ASSISTANT_VIEWS.indexOf('logs')).toBe(ASSISTANT_VIEWS.indexOf('settings') - 1)
+    const labels = tabButtons().map((node) => node.getAttribute('aria-label'))
+    expect(labels.slice(-3)).toEqual([
+      t('assistant.view.stats'), t('assistant.view.logs'), t('common.settings'),
+    ])
   })
 
   it('switches surface from the bar, and leaves the desktop rail alone', async () => {

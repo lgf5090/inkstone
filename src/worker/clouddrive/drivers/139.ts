@@ -167,7 +167,7 @@ function formatTime(date: Date): string {
 /** The `mcloud-sign` value: CRC-free MD5 of the URI-encoded, sorted body. */
 function calSign(body: string, timestamp: string, random: string): string {
   const encoded = encodeURIComponent(body)
-  const sorted = [...encoded].sort().join('')
+  const sorted = Array.from(encoded).sort().join('')
   const digest = md5Hex(bytesToBase64(utf8(sorted))) + md5Hex(`${timestamp}:${random}`)
   return md5Hex(digest).toUpperCase()
 }

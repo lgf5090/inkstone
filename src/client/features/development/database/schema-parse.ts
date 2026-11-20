@@ -1,6 +1,6 @@
-import type { ParsedColumn, ParsedTable, TableIndexInfo } from '@shared/development/database/types'
+import type { ParsedColumn, ParsedReference, ParsedTable, TableIndexInfo } from '@shared/development/database/types'
 
-interface Token {
+export interface Token {
   type: 'ident' | 'string' | 'number' | 'punct'
   text: string
   raw: string
@@ -25,7 +25,7 @@ const WORD_CHAR = /[\p{L}\p{N}_$]/u
 const DIGIT = /[0-9]/
 const OPERATORS = new Set(['||', '->', '->>', '<=', '>=', '!=', '==', '<>', '<<', '>>'])
 
-function tokenize(sql: string): Token[] {
+export function tokenize(sql: string): Token[] {
   const tokens: Token[] = []
   let i = 0
   const length = sql.length
@@ -171,16 +171,16 @@ function tokenize(sql: string): Token[] {
   return tokens
 }
 
-function upper(token: Token | undefined): string {
+export function upper(token: Token | undefined): string {
   if (!token || token.type !== 'ident' || token.quoted) return ''
   return token.text.toUpperCase()
 }
 
-function isKeyword(token: Token | undefined, keyword: string): boolean {
+export function isKeyword(token: Token | undefined, keyword: string): boolean {
   return upper(token) === keyword
 }
 
-function renderTokens(tokens: Token[]): string {
+export function renderTokens(tokens: Token[]): string {
   let out = ''
   let needsSpace = false
   for (const token of tokens) {
@@ -218,7 +218,7 @@ function renderTokens(tokens: Token[]): string {
   return out.trim()
 }
 
-function splitTopLevel(tokens: Token[]): Token[][] {
+export function splitTopLevel(tokens: Token[]): Token[][] {
   const parts: Token[][] = []
   let depth = 0
   let current: Token[] = []
@@ -236,7 +236,7 @@ function splitTopLevel(tokens: Token[]): Token[][] {
   return parts
 }
 
-function findMatchingParen(tokens: Token[], start: number): number {
+export function findMatchingParen(tokens: Token[], start: number): number {
   let depth = 0
   for (let i = start; i < tokens.length; i++) {
     const token = tokens[i]!
@@ -256,7 +256,7 @@ function skipOnConflict(tokens: Token[], start: number): number {
   return start
 }
 
-function simpleIndexColumn(term: Token[]): string | null {
+export function simpleIndexColumn(term: Token[]): string | null {
   const first = term[0]
   if (!first || first.type !== 'ident') return null
   let i = 1
@@ -280,7 +280,7 @@ function simpleIndexColumn(term: Token[]): string | null {
 }
 
 function parseReferences(tokens: Token[], start: number): {
-  references: { table: string; column?: string }
+  references: ParsedReference
   next: number
 } | null {
   let i = start + 1
@@ -308,13 +308,18 @@ function parseReferences(tokens: Token[], start: number): {
     i = end + 1
   }
 
+  let onUpdate: string | undefined
+  let onDelete: string | undefined
   for (;;) {
     const keyword = upper(tokens[i])
     if (keyword === 'ON' && (isKeyword(tokens[i + 1], 'DELETE') || isKeyword(tokens[i + 1], 'UPDATE'))) {
+      const target = isKeyword(tokens[i + 1], 'DELETE') ? 'delete' : 'update'
       i += 2
-      const action = upper(tokens[i])
-      if (action === 'SET' || action === 'NO') i += 2
-      else i += 1
+      const action = parseReferenceAction(tokens, i)
+      if (!action) break
+      if (target === 'delete') onDelete = action.value
+      else onUpdate = action.value
+      i = action.next
       continue
     }
     if (keyword === 'MATCH') {
@@ -333,7 +338,35 @@ function parseReferences(tokens: Token[], start: number): {
     break
   }
 
-  return { references: { table: nameParts.join('.'), column }, next: i }
+  return {
+    references: {
+      table: nameParts.join('.'),
+      ...(column ? { column } : {}),
+      ...(onUpdate ? { onUpdate } : {}),
+      ...(onDelete ? { onDelete } : {}),
+    },
+    next: i,
+  }
+}
+
+export function parseReferenceAction(
+  tokens: Token[],
+  start: number,
+): { value: string; next: number } | null {
+  const first = upper(tokens[start])
+  if (first === 'NO') {
+    if (!isKeyword(tokens[start + 1], 'ACTION')) return null
+    return { value: 'NO ACTION', next: start + 2 }
+  }
+  if (first === 'SET') {
+    const second = upper(tokens[start + 1])
+    if (second !== 'NULL' && second !== 'DEFAULT') return null
+    return { value: `SET ${second}`, next: start + 2 }
+  }
+  if (first === 'RESTRICT' || first === 'CASCADE') {
+    return { value: first, next: start + 1 }
+  }
+  return null
 }
 
 function parseColumn(tokens: Token[]): ParsedColumn | null {

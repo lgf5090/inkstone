@@ -348,7 +348,7 @@ export function buildNoteIndex(input: NoteIndexInput): NoteIndex {
 
   function ordered(candidates: Indexed[], sourcePath: string): Indexed[] {
     const source = folderSegmentsOf(normalizeVirtualPath(sourcePath))
-    return [...candidates].sort((a, b) => compareIndexed(a, b, source))
+    return candidates.toSorted((a, b) => compareIndexed(a, b, source))
   }
 
   function resolution(path: string): PathResolution {

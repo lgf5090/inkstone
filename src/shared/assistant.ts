@@ -124,6 +124,18 @@ export const MAX_TITLE_PROMPT_CHARS = 4_000
 /** Timeout bounds for a primary request, in milliseconds. */
 export const MIN_REQUEST_TIMEOUT_MS = 5_000
 export const MAX_REQUEST_TIMEOUT_MS = 300_000
+/** Age-based log cleanup bounds; zero keeps rows by age. */
+export const LOG_RETENTION_MIN_DAYS = 0
+export const LOG_RETENTION_MAX_DAYS = 365
+export const LOG_MAX_ROWS_LIMIT = 20_000
+export const LOG_CLEANUP_STATUSES = ['all', 'ok', 'failed'] as const
+/** One page of the log screen, and the widest page a caller may ask for. */
+export const LOG_PAGE_SIZE = 25
+/** The widest page any caller may ask for: the screen reads 25, an export reads all of it. */
+export const LOG_MAX_PAGE_SIZE = 500
+export const LOG_NOTE_MAX_CHARS = 500
+export const LOG_QUERY_MAX_CHARS = 200
+export const LOG_BATCH_DELETE_LIMIT = 200
 /** How many follow-up questions the model may volunteer under a finished answer. A shorter list is honest; padding one is not. */
 export const MAX_TITLE_SUGGESTIONS = 3
 /** The widest a single follow-up chip may run before the server trims it, so one long sentence cannot crowd the footline. */
@@ -176,12 +188,27 @@ export interface AssistantProvider {
   /** Last four characters, for the settings row that has to prove which key is stored. */
   keyHint: string
   /**
+   * When this provider's own key last signed a call, or null if it never has.
+   *
+   * The ring's first key has no row of its own, so without this the panel could say 'never used' about
+   * a key that answers every turn — which reads as 'my primary key is not being used'.
+   */
+  keyLastUsedAt: number | null
+  /**
    * The thinking shape the reader pinned for this address, or null to let it be read off the address.
    *
    * A service that announces itself in its hostname and model names needs no pin; a gateway, a proxy or a
    * vendor whose naming is guesswork is exactly what this is for.
    */
   reasoningDialect: ReasoningDialect | null
+  /**
+   * Keep one key on every turn instead of rotating through the ring.
+   *
+   * Rotation spreads a rate limit across keys, which is why it is the default. A vendor's prompt cache is
+   * keyed on the request prefix and is per account, so rotating throws that cache away on every turn — a
+   * provider whose ring is about a quota rather than a limit may prefer to sit on one key and pay less.
+   */
+  sticky: boolean
   createdAt: number
   updatedAt: number
 }
@@ -203,9 +230,247 @@ export interface AssistantProviderKey {
   lastUsedAt: number | null
   errorCount: number
   lastError: string | null
+  /** Unix ms the key becomes usable again, or null when it is not resting. Set by a refusal. */
+  coolingUntil: number | null
   createdAt: number
   updatedAt: number
 }
+
+/**
+ * What a probe of one stored key concluded.
+ *
+ * "Cannot tell" is a result, not a failure. A 429 or a timeout says nothing about whether the credential
+ * works, and reporting those as invalid is how a good key gets thrown away — so the third outcome exists
+ * and the screen has to name it.
+ */
+export type AssistantKeyProbeOutcome = 'passed' | 'failed' | 'inconclusive'
+
+/**
+ * Why a probe reached its outcome.
+ *
+ * `invalid_credential` is the only reason that blames the key. Everything else blames the moment, the
+ * model or the probe itself, and the screen says so.
+ */
+export type AssistantKeyProbeReason =
+  | 'invalid_credential'
+  | 'model_unavailable'
+  | 'rate_limited'
+  | 'timeout'
+  | 'upstream_error'
+  | 'probe_incompatible'
+  | 'unknown'
+
+/** One key's last probe. */
+export interface AssistantKeyProbe {
+  /** The empty string for the provider's own key, which has no row of its own to hang this on. */
+  keyId: string
+  outcome: AssistantKeyProbeOutcome
+  reason: AssistantKeyProbeReason | null
+  /** Round-trip time of the probe request, which is how a reader tells two working keys apart. */
+  latencyMs: number | null
+  probedAt: number
+}
+
+/**
+ * One attempt at the provider, as the log table keeps it.
+ *
+ * An attempt rather than a turn: a turn that rotated through two keys wrote two lines, which is the
+ * only way the log can answer "which key was refused".
+ */
+export interface AssistantRequestLog {
+  id: string
+  at: number
+  providerId: string
+  providerLabel: string
+  /** Empty for the provider's own key, the same way every other surface names it. */
+  keyId: string
+  keyLabel: string
+  keyHint: string
+  modelLabel: string
+  /** `chat`, `title`, `summarize`, `compile`, `probe`, … — which door the attempt went through. */
+  operation: string
+  ok: boolean
+  httpStatus: number | null
+  errorKind: string | null
+  errorMessage: string | null
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+  latencyMs: number | null
+  /** Present only when the reader turned body logging on; null otherwise, never a truncated body. */
+  requestBody: string | null
+  /** Empty when the attempt did not belong to a conversation, as with a title or a probe. */
+  conversationId: string
+  /** The model id as sent upstream; the label above is what the reader named it. */
+  modelId: string
+  /** 1-based position in the retry chain for this turn. */
+  attempt: number
+  /** The reader's own annotation, written from the log screen. */
+  note: string
+  /** Kept by the reader for a later look; never removed by automatic cleanup. */
+  starred: boolean
+}
+
+/** The columns a reader may sort by; the worker maps each to a column it owns. */
+export const LOG_SORT_KEYS = ['at', 'provider', 'model', 'key', 'operation', 'status', 'latency', 'tokens', 'attempt'] as const
+export type AssistantLogSortKey = (typeof LOG_SORT_KEYS)[number]
+/** `none` puts the list back in its own newest-first order instead of a column's. */
+export type AssistantLogSortDir = 'asc' | 'desc' | 'none'
+
+/** Every knob the log screen can turn. All boundaries are validated again on the worker. */
+export interface AssistantLogQuery {
+  q?: string
+  providerId?: string
+  keyId?: string
+  model?: string
+  operation?: string
+  status?: 'all' | 'ok' | 'failed'
+  errorKind?: string
+  starred?: boolean
+  /** Inclusive lower bound on `at`, as unix ms. */
+  from?: number
+  /** Inclusive upper bound on `at`, as unix ms. */
+  to?: number
+  /** A relative window in ms; the worker turns it into a `from` boundary. */
+  sinceMs?: number
+  minLatencyMs?: number
+  minInputTokens?: number
+  page?: number
+  pageSize?: number
+  order?: 'desc' | 'asc'
+  sortBy?: AssistantLogSortKey
+  sortDir?: AssistantLogSortDir
+}
+
+export interface AssistantLogPage {
+  logs: AssistantRequestLog[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/** What the filter menus can offer, read from the rows the account actually has. */
+export interface AssistantLogFacets {
+  providers: Array<{ id: string, label: string }>
+  keys: Array<{ id: string, label: string, providerId: string, keyHint: string }>
+  models: string[]
+  operations: string[]
+  errorKinds: string[]
+}
+
+/** The two writable fields of a log line: an annotation and a bookmark. */
+export interface AssistantLogPatch {
+  note?: string
+  starred?: boolean
+}
+
+/** A manual cleanup, or a preview of one. */
+export interface AssistantLogCleanup {
+  days?: number
+  rows?: number
+  status?: 'all' | 'ok' | 'failed'
+  providerId?: string
+  dryRun?: boolean
+  /** The preview's clock, passed back on apply so the two runs cannot disagree about "older than". */
+  cutoff?: number
+}
+
+export interface AssistantLogCleanupResult {
+  matched: number
+  deleted: number
+  /** Reuse this timestamp for the apply call; the preview and the delete then share one clock. */
+  cutoff: number
+}
+
+export type AssistantStatsDimension = 'provider' | 'key' | 'model' | 'operation' | 'status' | 'day'
+
+export interface AssistantStatsQuery extends Omit<AssistantLogQuery, 'q' | 'starred' | 'page' | 'pageSize' | 'order' | 'minLatencyMs' | 'minInputTokens' | 'errorKind'> {
+  dimension?: AssistantStatsDimension
+}
+
+export interface AssistantStatsSummary {
+  requests: number
+  succeeded: number
+  failed: number
+  successRate: number
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+  avgLatencyMs: number | null
+  p95LatencyMs: number | null
+  lastAt: number | null
+}
+
+/** One point on the trend, in the bucket the time window chose. */
+export interface AssistantStatsBucket {
+  at: number
+  requests: number
+  failed: number
+  inputTokens: number
+  outputTokens: number
+  avgLatencyMs: number | null
+}
+
+/** One row of the "by …" table, whatever dimension the reader picked. */
+export interface AssistantStatsBreakdown {
+  id: string
+  label: string
+  requests: number
+  succeeded: number
+  failed: number
+  inputTokens: number
+  outputTokens: number
+  avgLatencyMs: number | null
+}
+
+export interface AssistantStatsReport {
+  summary: AssistantStatsSummary
+  series: AssistantStatsBucket[]
+  breakdown: AssistantStatsBreakdown[]
+}
+
+/**
+ * One key's place in the order the next turn would walk the ring.
+ *
+ * Position one is the key a turn takes. The flags say why a key sits where it does, which is the question
+ * a reader has when their fastest key is not the one being used.
+ */
+export interface AssistantKeyRotation {
+  /** Empty for the provider's own key. */
+  keyId: string
+  label: string
+  keyHint: string
+  /** 1-based: 1 is the key the next turn signs with. */
+  position: number
+  lastUsedAt: number | null
+  coolingUntil: number | null
+  /** Resting after a refusal, so the ring moves past it. */
+  cooling: boolean
+  /** Resting for this model only; the key still answers every other model. */
+  modelBlocked: boolean
+}
+
+/** Totals over one slice of the ring: one key, one provider, or the whole account. */
+export interface AssistantKeyStats {
+  /** The key id, the provider id, or `all` — whatever the scope that produced this row was. */
+  id: string
+  label: string
+  keyHint: string
+  providerId: string
+  requests: number
+  succeeded: number
+  failed: number
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+  toolCalls: number
+  /** Mean attempt latency, or null when nothing in this slice was timed. */
+  avgLatencyMs: number | null
+  lastAttemptAt: number | null
+}
+
+/** Which slice of the ring a stats question is about. */
+export type AssistantStatsScope = 'key' | 'provider' | 'all'
 
 /**
  * One hosted web-search engine's key, as a listing is allowed to describe it.
@@ -396,6 +661,27 @@ export interface AssistantCustomParam {
  * reader makes them instead of the route dropping them after the fact.
  */
 export const MAX_PROVIDER_MODELS = 20
+
+/**
+ * How many keys one provider may rotate through, counting the one on its own row.
+ *
+ * The form is one line the reader pastes a whole ring into, and every extra key is a vault write, so the
+ * ceiling belongs on the parsed list rather than on the store that would otherwise write an unbounded
+ * number of rows for one request.
+ */
+export const MAX_PROVIDER_KEYS = 10
+
+/**
+ * Splits a pasted ring into keys: commas or line breaks, trimmed, blanks and repeats dropped.
+ *
+ * Shared by the form (which counts what it is about to send) and the route (which is the trust boundary),
+ * so the number the reader saw is the number the worker stores. The cap is enforced by the route, which
+ * can refuse a list too long to store rather than quietly dropping the keys at its end.
+ */
+export function parseProviderKeys(raw: string): string[] {
+  const parts = raw.split(/[,\r\n]/).map((entry) => entry.trim()).filter(Boolean)
+  return [...new Set(parts)]
+}
 
 export const MAX_CUSTOM_PARAMS = 12
 
@@ -740,6 +1026,28 @@ export interface AssistantSettings {
   /** How long a primary request may take before it is treated as timed out. */
   requestTimeoutMs: number
   /**
+   * Whether the request log keeps the prompt that was sent.
+   *
+   * Off by default. The log is a debugging tool, and a prompt is the reader's own writing: keeping it
+   * turns a table meant to answer "which key failed" into a second copy of the conversation. The reader
+   * who wants to inspect bodies can turn it on for a while and clear the log afterwards.
+   */
+  logRequestBodies: boolean
+  /** Delete log rows older than this many days; 0 keeps them by age. Starred rows are never deleted. */
+  logRetentionDays: number
+  /** Keep at most this many rows after a write; 0 removes the ceiling. Starred rows are never deleted. */
+  logMaxRows: number
+  /** Which rows the age-based cleanup may take: everything, only failures, or only successes. */
+  logCleanupStatus: 'all' | 'ok' | 'failed'
+  /**
+   * Keep stored keys visible instead of showing four characters.
+   *
+   * Off by default, and the only setting that puts a secret on screen without an action behind it: a
+   * reader who turns it on has decided their screen is not looked at by anyone else. Every panel that
+   * respects it says so, because a key on screen is a key in the next screenshot.
+   */
+  revealKeysAlways: boolean
+  /**
    * The model a realtime voice session is opened with.
    *
    * Kept apart from `activeModelId` because a realtime model cannot answer a text turn: it speaks
@@ -860,6 +1168,8 @@ export interface AssistantSettings {
    * turn — so it is the reader's voice, not a way to overwrite what the assistant is allowed to do.
    */
   customInstructions: string
+  /** Per-action keyboard overrides; an absent action inherits the chord in CHAT_SHORTCUTS. */
+  shortcuts: AssistantShortcuts
   /**
    * Let the assistant choose which of the reader's models answers each turn.
    *
@@ -898,6 +1208,30 @@ export interface AssistantSettings {
 
 export const ASSISTANT_START_VIEWS = ['chat', 'memory', 'tasks', 'automations', 'settings'] as const
 
+/** The chords a reader may rebind; the names are the ones CHAT_SHORTCUTS answers to. */
+export const ASSISTANT_SHORTCUT_KEYS = [
+  'find', 'stop', 'closePanel', 'send', 'newLine',
+  'pickerPrevious', 'pickerNext', 'pickerPick', 'pickerPickAlternate',
+] as const
+export type AssistantShortcutName = (typeof ASSISTANT_SHORTCUT_KEYS)[number]
+export type AssistantShortcuts = Partial<Record<AssistantShortcutName, string>>
+
+const SHORTCUT_COMBO = /^[a-z0-9]+(?:\+[a-z0-9]+){0,3}$/
+
+/** Only known actions and syntactically valid chords are kept; anything else inherits the built-in. */
+export function normalizeShortcuts(value: unknown): AssistantShortcuts {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const raw = value as Record<string, unknown>
+  const out: AssistantShortcuts = {}
+  for (const key of ASSISTANT_SHORTCUT_KEYS) {
+    const combo = raw[key]
+    if (typeof combo === 'string' && combo.length <= 40 && SHORTCUT_COMBO.test(combo.trim().toLowerCase())) {
+      out[key] = combo.trim().toLowerCase()
+    }
+  }
+  return out
+}
+
 export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   agentName: 'Inkstone Assistant',
   language: 'en-US',
@@ -907,6 +1241,11 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   titlePrompt: '',
   autoRecover: true,
   requestTimeoutMs: 60_000,
+  logRequestBodies: false,
+  logRetentionDays: 7,
+  logMaxRows: 2_000,
+  logCleanupStatus: 'all',
+  revealKeysAlways: false,
   realtimeModelId: null,
   temperature: 0.4,
   limits: { ...DEFAULT_LIMITS },
@@ -954,6 +1293,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   exportReasoning: false,
   exportToolCalls: false,
   customInstructions: '',
+  shortcuts: {},
   autoRoute: false,
   webSearchEndpoint: '',
   webSearchEngine: DEFAULT_WEB_SEARCH_ENGINE_ID,
@@ -1087,6 +1427,11 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     titlePrompt: stringAllowEmpty(raw.titlePrompt, DEFAULT_ASSISTANT_SETTINGS.titlePrompt, MAX_TITLE_PROMPT_CHARS),
     autoRecover: booleanValue(raw.autoRecover, DEFAULT_ASSISTANT_SETTINGS.autoRecover),
     requestTimeoutMs: integerInRange(raw.requestTimeoutMs, MIN_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS, DEFAULT_ASSISTANT_SETTINGS.requestTimeoutMs),
+    logRequestBodies: booleanValue(raw.logRequestBodies, DEFAULT_ASSISTANT_SETTINGS.logRequestBodies),
+    logRetentionDays: integerInRange(raw.logRetentionDays, LOG_RETENTION_MIN_DAYS, LOG_RETENTION_MAX_DAYS, DEFAULT_ASSISTANT_SETTINGS.logRetentionDays),
+    logMaxRows: integerInRange(raw.logMaxRows, 0, LOG_MAX_ROWS_LIMIT, DEFAULT_ASSISTANT_SETTINGS.logMaxRows),
+    logCleanupStatus: enumValue(raw.logCleanupStatus, LOG_CLEANUP_STATUSES, DEFAULT_ASSISTANT_SETTINGS.logCleanupStatus),
+    revealKeysAlways: booleanValue(raw.revealKeysAlways, DEFAULT_ASSISTANT_SETTINGS.revealKeysAlways),
     realtimeModelId: typeof raw.realtimeModelId === 'string' && raw.realtimeModelId ? raw.realtimeModelId.slice(0, 26) : null,
     temperature: numberInRange(raw.temperature, 0, 1.5, DEFAULT_ASSISTANT_SETTINGS.temperature),
     limits,
@@ -1136,6 +1481,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     exportReasoning: booleanValue(raw.exportReasoning, DEFAULT_ASSISTANT_SETTINGS.exportReasoning),
     exportToolCalls: booleanValue(raw.exportToolCalls, DEFAULT_ASSISTANT_SETTINGS.exportToolCalls),
     customInstructions: stringValue(raw.customInstructions, DEFAULT_ASSISTANT_SETTINGS.customInstructions, MAX_CUSTOM_INSTRUCTIONS_CHARS),
+    shortcuts: normalizeShortcuts(raw.shortcuts),
     autoRoute: booleanValue(raw.autoRoute, DEFAULT_ASSISTANT_SETTINGS.autoRoute),
     webSearchEndpoint: searchEndpointValue(raw.webSearchEndpoint),
     webSearchEngine: webSearchEngineValue(raw.webSearchEngine),
@@ -1601,6 +1947,9 @@ export interface AssistantConversation {
   origin?: AssistantConversationOrigin
 }
 
+/** Longest per-thread instruction, kept short enough that one thread cannot crowd out the built-in rules. */
+export const MAX_CONVERSATION_SYSTEM_PROMPT_CHARS = 8_000
+
 /** The places a conversation can come from; a thread started by the reader is `chat`. */
 export const CONVERSATION_ORIGINS = ['chat', 'automation', 'subagent', 'import'] as const
 export type AssistantConversationOrigin = (typeof CONVERSATION_ORIGINS)[number]
@@ -1618,9 +1967,13 @@ export interface AssistantConversationSettings {
   webSearch?: boolean
   /** A smaller prompt window for one thread, never larger than the model's own ceiling. */
   maxContext?: number | null
+  /** A per-thread output ceiling, never larger than the model's own ceiling. */
+  maxOutputTokens?: number | null
+  /** A per-thread instruction appended after the account's custom instructions. */
+  systemPrompt?: string | null
 }
 
-const CONVERSATION_SETTING_KEYS = ['modelId', 'temperature', 'topP', 'webSearch', 'maxContext'] as const
+const CONVERSATION_SETTING_KEYS = ['modelId', 'temperature', 'topP', 'webSearch', 'maxContext', 'maxOutputTokens', 'systemPrompt'] as const
 
 /**
  * Reads a stored or submitted override, keeping only the fields this version knows.
@@ -1642,6 +1995,10 @@ export function normalizeConversationSettings(raw: unknown): AssistantConversati
   if (typeof record.webSearch === 'boolean') out.webSearch = record.webSearch
   if (typeof record.maxContext === 'number' && Number.isInteger(record.maxContext) && record.maxContext >= 1_000 && record.maxContext <= 2_000_000) out.maxContext = record.maxContext
   else if (record.maxContext === null) out.maxContext = null
+  if (typeof record.maxOutputTokens === 'number' && Number.isInteger(record.maxOutputTokens) && record.maxOutputTokens >= 1 && record.maxOutputTokens <= 1_000_000) out.maxOutputTokens = record.maxOutputTokens
+  else if (record.maxOutputTokens === null) out.maxOutputTokens = null
+  if (typeof record.systemPrompt === 'string') out.systemPrompt = record.systemPrompt.slice(0, MAX_CONVERSATION_SYSTEM_PROMPT_CHARS)
+  else if (record.systemPrompt === null) out.systemPrompt = null
   return out
 }
 
@@ -2985,6 +3342,8 @@ export interface AssistantMessage {
   usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number } | null
   /** How long the model took, in milliseconds — the denominator of the tokens-per-second figure. */
   durationMs?: number
+  /** Milliseconds from the send to the first text frame; measured in the session that watched it stream. */
+  ttftMs?: number | null
   /** The model that answered, kept as text for the same reason a version keeps it. */
   modelLabel?: string
   /**

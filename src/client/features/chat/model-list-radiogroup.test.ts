@@ -20,7 +20,7 @@ vi.mock('../../lib/api', () => ({
   CLIENT_ID: 'test-client',
   api: {
     assistant: {
-      providerKeys: vi.fn(async () => ({ keys: [] })),
+      providerKeys: vi.fn(async () => ({ keys: [], probes: [] })),
       usage: vi.fn(async () => ({ today: {}, last7Days: {} })),
     },
     files: { upload: vi.fn(async () => ({ url: '', filename: '', mime: '' })) },
@@ -29,7 +29,7 @@ vi.mock('../../lib/api', () => ({
 
 const PROVIDER: AssistantProvider = {
   id: 'p1', label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', endpoints: {},
-  hasKey: true, icon: '', keyHint: 'abcd', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+  hasKey: true, icon: '', keyHint: 'abcd', keyLastUsedAt: null, reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
 }
 
 function model(id: string, label: string): AssistantModel {
@@ -121,10 +121,25 @@ describe('the model list as a radio group', () => {
   })
 
   it('leaves the capability switches and the editor buttons out of the group’s own choice', () => {
-    // The row holds four toggles and two buttons beside its radio; only the radio is the choice between
-    // models, so the group must not read as seven radios.
+    // Only the radio is the choice between models; the row's other control is a menu, not a radio.
     expect(group()!.querySelectorAll('[role="radio"]')).toHaveLength(MODELS.length)
     expect(group()!.querySelectorAll('[aria-label]')).toBeTruthy()
     expect(document.body.textContent).toContain(t('assistant.settings.providers'))
+  })
+
+  it('names the default in words and keeps row actions behind one labelled menu', async () => {
+    expect(document.body.textContent).toContain(t('assistant.model.default'))
+    const selected = radios().find((radio) => radio.getAttribute('aria-checked') === 'true')!
+    // Danger red belongs to failures on this screen; the default no longer wears the same red border.
+    expect(selected.parentElement?.className).not.toContain('border-[var(--accent)]')
+
+    const options = [...group()!.querySelectorAll<HTMLButtonElement>('button')]
+      .filter((node) => node.getAttribute('role') !== 'radio')
+    expect(options, 'one options control per row, not six unlabelled icons').toHaveLength(MODELS.length)
+    expect(options.every((node) => node.getAttribute('aria-label'))).toBe(true)
+
+    await act(async () => { options[0]!.click() })
+    expect(document.body.textContent).toContain(t('assistant.model.reasoning_short'))
+    expect(document.body.textContent).toContain(t('assistant.settings.delete_model'))
   })
 })

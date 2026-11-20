@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
 import { cn } from '../../cn';
 import { t } from '../../i18n';
-import { isImeComposing } from '../../ime';
+import { isImeComposing, isEnterKey } from '../../ime';
 
 export interface AIChatInputProps {
   value: string;
@@ -28,15 +28,16 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
-    }
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    if (typeof CSS !== 'undefined' && CSS.supports?.('field-sizing', 'content')) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposing(e)) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (isEnterKey(e) && !e.shiftKey) {
       e.preventDefault();
       if (!isStreaming && value.trim() && !disabled) {
         onSubmit();
@@ -59,7 +60,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
         onKeyDown={handleKeyDown}
         placeholder={placeholder || t('excalidraw.ai_prompt_placeholder')}
         disabled={disabled}
-        className="flex-1 max-h-32 resize-none bg-transparent text-xs leading-relaxed text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"
+        className="flex-1 field-sizing-content max-h-[120px] resize-none bg-transparent text-xs leading-relaxed text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"
       />
 
       <div className="ml-2 flex shrink-0 items-center">

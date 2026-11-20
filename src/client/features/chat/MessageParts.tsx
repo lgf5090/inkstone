@@ -720,12 +720,20 @@ function AnswerVersionPager({ total, page, onStep, onRestore, busy }: {
 }
 
 /** The cost of the answer and the speed it arrived at: total tokens, then output tokens per second. */
-export function answerStats(usage: { inputTokens: number, outputTokens: number } | null | undefined, durationMs: number): string | null {
-  if (!usage || (!usage.inputTokens && !usage.outputTokens)) return null
+export function answerStats(
+  usage: { inputTokens: number, outputTokens: number } | null | undefined,
+  durationMs: number,
+  ttftMs?: number | null,
+): string | null {
+  const first = ttftMs != null && ttftMs >= 0
+    ? t('assistant.chat.ttft', { seconds: (ttftMs / 1000).toFixed(1) }) : ''
+  if (!usage || (!usage.inputTokens && !usage.outputTokens)) return first || null
   const total = usage.inputTokens + usage.outputTokens
   const seconds = durationMs / 1000
-  if (!usage.outputTokens || seconds <= 0) return `${fullTokenCount(total)} ${t('assistant.chat.tokens')}`
-  return `${fullTokenCount(total)} ${t('assistant.chat.tokens')} · ${(usage.outputTokens / seconds).toFixed(1)} ${t('assistant.chat.tokens_per_second')}`
+  const stats = !usage.outputTokens || seconds <= 0
+    ? `${fullTokenCount(total)} ${t('assistant.chat.tokens')}`
+    : `${fullTokenCount(total)} ${t('assistant.chat.tokens')} · ${(usage.outputTokens / seconds).toFixed(1)} ${t('assistant.chat.tokens_per_second')}`
+  return first ? `${first} · ${stats}` : stats
 }
 
 /**
@@ -735,12 +743,13 @@ export function answerStats(usage: { inputTokens: number, outputTokens: number }
  * provider that reports no tokens makes `answerStats` answer nothing, and a line built out of the stats
  * alone took the name down with them, leaving the reader unable to say which model answered.
  */
-function AnswerFootline({ usage, durationMs, modelLabel }: {
+function AnswerFootline({ usage, durationMs, modelLabel, ttftMs = null }: {
   usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number } | null
   durationMs: number
   modelLabel: string
+  ttftMs?: number | null
 }) {
-  const stats = answerStats(usage, durationMs)
+  const stats = answerStats(usage, durationMs, ttftMs)
   if (!stats && !modelLabel) return null
   return (
     <span
@@ -1003,6 +1012,8 @@ export function AssistantBubble({
   retryLabel = 'assistant.chat.retry',
   usage,
   durationMs = 0,
+  ttftMs = null,
+  onRerunWithModel,
   modelLabel = '',
   versionCount = 0,
   sources = [],
@@ -1035,6 +1046,9 @@ export function AssistantBubble({
   retryLabel?: 'assistant.chat.retry' | 'assistant.chat.regenerate'
   usage?: { inputTokens: number, outputTokens: number } | null
   durationMs?: number
+  ttftMs?: number | null
+  /** Re-answer this stored message under a model the reader picks from the menu. */
+  onRerunWithModel?: (modelId: string) => void
   modelLabel?: string
   /** How many earlier answers this turn still holds. The pager appears at two or more pages. */
   versionCount?: number
@@ -1276,7 +1290,7 @@ export function AssistantBubble({
           </div>
         )}
         {sourcesOpen && <SourcePanel sources={sources} onClose={() => setSourcesOpen(false)} />}
-        {!streaming && (body || pages > 1) && (
+        {(!streaming || ttftMs != null) && (body || pages > 1) && (
           <div className={cn(
             'flex flex-wrap items-center gap-x-2 gap-y-1 transition-opacity duration-[var(--dur-fast)]',
             // Quiet until the pointer arrives — but only where a pointer exists. A touch screen has no
@@ -1465,7 +1479,7 @@ export function AssistantBubble({
                 {` · ${formatInZone(viewing.createdAt, timezone)}`}
               </span>
             ) : (
-              <AnswerFootline usage={usage} durationMs={durationMs} modelLabel={modelLabel} />
+              <AnswerFootline usage={usage} durationMs={durationMs} ttftMs={ttftMs} modelLabel={modelLabel} />
             )}
           </div>
         )}
@@ -1497,6 +1511,7 @@ export function AssistantBubble({
           role: 'assistant',
           text: body,
           ...(onRetry && !viewing ? { onRetry, onRetryLabel: retryLabel } : {}),
+          ...(onRerunWithModel && !viewing ? { onRerunWithModel } : {}),
           ...(canContinue && !streaming && !viewing ? { onContinue: () => void useAssistant.getState().send('', { continue: true }) } : {}),
           ...(feedback ? { feedback } : {}),
           // The same keep the star under the answer is, reached from the menu instead: one action, two

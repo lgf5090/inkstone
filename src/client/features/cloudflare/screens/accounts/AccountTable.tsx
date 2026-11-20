@@ -250,6 +250,7 @@ function QuotaCell({ count, limit, exhausted }: { count: number; limit: number; 
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
+        aria-valuetext={`${cfT('cloudflare.accounts.table.ai_quota')} ${percentLabel(count, limit)}`}
         className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-sunken)]"
       >
         <div className="h-full rounded-full" style={{ width: `${percent}%`, backgroundColor: quotaTone(percent) }} />

@@ -2620,9 +2620,7 @@ async function loadReplayOutbox(): Promise<OutboxItem[]> {
     }));
 }
 function sortOutboxForReplay(items: OutboxItem[]): OutboxItem[] {
-    const stable = items
-        .slice()
-        .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+    const stable = items.toSorted((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
     const byWriteId = new Map(stable.map((item) => [item.writeId, item]));
     const visiting = new Set<string>();
     const visited = new Set<string>();
@@ -2779,6 +2777,25 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
             break;
         for (const item of batch) {
             attempted.add(replayAttemptKey(item));
+            // Project writes are handed to the module that owns their HTTP shape; the note store only
+            // owns the queue's lease, the completion bookkeeping and the decision to stop when offline.
+            if (item.entity === 'project') {
+                const { replayProjectOutboxItem, notifyProjectOutboxFlushed } = await import('../features/project/offline-outbox');
+                const outcome = await replayProjectOutboxItem(item);
+                if (outcome.status === 'offline') {
+                    stoppedOffline = true;
+                    set({ online: false, saveStatus: 'offline' });
+                    break;
+                }
+                if (outcome.status === 'done') {
+                    const completed = await completeOutboxQuietly(item.id, item.writeId);
+                    if (completed) {
+                        publishBroadcast({ type: 'local-write', clientId: CLIENT_ID });
+                        notifyProjectOutboxFlushed();
+                    }
+                }
+                continue;
+            }
             // The queue is shared with the to-do app. A note write keeps the replay rules below; a task
             // write is handed to the module that owns its state, so this store never learns how a task
             // is serialised or what a 409 on one means.
@@ -3700,7 +3717,7 @@ export function buildFolderTree(folders: Folder[], direct: ReadonlyMap<string, n
         const node = build(folder, 0, null);
         return node ? [node] : [];
     });
-    for (const folder of [...folders].sort(compare)) {
+    for (const folder of folders.toSorted(compare)) {
         if (visited.has(folder.id))
             continue;
         const node = build(folder, 0, null);

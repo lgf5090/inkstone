@@ -78,7 +78,7 @@ export function renderReadingSection(
     return out.join('\n')
   }
   const byChapter = new Map<number, Highlight[]>()
-  for (const highlight of [...highlights].sort((a, b) => a.chapter - b.chapter || a.start - b.start)) {
+  for (const highlight of highlights.toSorted((a, b) => a.chapter - b.chapter || a.start - b.start)) {
     const list = byChapter.get(highlight.chapter) ?? []
     list.push(highlight)
     byChapter.set(highlight.chapter, list)

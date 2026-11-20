@@ -133,7 +133,7 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
   }, [settings])
 
   const selected = settings.scope === 'selected'
-    ? [...selectedRows].sort((left, right) => left - right).map((index) => rows[index]).filter((row): row is unknown[] => Boolean(row))
+    ? Array.from(selectedRows).sort((left, right) => left - right).map((index) => rows[index]).filter((row): row is unknown[] => Boolean(row))
     : rows
 
   const content = (): string => {

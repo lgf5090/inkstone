@@ -8,16 +8,23 @@
  */
 import type {
   ProjectBoardBundle,
+  ProjectCardLink,
   ProjectContent,
   ProjectContentType,
   ProjectProperty,
+  ProjectRecurrence,
   ProjectViewFields,
   ProjectViewType,
 } from './model'
 import { emptyProjectViewFields, PROJECT_CONTENT_TYPES, PROJECT_PROPERTY_TYPES, PROJECT_VIEW_TYPES } from './model'
-import { projectArchiveBlockIsBoard, ProjectArchiveError, type ProjectArchiveBlock, type ProjectArchiveLine } from './archive'
+import {
+  projectArchiveBlockIsBoard, ProjectArchiveError,
+  type ProjectArchiveAttachment, type ProjectArchiveBlock, type ProjectArchiveLine,
+} from './archive'
+import { ProjectRecurrenceSchema } from './validation'
+import { parseProjectPropertyConfig } from './property-config'
 
-const MULTI_VALUE_TYPES = new Set(['multiSelect', 'multiPerson'])
+const MULTI_VALUE_TYPES = new Set(['multiSelect', 'multiPerson', 'relation'])
 
 /** A stored value is text; the reference wants an array for the two multi-valued property types. */
 function exportValue(value: string, propertyType: string | undefined): string | string[] {
@@ -47,7 +54,11 @@ function blockStamps(entity: { createdBy: string; modifiedBy: string; createAt: 
   }
 }
 
-export function projectBundleToArchiveLines(bundle: ProjectBoardBundle): ProjectArchiveLine[] {
+export function projectBundleToArchiveLines(
+  bundle: ProjectBoardBundle,
+  links: readonly ProjectCardLink[] = [],
+  attachments: readonly ProjectArchiveAttachment[] = [],
+): ProjectArchiveLine[] {
   const { board, properties, cards, views, contents, comments, members } = bundle
   const propertyTypes = new Map(properties.map((property) => [property.id, property.type as string]))
   const lines: ProjectArchiveLine[] = [
@@ -72,13 +83,17 @@ export function projectBundleToArchiveLines(bundle: ProjectBoardBundle): Project
   for (const card of cards) {
     const values: Record<string, string | string[]> = {}
     for (const [propertyId, value] of Object.entries(card.values)) {
+      if (propertyTypes.get(propertyId) === 'formula' || propertyTypes.get(propertyId) === 'rollup') continue
       values[propertyId] = exportValue(value, propertyTypes.get(propertyId))
     }
     lines.push({
       type: 'block',
       data: {
         id: card.id, type: 'card', parentId: board.id, boardId: board.id, title: card.title,
-        fields: { icon: card.icon, isTemplate: card.isTemplate, properties: values, contentOrder: card.contentOrder },
+        fields: {
+          icon: card.icon, isTemplate: card.isTemplate, properties: values, contentOrder: card.contentOrder,
+          parentId: card.parentId, recurrence: card.recurrence ?? null,
+        },
         ...blockStamps(card),
       },
     })
@@ -109,6 +124,12 @@ export function projectBundleToArchiveLines(bundle: ProjectBoardBundle): Project
   for (const member of members) {
     lines.push({ type: 'boardMember', data: { boardId: board.id, userId: member.userId, role: member.role } })
   }
+  for (const link of links) {
+    lines.push({ type: 'cardLink', data: { fromCardId: link.fromCardId, toCardId: link.toCardId, kind: link.kind } })
+  }
+  for (const attachment of attachments) {
+    lines.push({ type: 'attachment', data: attachment })
+  }
   return lines
 }
 
@@ -135,10 +156,12 @@ export interface ProjectArchiveImportStamps {
 
 export interface ProjectArchiveImportCard extends ProjectArchiveImportStamps {
   id: string
+  parentId: string
   title: string
   icon: string
   isTemplate: boolean
   contentOrder: (string | string[])[]
+  recurrence: ProjectRecurrence | null
   values: Record<string, string>
 }
 
@@ -188,6 +211,20 @@ export interface ProjectArchiveBoardImport {
   contents: ProjectArchiveImportContent[]
   comments: ProjectArchiveImportComment[]
   members: { userId: string; role: string }[]
+  links: ProjectCardLink[]
+  attachments: ProjectArchiveImportAttachment[]
+}
+
+export interface ProjectArchiveImportAttachment {
+  id: string
+  cardId: string
+  filename: string
+  mime: string
+  size: number
+  storage: 'r2' | 'kv'
+  width: number | null
+  height: number | null
+  path: string
 }
 
 function asString(value: unknown): string {
@@ -226,11 +263,13 @@ function readProperties(value: unknown): ProjectProperty[] {
         return { id: asString(opt.id), value: asString(opt.value), color: asString(opt.color) }
       })
       : []
+    const config = parseProjectPropertyConfig(JSON.stringify(record.config ?? {}))
     out.push({
       id,
       name: asString(record.name),
       type: (PROJECT_PROPERTY_TYPES as readonly string[]).includes(type) ? (type as ProjectProperty['type']) : 'unknown',
       options,
+      ...(config ? { config } : {}),
     })
   }
   return out
@@ -264,6 +303,11 @@ function readContent(block: ProjectArchiveBlock, position: number): ProjectArchi
   }
 }
 
+function readRecurrence(value: unknown): ProjectRecurrence | null {
+  const parsed = ProjectRecurrenceSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
+
 function readContentOrder(value: unknown): (string | string[])[] {
   if (!Array.isArray(value)) return []
   const out: (string | string[])[] = []
@@ -283,12 +327,22 @@ export function projectArchiveLinesToImport(lines: readonly ProjectArchiveLine[]
   let boardData: Record<string, unknown> | null = null
   const blocks: ProjectArchiveBlock[] = []
   const members: { userId: string; role: string }[] = []
+  const links: ProjectCardLink[] = []
+  const attachments: ProjectArchiveImportAttachment[] = []
   for (const line of lines) {
     if (line.type === 'board') {
       boardData = asRecord(line.data)
     } else if (line.type === 'boardMember') {
       const userId = asString(line.data.userId)
       if (userId) members.push({ userId, role: asString(line.data.role) })
+    } else if (line.type === 'cardLink') {
+      links.push({ fromCardId: line.data.fromCardId, toCardId: line.data.toCardId, kind: line.data.kind })
+    } else if (line.type === 'attachment') {
+      attachments.push({
+        id: line.data.id, cardId: line.data.cardId, filename: line.data.filename, mime: line.data.mime,
+        size: line.data.size, storage: line.data.storage, width: line.data.width, height: line.data.height,
+        path: line.data.path,
+      })
     } else if (projectArchiveBlockIsBoard(line.data)) {
       const block = line.data
       boardData = {
@@ -334,8 +388,9 @@ export function projectArchiveLinesToImport(lines: readonly ProjectArchiveLine[]
         values[propertyId] = importValue(value)
       }
       cards.push({
-        id: block.id, title: block.title, icon: asString(fields.icon), isTemplate: fields.isTemplate === true,
-        contentOrder: readContentOrder(fields.contentOrder), values, ...readStamps(block),
+        id: block.id, parentId: asString(fields.parentId), title: block.title, icon: asString(fields.icon),
+        isTemplate: fields.isTemplate === true, contentOrder: readContentOrder(fields.contentOrder),
+        recurrence: readRecurrence(fields.recurrence), values, ...readStamps(block),
       })
     } else if (block.type === 'view') {
       const viewType = asString(fields.viewType)
@@ -360,5 +415,5 @@ export function projectArchiveLinesToImport(lines: readonly ProjectArchiveLine[]
       contentPosition.set(block.parentId, position + 1)
     }
   }
-  return { board, properties, cards, views, contents, comments, members }
+  return { board, properties, cards, views, contents, comments, members, links, attachments }
 }

@@ -124,6 +124,12 @@ describe('reading a whole board', () => {
     sqlite.prepare('UPDATE project_board_members SET updated_at = 5 WHERE board_id = ?').run(board.id)
     seedCard(board.id, 'c1', { title: 'First', icon: '🎯', content_order: '["a1",["a2"]]', update_at: 50 })
     seedCard(board.id, 'c2', { title: 'Second', update_at: 30 })
+    for (const id of ['p1', 'p2']) {
+      sqlite.prepare(
+        `INSERT INTO project_properties (board_id, id, name, type, options, position, created_at, updated_at)
+         VALUES (?, ?, ?, 'text', '[]', 0, 1, 1)`,
+      ).run(board.id, id, id)
+    }
     sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)')
       .run('c1', 'p1', 'hello')
     sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)')
@@ -152,6 +158,45 @@ describe('reading a whole board', () => {
     expect(result.contents[0]).toMatchObject({ id: 'a1', cardId: 'c1', type: 'text', fields: { language: 'md' } })
     expect(result.comments[0]).toMatchObject({ id: 'm1', authorId: 'bob', body: 'Nice' })
     expect(result.cursor).toBe(90)
+  })
+})
+
+describe('bounded detail rows', () => {
+  it('caps the board read and lets a card fetch its full body', async () => {
+    const board = await createBoard('alice', {})
+    const created = await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Heavy' })
+    const card = ((await created.json()) as { card: { id: string } }).card
+    const insert = sqlite.prepare(
+      `INSERT INTO project_card_contents (id, card_id, board_id, type, title, fields, position, created_by, modified_by, create_at, update_at)
+       VALUES (?, ?, ?, 'text', 'body', '{}', ?, 'alice', 'alice', 1, 1)`,
+    )
+    sqlite.exec('BEGIN')
+    for (let index = 0; index <= 2000; index += 1) {
+      insert.run(`a${String(index).padStart(26, '0')}`, card.id, board.id, index)
+    }
+    sqlite.exec('COMMIT')
+    const read = await bundle('alice', board.id)
+    expect(read.contents).toHaveLength(2000)
+    expect(read.contentsTruncated).toBe(true)
+    const detail = await req('alice', 'GET', `/cards/${card.id}/detail`)
+    expect(detail.status).toBe(200)
+    expect(((await detail.json()) as { contents: unknown[] }).contents).toHaveLength(2001)
+  })
+})
+
+describe('the staleness cursor', () => {
+  it('advances after a child write, including a delete', async () => {
+    const board = await createBoard('alice', {})
+    const created = await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'C' })
+    expect(created.status, await created.clone().text()).toBe(201)
+    const card = ((await created.json()) as { card: { id: string } }).card
+    const first = await req('alice', 'GET', `/boards/${board.id}/cursor`)
+    const before = ((await first.json()) as { cursor: number }).cursor
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect((await req('alice', 'DELETE', `/cards/${card.id}`)).status).toBe(200)
+    const second = await req('alice', 'GET', `/boards/${board.id}/cursor`)
+    const after = ((await second.json()) as { cursor: number }).cursor
+    expect(after).toBeGreaterThan(before)
   })
 })
 
@@ -184,6 +229,30 @@ describe('what a bundle leaves out', () => {
     expect(result.cursor).toBe(Math.max(board.updateAt, 20))
   })
 
+  it('drops live contents and comments whose parent card has been soft-deleted', async () => {
+    const board = await createBoard('alice', {})
+    seedCard(board.id, 'kept')
+    seedCard(board.id, 'deleted', { delete_at: 99 })
+    sqlite.prepare(
+      `INSERT INTO project_card_contents (id, card_id, board_id, type, title, position, created_by, modified_by, create_at, update_at, delete_at)
+       VALUES ('orphan-content', 'deleted', ?, 'text', 'still here', 0, 'alice', 'alice', 1, 1, 0)`,
+    ).run(board.id)
+    sqlite.prepare(
+      `INSERT INTO project_comments (id, card_id, board_id, author_id, body, create_at, update_at, delete_at)
+       VALUES ('orphan-comment', 'deleted', ?, 'alice', 'still here', 1, 1, 0)`,
+    ).run(board.id)
+    sqlite.prepare(
+      `INSERT INTO project_card_contents (id, card_id, board_id, type, created_by, modified_by, create_at, update_at, delete_at)
+       VALUES ('alive-content', 'kept', ?, 'text', 'alice', 'alice', 1, 1, 0)`,
+    ).run(board.id)
+    const result = await bundle('alice', board.id)
+    expect(result.cards.map((card) => card.id)).toEqual(['kept'])
+    expect(result.contents.map((content) => content.id)).toEqual(['alive-content'])
+    expect(result.comments).toEqual([])
+    const csv = await req('alice', 'GET', `/boards/${board.id}/csv`)
+    expect(await csv.text()).not.toContain('still here')
+  })
+
   it('orders views and contents by position and comments by creation', async () => {
     const board = await createBoard('alice', {})
     seedCard(board.id, 'c1')
@@ -209,6 +278,17 @@ describe('what a bundle leaves out', () => {
     expect(result.views.map((v) => v.id)).toEqual(['v2', 'v1'])
     expect(result.contents.map((a) => a.id)).toEqual(['a2', 'a1'])
     expect(result.comments.map((m) => m.id)).toEqual(['m2', 'm1'])
+  })
+})
+
+describe('view visibility', () => {
+  it('keeps a role-gated view out of a weaker reader’s bundle', async () => {
+    const board = await createBoard('alice', {})
+    const created = await req('alice', 'POST', `/boards/${board.id}/views`, { title: 'Admins only', viewType: 'table', fields: { minimumRole: 'admin' } })
+    expect(created.status, await created.clone().text()).toBe(201)
+    addMember(board.id, 'bob', 'viewer')
+    expect((await bundle('alice', board.id)).views.map((view) => view.title)).toEqual(['Admins only'])
+    expect((await bundle('bob', board.id)).views).toEqual([])
   })
 })
 

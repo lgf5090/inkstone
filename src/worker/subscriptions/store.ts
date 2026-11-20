@@ -673,9 +673,9 @@ export class SubscriptionsStore {
     let expiry = existing.expiry_date
     let lastPaid: number | null = existing.last_payment_date
     if (remaining.length > 0) {
-      const byPeriodEnd = [...remaining].sort((left, right) => (right.period_end ?? 0) - (left.period_end ?? 0))
+      const byPeriodEnd = remaining.toSorted((left, right) => (right.period_end ?? 0) - (left.period_end ?? 0))
       if (byPeriodEnd[0]?.period_end) expiry = byPeriodEnd[0].period_end
-      const byDate = [...remaining].sort((left, right) => right.paid_at - left.paid_at)
+      const byDate = remaining.toSorted((left, right) => right.paid_at - left.paid_at)
       lastPaid = byDate[0]?.paid_at ?? null
     } else {
       if (payment.period_start) expiry = payment.period_start

@@ -39,8 +39,11 @@ function cacheKey(...parts: (string | number)[]): string {
 
 function estimateBytes(data: unknown): number {
   if (!data || typeof data !== 'object') return 1024
-  const readme = (data as { readme?: unknown }).readme
-  return 4096 + (typeof readme === 'string' ? readme.length * 2 : 0)
+  try {
+    return 4096 + JSON.stringify(data).length * 2
+  } catch {
+    return MAX_CACHE_BYTES
+  }
 }
 
 function dropEntry(key: string): void {
@@ -105,6 +108,7 @@ function useGithubQuery<T>(
   const loadRef = useRef(load)
   loadRef.current = load
   const controllerRef = useRef<AbortController | null>(null)
+  const activeKey = useRef(key)
   const [state, setState] = useState<QueryState<T>>(() => {
     const cached = enabled && key ? readCache<T>(key, ttl) : undefined
     return {
@@ -115,6 +119,7 @@ function useGithubQuery<T>(
   })
 
   const run = useCallback(async (force: boolean): Promise<void> => {
+    activeKey.current = key
     if (!enabled || !key) {
       setState({ data: null, loading: false, error: null })
       return
@@ -149,8 +154,11 @@ function useGithubQuery<T>(
   }, [run])
 
   const refetch = useCallback(() => run(true), [run])
+  const visible = activeKey.current === key
+    ? state
+    : { data: null, loading: enabled && key !== null, error: null }
 
-  return { ...state, refetch }
+  return { ...visible, refetch }
 }
 
 export function useGithubSearch(params: GithubSearchParams, enabled = true): GithubQuery<GithubSearchResult> {

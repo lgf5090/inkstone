@@ -60,7 +60,7 @@ export function ImgbedSidebar({ data, loading, filters, onChange }: {
     })
   }
   const counts = data?.counts
-  const channelRows = useMemo(() => [...(data?.channels ?? [])].sort((left, right) => right.count - left.count), [data])
+  const channelRows = useMemo(() => (data?.channels ?? []).toSorted((left, right) => right.count - left.count), [data])
   const activity = useMemo(() => {
     if (!data) return { weeks: [], total: 0 }
     const map = new Map(data.activity.map((entry) => [entry.date, entry.count]))

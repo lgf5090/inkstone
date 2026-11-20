@@ -771,7 +771,7 @@ function repairTree(choices: QuickAddChoice[]): QuickAddChoice[] {
 }
 
 function resequence(choices: QuickAddChoice[]): QuickAddChoice[] {
-  const sorted = [...choices].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+  const sorted = choices.toSorted((a, b) => a.position - b.position || a.name.localeCompare(b.name))
   const nextPosition = new Map<string, number>()
   for (const choice of sorted) {
     const key = choice.parentId ?? ''
@@ -962,7 +962,7 @@ export function placeChoice(
 
 /** Choices in tree order: each root followed by its group's children. */
 export function flattenChoices(choices: readonly QuickAddChoice[]): QuickAddChoice[] {
-  const sorted = [...choices].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+  const sorted = choices.toSorted((a, b) => a.position - b.position || a.name.localeCompare(b.name))
   const out: QuickAddChoice[] = []
   const visit = (parentId: string | null): void => {
     for (const choice of sorted) {

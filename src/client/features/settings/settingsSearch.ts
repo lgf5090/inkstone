@@ -238,6 +238,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'notes', titleKey: 'settings.title_sync', termKeys: ['settings.sync_title_to_frontmatter', 'settings.sync_frontmatter_title'] },
   { section: 'notes', titleKey: 'settings.sync_title_to_frontmatter', detailKey: 'settings.sync_title_to_frontmatter_desc' },
   { section: 'notes', titleKey: 'settings.sync_frontmatter_title', detailKey: 'settings.sync_frontmatter_title_desc' },
+  { section: 'notes', titleKey: 'notelock.settings_title', detailKey: 'notelock.settings_desc' },
 
   { section: 'search', titleKey: 'settings.omnisearch_enabled', detailKey: 'settings.omnisearch_enabled_desc', termKeys: ['settings.search_ribbon_button', 'settings.search_rebuild', 'settings.search_clear_cache'] },
   { section: 'search', titleKey: 'settings.search_ribbon_button', detailKey: 'settings.search_ribbon_button_desc' },

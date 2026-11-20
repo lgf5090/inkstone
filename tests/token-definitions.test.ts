@@ -41,6 +41,27 @@ const LEGACY_DANGLING = new Map<string, string>([
   // repo-wide grep for a definition). Both projects therefore render it through the fallback, so
   // picking a fork token here would be a silent visual redesign, not a port fix.
   ['--bg-surface-subtle', 'kanban column-cards surface; undefined in the reference too, falls back to inherited'],
+  ['--color-amber-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-blue-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-cyan-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-emerald-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-fuchsia-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-green-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-indigo-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-lime-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-neutral-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-orange-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-pink-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-purple-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-red-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-rose-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-sky-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-stone-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-teal-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-violet-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-yellow-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--color-zinc-400', 'api-tester tag swatch: a --color-* palette variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
+  ['--shadow-md', 'SftpPanel shadow: a --shadow-* variable Tailwind v4 generates from @theme at the framework level, present at runtime; the scanner only reads explicit src/client definitions and misreports it as dangling'],
 ])
 
 describe('every design token referenced by the client is defined (SH-37)', () => {

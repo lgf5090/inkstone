@@ -225,6 +225,281 @@ describe('conversations', () => {
   })
 })
 
+/**
+ * A refused key is answered by the next one in the ring.
+ *
+ * The ring's parts are each tested where they live — the store's ordering, the transport's retry — but
+ * nothing joined them. A 401 on the first key and a working second one is the case a reader buys several
+ * keys for, and the only proof that one bad credential does not cost the turn.
+ */
+describe('a provider with more than one key', () => {
+  const KEYS = ['sk-ring-first-0001', 'sk-ring-second-0002'] as const
+  /** The same store the routes read, for the rows only it can write. */
+  const localStore = async () => {
+    const { AssistantStore } = await import('../src/worker/assistant/store')
+    return new AssistantStore(env.DB as D1Database, USER, env)
+  }
+
+  it('answers with the next key when the provider refuses the first', async () => {
+    const sent: string[] = []
+    const { provider } = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Ring', protocol: 'openai', baseUrl: 'https://ring.example.com',
+      apiKey: KEYS[0], models: ['ring-model'],
+    })
+    const store = await localStore()
+    await store.createProviderKey(provider.id, { label: '', apiKey: KEYS[1] })
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get('authorization') ?? '')
+      return sent.length === 1
+        ? new Response(JSON.stringify({ error: { message: 'invalid key' } }), {
+          status: 401, headers: { 'content-type': 'application/json' },
+        })
+        : new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    let events: ChatStreamEvent[] = []
+    try {
+      events = await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(sent[0], 'the first attempt should carry the ring’s first key').toBe(`Bearer ${KEYS[0]}`)
+    expect(sent[1], 'the retry did not move to the second key').toBe(`Bearer ${KEYS[1]}`)
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+    expect(events.some((event) => event.type === 'text' && (event.delta ?? '').includes('Nothing is on the list'))).toBe(true)
+    const extra = sqlite.prepare('SELECT last_used_at FROM chat_provider_keys WHERE provider_id = ?').get(provider.id) as { last_used_at: number | null }
+    expect(extra.last_used_at, 'the key that answered was not stamped as used').toBeGreaterThan(0)
+  })
+
+  it('charges a refusal to the extra key that earned it, and cools that key for the next turn', async () => {
+    const { provider } = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Ring', protocol: 'openai', baseUrl: 'https://ring.example.com',
+      apiKey: KEYS[0], models: ['ring-model'],
+    })
+    const store = await localStore()
+    await store.createProviderKey(provider.id, { label: '', apiKey: KEYS[1] })
+    // Hand the first attempt to the extra key: the provider's own key is pushed to the back of the
+    // least-recently-used order, which is the only way to say which row a refusal should land on.
+    sqlite.prepare('UPDATE chat_providers SET key_last_used_at = ? WHERE id = ?').run(Date.now() + 60_000, provider.id)
+
+    const sent: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get('authorization') ?? '')
+      return sent.length === 1
+        ? new Response(JSON.stringify({ error: { message: 'invalid key' } }), {
+          status: 401, headers: { 'content-type': 'application/json' },
+        })
+        : new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    let events: ChatStreamEvent[] = []
+    try {
+      events = await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(sent[0]).toBe(`Bearer ${KEYS[1]}`)
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+
+    const row = sqlite.prepare('SELECT error_count, last_error FROM chat_provider_keys WHERE provider_id = ?')
+      .get(provider.id) as { error_count: number, last_error: string | null }
+    expect(row.error_count).toBe(1)
+    expect(row.last_error).toMatch(/^auth:/)
+
+    // The cooled key goes to the back of the ring, so the next turn is answered by the other one first.
+    const next = await store.pickProviderKey((await store.providerRecord(provider.id))!)
+    expect(next?.keyId).toBe('')
+  })
+
+  it('still moves past a refused primary key when sticky ordering is on', async () => {
+    const sent: string[] = []
+    const { provider } = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Sticky ring', protocol: 'openai', baseUrl: 'https://ring.example.com',
+      apiKey: KEYS[0], models: ['ring-model'],
+    })
+    const store = await localStore()
+    await store.createProviderKey(provider.id, { label: '', apiKey: KEYS[1] })
+    sqlite.prepare('UPDATE chat_providers SET sticky = 1 WHERE id = ?').run(provider.id)
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get('authorization') ?? '')
+      return sent.length === 1
+        ? new Response(JSON.stringify({ error: { message: 'invalid key' } }), {
+          status: 401, headers: { 'content-type': 'application/json' },
+        })
+        : new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    let events: ChatStreamEvent[] = []
+    try {
+      events = await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(sent[0]).toBe(`Bearer ${KEYS[0]}`)
+    expect(sent[1], 'a refused primary key left the whole sticky ring stuck').toBe(`Bearer ${KEYS[1]}`)
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+  })
+})
+
+/**
+ * A 400 is about the model, not the credential, and the row that earns the cooldown says so.
+ *
+ * Recorded instead on the key, one model a plan does not include would idle a credential that serves
+ * every other model — the exact confusion a multi-key ring exists to avoid.
+ */
+describe('a model the key could not serve', () => {
+  it('records the pair, not a broken key', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: 'model not found' } }), {
+      status: 400, headers: { 'content-type': 'application/json' },
+    })))
+    let events: ChatStreamEvent[] = []
+    try {
+      events = await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(events.some((event) => event.type === 'error'), 'a 400 should be reported to the reader').toBe(true)
+
+    const cooldowns = sqlite.prepare('SELECT key_id, model, cooling_until FROM chat_provider_key_model_cooldowns').all() as
+      Array<{ key_id: string, model: string, cooling_until: number }>
+    expect(cooldowns).toHaveLength(1)
+    // The provider's own key is named by the empty string here too.
+    expect(cooldowns[0]!.key_id).toBe('')
+    expect(cooldowns[0]!.model).toBe('example-model')
+    expect(cooldowns[0]!.cooling_until).toBeGreaterThan(Date.now())
+  })
+})
+
+/**
+ * The attempt log, and the three scopes that read it.
+ *
+ * One line per attempt is the point: a turn that rotated through two keys has to show both, or the log
+ * cannot answer the only question it exists for — which key the provider refused.
+ */
+describe('the attempt log', () => {
+  it('keeps one line per attempt, with the tokens the answer reported', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    let events: ChatStreamEvent[] = []
+    try {
+      events = await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(events.some((event) => event.type === 'text')).toBe(true)
+
+    const rows = sqlite.prepare('SELECT ok, model_label, key_hint, input_tokens, output_tokens, latency_ms, request_body FROM chat_request_logs').all() as
+      Array<{ ok: number, model_label: string, key_hint: string, input_tokens: number, output_tokens: number, latency_ms: number | null, request_body: string | null }>
+    const answered = rows.filter((row) => row.ok === 1)
+    expect(answered).toHaveLength(1)
+    expect(answered[0]!.model_label).toBe('example-model')
+    expect(answered[0]!.key_hint).toBe('9876')
+    expect(answered[0]!.input_tokens).toBe(20)
+    expect(answered[0]!.output_tokens).toBe(6)
+    expect(answered[0]!.latency_ms).not.toBeNull()
+    // A prompt is the reader's own writing: the column stays null unless they asked for it.
+    expect(answered[0]!.request_body).toBeNull()
+  })
+
+  it('records a refusal as its own line rather than folding it into the answer', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: 'bad key' } }), {
+      status: 401, headers: { 'content-type': 'application/json' },
+    })))
+    try {
+      await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    const rows = sqlite.prepare('SELECT ok, error_kind, http_status, key_hint FROM chat_request_logs ORDER BY at').all() as
+      Array<{ ok: number, error_kind: string | null, http_status: number | null, key_hint: string }>
+    expect(rows[0]!.ok).toBe(0)
+    expect(rows[0]!.error_kind).toBe('auth')
+    expect(rows[0]!.http_status).toBe(401)
+    expect(rows[0]!.key_hint).toBe('9876')
+  })
+
+  it('keeps the request body only when the reader asked for it', async () => {
+    await useExampleModel()
+    await call('PATCH', '/api/assistant/settings', { logRequestBodies: true })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    try {
+      await chatEvents({ message: 'a message whose body is being kept' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    const kept = sqlite.prepare('SELECT request_body FROM chat_request_logs WHERE ok = 1').all() as Array<{ request_body: string | null }>
+    expect(kept[0]?.request_body).toBeTruthy()
+    expect(kept[0]!.request_body).toContain('example-model')
+
+    // Off again: the column goes back to null rather than being written and hidden.
+    await call('PATCH', '/api/assistant/settings', { logRequestBodies: false })
+    sqlite.prepare('DELETE FROM chat_request_logs').run()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    try {
+      await chatEvents({ message: 'another message' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    const dropped = sqlite.prepare('SELECT request_body FROM chat_request_logs WHERE ok = 1').all() as Array<{ request_body: string | null }>
+    expect(dropped[0]?.request_body).toBeNull()
+  })
+
+  it('answers the same totals at three scopes, and deletes a slice', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    try {
+      await chatEvents({ message: 'anything at all' })
+      await settleTurns()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    type StatsRow = { id: string, requests: number, succeeded: number, failed: number, inputTokens: number }
+    const byKey = await call<{ rows: StatsRow[] }>('GET', '/api/assistant/stats/keys?scope=key')
+    expect(byKey.rows).toHaveLength(1)
+    expect(byKey.rows[0]!.requests).toBeGreaterThan(0)
+    expect(byKey.rows[0]!.succeeded).toBe(byKey.rows[0]!.requests - byKey.rows[0]!.failed)
+    expect(byKey.rows[0]!.inputTokens).toBeGreaterThan(0)
+
+    const byProvider = await call<{ rows: StatsRow[] }>('GET', '/api/assistant/stats/keys?scope=provider')
+    expect(byProvider.rows).toHaveLength(1)
+    const everything = await call<{ rows: StatsRow[] }>('GET', '/api/assistant/stats/keys?scope=all')
+    expect(everything.rows).toHaveLength(1)
+    expect(everything.rows[0]!.id).toBe('all')
+    expect(everything.rows[0]!.requests).toBe(byKey.rows[0]!.requests)
+
+    const logs = await call<{ logs: Array<{ id: string }> }>('GET', '/api/assistant/logs?limit=5')
+    expect(logs.logs.length).toBeGreaterThan(0)
+    expect((await call<{ deleted: number }>('DELETE', `/api/assistant/logs/${logs.logs[0]!.id}`)).deleted).toBe(1)
+    await call<{ deleted: number }>('DELETE', '/api/assistant/logs?all=1')
+    expect((await call<{ logs: unknown[] }>('GET', '/api/assistant/logs')).logs).toHaveLength(0)
+  })
+
+  it('narrows the list to a time window and widens it back', async () => {
+    const now = Date.now()
+    const insert = sqlite.prepare('INSERT INTO chat_request_logs (user_id, id, at, ok) VALUES (?, ?, ?, 1)')
+    insert.run(USER, 'old', now - 2 * 3_600_000)
+    insert.run(USER, 'fresh', now - 60_000)
+
+    const all = await call<{ logs: Array<{ id: string }> }>('GET', '/api/assistant/logs')
+    expect(all.logs.map((row) => row.id)).toEqual(['fresh', 'old'])
+    const hour = await call<{ logs: Array<{ id: string }> }>('GET', '/api/assistant/logs?sinceMs=3600000')
+    expect(hour.logs.map((row) => row.id)).toEqual(['fresh'])
+    const nonsense = await call<{ logs: Array<{ id: string }> }>('GET', '/api/assistant/logs?sinceMs=not-a-number')
+    expect(nonsense.logs).toHaveLength(2)
+  })
+})
+
 describe('drafts', () => {
   const newConversation = async (title = 'Planning') =>
     (await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title })).conversation
@@ -652,6 +927,34 @@ describe('realtime voice sessions', () => {
     expect(JSON.parse(text).error.code).toBe('realtime_refused')
   })
 
+  it('refuses a redirect instead of handing the long-lived key to an unvetted host', async () => {
+    await useRealtimeModel()
+    const seen: Array<{ url: string, redirect: string | undefined }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
+      seen.push({ url: String(input), redirect: init?.redirect })
+      return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } })
+    }))
+    const response = await app.fetch(new Request('http://localhost/api/assistant/realtime/session', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    }), env, ctx)
+    expect(response.status).toBe(502)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.redirect).toBe('manual')
+    expect(await response.text()).not.toContain('sk-realtime-test-1234')
+  })
+
+  it('refuses a session answer larger than a session document can be', async () => {
+    await useRealtimeModel()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {
+      status: 200, headers: { 'content-length': String(128 * 1024) },
+    })))
+    const response = await app.fetch(new Request('http://localhost/api/assistant/realtime/session', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    }), env, ctx)
+    expect(response.status).toBe(502)
+    expect(await response.text()).not.toContain('sk-realtime-test-1234')
+  })
+
   it('names an unreachable provider rather than a generic server failure', async () => {
     await useRealtimeModel()
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
@@ -706,6 +1009,23 @@ describe('ModelBest realtime relay sessions', () => {
       .toBe('wss://api.modelbest.cn/v1/realtime?mode=audio&model=MiniCPM-o-4.5-Realtime')
     expect(modelBestSocketUrl('https://api.modelbest.cn/v1/', 'MiniCPM-o-4.5-Realtime'))
       .toBe('wss://api.modelbest.cn/v1/realtime?mode=audio&model=MiniCPM-o-4.5-Realtime')
+  })
+
+  it('refuses a relay redirect instead of following it with the bearer key', async () => {
+    const model = await useModelBestRealtime()
+    const seen: Array<{ redirect: string | undefined, auth: string | null }> = []
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      seen.push({ redirect: init?.redirect, auth: new Headers(init?.headers).get('authorization') })
+      return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } })
+    }))
+    const response = await app.fetch(new Request(
+      `http://localhost/api/assistant/realtime/relay?modelId=${model.id}`,
+      { headers: { Upgrade: 'websocket' } },
+    ), env, ctx)
+    expect(response.status).toBe(502)
+    expect(seen[0]?.redirect).toBe('manual')
+    expect(seen[0]?.auth).toContain('Bearer ')
+    expect(await response.text()).toContain('redirect')
   })
 
   it('refuses a relay request that is not an upgrade, or names no realtime model', async () => {

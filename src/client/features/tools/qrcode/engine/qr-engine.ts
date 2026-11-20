@@ -625,7 +625,7 @@ export class QrEngine {
 
   public async append(container: HTMLElement, width = 300, height = 300): Promise<void> {
     if (!container) return
-    container.innerHTML = ''
+    container.replaceChildren()
     const canvas = await this.renderCanvas(width, height)
     canvas.style.maxWidth = '100%'
     canvas.style.height = 'auto'

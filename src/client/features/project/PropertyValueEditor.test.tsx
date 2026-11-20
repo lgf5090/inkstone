@@ -9,9 +9,9 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
-import { parseProjectDateValue, projectDayToStamp, projectStampToInput } from '@shared/project/date'
+import { parseProjectDateValue, projectDateValue, projectDayToStamp, projectStampToInput, projectTimeZoneName } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
-import { initI18n, t } from '../../lib/i18n'
+import { getLocale, initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
 import { PropertyValueEditor } from './PropertyValueEditor'
 
@@ -48,7 +48,7 @@ async function pickDay(value: string, day: string): Promise<string | null> {
 
 function readBack(raw: string): string {
   const parsed = parseProjectDateValue(raw)!
-  return projectStampToInput(parsed.from!, parsed.includeTime === true)
+  return projectStampToInput(parsed.from!, parsed.includeTime === true, parsed.timeZone)
 }
 
 describe.each(ZONES)('the date cell in %s', (zone) => {
@@ -133,7 +133,7 @@ describe('the editor and the table cell agree', () => {
       process.env.TZ = zone
       const start = JSON.stringify({ from: projectDayToStamp(new Date(2026, 10, 10)) })
       const filed = await pickDay(start, '15')
-      const canonical = JSON.stringify({ from: projectDayToStamp(new Date(2026, 10, 15)) })
+      const canonical = JSON.stringify(projectDateValue(new Date(2026, 10, 15), { timeZone: projectTimeZoneName() }))
       expect(tableText(filed!), `editor and table disagree in ${zone}`).toBe(tableText(canonical))
       view.unmount()
     }
@@ -174,7 +174,7 @@ describe('the property kinds that had no editor (R3-10)', () => {
     }
     const created: ProjectProperty = { id: 'pct', name: 'Created', type: 'createdTime', options: [] }
     await act(async () => { view = renderElement(createElement(PropertyValueEditor, { property: created, value: '', members: [], disabled: true, onChange: vi.fn(), card })) })
-    expect(view.container.textContent).toBe(new Date(card.createAt).toLocaleDateString())
+    expect(view.container.textContent).toBe(new Date(card.createAt).toLocaleDateString(getLocale()))
     expect(view.container.textContent).not.toBe('—')
   })
 })

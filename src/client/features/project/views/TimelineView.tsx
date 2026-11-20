@@ -28,8 +28,8 @@ import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
 import { DependencyEdges, RowToggle, ScheduleBar, UnscheduledTray, type BarGeometry } from './schedule-parts'
 
-const ROW_H = 34
-const BAR_H = 18
+const TIMELINE_ROW_H = 34
+const TIMELINE_BAR_H = 18
 const SCALES: ProjectScheduleScale[] = ['day', 'week', 'month', 'quarter']
 
 export interface TimelineProps {
@@ -52,7 +52,7 @@ export function TimelineView(props: TimelineProps): ReactElement {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [showTray, setShowTray] = useState(true)
   const viewport = useRef<HTMLDivElement | null>(null)
-  const today = Date.now()
+  const today = useMemo(() => Date.now(), [])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const isDone = useCallback((card: ProjectCard) => isProjectCardDone(card, properties), [properties])
 
@@ -60,7 +60,7 @@ export function TimelineView(props: TimelineProps): ReactElement {
     .map((card) => ({ card, days: projectCardDays(card, propertyId) }))
     .filter((entry): entry is { card: ProjectCard, days: { start: number, end: number } } => entry.days !== null), [cards, propertyId])
   const unscheduled = useMemo(() => cards.filter((card) => projectCardDays(card, propertyId) === null), [cards, propertyId])
-  const ranges = dated.map((entry) => ({ from: entry.days.start, to: entry.days.end }))
+  const ranges = useMemo(() => dated.map((entry) => ({ from: entry.days.start, to: entry.days.end })), [dated])
   const axisWindow = useMemo(() => projectTimelineWindow(ranges, today), [ranges, today])
   const days = useMemo(() => projectTimelineDays(axisWindow, today), [axisWindow, today])
   const columnPx = PROJECT_TIMELINE_COLUMN_PX[scale]
@@ -126,6 +126,7 @@ export function TimelineView(props: TimelineProps): ReactElement {
         <Seg
           value={scale}
           label={t('project.view.scale')}
+          disabled={!props.canEdit}
           onChange={(next) => props.onPatchFields({ scheduleScale: next })}
           options={SCALES.map((entry) => ({ value: entry, label: t(`project.view.scale_${entry}` as Parameters<typeof t>[0]) }))}
         />
@@ -151,7 +152,7 @@ export function TimelineView(props: TimelineProps): ReactElement {
           days={days}
           columnPx={columnPx}
           rowCount={rows.length}
-          rowHeight={ROW_H}
+          rowHeight={TIMELINE_ROW_H}
           axis="double"
           corner={t('project.board.title_column')}
           showToday={showToday}
@@ -162,15 +163,15 @@ export function TimelineView(props: TimelineProps): ReactElement {
           emptyHint={t('project.view.no_dates')}
           minimap={{ bars: [...geometry.entries()].map(([id, place]) => ({ id, left: place.left, width: place.width, color: colorOf(rows[place.row]!.card) })) }}
           overlay={() => showDeps
-            ? <DependencyEdges links={links} geometry={geometry} rowHeight={ROW_H} columnPx={columnPx} width={days.length * columnPx} height={rows.length * ROW_H} />
+            ? <DependencyEdges links={links} geometry={geometry} rowHeight={TIMELINE_ROW_H} columnPx={columnPx} width={days.length * columnPx} height={rows.length * TIMELINE_ROW_H} />
             : null}
           renderLeftRow={(index) => {
             const row = rows[index]!
             const range = daysByCard.get(row.card.id)!
             return (
-              <div key={row.card.id} className="pv-sched-rowhead" style={{ top: `${index * ROW_H}px`, height: `${ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }} data-schedule-row={row.card.id}>
+              <div key={row.card.id} className="pv-sched-rowhead" style={{ top: `${index * TIMELINE_ROW_H}px`, height: `${TIMELINE_ROW_H}px`, paddingLeft: `${8 + row.depth * 14}px` }} data-schedule-row={row.card.id}>
                 {row.childCount > 0
-                  ? <RowToggle collapsed={collapsed.has(row.card.id)} label={t('project.card.expand_subtasks')} onToggle={() => toggle(row.card.id)} />
+                  ? <RowToggle collapsed={collapsed.has(row.card.id)} label={collapsed.has(row.card.id) ? t('project.card.expand_subtasks') : t('project.card.collapse_subtasks')} onToggle={() => toggle(row.card.id)} />
                   : <span className="size-6 shrink-0" aria-hidden="true" />}
                 <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(row.card) }} aria-hidden="true" />
                 <button type="button" className="pv-sched-rowtitle" onClick={() => props.onOpenCard(row.card.id)}>{row.card.title || t('project.board.untitled_card')}</button>
@@ -188,8 +189,8 @@ export function TimelineView(props: TimelineProps): ReactElement {
                 color={colorOf(row.card)}
                 left={place.left * columnPx}
                 width={place.width * columnPx}
-                top={index * ROW_H + (ROW_H - BAR_H) / 2}
-                height={BAR_H}
+                top={index * TIMELINE_ROW_H + (TIMELINE_ROW_H - TIMELINE_BAR_H) / 2}
+                height={TIMELINE_BAR_H}
                 done={isDone(row.card)}
                 progress={0}
                 conflict={false}

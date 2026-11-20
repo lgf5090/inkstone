@@ -24,7 +24,8 @@ function seed(count: number, matches: string[] = []) {
     CREATE TABLE notes (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
       content TEXT NOT NULL, excerpt TEXT NOT NULL DEFAULT '', rev INTEGER NOT NULL DEFAULT 1,
       updated_at INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER,
-      is_starred INTEGER NOT NULL DEFAULT 0, is_archived INTEGER NOT NULL DEFAULT 0);
+      is_starred INTEGER NOT NULL DEFAULT 0, is_archived INTEGER NOT NULL DEFAULT 0,
+      is_encrypted INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE ai_note_embeddings (user_id TEXT NOT NULL, note_id TEXT NOT NULL, model TEXT NOT NULL,
       vector BLOB NOT NULL, indexed_at INTEGER NOT NULL, norm REAL, PRIMARY KEY (user_id, note_id));
     CREATE INDEX idx_embeddings_user_indexed ON ai_note_embeddings(user_id, indexed_at);

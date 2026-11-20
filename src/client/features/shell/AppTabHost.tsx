@@ -20,7 +20,13 @@ import { LoadingBlock } from '../../components/feedback'
  * who never opens the tab should not pay for it in the shell's own bytes.
  */
 const ReadingApp = lazy(() => import('../reading/ReadingApp').then((m) => ({ default: m.ReadingApp })))
-import { ChatApp } from '../chat/ChatApp'
+
+/**
+ * The assistant is its own chunk too. It carries a 2.8k-line view and a 3.7k-line store that a reader
+ * who lives in the notebook should never download; the Suspense frame below already answers for every
+ * other lazy container, so the chat gets the same treatment without a second boundary.
+ */
+const ChatApp = lazy(() => import('../chat/ChatApp').then((m) => ({ default: m.ChatApp })))
 
 /**
  * Which component answers for which tab. A tab the rail offers but this list does not name is a

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { Archive, Clock, Copy, Download, MoreHorizontal, Pencil, Pin, Plus, Save, Search, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
+import { Archive, Clock, Copy, Download, ListTodo, MoreHorizontal, Pencil, Pin, Plus, Save, Search, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { ProjectBoardSummary, ProjectRole } from '@shared/project/model'
 import { t, useLocale } from '../../lib/i18n'
@@ -7,6 +7,7 @@ import { navigateToPath, usePathname } from '../../lib/app-history'
 import { Button, IconButton } from '../../components/primitives'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
+import type { SkinTone } from '@shared/types'
 import { EmojiPicker } from '../emoji/EmojiPicker'
 import { useUi } from '../../store/ui'
 import { projectBoardExportUrl, saveBoardAsTemplate } from './api'
@@ -14,6 +15,7 @@ import { useProjectStore } from './store'
 import { BoardPage } from './BoardPage'
 import { ArchiveDialog } from './ArchiveDialog'
 import { ImportDialog } from './ImportDialog'
+import { MyTasksPage } from './MyTasksPage'
 import { ProjectSidebar } from './ProjectSidebar'
 import { SearchDialog } from './SearchDialog'
 import { TemplatePicker } from './TemplatePicker'
@@ -38,6 +40,7 @@ export function ProjectApp(): ReactElement {
   const pathname = usePathname()
   const sessionStatus = useSession((state) => state.status)
   useEffect(() => { if (sessionStatus === 'authed') migrateProjectBoardMarks() }, [sessionStatus])
+  if (pathname === '/project/my-tasks') return <MyTasksPage />
   const match = /^\/project\/boards\/([^/]+)/.exec(pathname)
   if (match) return <BoardPage boardId={decodeURIComponent(match[1]!)} />
   return <BoardList />
@@ -111,6 +114,7 @@ function BoardList(): ReactElement {
             ]}
           />
         </span>
+        <IconButton label={t('project.my_tasks.title')} size="sm" onClick={() => navigateToPath('/project/my-tasks')}><ListTodo size={16} /></IconButton>
         <IconButton label={t('project.search.title')} size="sm" onClick={() => setShowSearch(true)}><Search size={16} /></IconButton>
         <IconButton label={t('project.archive.title')} size="sm" onClick={() => setShowArchive(true)}><Archive size={16} /></IconButton>
         <IconButton label={t('project.trash.title')} size="sm" onClick={() => setShowTrash(true)}><Trash2 size={16} /></IconButton>
@@ -157,7 +161,7 @@ function BoardList(): ReactElement {
   )
 }
 
-function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit: boolean, title: string, iconPicker: ReactElement | null } {
+function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], title: string, iconPicker: ReactElement | null } {
   const removeBoard = useProjectStore((state) => state.removeBoard)
   const copyBoard = useProjectStore((state) => state.copyBoard)
   const renameBoard = useProjectStore((state) => state.renameBoard)
@@ -165,9 +169,12 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit:
   const setBoardIcon = useProjectStore((state) => state.setBoardIcon)
   const setBoardArchived = useProjectStore((state) => state.setBoardArchived)
   const { pinned, starred, togglePin, toggleStar } = useProjectBoardMarks()
+  const currentUserId = useSession((state) => state.user?.id)
   const [iconOpen, setIconOpen] = useState(false)
+  const [iconTone, setIconTone] = useState<SkinTone>(0)
   const title = board.title || t('project.boards.untitled')
   const canEdit = board.role === 'editor' || board.role === 'admin'
+  const isOwner = board.ownerId === currentUserId
 
   const guard = async (action: () => Promise<void>) => {
     try {
@@ -212,14 +219,14 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit:
       },
     },
     {
-      id: 'save-template', label: t('project.templates.save_as'), icon: <Save size={15} />, disabled: board.role !== 'admin',
-      onSelect: () => { void guard(async () => { await saveBoardAsTemplate(board.id) }) },
+      id: 'save-template', label: t('project.templates.save_as'), icon: <Save size={15} />, disabled: !isOwner,
+      onSelect: () => { void guard(async () => { await saveBoardAsTemplate(board.id); useUi.getState().toast({ title: t('project.templates.saved'), tone: 'success' }) }) },
     },
     { id: 'export-csv', label: t('project.sidebar.export_csv'), icon: <Download size={15} />, separatorBefore: true, onSelect: () => { window.open(projectBoardExportUrl(board.id, 'csv'), '_blank') } },
     { id: 'export-archive', label: t('project.sidebar.export_archive'), icon: <Download size={15} />, onSelect: () => { window.open(projectBoardExportUrl(board.id, 'archive'), '_blank') } },
-    { id: 'archive', label: t('project.boards.archive'), icon: <Archive size={15} />, disabled: board.role !== 'admin', onSelect: () => { void guard(async () => { await setBoardArchived(board.id, true) }) } },
+    { id: 'archive', label: t('project.boards.archive'), icon: <Archive size={15} />, disabled: !isOwner, onSelect: () => { void guard(async () => { await setBoardArchived(board.id, true) }) } },
     {
-      id: 'delete', label: t('project.boards.delete_confirm'), icon: <Trash2 size={15} />, tone: 'danger', separatorBefore: true, disabled: board.role !== 'admin',
+      id: 'delete', label: t('project.boards.delete_confirm'), icon: <Trash2 size={15} />, tone: 'danger', separatorBefore: true, disabled: !isOwner,
       onSelect: () => {
         void guard(async () => {
           const ok = await confirm({ title: t('project.boards.delete_title', { title }), description: t('project.boards.delete_description'), tone: 'danger', confirmLabel: t('project.boards.delete_confirm') })
@@ -232,7 +239,7 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit:
   const iconPicker = iconOpen
     ? (
       <Modal open onClose={() => setIconOpen(false)} title={t('project.sidebar.change_icon')} width={420}>
-        <EmojiPicker tone={0} onTone={() => {}} onInsert={(glyph) => {
+        <EmojiPicker tone={iconTone} onTone={setIconTone} onInsert={(glyph) => {
           setIconOpen(false)
           void guard(async () => { await setBoardIcon(board.id, glyph) })
         }} />
@@ -240,7 +247,7 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], canEdit:
     )
     : null
 
-  return { items, canEdit, title, iconPicker }
+  return { items, title, iconPicker }
 }
 
 function BoardRow({ board }: { board: ProjectBoardSummary }): ReactElement {
@@ -313,7 +320,7 @@ function BoardCard({ board }: { board: ProjectBoardSummary }): ReactElement {
         className="flex flex-col text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         onClick={() => navigateToPath(`/project/boards/${board.id}`)}
       >
-        <span className="pv-tile-placeholder" aria-hidden="true" style={{ '--pv-cover-h': '92px', '--pv-card-color': boardTint(board.id) } as React.CSSProperties}>
+        <span className="pv-tile-placeholder" aria-hidden="true" style={{ '--pv-card-color': boardTint(board.id) } as React.CSSProperties}>
           {board.icon || <SquareKanban size={26} className="text-[var(--text-quaternary)]" />}
         </span>
         <span className="pv-tile-body">
@@ -326,7 +333,7 @@ function BoardCard({ board }: { board: ProjectBoardSummary }): ReactElement {
           </span>
         </span>
       </button>
-      <span className="absolute right-1.5 top-1.5 z-[1] rounded-[var(--r-sm)] bg-[var(--bg-base)]/80 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+      <span className="absolute right-1.5 top-1.5 z-[var(--pv-z-chip)] rounded-[var(--r-sm)] bg-[var(--bg-base)]/80 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100" data-touch-reveal="">
         <IconButton ref={anchor} label={t('project.boards.menu_label')} size="sm" onClick={() => setMenuOpen(true)}>
           <MoreHorizontal size={15} />
         </IconButton>

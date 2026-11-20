@@ -616,9 +616,7 @@ function CategoriesModal({ open, onClose }: { open: boolean; onClose: () => void
             <Button variant="ghost" size="sm" onClick={reset}>{t('tools.prompt_optimizer.common.cancel')}</Button>
           )}
         </div>
-        {categories
-          .slice()
-          .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
+        {categories.toSorted((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
           .map((category) => (
             <div key={category.id} className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1" style={{ marginLeft: `${categoryDepth(category, categories) * 16}px` }}>
               <span className="h-3 w-3 rounded-full" style={{ background: category.color }} aria-hidden="true" />

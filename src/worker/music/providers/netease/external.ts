@@ -204,13 +204,12 @@ export class ExternalNeteaseProvider implements MusicProvider, NeteaseLoginTrans
     const url = this.urlFor(route, params)
     let lastError = ''
     for (let attempt = 0; attempt <= this.retries; attempt += 1) {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), this.timeoutMs)
+      const signal = AbortSignal.timeout(this.timeoutMs)
       try {
         const response = await fetch(url, {
           method: 'GET',
           redirect: 'manual',
-          signal: controller.signal,
+          signal,
           headers: { Accept: 'application/json' },
         })
         if (response.status >= 500 && attempt < this.retries) {
@@ -245,8 +244,6 @@ export class ExternalNeteaseProvider implements MusicProvider, NeteaseLoginTrans
         return { ok: true, status: response.status, body, error: '' }
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error)
-      } finally {
-        clearTimeout(timer)
       }
     }
     return {

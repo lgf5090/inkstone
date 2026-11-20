@@ -8,6 +8,7 @@ import { errorResponse } from '../src/worker/lib/errors'
 import { developmentGithubRoutes } from '../src/worker/routes/development-github'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
+import { testGithubLimiter } from './doubles/github-limiter'
 
 const USER_A = 'user-a'
 
@@ -75,7 +76,7 @@ beforeEach(() => {
   for (const statement of DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS) sqlite.exec(statement)
   for (const statement of DEVELOPMENT_GITHUB_EXTRA_MIGRATIONS) sqlite.exec(statement)
   db = makeD1(sqlite)
-  env = testBindings(db)
+  env = testBindings(db, { GITHUB_LIMITER: testGithubLimiter() })
   app = buildApp()
 })
 

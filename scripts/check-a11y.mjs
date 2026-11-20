@@ -40,6 +40,7 @@ let progressBars = 0
 
 for (const file of walkSource('src')) {
   if (!/\.tsx$/.test(file) || file.includes(`${path.sep}locales${path.sep}`)) continue
+  const key = file.replaceAll(path.sep, '/')
   const text = fs.readFileSync(file, 'utf8')
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const lineOf = (node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
@@ -61,14 +62,14 @@ for (const file of walkSource('src')) {
     if (ts.isJsxSelfClosingElement(node) && iconNames.has(node.tagName.getText())) {
       const labelled = Boolean(attributeOf(node, 'aria-label'))
       if (labelled && !attributeOf(node, 'role') && !attributeOf(node, 'aria-hidden')) {
-        if (!exempt.has(`${file}:${lineOf(node)}`)) failures.push(`${file}:${lineOf(node)}: <${node.tagName.getText()}> carries aria-label without role="img"`)
+        if (!exempt.has(`${key}:${lineOf(node)}`)) failures.push(`${file}:${lineOf(node)}: <${node.tagName.getText()}> carries aria-label without role="img"`)
       }
       if (labelled) labelledIcons += 1
     }
     if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && attributeValue(node, 'role') === 'progressbar') {
       progressBars += 1
       if (!attributeOf(node, 'aria-valuetext')) {
-        if (!exempt.has(`${file}:${lineOf(node)}`)) failures.push(`${file}:${lineOf(node)}: a progressbar needs aria-valuetext, or a reader is told only a number`)
+        if (!exempt.has(`${key}:${lineOf(node)}`)) failures.push(`${file}:${lineOf(node)}: a progressbar needs aria-valuetext, or a reader is told only a number`)
       }
     }
     ts.forEachChild(node, visit)

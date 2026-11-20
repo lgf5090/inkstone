@@ -246,7 +246,7 @@ export function scheduleSummary(
     case 'daily':
       return { key: 'assistant.schedule.daily', params: { time: spec.time ?? '' } }
     case 'weekly': {
-      const days = [...(spec.days ?? [])].sort((left, right) => left - right)
+      const days = (spec.days ?? []).toSorted((left, right) => left - right)
       if (days.length === 7) return { key: 'assistant.schedule.daily', params: { time: spec.time ?? '' } }
       const named = describeDays ? describeDays(days) : days.map((day) => WEEKDAY_NAMES[day]).join(', ')
       return { key: 'assistant.schedule.weekly', params: { days: named, time: spec.time ?? '' } }

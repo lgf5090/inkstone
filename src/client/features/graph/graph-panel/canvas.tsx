@@ -33,6 +33,7 @@ import {
   stepPhysics,
 } from './scene'
 import type { CanvasNode, CanvasState, GraphCanvasCallbacks, GraphCanvasControls, SceneResponse } from './types'
+import { isEnterKey } from '../../../lib/ime'
 
 function emptyState(): CanvasState {
   return {
@@ -496,7 +497,7 @@ export function GraphCanvas({
       if (event.key === '+' || event.key === '=') zoomFromCenter(Math.min(GRAPH_MAX_SCALE, current.scale + GRAPH_ZOOM_STEP))
       else if (event.key === '-') zoomFromCenter(Math.max(GRAPH_MIN_SCALE, current.scale - GRAPH_ZOOM_STEP))
       else if (event.key === 'Home') fitGraph()
-      else if (event.key === 'Enter' && selectedIdRef.current) {
+      else if (isEnterKey(event) && selectedIdRef.current) {
         const node = current.nodes.find((item) => item.id === selectedIdRef.current)
         if (node) openNode(node)
       }

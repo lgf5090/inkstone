@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CircleDot, 
 import type { GithubCollection, GithubMirrorSource, GithubPrefs, GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 import { GITHUB_PER_PAGE, GITHUB_RANGE_OPTIONS, GITHUB_SORT_OPTIONS } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 import { cn } from '../../../../lib/cn'
 import { Button, IconButton, Spinner } from '../../../../components/primitives'
 import { Checkbox, Input } from '../../../../components/form'
@@ -11,6 +11,7 @@ import { Empty } from '../../../../components/feedback'
 import { Menu, type MenuItem } from '../../../../components/overlay'
 import { SelectMenu } from '../../../../components/select-menu'
 import { getLanguageColor, fuzzyMatchLanguages } from '../lib/languages'
+import { useWindowedRows } from '../lib/use-windowed-rows'
 import { buildMirrorDownloadUrl, formatNumber } from '../lib/format'
 import { RepoRow } from './RepoRow'
 
@@ -147,6 +148,7 @@ export function RepoList({
   const [tagOpen, setTagOpen] = useState(false)
   const [memberOpen, setMemberOpen] = useState(false)
   const [draft, setDraft] = useState(query)
+  const { visibleItems, remaining, onScroll: onListScroll, showMore } = useWindowedRows(items)
   useEffect(() => setDraft(query), [query])
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
   const hasMore = isExplore && items.length === GITHUB_PER_PAGE && page * GITHUB_PER_PAGE < Math.min(totalCount, 1000)
@@ -222,7 +224,7 @@ export function RepoList({
                   }
                   return
                 }
-                if (event.key === 'Enter' && isExplore) {
+                if (isEnterKey(event) && isExplore) {
                   event.preventDefault()
                   onCommitSearch(draft)
                 }
@@ -243,7 +245,7 @@ export function RepoList({
             <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto xl:flex">
               {GITHUB_RANGE_OPTIONS.map((option) => {
                 const active = prefs.range === option.value
-                return <button key={option.value} type="button" onClick={() => onUpdatePrefs({ range: option.value }, draft)} data-active={active || undefined} className={cn('shrink-0 rounded-full px-2.5 py-1 text-[length:var(--text-11)] font-medium transition-colors', active ? 'bg-[var(--accent)] text-[var(--accent-contrast)]' : 'bg-[var(--bg-raised)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]')}>{t(option.labelKey)}</button>
+                return <Button key={option.value} variant="ghost" size="sm" onClick={() => onUpdatePrefs({ range: option.value }, draft)} data-active={active || undefined} className={cn('h-auto shrink-0 rounded-full px-2.5 py-1 text-[length:var(--text-11)] font-medium', active ? 'bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent)] hover:text-[var(--accent-contrast)]' : 'bg-[var(--bg-raised)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]')}>{t(option.labelKey)}</Button>
               })}
               <LanguageMenu value={prefs.language} onChange={(language) => onUpdatePrefs({ language }, draft)} />
             </div>
@@ -308,11 +310,12 @@ export function RepoList({
                   : undefined}
           />
         ) : (
-          <div className="absolute inset-0 overflow-y-auto overscroll-contain">
-            <ul className="divide-y divide-[var(--border-subtle)]">
-              {items.map((repo, index) => (
+          <div className="absolute inset-0 overflow-y-auto overscroll-contain" onScroll={onListScroll}>
+            <ul className="github-windowed-list divide-y divide-[var(--border-subtle)]">
+              {visibleItems.map((repo, index) => (
                 <RepoRow key={repo.id} repo={repo} rank={isExplore ? (page - 1) * GITHUB_PER_PAGE + index + 1 : index + 1} saved={repoMap.get(String(repo.id))} tags={tags} selected={selectedRepoId === String(repo.id)} checkable={!isExplore} checked={selectedIds.has(String(repo.id))} onCheck={onCheckRepo} mirrorUrl={currentMirror ? buildMirrorDownloadUrl(currentMirror.url, repo.url) : repo.url} onSelect={onSelectRepo} onTogglePin={onTogglePin} onToggleFav={onToggleFav} onToggleTag={onToggleTag} onRemove={onRemoveRepo} />
               ))}
+              {remaining > 0 && <li className="flex justify-center p-3"><Button variant="ghost" size="sm" onClick={showMore}>{t('development.github.common.show_more', { count: remaining })}</Button></li>}
               {loading && <li className="flex items-center justify-center gap-2 py-10 text-[length:var(--text-12)] text-[var(--text-tertiary)]"><Spinner size={14} />{t('development.github.common.loading')}</li>}
             </ul>
           </div>

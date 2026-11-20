@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import { initializeDatabase, REQUIRED_COLUMNS, SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 
 /**
  * What a deploy must do when the database it lands on disagrees with it.
@@ -35,7 +36,7 @@ const ADDITIONS = SCHEMA_MIGRATIONS.flatMap((migration) => migration.statements)
 
 async function boot(sqlite: DatabaseSync): Promise<D1Database> {
   const db = makeD1(sqlite)
-  await initializeDatabase({ DB: db } as never)
+  await initializeDatabase(testBindings(db))
   return db
 }
 
@@ -519,10 +520,18 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   ['project_board_members', 'composite (board_id, user_id) on newProjectId() boards'],
   ['project_todo_links', 'composite (card_id, todo_id) on newProjectId() cards; the unique index on todo_id keeps one card per todo'],
   ['project_attachments', 'id is a 27-character newProjectId(); every read binds user_id'],
+  ['project_time_entries', 'id is a 27-character newProjectId(); every read binds the card, which belongs to one board'],
   // Public by slug, and the link is the capability: a reader who is not signed in has no account to
   // lead the key with. Minted by `newSlug()` (worker/lib/id.ts), the same unguessable 20-character
   // generator the note and conversation shares were verified on; management binds user_id.
   ['project_shares', 'newSlug(), unguessable; public read by slug alone'],
+  ['project_api_tokens', 'id is a 27-character newProjectId(); lookup by unique token_hash, management reads bind user_id'],
+  ['ai_gateway_keys', 'id is a crypto-random newId(); management reads bind user_id'],
+  ['ai_gateway_key_usage', 'composite (key_id, day) on an account-owned key; every read binds user_id'],
+  ['ai_gateway_requests', 'id is a crypto-random newId(); log reads bind user_id'],
+  ['ai_gateway_reconcile_snapshots', 'id is a crypto-random newId(); every read binds user_id'],
+  ['ai_gateway_responses', 'id is a crypto-random newId(); reads and deletes bind user_id'],
+  ['ai_gateway_media', 'id is a crypto-random newId(); cleanup reads bind user_id'],
 ])
 
 /** The tables that carry a `user_id` column yet key on something else. */

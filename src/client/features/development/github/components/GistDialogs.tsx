@@ -3,7 +3,7 @@ import { Download, Eye, EyeOff, FileCode, KeyRound, Plus, ShieldAlert, Trash2 } 
 import type { GistFile, GistItem, GithubAccountView } from '@shared/development/github/types'
 import { MAX_GIST_TOTAL_CONTENT_BYTES } from '@shared/development/github/limits'
 import { t } from '../../../../lib/i18n'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 import { githubApi } from '../api'
 import { extractGistId } from '../lib/format'
 import { addGistFile, gistFileIssueKey, GistFileError, normalizeGistFiles, removeGistFile, updateGistFile } from '../lib/gist-files'
@@ -38,7 +38,7 @@ export function GistImportDialog({ open, onClose, onImport }: { open: boolean; o
   return (
     <Modal open={open} onClose={onClose} title={<span className="inline-flex items-center gap-2"><Download size={15} />{t('development.github.gists.import_title')}</span>} description={t('development.github.gists.import_desc')} width={520} footer={<><Button variant="secondary" onClick={onClose} disabled={loading}>{t('common.cancel')}</Button><Button onClick={() => void importGist()} disabled={loading || !url.trim()} loading={loading}><Download size={13} />{loading ? t('development.github.gists.importing') : t('development.github.gists.import')}</Button></>}>
       <div className="space-y-2">
-        <Input value={url} onChange={(event) => { setUrl(event.target.value); setError(null) }} placeholder="https://gist.github.com/user/abc123" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && url.trim() && !loading) { event.preventDefault(); void importGist() } }} autoFocus />
+        <Input value={url} onChange={(event) => { setUrl(event.target.value); setError(null) }} placeholder="https://gist.github.com/user/abc123" onKeyDown={(event) => { if (isImeComposing(event)) return; if (isEnterKey(event) && url.trim() && !loading) { event.preventDefault(); void importGist() } }} autoFocus />
         {error && <p className="text-[length:var(--text-11)] text-[var(--danger)]" role="alert">{error}</p>}
       </div>
     </Modal>

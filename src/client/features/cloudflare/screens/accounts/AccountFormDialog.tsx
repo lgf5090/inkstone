@@ -22,6 +22,7 @@ import { accountsApi, type AccountInput, type AccountUpdateInput } from '../../a
 import { cfErrorDetail, cfErrorText } from '../../api/client'
 import { cfT } from '../../i18n'
 import { enabledFeatures, featureLabel } from './labels'
+import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../../../lib/autocomplete'
 
 const FORM_ID = 'cloudflare-account-form'
 
@@ -160,7 +161,7 @@ export function AccountFormDialog({
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder={cfT('cloudflare.accounts.account_name_placeholder')}
-            autoComplete="off"
+            autoComplete={NON_CREDENTIAL_AUTOCOMPLETE}
             maxLength={120}
             required
           />
@@ -187,7 +188,7 @@ export function AccountFormDialog({
               placeholder={account
                 ? cfT('cloudflare.accounts.api_token_edit_placeholder')
                 : cfT('cloudflare.accounts.api_token_placeholder')}
-              autoComplete="off"
+              autoComplete={NON_CREDENTIAL_AUTOCOMPLETE}
               spellCheck={false}
               maxLength={4096}
             />
@@ -200,7 +201,7 @@ export function AccountFormDialog({
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder={emailPlaceholder}
-                autoComplete="off"
+                autoComplete={NON_CREDENTIAL_AUTOCOMPLETE}
                 spellCheck={false}
                 maxLength={254}
               />
@@ -213,7 +214,7 @@ export function AccountFormDialog({
                 placeholder={account
                   ? cfT('cloudflare.accounts.api_key_edit_placeholder')
                   : cfT('cloudflare.accounts.api_key_placeholder')}
-                autoComplete="off"
+                autoComplete={NON_CREDENTIAL_AUTOCOMPLETE}
                 spellCheck={false}
                 maxLength={4096}
               />

@@ -206,9 +206,9 @@ storeRouter.post('/readme', async (c) => {
 })
 
 /**
- * A README's images, fetched through the worker because the page's `img-src` does not allow the
- * documentation host. This one stays a GET: an `<img>` cannot carry a body, so the address is in the
- * URL by construction. What the log learns is which public page the reader was already reading.
+ * A README's images, fetched through the worker so a host named in somebody else's README never
+ * sees the reader's address. This one stays a GET: an `<img>` cannot carry a body, so the address
+ * is in the URL by construction. What the log learns is which public page the reader was reading.
  */
 storeRouter.get('/image', async (c) => {
   const raw = c.req.query('url')

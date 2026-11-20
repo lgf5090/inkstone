@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import type { ProjectBoardMember, ProjectCard, ProjectPeople, ProjectProperty } from '@shared/project/model'
 import { projectMultiValueIds, projectPersonLabel } from '@shared/project/model'
-import { moveProjectDateValue, parseProjectDateValue, projectInputToStamp, projectStampToInput } from '@shared/project/date'
+import { moveProjectDateValue, parseProjectDateValue, projectInputToStamp, projectStampToInput, projectTimeZoneName } from '@shared/project/date'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
+import type { ProjectRelationOption } from '@shared/project/relation'
+import { parseProjectRelationIds, serializeProjectRelationIds } from '@shared/project/relation'
+import { t, useLocale } from '../../lib/i18n'
 import { Avatar } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input } from '../../components/form'
 import { isImeComposing } from '../../lib/ime'
@@ -10,6 +13,7 @@ import { SelectMenu } from '../../components/select-menu'
 import { useSession } from '../../store/session'
 import { optionDot } from './CardBadges'
 import { DatePicker } from '../../components/date-picker'
+import { fetchRelationCards } from './api'
 
 interface PropertyValueEditorProps {
   property: ProjectProperty
@@ -27,13 +31,66 @@ interface PropertyValueEditorProps {
 function readDateFrom(value: string): string {
   const parsed = parseProjectDateValue(value)
   if (parsed?.from === undefined) return ''
-  return projectStampToInput(parsed.from, parsed.includeTime === true)
+  return projectStampToInput(parsed.from, parsed.includeTime === true, parsed.timeZone)
+}
+
+function RelationPicker({ targetBoardId, multiple, selected, disabled, label, onChange }: {
+  targetBoardId: string
+  multiple: boolean
+  selected: string[]
+  disabled: boolean
+  label: string
+  onChange: (ids: string[]) => void
+}): ReactElement {
+  const [options, setOptions] = useState<ProjectRelationOption[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    fetchRelationCards(targetBoardId)
+      .then((cards) => { if (alive) setOptions(cards) })
+      .catch(() => { if (alive) setOptions(null) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [targetBoardId])
+  if (loading) return <span role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.relation.loading')}</span>
+  if (options === null) return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.relation.no_access')}</span>
+  if (!options.length) return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.relation.empty')}</span>
+  if (multiple) {
+    return (
+      <div className="flex flex-wrap gap-2">
+        {options.map((option) => (
+          <Checkbox
+            key={option.id}
+            label={option.title}
+            checked={selected.includes(option.id)}
+            disabled={disabled}
+            onChange={(checked) => {
+              const next = checked ? [...selected, option.id] : selected.filter((id) => id !== option.id)
+              onChange(next)
+            }}
+          />
+        ))}
+      </div>
+    )
+  }
+  return (
+    <SelectMenu
+      className="w-full"
+      value={selected[0] ?? ''}
+      disabled={disabled}
+      label={label}
+      onChange={(next) => onChange(next ? [next] : [])}
+      options={[{ value: '', label: t('project.value.empty') }, ...options.map((option) => ({ value: option.id, label: option.title }))]}
+    />
+  )
 }
 
 export function PropertyValueEditor({ property, value, members, disabled, onChange, card, onDone, people }: PropertyValueEditorProps): ReactElement {
   const [draft, setDraft] = useState(value)
   useEffect(() => { setDraft(value) }, [value])
   const self = useSession((state) => state.user)
+  const locale = useLocale()
 
   /** The roster plus the reader: an open board lets an editor assign themselves before they join. */
   const directory = useMemo<ProjectPeople>(() => {
@@ -63,7 +120,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
   switch (property.type) {
     case 'select':
       return (
-        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: '—' }, ...property.options.map((option) => ({ value: option.id, label: option.value, icon: optionDot(option.color) }))]} />
+        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: t('project.value.empty') }, ...property.options.map((option) => ({ value: option.id, label: option.value, icon: optionDot(option.color) }))]} />
       )
     case 'multiSelect': {
       const selected = projectMultiValueIds(value)
@@ -88,7 +145,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
       const selected = projectMultiValueIds(value)
       return (
         <div className="flex flex-wrap gap-2">
-          {candidates.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</span>}
+          {candidates.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.value.empty')}</span>}
           {candidates.map((userId) => (
             <Checkbox
               key={userId}
@@ -114,21 +171,38 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
           value={readDateFrom(value)}
           onChange={(raw) => {
             const current = parseProjectDateValue(value)
-            const from = raw ? projectInputToStamp(raw, current?.includeTime === true) : null
+            const timeZone = current?.timeZone ?? projectTimeZoneName()
+            const from = raw ? projectInputToStamp(raw, current?.includeTime === true, timeZone) : null
             if (from === null) { onChange(null); return }
-            onChange(JSON.stringify(moveProjectDateValue(current ?? {}, from)))
+            const next = moveProjectDateValue(current ?? {}, from)
+            next.timeZone ??= timeZone
+            onChange(JSON.stringify(next))
           }}
         />
       )
     case 'person':
       return (
-        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: '—' }, ...candidates.map((userId) => ({ value: userId, label: projectPersonLabel(directory, userId), icon: <Avatar src={directory[userId]?.avatarUrl} name={projectPersonLabel(directory, userId)} size={18} /> }))]} />
+        <SelectMenu className="w-full" value={value} disabled={disabled} label={property.name} onChange={(next) => onChange(next === '' ? null : next)} options={[{ value: '', label: t('project.value.empty') }, ...candidates.map((userId) => ({ value: userId, label: projectPersonLabel(directory, userId), icon: <Avatar src={directory[userId]?.avatarUrl} name={projectPersonLabel(directory, userId)} size={18} /> }))]} />
       )
+    case 'relation':
+      return (
+        <RelationPicker
+          targetBoardId={property.config?.targetBoardId ?? ''}
+          multiple={property.config?.multiple === true}
+          selected={parseProjectRelationIds(value)}
+          disabled={disabled}
+          label={property.name}
+          onChange={(ids) => onChange(serializeProjectRelationIds(ids))}
+        />
+      )
+    case 'formula':
+    case 'rollup':
+      return <span className="text-[length:var(--text-12)] text-[var(--text-secondary)] tabular">{value || t('project.value.empty')}</span>
     case 'createdBy':
     case 'updatedBy':
     case 'createdTime':
     case 'updatedTime':
-      return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{(card ? projectPropertyDisplayText(card, property, directory) : value) || '—'}</span>
+      return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{(card ? projectPropertyDisplayText(card, property, directory, locale) : value) || t('project.value.empty')}</span>
     default:
       return (
         <Input

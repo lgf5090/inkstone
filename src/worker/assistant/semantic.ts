@@ -147,7 +147,7 @@ export function selectVectorHits(
   floor = SEMANTIC_FLOOR,
   fallbackCount = SEMANTIC_FALLBACK_COUNT,
 ): ScoredMemory[] {
-  const all = [...scored].sort((left, right) => right.score - left.score || right.updatedAt - left.updatedAt || compareIds(left.id, right.id))
+  const all = scored.toSorted((left, right) => right.score - left.score || right.updatedAt - left.updatedAt || compareIds(left.id, right.id))
   const top = all[0]
   const kept = top && top.score >= floor.absolute
     ? all.filter((entry) => entry.score >= floor.absolute && entry.score >= top.score - floor.relative)

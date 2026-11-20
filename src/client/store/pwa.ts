@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { t } from '../lib/i18n'
+import { PROJECT_OUTBOX_SYNC_EVENT } from '../lib/runtime'
 import { useUi } from './ui'
 
 interface InstallPromptEvent extends Event {
@@ -317,6 +318,10 @@ function handleServiceWorkerMessage(event: MessageEvent): void {
     completed?: number
     total?: number
   } | null
+  if (data?.type === 'PROJECT_OUTBOX_SYNC') {
+    window.dispatchEvent(new Event(PROJECT_OUTBOX_SYNC_EVENT))
+    return
+  }
   if (data?.type !== 'OFFLINE_CACHE_STATUS') return
   // The worker is a separate artifact from a previous deploy, so its status text is input, not a fact:
   // a value the Settings row cannot render is dropped here rather than put on the screen.

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { consumeAttemptBudget, ThrottleError } from '../src/worker/lib/throttle'
 
@@ -17,17 +17,17 @@ beforeEach(() => {
         bind(...values: unknown[]) {
           return {
             async all() {
-              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value]))
-              return { results: sqlite!.prepare(sql).all(args as never) }
+              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value])) as unknown as Record<string, SQLInputValue>
+              return { results: sqlite!.prepare(sql).all(args) }
             },
             async run() {
-              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value]))
-              sqlite!.prepare(sql).run(args as never)
+              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value])) as unknown as Record<string, SQLInputValue>
+              sqlite!.prepare(sql).run(args)
               return { meta: { changes: 1 } }
             },
             async first() {
-              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value]))
-              return sqlite!.prepare(sql).get(args as never) ?? null
+              const args = Object.fromEntries(values.map((value, i) => [String(i + 1), value])) as unknown as Record<string, SQLInputValue>
+              return sqlite!.prepare(sql).get(args) ?? null
             },
           }
         },

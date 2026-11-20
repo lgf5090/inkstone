@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectCard, ProjectFilterClause, ProjectFilterGroup, ProjectProperty } from './model'
 import { emptyProjectFilterGroup } from './model'
-import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, projectFilterPrefill, projectKanbanDropOrder, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from './view-eval'
+import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, projectFilterPrefill, projectGroupKeys, projectGroupLabel, projectKanbanDropOrder, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from './view-eval'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u2', createAt: 1_000_000, updateAt: 2_000_000, deleteAt: 0 }
 
@@ -276,5 +276,50 @@ describe('manual card order', () => {
       target: { zone: 'x', index: 1 },
     })
     expect(order).toEqual(['c', 'a', 'b', 'd'])
+  })
+})
+
+describe('group keys and labels', () => {
+  it('unions the declared options with the values the cards hold', () => {
+    const keys = projectGroupKeys([card('a', { pp: 'u1' }), card('b', { ps: 'o2' })], 'pp', [
+      ...props,
+      { id: 'pp', name: 'Owner', type: 'person', options: [] },
+    ])
+    expect(keys).toEqual(['u1', ''])
+    expect(projectGroupKeys([card('a', { ps: 'o2' })], 'ps', props)).toEqual(['o1', 'o2', ''])
+  })
+
+  it('labels people and dates the way the card face does', () => {
+    const people = { u1: { id: 'u1', name: 'Alice', avatarUrl: '' } }
+    expect(projectGroupLabel({ id: 'pp', name: 'Owner', type: 'person', options: [] }, 'u1', people)).toBe('Alice')
+    expect(projectGroupLabel(props[1], 'o2')).toBe('Done')
+    expect(projectGroupLabel(undefined, 'raw')).toBe('raw')
+  })
+})
+
+describe('sort semantics', () => {
+  it('orders dates chronologically rather than by their JSON spelling', () => {
+    const early = card('early', { pd: JSON.stringify({ from: 100_000 }) })
+    const late = card('late', { pd: JSON.stringify({ from: 20_000 }) })
+    expect(sortProjectCards([early, late], [{ propertyId: 'pd', reversed: false }], props).map((entry) => entry.id))
+      .toEqual(['late', 'early'])
+  })
+
+  it('orders a select by the board option order, not the option id', () => {
+    const status: ProjectProperty = {
+      id: 'px', name: 'Phase', type: 'select',
+      options: [{ id: 'z', value: 'First', color: '' }, { id: 'a', value: 'Second', color: '' }],
+    }
+    const second = card('second', { px: 'a' })
+    const first = card('first', { px: 'z' })
+    expect(sortProjectCards([second, first], [{ propertyId: 'px', reversed: false }], [status]).map((entry) => entry.id))
+      .toEqual(['first', 'second'])
+  })
+
+  it('orders people by display name when the directory is available', () => {
+    const owner: ProjectProperty = { id: 'pp', name: 'Owner', type: 'person', options: [] }
+    const people = { u1: { id: 'u1', name: 'Zoe', avatarUrl: '' }, u2: { id: 'u2', name: 'Amy', avatarUrl: '' } }
+    expect(sortProjectCards([card('z', { pp: 'u1' }), card('a', { pp: 'u2' })], [{ propertyId: 'pp', reversed: false }], [owner], people).map((entry) => entry.id))
+      .toEqual(['a', 'z'])
   })
 })

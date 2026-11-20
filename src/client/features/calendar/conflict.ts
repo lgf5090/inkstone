@@ -138,8 +138,8 @@ function categoriesText(side: CalendarEventInput, view: ConflictView): string {
 
 function sameSet(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) return false
-  const sorted = [...left].sort()
-  const other = [...right].sort()
+  const sorted = left.toSorted()
+  const other = right.toSorted()
   return sorted.every((entry, index) => entry === other[index])
 }
 

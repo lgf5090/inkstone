@@ -19,10 +19,13 @@ import {
   PROJECT_GALLERY_SIZES,
   PROJECT_PROPERTY_TYPES,
   PROJECT_ROLES,
+  PROJECT_ROLLUP_AGGREGATIONS,
   PROJECT_SCHEDULE_SCALES,
   PROJECT_SUBSCRIPTION_BLOCKS,
   PROJECT_VIEW_TYPES,
 } from './model'
+import { PROJECT_TOKEN_SCOPES, PROJECT_WEBHOOK_EVENTS } from './integrations'
+import { PROJECT_SPRINT_STATUSES } from './stats'
 
 const projectId = z.string().refine(isProjectId, 'invalid id')
 // zod's string max counts code points, not UTF-16 units, which is the unit the reference's ceiling is
@@ -45,11 +48,27 @@ export const ProjectPropertyOptionSchema = z.object({
   color: z.string().max(64),
 })
 
+export const ProjectRollupConfigSchema = z.object({
+  relationPropertyId: projectId,
+  targetPropertyId: projectId,
+  aggregation: z.enum(PROJECT_ROLLUP_AGGREGATIONS),
+})
+
+export const ProjectPropertyConfigSchema = z.object({
+  targetBoardId: projectId.optional(),
+  multiple: z.boolean().optional(),
+  expression: z.string().max(500).optional(),
+  viewRoles: z.array(z.enum(PROJECT_ROLES)).max(PROJECT_ROLES.length).optional(),
+  editRoles: z.array(z.enum(PROJECT_ROLES)).max(PROJECT_ROLES.length).optional(),
+  rollup: ProjectRollupConfigSchema.optional(),
+})
+
 export const ProjectPropertySchema = z.object({
   id: projectId,
   name: z.string().max(1024),
   type: ProjectPropertyTypeSchema,
   options: z.array(ProjectPropertyOptionSchema).max(PROJECT_LIMITS.optionsPerProperty),
+  config: ProjectPropertyConfigSchema.optional(),
 })
 
 export const ProjectFilterClauseSchema = z.object({
@@ -84,6 +103,7 @@ const idList = z.array(z.string().min(1).max(64)).max(PROJECT_LIMITS.cardsPerBoa
 const optionKeyList = z.array(z.string().max(64)).max(PROJECT_LIMITS.cardsPerBoard)
 
 export const ProjectViewFieldsSchema = z.object({
+  minimumRole: ProjectMinimumRoleSchema.optional(),
   groupById: z.string().max(64).optional(),
   dateDisplayPropertyId: z.string().max(64).optional(),
   cardSize: z.enum(['compact', 'comfortable', 'spacious']).optional(),
@@ -151,11 +171,13 @@ export type ProjectBoardPatchInput = z.infer<typeof ProjectBoardPatchSchema>
 /** A property value is text on the wire; multi-valued types carry a JSON array, as the reference does. */
 const propertyValue = z.string().max(PROJECT_LIMITS.fieldsRunes)
 const valueMap = z.record(projectId, propertyValue)
+  .refine((values) => Object.keys(values).length <= PROJECT_LIMITS.propertiesPerBoard, 'too many values')
 
 export const ProjectRecurrenceSchema = z.object({
   freq: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
   interval: z.number().int().min(1).max(365).default(1),
   byWeekday: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  anchor: z.number().int().optional(),
 })
 
 export const ProjectCardCreateSchema = z.object({
@@ -181,6 +203,49 @@ export const ProjectCardPatchSchema = z.object({
 export type ProjectCardPatchInput = z.infer<typeof ProjectCardPatchSchema>
 
 export const ProjectCardMoveSchema = z.object({ targetBoardId: projectId })
+
+export const ProjectDefaultViewPutSchema = z.object({
+  viewId: z.union([projectId, z.null()]),
+})
+export type ProjectDefaultViewPutInput = z.infer<typeof ProjectDefaultViewPutSchema>
+
+export const ProjectApiTokenCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  scope: z.enum(PROJECT_TOKEN_SCOPES),
+  boardId: z.union([projectId, z.literal('')]).optional(),
+  expiresAt: stamp.nullable().optional(),
+})
+export type ProjectApiTokenCreateInput = z.infer<typeof ProjectApiTokenCreateSchema>
+
+const webhookEvent = z.union([z.literal('*'), z.enum(PROJECT_WEBHOOK_EVENTS)])
+
+export const ProjectWebhookCreateSchema = z.object({
+  url: z.string().trim().min(1).max(2048),
+  events: z.array(webhookEvent).max(PROJECT_WEBHOOK_EVENTS.length + 1).optional(),
+  enabled: z.boolean().optional(),
+})
+export type ProjectWebhookCreateInput = z.infer<typeof ProjectWebhookCreateSchema>
+
+export const ProjectWebhookPatchSchema = ProjectWebhookCreateSchema.partial()
+export type ProjectWebhookPatchInput = z.infer<typeof ProjectWebhookPatchSchema>
+
+export const ProjectSprintCreateSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  goal: z.string().max(1000).optional(),
+  startAt: stamp,
+  endAt: stamp,
+  status: z.enum(PROJECT_SPRINT_STATUSES).optional(),
+}).refine((value) => value.endAt >= value.startAt, { message: 'endAt must not precede startAt' })
+export type ProjectSprintCreateInput = z.infer<typeof ProjectSprintCreateSchema>
+
+export const ProjectSprintPatchSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  goal: z.string().max(1000).optional(),
+  startAt: stamp.optional(),
+  endAt: stamp.optional(),
+  status: z.enum(PROJECT_SPRINT_STATUSES).optional(),
+})
+export type ProjectSprintPatchInput = z.infer<typeof ProjectSprintPatchSchema>
 
 export const ProjectViewCreateSchema = z.object({
   id: projectId.optional(),
@@ -261,6 +326,11 @@ export const ProjectCategoryBoardOrderSchema = z.object({
 
 export const ProjectCategoryBoardHiddenSchema = z.object({ hidden: z.boolean() })
 
+export const ProjectCardMarksSchema = z.object({
+  starred: z.array(projectId).max(PROJECT_LIMITS.cardsPerBoard).default([]),
+  pinned: z.array(projectId).max(PROJECT_LIMITS.cardsPerBoard).default([]),
+})
+
 export const ProjectMemberAddSchema = z.object({
   username: z.string().trim().min(1).max(64),
   role: ProjectRoleSchema,
@@ -276,6 +346,7 @@ export const ProjectSubscriptionCreateSchema = z.object({
 export const ProjectSharePutSchema = z.object({
   password: z.string().min(4).max(128).nullable().optional(),
   expiresAt: stamp.nullable().optional(),
+  showComments: z.boolean().optional(),
 })
 
 export const ProjectCardLinkSchema = z.object({
@@ -303,3 +374,36 @@ export const ProjectBatchDeleteSchema = z.object({
   contentIds: z.array(projectId).max(PROJECT_LIMITS.batchOperations).default([]),
   viewIds: z.array(projectId).max(PROJECT_LIMITS.batchOperations).default([]),
 })
+
+export const ProjectAutomationTriggerSchema = z.object({
+  type: z.literal('cardValueChanged'),
+  propertyId: projectId.optional(),
+})
+
+export const ProjectAutomationConditionSchema = z.object({
+  propertyId: projectId,
+  op: z.enum(['equals', 'notEquals', 'isSet', 'isEmpty']),
+  value: z.string().max(500),
+})
+
+export const ProjectAutomationActionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('setValue'), propertyId: projectId, value: z.string().max(PROJECT_LIMITS.fieldsRunes) }),
+  z.object({ type: z.literal('notify'), message: z.string().min(1).max(500) }),
+])
+
+export const ProjectAutomationCreateSchema = z.object({
+  id: projectId.optional(),
+  trigger: ProjectAutomationTriggerSchema,
+  condition: ProjectAutomationConditionSchema.nullable().default(null),
+  action: ProjectAutomationActionSchema,
+  enabled: z.boolean().default(true),
+})
+export type ProjectAutomationCreateInput = z.infer<typeof ProjectAutomationCreateSchema>
+
+export const ProjectAutomationPatchSchema = z.object({
+  trigger: ProjectAutomationTriggerSchema.optional(),
+  condition: ProjectAutomationConditionSchema.nullable().optional(),
+  action: ProjectAutomationActionSchema.optional(),
+  enabled: z.boolean().optional(),
+})
+export type ProjectAutomationPatchInput = z.infer<typeof ProjectAutomationPatchSchema>

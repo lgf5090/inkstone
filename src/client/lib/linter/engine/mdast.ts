@@ -683,7 +683,7 @@ export function reIndexFootnotes(text: string, protectedRanges: ProtectedRanges)
   }
 
   footnotesAdded.clear();
-  for (const position of positions.slice().reverse()) {
+  for (const position of positions.toReversed()) {
     const footnote = text.substring(position.start.offset, position.end.offset);
     if (footnotesAdded.has(footnote)) {
       let start = position.start.offset;

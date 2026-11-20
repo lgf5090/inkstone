@@ -228,7 +228,7 @@ function keepsItem(item: GithubDiscoverItem, query: GithubDiscoverQuery, tracked
 }
 
 function sortedCandidates(items: readonly GithubDiscoverItem[], query: GithubDiscoverQuery): GithubDiscoverItem[] {
-  return [...items].sort((left, right) => {
+  return items.toSorted((left, right) => {
     const direction = query.order === 'asc' ? 1 : -1
     if (query.sort === 'updated') {
       return direction * left.repo.updatedAt.localeCompare(right.repo.updatedAt)

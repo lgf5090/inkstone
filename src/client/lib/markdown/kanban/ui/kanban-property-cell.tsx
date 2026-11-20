@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, Link2 } from 'lucide-react'
 import { t } from '../../../i18n'
-import { isImeComposing } from '../../../ime'
+import { isImeComposing, isEnterKey } from '../../../ime'
 import { getKanbanTagStyle } from '../colors'
 import { kanbanColumnWidthPx } from '../column-width'
 import { formatKanbanOptionLabel, formatKanbanPropertyName } from '../i18n-helpers'
@@ -119,7 +119,7 @@ function EditableValue({ label, text, numberType = false, onSubmit }: EditableVa
       onBlur={submit}
       onKeyDown={(e) => {
         if (isImeComposing(e)) return
-        if (e.key === 'Enter') submit()
+        if (isEnterKey(e)) submit()
         if (e.key === 'Escape') setDraft(committed)
       }}
       className='h-7 w-full rounded-[var(--r-sm)] border border-transparent bg-transparent px-1.5 text-[length:var(--text-12)] text-[var(--text-primary)] outline-none hover:border-[var(--border-subtle)] focus:border-[var(--accent)]'

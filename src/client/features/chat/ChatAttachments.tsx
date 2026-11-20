@@ -158,6 +158,7 @@ function ProgressBar({ value, failed }: { value: number, failed?: boolean }) {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(value * 100)}
+      aria-valuetext={failed ? t('assistant.attach.failed') : t('assistant.attach.uploading', { percent: Math.round(value * 100) })}
       className={cn(
         'pointer-events-none absolute inset-x-1 bottom-1 h-[3px] overflow-hidden rounded-full bg-[var(--bg-inset)]',
         failed && 'opacity-70',
@@ -387,14 +388,14 @@ export function MessageAttachments({ ids, index }: { ids: string[], index: Recor
             }}
             aria-label={t('assistant.attach.view', { name: row.filename })}
             title={t('assistant.attach.view', { name: row.filename })}
-            className="inline-flex max-w-[220px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 py-[2px] text-[length:var(--text-11)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
+            className="inline-flex max-w-[220px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 py-[var(--sp-0-5)] text-[length:var(--text-11)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
           >
             {row.kind === 'image'
               ? (
                 <img
                   src={attachmentUrl(row.id)}
                   alt=""
-                  className="size-4 shrink-0 rounded-[2px] object-cover"
+                  className="size-4 shrink-0 rounded-[var(--r-2)] object-cover"
                   onError={() => setBrokenBytes((current) => ({ ...current, [id]: true }))}
                 />
               )
@@ -419,7 +420,7 @@ function AttachmentGap({ name }: { name?: string }) {
   return (
     <span
       data-attachment-unavailable="true"
-      className="inline-flex max-w-[240px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-1.5 py-[2px] text-[length:var(--text-11)] text-[var(--text-tertiary)]"
+      className="inline-flex max-w-[240px] items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-1.5 py-[var(--sp-0-5)] text-[length:var(--text-11)] text-[var(--text-tertiary)]"
     >
       <FileText size={12} className="shrink-0 text-[var(--text-quaternary)]" />
       {name && <span className="min-w-0 truncate">{name}</span>}

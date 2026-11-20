@@ -9,6 +9,7 @@ import { Checkbox, Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { DatePicker } from '../../components/date-picker'
 import { Modal } from '../../components/overlay'
+import { useUi } from '../../store/ui'
 
 interface FilterModalProps {
   view: ProjectView
@@ -17,7 +18,7 @@ interface FilterModalProps {
   people: ProjectPeople
   canEdit: boolean
   onClose: () => void
-  onPatch: (fields: Partial<ProjectViewFields>) => Promise<void>
+  onPatch: (fields: Partial<ProjectViewFields>) => Promise<boolean>
 }
 
 function cloneGroup(group: ProjectFilterGroup): ProjectFilterGroup {
@@ -49,7 +50,7 @@ function ClauseValue({ clause, property, members, people, disabled, onChange }: 
       : members.map((member) => ({ id: member.userId, label: projectPersonLabel(people, member.userId) }))
     return (
       <div className="flex flex-wrap gap-2" role="group" aria-label={t('project.view.filter_value')}>
-        {choices.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">—</span>}
+        {choices.length === 0 && <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.value.empty')}</span>}
         {choices.map((choice) => (
           <Checkbox
             key={choice.id}
@@ -192,8 +193,10 @@ export function FilterModal({ view, properties, members, people, canEdit, onClos
   const save = async () => {
     setSaving(true)
     try {
-      await onPatch({ filter: draft })
-      onClose()
+      const ok = await onPatch({ filter: draft })
+      if (ok !== false) onClose()
+    } catch (reason) {
+      useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     } finally {
       setSaving(false)
     }

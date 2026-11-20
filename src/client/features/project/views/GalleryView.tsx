@@ -10,8 +10,8 @@ import { ChevronDown, ChevronRight, CornerDownRight, LayoutGrid, ListTodo, Squar
 import type { ProjectCard, ProjectGallerySize, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { projectCardColorResolver } from '@shared/project/option-color'
-import { groupProjectCards, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
-import { t } from '../../../lib/i18n'
+import { groupProjectCards, projectGroupKeys, projectGroupLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
+import { t, useLocale } from '../../../lib/i18n'
 import { CardBadges, OptionChip } from '../CardBadges'
 import { useProjectPeople } from '../people-context'
 import { QuickAdd, Seg, ViewHead, ViewShell } from './shell'
@@ -37,20 +37,25 @@ export function GalleryView(props: GalleryProps): ReactElement {
   const { cards, properties, fields, canEdit } = props
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const size = fields.galleryCardSize ?? 'medium'
-  const ids = new Set(cards.map((card) => card.id))
-  const children = new Map<string, ProjectCard[]>()
-  for (const card of cards) {
-    if (!card.parentId || !ids.has(card.parentId)) continue
-    const list = children.get(card.parentId)
-    if (list) list.push(card)
-    else children.set(card.parentId, [card])
-  }
-  const roots = cards.filter((card) => !card.parentId || !ids.has(card.parentId))
+  const people = useProjectPeople()
+  const locale = useLocale()
+  const ids = useMemo(() => new Set(cards.map((card) => card.id)), [cards])
+  const children = useMemo(() => {
+    const map = new Map<string, ProjectCard[]>()
+    for (const card of cards) {
+      if (!card.parentId || !ids.has(card.parentId)) continue
+      const list = map.get(card.parentId)
+      if (list) list.push(card)
+      else map.set(card.parentId, [card])
+    }
+    return map
+  }, [cards, ids])
+  const roots = useMemo(() => cards.filter((card) => !card.parentId || !ids.has(card.parentId)), [cards, ids])
   const groupProperty = properties.find((property) => property.id === fields.groupById)
-  const groups = groupProjectCards(roots, fields.groupById, properties)
-  const entries: [string, ProjectCard[]][] = groupProperty
-    ? [...groupProperty.options.map((option) => option.id), ''].map((key) => [key, groups.get(key) ?? []])
-    : [...groups.entries()]
+  const groups = useMemo(() => groupProjectCards(roots, fields.groupById, properties), [roots, fields.groupById, properties])
+  const entries = useMemo<[string, ProjectCard[]][]>(() => groupProperty
+    ? projectGroupKeys(roots, fields.groupById, properties).map((key) => [key, groups.get(key) ?? []])
+    : [...groups.entries()], [groupProperty, groups, roots, fields.groupById, properties])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
 
   return (
@@ -59,6 +64,7 @@ export function GalleryView(props: GalleryProps): ReactElement {
         <Seg
           value={size}
           label={t('project.view.gallery_size')}
+          disabled={!canEdit}
           onChange={(next) => props.onPatchFields({ galleryCardSize: next })}
           options={[
             { value: 'small', label: t('project.view.gallery_small') },
@@ -70,7 +76,7 @@ export function GalleryView(props: GalleryProps): ReactElement {
       <div className="pv-gallery pv-scroll">
         {entries.map(([key, groupCards]) => {
           const collapsed = fields.collapsedOptionIds.includes(key)
-          const label = key === '' ? t('project.view.no_value') : projectOptionLabel(groupProperty!, key)
+          const label = key === '' ? t('project.view.no_value') : projectGroupLabel(groupProperty, key, people, locale)
           return (
             <section key={key || 'empty'} aria-label={label} data-gallery-group={key} className="mb-5">
               {fields.groupById && (
@@ -83,7 +89,9 @@ export function GalleryView(props: GalleryProps): ReactElement {
                   })}
                 >
                   {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-                  {groupProperty && key !== '' ? <OptionChip property={groupProperty} value={key} /> : <span>{label}</span>}
+                  {groupProperty && key !== '' && (groupProperty.type === 'select' || groupProperty.type === 'multiSelect')
+                    ? <OptionChip property={groupProperty} value={key} />
+                    : <span>{label}</span>}
                   <span className="pv-head-count">{groupCards.length}</span>
                 </button>
               )}
@@ -142,6 +150,7 @@ function GalleryTile({ card, color, cover, chipProperties, showTitle, showBadges
   onCardContextMenu: (event: MouseEvent, card: ProjectCard) => void
 }): ReactElement {
   const people = useProjectPeople()
+  const locale = useLocale()
   return (
     <article className="pv-tile" data-gallery-tile={card.id} style={{ '--pv-card-color': color } as React.CSSProperties}>
       <button
@@ -151,6 +160,12 @@ function GalleryTile({ card, color, cover, chipProperties, showTitle, showBadges
         className="flex flex-col text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         onClick={() => onOpenCard(card.id)}
         onContextMenu={(event) => onCardContextMenu(event, card)}
+        onKeyDown={(event) => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          const rect = event.currentTarget.getBoundingClientRect()
+          event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom }))
+        }}
       >
         {cover
           ? <img src={cover} alt="" className="pv-tile-cover" loading="lazy" />
@@ -165,7 +180,7 @@ function GalleryTile({ card, color, cover, chipProperties, showTitle, showBadges
             <span key={property.id} className="min-w-0 max-w-full truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
               {property.type === 'select' && card.values[property.id]
                 ? <OptionChip property={property} value={card.values[property.id]!} />
-                : projectPropertyDisplayText(card, property, people)}
+                : projectPropertyDisplayText(card, property, people, locale)}
             </span>
           ))}
           {showBadges && <CardBadges badges={badges} />}

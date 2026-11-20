@@ -6,9 +6,17 @@
  * the toggle writes through it, rather than each caller keeping its own copy of the same roster.
  */
 import { useCallback, useEffect, useState } from 'react'
-import type { ProjectSubscriptionBlock } from '@shared/project/model'
+import type { ProjectSubscription, ProjectSubscriptionBlock } from '@shared/project/model'
 import { useUi } from '../../store/ui'
 import { fetchProjectSubscriptions, unwatchProjectBlock, watchProjectBlock } from './api'
+
+// The board page and the card dialog ask the same question within seconds of each other; the roster
+// is one read until a toggle makes it stale.
+let cachedSubscriptions: ProjectSubscription[] | null = null
+
+export function resetProjectSubscriptionCache(): void {
+  cachedSubscriptions = null
+}
 
 export function useProjectWatch(blockType: ProjectSubscriptionBlock, blockId: string): { watching: boolean, toggle: () => Promise<void> } {
   const [watching, setWatching] = useState(false)
@@ -16,9 +24,16 @@ export function useProjectWatch(blockType: ProjectSubscriptionBlock, blockId: st
   const toast = useUi((state) => state.toast)
 
   useEffect(() => {
+    if (cachedSubscriptions) {
+      setWatching(cachedSubscriptions.some((entry) => entry.blockId === blockId))
+      return
+    }
     const controller = new AbortController()
     fetchProjectSubscriptions(controller.signal)
-      .then((list) => setWatching(list.some((entry) => entry.blockId === blockId)))
+      .then((list) => {
+        cachedSubscriptions = list
+        setWatching(list.some((entry) => entry.blockId === blockId))
+      })
       .catch(() => { if (!controller.signal.aborted) setWatching(false) })
     return () => controller.abort()
   }, [blockId])
@@ -31,6 +46,7 @@ export function useProjectWatch(blockType: ProjectSubscriptionBlock, blockId: st
     try {
       if (next) await watchProjectBlock(blockType, blockId)
       else await unwatchProjectBlock(blockId)
+      cachedSubscriptions = null
     } catch (reason) {
       setWatching(!next)
       toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })

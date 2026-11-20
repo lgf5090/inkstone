@@ -193,8 +193,7 @@ export function parseD1Writes(data: D1WritesData): number {
 
 /** The latest snapshot per bucket, summed: an R2 bucket reports its size on every sampled day. */
 export function parseR2Storage(data: R2StorageData): number {
-  const groups = [...(data.viewer?.accounts?.[0]?.r2StorageAdaptiveGroups ?? [])]
-    .sort((left, right) => (
+  const groups = (data.viewer?.accounts?.[0]?.r2StorageAdaptiveGroups ?? []).toSorted((left, right) => (
       (right.dimensions?.datetime ?? '').localeCompare(left.dimensions?.datetime ?? '')
     ))
   const seen = new Set<string>()
@@ -326,7 +325,7 @@ export function mapTrafficGroups(
   const raw = granularity === 'hour'
     ? (group: TrafficGroup) => group.dimensions?.datetime ?? ''
     : (group: TrafficGroup) => group.dimensions?.date ?? ''
-  const sorted = [...groups].sort((left, right) => raw(left).localeCompare(raw(right)))
+  const sorted = groups.toSorted((left, right) => raw(left).localeCompare(raw(right)))
 
   const labels = sorted.map((group) => {
     const value = raw(group)

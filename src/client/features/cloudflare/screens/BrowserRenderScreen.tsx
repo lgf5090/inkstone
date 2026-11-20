@@ -29,7 +29,7 @@ import {
 } from '../api/browser-render'
 import { downloadDataUrl } from '../lib/download'
 import { splitSeconds } from '../lib/format'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 
 function durationText(t: ReturnType<typeof useCfT>, seconds: number): string {
   if (seconds < 60) return t('cloudflare.browser_render.format_seconds', { s: Math.round(seconds) })
@@ -155,7 +155,7 @@ export function BrowserRenderScreen() {
             <Input
               value={url}
               onChange={(event) => setUrl(event.target.value)}
-              onKeyDown={(event) => { if (!isImeComposing(event) && event.key === 'Enter') void startRender() }}
+              onKeyDown={(event) => { if (!isImeComposing(event) && isEnterKey(event)) void startRender() }}
               placeholder="https://example.com"
               inputMode="url"
               autoComplete="off"

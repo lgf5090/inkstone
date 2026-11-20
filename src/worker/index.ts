@@ -2,7 +2,9 @@ import { runAttachmentCleanup } from './attachments/cleanup'
 import { runScheduledBackups } from './backup/scheduler'
 import { runDueAssistantAutomations } from './assistant/scheduler'
 import { sweepTaskReminders } from './assistant/tasks'
-import { sweepProjectReminders } from './project/scheduler'
+import { pruneProjectActivity, sweepProjectReminders } from './project/scheduler'
+import { drainProjectWebhookDeliveries } from './project/webhooks'
+import { pruneProjectWriteReceipts } from './project/idempotency'
 import { runPushCatchUp } from './assistant/push-fanout'
 import { purgeExpiredEphemeralConversations, purgeExpiredTodoTrash } from './assistant/store'
 import type { Env } from './env'
@@ -10,7 +12,6 @@ import { initializeDatabase } from './db/schema'
 import { drainAllFtsQueues } from './db/fts'
 import { drainAiIndexQueue } from './mcp/ai-search'
 import { drainRewriteQueues } from './lib/rewrite-drain'
-import { createOAuthProvider, providerForScheduled } from './mcp/oauth'
 import { purgeRevokedMcpApiKeys } from './mcp/api-keys'
 import { purgeExpiredMcpOperations } from './mcp/operations'
 import { purgeExpiredOperationalData } from './lib/maintenance'
@@ -38,11 +39,17 @@ import { runShortlinksRetention } from './tools/shortlinks/maintenance'
 import { runCompareRetention } from './tools/compare/retention'
 import { runDueCloudflareTasks } from './cloudflare/tasks'
 import { runDueCloudDriveJobs } from './clouddrive/routes-jobs'
-import { runCerthubTick } from './development/certhub/worker'
 import { resumeCloudDriveIndexTasks } from './clouddrive/routes-admin'
 import { resumeCloudDriveRemoteTasks } from './clouddrive/remote'
 import { runWebsshRetention } from './webssh/retention'
-import { handleIconQueue, type IconQueueMessage } from './development/icons/queue'
+import type { IconQueueMessage } from './development/icons/queue'
+
+/**
+ * Heavy modules are loaded inside the event handlers, not at module scope: a Worker has a one-second
+ * startup CPU budget (Cloudflare error 10021), and a static import of `mcp/oauth`, the certificate tick
+ * or the icon queue would evaluate the whole route graph, ACME/axios/node-forge and the resvg WASM
+ * module before the Worker can answer its first request.
+ */
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -50,6 +57,7 @@ export { WebsshSession } from './webssh/do/session'
 export { EmailMailbox } from './email/mailbox-do'
 export { MusicQueue } from './music/queue'
 export { MusicShareLimiter } from './music/share-limiter'
+export { GithubLimiter } from './durable/github-limiter'
 export { SubagentRunner } from './assistant/subagent-do'
 
 // Codex CLI drops the `iss` callback parameter while its rmcp
@@ -76,6 +84,7 @@ export default {
         { aiConnectHosts: env.AI_CONNECT_HOSTS },
       )
     }
+    const { createOAuthProvider } = await import('./mcp/oauth')
     const provider = createOAuthProvider(oauthRequest, env)
     const response = new URL(oauthRequest.url).pathname === OAUTH_AUTHORIZATION_SERVER_METADATA
       ? await oauthMetadataWithoutIssParameter(provider, oauthRequest, env, ctx)
@@ -87,6 +96,7 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       const { ftsEnabled } = await initializeDatabase(env)
+      const { runCerthubTick } = await import('./development/certhub/worker')
       // The cron fires every minute: a reminder that arrives twenty-nine minutes late is a broken reminder,
       // so the three sweeps below ride every fire. The drains keep the three fires an hour `isDrainFire`
       // accepts and the whole-library work keeps the top of the hour, so the extra fires cost nothing beyond
@@ -117,6 +127,10 @@ export default {
         console.warn('[inkstone] project reminder sweep failed:', (error as Error).message)
         return 0
       })
+      const projectWebhookTick = drainProjectWebhookDeliveries(env.DB, event.scheduledTime).catch((error) => {
+        console.warn('[inkstone] project webhook drain failed:', (error as Error).message)
+        return 0
+      })
       const emailDraftTick = runEmailAutoDraftJobs(env, event.scheduledTime, 2)
       const emailSnoozeTick = runEmailSnoozeWake(env, event.scheduledTime)
       const emailFollowUpTick = runEmailFollowUpSweep(env, event.scheduledTime)
@@ -137,6 +151,12 @@ export default {
             console.warn('[inkstone] compare retention failed:', (error as Error).message)
           })
         : Promise.resolve()
+      const projectRetentionTick = new Date(event.scheduledTime).getUTCMinutes() === 0
+        ? pruneProjectActivity(env, event.scheduledTime).catch((error) => {
+            console.warn('[inkstone] project activity retention failed:', (error as Error).message)
+            return 0
+          })
+        : Promise.resolve(0)
       const cloudflareTick = runDueCloudflareTasks(env, event.scheduledTime).catch((error) => {
         console.warn('[inkstone] Cloudflare scheduled tasks failed:', (error as Error).message)
         return null
@@ -159,7 +179,7 @@ export default {
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
+        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectWebhookTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -178,6 +198,7 @@ export default {
             runAttachmentCleanup(env),
             purgeExpiredMcpOperations(env.DB),
             purgeExpiredOperationalData(env.DB),
+            pruneProjectWriteReceipts(env.DB, event.scheduledTime),
             purgeRevokedMcpApiKeys(env.DB),
             purgeExpiredEphemeralConversations(env.DB, env),
             purgeExpiredTodoTrash(env.DB),
@@ -204,10 +225,13 @@ export default {
               return null
             }),
             purgeExpiredSubscriptionData(env.DB),
-            providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
+            (async () => {
+              const { providerForScheduled } = await import('./mcp/oauth')
+              return providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 })
+            })(),
           ]
         : []
-      await Promise.all([...drains, ...heavy, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, clouddriveTick])
+      await Promise.all([...drains, ...heavy, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectWebhookTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, clouddriveTick])
     })())
   },
 
@@ -230,6 +254,7 @@ export default {
    */
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     await initializeDatabase(env)
+    const { handleIconQueue } = await import('./development/icons/queue')
     await handleIconQueue(batch as unknown as MessageBatch<IconQueueMessage>, env)
   },
 } satisfies ExportedHandler<Env>
@@ -251,7 +276,7 @@ export function isHourStart(scheduledTime: number): boolean {
 }
 
 async function oauthMetadataWithoutIssParameter(
-  provider: ReturnType<typeof createOAuthProvider>,
+  provider: ReturnType<typeof import('./mcp/oauth').createOAuthProvider>,
   request: Request,
   env: Env,
   ctx: ExecutionContext,

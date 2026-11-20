@@ -112,8 +112,9 @@ describe('the WebSSH tables', () => {
   it('keeps the numbered ledger unique and every lane migration represented once', () => {
     const versions = SCHEMA_MIGRATIONS.map((migration) => migration.version)
     expect(new Set(versions).size).toBe(versions.length)
-    // The project tables append 385–392 after this lane's own block.
-    expect(Math.max(...versions)).toBe(392)
+    // The project tables append 385–396 after this lane's own block; 414–416 add the audit,
+    // reveal-ticket, rate-limit and log-sort tables/indexes for the assistant.
+    expect(Math.max(...versions)).toBe(416)
     const laneVersions = versions.filter((version) => version >= 298 && version <= 317)
     expect(Math.max(...laneVersions)).toBe(317)
     expect(versions.filter((version) => version === 298)).toHaveLength(1)

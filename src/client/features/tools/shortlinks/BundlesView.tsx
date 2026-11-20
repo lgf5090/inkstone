@@ -278,7 +278,7 @@ function BundleDetailView() {
   }, [stats?.timeline])
 
   const topLinks = useMemo(
-    () => [...(stats?.per_link ?? [])].sort((a, b) => b.click_count - a.click_count).slice(0, 6),
+    () => (stats?.per_link ?? []).toSorted((a, b) => b.click_count - a.click_count).slice(0, 6),
     [stats?.per_link],
   )
 

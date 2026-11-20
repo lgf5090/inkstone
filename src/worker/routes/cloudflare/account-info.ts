@@ -61,15 +61,9 @@ function textOf(value: unknown): string {
 }
 
 async function fetchJson(url: string): Promise<unknown> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10_000)
-  try {
-    const response = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } })
-    if (!response.ok) throw new Error(`Status page answered HTTP ${response.status}`)
-    return await response.json()
-  } finally {
-    clearTimeout(timeout)
-  }
+  const response = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: { Accept: 'application/json' } })
+  if (!response.ok) throw new Error(`Status page answered HTTP ${response.status}`)
+  return await response.json()
 }
 
 let statusCache: { at: number; value: StatusSummary } | null = null

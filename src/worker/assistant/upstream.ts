@@ -270,7 +270,15 @@ export interface UpstreamRetry {
    * a key, not a row id — and "which key is broken" is a thing the settings screen has to be able to say.
    * Awaited, so a key that failed twice in one turn is counted twice rather than once.
    */
-  onAttemptFailed?: (error: UpstreamError, apiKey: string) => void | Promise<void>
+  onAttemptFailed?: (error: UpstreamError, apiKey: string, request?: UpstreamRequest) => void | Promise<void>
+  /**
+   * Told once, when an attempt starts producing rather than when it finishes.
+   *
+   * This is the earliest proof that the key works, and the caller is the only one that can turn that into
+   * "the cooldown this key earned is no longer true". Waiting for the turn to end would keep a recovered
+   * key at the back of the ring for the rest of the answer.
+   */
+  onAttemptSucceeded?: (apiKey: string, request?: UpstreamRequest) => void | Promise<void>
 }
 
 export class UpstreamError extends Error {
@@ -458,14 +466,26 @@ export async function* streamUpstream(
     let produced = false
     try {
       for await (const event of streamOnce(protocol, { ...request, apiKey })) {
-        produced = true
+        if (!produced) {
+          produced = true
+          // The first frame goes out before the log row is written: a reader waits for the answer, not
+          // for the bookkeeping. The runner holds the row's promise and awaits it before the turn ends.
+          try {
+            const bookkeeping = request.retry?.onAttemptSucceeded?.(apiKey, request)
+            if (bookkeeping) void Promise.resolve(bookkeeping).catch(() => {
+              // Bookkeeping must not cost an answer that has already started arriving.
+            })
+          } catch {
+            // A synchronous failure in the hook must not cost the answer either.
+          }
+        }
         yield event
       }
       return
     } catch (error) {
       // Every failed attempt is reported, including one that will not be retried: a key that is refused
       // once is still the key that was refused, and the retry path is where that is still known.
-      if (error instanceof UpstreamError) await request.retry?.onAttemptFailed?.(error, apiKey)
+      if (error instanceof UpstreamError) await request.retry?.onAttemptFailed?.(error, apiKey, request)
       if (produced || attempt >= attempts || !retryable(error)) throw error
       const next = await nextAttemptKey(error, request.retry, apiKey)
       // Null is "no other key to try", which is what a rejection naming the key itself comes to when the

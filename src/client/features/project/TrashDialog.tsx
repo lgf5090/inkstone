@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import { RotateCcw, SquareKanban } from 'lucide-react'
 import type { ProjectBoardSummary } from '@shared/project/model'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { Button, IconButton } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
@@ -21,6 +21,7 @@ export function TrashDialog({ boardId, onClose, onRestored }: {
   onClose: () => void
   onRestored: () => void
 }): ReactElement {
+  const locale = useLocale()
   const [boards, setBoards] = useState<ProjectBoardSummary[] | null>(null)
   const [cards, setCards] = useState<DeletedProjectCard[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -71,7 +72,7 @@ export function TrashDialog({ boardId, onClose, onRestored }: {
                   ? (cards ?? []).map((card) => (
                     <li key={card.id} className="flex items-center gap-2" data-trash-card={card.id}>
                       <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{card.title || t('project.board.untitled_card')}</span>
-                      <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{new Date(card.deleteAt).toLocaleDateString()}</span>
+                      <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{new Date(card.deleteAt).toLocaleDateString(locale)}</span>
                       <IconButton label={`${t('project.trash.restore')}: ${card.title}`} size="sm" disabled={busy} onClick={() => { void restore(() => undeleteProjectCard(card.id)) }}>
                         <RotateCcw size={14} />
                       </IconButton>

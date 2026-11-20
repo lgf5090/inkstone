@@ -7,6 +7,11 @@ import { initI18n, initI18nForReading, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { BoardViews } from './BoardViews'
 import * as api from './api'
+import * as overlay from '../../components/overlay'
+
+vi.spyOn(api, 'fetchProjectCardMarks').mockResolvedValue({ starred: [], pinned: [] })
+vi.spyOn(api, 'fetchBoardDefaultView').mockResolvedValue(null)
+vi.spyOn(api, 'saveBoardDefaultView').mockResolvedValue(undefined)
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 
@@ -33,7 +38,7 @@ function bundle(): ProjectBoardBundle {
 let view: RenderedElement
 async function mount(custom?: ProjectBoardBundle): Promise<void> {
   await act(async () => {
-    view = renderElement(createElement(BoardViews, { bundle: custom ?? bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    view = renderElement(createElement(BoardViews, { bundle: custom ?? bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
   })
 }
 /** Opens a SelectMenu by its accessible name and reads the rows it offers. */
@@ -46,6 +51,7 @@ async function menuLabels(label: string): Promise<string[]> {
 
 beforeEach(async () => {
   localStorage.clear()
+  vi.mocked(api.saveBoardDefaultView).mockClear()
   await initI18n()
 })
 afterEach(() => { view?.unmount() })
@@ -86,7 +92,7 @@ describe('view tab labels', () => {
       id: `v${index}`, boardId: 'b1', title: '', viewType, fields: emptyProjectViewFields(), position: index, ...stamps,
     }))
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     const labels = [...view.container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)
     expect(labels).toEqual(PROJECT_VIEW_TYPES.map((viewType) => t(`project.view.${viewType}` as Parameters<typeof t>[0])))
@@ -104,7 +110,7 @@ describe('view tab labels', () => {
     const base = bundle()
     base.views = [{ ...base.views[0]!, title: 'Table' }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     expect(view.container.querySelector('[role="tab"]')!.textContent).toBe(t('project.view.table'))
   })
@@ -113,7 +119,7 @@ describe('view tab labels', () => {
     const base = bundle()
     base.views = [{ ...base.views[0]!, title: '我的视图' }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     expect(view.container.querySelector('[role="tab"]')!.textContent).toBe('我的视图')
   })
@@ -124,7 +130,7 @@ describe('board column hide and cross-column drag (C-2)', () => {
     const base = bundle()
     base.views = [base.views[1]!]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: onPatch, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: onPatch, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
   }
 
@@ -174,7 +180,7 @@ describe('table group rows, collapse, inline edit, column reorder (C-3/C-22)', (
     const base = bundle()
     base.views = [{ ...base.views[0]!, fields: { ...emptyProjectViewFields(), ...fields } }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
   }
 
@@ -230,15 +236,33 @@ describe('table group rows, collapse, inline edit, column reorder (C-3/C-22)', (
     await act(async () => { fire('pointerup', 100) })
     expect(onPatchView).toHaveBeenCalledWith('v1', { fields: { visiblePropertyIds: ['pt', 'ps'] } })
   })
+
+  it('serializes rapid view patches so the second waits for the first', async () => {
+    let finishFirst: (() => void) | undefined
+    const firstCall = new Promise<void>((resolve) => { finishFirst = resolve })
+    const events: string[] = []
+    const onPatchView = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>()
+      .mockImplementationOnce(async () => { events.push('first:start'); await firstCall; events.push('first:end') })
+      .mockImplementation(async () => { events.push('second') })
+    await mountTable({}, onPatchView, vi.fn().mockResolvedValue(undefined))
+    const grip = view.container.querySelector<HTMLElement>(`[role="separator"][aria-label="${t('project.view.resize_column')}"]`)!
+    const press = (): void => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) }
+    await act(async () => { press(); press() })
+    expect(events).toEqual(['first:start'])
+    finishFirst!()
+    await act(async () => { await firstCall })
+    expect(events).toEqual(['first:start', 'first:end', 'second'])
+  })
 })
 
 describe('multi-select and batch delete (B-10)', () => {
   it('ctrl-click selects cards and delete-selected calls the batch endpoint', async () => {
     localStorage.clear()
     const batchDelete = vi.spyOn(api, 'batchDeleteProjectBoard').mockResolvedValue(undefined)
+    const confirmed = vi.spyOn(overlay, 'confirm').mockResolvedValue(true)
     const onRefresh = vi.fn().mockResolvedValue(undefined)
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh }))
+      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh }))
     })
     for (const id of ['c1', 'c2']) {
       const title = view.container.querySelector(`[data-project-card="${id}"] td button`) as HTMLButtonElement
@@ -247,9 +271,11 @@ describe('multi-select and batch delete (B-10)', () => {
     expect(view.container.querySelector('[role="toolbar"]')?.textContent).toContain(t('project.view.selected_count', { count: 2 }))
     const del = [...view.container.querySelectorAll('[role="toolbar"] button')].find((b) => b.textContent === t('project.view.delete_selected')) as HTMLButtonElement
     await act(async () => { del.click() })
+    expect(confirmed).toHaveBeenCalled()
     expect(batchDelete).toHaveBeenCalledWith('b1', { cardIds: ['c1', 'c2'] })
     expect(onRefresh).toHaveBeenCalled()
     batchDelete.mockRestore()
+    confirmed.mockRestore()
   })
 })
 
@@ -259,7 +285,7 @@ describe('select option color chip (R2-6, R3-12)', () => {
     const base = bundle()
     base.properties = base.properties.map((p) => (p.id === 'ps' ? { ...p, options: p.options.map((o) => (o.id === 'o1' ? { ...o, color: 'propColorRed' } : o)) } : p))
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     const chip = view.container.querySelector('[data-project-card="c1"] td span[style]') as HTMLElement
     expect(chip).not.toBeNull()
@@ -274,7 +300,7 @@ describe('column resize grip (C-17)', () => {
     localStorage.clear()
     const onPatchView = vi.fn().mockResolvedValue(undefined)
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     const grip = view.container.querySelector(`[role="separator"][aria-label="${t('project.view.resize_column')}"]`) as HTMLButtonElement
     expect(grip).not.toBeNull()
@@ -288,7 +314,7 @@ describe('hidden card count (C-18)', () => {
     const base = bundle()
     base.views = [{ ...base.views[0]!, fields: { ...emptyProjectViewFields(), filter: { operation: 'and', filters: [{ propertyId: 'pt', condition: 'contains', values: ['hello'] }] } } }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     const status = view.container.querySelector('[role="status"]')
     expect(status?.textContent).toBe(t('project.view.hidden_count', { count: 2 }))
@@ -306,7 +332,7 @@ describe('last opened view memory (E-13)', () => {
   it('restores the remembered view and persists a new selection', async () => {
     localStorage.setItem('inkstone.project.lastView.b1', 'v2')
     await mount()
-    const tabs = [...view.container.querySelectorAll('[role="tab"]')]
+    const tabs = [...view.container.querySelectorAll('[data-view-tabs] button[role="tab"]')]
     expect(tabs.find((tab) => tab.textContent === 'Board')?.getAttribute('aria-selected')).toBe('true')
     const tableTab = tabs.find((tab) => tab.textContent === 'Table')!
     await act(async () => { tableTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
@@ -322,7 +348,7 @@ describe('view tab order (C-23)', () => {
       { ...base.views[1]!, id: 'va', title: 'Apple' },
     ]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     const labels = [...view.container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)
     expect(labels).toEqual(['Apple', '🗺️ Zebra'])
@@ -362,7 +388,7 @@ describe('view actions menu (C-1/C-15)', () => {
     const onDeleteView = vi.fn()
     const onDuplicateView = vi.fn()
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView, onDuplicateView, onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView, onDuplicateView, onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     await openMenu()
     await act(async () => { item(t('project.view.duplicate')).click() })
@@ -384,7 +410,7 @@ describe('view actions menu (C-1/C-15)', () => {
     const base = bundle()
     base.views = [base.views[0]!]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     await openMenu()
     expect(item(t('project.view.delete')).disabled).toBe(true)
@@ -397,7 +423,7 @@ describe('display by and group by (C-13/C-6)', () => {
     base.properties = [...base.properties, { id: 'pd', name: 'Due', type: 'date', options: [] }]
     base.views = [{ ...base.views[0]!, id: 'vc', viewType: 'calendar' }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     expect(await menuLabels(t('project.view.display_by'))).toContain('Due')
   })
@@ -407,7 +433,7 @@ describe('display by and group by (C-13/C-6)', () => {
     base.properties = [...base.properties, { id: 'pn', name: 'Estimate', type: 'number', options: [] }]
     base.views = [{ ...base.views[1]!, id: 'vb' }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     expect(await menuLabels(t('project.view.group_by'))).toContain('Estimate')
   })
@@ -421,7 +447,7 @@ describe('subtask hierarchy in views', () => {
       { id: 'c2', boardId: 'b1', parentId: 'c1', title: 'Child Card', icon: '', isTemplate: false, contentOrder: [], values: {}, ...stamps },
     ]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     expect(view.container.querySelectorAll('tbody tr[data-project-card]')).toHaveLength(1)
     expect(view.container.textContent).toContain('Parent Card')
@@ -444,7 +470,7 @@ describe('subtask hierarchy in views', () => {
       { id: 'c2', boardId: 'b1', parentId: 'c1', title: 'Subtask Kanban', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o1' }, ...stamps },
     ]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     const boardTab = [...view.container.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === 'Board')
     await act(async () => { boardTab?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
@@ -495,7 +521,7 @@ describe('subtask hierarchy in views', () => {
     b.views[0]!.fields.visiblePropertyIds.push('ptags')
     b.cards[0]!.values.ptags = JSON.stringify(['t1', 't2'])
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     expect(view.container.textContent).toContain('auth')
     expect(view.container.textContent).toContain('critical')
@@ -519,7 +545,7 @@ describe('subtask hierarchy in views', () => {
       ...stamps,
     })
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: patchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: patchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     const expandBtn = view.container.querySelector(`button[aria-label="${t('project.card.expand_subtasks')}"]`) as HTMLButtonElement
     expect(expandBtn).not.toBeNull()
@@ -548,7 +574,7 @@ describe('subtask hierarchy in views', () => {
       ...stamps,
     })
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
 
     expect(view.container.textContent).toContain('Alpha')
@@ -564,7 +590,7 @@ describe('subtask hierarchy in views', () => {
       { id: 'v_gallery', boardId: 'b1', title: 'Gallery', viewType: 'gallery', fields: { ...emptyProjectViewFields(), groupById: '' }, position: 0, ...stamps },
     ]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: b, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
 
     const cardEl = view.container.querySelector('[data-project-card="c1"]')!
@@ -596,7 +622,7 @@ describe('the board card face (R3-19)', () => {
     const base = { ...bundle(), ...extra }
     base.views = [{ id: 'v2', boardId: 'b1', title: 'Board', viewType: 'board', fields: { ...emptyProjectViewFields(), groupById: 'ps' }, position: 0, ...stamps }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
   }
 
@@ -670,7 +696,7 @@ describe('the table row budget (R3-16a)', () => {
     const base = bundle()
     base.cards = Array.from({ length: 260 }, (_, index) => ({ id: `c${index}`, boardId: 'b1', parentId: '', title: `Card ${index}`, icon: '', isTemplate: false, contentOrder: [], values: {}, ...stamps }))
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     expect(view.container.querySelectorAll('tbody tr[data-project-card]')).toHaveLength(200)
     const more = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('project.view.show_more', { count: 60 }))
@@ -686,7 +712,7 @@ describe('the column header stays readable (R4-1)', () => {
     base.properties = base.properties.map((p) => (p.id === 'ps' ? { ...p, options: p.options.map((o) => (o.id === 'o1' ? { ...o, color: 'propColorRed' } : o)) } : p))
     base.views = [{ id: 'v2', boardId: 'b1', title: 'Board', viewType: 'board', fields: { ...emptyProjectViewFields(), groupById: 'ps' }, position: 0, ...stamps }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
   }
 
@@ -716,7 +742,7 @@ describe('the column header stays readable (R4-1)', () => {
     const base = bundle()
     base.views = [{ id: 'v2', boardId: 'b1', title: 'Board', viewType: 'board', fields: { ...emptyProjectViewFields(), groupById: 'ps' }, position: 0, ...stamps }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: onPatch, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: onPatch, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     const menu = view.container.querySelector<HTMLButtonElement>(`button[aria-label="Open ${t('project.view.menu')}"]`)!
     await act(async () => { menu.click() })
@@ -733,7 +759,7 @@ describe('clearing a picker (the merge keeps absent keys)', () => {
     const base = bundle()
     base.views = [{ ...base.views[1]!, fields: { ...emptyProjectViewFields(), groupById: 'ps', swimlaneBy: 'ps' } }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     expect(view.container.querySelectorAll('[data-swimlane]').length).toBeGreaterThan(0)
     const trigger = view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.view.swimlane')}"]`)!
@@ -749,7 +775,7 @@ describe('clearing a picker (the merge keeps absent keys)', () => {
     base.cards = [{ ...base.cards[0]!, values: { ps: 'o1', pd: JSON.stringify({ from: projectDayToStamp(new Date()) }) } }]
     base.views = [{ ...base.views[0]!, id: 'vc', viewType: 'calendar', fields: { ...emptyProjectViewFields(), dateDisplayPropertyId: '' } }]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
     expect(view.container.querySelector('[data-calendar-day] [data-project-card="c1"]')).not.toBeNull()
   })
@@ -776,7 +802,7 @@ describe('the tick works on a board named in Chinese (R7-1)', () => {
         bundle: zhBundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(),
         onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(),
         onActiveViewChange: vi.fn(), onPatchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined),
-        onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined),
+        onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(),
         onRefresh: vi.fn().mockResolvedValue(undefined),
       }))
     })
@@ -813,6 +839,31 @@ describe('the tick works on a board named in Chinese (R7-1)', () => {
     expect(onPatchCard).toHaveBeenCalledWith('p', { values: { ps: 'done' } })
   })
 
+  it('batches the child tick and its parent into one write when a batch writer is supplied', async () => {
+    const onPatchCardsBatch = vi.fn().mockResolvedValue(undefined)
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, {
+        bundle: zhBundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(),
+        onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(),
+        onActiveViewChange: vi.fn(), onPatchCard, onPatchCardsBatch,
+        onAddGroupOption: vi.fn().mockResolvedValue(undefined),
+        onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(undefined),
+      }))
+    })
+    const expander = view.container.querySelector<HTMLButtonElement>(`[data-project-card="p"] button[aria-label="${t('project.card.expand_subtasks')}"]`)!
+    await act(async () => { expander.click() })
+    const child = view.container.querySelector<HTMLButtonElement>('[data-project-card="k2"] .pv-check')!
+    await act(async () => { child.click() })
+    expect(onPatchCardsBatch).toHaveBeenCalledTimes(1)
+    expect(onPatchCardsBatch.mock.calls[0]![0]).toEqual([
+      { id: 'k2', patch: { values: { ps: 'done' } } },
+      { id: 'p', patch: { values: { ps: 'done' } } },
+    ])
+    expect(onPatchCard).not.toHaveBeenCalled()
+  })
+
   it('offers no tick at all on a board that cannot store one', async () => {
     const base = zhBundle()
     base.properties = [{ id: 'pt', name: 'Notes', type: 'text', options: [] }]
@@ -821,11 +872,31 @@ describe('the tick works on a board named in Chinese (R7-1)', () => {
         bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(),
         onPatchView: vi.fn().mockResolvedValue(undefined), onDeleteView: vi.fn(), onDuplicateView: vi.fn(),
         onActiveViewChange: vi.fn(), onPatchCard: vi.fn(), onAddGroupOption: vi.fn().mockResolvedValue(undefined),
-        onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined),
+        onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(),
         onRefresh: vi.fn().mockResolvedValue(undefined),
       }))
     })
     expect(view.container.querySelector<HTMLButtonElement>('.pv-check')!.disabled).toBe(true)
+  })
+})
+
+describe('the account default view', () => {
+  it('lets the account copy win over a browser-only last view', async () => {
+    localStorage.setItem('inkstone.project.lastView.b1', 'v1')
+    vi.mocked(api.fetchBoardDefaultView).mockResolvedValueOnce('v2')
+    await mount()
+    await act(async () => { await Promise.resolve() })
+    expect(view.container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Board')
+    expect(api.saveBoardDefaultView).not.toHaveBeenCalled()
+  })
+
+  it('writes a picked view to the account as well as the browser', async () => {
+    await mount()
+    const boardTab = [...view.container.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === 'Board')!
+    await act(async () => { boardTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
+    await act(async () => { await Promise.resolve() })
+    expect(api.saveBoardDefaultView).toHaveBeenCalledWith('b1', 'v2')
+    expect(localStorage.getItem('inkstone.project.lastView.b1')).toBe('v2')
   })
 })
 

@@ -20,6 +20,7 @@ import { Segmented } from '../../components/form'
 import { cn } from '../../lib/cn'
 import { TokenTrend } from './UsageCharts'
 import { compact, money } from './usage-format'
+import { LoadFailure } from './assistant-settings-shared'
 
 const RANGES = ['7', '30', 'all'] as const
 type Range = (typeof RANGES)[number]
@@ -111,8 +112,18 @@ function ActivityHeatmap({ activity, mode, today }: {
   mode: HeatMode
   today: string
 }) {
+  const locale = useLocale()
   const cells = useMemo(() => heatCells(activity, mode, today), [activity, mode, today])
   const months = useMemo(() => monthLabels(cells), [cells])
+  // A year of squares used to call t() and toLocaleString() twice per cell. One Map computes each label
+  // once; the locale is a dependency so a language switch is not answered with last locale's wording.
+  const labels = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const cell of cells) {
+      map.set(cell.day, t('assistant.stats.day_tokens', { day: cell.day, tokens: cell.tokens.toLocaleString() }))
+    }
+    return map
+  }, [cells, locale])
   return (
     <div className="no-scrollbar overflow-x-auto pb-1">
       <div className="inline-block">
@@ -127,13 +138,13 @@ function ActivityHeatmap({ activity, mode, today }: {
             </span>
           ))}
         </div>
-        <div role="group" aria-label={t('assistant.stats.heatmap')} className="mt-1 inline-grid grid-flow-col grid-rows-7 gap-[3px]">
+        <div role="group" aria-label={t('assistant.stats.heatmap')} className="mt-1 inline-grid grid-flow-col grid-rows-7 gap-[var(--sp-0-75)]">
           {cells.map((cell) => (
             <span
               key={cell.day}
-              title={t('assistant.stats.day_tokens', { day: cell.day, tokens: cell.tokens.toLocaleString() })}
-              aria-label={t('assistant.stats.day_tokens', { day: cell.day, tokens: cell.tokens.toLocaleString() })}
-              className={cn('size-3 rounded-[3px]', cell.level === 0 && 'bg-[var(--bg-inset)]')}
+              title={labels.get(cell.day)}
+              aria-label={labels.get(cell.day)}
+              className={cn('size-3 rounded-[var(--r-3)]', cell.level === 0 && 'bg-[var(--bg-inset)]')}
               style={cell.level > 0 ? { background: `color-mix(in oklab, var(--accent) ${cell.level * 25}%, var(--bg-inset))` } : undefined}
             />
           ))}
@@ -175,19 +186,30 @@ export function AppUsage() {
   const [overview, setOverview] = useState<AssistantUsageOverview | null>(null)
   const [stats, setStats] = useState<AssistantStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
   const [reload, setReload] = useState(0)
   useLocale()
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setFailed(false)
     // The totals and the window are two questions with two answers, so they are asked together and each
     // keeps its own failure: a trend that cannot be read must not take the streak down with it.
     void Promise.all([
-      api.assistant.usageOverview().then((result) => result.overview).catch(() => null),
-      api.assistant.stats(range).catch(() => null),
+      api.assistant.usageOverview().then((result) => result.overview).catch((error: unknown) => {
+        console.warn('usage overview unavailable', error)
+        return null
+      }),
+      api.assistant.stats(range).catch((error: unknown) => {
+        console.warn('usage window unavailable', error)
+        return null
+      }),
     ]).then(([nextOverview, nextStats]) => {
       if (cancelled) return
+      // A swallowed rejection used to look exactly like an account with no usage. Keep the two apart so
+      // the reader gets a retry instead of an empty chart.
+      setFailed(nextOverview === null || nextStats === null)
       setOverview(nextOverview)
       setStats(nextStats)
     }).finally(() => {
@@ -200,7 +222,9 @@ export function AppUsage() {
     return <div className="flex justify-center py-6"><Spinner /></div>
   }
   if (!overview) {
-    return <p className="py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.stats.unavailable')}</p>
+    return failed
+      ? <LoadFailure messageKey="assistant.stats.unavailable" onRetry={() => setReload((value) => value + 1)} />
+      : <p className="py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.stats.unavailable')}</p>
   }
 
   const today = new Date().toISOString().slice(0, 10)
@@ -251,7 +275,9 @@ export function AppUsage() {
         </Button>
       </div>
 
-      {!stats || stats.days.length === 0 ? (
+      {stats === null && failed ? (
+        <LoadFailure messageKey="assistant.stats.unavailable" onRetry={() => setReload((value) => value + 1)} />
+      ) : !stats || stats.days.length === 0 ? (
         <p className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-3 py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">
           {t('assistant.stats.empty')}
         </p>

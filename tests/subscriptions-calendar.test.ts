@@ -107,6 +107,17 @@ describe('the calendar file', () => {
     }
   })
 
+  it('escapes an injected uid and refuses a day that is not a plain date', () => {
+    const text = toICal([
+      { uid: 'x\r\nBEGIN:VEVENT\r\nSUMMARY:injected', day: '2026-11-01', title: 'Safe', detail: '' },
+      { uid: 'bad-day', day: '2026-11-01\r\nATTACH:http://evil', title: 'Bad', detail: '' },
+    ], { name: 'Inkstone', stamp: STAMP })
+    const lines = text.split('\r\n')
+    expect(lines.filter((entry) => entry === 'BEGIN:VEVENT')).toHaveLength(1)
+    expect(lines.some((entry) => entry.startsWith('ATTACH:'))).toBe(false)
+    expect(text).toContain('UID:x\\nBEGIN:VEVENT\\nSUMMARY:injected')
+  })
+
   it('gives each plan the same identifier every time, so a client updates rather than duplicates', () => {
     const first = document([item({ id: 'sub-9' })])
     const second = document([item({ id: 'sub-9' })])

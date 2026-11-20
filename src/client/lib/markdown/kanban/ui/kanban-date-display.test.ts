@@ -95,9 +95,16 @@ function containersFor(item: KanbanItem): Record<string, HTMLElement> {
 }
 
 function surfacesFor(item: KanbanItem): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(containersFor(item)).map(([name, container]) => [name, container.textContent ?? '']),
-  )
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(TODAY)
+  try {
+    return Object.fromEntries(
+      Object.entries(containersFor(item)).map(([name, container]) => [name, container.textContent ?? '']),
+    )
+  }
+  finally {
+    vi.useRealTimers()
+  }
 }
 
 // A missed deadline is the one thing a date badge has to work out for itself, and it has to work it

@@ -90,7 +90,7 @@ describe('password vault conventions', () => {
     const offenders = sources.filter(({ code }) => /encryptValue\(\s*getKeyIv\(/.test(code))
     expect(offenders.map((entry) => entry.file)).toEqual([])
 
-    const store = sources.find((entry) => entry.file.endsWith('/store.ts'))
+    const store = sources.find((entry) => entry.file.replaceAll('\\', '/').endsWith('/store.ts'))
     expect(store?.code).toContain('deriveVaultKey')
   })
 
@@ -103,7 +103,7 @@ describe('password vault conventions', () => {
   })
 
   it('locks by dropping the decrypted rows', () => {
-    const store = sources.find((entry) => entry.file.endsWith('/store.ts'))!
+    const store = sources.find((entry) => entry.file.replaceAll('\\', '/').endsWith('/store.ts'))!
     // The implementation, not the interface declaration above it.
     const start = store.code.indexOf('lock: () => {')
     expect(start).toBeGreaterThan(-1)

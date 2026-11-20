@@ -65,6 +65,14 @@ export interface Env {
   /** Optional DNS-over-HTTPS endpoint for the WebSSH target resolver; must be https. */
   WEBSSH_DOH_URL?: string
 
+  /**
+   * Comma-separated IPv4/IPv6 addresses or CIDR ranges of reverse proxies a self-hosted deployment
+   * trusts. Unset (the default) keeps every client without a Cloudflare `cf` object on the shared
+   * `local` throttle key; setting it lets `X-Forwarded-For` supply a per-client key. Only declare
+   * ranges that actually terminate inbound traffic — a spoofable header on these ranges sets the key.
+   */
+  TRUSTED_PROXY_CIDRS?: string
+
   /** Optional default password for navigation categories that choose "use default". Set as a secret. */
   NAV_DEFAULT_CATEGORY_PASSWORD?: string
 
@@ -194,6 +202,9 @@ export interface Env {
   /** The cross-isolate public-share counter; optional so a small deployment can omit it. */
   MUSIC_SHARE_LIMITER?: DurableObjectNamespace
 
+  /** The cross-isolate GitHub request counter; optional, falls back to the isolate-local budget. */
+  GITHUB_LIMITER?: DurableObjectNamespace
+
   /**
    * The bare domain Email Routing delivers to this Worker, as in `mail.example.com`. Optional: with
    * it unset no address can be formed, so the mail-token routes answer 503 and inbound mail is
@@ -248,6 +259,8 @@ export interface Variables {
   /** Set only when the request authenticated with a Memos access token rather than a session. */
   memoPatId?: string
   memoPatScope?: 'memos' | 'owner'
+  /** Set only when the request authenticated with a project API token rather than a session. */
+  projectTokenId?: string
 
   sessionId: string
 

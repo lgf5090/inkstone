@@ -91,7 +91,7 @@ export function sortTemplates(
   favoriteIds: readonly string[],
 ): TemplateItem[] {
   const favorites = new Set(favoriteIds)
-  return [...templates].sort((left, right) => {
+  return templates.toSorted((left, right) => {
     const favoriteOrder = Number(favorites.has(templateKey(right)))
       - Number(favorites.has(templateKey(left)))
     if (favoriteOrder !== 0) return favoriteOrder

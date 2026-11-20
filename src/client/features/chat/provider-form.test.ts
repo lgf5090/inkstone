@@ -10,7 +10,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantProvider, AssistantVendorModel } from '@shared/assistant'
-import { PROVIDER_PRESETS } from '@shared/assistant'
+import { MAX_PROVIDER_KEYS, PROVIDER_PRESETS } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { ProviderForm } from './AssistantModelTab'
@@ -110,6 +110,18 @@ describe('saving a provider', () => {
     expect(onCreated).toHaveBeenCalledWith(created)
     // The form closes first: the listing opens on top of the settings screen, not of this dialog.
     expect(onCloseSpy).toHaveBeenCalled()
+  })
+
+  it('counts the keys a comma-separated box will rotate through before the save', () => {
+    act(() => { type(keyBox()!, 'sk-one, sk-two, sk-three') })
+    expect(document.body.textContent).toContain(t('assistant.settings.api_key_count', { count: 3 }))
+  })
+
+  it('refuses a ring longer than the shared cap, and names the limit', () => {
+    const tooMany = Array.from({ length: MAX_PROVIDER_KEYS + 1 }, (_, index) => `sk-many-${index}`).join(',')
+    act(() => { type(keyBox()!, tooMany) })
+    expect(submit()?.disabled).toBe(true)
+    expect(document.body.textContent).toContain(t('assistant.settings.api_key_too_many', { max: MAX_PROVIDER_KEYS }))
   })
 })
 
@@ -251,7 +263,7 @@ describe('an address box that got something else typed into it', () => {
 describe('the key box of a provider that already has one', () => {
   const saved = {
     id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gw.internal.example/v1',
-    endpoints: {}, hasKey: true, icon: '', keyHint: '1234', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+    endpoints: {}, hasKey: true, icon: '', keyHint: '1234', keyLastUsedAt: null, reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
   } as unknown as AssistantProvider
   const editButton = () => buttons().find((node) => node.textContent?.trim() === t('assistant.settings.edit_provider'))
   /** The note a field declares it is described by, reached through the association alone. */
@@ -350,7 +362,7 @@ describe('a save the route refuses', () => {
     })
     const provider = {
       id: 'p1', label: 'Gateway', protocol: 'openai', baseUrl: 'https://gw.internal.example/v1',
-      endpoints: {}, hasKey: true, icon: '', keyHint: '1234', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+      endpoints: {}, hasKey: true, icon: '', keyHint: '1234', keyLastUsedAt: null, reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
     } as unknown as AssistantProvider
     await act(async () => { root.render(createElement(ProviderForm, { open: true, provider, onClose: onCloseSpy })) })
     await press(editButton(), 'the save button')
@@ -442,7 +454,7 @@ describe('an address for the wire the provider is on', () => {
   it('drops a stored address for the provider own protocol instead of sending it back', async () => {
     const provider = {
       id: 'p1', label: 'Legacy Gateway', protocol: 'openai', baseUrl: 'https://api.deepseek.com',
-      endpoints: { openai: 'lgf5090' }, hasKey: false, icon: '', keyHint: '', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+      endpoints: { openai: 'lgf5090' }, hasKey: false, icon: '', keyHint: '', keyLastUsedAt: null, reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
     } as unknown as AssistantProvider
     await act(async () => { root.render(createElement(ProviderForm, { open: true, provider, onClose: onCloseSpy })) })
     expect(editButton()?.disabled, 'an address no box shows kept the save disabled').toBe(false)

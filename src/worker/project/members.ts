@@ -101,7 +101,7 @@ export async function addProjectMember(
     .prepare('SELECT id FROM users WHERE lower(username) = lower(?1) LIMIT 1')
     .bind(username)
     .first<{ id: string }>()
-  if (!account) throw ApiError.notFound('User not found')
+  if (!account) throw ApiError.conflict('already_member')
   const targetUserId = account.id
   if (targetUserId === board.ownerId) throw ApiError.conflict('owner_immutable')
   if (await memberRow(db, board.id, targetUserId)) throw ApiError.conflict('already_member')
@@ -135,6 +135,18 @@ export async function setProjectMemberRole(
   return { ...toMember(target), role, updatedAt: now }
 }
 
+/** A reader who loses access must stop receiving that board's comment bodies and due reminders. */
+async function clearBoardSubscriptions(db: D1Database, boardId: string, userId: string): Promise<void> {
+  await db
+    .prepare(
+      `DELETE FROM project_subscriptions
+       WHERE subscriber_id = ?1
+         AND (block_id = ?2 OR block_id IN (SELECT id FROM project_cards WHERE board_id = ?2))`,
+    )
+    .bind(userId, boardId)
+    .run()
+}
+
 export async function removeProjectMember(
   db: D1Database,
   board: ProjectBoard,
@@ -148,6 +160,11 @@ export async function removeProjectMember(
     .prepare('DELETE FROM project_board_members WHERE board_id = ?1 AND user_id = ?2')
     .bind(board.id, targetUserId)
     .run()
+  await clearBoardSubscriptions(db, board.id, targetUserId)
+  await db.prepare(
+    `DELETE FROM project_todo_links
+     WHERE user_id = ?1 AND card_id IN (SELECT id FROM project_cards WHERE board_id = ?2)`,
+  ).bind(targetUserId, board.id).run()
 }
 
 export interface ProjectJoinResult {
@@ -195,4 +212,5 @@ export async function leaveProjectBoard(db: D1Database, board: ProjectBoard, use
     .prepare('DELETE FROM project_board_members WHERE board_id = ?1 AND user_id = ?2')
     .bind(board.id, userId)
     .run()
+  await clearBoardSubscriptions(db, board.id, userId)
 }

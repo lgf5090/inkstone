@@ -238,7 +238,13 @@ import {
   PROJECT_CONTENT_SCHEMA_STATEMENTS,
   PROJECT_CORE_SCHEMA_STATEMENTS,
   PROJECT_ENHANCE_SCHEMA_STATEMENTS,
-  PROJECT_FTS_SCHEMA_STATEMENTS,
+  PROJECT_RELATION_SCHEMA_STATEMENTS,
+  PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
+  PROJECT_TIME_SCHEMA_STATEMENTS,
+  PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS,
+  PROJECT_INTEGRATION_SCHEMA_STATEMENTS,
+  PROJECT_SPRINT_SCHEMA_STATEMENTS,
+  PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS,
   PROJECT_REQUIRED_COLUMNS,
   PROJECT_REQUIRED_INDEXES,
   PROJECT_REQUIRED_TABLES,
@@ -851,7 +857,13 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...PROJECT_CONTENT_SCHEMA_STATEMENTS,
   ...PROJECT_AUX_SCHEMA_STATEMENTS,
   ...PROJECT_ENHANCE_SCHEMA_STATEMENTS,
-  ...PROJECT_FTS_SCHEMA_STATEMENTS,]
+  ...PROJECT_RELATION_SCHEMA_STATEMENTS,
+  ...PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
+  ...PROJECT_TIME_SCHEMA_STATEMENTS,
+  ...PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS,
+  ...PROJECT_INTEGRATION_SCHEMA_STATEMENTS,
+  ...PROJECT_SPRINT_SCHEMA_STATEMENTS,
+  ...PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS,]
 
 export interface SchemaMigration {
   version: number
@@ -4237,10 +4249,6 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: PROJECT_ENHANCE_SCHEMA_STATEMENTS,
   },
   {
-    version: 389,
-    statements: PROJECT_FTS_SCHEMA_STATEMENTS,
-  },
-  {
     // The view type list lives in PROJECT_VIEW_TYPES and is enforced by ProjectViewTypeSchema at the
     // API boundary. The table used to repeat it as a CHECK, which a new view type could not get past:
     // CREATE TABLE IF NOT EXISTS leaves an existing constraint alone, so adding 'dashboard' to the
@@ -4285,6 +4293,236 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 392,
     skipIfColumnExists: { table: 'project_cards', column: 'recurrence' },
     statements: ['ALTER TABLE project_cards ADD COLUMN recurrence TEXT'],
+  },
+  {
+    // Public links expose comments only after the owner opts in; the default keeps existing shares
+    // private. Guarded so a fresh database, whose CREATE TABLE already carries the column, records
+    // the version without re-adding it.
+    version: 393,
+    skipIfColumnExists: { table: 'project_shares', column: 'show_comments' },
+    statements: ['ALTER TABLE project_shares ADD COLUMN show_comments INTEGER NOT NULL DEFAULT 0'],
+  },
+  {
+    // Time tracking writes its own intervals rather than a running total, so a correction is a row
+    // edit and two people timing the same card cannot overwrite each other.
+    version: 394,
+    statements: PROJECT_TIME_SCHEMA_STATEMENTS,
+  },
+  {
+    // Relation targets, formulas and role restrictions live beside the property rather than in four
+    // nullable columns that only one property type uses.
+    version: 395,
+    statements: PROJECT_PROPERTY_CONFIG_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 396,
+    statements: ['CREATE INDEX IF NOT EXISTS idx_project_attachments_board ON project_attachments(board_id, created_at DESC)'],
+  },
+  {
+    version: 397,
+    statements: PROJECT_RELATION_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 398,
+    statements: PROJECT_AUTOMATION_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 399,
+    skipIfColumnExists: { table: 'project_cards', column: 'completed_at' },
+    statements: ['ALTER TABLE project_cards ADD COLUMN completed_at INTEGER'],
+  },
+  {
+    // The project FTS tables were declared but never written or read: search scans the live rows with
+    // LIKE. Removing the declarations leaves old databases carrying two empty tables, so the ledger
+    // spends a version dropping them rather than leaving a shape a fresh boot no longer has.
+    version: 400,
+    statements: [
+      'DROP INDEX IF EXISTS idx_project_fts_queue_due',
+      'DROP TABLE IF EXISTS project_fts_queue',
+      'DROP TABLE IF EXISTS project_fts',
+    ],
+  },
+  {
+    version: 401,
+    statements: PROJECT_INTEGRATION_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 402,
+    statements: PROJECT_SPRINT_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 403,
+    statements: PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS,
+  },
+  {
+    // Where the answer to "does this key still work" lives: one row per key, replaced on every probe.
+    // `key_id = ''` is the provider's own credential, which has no row in `chat_provider_keys`.
+    version: 404,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_provider_key_probes (
+        user_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        reason TEXT,
+        latency_ms INTEGER,
+        probed_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, provider_id, key_id)
+      )`,
+    ],
+  },
+  {
+    // When a refused key becomes usable again, stored rather than derived from `updated_at`: the row is
+    // also touched by renames and switches, and a cooldown that a name change can extend is not a cooldown.
+    version: 405,
+    skipIfColumnExists: { table: 'chat_provider_keys', column: 'cooling_until' },
+    statements: [
+      `ALTER TABLE chat_provider_keys ADD COLUMN cooling_until INTEGER`,
+    ],
+  },
+  {
+    // A model one key cannot serve is a narrower fact than a broken key, and cooling the whole key for it
+    // takes a working credential out of every other turn.
+    version: 406,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_provider_key_model_cooldowns (
+        user_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        cooling_until INTEGER NOT NULL,
+        PRIMARY KEY (user_id, provider_id, key_id, model)
+      )`,
+    ],
+  },
+  {
+    // One provider can prefer one key for every turn: a vendor keys its prompt cache on the prefix, so
+    // rotating keys per turn throws that cache away. Off by default — rotation is what spreads a limit.
+    version: 407,
+    skipIfColumnExists: { table: 'chat_providers', column: 'sticky' },
+    statements: [
+      `ALTER TABLE chat_providers ADD COLUMN sticky INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    // Attempt-level detail: the daily rollups answer "how much", never "which attempt failed and why".
+    // The request body column stays null unless the reader opts in — a prompt is the reader's own writing.
+    version: 408,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_request_logs (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        at INTEGER NOT NULL,
+        provider_id TEXT NOT NULL DEFAULT '',
+        provider_label TEXT NOT NULL DEFAULT '',
+        key_id TEXT NOT NULL DEFAULT '',
+        key_label TEXT NOT NULL DEFAULT '',
+        key_hint TEXT NOT NULL DEFAULT '',
+        model_label TEXT NOT NULL DEFAULT '',
+        operation TEXT NOT NULL DEFAULT 'chat',
+        ok INTEGER NOT NULL,
+        http_status INTEGER,
+        error_kind TEXT,
+        error_message TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+        latency_ms INTEGER,
+        request_body TEXT,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_at ON chat_request_logs(user_id, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_key ON chat_request_logs(user_id, key_id, at DESC)`,
+    ],
+  },
+  {
+    version: 409,
+    skipIfColumnExists: { table: 'chat_request_logs', column: 'conversation_id' },
+    statements: [`ALTER TABLE chat_request_logs ADD COLUMN conversation_id TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 410,
+    skipIfColumnExists: { table: 'chat_request_logs', column: 'model_id' },
+    statements: [`ALTER TABLE chat_request_logs ADD COLUMN model_id TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 411,
+    skipIfColumnExists: { table: 'chat_request_logs', column: 'attempt' },
+    statements: [`ALTER TABLE chat_request_logs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`],
+  },
+  {
+    version: 412,
+    skipIfColumnExists: { table: 'chat_request_logs', column: 'note' },
+    statements: [`ALTER TABLE chat_request_logs ADD COLUMN note TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 413,
+    skipIfColumnExists: { table: 'chat_request_logs', column: 'starred' },
+    statements: [
+      `ALTER TABLE chat_request_logs ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_filter ON chat_request_logs(user_id, provider_id, ok, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_conversation ON chat_request_logs(user_id, conversation_id, at DESC)`,
+    ],
+  },
+  {
+    // Security events outlive the general activity feed: that feed is capped at a few hundred rows, so
+    // ordinary chatter can push a plaintext disclosure out of the account's own history. These rows keep
+    // the session, address and agent that asked, and are never pruned by the activity sweep.
+    version: 414,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_security_audit (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        session_id TEXT NOT NULL DEFAULT '',
+        ip TEXT NOT NULL DEFAULT '',
+        user_agent TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_security_audit_user ON chat_security_audit(user_id, created_at DESC)`,
+    ],
+  },
+  {
+    // A reveal is redeemed once, within seconds, by the session that asked for it. The rate-limit rows
+    // are shared by probe and Worker-level throttles so both read one atomic counter per window.
+    version: 415,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_reveal_tickets (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        consumed_at INTEGER,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_reveal_tickets_expiry ON chat_reveal_tickets(user_id, expires_at)`,
+      `CREATE TABLE IF NOT EXISTS chat_rate_limits (
+        user_id TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        window_start INTEGER NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, scope, window_start)
+      )`,
+    ],
+  },
+  {
+    // The log table's custom sort columns had no leading index, so every "sort by provider / model /
+    // status" paged read sorted the whole account. Each index starts with the tenant key and ends with
+    // the default tie-breaker, so the ORDER BY in listRequestLogs can walk the index instead.
+    version: 416,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_status ON chat_request_logs(user_id, ok, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_model ON chat_request_logs(user_id, model_label, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_key_hint ON chat_request_logs(user_id, key_hint, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_operation ON chat_request_logs(user_id, operation, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_attempt ON chat_request_logs(user_id, attempt, at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_latency ON chat_request_logs(user_id, latency_ms, at DESC)`,
+    ],
   },
 ]
 

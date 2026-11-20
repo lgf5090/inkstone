@@ -12,9 +12,10 @@ import { PROJECT_ATTACHMENT_CATEGORIES } from '@shared/project/model'
 import { t, useLocale } from '../../../lib/i18n'
 import { Button } from '../../../components/primitives'
 import { Input } from '../../../components/form'
+import { confirm, useDialogFocus, useEscape } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
 import { ViewEmpty, ViewHead, ViewShell, ViewToolbar } from './shell'
-import { listBoardFiles, projectFileUrl, uploadBoardFile } from '../api'
+import { deleteProjectFile, listBoardFiles, projectFileUrl, uploadBoardFile } from '../api'
 
 export function CollectionView({ boardId, canEdit, onOpenCard }: {
   boardId: string
@@ -30,6 +31,9 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
   const [preview, setPreview] = useState<ProjectAttachment | null>(null)
   const [text, setText] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
+  const previewRef = useRef<HTMLElement>(null)
+  useDialogFocus(preview !== null, previewRef)
+  useEscape(preview !== null, () => setPreview(null))
   const toast = useUi((state) => state.toast)
 
   const load = useCallback(async () => { setFiles(await listBoardFiles(boardId)) }, [boardId])
@@ -48,6 +52,20 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
       toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     } finally {
       setBusy(false)
+    }
+  }
+
+  const remove = async (): Promise<void> => {
+    if (!preview) return
+    const target = preview
+    const ok = await confirm({ title: t('project.collection.delete_file'), description: target.filename, tone: 'danger', confirmLabel: t('common.delete') })
+    if (!ok) return
+    try {
+      await deleteProjectFile(target.id)
+      setPreview(null)
+      await load()
+    } catch (reason) {
+      toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     }
   }
 
@@ -139,7 +157,7 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
           </div>
         )}
       {preview && (
-        <aside className="pv-preview" aria-label={preview.filename} data-file-preview={preview.id}>
+        <aside ref={previewRef} className="pv-preview" aria-label={preview.filename} data-file-preview={preview.id}>
           <div className="pv-cal-panel-head">
             <span className="pv-cal-panel-date truncate">{preview.filename}</span>
             <Button size="sm" variant="ghost" onClick={() => setPreview(null)}>{t('common.close')}</Button>
@@ -154,6 +172,7 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
           <div className="pv-preview-foot">
             <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{formatBytes(preview.size)} · {new Date(preview.createdAt).toLocaleDateString(locale)}</span>
             <a className="text-[length:var(--text-12)] text-[var(--accent)]" href={projectFileUrl(preview.id)} target="_blank" rel="noreferrer">{t('project.collection.open_raw')}</a>
+            {canEdit && !preview.cardId && <Button size="sm" variant="ghost" onClick={() => void remove()}>{t('project.collection.delete_file')}</Button>}
             {preview.cardId && <Button size="sm" variant="ghost" onClick={() => onOpenCard(preview.cardId!)}>{t('project.card.open')}</Button>}
           </div>
         </aside>

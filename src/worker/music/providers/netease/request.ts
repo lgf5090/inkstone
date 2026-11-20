@@ -198,13 +198,7 @@ function endpointFor(mode: NeteaseCryptoMode, path: string): string {
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    return await fetch(url, { ...init, signal: controller.signal })
-  } finally {
-    clearTimeout(timer)
-  }
+  return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) })
 }
 
 function failure(status: number, error: string, body?: unknown): NeteaseResponse {

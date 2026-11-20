@@ -98,6 +98,20 @@ describe('following a board', () => {
   })
 })
 
+describe('removing a member', () => {
+  it('drops the subscriptions that member held on that board', async () => {
+    const board = await createBoard('alice')
+    const cardResponse = await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'C' })
+    const card = ((await cardResponse.json()) as { card: ProjectCard }).card
+    addMember(board.id, 'bob', 'viewer')
+    await req('bob', 'POST', '/subscriptions', { blockType: 'board', blockId: board.id })
+    await req('bob', 'POST', '/subscriptions', { blockType: 'card', blockId: card.id })
+    expect((await list('bob')).map((entry) => entry.blockId).sort()).toEqual([board.id, card.id].sort())
+    expect((await req('alice', 'DELETE', `/boards/${board.id}/members/bob`)).status).toBe(200)
+    expect(await list('bob')).toEqual([])
+  })
+})
+
 describe('following a card', () => {
   it('follows a card on a readable board', async () => {
     const board = await createBoard('alice')

@@ -20,10 +20,10 @@ export async function getProjectComment(db: D1Database, commentId: string): Prom
   return row ? rowToComment(row) : null
 }
 
-export async function listCardComments(db: D1Database, cardId: string): Promise<ProjectComment[]> {
+export async function listCardComments(db: D1Database, cardId: string, boardId: string): Promise<ProjectComment[]> {
   const { results } = await db
-    .prepare('SELECT * FROM project_comments WHERE card_id = ?1 AND delete_at = 0 ORDER BY create_at, id')
-    .bind(cardId)
+    .prepare('SELECT * FROM project_comments WHERE card_id = ?1 AND board_id = ?2 AND delete_at = 0 ORDER BY create_at, id')
+    .bind(cardId, boardId)
     .all<CommentRow>()
   return results.map(rowToComment)
 }

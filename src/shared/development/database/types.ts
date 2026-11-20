@@ -141,6 +141,13 @@ export interface RawSchemaObject {
   sql: string | null
 }
 
+export interface ParsedReference {
+  table: string
+  column?: string
+  onUpdate?: string
+  onDelete?: string
+}
+
 export interface ParsedColumn {
   name: string
   type: string
@@ -149,7 +156,7 @@ export interface ParsedColumn {
   pkPosition: number
   default: string | null
   unique: boolean
-  references?: { table: string; column?: string }
+  references?: ParsedReference
   check?: string | null
   collate?: string | null
   generated?: string | null

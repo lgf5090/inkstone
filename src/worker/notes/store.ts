@@ -867,6 +867,15 @@ export class NotesStore {
     ).run()
   }
 
+  async hasOtherNoteWithTitle(title: string, exceptId: string): Promise<boolean> {
+    const row = await this.db.prepare(
+      `SELECT 1 AS found FROM notes
+        WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key = ?3
+        LIMIT 1`,
+    ).bind(this.userId, exceptId, normalizeLinkKey(title)).first()
+    return Boolean(row)
+  }
+
   // ------------------------------------------------------------ trash, restore
 
   /** The next page of trashed ids, keyset-paged: a bulk purge must never hold the whole trash. */
@@ -1649,4 +1658,31 @@ export async function rewriteInboundWikiLinks(
     }
   }
   return { rewritten, skipped, deferred: 0, remaining }
+}
+
+export async function purgeNotePlaintextProjections(
+  db: D1Database,
+  userId: string,
+  noteId: string,
+  previousTitle: string,
+  ftsEnabled: boolean,
+): Promise<void> {
+  const previousKey = normalizeLinkKey(previousTitle)
+  const statements = [
+    db.prepare(`DELETE FROM note_versions WHERE note_id = ?1 AND user_id = ?2`).bind(noteId, userId),
+    db.prepare(`DELETE FROM ai_note_embeddings WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+    db.prepare(`DELETE FROM ai_index_queue WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+    db.prepare(`DELETE FROM fts_index_queue WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+    db.prepare(`DELETE FROM links WHERE user_id = ?1 AND (target_note_id = ?2 OR target_key = ?3)`)
+      .bind(userId, noteId, previousKey),
+    db.prepare(`DELETE FROM rewrite_queue WHERE user_id = ?1 AND (source_id = ?2 OR old_value = ?3)`)
+      .bind(userId, noteId, previousTitle),
+    db.prepare(`UPDATE shares SET is_enabled = 0 WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+    db.prepare(`UPDATE blog_pages SET published_at = NULL WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+    db.prepare(`UPDATE blog_posts SET status = 'withdrawn' WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+  ]
+  if (ftsEnabled) {
+    statements.push(db.prepare(`DELETE FROM notes_fts WHERE note_id = ?1`).bind(noteId))
+  }
+  await db.batch(statements)
 }

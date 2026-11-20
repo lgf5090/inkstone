@@ -70,7 +70,7 @@ export function inServerOrder(groups: TaskGroup[], tasks: readonly TodoTask[]): 
   const position = new Map(tasks.map((task, index) => [task.id, index]))
   return groups.map((group) => ({
     ...group,
-    tasks: [...group.tasks].sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0)),
+    tasks: group.tasks.toSorted((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0)),
   }))
 }
 
@@ -245,7 +245,7 @@ export function CompletedView() {
     seenYears.current.add(localDate(task.completedAt ?? task.updatedAt, timezone).slice(0, 4))
   }
   if (completedFrom) seenYears.current.add(completedFrom.slice(0, 4))
-  const years = [...seenYears.current].sort((a, b) => (a < b ? 1 : -1))
+  const years = Array.from(seenYears.current).sort((a, b) => (a < b ? 1 : -1))
 
   const groups = useMemo(() => {
     const { done, abandoned } = groupCompletedAndAbandoned(completed, timezone)

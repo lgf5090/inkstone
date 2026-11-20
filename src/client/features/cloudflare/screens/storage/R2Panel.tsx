@@ -27,7 +27,7 @@ import { R2PreviewDialog } from './R2PreviewDialog'
 import { R2UploadDialog } from './R2UploadDialog'
 import { StorageError } from './StorageError'
 import { previewKindFor } from './r2-preview'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 
 interface FolderRow {
   kind: 'folder'
@@ -376,7 +376,7 @@ export function R2Panel({ account }: { account: CloudflareAccount }) {
               value={prefixInput}
               onChange={(event) => setPrefixInput(event.target.value)}
               onKeyDown={(event) => {
-                if (!isImeComposing(event) && event.key === 'Enter') {
+                if (!isImeComposing(event) && isEnterKey(event)) {
                   event.preventDefault()
                   navigate(prefixInput.trim())
                 }

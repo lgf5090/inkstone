@@ -142,7 +142,7 @@ imgbedRandomRoutes.get('/random', async (c) => {
   const pick = async (targetOrientation: string | undefined): Promise<ImgbedFile | null> => {
     if (dir) return randomFile(c.env.DB, query(dir, targetOrientation))
     if (!allowed.length || allAllowed) return randomFile(c.env.DB, query('', targetOrientation))
-    const candidates = [...allowedDirs].sort(() => Math.random() - 0.5)
+    const candidates = allowedDirs.toSorted(() => Math.random() - 0.5)
     for (const candidate of candidates) {
       const file = await randomFile(c.env.DB, query(candidate, targetOrientation))
       if (file) return file

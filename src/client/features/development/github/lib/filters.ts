@@ -41,7 +41,7 @@ function matchesGist(gist: SavedGist, query: string): boolean {
 }
 
 export function sortSavedRepos(repos: readonly SavedGithubRepo[]): SavedGithubRepo[] {
-  return [...repos].sort((left, right) => {
+  return repos.toSorted((left, right) => {
     if (left.pinned !== right.pinned) return left.pinned ? -1 : 1
     if (left.favorited !== right.favorited) return left.favorited ? -1 : 1
     return right.updatedAt - left.updatedAt
@@ -94,7 +94,7 @@ export function sortGists(
   prefs: GistPrefs = DEFAULT_GIST_PREFS,
 ): SavedGist[] {
   const direction = prefs.order === 'asc' ? 1 : -1
-  return [...gists].sort((left, right) => {
+  return gists.toSorted((left, right) => {
     if (prefs.sort !== 'description' && left.pinned !== right.pinned) return left.pinned ? -1 : 1
     switch (prefs.sort) {
       case 'created':

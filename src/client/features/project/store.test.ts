@@ -6,6 +6,7 @@ import { useProjectStore } from './store'
 vi.mock('./api', () => ({
   fetchProjectBoards: vi.fn(),
   createProjectBoard: vi.fn(),
+  createProjectView: vi.fn(),
   deleteProjectBoard: vi.fn(),
   duplicateProjectBoard: vi.fn(),
   renameProjectBoard: vi.fn(),

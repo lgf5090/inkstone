@@ -115,7 +115,7 @@ function UsageDetail() {
   // The currency the cost chart draws: the one the window was mostly billed in. A window priced in two is
   // two bills, and one stacked bar of both would be adding different money together.
   const mainSpend = useMemo(
-    () => [...(stats?.spend ?? [])].sort((left, right) => right.amount - left.amount)[0] ?? null,
+    () => (stats?.spend ?? []).toSorted((left, right) => right.amount - left.amount)[0] ?? null,
     [stats],
   )
 

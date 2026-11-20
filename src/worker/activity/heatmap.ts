@@ -147,7 +147,7 @@ const CACHE_TTL_MS = 60_000
 const cache = new Map<string, { at: number; days: HeatmapDay[] }>()
 
 export async function heatmapCountsCached(db: D1Database, options: HeatmapCountsOptions, now = Date.now()): Promise<HeatmapDay[]> {
-  const key = [options.userId, options.from, options.to, [...options.kinds].sort().join(',')].join('|')
+  const key = [options.userId, options.from, options.to, options.kinds.toSorted().join(',')].join('|')
   const hit = cache.get(key)
   if (hit && now - hit.at < CACHE_TTL_MS) return hit.days
   const days = await heatmapCounts(db, options)

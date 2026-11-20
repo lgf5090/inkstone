@@ -76,8 +76,7 @@ async function askVendor(spec: BalanceSpec, baseUrl: string, apiKey: string): Pr
   }
   const key = apiKey.trim()
   if (!key) return { ok: false, reason: 'unauthorized' }
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), BALANCE_TIMEOUT_MS)
+  const signal = AbortSignal.timeout(BALANCE_TIMEOUT_MS)
   let response: Response
   try {
     response = await fetch(target.toString(), {
@@ -89,12 +88,10 @@ async function askVendor(spec: BalanceSpec, baseUrl: string, apiKey: string): Pr
         // Two shapes across every vendor listed: a bearer value, and the one that sends the bare key.
         ...(spec.keyCarrier === 'raw' ? { authorization: key } : { authorization: `Bearer ${key}` }),
       },
-      signal: controller.signal,
+      signal,
     })
   } catch {
     return { ok: false, reason: 'unreachable' }
-  } finally {
-    clearTimeout(timer)
   }
   if (isRedirectResponse(response)) return { ok: false, reason: 'unsupported' }
   if (response.status === 401 || response.status === 403) return { ok: false, reason: 'unauthorized' }

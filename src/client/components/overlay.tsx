@@ -9,7 +9,7 @@ import { Button, IconButton, Kbd } from './primitives';
 import { FIELD_BASE } from './form';
 import { t } from "../lib/i18n";
 import { getVisibleViewport } from '../lib/viewport';
-import { isImeComposing } from '../lib/ime';
+import { isImeComposing, isEnterKey } from '../lib/ime';
 import { usePinyinVersion } from '../lib/pinyin'
 
 
@@ -510,7 +510,7 @@ function PromptDialog({ request, finish }: { request: PromptRequest; finish: (re
         if (isImeComposing(event)) return;
         // Enter has to be cancelled before it commits: committing opens the next dialog in the
         // queue, and the browser runs this keydown's default action after the handler returns.
-        if (event.key === 'Enter') {
+        if (isEnterKey(event)) {
             event.preventDefault();
             if (submit)
                 finish(request, submit);
@@ -537,6 +537,7 @@ export interface MenuItem {
     reason?: string;
     checked?: boolean;
     onSelect?: () => void;
+    href?: string;
     separatorBefore?: boolean;
     submenu?: ReactNode | ((context: MenuSubmenuContext) => ReactNode);
     /**
@@ -1004,7 +1005,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         </div>)}
       <div className="min-h-0 flex-1 overflow-y-auto" onScroll={reanchorSubmenu}>
         {visibleItems.map((item, index) => {
-          const row = (<button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked === undefined ? undefined : item.checked} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? submenu?.id === item.id : undefined} tabIndex={index === cursor ? 0 : -1} data-menu-index={index} disabled={item.disabled} onMouseEnter={() => {
+          const enter = () => {
                 if (item.disabled)
                     return;
                 setCursor(index);
@@ -1012,18 +1013,21 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
                     openSubmenuFor(index, false);
                 else
                     setSubmenu(null);
-            }} onClick={() => {
+            };
+          const activate = () => {
                 if (item.submenu) {
                     openSubmenuFor(index, true);
                     return;
                 }
                 item.onSelect?.();
                 onClose();
-            }} className={cn('flex h-10 w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-12-5)] md:h-[30px]', 'transition-colors duration-[80ms] disabled:opacity-40', item.reason ? undefined : 'disabled:pointer-events-none', index === cursor ? 'bg-[var(--bg-hover)]' : '', item.tone === 'danger'
+            };
+          const rowClass = cn('flex h-10 w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-12-5)] md:h-[30px]', 'transition-colors duration-[80ms] disabled:opacity-40', item.reason ? undefined : 'disabled:pointer-events-none', index === cursor ? 'bg-[var(--bg-hover)]' : '', item.tone === 'danger'
                 ? 'text-[var(--danger)]'
                 : index === cursor
                     ? 'text-[var(--text-primary)]'
-                    : 'text-[var(--text-secondary)]')}>
+                    : 'text-[var(--text-secondary)]', item.disabled ? 'pointer-events-none opacity-40' : undefined);
+          const content = (<>
             {item.icon && (<span className="flex size-4 shrink-0 items-center justify-center opacity-85">
                 {item.icon}
               </span>)}
@@ -1031,6 +1035,18 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             {item.checked && <Check size={13} aria-hidden="true" className="shrink-0 text-[var(--accent)]"/>}
             {item.submenu && <ChevronRight size={13} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]"/>}
             {item.combo && <Kbd combo={item.combo}/>}
+          </>);
+          const row = item.href && !item.submenu ? (<a role="menuitem" href={item.href} target="_blank" rel="noopener noreferrer" aria-disabled={item.disabled || undefined} tabIndex={index === cursor ? 0 : -1} data-menu-index={index} onMouseEnter={enter} onClick={(event) => {
+                if (item.disabled) {
+                    event.preventDefault();
+                    return;
+                }
+                item.onSelect?.();
+                onClose();
+            }} className={rowClass}>
+            {content}
+          </a>) : (<button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked === undefined ? undefined : item.checked} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? submenu?.id === item.id : undefined} tabIndex={index === cursor ? 0 : -1} data-menu-index={index} disabled={item.disabled} onMouseEnter={enter} onClick={activate} className={rowClass}>
+            {content}
           </button>);
           return (<div key={item.id}>
             {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}

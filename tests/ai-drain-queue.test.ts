@@ -23,7 +23,7 @@ function seed(noteCount: number, options: { poison?: string } = {}): Fixture {
   sqlite.exec(`
     CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE notes (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
-      content TEXT NOT NULL, deleted_at INTEGER);
+      content TEXT NOT NULL, deleted_at INTEGER, is_encrypted INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE ai_note_embeddings (user_id TEXT NOT NULL, note_id TEXT NOT NULL, model TEXT NOT NULL,
       vector BLOB NOT NULL, indexed_at INTEGER NOT NULL, norm REAL, PRIMARY KEY (user_id, note_id));
     CREATE TABLE ai_index_queue (user_id TEXT NOT NULL, note_id TEXT NOT NULL, kind TEXT NOT NULL,
@@ -35,7 +35,7 @@ function seed(noteCount: number, options: { poison?: string } = {}): Fixture {
   const failFor = new Set<string>(options.poison ? [options.poison] : [])
   for (let index = 0; index < noteCount; index++) {
     const id = `note-${index}`
-    sqlite.prepare('INSERT INTO notes VALUES (?, ?, ?, ?, NULL)')
+    sqlite.prepare('INSERT INTO notes (id, user_id, title, content, deleted_at) VALUES (?, ?, ?, ?, NULL)')
       .run(id, USER, id, `body of ${id}${options.poison === id ? ' POISON' : ''}`)
     sqlite.prepare('INSERT INTO ai_index_queue (user_id, note_id, kind, created_at) VALUES (?, ?, ?, ?)')
       .run(USER, id, 'embed', 1_700_000_000_000 + index)

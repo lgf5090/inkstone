@@ -42,7 +42,6 @@ export interface GithubStore {
   truncatedRepos: boolean
   truncatedGists: boolean
   load: () => Promise<void>
-  reload: () => Promise<void>
   refresh: () => Promise<void>
   loadAllRepos: () => Promise<void>
   loadAllGists: () => Promise<void>
@@ -74,6 +73,7 @@ export interface GithubStore {
 type CollectionKey = 'tags' | 'repos' | 'collections' | 'gistTags' | 'gists' | 'mirrors' | 'accounts' | 'apps'
 
 const DEFAULT_CAPABILITIES: GithubCapabilities = { exports: false }
+const MAX_LOAD_PAGES = 50
 const writeQueues = new Map<string, Promise<void>>()
 let loadPromise: Promise<void> | null = null
 let bootstrapSequence = 0
@@ -183,48 +183,48 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     revisions.get(collection) === revision
 
   const reloadCollection = async (collection: CollectionKey): Promise<void> => {
-    try {
-      switch (collection) {
-        case 'tags':
-          set({ tags: await githubApi.listTags() })
-          return
-        case 'repos':
-          set({ repos: await githubApi.listRepos() })
-          return
-        case 'collections':
-          set({ collections: await githubApi.listCollections() })
-          return
-        case 'gistTags':
-          set({ gistTags: await githubApi.listGistTags() })
-          return
-        case 'gists':
-          set({ gists: await githubApi.listGists() })
-          return
-        case 'mirrors':
-          set({ mirrors: await githubApi.getMirrors() })
-          return
-        case 'accounts': {
-          const accounts = await githubApi.getAccounts()
-          set((state) => {
-            const activeAccountId = accounts.some((account) => account.id === state.activeAccountId)
-              ? state.activeAccountId
-              : accounts[0]?.id ?? null
-            if (activeAccountId !== state.activeAccountId) saveActiveAccountId(activeAccountId)
-            return { accounts, activeAccountId }
-          })
-          return
-        }
-        case 'apps':
-          set({ apps: await githubApi.listApps() })
-          return
+    switch (collection) {
+      case 'tags':
+        set({ tags: await githubApi.listTags() })
+        return
+      case 'repos':
+        set({ repos: await githubApi.listRepos() })
+        return
+      case 'collections':
+        set({ collections: await githubApi.listCollections() })
+        return
+      case 'gistTags':
+        set({ gistTags: await githubApi.listGistTags() })
+        return
+      case 'gists':
+        set({ gists: await githubApi.listGists() })
+        return
+      case 'mirrors':
+        set({ mirrors: await githubApi.getMirrors() })
+        return
+      case 'accounts': {
+        const accounts = await githubApi.getAccounts()
+        set((state) => {
+          const activeAccountId = accounts.some((account) => account.id === state.activeAccountId)
+            ? state.activeAccountId
+            : accounts[0]?.id ?? null
+          if (activeAccountId !== state.activeAccountId) saveActiveAccountId(activeAccountId)
+          return { accounts, activeAccountId }
+        })
+        return
       }
-    } catch (error) {
-      console.warn('[inkstone] GitHub collection reload failed', collection, error)
+      case 'apps':
+        set({ apps: await githubApi.listApps() })
+        return
     }
   }
 
   const reconcile = async (collections: readonly CollectionKey[]): Promise<void> => {
-    await Promise.all(collections.map(reloadCollection))
+    const results = await Promise.allSettled(collections.map(reloadCollection))
+    const failed = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (failed.length === 0) return
+    console.warn('[inkstone] GitHub collection reconciliation failed', failed.map((result) => result.reason))
+    notifyFailure(failed[0]!.reason)
   }
 
   const applyBootstrap = (data: GithubBootstrap, sequence: number): void => {
@@ -298,11 +298,6 @@ export const useGithubStore = create<GithubStore>((set, get) => {
       return pending
     },
 
-    reload: async () => {
-      loadPromise = null
-      await runBootstrap()
-    },
-
     refresh: async () => {
       await runBootstrap(true)
     },
@@ -310,9 +305,16 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     loadAllRepos: async () => {
       const revision = bump('repos')
       try {
-        const repos = await githubApi.listRepos()
+        const collected: SavedGithubRepo[] = []
+        let cursor: string | null = null
+        for (let page = 0; page < MAX_LOAD_PAGES; page += 1) {
+          const result = await githubApi.repoPage(cursor)
+          collected.push(...result.repos)
+          cursor = result.nextCursor
+          if (!cursor) break
+        }
         if (isCurrent('repos', revision)) {
-          set({ repos, repoTotal: repos.length, truncatedRepos: false })
+          set({ repos: collected, repoTotal: collected.length, truncatedRepos: false })
         }
       } catch (error) {
         notifyFailure(error)
@@ -322,9 +324,16 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     loadAllGists: async () => {
       const revision = bump('gists')
       try {
-        const gists = await githubApi.listGists()
+        const collected: SavedGist[] = []
+        let cursor: string | null = null
+        for (let page = 0; page < MAX_LOAD_PAGES; page += 1) {
+          const result = await githubApi.gistPage(cursor)
+          collected.push(...result.gists)
+          cursor = result.nextCursor
+          if (!cursor) break
+        }
         if (isCurrent('gists', revision)) {
-          set({ gists, gistTotal: gists.length, truncatedGists: false })
+          set({ gists: collected, gistTotal: collected.length, truncatedGists: false })
         }
       } catch (error) {
         notifyFailure(error)
@@ -419,6 +428,8 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     },
 
     deleteRepo: async (id) => {
+      const removed = get().repos.find((repo) => repo.id === id) ?? null
+      const boundCollections = get().collections.filter((collection) => collection.repoIds.includes(id))
       const revision = bump('repos')
       const collectionRevision = bump('collections')
       set((state) => ({
@@ -428,6 +439,21 @@ export const useGithubStore = create<GithubStore>((set, get) => {
       await enqueue(`repo:${id}`, async () => {
         try {
           await githubApi.deleteRepo(id)
+          if (removed) {
+            const restore = removed
+            const restoreCollections = boundCollections
+            useUi.getState().toast({
+              title: t('development.github.repos.deleted'),
+              duration: 8000,
+              action: {
+                label: t('development.github.common.undo'),
+                run: () => {
+                  void get().upsertRepo(restore)
+                  for (const collection of restoreCollections) void get().upsertCollection(collection)
+                },
+              },
+            })
+          }
         } catch (error) {
           notifyFailure(error)
           const pending: CollectionKey[] = []
@@ -523,11 +549,23 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     },
 
     deleteGist: async (id) => {
+      const removed = get().gists.find((gist) => gist.id === id) ?? null
       const revision = bump('gists')
       set((state) => ({ gists: state.gists.filter((gist) => gist.id !== id) }))
       await enqueue(`gist:${id}`, async () => {
         try {
           await githubApi.deleteGist(id)
+          if (removed) {
+            const restore = removed
+            useUi.getState().toast({
+              title: t('development.github.gists.deleted'),
+              duration: 8000,
+              action: {
+                label: t('development.github.common.undo'),
+                run: () => { void get().upsertGist(restore) },
+              },
+            })
+          }
         } catch (error) {
           notifyFailure(error)
           if (isCurrent('gists', revision)) await reconcile(['gists'])
@@ -651,13 +689,14 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     setActiveAccount: (id) => {
       set({ activeAccountId: id })
       saveActiveAccountId(id)
+      clearGithubCache()
     },
 
     upsertApp: async (app) => {
       const next = { ...app, updatedAt: Date.now() }
       const revision = bump('apps')
       set((state) => ({ apps: upsertById(state.apps, next) }))
-      await enqueue(`app:${app.id}`, async () => {
+      await enqueue('apps', async () => {
         try {
           const saved = await githubApi.upsertApp(next)
           if (isCurrent('apps', revision)) set((state) => ({ apps: upsertById(state.apps, saved) }))
@@ -671,7 +710,7 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     deleteApp: async (id) => {
       const revision = bump('apps')
       set((state) => ({ apps: state.apps.filter((app) => app.id !== id) }))
-      await enqueue(`app:${id}`, async () => {
+      await enqueue('apps', async () => {
         try {
           await githubApi.deleteApp(id)
         } catch (error) {
@@ -682,15 +721,15 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     },
 
     checkApps: async (ids) => {
-      const revision = bump('apps')
-      const result = await githubApi.checkApps(ids)
-      if (!isCurrent('apps', revision)) return result
-      set((state) => {
-        const byId = new Map(state.apps.map((app) => [app.id, app]))
-        for (const app of result.apps) byId.set(app.id, app)
-        return { apps: Array.from(byId.values()).sort((left, right) => right.updatedAt - left.updatedAt) }
+      return enqueue('apps', async () => {
+        const result = await githubApi.checkApps(ids)
+        set((state) => {
+          const byId = new Map(state.apps.map((app) => [app.id, app]))
+          for (const app of result.apps) byId.set(app.id, app)
+          return { apps: Array.from(byId.values()) }
+        })
+        return result
       })
-      return result
     },
   }
 })

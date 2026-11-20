@@ -124,7 +124,7 @@ function renderText(document: unknown): string {
     }
     for (const [chainId, versions] of chains) {
       lines.push(`### Chain ${chainId}`)
-      for (const version of [...versions].sort((a, b) => a.version - b.version)) {
+      for (const version of versions.toSorted((a, b) => a.version - b.version)) {
         const stamp = version.createdAt ? new Date(version.createdAt).toISOString() : 'unknown time'
         lines.push(`--- v${version.version}${version.workspace ? ` [${version.workspace}]` : ''} (${stamp}) ---`)
         lines.push(version.prompt, '')

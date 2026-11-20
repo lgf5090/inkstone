@@ -6,6 +6,8 @@ import {
   Database,
   Download,
   FileCode2,
+  FilePlus2,
+  FileText,
   GripVertical,
   KeyRound,
   Loader2,
@@ -55,6 +57,7 @@ export interface StudioSidebarProps {
   onConnFilter: (value: ConnectionFilter) => void
   onSelectSaved: (id: string) => void
   onSelectLocal: () => void
+  onNewLocal: () => void
   onDownloadLocal?: () => void
   onNew: () => void
   onEdit: (connection: DatabaseConnectionView) => void
@@ -70,6 +73,7 @@ export interface StudioSidebarProps {
   onGuardChange?: (patch: Partial<ConnectionGuard>) => void
   onLockNow?: () => void
   onExportSchema?: () => void
+  onExportDoc?: () => void
   onSearchData?: () => void
   onExportDatabase?: () => void
   onViewSql: (definition: { kind: 'view' | 'trigger'; name: string; sql: string }) => void
@@ -272,6 +276,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
     onConnFilter,
     onSelectSaved,
     onSelectLocal,
+    onNewLocal,
     onDownloadLocal,
     onNew,
     onEdit,
@@ -287,6 +292,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
     onLockNow,
     unlockedUntil,
     onExportSchema,
+    onExportDoc,
     onSearchData,
     onExportDatabase,
     onViewSql,
@@ -361,6 +367,11 @@ export function StudioSidebar(props: StudioSidebarProps) {
               </IconButton>
             </Tooltip>
           ))}
+          <Tooltip label={t('development.database.app.new_local')} side="right">
+            <IconButton label={t('development.database.app.new_local')} size="sm" onClick={onNewLocal}>
+              <FilePlus2 size={16} />
+            </IconButton>
+          </Tooltip>
           <Tooltip label={t('development.database.app.new_connection')} side="right">
             <IconButton label={t('development.database.app.new_connection')} size="sm" onClick={onNew}>
               <Plus size={16} />
@@ -412,6 +423,11 @@ export function StudioSidebar(props: StudioSidebarProps) {
                 disabled={!selection}
               />
             )}
+            <Tooltip label={t('development.database.app.new_local')}>
+              <IconButton label={t('development.database.app.new_local')} size="sm" onClick={onNewLocal}>
+                <FilePlus2 size={14} />
+              </IconButton>
+            </Tooltip>
             <Tooltip label={t('development.database.app.new_connection')}>
               <IconButton label={t('development.database.app.new_connection')} size="sm" onClick={onNew}>
                 <Plus size={14} />
@@ -488,9 +504,17 @@ export function StudioSidebar(props: StudioSidebarProps) {
             </div>
           ) : visible.length === 0 && !(connFilter === 'all' && localName) ? (
             <div className="px-1.5 py-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-              {connections.length === 0 && !localName
-                ? t('development.database.app.no_connections')
-                : t('development.database.app.no_matching_connections')}
+              <p>
+                {connections.length === 0 && !localName
+                  ? t('development.database.app.no_connections')
+                  : t('development.database.app.no_matching_connections')}
+              </p>
+              {connections.length === 0 && !localName && (
+                <Button variant="secondary" size="sm" className="mt-2" onClick={onNewLocal}>
+                  <FilePlus2 size={13} />
+                  {t('development.database.app.new_local')}
+                </Button>
+              )}
             </div>
           ) : (
             <div className="space-y-0.5">
@@ -571,6 +595,13 @@ export function StudioSidebar(props: StudioSidebarProps) {
                 <Tooltip label={t('development.database.app.export_schema')}>
                   <IconButton label={t('development.database.app.export_schema')} size="sm" onClick={onExportSchema}>
                     <Download size={12} />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {onExportDoc && schema.tables.length > 0 && (
+                <Tooltip label={t('development.database.doc.export')}>
+                  <IconButton label={t('development.database.doc.export')} size="sm" onClick={onExportDoc}>
+                    <FileText size={13} />
                   </IconButton>
                 </Tooltip>
               )}

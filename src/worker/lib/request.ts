@@ -219,19 +219,140 @@ export async function readStreamTextWithinLimit(
 }
 
 
-export function requestClientIp(source: {
-  req: { header: (name: string) => string | undefined; raw?: Request }
-} | Request): string {
+type IpFamily = 4 | 6
+
+interface IpAddress { bits: bigint, family: IpFamily }
+interface TrustedProxyCidr { bits: bigint, mask: bigint, family: IpFamily }
+
+function ipv4Value(text: string): bigint | null {
+  const parts = text.split('.')
+  if (parts.length !== 4) return null
+  let bits = 0n
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null
+    const value = Number(part)
+    if (value > 255) return null
+    bits = (bits << 8n) | BigInt(value)
+  }
+  return bits
+}
+
+function ipValue(value: string): IpAddress | null {
+  const text = value.trim().toLowerCase().replace(/^\[|\]$/g, '').split('%')[0] ?? ''
+  if (!text.includes(':')) {
+    const bits = ipv4Value(text)
+    return bits === null ? null : { bits, family: 4 }
+  }
+  const halves = text.split('::')
+  if (halves.length > 2) return null
+  const expand = (part: string): string[] | null => {
+    if (!part) return []
+    const pieces = part.split(':')
+    const last = pieces[pieces.length - 1] ?? ''
+    if (last.includes('.')) {
+      const bits = ipv4Value(last)
+      if (bits === null) return null
+      pieces[pieces.length - 1] = ((bits >> 16n) & 0xffffn).toString(16)
+      pieces.push((bits & 0xffffn).toString(16))
+    }
+    return pieces
+  }
+  let groups: string[]
+  if (halves.length === 2) {
+    const left = expand(halves[0] ?? '')
+    const right = expand(halves[1] ?? '')
+    if (!left || !right) return null
+    const missing = 8 - left.length - right.length
+    if (missing < 0) return null
+    groups = [...left, ...Array<string>(missing).fill('0'), ...right]
+  } else {
+    const expanded = expand(text)
+    if (!expanded) return null
+    groups = expanded
+  }
+  if (groups.length !== 8) return null
+  let bits = 0n
+  for (const group of groups) {
+    if (!/^[0-9a-f]{1,4}$/.test(group)) return null
+    bits = (bits << 16n) | BigInt(`0x${group}`)
+  }
+  return { bits, family: 6 }
+}
+
+/** Invalid entries are dropped rather than guessed at; an empty list keeps the old `local` behaviour. */
+export function parseTrustedProxyCidrs(raw: string | undefined): TrustedProxyCidr[] {
+  if (!raw) return []
+  const cidrs: TrustedProxyCidr[] = []
+  for (const entry of raw.split(',')) {
+    const text = entry.trim()
+    if (!text) continue
+    const slash = text.indexOf('/')
+    const address = ipValue(slash < 0 ? text : text.slice(0, slash))
+    if (!address) continue
+    const width = address.family === 4 ? 32 : 128
+    let prefix = width
+    if (slash >= 0) {
+      const parsed = Number(text.slice(slash + 1))
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed > width) continue
+      prefix = parsed
+    }
+    const mask = prefix === 0 ? 0n : ((1n << BigInt(prefix)) - 1n) << BigInt(width - prefix)
+    cidrs.push({ bits: address.bits & mask, mask, family: address.family })
+  }
+  return cidrs
+}
+
+function isTrustedProxy(value: string, cidrs: readonly TrustedProxyCidr[]): boolean {
+  const address = ipValue(value)
+  return address !== null && cidrs.some(
+    (cidr) => cidr.family === address.family && (address.bits & cidr.mask) === cidr.bits,
+  )
+}
+
+/**
+ * The IP a throttle key may use. On Cloudflare the edge-injected address is the only one trusted; a
+ * self-hosted deployment has no `cf`, so with no trusted proxy declared every visitor stays `local`
+ * and shares one budget. Declaring the deployment's proxy CIDRs switches to the rightmost
+ * X-Forwarded-For hop that is not another trusted proxy: a client can prepend spoofed hops, but the
+ * proxy appends the peer it actually saw at the right edge.
+ */
+export function resolveClientIp(input: {
+  cfIp?: string | null
+  forwardedFor?: string | null
+  cfPresent: boolean
+  trustedProxyCidrs?: string
+}): string {
+  const clean = (value: string): string =>
+    value.trim().toLowerCase().replace(/[^a-f0-9:.%-]/g, '').slice(0, 64) || 'unknown'
+  if (input.cfIp && input.cfPresent) return clean(input.cfIp)
+  const cidrs = parseTrustedProxyCidrs(input.trustedProxyCidrs)
+  if (!cidrs.length || !input.forwardedFor) return 'local'
+  const chain = input.forwardedFor.split(',').map((part) => part.trim()).filter(Boolean)
+  for (let index = chain.length - 1; index >= 0; index--) {
+    const hop = chain[index] ?? ''
+    if (!isTrustedProxy(hop, cidrs)) return clean(hop)
+  }
+  return 'local'
+}
+
+export function requestClientIp(
+  source: {
+    req: { header: (name: string) => string | undefined; raw?: Request }
+    env?: { TRUSTED_PROXY_CIDRS?: string }
+  } | Request,
+  trustedProxyCidrs?: string,
+): string {
   const request = source instanceof Request ? source : source.req.raw
-  const value = (source instanceof Request
-    ? source.headers.get('CF-Connecting-IP')
-    : source.req.header('CF-Connecting-IP'))?.trim().toLowerCase()
-  if (!value) return 'local'
-  // CF-Connecting-IP is injected by the Cloudflare edge and cannot be
-  // spoofed there. On any other runtime the header is client-controlled,
-  // so ignore it rather than trusting it for throttling.
-  if (!request || !(request as Request & { cf?: unknown }).cf) return 'local'
-  return value.replace(/[^a-f0-9:.%-]/g, '').slice(0, 64) || 'unknown'
+  const header = (name: string): string | undefined => source instanceof Request
+    ? source.headers.get(name) ?? undefined
+    : source.req.header(name)
+  return resolveClientIp({
+    cfIp: header('CF-Connecting-IP'),
+    forwardedFor: header('X-Forwarded-For'),
+    cfPresent: Boolean(request && (request as Request & { cf?: unknown }).cf),
+    trustedProxyCidrs: trustedProxyCidrs
+      ?? (source instanceof Request ? undefined : source.env?.TRUSTED_PROXY_CIDRS),
+  })
 }
 
 export function clampInt(

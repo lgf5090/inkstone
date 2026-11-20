@@ -141,6 +141,7 @@ export function SubscriptionDetail({
               aria-valuemax={100}
               aria-valuenow={progress}
               aria-label={t('subscriptions.detail.period')}
+              aria-valuetext={t('subscriptions.detail.period_progress', { value: progress })}
             >
               <div
                 className={cn('h-full rounded-full', progress >= 80 ? 'bg-[var(--warning)]' : 'bg-[var(--accent)]')}

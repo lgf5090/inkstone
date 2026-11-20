@@ -23,6 +23,7 @@ import {
 } from '../../cloudflare/ai-gateway-keys'
 import { listGatewayRequests } from '../../cloudflare/ai-gateway-log'
 import { listGatewayModels } from '../../cloudflare/ai-gateway-models'
+import { listRecentReconcile, listReconcilePage } from '../../cloudflare/ai-gateway-reconcile'
 import {
   DEFAULT_GATEWAY_ROUTING,
   readAllGatewayRouting,
@@ -69,19 +70,7 @@ aiGatewayRouter.get('/overview', async (c) => {
     }),
     { used: 0, remaining: 0 },
   )
-  const { results: recentReconcile } = await c.env.DB.prepare(
-    `SELECT account_id, authoritative_neurons, local_effective, delta, outcome, checked_at
-       FROM ai_gateway_reconcile_snapshots
-      WHERE user_id = ?1
-      ORDER BY checked_at DESC LIMIT 10`,
-  ).bind(userId).all<{
-    account_id: string
-    authoritative_neurons: number
-    local_effective: number
-    delta: number
-    outcome: string
-    checked_at: number
-  }>()
+  const recentReconcile = await listRecentReconcile(c.env.DB, userId)
   return c.json({
     day,
     limit,
@@ -89,14 +78,7 @@ aiGatewayRouter.get('/overview', async (c) => {
     accounts: accountRows.sort((left, right) => right.scheduleScore - left.scheduleScore),
     totals,
     keys,
-    recentReconcile: (recentReconcile ?? []).map((row) => ({
-      accountId: row.account_id,
-      authoritative: row.authoritative_neurons,
-      localEffective: row.local_effective,
-      delta: row.delta,
-      outcome: row.outcome,
-      checkedAt: row.checked_at,
-    })),
+    recentReconcile,
   })
 })
 
@@ -218,44 +200,7 @@ aiGatewayRouter.get('/reconcile', async (c) => {
   const page = Math.max(1, Number(query.get('page') ?? '1'))
   const pageSize = Math.max(1, Math.min(100, Number(query.get('pageSize') ?? '50')))
   const accountId = query.get('accountId')
-  const where = ['user_id = ?']
-  const values: unknown[] = [userId]
-  if (accountId) { where.push('account_id = ?'); values.push(accountId) }
-  const [count, rows] = await Promise.all([
-    c.env.DB.prepare(`SELECT COUNT(*) AS total FROM ai_gateway_reconcile_snapshots WHERE ${where.join(' AND ')}`)
-      .bind(...values).first<{ total: number }>(),
-    c.env.DB.prepare(
-      `SELECT id, account_id, day, authoritative_neurons, local_effective, delta, outcome, checked_at, note
-         FROM ai_gateway_reconcile_snapshots
-        WHERE ${where.join(' AND ')}
-        ORDER BY checked_at DESC
-        LIMIT ? OFFSET ?`,
-    ).bind(...values, pageSize, (page - 1) * pageSize).all<{
-      id: string
-      account_id: string
-      day: string
-      authoritative_neurons: number
-      local_effective: number
-      delta: number
-      outcome: string
-      checked_at: number
-      note: string | null
-    }>(),
-  ])
-  return c.json({
-    total: count?.total ?? 0,
-    items: (rows.results ?? []).map((row) => ({
-      id: row.id,
-      accountId: row.account_id,
-      day: row.day,
-      authoritative: row.authoritative_neurons,
-      localEffective: row.local_effective,
-      delta: row.delta,
-      outcome: row.outcome,
-      checkedAt: row.checked_at,
-      note: row.note,
-    })),
-  })
+  return c.json(await listReconcilePage(c.env.DB, userId, { page, pageSize, accountId }))
 })
 
 aiGatewayRouter.get('/access', async (c) => {

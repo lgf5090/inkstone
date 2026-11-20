@@ -37,17 +37,24 @@ function boundedInteger(value: unknown, fallback: number, minimum: number, maxim
  * Ask the shared counter. `null` means this deployment has no binding or the object could not answer;
  * the caller then keeps the isolate budget instead of failing the link outright.
  */
-export async function meterPublicShareAcrossIsolates(
+export interface SharedMeterResult {
+  allowed: boolean
+  retryAfter: number
+}
+
+export async function meterAcrossIsolates(
   env: Env,
+  namespace: DurableObjectNamespace | undefined,
+  objectName: string,
+  endpoint: string,
   key: string,
   limit: number,
   windowMs: number,
-): Promise<{ allowed: boolean; retryAfter: number } | null> {
-  const namespace = env.MUSIC_SHARE_LIMITER
+): Promise<SharedMeterResult | null> {
   if (!namespace) return null
   try {
-    const stub = namespace.get(namespace.idFromName('public-share'))
-    const response = await stub.fetch('https://music-share-limit.internal/meter', {
+    const stub = namespace.get(namespace.idFromName(objectName))
+    const response = await stub.fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -62,12 +69,29 @@ export async function meterPublicShareAcrossIsolates(
       const retryAfter = Number(body?.retryAfter)
       return { allowed: false, retryAfter: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 1 }
     }
-    console.warn('[inkstone] Music share limiter answered', response.status, '; using the isolate budget')
+    console.warn('[inkstone] Shared limiter answered', response.status, '; using the isolate budget')
     return null
   } catch (error) {
-    console.warn('[inkstone] Music share limiter could not be reached; using the isolate budget:', error)
+    console.warn('[inkstone] Shared limiter could not be reached; using the isolate budget:', error)
     return null
   }
+}
+
+export async function meterPublicShareAcrossIsolates(
+  env: Env,
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<SharedMeterResult | null> {
+  return meterAcrossIsolates(
+    env,
+    env.MUSIC_SHARE_LIMITER,
+    'public-share',
+    'https://music-share-limit.internal/meter',
+    key,
+    limit,
+    windowMs,
+  )
 }
 
 export class MusicShareLimiter implements DurableObject {

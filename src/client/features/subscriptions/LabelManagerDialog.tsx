@@ -16,7 +16,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { t, useLocaleRepaint } from '../../lib/i18n'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { LabelGlyph, LabelStylePicker, useLabelIdentity } from './label-identity'
 import { useSubscriptions } from './store'
 
@@ -75,7 +75,7 @@ function LabelSection({ kind, title, labels }: {
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (isImeComposing(event)) return
-            if (event.key === 'Enter') {
+            if (isEnterKey(event)) {
               event.preventDefault()
               void add()
             }
@@ -126,7 +126,7 @@ function LabelRow({ kind, entry }: { kind: LabelKind; entry: LabelEntry }): Reac
               // A label is a word the reader types, often in Han: while the input method is still
               // composing, Enter belongs to it and would otherwise commit a half-typed name.
               if (isImeComposing(event)) return
-              if (event.key === 'Enter') void commitRename()
+              if (isEnterKey(event)) void commitRename()
               if (event.key === 'Escape') {
                 setValue(entry.name)
                 setRenaming(false)

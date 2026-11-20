@@ -17,7 +17,7 @@ import { copyText } from '../../lib/clipboard'
 import { streamAssistantTurn } from './stream'
 import { editorAiAnchor, locateAnchor } from './editor-ai'
 import { useQuickAsk } from './quick-ask-store'
-import { useAssistant } from './assistant-store'
+import { useAssistant, STREAM_TEXT_BATCH_MS } from './assistant-store'
 
 const PANEL_WIDTH = 380
 const PANEL_EDGE = 12
@@ -136,7 +136,7 @@ export function QuickAskPanel() {
           setAnswer(received)
         }
         if (event.type === 'error') setError(event.message ?? event.error ?? t('assistant.quick_ask.failed'))
-      }, controller.signal)
+      }, controller.signal, { batchMs: STREAM_TEXT_BATCH_MS })
     } catch (caught) {
       if ((caught as Error)?.name !== 'AbortError') {
         setError(caught instanceof Error ? caught.message : t('assistant.quick_ask.failed'))

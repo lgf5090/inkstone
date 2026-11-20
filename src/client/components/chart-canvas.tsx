@@ -30,57 +30,89 @@ export function withAlpha(color: string, alpha: number): string {
   return `${color}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`
 }
 
+/** The live chart's driving surface; kept structural so the deferred import needs no concrete Chart type. */
+interface LiveChart {
+  data: unknown
+  update: (mode: 'none') => void
+  destroy: () => void
+  resize: () => void
+}
+
+function readColors(dark: boolean): ChartColors {
+  const styles = getComputedStyle(document.documentElement)
+  return {
+    palette: chartPalette(dark),
+    identities: chartIdentityPalette(dark),
+    text: styles.getPropertyValue('--text-quaternary').trim() || '#888',
+    grid: dark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+  }
+}
+
 /**
  * `build` is memoised by the caller on the data it closes over, which is what makes this effect re-run when
  * the window or the grouping changes rather than on every render. `K` is read off that builder, so a caller
  * may hand back the chart-specific options its own type carries — a doughnut's `cutout` is not in the
  * shared option set, and widening the config to every chart type here would have thrown that away.
  */
-export function ChartCanvas<K extends ChartType>({ height, label, build }: {
+export function ChartCanvas<K extends ChartType>({ height, label, build, structureKey }: {
   height: string
   label: string
   build: (colors: ChartColors) => ChartConfiguration<K>
+  /** Opts into the data channel: it must change only when the chart's shape or theme does, never on a refresh. */
+  structureKey?: string
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
+  const chartRef = useRef<LiveChart | null>(null)
+  const buildRef = useRef(build)
   const dark = useThemeDark()
+
+  useEffect(() => { buildRef.current = build }, [build])
+
+  // Recreate only when the structure signature or the theme changes. A caller that omits structureKey keeps
+  // the original rule — build changes rebuild — so every other screen is untouched.
+  const recreateKey = structureKey ?? build
   useEffect(() => {
     const element = canvas.current
     if (!element) return
-    let chart: { destroy: () => void; resize: () => void } | null = null
     let observer: ResizeObserver | null = null
     let cancelled = false
     void import('chart.js/auto').then(({ default: Chart }) => {
       if (cancelled || !canvas.current) return
-      const styles = getComputedStyle(document.documentElement)
-      const colors: ChartColors = {
-        palette: chartPalette(dark),
-        identities: chartIdentityPalette(dark),
-        text: styles.getPropertyValue('--text-quaternary').trim() || '#888',
-        grid: dark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
-      }
+      const colors = readColors(dark)
       // Drawing is the one thing here that can fail on its own — a context that cannot be had, a library
       // that will not load — and the numbers above it are what the reader came for. Best-effort, then.
       try {
-        chart = new Chart(canvas.current, build(colors))
+        const chart = new Chart(canvas.current, buildRef.current(colors)) as LiveChart
+        chartRef.current = chart
         // A chart laid out while its column was still zero-width keeps that width forever, because
         // Chart.js watches the window rather than the box it was put in. The observer makes the first
         // real layout (and every later panel resize) reach the chart.
         const host = canvas.current.parentElement ?? canvas.current
         if (typeof ResizeObserver !== 'undefined') {
-          observer = new ResizeObserver(() => chart?.resize())
+          observer = new ResizeObserver(() => chartRef.current?.resize())
           observer.observe(host)
         }
       } catch {
         // A chart that refused to draw leaves its list of numbers beside it, which is the same answer.
-        chart = null
+        chartRef.current = null
       }
     })
     return () => {
       cancelled = true
       observer?.disconnect()
-      chart?.destroy()
+      chartRef.current?.destroy()
+      chartRef.current = null
     }
-  }, [build, dark])
+  }, [recreateKey, dark])
+
+  // The data channel: a fresh build with the same structure replaces only the datasets, no destroy/recreate,
+  // so an auto refresh keeps its chart.js instance and its resize observer.
+  useEffect(() => {
+    if (structureKey === undefined || !chartRef.current) return
+    chartRef.current.data = buildRef.current(readColors(dark)).data
+    chartRef.current.update('none')
+  }, [build, structureKey, dark])
+
   return (
     <div className={height}>
       <canvas ref={canvas} aria-label={label} role="img" />

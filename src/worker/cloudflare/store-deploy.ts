@@ -335,7 +335,7 @@ async function deployPagesProject(
 
   const form = new FormData()
   const manifest: Record<string, string> = {}
-  for (const entry of [...entries].sort((a, b) => a.path.localeCompare(b.path))) {
+  for (const entry of entries.toSorted((a, b) => a.path.localeCompare(b.path))) {
     const hash = (await sha256Hex(entry.bytes)).slice(0, 32)
     if (manifest[hash]) continue
     manifest[hash] = `/${entry.path}`

@@ -259,3 +259,19 @@ it('still sends security headers on API error responses', async () => {
   expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'")
   expect(response.headers.get('X-Frame-Options')).toBe('DENY')
 })
+
+it('keeps a route-specific CSP instead of overwriting it with the global policy', async () => {
+  const custom = "default-src 'none'; sandbox; img-src 'none'; base-uri 'none'"
+  const scoped = {
+    ...env,
+    ASSETS: {
+      fetch: async () => new Response('bytes', {
+        headers: { 'Content-Security-Policy': custom, 'Content-Type': 'image/svg+xml' },
+      }),
+    },
+  } as unknown as Env
+  const response = await createApp().fetch(new Request('http://localhost/an-asset.svg'), scoped)
+  expect(response.headers.get('Content-Security-Policy')).toBe(custom)
+  expect(response.headers.get('X-Frame-Options')).toBe('DENY')
+  expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+})

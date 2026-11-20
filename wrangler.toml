@@ -140,6 +140,10 @@ name = "MUSIC_SHARE_LIMITER"
 class_name = "MusicShareLimiter"
 
 [[durable_objects.bindings]]
+name = "GITHUB_LIMITER"
+class_name = "GithubLimiter"
+
+[[durable_objects.bindings]]
 name = "SUBAGENT"
 class_name = "SubagentRunner"
 
@@ -167,6 +171,10 @@ storage = "sqlite"
 type = "durable-object"
 storage = "sqlite"
 
+[exports.GithubLimiter]
+type = "durable-object"
+storage = "sqlite"
+
 [exports.SubagentRunner]
 type = "durable-object"
 storage = "sqlite"
@@ -179,6 +187,7 @@ crons = ["* * * * *"]
 
 [vars]
 APP_NAME = "Inkstone"
+TRUSTED_PROXY_CIDRS = ""
 
 [observability]
 enabled = true

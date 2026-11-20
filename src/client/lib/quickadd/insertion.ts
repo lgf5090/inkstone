@@ -449,7 +449,7 @@ export function orderedSlotFor(
   if (siblings.length === 0) {
     // No siblings: the new section goes inside its nearest parent's section, so a `##` under an `#`
     // title with a blurb does not land above the blurb.
-    const ancestor = [...headings].reverse().find((heading) => heading.level < level && heading.line >= bodyStart)
+    const ancestor = headings.findLast((heading) => heading.level < level && heading.line >= bodyStart)
     if (ancestor) return { mode: 'after', line: sectionEndLine(lines, ancestor.line, true) ?? ancestor.line }
     return { mode: 'bodyStart', line: 0 }
   }

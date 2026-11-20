@@ -259,6 +259,7 @@ function deferred<T>(): { promise: Promise<T>, resolve: (value: T) => void } {
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   installTestGlobals()
+  localStorage.clear()
   await initI18n()
   asked.mockClear()
   asked.mockResolvedValue(true)
@@ -276,6 +277,7 @@ beforeEach(async () => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  localStorage.clear()
   document.body.innerHTML = ''
   useAssistant.setState(original, true)
   vi.clearAllMocks()
@@ -421,6 +423,35 @@ describe('the conversation list', () => {
 
     await click(byAria(t('assistant.chat.history')), 'the history button')
     expect(lists(), 'the drawer has no list to show').toHaveLength(1)
+  })
+})
+
+describe('a draft that was never sent', () => {
+  it('stays with its own conversation across a switch and a fresh mount', async () => {
+    await mountComposer({ activeId: 'c1' })
+    await type('a question for the first thread')
+    expect(localStorage.getItem('inkstone.chat.draft.c1')).toBe('a question for the first thread')
+
+    // Leaving the thread takes its words out of the box rather than leaving them to be sent to the next.
+    await act(async () => { useAssistant.setState({ activeId: 'c2' }) })
+    expect(box().value).toBe('')
+    await type('a question for the second thread')
+
+    await act(async () => { useAssistant.setState({ activeId: 'c1' }) })
+    expect(box().value).toBe('a question for the first thread')
+
+    // A reload is a fresh mount reading the same scope.
+    await act(async () => { root.unmount() })
+    root = createRoot(host)
+    await mountComposer({ activeId: 'c1' })
+    expect(box().value).toBe('a question for the first thread')
+  })
+
+  it('keeps nothing at all for a temporary conversation', async () => {
+    await mountComposer({ activeId: 'c1', ephemeral: true })
+    await type('private words')
+    expect(box().value).toBe('private words')
+    expect(localStorage.getItem('inkstone.chat.draft.c1')).toBeNull()
   })
 })
 

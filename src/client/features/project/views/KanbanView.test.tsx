@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
 import { initI18n, t } from '../../../lib/i18n'
+import { useUi } from '../../../store/ui'
 import { renderElement, type RenderedElement } from '../../../lib/test-render'
 import { KanbanView, kanbanColumnKeys } from './KanbanView'
 
@@ -10,6 +11,7 @@ const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, de
 const properties: ProjectProperty[] = [
   { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: 'propColorBlue' }, { id: 'o2', value: 'Done', color: 'propColorGreen' }] },
   { id: 'pt', name: 'Notes', type: 'text', options: [] },
+  { id: 'pp', name: 'Owner', type: 'person', options: [] },
 ]
 
 function card(id: string, status = 'o1', parentId = ''): ProjectCard {
@@ -32,7 +34,7 @@ async function mount(cards: ProjectCard[], extra: Partial<ProjectViewFields> = {
     cards, properties, fields: { ...emptyProjectViewFields(), groupById: 'ps', ...extra },
     badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }),
     subtasksByParent, canEdit: true, selected, onSelectClick: vi.fn(), onOpenCard: vi.fn(), onDeleteCard: vi.fn(),
-    onPatchCard: vi.fn().mockResolvedValue(undefined), onPatchFields: vi.fn(), onAddCard: vi.fn().mockResolvedValue(undefined),
+    onPatchCard: vi.fn().mockResolvedValue(undefined), onPatchCards: vi.fn().mockResolvedValue(undefined), onPatchFields: vi.fn(), onAddCard: vi.fn().mockResolvedValue(undefined),
     onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined),
     onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), starredCards: [], pinnedCards: [], descriptionFor: () => '',
     onCardContextMenu: vi.fn(), onToggleCardDone: vi.fn().mockResolvedValue(undefined), onAddSubtask: vi.fn().mockResolvedValue(undefined),
@@ -54,6 +56,13 @@ describe('column order and visibility', () => {
     expect(kanbanColumnKeys(properties[0], fields)).toEqual(['o2', 'o1', ''])
   })
 
+  it('adds the values the cards actually hold to a non-option grouping', async () => {
+    const owned: ProjectCard = { ...card('a'), values: { pp: 'u1' } }
+    await mount([owned], { groupById: 'pp' })
+    expect(columns()).toHaveLength(2)
+    expect(view.container.querySelector('[data-drag-id="a"]')).not.toBeNull()
+  })
+
   it('folds a column to a spine and unfolds it again', async () => {
     const props = await mount([card('a')])
     const collapse = columns()[0]!.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.view.collapse_column')}"]`)!
@@ -70,7 +79,7 @@ describe('column order and visibility', () => {
 describe('the column header', () => {
   it('renames the option itself, so every view of it agrees', async () => {
     const props = await mount([card('a')])
-    await act(async () => { columns()[0]!.querySelector<HTMLButtonElement>('.pv-col-name')!.click() })
+    await act(async () => { columns()[0]!.querySelector<HTMLButtonElement>('.pv-col-name')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })) })
     const field = columns()[0]!.querySelector<HTMLInputElement>('header input')!
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
     await act(async () => { setter.call(field, 'Backlog'); field.dispatchEvent(new Event('input', { bubbles: true })) })
@@ -120,7 +129,7 @@ describe('cards on the board', () => {
         cards, properties, fields: { ...emptyProjectViewFields(), groupById: 'ps' },
         badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }),
         subtasksByParent: new Map(), canEdit: false, selected: [], onSelectClick: vi.fn(), onOpenCard: vi.fn(),
-        onDeleteCard: vi.fn(), onPatchCard: vi.fn(), onPatchFields: vi.fn(), onAddCard: vi.fn(),
+        onDeleteCard: vi.fn(), onPatchCard: vi.fn(), onPatchCards: vi.fn(), onPatchFields: vi.fn(), onAddCard: vi.fn(),
         onAddGroupOption: vi.fn(), onRenameGroupOption: vi.fn(), onSetGroupOptionColor: vi.fn(),
         starredCards: [], pinnedCards: [], descriptionFor: () => '', onCardContextMenu: vi.fn(),
         onToggleCardDone: vi.fn(), onAddSubtask: vi.fn(),
@@ -174,9 +183,8 @@ describe('dragging a multi-selection', () => {
     expect(document.querySelector('.pv-ghost-count')?.textContent).toBe('2')
     await act(async () => { window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 320, clientY: 50 })) })
     expect(props.onPatchFields).toHaveBeenCalledWith({ cardOrder: ['c', 'a', 'b'] })
-    expect(props.onPatchCard).toHaveBeenCalledWith('a', { values: { ps: 'o2' } })
-    expect(props.onPatchCard).toHaveBeenCalledWith('b', { values: { ps: 'o2' } })
-    expect(props.onPatchCard).toHaveBeenCalledTimes(2)
+    expect(props.onPatchCards).toHaveBeenCalledWith(['a', 'b'], { ps: 'o2' })
+    expect(props.onPatchCard).not.toHaveBeenCalled()
   })
 
   it('counts the drop index without the travelling group when reordering within a column', async () => {
@@ -214,10 +222,34 @@ describe('dragging a multi-selection', () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 32)) })
     expect(document.querySelector('.pv-ghost-count')?.textContent).toBe('2')
     await act(async () => { window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 320, clientY: 50 })) })
-    expect(props.onPatchCard).toHaveBeenCalledWith('a', { values: { ps: 'o2' } })
-    expect(props.onPatchCard).toHaveBeenCalledWith('b', { values: { ps: 'o2' } })
+    expect(props.onPatchCards).toHaveBeenCalledWith(['a', 'b'], { ps: 'o2' })
   })
 })
+describe('the WIP ceiling on drop', () => {
+  it('refuses a drop that would push a column past its limit', async () => {
+    const toast = vi.spyOn(useUi.getState(), 'toast').mockImplementation(() => '')
+    const props = await mount([card('a'), card('b'), card('c', 'o2')], { wipLimits: { o2: 1 } })
+    const zones = columns().map((column) => column.querySelector<HTMLElement>('[data-drag-zone]')!)
+    zones[0]!.getBoundingClientRect = () => ({ left: 0, right: 280, top: 0, bottom: 600, width: 280, height: 600, x: 0, y: 0, toJSON: () => ({}) })
+    zones[1]!.getBoundingClientRect = () => ({ left: 300, right: 580, top: 0, bottom: 600, width: 280, height: 600, x: 300, y: 0, toJSON: () => ({}) })
+    const rects: Record<string, { left: number, top: number }> = { a: { left: 0, top: 0 }, b: { left: 0, top: 100 }, c: { left: 300, top: 0 } }
+    for (const [id, rect] of Object.entries(rects)) {
+      const element = view.container.querySelector<HTMLElement>(`[data-drag-id="${id}"]`)!
+      element.getBoundingClientRect = () => ({ left: rect.left, right: rect.left + 280, top: rect.top, bottom: rect.top + 90, width: 280, height: 90, x: rect.left, y: rect.top, toJSON: () => ({}) })
+    }
+    const grip = view.container.querySelector<HTMLElement>('[data-drag-id="a"] [data-drag-handle]')!
+    await act(async () => { grip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 10, clientY: 10, button: 0, pointerId: 1, pointerType: 'mouse' })) })
+    await act(async () => { window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 320, clientY: 50 })) })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 32)) })
+    await act(async () => { window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 320, clientY: 50 })) })
+    expect(props.onPatchFields).not.toHaveBeenCalled()
+    expect(props.onPatchCard).not.toHaveBeenCalled()
+    expect(props.onPatchCards).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith({ title: t('project.view.wip_limit_reached'), tone: 'danger' })
+    toast.mockRestore()
+  })
+})
+
 describe('the two card layouts', () => {
   it('draws a compact line by default and a full card when the view says so', async () => {
     await mount([card('a')])
@@ -237,7 +269,7 @@ describe('the two card layouts', () => {
         cards, properties, fields: { ...emptyProjectViewFields(), groupById: 'ps', boardLayout: 'card' },
         badgesFor: () => ({ description: true, comments: 2, checked: 0, checkboxes: 0 }),
         subtasksByParent, canEdit: true, selected: [], onSelectClick: vi.fn(), onOpenCard: vi.fn(),
-        onDeleteCard: vi.fn(), onPatchCard: vi.fn(), onPatchFields: vi.fn(), onAddCard: vi.fn(),
+        onDeleteCard: vi.fn(), onPatchCard: vi.fn(), onPatchCards: vi.fn(), onPatchFields: vi.fn(), onAddCard: vi.fn(),
         onAddGroupOption: vi.fn(), onRenameGroupOption: vi.fn(), onSetGroupOptionColor: vi.fn(),
         starredCards: ['a'], pinnedCards: ['a'], descriptionFor: () => 'a short blurb',
         onCardContextMenu: vi.fn(), onToggleCardDone: vi.fn(), onAddSubtask: vi.fn(),
@@ -255,7 +287,7 @@ describe('the two card layouts', () => {
         cards, properties, fields: { ...emptyProjectViewFields(), groupById: 'ps' },
         badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }),
         subtasksByParent: new Map(), canEdit: true, selected: [], onSelectClick: vi.fn(), onOpenCard: vi.fn(),
-        onDeleteCard: vi.fn(), onPatchCard: vi.fn(), onPatchFields: vi.fn(), onAddCard: vi.fn(),
+        onDeleteCard: vi.fn(), onPatchCard: vi.fn(), onPatchCards: vi.fn(), onPatchFields: vi.fn(), onAddCard: vi.fn(),
         onAddGroupOption: vi.fn(), onRenameGroupOption: vi.fn(), onSetGroupOptionColor: vi.fn(),
         starredCards: [], pinnedCards: ['c'], descriptionFor: () => '',
         onCardContextMenu: vi.fn(), onToggleCardDone: vi.fn(), onAddSubtask: vi.fn(),

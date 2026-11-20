@@ -94,9 +94,10 @@ vi.mock('../../lib/api', () => ({
 /** The ring as the route describes it: two rows, each with its own last four characters. */
 const providerKeys = vi.fn(async () => ({
   keys: [
-    { id: 'k1', providerId: 'p1', label: 'Work', hasKey: true, keyHint: 'wxyz', enabled: true, lastUsedAt: null, errorCount: 0, lastError: null, createdAt: 1, updatedAt: 1 },
-    { id: 'k2', providerId: 'p1', label: 'Spare', hasKey: true, keyHint: 'beef', enabled: true, lastUsedAt: null, errorCount: 0, lastError: null, createdAt: 2, updatedAt: 2 },
+    { id: 'k1', providerId: 'p1', label: 'Work', hasKey: true, keyHint: 'wxyz', enabled: true, lastUsedAt: null, errorCount: 0, lastError: null, coolingUntil: null, createdAt: 1, updatedAt: 1 },
+    { id: 'k2', providerId: 'p1', label: 'Spare', hasKey: true, keyHint: 'beef', enabled: true, lastUsedAt: null, errorCount: 0, lastError: null, coolingUntil: null, createdAt: 2, updatedAt: 2 },
   ],
+  probes: [],
 }))
 
 /** What each of those keys is owed. Swapped per case, because the screen says what the answer said. */
@@ -130,7 +131,7 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
 function provider(protocol: AssistantProvider['protocol']): AssistantProvider {
   return {
     id: 'p1', label: 'Gateway', protocol, baseUrl: 'https://gateway.example.org/v1', endpoints: {},
-    hasKey: true, icon: '', keyHint: 'abcd', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+    hasKey: true, icon: '', keyHint: 'abcd', keyLastUsedAt: null, reasoningDialect: null, sticky: false, createdAt: 1, updatedAt: 1,
   }
 }
 

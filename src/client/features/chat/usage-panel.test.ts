@@ -262,4 +262,12 @@ describe('a window whose daily series covers less than its totals', () => {
     await vi.waitFor(() => expect(text()).toContain(t('assistant.stats.cost_none')), { timeout: 5000, interval: 10 })
     expect(text()).toContain(t('assistant.stats.cost_none_hint'))
   })
+
+  it('offers a retry when the account usage read fails instead of calling it empty', async () => {
+    vi.mocked(api.assistant.usageOverview).mockRejectedValueOnce(new Error('offline'))
+    vi.mocked(api.assistant.stats).mockRejectedValueOnce(new Error('offline'))
+    rendered = renderElement(createElement(UsagePanel))
+    await openAccount()
+    await vi.waitFor(() => expect(text()).toContain(t('common.retry')), { timeout: 5000, interval: 10 })
+  })
 })

@@ -16,7 +16,7 @@ import { useUi } from '../../store/ui'
 import { t, useLocale, type MessageKey } from '../../lib/i18n'
 import { FilterInput } from '../../components/FilterInput'
 import { compileQuery, queryKeeps } from '../../lib/query-match'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { patternSafety } from '@shared/regex-safety'
 import { LinterRuleTitle } from './LinterRuleTitles'
@@ -513,7 +513,7 @@ function EntryList({ values, placeholder, emptyLabel, allowReorder, validator, o
           }}
           onKeyDown={(event) => {
             if (isImeComposing(event)) return
-            if (event.key === 'Enter') {
+            if (isEnterKey(event)) {
               event.preventDefault()
               add()
             }

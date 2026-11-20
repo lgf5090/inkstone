@@ -122,13 +122,14 @@ export function AppsView({
       icon: <Download size={13} />,
       disabled: !downloadUrl(target),
       reason: downloadUrl(target) ? undefined : t('development.github.apps.no_asset'),
-      onSelect: () => { const url = downloadUrl(target); if (url) window.open(url, '_blank', 'noopener,noreferrer') },
+      href: downloadUrl(target) || undefined,
     },
     {
       id: 'open',
       label: t('development.github.apps.menu.open_github'),
       icon: <ExternalLink size={13} />,
-      onSelect: () => window.open(target.repoUrl, '_blank', 'noopener,noreferrer'),
+      disabled: !target.repoUrl,
+      href: target.repoUrl || undefined,
     },
     {
       id: 'copy-name',

@@ -1556,7 +1556,7 @@ class ProtonDriveDriver extends HttpDriverBase implements MountDriver {
       const size = await this.decryptedSize(link, ring)
       const name = await this.decryptLinkName(link, ring)
       const mime = driverEntryMime(name)
-      const blocks = [...(revision.Blocks ?? [])].sort((left, right) => left.Index - right.Index)
+      const blocks = (revision.Blocks ?? []).toSorted((left, right) => left.Index - right.Index)
       const driver = this
       let blockIndex = 0
       const stream = new ReadableStream<Uint8Array>({

@@ -102,7 +102,7 @@ export function FavoritesPage(): ReactElement {
         ? orderByManualIds(filtered, manualOrder)
         : filtered
     // Pinning is a separate shelf rule: a header sort and a drag both stay inside the pinned block.
-    return [...ordered].sort(pinnedFirst)
+    return ordered.toSorted(pinnedFirst)
   }, [favorites, settledSearch, sort, manualOrder])
 
   const shown = useMemo(() => sorted.slice(0, renderLimit), [sorted, renderLimit])

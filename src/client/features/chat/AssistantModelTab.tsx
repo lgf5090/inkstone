@@ -5,10 +5,10 @@
  * arrives — including the question it asks the vendor before anything is saved, so the ids it stores are
  * the ones that key can really call rather than a preset's guess.
  */
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { AudioLines, Brain, Check, ChevronDown, Download, Eye, GalleryVerticalEnd, Image, KeyRound, Plus, Power, Search, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
-import { type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProtocol, type AssistantProvider, type AssistantSettings, type ReasoningDialect } from '@shared/assistant'
-import { ASSISTANT_PROTOCOLS, PROVIDER_PRESETS, endpointFieldState } from '@shared/assistant'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { AudioLines, Brain, Check, ChevronDown, Download, Eye, EyeOff, GalleryVerticalEnd, Image, KeyRound, MoreHorizontal, Plus, Power, Search, Settings2, Trash2, Wand2, Wrench } from 'lucide-react'
+import { type AssistantKeyProbe, type AssistantKeyProbeOutcome, type AssistantKeyProbeReason, type AssistantModel, type AssistantModelKind, type AssistantModelPurpose, type AssistantProtocol, type AssistantProvider, type AssistantSettings, type ReasoningDialect } from '@shared/assistant'
+import { ASSISTANT_PROTOCOLS, MAX_PROVIDER_KEYS, PROVIDER_PRESETS, endpointFieldState, parseProviderKeys } from '@shared/assistant'
 import { iconForModel, iconForProvider } from '@shared/assistant-icons'
 import { dialectsForProtocol } from '@shared/reasoning'
 import { AssistantIcon } from './AssistantIcon'
@@ -17,42 +17,135 @@ import { ModelEditorDialog } from './ModelEditorDialog'
 import { ModelPickerDialog } from './ModelPickerDialog'
 import { ProviderKeys, useProviderBalances, WalletChips } from './ProviderKeys'
 import { cn } from '../../lib/cn'
+import { api } from '../../lib/api'
 import { matchesQuery } from '../../lib/fuzzy'
 import { t, type MessageKey } from '../../lib/i18n'
 import { Button, Divider, IconButton } from '../../components/primitives'
 import { Field, Input, Select, SettingRow, Switch, Textarea, useRovingRadio } from '../../components/form'
-import { Modal, Tooltip, confirm, useClickOutside, useEscape } from '../../components/overlay'
+import { Menu, Modal, Tooltip, confirm, useClickOutside, useEscape, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant, type ReportFailure, type WriteFailure } from './assistant-store'
 import { DIALECT_LABELS, Group, modelOptionLabel, PROTOCOL_LABELS, SaveFailure, refusalFor, storedKeyLabel } from './assistant-settings-shared'
 
 /**
- * One capability, drawn as the switch that sets it.
- *
- * The model list is where a reader changes these — a reply that came back wrong is noticed here, not in a
- * dialog three presses away — so the icon is the control rather than a badge reporting one. Its on state is
- * the accent fill the rest of the app uses for a pressed toggle, and the word behind it lives in the
- * accessible name and the tooltip, which is the only place a phone has room for it.
+ * One model in the choice: the radio, a short read-only account of what it can do, and one menu holding
+ * every control that changes it. Six unlabelled icons in a row could not say which was a switch, which
+ * was pressed and which was about to delete the row; the words and the checked menu rows do, and the
+ * row keeps a single extra tab stop.
  */
-function CapabilityToggle({ on, label, icon, onToggle }: { on: boolean, label: string, icon: React.ReactNode, onToggle: () => void }) {
+function ModelRow({ provider, model, active, itemRef, tabIndex, keyHandler, onEdit }: {
+  provider: AssistantProvider
+  model: AssistantModel
+  active: boolean
+  itemRef: (element: HTMLButtonElement | null) => void
+  tabIndex: 0 | -1
+  keyHandler: (event: ReactKeyboardEvent<HTMLButtonElement>) => void
+  onEdit: (model: AssistantModel) => void
+}) {
+  const activateModel = useAssistant((state) => state.activateModel)
+  const updateModel = useAssistant((state) => state.updateModel)
+  const removeModel = useAssistant((state) => state.removeModel)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const anchor = useRef<HTMLSpanElement>(null)
+  const mark = specialMark(model)
+  const capabilities = [
+    model.reasoning !== 'off' ? t('assistant.model.reasoning_short') : null,
+    model.supportsTools ? t('assistant.model.tools_short') : null,
+    model.vision ? t('assistant.model.vision_short') : null,
+  ].filter((label): label is string => label !== null)
+  const optionsLabel = t('assistant.chat.options', { title: model.label })
+
+  const remove = () => {
+    // Deleting a model is one click from a row of them and there is no way back: its turns keep the
+    // label but the fallback chain that named it stops one model short.
+    void confirm({
+      title: t('assistant.settings.delete_model'),
+      description: t('assistant.settings.delete_model_hint', { label: model.label }),
+      confirmLabel: t('assistant.settings.delete_model'),
+      tone: 'danger',
+    }).then((yes) => { if (yes) void removeModel(model.id) })
+  }
+
+  const items: MenuItem[] = [
+    { id: 'edit', label: t('assistant.model.edit'), icon: <Settings2 size={13} />, onSelect: () => onEdit(model) },
+    {
+      id: 'reasoning', label: t('assistant.model.reasoning_short'), icon: <Brain size={13} />,
+      checked: model.reasoning !== 'off', separatorBefore: true,
+      onSelect: () => void updateModel(model.id, { reasoning: model.reasoning === 'off' ? 'auto' : 'off' }),
+    },
+    {
+      id: 'tools', label: t('assistant.model.tools_short'), icon: <Wrench size={13} />,
+      checked: model.supportsTools,
+      onSelect: () => void updateModel(model.id, { supportsTools: !model.supportsTools }),
+    },
+    {
+      id: 'vision', label: t('assistant.model.vision_short'), icon: <Eye size={13} />,
+      checked: model.vision,
+      onSelect: () => void updateModel(model.id, { vision: !model.vision }),
+    },
+    {
+      id: 'shown', label: t('assistant.model.shown'), icon: <Power size={13} />,
+      checked: model.enabled,
+      onSelect: () => void updateModel(model.id, { enabled: !model.enabled }),
+    },
+    {
+      id: 'delete', label: t('assistant.settings.delete_model'), icon: <Trash2 size={13} />,
+      tone: 'danger', separatorBefore: true, onSelect: remove,
+    },
+  ]
+
   return (
-    <Tooltip label={label}>
+    <div className={cn(
+      'relative flex items-center rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5',
+      'transition-[background-color,border-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+      active ? 'bg-[var(--accent-softer)]' : 'hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]',
+    )}>
+      {/* The default is named by a bar and a word; danger red on this screen belongs to failures. */}
+      {active && <span aria-hidden className="absolute inset-y-1.5 left-0 w-[var(--sp-0-75)] rounded-r-[var(--r-sm)] bg-[var(--accent)]" />}
       <button
+        ref={itemRef}
         type="button"
-        aria-label={label}
-        aria-pressed={on}
-        onClick={onToggle}
+        role="radio"
+        aria-checked={active}
+        tabIndex={tabIndex}
+        onKeyDown={keyHandler}
+        onClick={() => void activateModel(model.id)}
         className={cn(
-          'inline-flex size-6 shrink-0 items-center justify-center rounded-[var(--r-md)]',
-          'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-          on
-            ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-            : 'text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+          'flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-left text-[length:var(--text-12-5)]',
+          active ? 'text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)]',
         )}
       >
-        {icon}
+        <AssistantIcon
+          value={iconForModel(model, provider)}
+          size={20}
+          className={active ? 'ring-1 ring-[var(--accent)]' : undefined}
+        />
+        {mark && (
+          <Tooltip label={t(mark.key)}>
+            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]">{mark.icon}</span>
+          </Tooltip>
+        )}
+        <span className="min-w-0 flex-1 truncate">{model.label}</span>
+        {active && (
+          <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-1.5 text-[length:var(--text-10-5)] text-[var(--accent-on-soft)]">
+            {t('assistant.model.default')}
+          </span>
+        )}
+        <span className="hidden shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:block">{model.model}</span>
       </button>
-    </Tooltip>
+      {/* Read-only words: a capability is no longer something a colour has to say on its own. */}
+      {capabilities.length > 0 && (
+        <span className="ml-1 hidden max-w-[120px] shrink-0 truncate text-[length:var(--text-10-5)] text-[var(--text-tertiary)] lg:block">
+          {capabilities.join(' · ')}
+        </span>
+      )}
+      <span ref={anchor} className="ink-model-options ml-1 shrink-0">
+        <IconButton label={optionsLabel} size="sm" onClick={() => setMenuOpen((open) => !open)}>
+          <MoreHorizontal size={14} />
+        </IconButton>
+      </span>
+      <Menu anchor={anchor} open={menuOpen} onClose={() => setMenuOpen(false)} items={items} label={optionsLabel} />
+    </div>
   )
 }
 
@@ -120,108 +213,21 @@ function ModelList({ provider, models, activeModelId, labelId, onEdit }: {
   onEdit: (model: AssistantModel) => void
 }) {
   const activateModel = useAssistant((state) => state.activateModel)
-  const updateModel = useAssistant((state) => state.updateModel)
-  const removeModel = useAssistant((state) => state.removeModel)
   const roving = useRovingRadio(models.map((model) => model.id), activeModelId ?? '', (id) => void activateModel(id))
   return (
     <div role="radiogroup" aria-labelledby={labelId} className="flex flex-col gap-1 pl-9">
-      {models.map((model, index) => {
-        const mark = specialMark(model)
-        const active = activeModelId === model.id
-        return (
-          <div
-            key={model.id}
-            className={cn(
-              'flex items-center rounded-[var(--r-md)] border px-2 py-1.5',
-              'transition-[background-color,border-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-              active
-                ? 'border-[var(--accent)] bg-[var(--accent-softer)]'
-                : 'border-[var(--border-subtle)] hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]',
-            )}
-          >
-            {/* One line of controls, no words: a phone-width card had two selects and two
-                switches stacked under every model, which pushed the list itself off the screen.
-                What a model can do is now the icons themselves — they are the switches — and the
-                level behind each one (how much thinking, whose context window) is a fact the
-                editor dialog holds. */}
-            <div className="flex min-w-0 flex-1 items-center gap-0.5">
-              <button
-                ref={roving.setItemRef(index)}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                tabIndex={roving.tabIndexFor(index)}
-                onKeyDown={roving.keyHandlerFor(index)}
-                onClick={() => void activateModel(model.id)}
-                className={cn(
-                  'flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-left text-[length:var(--text-12-5)]',
-                  active
-                    ? 'text-[var(--accent-on-soft)]'
-                    : 'text-[var(--text-secondary)]',
-                )}
-              >
-                <AssistantIcon
-                  value={iconForModel(model, provider)}
-                  size={20}
-                  className={active ? 'ring-1 ring-[var(--accent)]' : undefined}
-                />
-                {mark && (
-                  <Tooltip label={t(mark.key)}>
-                    <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]">{mark.icon}</span>
-                  </Tooltip>
-                )}
-                <span className="min-w-0 flex-1 truncate">{model.label}</span>
-                <span className="hidden shrink-0 font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)] md:block">{model.model}</span>
-              </button>
-              <CapabilityToggle
-                on={model.reasoning !== 'off'}
-                label={t('assistant.model.reasoning_short')}
-                icon={<Brain size={12} />}
-                onToggle={() => void updateModel(model.id, { reasoning: model.reasoning === 'off' ? 'auto' : 'off' })}
-              />
-              <CapabilityToggle
-                on={model.supportsTools}
-                label={t('assistant.model.tools_short')}
-                icon={<Wrench size={12} />}
-                onToggle={() => void updateModel(model.id, { supportsTools: !model.supportsTools })}
-              />
-              <CapabilityToggle
-                on={model.vision}
-                label={t('assistant.model.vision_short')}
-                icon={<Eye size={12} />}
-                onToggle={() => void updateModel(model.id, { vision: !model.vision })}
-              />
-              <CapabilityToggle
-                on={model.enabled}
-                label={t('assistant.model.shown')}
-                icon={<Power size={12} />}
-                onToggle={() => void updateModel(model.id, { enabled: !model.enabled })}
-              />
-              <IconButton label={t('assistant.model.edit')} size="xs" onClick={() => onEdit(model)}>
-                <Settings2 size={12} />
-              </IconButton>
-              <IconButton
-                label={t('assistant.settings.delete_model')}
-                size="xs"
-                onClick={() => {
-                // Deleting a model is one click from a row of them and there is no way back: its turns
-                // keep the label but the fallback chain that named it stops one model short.
-                void confirm({
-                  title: t('assistant.settings.delete_model'),
-                  description: t('assistant.settings.delete_model_hint', { label: model.label }),
-                  confirmLabel: t('assistant.settings.delete_model'),
-                  tone: 'danger',
-                }).then((yes) => {
-                  if (yes) void removeModel(model.id)
-                })
-              }}
-                >
-                <Trash2 size={12} />
-              </IconButton>
-            </div>
-          </div>
-        )
-      })}
+      {models.map((model, index) => (
+        <ModelRow
+          key={model.id}
+          provider={provider}
+          model={model}
+          active={activeModelId === model.id}
+          itemRef={roving.setItemRef(index)}
+          tabIndex={roving.tabIndexFor(index)}
+          keyHandler={roving.keyHandlerFor(index)}
+          onEdit={onEdit}
+        />
+      ))}
     </div>
   )
 }
@@ -244,9 +250,16 @@ function ProviderCard({ provider, models, activeModelId, onEditProvider, onPickM
 }) {
   const removeProvider = useAssistant((state) => state.removeProvider)
   const wallet = useProviderBalances(provider)
+  const [hasFailedKey, setHasFailedKey] = useState(false)
+  const onProbes = useCallback((probes: AssistantKeyProbe[]) => {
+    setHasFailedKey(probes.some((entry) => entry.outcome === 'failed'))
+  }, [])
 
   return (
-    <div className="flex flex-col gap-1.5 py-3">
+    <div className={cn(
+      'flex flex-col gap-1.5 rounded-[var(--r-md)] border border-transparent py-3',
+      hasFailedKey && 'border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-[color-mix(in_oklab,var(--danger)_5%,transparent)]',
+    )}>
       <div className="flex items-center gap-2.5">
         {/* The brand says who answers; the small key badge keeps the one fact about this provider that
             costs a round trip to learn without taking the vendor's mark away. */}
@@ -297,7 +310,7 @@ function ProviderCard({ provider, models, activeModelId, onEditProvider, onPickM
           </IconButton>
         </div>
       </div>
-      <ProviderKeys provider={provider} wallet={wallet} />
+      <ProviderKeys provider={provider} wallet={wallet} onProbes={onProbes} />
       {models.length === 0 ? (
         <p className="pl-9 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.settings.no_models')}</p>
       ) : (
@@ -345,7 +358,17 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
     <>
       <Group title={t('assistant.settings.providers')}>
         {providers.length === 0 && (
-          <p className="py-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('assistant.settings.no_providers')}</p>
+          <div className="flex flex-col items-start gap-2 py-3">
+            <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('assistant.settings.no_providers')}</p>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Plus size={14} />}
+              onClick={() => setAddingProvider(true)}
+            >
+              {t('assistant.settings.add_first_provider' as MessageKey)}
+            </Button>
+          </div>
         )}
         {byProvider.map(({ provider, models: list }) => (
           <ProviderCard
@@ -581,6 +604,14 @@ function PresetPicker({ value, onPick }: { value: string, onPick: (id: string) =
   )
 }
 
+/** One typed key's answer, keyed by its last four characters because a draft has no row to hang on. */
+interface DraftProbe {
+  keyHint: string
+  outcome: AssistantKeyProbeOutcome
+  reason: AssistantKeyProbeReason | null
+  latencyMs: number | null
+}
+
 export function ProviderForm({ open, provider, onClose, onCreated }: {
   open: boolean
   provider?: AssistantProvider | null
@@ -603,6 +634,16 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   // offered: the two wires do not share a thinking shape, so one that no longer fits would only build a
   // body the far end ignores.
   const [dialect, setDialect] = useState<ReasoningDialect | ''>('')
+  /** Keep one key for every turn instead of rotating: the reader's own cost/stability trade. */
+  const [sticky, setSticky] = useState(false)
+  /** Whether the key box shows what was typed. The plaintext is the reader's own, not a stored secret. */
+  const [showKey, setShowKey] = useState(false)
+  const [draftProbes, setDraftProbes] = useState<DraftProbe[]>([])
+  const [probing, setProbing] = useState(false)
+  /** A refused probe is its own fact, not a failed save: it gets a line of its own under the test button. */
+  const [probeFailure, setProbeFailure] = useState<string | null>(null)
+  /** How many keys this provider already rotates through, so an edit names the ring it is adding to. */
+  const [ringCount, setRingCount] = useState(0)
   const [listing, setListing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState<WriteFailure | null>(null)
@@ -625,8 +666,11 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     for (const entry of extraProtocols) {
       if (endpointFieldState(extra[entry] ?? '') === 'invalid') out[entry] = t('assistant.settings.address_invalid')
     }
+    if (parseProviderKeys(apiKey).length > MAX_PROVIDER_KEYS) {
+      out.api_key = t('assistant.settings.api_key_too_many', { max: MAX_PROVIDER_KEYS })
+    }
     return out
-  }, [baseUrl, extra, extraProtocols])
+  }, [baseUrl, extra, extraProtocols, apiKey])
   const sendable = Object.fromEntries(
     extraProtocols
       .map((entry) => [entry, extra[entry]] as const)
@@ -634,7 +678,10 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   )
   // Listing needs both halves to be worth sending; the button says which one is missing instead of
   // opening a dialog that can only fail.
-  const canList = Boolean(apiKey.trim()) && endpointFieldState(baseUrl) === 'ok'
+  const canList = parseProviderKeys(apiKey).length > 0 && endpointFieldState(baseUrl) === 'ok'
+  // A draft with keys tests what was typed; an edit with an untouched box tests what is stored.
+  const canProbe = endpointFieldState(baseUrl) === 'ok'
+    && (parseProviderKeys(apiKey).length > 0 || Boolean(editing?.hasKey))
 
   /**
    * Switching the wire a provider is called on, and taking its address with it.
@@ -671,6 +718,12 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
       // carries that wire, and a second copy this form cannot show is what used to disable the save.
       setExtra(otherEndpoints(editing.endpoints, editing.protocol))
       setDialect(editing.reasoningDialect ?? '')
+      setSticky(editing.sticky)
+      setDraftProbes([])
+      setShowKey(false)
+      void api.assistant.providerKeys(editing.id)
+        .then((answer) => setRingCount(answer.keys.length + (editing.hasKey ? 1 : 0)))
+        .catch(() => setRingCount(editing.hasKey ? 1 : 0))
       setModels('')
       setApiKey('')
       return
@@ -683,6 +736,10 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     setApiKey('')
     setExtra({})
     setDialect('')
+    setSticky(false)
+    setDraftProbes([])
+    setShowKey(false)
+    setRingCount(0)
   }, [open, chosen, editing])
 
   // An edit opens with an empty password box because the plaintext is not ours to show again. The box
@@ -699,6 +756,52 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
       ? t('assistant.settings.api_key_edit_hint', { hint: storedHint })
       : t('assistant.settings.api_key_edit_hint_nohint'))
     : t('assistant.settings.api_key_hint')
+  // The box is one ring rather than one credential. What the reader sees here is what the route parses,
+  // so the count and the cap have to be visible before the save rather than discovered after it.
+  const keyCount = parseProviderKeys(apiKey).length
+  const apiKeyFieldHint = [
+    apiKeyHint,
+    t('assistant.settings.api_key_multi', { max: MAX_PROVIDER_KEYS }),
+    keyCount > 1 ? t('assistant.settings.api_key_count', { count: keyCount }) : '',
+  ].filter(Boolean).join(' ')
+
+  /**
+   * Asks the provider about the keys in front of the reader.
+   *
+   * A draft is tested as typed and never stored; an edit whose box is untouched tests the stored ring,
+   * which is the same question asked of the keys that are already in rotation.
+   */
+  const probeDraft = async () => {
+    if (probing) return
+    setProbing(true)
+    setDraftProbes([])
+    setProbeFailure(null)
+    try {
+      const typed = parseProviderKeys(apiKey)
+      if (typed.length) {
+        // The worker only probes addresses this account already saved. An edit names that row so the
+        // draft keys are tried against its stored baseUrl instead of an arbitrary typed host.
+        const answer = await api.assistant.probeDraftKeys({
+          protocol,
+          baseUrl: baseUrl.trim(),
+          apiKeys: typed,
+          ...(editing ? { providerId: editing.id } : {}),
+        })
+        setDraftProbes(answer.results)
+      } else if (editing) {
+        const answer = await api.assistant.probeProviderKeys(editing.id)
+        setDraftProbes(answer.results.map((entry) => ({
+          keyHint: entry.keyHint, outcome: entry.outcome, reason: entry.reason, latencyMs: entry.latencyMs,
+        })))
+        setRingCount(answer.results.length)
+      }
+    } catch (error) {
+      // A refused probe says nothing about the save: report it here, never as a "save failed" line.
+      setProbeFailure(error instanceof Error ? error.message : String(error))
+    } finally {
+      setProbing(false)
+    }
+  }
 
   // The save and its answer, in one place: the dialog stays open with the draft intact unless the write
   // says it landed, and the reason it refused is printed here rather than arriving as a toast over a
@@ -715,6 +818,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
         baseUrl: baseUrl.trim(),
         endpoints: sendable,
         reasoningDialect: pinned || null,
+        sticky,
         // A blank box means "keep the stored key", not "forget it": an untouched field is not
         // sent at all, and the worker keeps the ciphertext for a patch that carries no key.
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
@@ -734,6 +838,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
       apiKey: apiKey.trim(),
       endpoints: sendable,
       reasoningDialect: pinned || null,
+      sticky,
       models: models.split(',').map((entry) => entry.trim()).filter(Boolean),
     }, setFailure)
     setSaving(false)
@@ -791,6 +896,13 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
             ))}
           </Select>
         </Field>
+        <div className="flex items-start gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-2">
+          <Switch checked={sticky} label={t('assistant.settings.sticky')} onChange={setSticky} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{t('assistant.settings.sticky')}</p>
+            <p className="mt-0.5 text-[length:var(--text-11)] leading-snug text-[var(--text-quaternary)]">{t('assistant.settings.sticky_hint')}</p>
+          </div>
+        </div>
         <Field label={t('assistant.settings.base_url')} hint={problems.base_url ?? t('assistant.settings.base_url_hint')}>
           <Input
             value={baseUrl}
@@ -823,18 +935,75 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
         {/* An edit opens with an empty password box because the plaintext is not ours to show again. The
             field still has to say that a key is stored, or the reader reads the empty box as "my key is
             gone" — the placeholder carries the last four characters, and the hint says blank keeps it. */}
-        <Field label={t('assistant.settings.api_key')} hint={apiKeyHint}>
+        <Field label={t('assistant.settings.api_key')} hint={problems.api_key ?? apiKeyFieldHint}>
           <Input
-            type="password"
+            type={showKey ? 'text' : 'password'}
             value={apiKey}
             maxLength={4096}
             autoComplete="off"
+            invalid={Boolean(problems.api_key)}
             leading={<KeyRound size={13} />}
             placeholder={apiKeyPlaceholder}
             onChange={(event) => setApiKey(event.target.value)}
             className="font-mono text-[length:var(--text-12)]"
+            // The plaintext is the reader's own, typed seconds ago and not yet stored. Seeing it is how a
+            // paste that lost a character gets noticed before it becomes a 401 nobody can explain.
+            trailing={(
+              <button
+                type="button"
+                aria-label={t(showKey ? 'assistant.settings.api_key_hide' : 'assistant.settings.api_key_show')}
+                onClick={() => setShowKey((value) => !value)}
+                className="flex size-5 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
+              >
+                {showKey ? <EyeOff size={13} /> : <Eye size={13} />}
+              </button>
+            )}
           />
         </Field>
+        {/* The test sits under the box rather than behind a save: what a reader wants to know about a key
+            they just pasted is whether it works, and making them store it first is the wrong order. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!canProbe || probing}
+            onClick={() => void probeDraft()}
+          >
+            {probing ? t('assistant.keys.probe_running') : t('assistant.keys.probe')}
+          </Button>
+          {draftProbes.map((entry, index) => (
+            <span
+              key={index}
+              className={cn(
+                'tabular text-[length:var(--text-11)]',
+                entry.outcome === 'passed'
+                  ? 'text-[var(--text-secondary)]'
+                  : entry.outcome === 'failed' ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]',
+              )}
+              title={entry.reason ? t(`assistant.keys.probe_reason.${entry.reason}`) : undefined}
+            >
+              <span className="font-mono">····{entry.keyHint}</span>
+              {' '}
+              {entry.outcome === 'passed'
+                ? t('assistant.keys.probe_passed')
+                : entry.outcome === 'failed' ? t('assistant.keys.probe_failed') : t('assistant.keys.probe_unknown')}
+              {entry.outcome === 'passed' && entry.latencyMs !== null
+                ? ` ${t('assistant.keys.probe_latency', { ms: entry.latencyMs })}`
+                : ''}
+            </span>
+          ))}
+          {editing && ringCount > 0 && (
+            <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+              {t('assistant.settings.ring_count', { count: ringCount })}
+            </span>
+          )}
+        </div>
+        {probeFailure && (
+          <p role="alert" className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">
+            {t('assistant.keys.probe_draft_failed' as MessageKey)}
+            {probeFailure ? ` ${probeFailure}` : ''}
+          </p>
+        )}
         {!editing && (
           <>
             <Field label={t('assistant.settings.models')} hint={t('assistant.settings.models_hint')}>
@@ -868,7 +1037,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
 
       {listing && (
         <ModelPickerDialog
-          draft={{ protocol, baseUrl: baseUrl.trim(), apiKey: apiKey.trim(), label: label.trim() || chosen.label }}
+          draft={{ protocol, baseUrl: baseUrl.trim(), apiKey: parseProviderKeys(apiKey)[0] ?? '', label: label.trim() || chosen.label }}
           existing={models.split(',').map((entry) => entry.trim()).filter(Boolean)}
           onPicked={(ids) => setModels(ids.join(', '))}
           onClose={() => setListing(false)}

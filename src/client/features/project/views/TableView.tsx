@@ -11,7 +11,7 @@ import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectProper
 import { isProjectCardDone } from '@shared/project/model'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { groupProjectCards, projectOptionLabel, projectPropertyDisplayText } from '@shared/project/view-eval'
-import { t } from '../../../lib/i18n'
+import { t, useLocale } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox } from '../../../components/form'
 import { SelectMenu } from '../../../components/select-menu'
@@ -42,6 +42,8 @@ export interface TableProps {
 
 export function TableView(props: TableProps): ReactElement {
   const { bundle, cards, columns, fields, canEdit, selected, subtasksByParent } = props
+  const selectedSet = useMemo(() => new Set(selected), [selected])
+  const locale = useLocale()
   const [limit, setLimit] = useState(PAGE)
   const [editing, setEditing] = useState<{ cardId: string, propertyId: string } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
@@ -51,11 +53,15 @@ export function TableView(props: TableProps): ReactElement {
   const density = fields.cardSize ?? 'comfortable'
   const rowPad = density === 'compact' ? 'py-0.5' : density === 'spacious' ? 'py-3' : 'py-1.5'
 
-  const page = cards.slice(0, limit)
-  const groups: [string, ProjectCard[]][] = fields.groupById
+  const page = useMemo(() => cards.slice(0, limit), [cards, limit])
+  const groups: [string, ProjectCard[]][] = useMemo(() => (fields.groupById
     ? [...groupProjectCards(page, fields.groupById, bundle.properties).entries()]
-    : [['', page]]
+    : [['', page]]), [page, fields.groupById, bundle.properties])
   const allIds = useMemo(() => new Set(cards.map((card) => card.id)), [cards])
+  const summaries = useMemo(() => new Map(columns.map((property) => [
+    property.id,
+    computeProjectCalculation(cards, property, fields.columnCalculations[property.id] ?? 'count'),
+  ])), [cards, columns, fields.columnCalculations])
 
   const commitWidth = (id: string, width: number): void => {
     props.onPatchFields({ columnWidths: { ...fields.columnWidths, [id]: Math.max(80, Math.round(width)) } })
@@ -117,7 +123,7 @@ export function TableView(props: TableProps): ReactElement {
         }
       } catch { /* a stored value that is not a JSON array reads as plain text below */ }
     }
-    return projectPropertyDisplayText(card, property, bundle.people) || '—'
+    return projectPropertyDisplayText(card, property, bundle.people, locale) || '—'
   }
 
   const renderRow = (card: ProjectCard, index: number, child: boolean): ReactElement => {
@@ -128,7 +134,7 @@ export function TableView(props: TableProps): ReactElement {
       <Fragment key={card.id}>
         <tr
           data-project-card={card.id}
-          data-selected={selected.includes(card.id)}
+          data-selected={selectedSet.has(card.id)}
           data-child={child}
           className={rowPad}
           onContextMenu={(event) => props.onCardContextMenu(event, card)}
@@ -137,7 +143,7 @@ export function TableView(props: TableProps): ReactElement {
             <td className="w-9 px-2">
               <Checkbox
                 ariaLabel={card.title || t('project.board.untitled_card')}
-                checked={selected.includes(card.id)}
+                checked={selectedSet.has(card.id)}
                 onChange={(checked) => props.onSelected(checked ? [...selected, card.id] : selected.filter((id) => id !== card.id))}
               />
             </td>
@@ -167,6 +173,12 @@ export function TableView(props: TableProps): ReactElement {
                 type="button"
                 className={`min-w-0 truncate text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${isProjectCardDone(card, bundle.properties) ? 'text-[var(--text-tertiary)] line-through' : ''}`}
                 onClick={(event) => props.onSelectClick(event, card.id)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+                  event.preventDefault()
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom }))
+                }}
               >
                 {card.icon && <span className="mr-1" aria-hidden="true">{card.icon}</span>}
                 {card.title || t('project.board.untitled_card')}
@@ -216,7 +228,7 @@ export function TableView(props: TableProps): ReactElement {
               <th scope="col" className="w-9 px-2">
                 <Checkbox
                   ariaLabel={t('project.view.select_all')}
-                  checked={cards.length > 0 && cards.every((card) => selected.includes(card.id))}
+                  checked={cards.length > 0 && cards.every((card) => selectedSet.has(card.id))}
                   onChange={(checked) => props.onSelected(checked ? cards.map((card) => card.id) : [])}
                 />
               </th>
@@ -318,7 +330,7 @@ export function TableView(props: TableProps): ReactElement {
               const calc = fields.columnCalculations[property.id] ?? 'count'
               return (
                 <td key={property.id} className="px-3">
-                  <span className="mr-2 font-semibold text-[var(--text-primary)]">{computeProjectCalculation(cards, property, calc)}</span>
+                  <span className="mr-2 font-semibold text-[var(--text-primary)]">{summaries.get(property.id)}</span>
                   <SelectMenu
                     className="w-24"
                     size="sm"

@@ -507,7 +507,7 @@ export async function applyTagFamily(
     }
   } catch (error) {
     try {
-      for (const rewrite of [...rewrites].reverse()) await rewrite.rollback()
+      for (const rewrite of rewrites.toReversed()) await rewrite.rollback()
     } catch {
       throw ApiError.conflict('Tag rename could not be rolled back safely; refresh and try again')
     }
@@ -733,7 +733,7 @@ async function rollbackTagRewrites(
   rewrittenNotes: readonly RewrittenTagNote[],
 ): Promise<void> {
   const db = env.DB
-  for (const rewritten of [...rewrittenNotes].reverse()) {
+  for (const rewritten of rewrittenNotes.toReversed()) {
     const { note, nextRev, updatedAt } = rewritten
     const hash = await sha256Hex(note.content)
     const { words, chars } = countText(note.content)

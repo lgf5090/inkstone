@@ -299,7 +299,9 @@ toolsPasswordRoutes.post('/vault/unlock', async (c) => {
         reason: error instanceof Error ? error.message : String(error),
       })
     }
-  })()
+  })().catch((error: unknown) => {
+    console.warn('[inkstone] verifier maintenance after unlock failed:', error)
+  })
   afterResponse(c, maintenance)
 
   // An empty salt means the vault predates the salted derivation; the client re-seals it now that

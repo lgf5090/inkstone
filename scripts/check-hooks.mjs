@@ -50,6 +50,7 @@ const failures = []
 let checked = 0
 for (const file of walkSource('src')) {
   if (!/\.tsx?$/.test(file) || file.includes(`${path.sep}locales${path.sep}`)) continue
+  const key = file.replaceAll(path.sep, '/')
   const text = fs.readFileSync(file, 'utf8')
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
   const lineOf = (pos) => source.getLineAndCharacterOfPosition(pos).line
@@ -57,7 +58,7 @@ for (const file of walkSource('src')) {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && EFFECTS.has(node.expression.text)) {
       checked += 1
       if (node.arguments.length < 2 ) {
-        if (exemptFiles.has(file)) seenExempt.add(file)
+        if (exemptFiles.has(key)) seenExempt.add(key)
         else failures.push(`${file}:${lineOf(node.getStart(source)) + 1}: ${node.expression.text}() has no dependency array — it re-runs after every render`)
       }
     }

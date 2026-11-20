@@ -181,7 +181,7 @@ function buildMessages(
       ...(index === list.length - 1 && images?.length ? { images } : {}),
     }))
   if (dynamic) {
-    const lastUser = [...turns].reverse().find((turn) => turn.role === 'user')
+    const lastUser = turns.findLast((turn) => turn.role === 'user')
     if (lastUser) lastUser.content = `${lastUser.content}\n\n## Dynamic context\n${dynamic}`
     else turns.push({ role: 'user', content: `## Dynamic context\n${dynamic}` })
   }

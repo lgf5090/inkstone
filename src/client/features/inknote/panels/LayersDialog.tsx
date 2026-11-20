@@ -26,7 +26,7 @@ export function LayersDialog({ open, onClose, page, activeLayerId, onActiveLayer
   const recordContentHistory = useInknoteStore((state) => state.recordContentHistory)
   const savePage = useInknoteStore((state) => state.savePage)
   const layers = useMemo(() => page ? layersOf(page.content) : [], [page])
-  const topFirst = useMemo(() => [...layers].reverse(), [layers])
+  const topFirst = useMemo(() => layers.toReversed(), [layers])
 
   const commit = (next: InknoteLayer[], removeLayerId?: string) => {
     if (!page) return

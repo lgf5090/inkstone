@@ -7,7 +7,7 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsc/worker.tsbuildinfo",
 
     "target": "ES2022",
-    "lib": ["ES2023"],
+    "lib": ["ES2024"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "moduleDetection": "force",

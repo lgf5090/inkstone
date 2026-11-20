@@ -21,23 +21,32 @@ function optionLabel(property: ProjectProperty | undefined, raw: string, people:
   return raw
 }
 
+function markdownInline(value: string): string {
+  const flat = value.replace(/[\r\n\u2028\u2029]+/g, ' ').replace(/[ \t]+/g, ' ').trim()
+  return flat
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/([\\`*_\[\]()!#|~])/g, '\\$1')
+}
+
 export function projectBoardToMarkdown(bundle: ProjectBoardBundle, groupById?: string): string {
-  const lines: string[] = [`# ${bundle.board.title || 'Board'}`, '']
-  if (bundle.board.description) lines.push(bundle.board.description, '')
+  const lines: string[] = [`# ${markdownInline(bundle.board.title || 'Board')}`, '']
+  if (bundle.board.description) lines.push(markdownInline(bundle.board.description), '')
   const groups = groupProjectCards(bundle.cards, groupById, bundle.properties)
   const groupProperty = bundle.properties.find((p) => p.id === groupById)
   for (const [key, cards] of groups) {
-    if (groupById) lines.push(`## ${key === '' ? 'No value' : optionLabel(groupProperty, key, bundle.people)}`, '')
+    if (groupById) lines.push(`## ${markdownInline(key === '' ? 'No value' : optionLabel(groupProperty, key, bundle.people))}`, '')
     for (const card of cards) {
-      lines.push(`### ${card.title || 'Untitled'}`, '')
+      lines.push(`### ${markdownInline(card.title || 'Untitled')}`, '')
       for (const property of bundle.properties) {
         const raw = card.values[property.id]
-        if (raw) lines.push(`- **${property.name}**: ${optionLabel(property, raw, bundle.people)}`)
+        if (raw) lines.push(`- **${markdownInline(property.name)}**: ${markdownInline(optionLabel(property, raw, bundle.people))}`)
       }
       const texts = bundle.contents.filter((c) => c.cardId === card.id && c.type === 'text')
       if (texts.length) {
         lines.push('')
-        for (const text of texts) lines.push(text.title, '')
+        for (const text of texts) lines.push(markdownInline(text.title), '')
       }
       lines.push('')
     }

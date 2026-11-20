@@ -68,6 +68,19 @@ async function createBoard(account: Account, body: Record<string, unknown> = {})
   return ((await response.json()) as { board: ProjectBoard }).board
 }
 
+describe('deleting a property', () => {
+  it('takes the card values that belonged to it', async () => {
+    const board = await createBoard('alice', { cardProperties: [prop(1)] })
+    const created = await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'C', values: { [pid(1)]: 'hello' } })
+    expect(created.status, await created.clone().text()).toBe(201)
+    const card = ((await created.json()) as { card: { id: string } }).card
+    const patched = await req('alice', 'PATCH', `/boards/${board.id}`, { deletedCardProperties: [pid(1)] })
+    expect(patched.status).toBe(200)
+    const left = sqlite.prepare('SELECT COUNT(*) AS n FROM project_card_values WHERE card_id = ?').get(card.id) as { n: number }
+    expect(left.n).toBe(0)
+  })
+})
+
 describe('creating a board', () => {
   it('makes the creator an admin member and stores properties in order', async () => {
     const board = await createBoard('alice', { title: 'Roadmap', icon: '🗺️', cardProperties: [prop(1), prop(2), prop(3)] })
@@ -177,6 +190,28 @@ describe('deleting and restoring a board', () => {
     addMember(board.id, 'bob', 'editor')
     await req('alice', 'DELETE', `/boards/${board.id}`)
     expect((await req('bob', 'POST', `/boards/${board.id}/undelete`)).status).toBe(403)
+  })
+
+  it('keeps publishing, archiving, deleting and restoring owner-only even for an admin', async () => {
+    const board = await createBoard('alice', {})
+    addMember(board.id, 'bob', 'admin')
+    expect((await req('bob', 'PATCH', `/boards/${board.id}`, { type: 'O', minimumRole: 'viewer' })).status).toBe(403)
+    expect((await req('bob', 'PATCH', `/boards/${board.id}`, { archived: true })).status).toBe(403)
+    expect((await req('bob', 'DELETE', `/boards/${board.id}`)).status).toBe(403)
+    await req('alice', 'DELETE', `/boards/${board.id}`)
+    expect((await req('bob', 'POST', `/boards/${board.id}/undelete`)).status).toBe(403)
+  })
+})
+
+describe('per-reader card marks', () => {
+  it('round-trips stars and pins and keeps them per account', async () => {
+    const board = await createBoard('alice', {})
+    addMember(board.id, 'bob', 'viewer')
+    const c1 = `c${'a'.repeat(26)}`
+    const c2 = `c${'b'.repeat(26)}`
+    expect((await req('alice', 'PUT', `/boards/${board.id}/card-marks`, { starred: [c1], pinned: [c2] })).status).toBe(200)
+    expect(await (await req('alice', 'GET', `/boards/${board.id}/card-marks`)).json()).toEqual({ marks: { starred: [c1], pinned: [c2] } })
+    expect(await (await req('bob', 'GET', `/boards/${board.id}/card-marks`)).json()).toEqual({ marks: { starred: [], pinned: [] } })
   })
 })
 

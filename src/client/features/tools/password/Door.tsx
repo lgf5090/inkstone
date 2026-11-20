@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
 import { AlertCircle, KeyRound, Lock, ShieldCheck } from 'lucide-react'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { Button, Spinner } from '../../../components/primitives'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
@@ -93,7 +93,7 @@ export function Door({ className }: DoorProps) {
     setIsCapsLock(e.getModifierState('CapsLock'))
     // Enter accepts an input-method candidate rather than submitting, and the local composition flag
     // says nothing about the keystroke that just committed one — so the shared helper answers.
-    if (e.key === 'Enter' && !isImeComposing(e)) {
+    if (isEnterKey(e) && !isImeComposing(e)) {
       e.preventDefault()
       void handleSubmit()
     }

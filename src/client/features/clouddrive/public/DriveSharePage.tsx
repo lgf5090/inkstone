@@ -4,6 +4,7 @@ import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Input } from '../../../components/form'
 import { Button, Spinner } from '../../../components/primitives'
+import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../../lib/autocomplete'
 
 interface ShareMeta {
   name: string
@@ -198,6 +199,7 @@ export function DriveSharePage({ slug }: { slug: string }) {
             </div>
             <Input
               type="password"
+              autoComplete={NON_CREDENTIAL_AUTOCOMPLETE}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               aria-label={t('clouddrive.share.password_label')}

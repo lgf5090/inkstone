@@ -361,4 +361,61 @@ describe('GitHub store optimistic writes', () => {
     expect(JSON.parse(String((fetchMock.mock.calls[1]![1] as RequestInit).body))).toEqual({ token: 'ghp_secret' })
     expect(JSON.stringify(useGithubStore.getState().accounts)).not.toContain('ghp_secret')
   })
+
+  it('offers an undo that restores a deleted repository and its collection binding', async () => {
+    useGithubStore.setState({
+      status: 'ready',
+      repos: [repo('1')],
+      collections: [collection('c1', ['1'])],
+    })
+    const toast = vi.fn()
+    useUi.setState({ toast })
+    fetchMock
+      .mockResolvedValueOnce(envelope({ ok: true }))
+      .mockResolvedValueOnce(envelope({ repo: repo('1') }))
+      .mockResolvedValueOnce(envelope({ collection: collection('c1', ['1']) }))
+    await useGithubStore.getState().deleteRepo('1')
+    expect(useGithubStore.getState().repos).toHaveLength(0)
+    expect(useGithubStore.getState().collections[0]?.repoIds).toEqual([])
+
+    const last = toast.mock.calls.at(-1)?.[0] as { action?: { label: string; run: () => void } }
+    expect(last.action?.label.trim()).not.toBe('')
+    last.action!.run()
+    await vi.waitFor(() => {
+      expect(useGithubStore.getState().repos.map((entry) => entry.id)).toEqual(['1'])
+      expect(useGithubStore.getState().collections[0]?.repoIds).toEqual(['1'])
+    })
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain('/collections/c1')
+  })
+
+  it('keeps the existing app order when an update check reports a newer row', async () => {
+    useGithubStore.setState({
+      status: 'ready',
+      apps: [
+        { id: 'a', updatedAt: 2 } as never,
+        { id: 'b', updatedAt: 1 } as never,
+      ],
+    })
+    fetchMock.mockResolvedValueOnce(envelope({
+      apps: [{ id: 'b', updatedAt: 9 }],
+      checked: 1,
+      failed: [],
+    }))
+    await useGithubStore.getState().checkApps(['b'])
+    expect(useGithubStore.getState().apps.map((app) => app.id)).toEqual(['a', 'b'])
+    expect(useGithubStore.getState().apps[1]?.updatedAt).toBe(9)
+  })
+
+  it('loads the whole library page by page instead of one full response', async () => {
+    useGithubStore.setState({ status: 'ready' })
+    fetchMock
+      .mockResolvedValueOnce(envelope({ repos: [repo('1'), repo('2')], nextCursor: '2' }))
+      .mockResolvedValueOnce(envelope({ repos: [repo('3')], nextCursor: null }))
+    await useGithubStore.getState().loadAllRepos()
+    expect(useGithubStore.getState().repos.map((entry) => entry.id)).toEqual(['1', '2', '3'])
+    expect(useGithubStore.getState().repoTotal).toBe(3)
+    expect(useGithubStore.getState().truncatedRepos).toBe(false)
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/repos/page?')
+    expect(String(fetchMock.mock.calls[1]![0])).toContain('after=2')
+  })
 })

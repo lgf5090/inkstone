@@ -138,6 +138,10 @@ class_name = "MusicQueue"
 name = "MUSIC_SHARE_LIMITER"
 class_name = "MusicShareLimiter"
 
+[[durable_objects.bindings]]
+name = "GITHUB_LIMITER"
+class_name = "GithubLimiter"
+
 [exports.SyncHub]
 type = "durable-object"
 storage = "sqlite"
@@ -162,11 +166,16 @@ storage = "sqlite"
 type = "durable-object"
 storage = "sqlite"
 
+[exports.GithubLimiter]
+type = "durable-object"
+storage = "sqlite"
+
 [triggers]
 crons = ["* * * * *"]
 
 [vars]
 APP_NAME = "Inkstone"
+TRUSTED_PROXY_CIDRS = ""
 
 [observability]
 enabled = true

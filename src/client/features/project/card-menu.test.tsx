@@ -1,7 +1,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectProperty } from '@shared/project/model'
-import { projectDayToStamp, projectStampToInput } from '@shared/project/date'
+import { projectStampToInput } from '@shared/project/date'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { buildCardMenu, optionColorItems } from './card-menu'
@@ -144,7 +144,8 @@ describe('the card menu', () => {
     byId(buildCardMenu(ctx), 'set-date').subItems![0]!.onSelect!()
     const raw = (ctx.onPatchCard.mock.calls[0]![1] as { values: Record<string, string> }).values.pd
     const stored = (JSON.parse(raw) as { from: number }).from
-    expect(stored).toBe(projectDayToStamp(new Date()))
+    const today = new Date()
+    expect(projectStampToInput(stored)).toBe(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`)
   })
 
   it('disables every write for a viewer and the link for a public reader', () => {

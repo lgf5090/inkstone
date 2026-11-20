@@ -5,7 +5,7 @@ import { Input, Switch } from '../../../../components/form'
 import { Button, IconButton } from '../../../../components/primitives'
 import { SelectMenu } from '../../../../components/select-menu'
 import { calcT } from '../lib/calc-i18n'
-import { isImeComposing } from '../../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../../lib/ime'
 
 export function EquationList({
   equations,
@@ -45,7 +45,7 @@ export function EquationList({
                   onChange={(event) => onUpdate(equation.id, { expression: event.target.value })}
                   onKeyDown={(event) => {
                     if (isImeComposing(event)) return
-                    if (event.key === 'Enter' && index === equations.length - 1) onAdd()
+                    if (isEnterKey(event) && index === equations.length - 1) onAdd()
                   }}
                   className="h-8 min-w-0 flex-1 font-mono text-[length:var(--text-13)] md:h-8"
                 />

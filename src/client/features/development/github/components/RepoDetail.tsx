@@ -5,9 +5,8 @@ import { assetPlatform } from '@shared/development/github/platforms'
 import { t } from '../../../../lib/i18n'
 import { navigateToPath } from '../../../../lib/app-history'
 import { useAssistant } from '../../../chat/assistant-store'
-import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
-import { Button, IconButton, Spinner } from '../../../../components/primitives'
+import { Button, IconButton, Spinner, buttonClass } from '../../../../components/primitives'
 import { Textarea } from '../../../../components/form'
 import { Empty } from '../../../../components/feedback'
 import { Menu, type MenuItem } from '../../../../components/overlay'
@@ -19,6 +18,8 @@ import { buildMirrorDownloadUrl, formatNumber, formatDate, formatFileSize } from
 import { detectDevicePlatform } from '../lib/device'
 import { getLanguageColor } from '../lib/languages'
 import { renderGithubReadme } from '../lib/readme'
+import { ReadmeBody } from './ReadmeBody'
+import { attachReadmeImageFallback } from '../lib/readme-images'
 import { GithubAvatar } from './GithubAvatar'
 import { TrackAppDialog, type TrackAppValues } from './TrackAppDialog'
 import { DeveloperDialog } from './DeveloperDialog'
@@ -87,7 +88,7 @@ function AssetPicker({ assets, value, onChange, mirrorBase }: { assets: GithubRe
         <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{assets.length}</span>
       </Button>
       <Menu anchor={anchor} open={open} onClose={() => setOpen(false)} items={items} searchable align="start" width={320} label={t('development.github.repos.asset_select')} />
-      {current && (
+      {current && mirrorUrl && (
         <>
           <div className="flex items-center gap-1.5">
             <Button variant="secondary" size="sm" onClick={() => void copy()}><Copy size={12} />{t('development.github.repos.copy_mirror_url')}</Button>
@@ -175,6 +176,12 @@ export function RepoDetail({ repo, mirror, notes, favorited = false, onToggleFav
     [detail?.readme, detail?.fullName, detail?.defaultBranch],
   )
   const readmeTooLarge = Boolean(detail?.readme && detail.readme.length > README_RENDER_MAX_CHARS)
+  const readmeRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const node = readmeRef.current
+    if (!node) return
+    return attachReadmeImageFallback(node, t('development.github.repos.image_unavailable'))
+  }, [readmeHtml])
 
   if (!repo) return <Empty art="select" title={t('development.github.repos.select_hint')} />
   if (loading) return <div className="flex h-full items-center justify-center gap-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]"><Spinner size={15} />{t('development.github.common.loading')}</div>
@@ -337,10 +344,17 @@ export function RepoDetail({ repo, mirror, notes, favorited = false, onToggleFav
                 {currentAsset ? (
                   <>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button size="sm" onClick={() => window.open(downloadUrl, '_blank', 'noopener,noreferrer')}>
-                        <Download size={12} />
-                        {t('development.github.store.download_asset_short', { format: currentAsset.name.includes('.') ? currentAsset.name.slice(currentAsset.name.lastIndexOf('.') + 1).toUpperCase() : '' })}
-                      </Button>
+                      {downloadUrl ? (
+                        <a href={downloadUrl} target="_blank" rel="noopener noreferrer" className={buttonClass({ size: 'sm' })}>
+                          <Download size={12} />
+                          {t('development.github.store.download_asset_short', { format: currentAsset.name.includes('.') ? currentAsset.name.slice(currentAsset.name.lastIndexOf('.') + 1).toUpperCase() : '' })}
+                        </a>
+                      ) : (
+                        <Button size="sm" disabled>
+                          <Download size={12} />
+                          {t('development.github.store.download_asset_short', { format: currentAsset.name.includes('.') ? currentAsset.name.slice(currentAsset.name.lastIndexOf('.') + 1).toUpperCase() : '' })}
+                        </Button>
+                      )}
                       <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-secondary)]" title={currentAsset.name}>{currentAsset.name}</span>
                       <span className="shrink-0 text-[length:var(--text-10)] tabular-nums text-[var(--text-quaternary)]">{formatFileSize(currentAsset.size)}</span>
                       {downloadPlatform && <span className="shrink-0 rounded-full border border-[var(--border-subtle)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{platformLabel(downloadPlatform)}</span>}
@@ -354,7 +368,7 @@ export function RepoDetail({ repo, mirror, notes, favorited = false, onToggleFav
             {release && <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2.5"><div className="flex items-center gap-2 text-[length:var(--text-11)]"><a href={release.htmlUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-[var(--accent)] hover:underline">{release.name || release.tagName}</a><span className="text-[var(--text-tertiary)]">{t('development.github.repos.published_at', { date: formatDate(release.publishedAt) })}</span>{release.assets.length > 0 && <span className="text-[var(--text-quaternary)]">{t('development.github.store.downloads', { count: formatNumber(release.assets.reduce((sum, asset) => sum + asset.downloadCount, 0)) })}</span>}</div>{release.body && <pre className="mt-1.5 max-h-28 overflow-y-auto whitespace-pre-wrap break-words text-[length:var(--text-11)] text-[var(--text-tertiary)]">{release.body.length > RELEASE_BODY_PREVIEW_CHARS ? `${release.body.slice(0, RELEASE_BODY_PREVIEW_CHARS)}...` : release.body}</pre>}</div>}
             {release && release.assets.length > 0 ? <AssetPicker assets={release.assets} value={currentAsset?.name ?? ''} onChange={setAssetName} mirrorBase={mirrorBase} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-3 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.repos.no_assets')}</p>}
             {release && release.assets.length > 0 && <div className="text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{t('development.github.repos.all_assets', { count: release.assets.length })}</div>}
-            {release && release.assets.length > 0 && <ul className="divide-y divide-[var(--border-subtle)] rounded-[var(--r-md)] border border-[var(--border-subtle)]">{release.assets.map((asset) => { const url = buildMirrorDownloadUrl(mirrorBase, asset.downloadUrl); const platform = assetPlatform(asset.name); return <li key={asset.id} className="flex items-center gap-2 px-2.5 py-1.5 text-[length:var(--text-11)]"><FileText size={11} className="shrink-0 text-[var(--text-tertiary)]" /><button type="button" onClick={() => setAssetName(asset.name)} className="min-w-0 flex-1 truncate text-left hover:text-[var(--accent)]" title={asset.name}>{asset.name}</button>{platform && <span className="shrink-0 rounded-full border border-[var(--border-subtle)] px-1.5 py-0.5 text-[var(--text-tertiary)]">{platformLabel(platform)}</span>}<span className="shrink-0 text-[var(--text-quaternary)]" title={t('development.github.store.downloads', { count: formatNumber(asset.downloadCount) })}>{formatNumber(asset.downloadCount)}</span><span className="shrink-0 text-[var(--text-quaternary)]">{formatFileSize(asset.size)}</span><IconButton label={t('development.github.repos.copy_mirror_url')} size="sm" onClick={() => void copyText(url).then((ok) => toast({ title: ok ? t('development.github.repos.mirror_url_copied') : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' }))}><Copy size={11} /></IconButton><a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]" title={t('development.github.repos.download_via_mirror')}><Download size={11} /></a></li> })}</ul>}
+            {release && release.assets.length > 0 && <ul className="divide-y divide-[var(--border-subtle)] rounded-[var(--r-md)] border border-[var(--border-subtle)]">{release.assets.map((asset) => { const url = buildMirrorDownloadUrl(mirrorBase, asset.downloadUrl); const platform = assetPlatform(asset.name); return <li key={asset.id} className="flex items-center gap-2 px-2.5 py-1.5 text-[length:var(--text-11)]"><FileText size={11} className="shrink-0 text-[var(--text-tertiary)]" /><Button variant="ghost" size="sm" onClick={() => setAssetName(asset.name)} className="h-auto min-w-0 flex-1 justify-start truncate p-0 text-left text-[length:var(--text-11)] hover:text-[var(--accent)]" title={asset.name}>{asset.name}</Button>{platform && <span className="shrink-0 rounded-full border border-[var(--border-subtle)] px-1.5 py-0.5 text-[var(--text-tertiary)]">{platformLabel(platform)}</span>}<span className="shrink-0 text-[var(--text-quaternary)]" title={t('development.github.store.downloads', { count: formatNumber(asset.downloadCount) })}>{formatNumber(asset.downloadCount)}</span><span className="shrink-0 text-[var(--text-quaternary)]">{formatFileSize(asset.size)}</span><IconButton label={t('development.github.repos.copy_mirror_url')} size="sm" onClick={() => void copyText(url).then((ok) => toast({ title: ok ? t('development.github.repos.mirror_url_copied') : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' }))}><Copy size={11} /></IconButton>{url && <a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]" title={t('development.github.repos.download_via_mirror')}><Download size={11} /></a>}</li> })}</ul>}
           </div>
         )}
       </div>
@@ -376,7 +390,7 @@ export function RepoDetail({ repo, mirror, notes, favorited = false, onToggleFav
 
       <div className="p-4">
         <div className="mb-2 flex items-center gap-2"><FileText size={15} className="text-[var(--text-tertiary)]" /><h3 className="text-[length:var(--text-13)] font-semibold">{t('development.github.repos.readme')}</h3>{detail.readmeHtmlUrl && <a href={detail.readmeHtmlUrl} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{t('development.github.repos.view_on_github')}</a>}</div>
-        {readmeHtml ? <div className={cn('github-readme ink-prose max-w-none', 'overflow-x-auto')} dangerouslySetInnerHTML={{ __html: readmeHtml }} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{readmeTooLarge ? t('development.github.repos.readme_too_large') : readmeFailed ? t('development.github.repos.readme_failed') : t('development.github.repos.no_readme')}</p>}
+        {readmeHtml ? <ReadmeBody html={readmeHtml} contentRef={readmeRef} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{readmeTooLarge ? t('development.github.repos.readme_too_large') : readmeFailed ? t('development.github.repos.readme_failed') : t('development.github.repos.no_readme')}</p>}
       </div>
 
       {onUpdateNotes && <div className="border-t border-[var(--border-subtle)] p-4">

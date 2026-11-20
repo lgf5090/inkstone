@@ -15,13 +15,24 @@ import {
   type AssistantToolMode,
   type Project,
 } from '@shared/assistant'
+import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
+import { parseAssistantIcon } from '@shared/assistant-icons'
 import type { AssistantStore } from './store'
 
 export const ASSISTANT_CONFIG_FORMAT = 'inkstone-assistant-config'
 export const ASSISTANT_CONFIG_VERSION = 1
 
-/** Settings that name a row or a decision local to the exporting account. */
-const LOCAL_ONLY_SETTINGS = ['activeModelId', 'limits', 'offlineMode'] as const
+/**
+ * Settings that name a row or a decision local to the exporting account.
+ *
+ * The logging and plaintext switches belong here as well: a config file is meant to be shared or pasted
+ * into a bug report, and one that arrives with body logging or standing plaintext on would quietly lower
+ * the importing account's posture. Their current values are kept on import instead of being inferred.
+ */
+const LOCAL_ONLY_SETTINGS = [
+  'activeModelId', 'limits', 'offlineMode',
+  'revealKeysAlways', 'logRequestBodies', 'logRetentionDays', 'logMaxRows', 'logCleanupStatus',
+] as const
 
 export interface AssistantConfigProvider {
   id: string
@@ -31,6 +42,7 @@ export interface AssistantConfigProvider {
   baseUrl: string
   endpoints: Record<string, string>
   reasoningDialect: string | null
+  sticky: boolean
 }
 
 export interface AssistantConfigModel {
@@ -107,6 +119,7 @@ export async function exportAssistantConfig(store: AssistantStore): Promise<Assi
       baseUrl: provider.baseUrl,
       endpoints: provider.endpoints,
       reasoningDialect: provider.reasoningDialect,
+      sticky: provider.sticky === true,
     })),
     models: models.map((model) => ({
       id: model.id,
@@ -192,6 +205,26 @@ function text(value: unknown, max: number): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : ''
 }
 
+/**
+ * An imported address is untrusted input, the same as one typed into the form. The runtime guards would
+ * refuse it on the way out, but a row should not be able to hold an address this app would never call.
+ */
+function relayable(value: string): boolean {
+  try { assertRelayableEndpoint(value); return true } catch { return false }
+}
+
+/** Protocol-keyed addresses, each vetted; null means the whole provider line has to be skipped. */
+function importEndpoints(value: unknown): Partial<Record<AssistantProtocol, string>> | null {
+  const out: Partial<Record<AssistantProtocol, string>> = {}
+  for (const [key, url] of Object.entries(record(value))) {
+    if (!(ASSISTANT_PROTOCOLS as readonly string[]).includes(key)) continue
+    if (typeof url !== 'string' || !url.trim()) continue
+    if (!relayable(url.trim())) return null
+    out[key as AssistantProtocol] = url.trim().slice(0, 300)
+  }
+  return out
+}
+
 function stringList(value: unknown, max: number, itemMax = 120): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim().slice(0, itemMax)).filter(Boolean).slice(0, max)
@@ -225,6 +258,11 @@ export async function importAssistantConfig(store: AssistantStore, raw: Record<s
       activeModelId: current.activeModelId,
       limits: current.limits,
       offlineMode: current.offlineMode,
+      revealKeysAlways: current.revealKeysAlways,
+      logRequestBodies: current.logRequestBodies,
+      logRetentionDays: current.logRetentionDays,
+      logMaxRows: current.logMaxRows,
+      logCleanupStatus: current.logCleanupStatus,
     }
     await store.saveSettings(merged)
     summary.settings = true
@@ -250,17 +288,20 @@ export async function importAssistantConfig(store: AssistantStore, raw: Record<s
     const baseUrl = text(entry.baseUrl, 400)
     const protocol = text(entry.protocol, 40) as AssistantProtocol
     if (!label || !baseUrl || !(ASSISTANT_PROTOCOLS as readonly string[]).includes(protocol)) { summary.skipped++; continue }
+    const endpoints = importEndpoints(entry.endpoints)
+    if (!relayable(baseUrl) || endpoints === null) { summary.skipped++; continue }
     const key = providerKey(label, baseUrl)
     const existing = providerIds.get(key)
     if (existing) { providerIds.set(`old:${text(entry.id, 64)}`, existing); summary.skipped++; continue }
     const created = await store.createProvider({
       label,
-      icon: text(entry.icon, 40),
+      icon: parseAssistantIcon(entry.icon),
       protocol,
       baseUrl,
       apiKey: '',
-      endpoints: record(entry.endpoints) as Partial<Record<AssistantProtocol, string>>,
+      endpoints,
       reasoningDialect: (text(entry.reasoningDialect, 40) || null) as never,
+      sticky: entry.sticky === true,
     })
     providerIds.set(key, created.id)
     providerIds.set(`old:${text(entry.id, 64)}`, created.id)
@@ -282,7 +323,7 @@ export async function importAssistantConfig(store: AssistantStore, raw: Record<s
       providerId,
       model,
       label: text(entry.label, 120) || model,
-      icon: text(entry.icon, 40),
+      icon: parseAssistantIcon(entry.icon),
       temperature: numberOrNull(entry.temperature, 0, 1.5),
       maxOutputTokens: numberOrNull(entry.maxOutputTokens, 1, 1_000_000),
       reasoning: (text(entry.reasoning, 30) || 'auto') as AssistantModel['reasoning'],
@@ -319,6 +360,8 @@ export async function importAssistantConfig(store: AssistantStore, raw: Record<s
       title,
       content,
       group: text(entry.group, 80),
+      // A skill's icon is the bare glyph the reader typed and the list prints as text, not a prefixed
+      // mark; parsing it as one would erase the character. Keep the length bound, leave the value alone.
       icon: text(entry.icon, 40),
       tools: stringList(entry.tools, 50),
       scopes: [],
@@ -347,7 +390,7 @@ export async function importAssistantConfig(store: AssistantStore, raw: Record<s
     await store.createProject({
       name,
       description: text(entry.description, 2_000),
-      icon: text(entry.icon, 40),
+      icon: parseAssistantIcon(entry.icon),
       instructions: text(entry.instructions, 8_000),
       noteScope: stringList(entry.noteScope, 100),
       excludeScope: stringList(entry.excludeScope, 100),

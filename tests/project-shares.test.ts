@@ -52,6 +52,25 @@ async function reqFromIp(path: string, ip: string, body: unknown): Promise<Respo
 }
 
 describe('public sharing', () => {
+  it('refuses an oversized public body before the share gate is touched', async () => {
+    const board = await makeBoard()
+    const put = await req('PUT', `/api/project/boards/${board.id}/share`, {})
+    const share = ((await put.json()) as { share: ProjectShare }).share
+    const response = await req('POST', `/api/project/public/${share.slug}`, { password: 'x'.repeat(64 * 1024) }, false)
+    expect(response.status).toBe(413)
+  })
+
+  it('rotates the slug when the passcode changes so a leaked link stops working', async () => {
+    const board = await makeBoard()
+    const first = await req('PUT', `/api/project/boards/${board.id}/share`, { password: 'first-pass' })
+    const oldSlug = ((await first.json()) as { share: ProjectShare }).share.slug
+    const second = await req('PUT', `/api/project/boards/${board.id}/share`, { password: 'second-pass' })
+    const newSlug = ((await second.json()) as { share: ProjectShare }).share.slug
+    expect(newSlug).not.toBe(oldSlug)
+    expect((await req('POST', `/api/project/public/${oldSlug}`, { password: 'first-pass' }, false)).status).toBe(404)
+    expect((await req('POST', `/api/project/public/${newSlug}`, { password: 'second-pass' }, false)).status).toBe(200)
+  })
+
   it('shares a board read-only and revokes it', async () => {
     const board = await makeBoard()
     await req('POST', `/api/project/boards/${board.id}/cards`, { title: 'Visible card' })
@@ -68,6 +87,56 @@ describe('public sharing', () => {
     expect((await req('POST', `/api/project/public/${share.slug}`, {}, false)).status).toBe(404)
   })
 
+  it('keeps the member roster and hidden comment authors out of the public people directory', async () => {
+    const board = await makeBoard()
+    const cardRes = await req('POST', `/api/project/boards/${board.id}/cards`, { title: 'Card' })
+    const card = ((await cardRes.json()) as { card: { id: string } }).card
+    sqlite.prepare("INSERT INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at) VALUES ('carol','carol','hash','carol','carol','member',1,1)").run()
+    sqlite.prepare("INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, 'carol', 'viewer', 1, 1)").run(board.id)
+    sqlite.prepare("INSERT INTO project_comments (id, card_id, board_id, author_id, body, create_at, update_at, delete_at) VALUES ('a-hidden', ?, ?, 'carol', 'internal', 1, 1, 0)").run(card.id, board.id)
+    const share = ((await (await req('PUT', `/api/project/boards/${board.id}/share`, {})).json()) as { share: ProjectShare }).share
+    const hidden = ((await (await req('POST', `/api/project/public/${share.slug}`, {}, false)).json()) as ProjectBoardBundle)
+    expect(hidden.members).toEqual([])
+    expect(hidden.comments).toEqual([])
+    expect(Object.keys(hidden.people)).not.toContain('carol')
+    const shown = ((await (await req('PUT', `/api/project/boards/${board.id}/share`, { showComments: true })).json()) as { share: ProjectShare }).share
+    expect(shown.showComments).toBe(true)
+    const internal = ((await (await req('GET', `/api/project/boards/${board.id}/bundle`)).json()) as ProjectBoardBundle)
+    expect(Object.keys(internal.people)).toEqual(expect.arrayContaining(['alice', 'carol']))
+    const visible = ((await (await req('POST', `/api/project/public/${share.slug}`, {}, false)).json()) as ProjectBoardBundle)
+    expect(visible.comments.map((entry) => entry.authorId)).toEqual(['carol'])
+    expect(Object.keys(visible.people)).toContain('carol')
+  })
+
+  it('keeps comments off the public page until the owner opts in', async () => {
+    const board = await makeBoard()
+    const cardRes = await req('POST', `/api/project/boards/${board.id}/cards`, { title: 'Card' })
+    const card = ((await cardRes.json()) as { card: { id: string } }).card
+    expect((await req('POST', `/api/project/cards/${card.id}/comments`, { body: 'internal note' })).status).toBe(201)
+    const put = await req('PUT', `/api/project/boards/${board.id}/share`, {})
+    const share = ((await put.json()) as { share: ProjectShare }).share
+    expect(share.showComments).toBe(false)
+    const hidden = ((await (await req('POST', `/api/project/public/${share.slug}`, {}, false)).json()) as ProjectBoardBundle)
+    expect(hidden.comments).toEqual([])
+    const shown = await req('PUT', `/api/project/boards/${board.id}/share`, { showComments: true })
+    expect(((await shown.json()) as { share: ProjectShare }).share.showComments).toBe(true)
+    const visible = ((await (await req('POST', `/api/project/public/${share.slug}`, {}, false)).json()) as ProjectBoardBundle)
+    expect(visible.comments.map((comment) => comment.body)).toEqual(['internal note'])
+  })
+
+  it('refuses a non-owner admin the share controls', async () => {
+    const board = await makeBoard()
+    sqlite.prepare('INSERT INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('bob', 'bob', 'hash', 'bob', 'bob', 'member', 1, Date.now())
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(board.id, 'bob', 'admin')
+    const bobToken = await createSession(env.DB, 'bob')
+    const response = await app.fetch(new Request(`http://localhost/api/project/boards/${board.id}/share`, {
+      method: 'PUT', headers: { Cookie: `${LEGACY_SESSION_COOKIE}=${bobToken}`, [CLIENT_HEADER]: '1', 'Content-Type': 'application/json' }, body: '{}',
+    }), env)
+    expect(response.status).toBe(403)
+  })
+
   it('gates a password-protected share and lapses an expired one', async () => {
     const board = await makeBoard()
     const put = await req('PUT', `/api/project/boards/${board.id}/share`, { password: 'secret-pass' })
@@ -78,6 +147,29 @@ describe('public sharing', () => {
     expect((await req('POST', `/api/project/public/${share.slug}`, { password: 'secret-pass' }, false)).status).toBe(200)
     await req('PUT', `/api/project/boards/${board.id}/share`, { expiresAt: 1 })
     expect((await req('POST', `/api/project/public/${share.slug}`, { password: 'secret-pass' }, false)).status).toBe(404)
+  })
+})
+
+describe('the calendar feed', () => {
+  it('serves a passwordless share as an ICS document and refuses a protected one', async () => {
+    const due = `p${'d'.repeat(26)}`
+    const created = await req('POST', '/api/project/boards', {
+      title: 'Calendar board',
+      cardProperties: [{ id: due, name: 'Due', type: 'date', options: [] }],
+    })
+    const board = ((await created.json()) as { board: ProjectBoard }).board
+    await req('POST', `/api/project/boards/${board.id}/cards`, { title: 'Ship it', values: { [due]: JSON.stringify({ from: Date.UTC(2026, 10, 20) }) } })
+    const put = await req('PUT', `/api/project/boards/${board.id}/share`, {})
+    const share = ((await put.json()) as { share: ProjectShare }).share
+    const feed = await req('GET', `/api/project/public/${share.slug}/calendar.ics`, undefined, false)
+    expect(feed.status).toBe(200)
+    expect(feed.headers.get('Content-Type')).toContain('text/calendar')
+    const text = await feed.text()
+    expect(text).toContain('BEGIN:VCALENDAR')
+    expect(text).toContain('SUMMARY:Ship it')
+    const protectedShare = await req('PUT', `/api/project/boards/${board.id}/share`, { password: 'secret-pass' })
+    const protectedSlug = ((await protectedShare.json()) as { share: ProjectShare }).share.slug
+    expect((await req('GET', `/api/project/public/${protectedSlug}/calendar.ics`, undefined, false)).status).toBe(401)
   })
 })
 

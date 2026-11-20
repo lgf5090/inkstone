@@ -7,6 +7,7 @@ import { CLIENT_HEADER, LEGACY_SESSION_COOKIE } from '../src/shared/constants'
 import type { Env } from '../src/worker/env'
 import type { ProjectBoard, ProjectView } from '../src/shared/project/model'
 import { emptyProjectViewFields } from '../src/shared/project/model'
+import { mergeProjectViewFields } from '../src/worker/project/views'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -94,6 +95,22 @@ describe('creating a view', () => {
 })
 
 describe('reading and patching a view', () => {
+  it('enforces view-level visibility on direct reads, patches and batch writes', async () => {
+    const board = await createBoard('alice', {})
+    const view = await createView('alice', board.id, { title: 'Private', fields: { minimumRole: 'admin' } })
+    addMember(board.id, 'bob', 'viewer')
+    addMember(board.id, 'carol', 'editor')
+    expect((await req('bob', 'GET', `/views/${view.id}`)).status).toBe(404)
+    expect((await req('carol', 'PATCH', `/views/${view.id}`, { title: 'x' })).status).toBe(404)
+    expect((await req('carol', 'DELETE', `/views/${view.id}`)).status).toBe(404)
+    expect((await req('carol', 'POST', `/boards/${board.id}/batch`, { views: [{ id: view.id, patch: { title: 'x' } }] })).status).toBe(404)
+    expect((await req('carol', 'POST', `/boards/${board.id}/batch-delete`, { viewIds: [view.id] })).status).toBe(404)
+    expect((await req('alice', 'GET', `/views/${view.id}`)).status).toBe(200)
+    const reader = ((await (await req('bob', 'GET', `/boards/${board.id}/bundle`)).json()) as { views: ProjectView[], cursor: number })
+    expect(reader.views.map((entry) => entry.id)).not.toContain(view.id)
+    expect(reader.cursor).toBeGreaterThanOrEqual(view.updateAt)
+  })
+
   it('lets a viewer read and merges a partial field patch without dropping the rest', async () => {
     const board = await createBoard('alice', {})
     const view = await createView('alice', board.id, { title: 'V', fields: { columnWidths: { c1: 200 }, cardOrder: ['c1'] } })
@@ -127,5 +144,19 @@ describe('deleting, restoring and duplicating a view', () => {
     expect(copy.viewType).toBe('gallery')
     expect(copy.fields.cardOrder).toEqual(['c1'])
     expect(copy.position).toBe(1)
+  })
+})
+
+describe('merging view fields by key', () => {
+  it('overwrites the supplied keys, removes those set to undefined and keeps the rest', () => {
+    const base = { ...emptyProjectViewFields(), columnWidths: { c1: 200 }, cardOrder: ['c1'] }
+    const merged = mergeProjectViewFields(base, { cardOrder: ['c2'], columnWidths: undefined })
+    expect(merged.cardOrder).toEqual(['c2'])
+    expect(merged.columnWidths).toBeUndefined()
+    expect(merged.sortOptions).toEqual(base.sortOptions)
+    const second = mergeProjectViewFields(base, { visiblePropertyIds: ['c3'] })
+    expect(second.columnWidths).toEqual({ c1: 200 })
+    expect(second.cardOrder).toEqual(['c1'])
+    expect(second.visiblePropertyIds).toEqual(['c3'])
   })
 })

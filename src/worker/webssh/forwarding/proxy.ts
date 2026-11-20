@@ -157,10 +157,7 @@ export async function forwardHttpRequest(
   let received = 0
   let overflow = false
   let settled = false
-  let resolveDone: () => void = () => undefined
-  const done = new Promise<void>((resolve) => {
-    resolveDone = resolve
-  })
+  const { promise: done, resolve: resolveDone } = Promise.withResolvers<void>()
   const finish = () => {
     if (settled) return
     settled = true

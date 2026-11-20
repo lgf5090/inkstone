@@ -10,7 +10,7 @@ import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import type { ProjectCalendarMode, ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
-import { projectDayToStamp } from '@shared/project/date'
+import { parseProjectDateValue, projectDateValue, projectTimeZoneName } from '@shared/project/date'
 import { projectCardDays } from '@shared/project/timeline-layout'
 import { projectCalendarDayChips, projectCalendarDayRoles, projectCalendarIndex, projectCalendarOverdue, projectCalendarRibbons, projectCalendarWeekSpans, type CalendarEntry } from '@shared/project/calendar-layout'
 import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
@@ -20,7 +20,7 @@ import { buildMonthGridCells } from '../../../components/calendar-grids'
 import { resolveWeekStart, useCalendarDisplayPrefs } from '../../../lib/calendar-display-prefs'
 import { dateKey, narrowWeekdayLabels, startOfWeek } from '../../../lib/time'
 import { Button, IconButton } from '../../../components/primitives'
-import { prompt } from '../../../components/overlay'
+import { prompt, useDialogFocus, useEscape } from '../../../components/overlay'
 import { createProjectCard } from '../api'
 import { Legend, Seg, ViewHead, ViewShell } from './shell'
 
@@ -135,10 +135,12 @@ export function CalendarView(props: CalendarProps): ReactElement {
   const reschedule = (cardId: string, day: Date): void => {
     if (!propertyId) return
     const range = dragRef.current
-    const stamp = projectDayToStamp(day)
+    const card = props.cards.find((entry) => entry.id === cardId)
+    const timeZone = (card ? parseProjectDateValue(card.values[propertyId] ?? '')?.timeZone : undefined) ?? projectTimeZoneName()
+    const stamp = projectDateValue(day, { timeZone }).from!
     const value = range && range.to > range.from
-      ? { from: stamp, to: stamp + (range.to - range.from) }
-      : { from: stamp }
+      ? { from: stamp, to: stamp + (range.to - range.from), timeZone }
+      : { from: stamp, timeZone }
     void props.onPatchCard(cardId, { values: { [propertyId]: JSON.stringify(value) } })
   }
 
@@ -177,7 +179,7 @@ export function CalendarView(props: CalendarProps): ReactElement {
     if (!propertyId) return
     const name = await prompt({ title: t('project.board.new_card'), confirmLabel: t('common.save') })
     if (!name || !name.trim()) return
-    await createProjectCard(props.boardId, { title: name.trim(), values: { [propertyId]: JSON.stringify({ from: projectDayToStamp(day) }) } })
+    await createProjectCard(props.boardId, { title: name.trim(), values: { [propertyId]: JSON.stringify(projectDateValue(day, { timeZone: projectTimeZoneName() })) } })
     void props.onRefresh?.()
   }
 
@@ -193,6 +195,7 @@ export function CalendarView(props: CalendarProps): ReactElement {
         <Seg
           value={mode}
           label={t('project.view.calendar_range')}
+          disabled={!canEdit}
           onChange={props.onModeChange}
           options={[
             { value: 'month', label: t('project.view.calendar_month') },
@@ -313,12 +316,12 @@ function CalendarCell({ cell, mode, today, selected, dropping, bucket, propertie
       data-drop={dropping}
     >
       <button type="button" className="pv-cal-hit" aria-label={cell.key} aria-pressed={selected} onClick={onSelect} />
-      <span className="pv-cal-num relative z-[1]">{cell.day}</span>
+      <span className="pv-cal-num relative z-[var(--pv-z-chip)]">{cell.day}</span>
       {canEdit && (cell.inMonth || mode !== 'month') && (
         <button
           type="button"
           aria-label={t('project.board.new_card')}
-          className="absolute right-1 top-1 z-[3] rounded-[var(--r-xs)] p-0.5 text-[var(--text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] focus-visible:opacity-100 group-hover:opacity-100"
+          className="absolute right-1 top-1 z-[var(--pv-z-today)] rounded-[var(--r-xs)] p-0.5 text-[var(--text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] focus-visible:opacity-100 group-hover:opacity-100" data-touch-reveal=""
           onClick={(event) => { event.stopPropagation(); void onQuickAdd(cell.date) }}
         >
           <Plus size={12} aria-hidden="true" />
@@ -366,6 +369,9 @@ function DayPanel({ dayKey, roles, properties, colorOf, descriptionFor, subtasks
   onClose: () => void
 }): ReactElement {
   const locale = useLocale()
+  const panelRef = useRef<HTMLElement>(null)
+  useDialogFocus(true, panelRef)
+  useEscape(true, onClose)
   const date = new Date(`${dayKey}T00:00:00`)
   const label = date.toLocaleDateString(locale, { month: 'long', day: 'numeric', weekday: 'long' })
   const priorityProperty = projectPriorityProperty(properties)

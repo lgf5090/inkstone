@@ -178,9 +178,9 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
 
   const visibleNotes = useMemo(() => {
     const sort = settings?.noteSort ?? 'updated'
-    const base = recent ? [...notes].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 15) : notes.filter((note) => note.notebookId === notebook?.id)
+    const base = recent ? notes.toSorted((a, b) => b.updatedAt - a.updatedAt).slice(0, 15) : notes.filter((note) => note.notebookId === notebook?.id)
     const filtered = tagFilter ? base.filter((note) => note.colorTag === tagFilter) : base
-    return [...filtered].sort((a, b) => {
+    return filtered.toSorted((a, b) => {
       if (Number(a.pinned) !== Number(b.pinned)) return Number(b.pinned) - Number(a.pinned)
       if (sort === 'created') return b.createdAt - a.createdAt
       if (sort === 'title') return a.title.localeCompare(b.title)

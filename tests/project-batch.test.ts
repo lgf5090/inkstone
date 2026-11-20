@@ -34,7 +34,7 @@ beforeAll(async () => {
 beforeEach(() => {
   sqlite.exec(`DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
     DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_views;
-    DELETE FROM project_card_contents; DELETE FROM project_comments`)
+    DELETE FROM project_card_contents; DELETE FROM project_comments; DELETE FROM chat_notifications`)
 })
 
 const pid = (n: number) => `p${String(n).padStart(26, '0')}`
@@ -99,6 +99,30 @@ describe('batch patch', () => {
     expect(result.views[0]!.title).toBe('V2')
   })
 
+  it('runs completion, recurrence and assignment effects like a single-card patch', async () => {
+    const created = await req('alice', 'POST', '/boards', {
+      title: 'Effects',
+      cardProperties: [
+        { id: pid(2), name: 'Done', type: 'checkbox', options: [] },
+        { id: pid(3), name: 'Owner', type: 'person', options: [] },
+      ],
+    })
+    expect(created.status, await created.clone().text()).toBe(201)
+    const board = ((await created.json()) as { board: ProjectBoard }).board
+    const cardResponse = await req('alice', 'POST', `/boards/${board.id}/cards`, {
+      title: 'Standup', values: { [pid(2)]: 'false' }, recurrence: { freq: 'daily', interval: 1 },
+    })
+    expect(cardResponse.status, await cardResponse.clone().text()).toBe(201)
+    const card = ((await cardResponse.json()) as { card: ProjectCard }).card
+    const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, {
+      cards: [{ id: card.id, patch: { values: { [pid(2)]: 'true', [pid(3)]: 'bob' } } }],
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect((await bundle('alice', board.id)).cards).toHaveLength(2)
+    const notice = sqlite.prepare('SELECT link FROM chat_notifications WHERE user_id = ?').all('bob') as { link: string }[]
+    expect(notice).toEqual([{ link: `project:${board.id}:${card.id}` }])
+  })
+
   it('rolls back nothing applied when one target is missing (atomic)', async () => {
     const board = await createBoard('alice')
     const a = await createCard('alice', board.id, 'A')
@@ -109,6 +133,17 @@ describe('batch patch', () => {
     expect((await bundle('alice', board.id)).cards[0]!.title).toBe('A')
   })
 
+  it('refuses a cross-board parent and a parent cycle', async () => {
+    const board = await createBoard('alice')
+    const other = await createBoard('alice')
+    const a = await createCard('alice', board.id, 'A')
+    const b = await createCard('alice', board.id, 'B')
+    const foreign = await createCard('alice', other.id, 'Foreign')
+    expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards: [{ id: a.id, patch: { parentId: foreign.id } }] })).status).toBe(400)
+    expect((await req('alice', 'PATCH', `/cards/${b.id}`, { parentId: a.id })).status).toBe(200)
+    expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards: [{ id: a.id, patch: { parentId: b.id } }] })).status).toBe(400)
+  })
+
   it('refuses a card from another board and a viewer', async () => {
     const board = await createBoard('alice')
     const other = await createBoard('alice')
@@ -116,6 +151,15 @@ describe('batch patch', () => {
     expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards: [{ id: foreign.id, patch: { title: 'X' } }] })).status).toBe(404)
     addMember(board.id, 'bob', 'viewer')
     expect((await req('bob', 'PATCH', `/boards/${board.id}/batch`, { cards: [] })).status).toBe(403)
+  })
+
+  it('rejects an over-limit batch before reading any rows', async () => {
+    const board = await createBoard('alice')
+    const bigValues: Record<string, string> = {}
+    for (let index = 0; index < 6; index++) bigValues[pid(index + 10)] = 'x'
+    const cards = Array.from({ length: 200 }, () => ({ id: missingId, patch: { values: bigValues } }))
+    const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards })
+    expect(response.status).toBe(413)
   })
 })
 

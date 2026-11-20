@@ -4,14 +4,21 @@ import type { ProjectCard, ProjectComment, ProjectProperty } from '@shared/proje
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import * as api from './api'
+import * as overlay from '../../components/overlay'
 import { CardDialog } from './CardDialog'
+import { resetProjectSubscriptionCache } from './use-watch'
 
 vi.mock('./api', () => ({
   patchProjectCard: vi.fn(),
+  fetchCardTime: vi.fn().mockResolvedValue([]),
+  startCardTimer: vi.fn(),
+  stopCardTimer: vi.fn(),
+  deleteCardTime: vi.fn(),
   fetchCardComments: vi.fn(),
   createCardComment: vi.fn(),
   createCardContent: vi.fn(),
   patchCardContent: vi.fn(),
+  moveCardContent: vi.fn(),
   deleteCardContent: vi.fn(),
   fetchCardLinks: vi.fn(),
   createProjectCard: vi.fn(),
@@ -54,10 +61,12 @@ async function mount(): Promise<void> {
   })
 }
 beforeEach(async () => {
+  resetProjectSubscriptionCache()
   vi.clearAllMocks()
   vi.mocked(api.fetchCardComments).mockResolvedValue([])
   vi.mocked(api.fetchCardLinks).mockResolvedValue([])
   vi.mocked(api.listBoardFiles).mockResolvedValue([])
+  vi.mocked(api.moveCardContent).mockResolvedValue({ id: 'a1', cardId: 'c1', boardId: 'b1', type: 'text', title: 'a1', fields: {}, position: 0, ...stamps })
   await initI18n()
 })
 afterEach(() => { view?.unmount() })
@@ -197,10 +206,12 @@ describe('comment edit/delete, paste image, archived placeholder (D-6/D-8/D-11)'
 
   it('deletes own comment through deleteCardComment', async () => {
     vi.mocked(api.deleteCardComment).mockResolvedValue(undefined)
+    const confirmed = vi.spyOn(overlay, 'confirm').mockResolvedValue(true)
     await mountWith([], [ownComment])
     const del = document.body.querySelector(`button[aria-label="${t('common.delete')}"]`) as HTMLButtonElement
     await act(async () => { del.click() })
     expect(api.deleteCardComment).toHaveBeenCalledWith('m1')
+    confirmed.mockRestore()
   })
 
   it('shows an archived placeholder when the image file is gone', async () => {
@@ -223,8 +234,7 @@ describe('comment edit/delete, paste image, archived placeholder (D-6/D-8/D-11)'
 })
 
 describe('content block reorder (D-1)', () => {
-  it('move down swaps contentOrder through patchProjectCard', async () => {
-    vi.mocked(api.patchProjectCard).mockResolvedValue({ ...card, contentOrder: ['a2', 'a1'] })
+  it('move down persists the new order through the content move route', async () => {
     const blocks = ['a1', 'a2'].map((id) => ({ id, cardId: 'c1', boardId: 'b1', type: 'text' as const, title: id, fields: {}, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }))
     await act(async () => {
       view = renderElement(createElement(CardDialog, { card: { ...card, contentOrder: ['a1', 'a2'] }, properties, members: [], people: {}, contents: blocks, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
@@ -232,11 +242,11 @@ describe('content block reorder (D-1)', () => {
     const down = document.body.querySelector(`[data-project-content="a1"] button[aria-label="${t('project.card.move_down')}"]`) as HTMLButtonElement
     expect(down).not.toBeNull()
     await act(async () => { down.click() })
-    expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { contentOrder: ['a2', 'a1'] })
+    expect(api.moveCardContent).toHaveBeenCalledWith('a1', 'a2', 'after')
+    expect(api.patchProjectCard).not.toHaveBeenCalledWith('c1', expect.objectContaining({ contentOrder: expect.anything() }))
   })
 
   async function mountBlocks(): Promise<void> {
-    vi.mocked(api.patchProjectCard).mockResolvedValue({ ...card, contentOrder: ['a2', 'a1'] })
     const blocks = ['a1', 'a2'].map((id) => ({ id, cardId: 'c1', boardId: 'b1', type: 'text' as const, title: id, fields: {}, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }))
     await act(async () => {
       view = renderElement(createElement(CardDialog, { card: { ...card, contentOrder: ['a1', 'a2'] }, properties, members: [], people: {}, contents: blocks, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
@@ -263,13 +273,13 @@ describe('content block reorder (D-1)', () => {
   it('dragging a block down lands it after the block it was dropped on', async () => {
     await mountBlocks()
     await dragBlock('a1', 'a2')
-    expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { contentOrder: ['a2', 'a1'] })
+    expect(api.moveCardContent).toHaveBeenCalledWith('a1', 'a2', 'after')
   })
 
   it('a finger held on the grip drags a block up', async () => {
     await mountBlocks()
     await dragBlock('a2', 'a1', 'touch')
-    expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { contentOrder: ['a2', 'a1'] })
+    expect(api.moveCardContent).toHaveBeenCalledWith('a2', 'a1', 'before')
   })
 })
 

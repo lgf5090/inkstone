@@ -759,7 +759,7 @@ function blankRuleExampleFixtures(file, source) {
     if (!spans || !spans.length)
         return source;
     let text = source;
-    for (const [from, to] of [...spans].sort((a, b) => b[0] - a[0]))
+    for (const [from, to] of spans.toSorted((a, b) => b[0] - a[0]))
         text = text.slice(0, from) + text.slice(from, to).replace(/[^\n]/g, ' ') + text.slice(to);
     return text;
 }

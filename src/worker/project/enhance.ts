@@ -3,11 +3,17 @@
  * who changed what; the dependency graph is a set of directed 'blocks' edges with cycle detection so
  * a board can never deadlock itself. Both reuse tables created with the core schema.
  */
-import type { ProjectActivityEntry, ProjectBoard, ProjectCard, ProjectCardLink, ProjectCardLinkKind } from '@shared/project/model'
+import type { ProjectActivityEntry, ProjectBoard, ProjectCard, ProjectCardLink, ProjectCardLinkKind, ProjectProperty } from '@shared/project/model'
+import { CARD_DONE_PATTERN, isProjectCardDone, projectMultiValueIds } from '@shared/project/model'
 import { newProjectId } from '@shared/project/limits'
 import { ApiError } from '../lib/errors'
-import { createProjectCard, getProjectCard } from './cards'
+import type { AppBindings } from '../env'
+import { createProjectCard, getProjectCard, spawnRecurringCard } from './cards'
 import { createProjectContent } from './contents'
+import { notifyProjectAssignment } from './notify'
+import { projectRelationTargets } from './relations'
+import { readBoardProperties } from './boards'
+import { runProjectAutomations } from './automations'
 
 export type { ProjectActivityEntry, ProjectCardLink }
 
@@ -19,7 +25,7 @@ export async function saveCardAsTemplate(db: D1Database, cardId: string, now: nu
 export async function createCardFromTemplate(db: D1Database, board: ProjectBoard, userId: string, templateId: string, now: number): Promise<ProjectCard> {
   const template = await getProjectCard(db, templateId)
   if (!template || !template.isTemplate || template.boardId !== board.id) throw ApiError.notFound('Template not found')
-  const card = await createProjectCard(db, board, userId, { title: template.title, icon: template.icon, parentId: '', isTemplate: false, values: template.values }, now)
+  const card = await createProjectCard(db, board, userId, { title: template.title, icon: template.icon, parentId: '', isTemplate: false, values: template.values }, now, projectRelationTargets(await readBoardProperties(db, board.id)))
   const { results } = await db.prepare('SELECT * FROM project_card_contents WHERE card_id = ?1 AND delete_at = 0 ORDER BY position, id').bind(templateId).all<{ type: string, title: string, fields: string }>()
   for (const row of results) {
     await createProjectContent(db, card, userId, { type: row.type as 'text', title: row.title, fields: JSON.parse(row.fields) as { checked?: boolean } }, now)
@@ -105,16 +111,14 @@ export async function linkCardTodo(db: D1Database, cardId: string, todoId: strin
   ).bind(cardId, todoId, userId, now).run()
 }
 
-export async function unlinkCardTodo(db: D1Database, cardId: string): Promise<void> {
-  await db.prepare('DELETE FROM project_todo_links WHERE card_id = ?1').bind(cardId).run()
+export async function unlinkCardTodo(db: D1Database, cardId: string, userId: string): Promise<void> {
+  await db.prepare('DELETE FROM project_todo_links WHERE card_id = ?1 AND user_id = ?2').bind(cardId, userId).run()
 }
 
 export async function getCardTodoLink(db: D1Database, cardId: string): Promise<string | null> {
   const row = await db.prepare('SELECT todo_id FROM project_todo_links WHERE card_id = ?1').bind(cardId).first<{ todo_id: string }>()
   return row?.todo_id ?? null
 }
-
-const DONE_PATTERN = /done|complete|finished/i
 
 /** A card reads as done when a checkbox property is ticked or its status option names completion. */
 export function cardIsDone(card: ProjectCard, properties: readonly { id: string, type: string, options: { id: string, value: string }[] }[]): boolean {
@@ -124,7 +128,7 @@ export function cardIsDone(card: ProjectCard, properties: readonly { id: string,
     if (property.type === 'checkbox' && raw === 'true') return true
     if (property.type === 'select') {
       const option = property.options.find((o) => o.id === raw)
-      if (option && DONE_PATTERN.test(option.value)) return true
+      if (option && CARD_DONE_PATTERN.test(option.value)) return true
     }
   }
   return false
@@ -139,29 +143,92 @@ export async function syncCardCompletionToTodo(db: D1Database, card: ProjectCard
     .bind(done ? 'done' : 'todo', done ? now : null, row.todo_id, row.user_id).run()
 }
 
+export function newlyAssignedPeople(
+  before: ProjectCard,
+  after: ProjectCard,
+  properties: readonly ProjectProperty[],
+): string[] {
+  const added = new Set<string>()
+  for (const property of properties) {
+    if (property.type !== 'person' && property.type !== 'multiPerson') continue
+    const previous = new Set(projectMultiValueIds(before.values[property.id] ?? ''))
+    for (const id of projectMultiValueIds(after.values[property.id] ?? '')) {
+      if (!previous.has(id)) added.add(id)
+    }
+  }
+  return [...added]
+}
+
+/**
+ * Every writer of card values owes the same follow-up work: the linked todo, the next occurrence of a
+ * repeating card, and a notice to anyone newly assigned. Keeping it here stops the single-card and
+ * batch routes from drifting apart.
+ */
+export async function applyCardValueEffects(
+  db: D1Database,
+  env: AppBindings['Bindings'],
+  board: ProjectBoard,
+  before: ProjectCard,
+  after: ProjectCard,
+  properties: readonly ProjectProperty[],
+  userId: string,
+  now: number,
+  seen: Set<string> = new Set(),
+): Promise<void> {
+  const wasDone = isProjectCardDone(before, properties)
+  const nowDone = isProjectCardDone(after, properties)
+  if (nowDone !== wasDone) {
+    await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(nowDone ? now : null, after.id).run()
+  }
+  await syncCardCompletionToTodo(db, after, properties, now)
+  if (after.recurrence && nowDone && !wasDone) {
+    await spawnRecurringCard(db, board, after, properties, userId, now)
+  }
+  const assigned = newlyAssignedPeople(before, after, properties)
+  if (assigned.length) {
+    try {
+      await notifyProjectAssignment(db, env, {
+        boardId: board.id, cardId: after.id, cardTitle: after.title, actorId: userId, assigneeIds: assigned,
+      })
+    } catch (error) {
+      console.warn('[inkstone] project assignment notice failed:', error instanceof Error ? error.message : error)
+    }
+  }
+  await runProjectAutomations(db, env, board, before, after, properties, now, seen)
+}
+
 /** X-5 todo→card: mirror a task's completion onto the linked card's checkbox/status property. */
 export async function syncTodoCompletionToCard(db: D1Database, todoId: string, done: boolean, now: number): Promise<void> {
-  const row = await db.prepare('SELECT card_id FROM project_todo_links WHERE todo_id = ?1').bind(todoId).first<{ card_id: string }>()
+  const row = await db.prepare('SELECT card_id, user_id FROM project_todo_links WHERE todo_id = ?1').bind(todoId).first<{ card_id: string, user_id: string }>()
   if (!row) return
   const card = await getProjectCard(db, row.card_id)
   if (!card) return
+  const access = await db.prepare(
+    `SELECT 1 FROM project_boards b
+     WHERE b.id = ?1 AND b.delete_at = 0
+       AND (b.owner_id = ?2 OR b.minimum_role IN ('viewer','commenter','editor','admin')
+            OR EXISTS (SELECT 1 FROM project_board_members m WHERE m.board_id = b.id AND m.user_id = ?2))`,
+  ).bind(card.boardId, row.user_id).first()
+  if (!access) return
   const { results } = await db.prepare('SELECT id, type, options FROM project_properties WHERE board_id = ?1').bind(card.boardId).all<{ id: string, type: string, options: string }>()
   const checkbox = results.find((p) => p.type === 'checkbox')
   if (checkbox) {
     await db.prepare(
       'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
     ).bind(card.id, checkbox.id, done ? 'true' : 'false', now).run()
+    await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(done ? now : null, card.id).run()
     return
   }
   const select = results.find((p) => p.type === 'select')
   if (select) {
     const options = JSON.parse(select.options) as { id: string, value: string }[]
-    const doneOption = options.find((o) => DONE_PATTERN.test(o.value))
-    const target = done ? doneOption : options.find((o) => !DONE_PATTERN.test(o.value))
+    const doneOption = options.find((o) => CARD_DONE_PATTERN.test(o.value))
+    const target = done ? doneOption : options.find((o) => !CARD_DONE_PATTERN.test(o.value))
     if (target) {
       await db.prepare(
         'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
       ).bind(card.id, select.id, target.id, now).run()
     }
+    await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(done ? now : null, card.id).run()
   }
 }

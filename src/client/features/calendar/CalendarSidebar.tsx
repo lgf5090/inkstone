@@ -198,7 +198,7 @@ export function CalendarSidebar({
 
   const calendars = app.getCalendars()
   const currentDate = app.getCurrentDate()
-  const groups = [...meta.groups].sort((left, right) => left.position - right.position)
+  const groups = meta.groups.toSorted((left, right) => left.position - right.position)
   const metaById = new Map(meta.calendars.map(calendar => [calendar.id, calendar]))
   const groupOf = (calendar: CalendarType): string | null => metaById.get(calendar.id)?.groupId ?? null
   const calendarColor = (calendar: CalendarType): string =>

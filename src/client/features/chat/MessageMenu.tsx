@@ -17,7 +17,7 @@ import { toPlainText } from '@shared/markdown-utils'
 import type { MessageFeedback } from '@shared/assistant'
 import { Z_INDEX } from '../../lib/z-index'
 import { getLocale, t } from '../../lib/i18n'
-import { Menu, useContextMenu, type MenuItem } from '../../components/overlay'
+import { Menu, submenuFor, useContextMenu, type MenuItem } from '../../components/overlay'
 import { downloadTextFile, safeFileName } from '../../lib/export-note'
 import { copyText } from '../../lib/clipboard'
 import { useUi } from '../../store/ui'
@@ -38,6 +38,8 @@ export interface MessageMenuTarget {
   /** Offered only where asking again means something — the newest answer of the thread. */
   onRetry?: () => void
   onRetryLabel?: 'assistant.chat.retry' | 'assistant.chat.regenerate'
+  /** Re-answer under a different model; the submenu is built from this account's enabled rows. */
+  onRerunWithModel?: (modelId: string) => void
   /** Offered on the newest answer only: finish a reply that stopped early instead of asking again. */
   onContinue?: () => void
   onEdit?: () => void
@@ -107,9 +109,12 @@ interface ItemSpec {
   id: string
   icon: LucideIcon
   label: string
-  run: () => void
+  /** Absent on a row that only opens a submenu. */
+  run?: () => void
   separatorBefore?: boolean
   checked?: boolean
+  submenu?: MenuItem['submenu']
+  subItems?: MenuItem[]
 }
 
 /**
@@ -257,6 +262,23 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
       separatorBefore: true,
     })
   }
+  if (target.onRerunWithModel) {
+    const choices: MenuItem[] = useAssistant.getState().models
+      .filter((model) => model.enabled !== false)
+      .slice(0, 30)
+      .map((model) => ({
+        id: model.id,
+        label: model.label || model.model,
+        onSelect: () => target.onRerunWithModel?.(model.id),
+      }))
+    if (choices.length) {
+      specs.push({
+        id: 'rerun-model', icon: RotateCcw, label: t('assistant.chat.rerun_model'),
+        submenu: submenuFor(choices, 240),
+        subItems: choices,
+      })
+    }
+  }
   if (target.onContinue) {
     specs.push({ id: 'continue', icon: Play, label: t('assistant.chat.continue'), run: target.onContinue, separatorBefore: true })
   }
@@ -275,7 +297,9 @@ export function messageMenuItems(target: MessageMenuTarget): MenuItem[] {
     icon: <spec.icon size={13} />,
     ...(spec.separatorBefore ? { separatorBefore: true } : {}),
     ...(spec.checked ? { checked: true } : {}),
-    onSelect: spec.run,
+    ...(spec.run ? { onSelect: spec.run } : {}),
+    ...(spec.submenu ? { submenu: spec.submenu } : {}),
+    ...(spec.subItems ? { subItems: spec.subItems } : {}),
   }))
 }
 

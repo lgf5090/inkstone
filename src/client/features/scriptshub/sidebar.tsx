@@ -395,8 +395,7 @@ function FolderNode({
   const hasChildren = node.children.length > 0
   const canCreateChild = depth + 1 < LIMITS.folderDepthMax
   const orderedIds = siblings.map((folder) => folder.id)
-  const sortByName = () => [...siblings]
-    .sort((left, right) => left.name.localeCompare(right.name))
+  const sortByName = () => siblings.toSorted((left, right) => left.name.localeCompare(right.name))
     .map((folder) => folder.id)
   const swap = (from: number, to: number) => {
     const next = [...orderedIds]

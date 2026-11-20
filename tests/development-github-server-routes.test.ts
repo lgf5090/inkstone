@@ -16,6 +16,7 @@ import {
   testR2Bucket,
 } from './doubles/bindings'
 import type { TestR2Bucket } from './doubles/bindings'
+import { testGithubLimiter } from './doubles/github-limiter'
 
 const USER_A = '0123456789abcdefghjkmnpqrs'
 const USER_B = '0123456789abcdefghjkmnpqrt'
@@ -99,7 +100,11 @@ function stubGithub(handler: (url: string, init?: RequestInit) => Response | Pro
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      return await handler(String(input), init)
+      const url = String(input)
+      if (url.startsWith('https://cloudflare-dns.com/dns-query')) {
+        return Response.json({ Answer: [{ type: 1, data: '93.184.216.34' }] })
+      }
+      return await handler(url, init)
     }),
   )
 }
@@ -177,6 +182,7 @@ beforeEach(() => {
       new CredentialVault(vaultState()).fetch(request),
     ),
     FILES: bucket,
+    GITHUB_LIMITER: testGithubLimiter(),
   })
   app = buildApp()
 })
@@ -224,6 +230,28 @@ describe('development github routes authentication and bootstrap', () => {
     const response = await call('GET', '/bootstrap', { env: testBindings(db) })
     const envelope = await bodyOf<{ capabilities: { exports: boolean } }>(response)
     expect(envelope.data?.capabilities.exports).toBe(false)
+  })
+
+  it('walks saved repositories and gists with a keyset cursor', async () => {
+    for (const id of ['1', '2', '3', '4', '5']) {
+      expect((await call('PUT', `/repos/${id}`, { body: repoBody(Number(id)) })).status).toBe(200)
+    }
+    const seen = new Set<string>()
+    let cursor: string | null = null
+    for (let page = 0; page < 4; page += 1) {
+      const suffix = cursor ? `&after=${encodeURIComponent(cursor)}` : ''
+      const response = await call('GET', `/repos/page?limit=2${suffix}`)
+      expect(response.status).toBe(200)
+      const envelope = await bodyOf<{ repos: { id: string }[]; nextCursor: string | null }>(response)
+      for (const item of envelope.data?.repos ?? []) seen.add(item.id)
+      cursor = envelope.data?.nextCursor ?? null
+      if (!cursor) break
+    }
+    expect([...seen].sort()).toEqual(['1', '2', '3', '4', '5'])
+
+    const empty = await call('GET', '/gist/gists/page?limit=2')
+    expect((await bodyOf<{ gists: unknown[]; nextCursor: string | null }>(empty)).data).toEqual({ gists: [], nextCursor: null })
+    expect((await call('GET', '/repos/page?limit=0')).status).toBe(400)
   })
 
   it('caps the bootstrap collections and reports the real totals', async () => {
@@ -607,6 +635,87 @@ describe('development github proxies', () => {
     expect((await call('GET', '/image')).status).toBe(400)
   })
 
+  it('canonicalizes GitHub blob and raw image URLs before fetching', async () => {
+    const seen: string[] = []
+    stubGithub((url) => {
+      seen.push(url)
+      return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })
+    })
+    const blob = await call('GET', `/image?url=${encodeURIComponent('https://github.com/acme/repo/blob/main/docs/shot.png?raw=true')}`)
+    expect(blob.status).toBe(200)
+    expect(seen[0]).toBe('https://raw.githubusercontent.com/acme/repo/main/docs/shot.png')
+
+    const raw = await call('GET', `/image?url=${encodeURIComponent('https://github.com/acme/repo/raw/main/docs/shot.png')}`)
+    expect(raw.status).toBe(200)
+    expect(seen[1]).toBe('https://raw.githubusercontent.com/acme/repo/main/docs/shot.png')
+  })
+
+  it('serves large images and long badge URLs', async () => {
+    stubGithub(() => new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), {
+      status: 200,
+      headers: { 'content-type': 'image/png' },
+    }))
+    const longUrl = `https://img.shields.io/badge/${'x'.repeat(3000)}`
+    const response = await call('GET', `/image?url=${encodeURIComponent(longUrl)}`)
+    expect(response.status).toBe(200)
+  })
+
+  it('sniffs bitmap magic bytes and refuses script-bearing SVG', async () => {
+    stubGithub(() => new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]), {
+      status: 200,
+      headers: { 'content-type': 'application/octet-stream' },
+    }))
+    const bitmap = await call('GET', `/image?url=${encodeURIComponent('https://gateway.example/logo.png')}`)
+    expect(bitmap.status).toBe(200)
+    expect(bitmap.headers.get('content-type')).toBe('image/png')
+
+    stubGithub(() => new Response('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', {
+      status: 200,
+      headers: { 'content-type': 'image/svg+xml' },
+    }))
+    const svg = await call('GET', `/image?url=${encodeURIComponent('https://img.example/badge.svg')}`)
+    expect(svg.status).toBe(502)
+  })
+
+  it('reports upstream image failures as 502 with the upstream reason', async () => {
+    stubGithub(() => new Response('x', {
+      status: 200,
+      headers: { 'content-length': String(9 * 1024 * 1024), 'content-type': 'image/png' },
+    }))
+    const oversized = await call('GET', `/image?url=${encodeURIComponent('https://cdn.example.com/large.png')}`)
+    expect(oversized.status).toBe(502)
+    expect((await bodyOf(oversized)).error?.message).toContain('larger than')
+
+    stubGithub(() => new Response('<html>not a picture</html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    }))
+    const html = await call('GET', `/image?url=${encodeURIComponent('https://github.com/acme/repo/blob/main/x.png')}`)
+    expect(html.status).toBe(502)
+    expect((await bodyOf(html)).error?.message).toContain('not a picture')
+  })
+
+  it('refuses private, credentialed, non-standard-port and non-HTTPS image hosts', async () => {
+    const targets = [
+      'http://cdn.example.com/a.png',
+      'https://user:pass@cdn.example.com/a.png',
+      'https://cdn.example.com:8080/a.png',
+      'https://127.1/a.png',
+      'https://[::ffff:127.0.0.1]/a.png',
+      'https://[fc00::1]/a.png',
+      'https://169.254.169.254/a.png',
+      'https://metadata.google.internal/a.png',
+      'https://example.nip.io/a.png',
+    ]
+    for (const target of targets) {
+      const response = await call('GET', `/image?url=${encodeURIComponent(target)}`)
+      expect(response.status, target).toBe(400)
+    }
+  })
+
   it('maps upstream failures to the github error codes', async () => {
     stubGithub(() => jsonResponse({ message: 'bad credentials' }, 401))
     const invalid = await call('GET', '/search')
@@ -688,6 +797,27 @@ describe('development github proxies', () => {
 
     expect((await call('GET', '/gist/users/a-/gists')).status).toBe(400)
     expect((await call('GET', '/gist/users/a--b/gists')).status).toBe(400)
+  })
+
+  it('reads a remote gist with a single upstream call', async () => {
+    await createAccount('octocat')
+    let calls = 0
+    stubGithub(() => {
+      calls += 1
+      return jsonResponse({
+        id: GIST_ID,
+        description: 'A gist',
+        html_url: 'https://gist.github.com/abcdef12',
+        public: true,
+        owner: { login: 'octocat', avatar_url: '' },
+        files: {},
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-02T00:00:00Z',
+      })
+    })
+    const response = await call('GET', `/gist/github-gists/${GIST_ID}`)
+    expect(response.status).toBe(200)
+    expect(calls).toBe(1)
   })
 
   it('checks gist ownership before updating or deleting', async () => {

@@ -35,6 +35,7 @@ import {
   shouldRetryQrPoll,
   toastFailure,
 } from './parts/P2QueryState'
+import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../../lib/autocomplete'
 
 type LoginTab = 'qr' | 'cookie'
 type QrPhase = 'creating' | 'waiting' | 'scanned' | 'expired' | 'error'
@@ -384,7 +385,7 @@ export function LoginPage(): ReactElement {
                 <Input
                   type="password"
                   name="netease-cookie"
-                  autoComplete="off"
+                  autoComplete={NON_CREDENTIAL_AUTOCOMPLETE}
                   spellCheck={false}
                   value={cookie}
                   invalid={Boolean(cookieError)}

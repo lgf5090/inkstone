@@ -199,16 +199,15 @@ async function deliverToTarget(
     }
 
     for (let attempt = 0; attempt < 2; attempt++) {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), targetTimeoutMs(snapshot))
+      const deadline = AbortSignal.timeout(targetTimeoutMs(snapshot))
       try {
         const outcome =
           target.type === 's3'
-            ? await s3Deliver(config, secret, snapshot, controller.signal)
-            : await webdavDeliver(config, secret, snapshot, controller.signal)
+            ? await s3Deliver(config, secret, snapshot, deadline)
+            : await webdavDeliver(config, secret, snapshot, deadline)
         let warning: string | undefined
         try {
-          const cleanupSignal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
+          const cleanupSignal = AbortSignal.any([deadline, AbortSignal.timeout(30_000)])
           await retainSuccessfulBackup(env.DB, target, snapshot, retentionCount, (path) => {
             const signal = AbortSignal.any([cleanupSignal, AbortSignal.timeout(10_000)])
             return target.type === 's3'
@@ -221,8 +220,6 @@ async function deliverToTarget(
         return { ...base, ok: true, files: outcome.files, bytes: outcome.bytes, ms: Date.now() - started, error: null, ...(warning ? { warning } : {}) }
       } catch (error) {
         if (attempt > 0 || !isTransientBackupError(error)) throw error
-      } finally {
-        clearTimeout(timer)
       }
     }
     throw new Error('Backup transfer did not complete')
@@ -347,13 +344,8 @@ export async function testTarget(
   if (!secret) {
     return { ok: false, message: 'Enter credentials before testing' }
   }
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS)
-  try {
-    return target.type === 's3'
-      ? await s3Test(config, secret, controller.signal)
-      : await webdavTest(config, secret, controller.signal)
-  } finally {
-    clearTimeout(timer)
-  }
+  const signal = AbortSignal.timeout(TEST_TIMEOUT_MS)
+  return target.type === 's3'
+    ? await s3Test(config, secret, signal)
+    : await webdavTest(config, secret, signal)
 }

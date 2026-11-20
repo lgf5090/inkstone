@@ -47,6 +47,8 @@ import { deleteConnection, listConnections, saveConnectionOrder, unlockConnectio
 import { loadSchema } from './schema-utils'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import { downloadBlob, downloadTextFile, toSchemaSql } from './export-utils'
+import { schemaToMarkdown } from './export-doc'
+import { documentLabels } from './export-doc-labels'
 import { loadStudioLayout, saveStudioLayout, DRAFT_MAX_CHARS, STUDIO_SIDEBAR_WIDTH } from './layout'
 import { DEFAULT_GUARD, loadGuards, saveGuards, type ConnectionGuard } from './guards'
 import { StudioCommandPalette } from './StudioCommandPalette'
@@ -57,6 +59,8 @@ import { CompareDialog } from './CompareDialog'
 import type { StudioSelection, StudioTab, StudioTabKind } from './types'
 
 const EMPTY_SCHEMA: SchemaModel = { tables: [], views: [], triggers: [], indexes: [] }
+
+const NEW_LOCAL_NAME = 'untitled.sqlite'
 
 let tabSeq = 0
 function nextTabId(): string {
@@ -69,7 +73,7 @@ function queryTab(initialSql?: string): StudioTab {
 }
 
 function sortConnections(list: DatabaseConnectionView[]): DatabaseConnectionView[] {
-  return [...list].sort((left, right) => {
+  return list.toSorted((left, right) => {
     if (left.isPinned !== right.isPinned) return left.isPinned ? -1 : 1
     if (left.isFavorite !== right.isFavorite) return left.isFavorite ? -1 : 1
     if (left.sort !== right.sort) return left.sort - right.sort
@@ -101,13 +105,14 @@ export function StudioApp() {
   const [connectionsLoading, setConnectionsLoading] = useState(true)
   const [connectionsError, setConnectionsError] = useState<string | null>(null)
   const [selection, setSelection] = useState<StudioSelection | null>(null)
-  const [localFile, setLocalFile] = useState<{ name: string; file: File } | null>(null)
+  const [localFile, setLocalFile] = useState<{ name: string; file?: File } | null>(null)
   const [schema, setSchema] = useState<SchemaModel | null>(null)
   const [schemaError, setSchemaError] = useState<string | null>(null)
   const [schemaLoading, setSchemaLoading] = useState(false)
   const [guards, setGuards] = useState<Record<string, ConnectionGuard>>(loadGuards)
   const [unlocks, setUnlocks] = useState<Record<string, number>>({})
   const [localDirty, setLocalDirty] = useState(false)
+  const [diagramDirty, setDiagramDirty] = useState(false)
   const [unlockAsk, setUnlockAsk] = useState<{ resolve: (ok: boolean) => void } | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -373,6 +378,18 @@ export function StudioApp() {
     }
   }, [notifyError])
 
+  const applyDiagramDdl = useCallback(async (statements: string[]) => {
+    if (!driver) throw new Error(t('development.database.diagram.no_connection'))
+    const runnable = statements.filter((statement) => (
+      !/^(?:begin|commit|rollback|pragma\s+foreign_keys)\b/i.test(statement.trim())
+    ))
+    await driver.transaction(
+      runnable.map((sql) => ({ sql })),
+      { confirmProduction: true, foreignKeysOff: true },
+    )
+    await reloadSchema(driver)
+  }, [driver, reloadSchema])
+
   useEffect(() => {
     setSchema(null)
     setSchemaError(null)
@@ -422,7 +439,18 @@ export function StudioApp() {
     }
   }, [selection, localFile, activeSaved?.type, notifyError, reloadSchema, initialLayout])
 
+  const confirmDiagramDiscard = async (): Promise<boolean> => {
+    if (!diagramDirty) return true
+    return await confirm({
+      title: t('development.database.diagram.discard_title'),
+      description: t('development.database.diagram.discard_description'),
+      confirmLabel: t('development.database.diagram.exit'),
+      tone: 'danger',
+    })
+  }
+
   const confirmDiscardLocal = async (): Promise<boolean> => {
+    if (!(await confirmDiagramDiscard())) return false
     if (selection?.kind !== 'local' || !localDirty) return true
     return await confirm({
       title: t('development.database.app.local_discard_title'),
@@ -454,6 +482,15 @@ export function StudioApp() {
       if (!(await confirmDiscardLocal())) return
       setLocalFile({ name: file.name, file })
       setSelection({ kind: 'local', name: file.name, file })
+      setMobileSidebarOpen(false)
+    })()
+  }
+
+  const handleNewLocal = () => {
+    void (async () => {
+      if (!(await confirmDiscardLocal())) return
+      setLocalFile({ name: NEW_LOCAL_NAME })
+      setSelection({ kind: 'local', name: NEW_LOCAL_NAME })
       setMobileSidebarOpen(false)
     })()
   }
@@ -492,11 +529,26 @@ export function StudioApp() {
     notify(t('development.database.app.export_schema_done', { count }), undefined, 'success')
   }
 
+  const handleExportDoc = () => {
+    if (!schema) return
+    if (schema.tables.length === 0) {
+      notify(t('development.database.app.no_objects'), undefined, 'warning')
+      return
+    }
+    const base = (activeSaved?.name ?? localFile?.name.replace(/\.[^.]+$/, '') ?? 'database').replace(/[\/:*?"<>|]+/g, '-')
+    downloadTextFile(
+      `${base}.md`,
+      schemaToMarkdown(schema, documentLabels(), { title: base }),
+      'text/markdown',
+    )
+    notify(t('development.database.doc.export_done'), undefined, 'success')
+  }
+
   const handleDownloadLocal = async () => {
     if (!driver?.exportFile || selection?.kind !== 'local') return
     try {
       const bytes = await driver.exportFile()
-      const source = localFile?.name ?? 'database.sqlite'
+      const source = localFile?.name ?? (selection?.kind === 'local' ? selection.name : 'database.sqlite')
       const filename = /\.(?:sqlite3?|db3?)$/i.test(source) ? source : `${source}.sqlite`
       downloadBlob(filename, new Blob([new Uint8Array(bytes)], { type: 'application/x-sqlite3' }))
       driver.markSaved()
@@ -670,17 +722,21 @@ export function StudioApp() {
   }
 
   const closeTab = (id: string) => {
-    const index = tabs.findIndex((tab) => tab.id === id)
-    if (index < 0) return
-    const next = tabs.filter((tab) => tab.id !== id)
-    if (next.length === 0) {
-      const replacement = queryTab()
-      setTabs([replacement])
-      setActiveTabId(replacement.id)
-      return
-    }
-    if (activeTabId === id) setActiveTabId(next[Math.min(index, next.length - 1)]!.id)
-    setTabs(next)
+    void (async () => {
+      const target = tabs.find((tab) => tab.id === id)
+      if (target?.kind === 'erd' && !(await confirmDiagramDiscard())) return
+      const index = tabs.findIndex((tab) => tab.id === id)
+      if (index < 0) return
+      const next = tabs.filter((tab) => tab.id !== id)
+      if (next.length === 0) {
+        const replacement = queryTab()
+        setTabs([replacement])
+        setActiveTabId(replacement.id)
+        return
+      }
+      if (activeTabId === id) setActiveTabId(next[Math.min(index, next.length - 1)]!.id)
+      setTabs(next)
+    })()
   }
 
   const tabTitle = (tab: StudioTab) => {
@@ -741,7 +797,6 @@ export function StudioApp() {
           onSchemaChanged={() => void reloadSchema(driver)}
           ensureWritable={ensureWritable}
           onError={notifyError}
-          onOpenSql={(sql) => openQueryTab(sql)}
           onTableCreated={(name) => openDataTab(name)}
         />
       )
@@ -762,7 +817,14 @@ export function StudioApp() {
       return (
         <ErdView
           tables={schema?.tables ?? []}
+          schema={schema ?? EMPTY_SCHEMA}
           className="h-full w-full"
+          editable={Boolean(driver)}
+          connectionKey={connectionId}
+          ensureWritable={ensureWritable}
+          onApplyDdl={applyDiagramDdl}
+          onDirtyChange={setDiagramDirty}
+          remote={driver?.type !== 'sqlite'}
           onOpenData={openDataTab}
           onOpenSchema={openSchemaTab}
         />
@@ -780,6 +842,7 @@ export function StudioApp() {
       onRetryConnections={() => void refreshConnections()}
       selection={selection}
       localName={localFile?.name}
+      onNewLocal={handleNewLocal}
       schema={schema}
       schemaError={schemaError}
       schemaLoading={schemaLoading}
@@ -824,6 +887,7 @@ export function StudioApp() {
       onOpenData={openDataTab}
       onOpenSchema={openSchemaTab}
       onExportSchema={handleExportSchema}
+      onExportDoc={handleExportDoc}
       onSearchData={() => setSearchOpen(true)}
       onExportDatabase={() => setDumpOpen(true)}
       guard={guard}
@@ -840,7 +904,7 @@ export function StudioApp() {
   const connectionId = selection?.kind === 'saved'
     ? selection.id
     : selection?.kind === 'local'
-      ? `local:${selection.name}:${localFile?.file.size ?? 0}:${localFile?.file.lastModified ?? 0}`
+      ? `local:${selection.name}:${localFile?.file?.size ?? 0}:${localFile?.file?.lastModified ?? 0}`
       : ''
   const connectionType = driver?.type ?? 'd1'
 

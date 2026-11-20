@@ -98,6 +98,17 @@ import {
   type AssistantUsageDay,
   type AssistantUsageSlice,
   type UsageFilter,
+  type AssistantLogQuery,
+  type AssistantStatsDimension,
+  LOG_BATCH_DELETE_LIMIT,
+  LOG_MAX_PAGE_SIZE,
+  LOG_MAX_ROWS_LIMIT,
+  LOG_NOTE_MAX_CHARS,
+  LOG_QUERY_MAX_CHARS,
+  LOG_RETENTION_MAX_DAYS,
+  LOG_SORT_KEYS,
+  type AssistantLogSortDir,
+  type AssistantLogSortKey,
   normalizeAssistantPageContext,
 } from '@shared/assistant'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
@@ -108,7 +119,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson, readStreamWithinLimit } from '../lib/request'
-import { fetchProviderBalance } from '../assistant/balance'
+import { fetchProviderBalance, forgetBalances } from '../assistant/balance'
 import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
 import { loadMcpNote } from '../mcp/retrieval'
@@ -145,8 +156,9 @@ import { importSessionFile, MAX_SESSION_FILE_BYTES, SESSION_IMPORT_BODY_BYTES } 
 import { ChatShareStore, conversationSharePasswordHash, messageScope, MAX_SHARED_PICK, type ChatShareRow } from '../assistant/share'
 import { suggestActiveModel } from '../assistant/model-config'
 import { listVendorModels } from '../assistant/vendor-models'
+import { probeProviderKey } from '../assistant/key-probe'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
-import { MAX_PROVIDER_MODELS, reasoningDialectValue, reasoningValue, searchEndpointValue } from '@shared/assistant'
+import { MAX_PROVIDER_KEYS, MAX_PROVIDER_MODELS, parseProviderKeys, reasoningDialectValue, reasoningValue, searchEndpointValue } from '@shared/assistant'
 import { MAX_SEARCH_KEY_CHARS, isWebSearchEngineId, webSearchEngineFor } from '@shared/web-search-engines'
 import { balanceSpecFor } from '@shared/provider-balance'
 import {
@@ -193,6 +205,16 @@ export const assistantRoutes = new Hono<AppBindings>()
 
 assistantRoutes.use('*', requireAuth)
 
+// A deployment-wide ceiling on writes: one account cannot flood the worker with key probes, reveals,
+// imports or turns from a single browser tab. Reads are deliberately not counted.
+assistantRoutes.use('*', async (c, next) => {
+  if (c.req.method !== 'GET'
+    && !(await store(c).consumeRateLimit('assistant.write', 600, 60_000))) {
+    throw new ApiError(429, 'too_many_attempts', 'Too many requests. Please wait a moment.')
+  }
+  await next()
+})
+
 /**
  * Hono types the request context as only what a middleware can see; workerd hands over the full
  * `ExecutionContext`, so the widening cast here is a type-level statement about the platform, not a
@@ -204,6 +226,11 @@ function executionContext(c: Context<AppBindings>): ExecutionContext {
 
 function store(c: Context<AppBindings>): AssistantStore {
   return new AssistantStore(c.env.DB, c.get('userId'), c.env)
+}
+
+/** A changed key ring makes every balance this isolate cached for that provider stale. */
+function forgetProviderBalances(c: Context<AppBindings>, providerId: string): void {
+  forgetBalances(`${c.get('userId')}:${providerId}:`)
 }
 
 
@@ -257,6 +284,52 @@ function optionalText(value: unknown, max: number): string | undefined {
 function requiredId(value: unknown): string {
   if (!isValidId(value)) throw ApiError.notFound('Not found')
   return value
+}
+
+/**
+ * Every log filter as a bounded value.
+ *
+ * A query string is reader input: an unparseable number is dropped rather than defaulted, because a
+ * window that silently became "everything" is the one mistake a reader cannot see on the screen.
+ */
+function requestLogQuery(c: Context<AppBindings>): AssistantLogQuery & { before?: number | null } {
+  const raw = (name: string) => c.req.query(name)
+  const short = (name: string, max: number): string | undefined => {
+    const value = raw(name)
+    return value ? value.trim().slice(0, max) : undefined
+  }
+  const number = (name: string, max: number): number | undefined => {
+    const value = raw(name)
+    if (!value) return undefined
+    const parsed = Number(value)
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.min(Math.trunc(parsed), max) : undefined
+  }
+  const status = raw('status')
+  const sortBy = raw('sortBy')
+  const sortDir = raw('sortDir')
+  return {
+    ...(short('q', LOG_QUERY_MAX_CHARS) ? { q: short('q', LOG_QUERY_MAX_CHARS) } : {}),
+    ...(short('providerId', 40) ? { providerId: short('providerId', 40) } : {}),
+    ...(short('keyId', 40) ? { keyId: short('keyId', 40) } : {}),
+    ...(short('model', 120) ? { model: short('model', 120) } : {}),
+    ...(short('operation', 40) ? { operation: short('operation', 40) } : {}),
+    ...(short('errorKind', 40) ? { errorKind: short('errorKind', 40) } : {}),
+    ...(status === 'ok' ? { status: 'ok' as const } : status === 'failed' ? { status: 'failed' as const } : {}),
+    ...(raw('starred') === '1' ? { starred: true } : {}),
+    ...(number('from', Number.MAX_SAFE_INTEGER) !== undefined ? { from: number('from', Number.MAX_SAFE_INTEGER) } : {}),
+    ...(number('to', Number.MAX_SAFE_INTEGER) !== undefined ? { to: number('to', Number.MAX_SAFE_INTEGER) } : {}),
+    ...(number('sinceMs', LOG_RETENTION_MAX_DAYS * 86_400_000) !== undefined
+      ? { sinceMs: number('sinceMs', LOG_RETENTION_MAX_DAYS * 86_400_000) } : {}),
+    ...(number('minLatencyMs', 3_600_000) !== undefined ? { minLatencyMs: number('minLatencyMs', 3_600_000) } : {}),
+    ...(number('minInputTokens', 10_000_000) !== undefined ? { minInputTokens: number('minInputTokens', 10_000_000) } : {}),
+    ...(number('before', Number.MAX_SAFE_INTEGER) !== undefined ? { before: number('before', Number.MAX_SAFE_INTEGER) } : {}),
+    ...(number('page', 100_000) !== undefined ? { page: Math.max(1, number('page', 100_000)!) } : {}),
+    ...(number('limit', LOG_MAX_PAGE_SIZE) !== undefined ? { pageSize: Math.max(1, number('limit', LOG_MAX_PAGE_SIZE)!) } : {}),
+    ...(number('pageSize', LOG_MAX_PAGE_SIZE) !== undefined ? { pageSize: Math.max(1, number('pageSize', LOG_MAX_PAGE_SIZE)!) } : {}),
+    ...(raw('order') === 'asc' ? { order: 'asc' as const } : {}),
+    ...(LOG_SORT_KEYS.includes(sortBy as AssistantLogSortKey) ? { sortBy: sortBy as AssistantLogSortKey } : {}),
+    ...(sortDir === 'asc' || sortDir === 'desc' || sortDir === 'none' ? { sortDir: sortDir as AssistantLogSortDir } : {}),
+  }
 }
 
 /** The end of the reader's local day, so "today" is theirs and not the server's. */
@@ -1685,6 +1758,7 @@ async function unstartableTurn(
 
 
 assistantRoutes.post('/chat', async (c) => {
+  await throttle(c, 'chat', 60, 60_000)
   const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, contextNav?: unknown, contextMusic?: unknown, contextInknote?: unknown, contextPage?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown, allowedTools?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
@@ -3379,6 +3453,27 @@ assistantRoutes.delete('/semantic', async (c) => {
   return c.json({ deleted: await s.clearMemoryEmbeddings() })
 })
 
+/** A non-reversible fingerprint of the calling session; raw cookies and addresses stay out of the row. */
+async function auditContext(c: Context): Promise<{ sessionId: string, ip: string, userAgent: string }> {
+  const fingerprint = async (value: string): Promise<string> => {
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+    return [...new Uint8Array(bytes)].slice(0, 12).map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  }
+  const address = c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? ''
+  return {
+    sessionId: await fingerprint(c.req.header('cookie') ?? ''),
+    ip: address ? await fingerprint(address) : '',
+    userAgent: (c.req.header('user-agent') ?? '').slice(0, 200),
+  }
+}
+
+/** One atomic throttle shared by the expensive entry points, counted per account and fixed window. */
+async function throttle(c: Context, scope: string, limit: number, windowMs: number): Promise<void> {
+  if (!(await store(c).consumeRateLimit(scope, limit, windowMs))) {
+    throw new ApiError(429, 'too_many_attempts', 'Too many requests. Please wait a moment.')
+  }
+}
+
 // ----------------------------------------------------------------- providers
 
 assistantRoutes.get('/providers', async (c) => c.json({ providers: await store(c).listProviders() }))
@@ -3389,12 +3484,14 @@ assistantRoutes.post('/providers', async (c) => {
   const protocol = asProtocol(body.protocol)
   const baseUrl = vetBaseUrl(body.baseUrl)
   const label = text(body.label, 60)
-  const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
-  if (apiKey.length > 4096) throw ApiError.badRequest('That API key is too long to store.')
+  const keys = providerKeys(body.apiKey)
   const provider = await s.createProvider({
-    label, icon: assistantIconValue(body.icon), protocol, baseUrl, apiKey, endpoints: vetEndpoints(body.endpoints),
+    label, icon: assistantIconValue(body.icon), protocol, baseUrl, apiKey: keys[0] ?? '', endpoints: vetEndpoints(body.endpoints),
     reasoningDialect: reasoningDialectValue(body.reasoningDialect),
+    sticky: body.sticky === true,
   })
+  // The first key belongs to the provider row; the rest are the ring the next turns rotate through.
+  for (const key of keys.slice(1)) await s.createProviderKey(provider.id, { label: '', apiKey: key })
   const models = Array.isArray(body.models) ? body.models : []
   for (const entry of models.slice(0, MAX_PROVIDER_MODELS)) {
     const model = typeof entry === 'string' ? entry : (entry as { model?: unknown })?.model
@@ -3411,16 +3508,27 @@ assistantRoutes.patch('/providers/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.profile)
+  // A filled box replaces the whole ring: the first key goes on the provider row and every extra key
+  // row is rebuilt from the rest. A blank box sends nothing at all and leaves the stored ring alone.
+  const keys = typeof body.apiKey === 'string' ? providerKeys(body.apiKey) : null
   const provider = await s.updateProvider(id, {
     ...(body.label !== undefined ? { label: text(body.label, 60, 'A provider name is required.') } : {}),
     ...(body.icon !== undefined ? { icon: assistantIconValue(body.icon) } : {}),
     ...(body.protocol !== undefined ? { protocol: asProtocol(body.protocol) } : {}),
     ...(body.baseUrl !== undefined ? { baseUrl: vetBaseUrl(body.baseUrl) } : {}),
-    ...(body.apiKey === null ? { apiKey: null } : typeof body.apiKey === 'string' ? { apiKey: body.apiKey } : {}),
+    ...(body.apiKey === null ? { apiKey: null } : keys?.length ? { apiKey: keys[0] } : {}),
     ...(body.endpoints !== undefined ? { endpoints: vetEndpoints(body.endpoints) } : {}),
     ...(body.reasoningDialect !== undefined ? { reasoningDialect: reasoningDialectValue(body.reasoningDialect) } : {}),
+    ...(body.sticky !== undefined ? { sticky: body.sticky === true } : {}),
   })
   if (!provider) throw ApiError.notFound('Provider not found')
+  if (keys?.length || body.apiKey === null) {
+    if (keys?.length) {
+      for (const extra of await s.listProviderKeys(id)) await s.deleteProviderKey(extra.id)
+      for (const key of keys.slice(1)) await s.createProviderKey(id, { label: '', apiKey: key })
+    }
+    forgetProviderBalances(c, id)
+  }
   return c.json({ provider })
 })
 
@@ -3433,8 +3541,259 @@ assistantRoutes.patch('/providers/:id', async (c) => {
 assistantRoutes.get('/providers/:id/keys', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
-  if (!(await s.getProvider(id))) throw ApiError.notFound('Provider not found')
-  return c.json({ keys: await s.listProviderKeys(id) })
+  const record = await s.providerRecord(id)
+  if (!record) throw ApiError.notFound('Provider not found')
+  // The ring's first key has no row of its own, so its last use travels with this answer rather than
+  // with the provider listing: a panel that reads only the ring would say "never used" about the key
+  // that answered the last turn.
+  return c.json({
+    keys: await s.listProviderKeys(id),
+    probes: await s.listKeyProbes(id),
+    primaryLastUsedAt: record.key_last_used_at ?? null,
+  })
+})
+
+/**
+ * Totals for one slice of the ring.
+ *
+ * Three scopes, one question: `key` answers "how is this credential doing", `provider` answers "how is
+ * this vendor doing", `all` answers "what has this account spent". The rollups carry the counts and the
+ * tokens; the attempt log supplies the latency and the last-use stamp.
+ */
+assistantRoutes.get('/stats/keys', async (c) => {
+  const s = store(c)
+  const scope = c.req.query('scope')
+  const rows = await s.keyStats({
+    scope: scope === 'all' || scope === 'provider' ? scope : 'key',
+    ...(c.req.query('providerId') !== undefined ? { providerId: c.req.query('providerId')! } : {}),
+    ...(c.req.query('keyId') !== undefined ? { keyId: c.req.query('keyId')! } : {}),
+  })
+  return c.json({ rows })
+})
+
+/** The attempts behind the current filters, with the total behind the pager. */
+assistantRoutes.get('/logs', async (c) => c.json(await store(c).listRequestLogs(requestLogQuery(c))))
+
+/** The values the filter menus can offer, drawn from the account's own rows. */
+assistantRoutes.get('/logs/facets', async (c) => c.json(await store(c).logFacets()))
+
+/** Totals, trend and ranking over the same filtered slice the log screen reads. */
+assistantRoutes.get('/stats/requests', async (c) => {
+  const dimension = c.req.query('dimension')
+  const dimensions: AssistantStatsDimension[] = ['provider', 'key', 'model', 'operation', 'status', 'day']
+  return c.json(await store(c).logStats({
+    ...requestLogQuery(c),
+    dimension: dimensions.includes(dimension as AssistantStatsDimension)
+      ? dimension as AssistantStatsDimension : 'provider',
+  }))
+})
+
+assistantRoutes.get('/logs/:id', async (c) => {
+  const entry = await store(c).getRequestLog(requiredId(c.req.param('id')))
+  if (!entry) throw ApiError.notFound('Log entry not found')
+  return c.json({ entry })
+})
+
+assistantRoutes.patch('/logs/:id', async (c) => {
+  const body = await readJson<{ note?: unknown, starred?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const entry = await store(c).patchRequestLog(requiredId(c.req.param('id')), {
+    ...(body.note !== undefined ? { note: optionalText(body.note, LOG_NOTE_MAX_CHARS) ?? '' } : {}),
+    ...(body.starred !== undefined ? { starred: body.starred === true } : {}),
+  })
+  if (!entry) throw ApiError.notFound('Log entry not found')
+  return c.json({ entry })
+})
+
+assistantRoutes.post('/logs/delete', async (c) => {
+  const body = await readJson<{ ids?: unknown, includeStarred?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const ids = (Array.isArray(body.ids) ? body.ids : [])
+    .filter((id): id is string => typeof id === 'string' && isValidId(id))
+    .slice(0, LOG_BATCH_DELETE_LIMIT)
+  if (!ids.length) throw ApiError.badRequest('No log ids were given.')
+  return c.json({ deleted: await store(c).deleteRequestLogs({ ids, includeStarred: body.includeStarred === true }) })
+})
+
+/** A manual cleanup, or a preview of one. An age or a row count is required so it cannot mean "all". */
+assistantRoutes.post('/logs/cleanup', async (c) => {
+  const body = await readJson<{ days?: unknown, rows?: unknown, dryRun?: unknown, cutoff?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const bounded = (value: unknown, max: number): number =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(Math.trunc(value), max)) : 0
+  const days = bounded(body.days, LOG_RETENTION_MAX_DAYS)
+  const rows = bounded(body.rows, LOG_MAX_ROWS_LIMIT)
+  if (days <= 0 && rows <= 0) throw ApiError.badRequest('A cleanup needs an age or a row count.')
+  const cutoff = typeof body.cutoff === 'number' && Number.isFinite(body.cutoff) ? Math.trunc(body.cutoff) : undefined
+  return c.json(await store(c).cleanupRequestLogs({
+    ...requestLogQuery(c), days, rows, dryRun: body.dryRun === true,
+    ...(cutoff !== undefined ? { cutoff } : {}),
+  }))
+})
+
+/** Removes one attempt, or every attempt in a slice, or the whole log. */
+assistantRoutes.delete('/logs', async (c) => {
+  const s = store(c)
+  const providerId = c.req.query('providerId')
+  const keyId = c.req.query('keyId')
+  const all = c.req.query('all') === '1'
+  if (!all && providerId === undefined && keyId === undefined) {
+    throw ApiError.badRequest('A log deletion needs an explicit scope or all=1.')
+  }
+  const deleted = await s.deleteRequestLogs({
+    ...(providerId !== undefined ? { providerId } : {}),
+    ...(keyId !== undefined ? { keyId } : {}),
+    ...(all ? { all: true } : {}),
+    ...(c.req.query('includeStarred') === '1' ? { includeStarred: true } : {}),
+  })
+  return c.json({ deleted })
+})
+
+assistantRoutes.delete('/logs/:id', async (c) => {
+  const s = store(c)
+  const deleted = await s.deleteRequestLogs({ id: requiredId(c.req.param('id')), includeStarred: true })
+  if (!deleted) throw ApiError.notFound('Log entry not found')
+  return c.json({ deleted })
+})
+
+/** The ring in walking order, so a screen can say who goes next and who is resting. */
+assistantRoutes.get('/providers/:id/rotation', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const model = c.req.query('model')
+  return c.json({ order: await s.keyRingOrder(id, model || undefined) })
+})
+
+/**
+ * Hands the plaintext of one stored key to the reader who owns it.
+ *
+ * New callers take a single-use ticket first. The old one-call shape still answers for a deprecation
+ * window and is marked as such, so a client that has not migrated is visible rather than broken. Both
+ * paths write the independent security audit line before a key is returned, and neither is cacheable.
+ */
+async function revealWithTicket(c: Context, providerId: string, keyId: string): Promise<Response> {
+  const s = store(c)
+  const body = await readJson<{ ticket?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const ticket = typeof body.ticket === 'string' ? body.ticket : ''
+  const context = await auditContext(c)
+  const legacy = !ticket
+  if (!legacy && !(await s.redeemRevealTicket(ticket, providerId, keyId, context.sessionId))) {
+    await s.recordSecurityAudit('key.reveal_denied', `${providerId}/${keyId}`, context)
+    throw ApiError.badRequest('That reveal ticket is no longer valid.')
+  }
+  await throttle(c, 'key.reveal', 30, 60_000)
+  const revealed = await s.revealProviderKey(providerId, keyId, context)
+  if (!revealed) throw ApiError.notFound('Key not found')
+  c.header('Cache-Control', 'no-store')
+  if (legacy) {
+    c.header('Deprecation', 'true')
+    c.header('Sunset', 'Wed, 31 Mar 2027 00:00:00 GMT')
+  }
+  return c.json(revealed)
+}
+
+assistantRoutes.post('/providers/:id/reveal', async (c) =>
+  await revealWithTicket(c, requiredId(c.req.param('id')), ''))
+
+assistantRoutes.post('/providers/:id/keys/:keyId/reveal', async (c) =>
+  await revealWithTicket(c, requiredId(c.req.param('id')), requiredId(c.req.param('keyId'))))
+
+/** Issues the single-use ticket a reveal must redeem; this answer never holds a credential. */
+async function issueTicket(c: Context, providerId: string, keyId: string): Promise<Response> {
+  const s = store(c)
+  if (!(await s.getProvider(providerId))) throw ApiError.notFound('Provider not found')
+  if (keyId && !(await s.listProviderKeys(providerId)).some((key) => key.id === keyId)) {
+    throw ApiError.notFound('Key not found')
+  }
+  await throttle(c, 'key.reveal_ticket', 30, 60_000)
+  const context = await auditContext(c)
+  await s.recordSecurityAudit('key.reveal_ticket', `${providerId}/${keyId}`, context)
+  c.header('Cache-Control', 'no-store')
+  return c.json(await s.issueRevealTicket(providerId, keyId, context.sessionId))
+}
+
+assistantRoutes.post('/providers/:id/reveal-ticket', async (c) =>
+  await issueTicket(c, requiredId(c.req.param('id')), ''))
+
+assistantRoutes.post('/providers/:id/keys/:keyId/reveal-ticket', async (c) =>
+  await issueTicket(c, requiredId(c.req.param('id')), requiredId(c.req.param('keyId'))))
+
+/**
+ * Ask the provider about keys the reader has typed but not saved.
+ *
+ * The form is where a reader decides to trust a key, so the test has to be available there rather than
+ * only after a save. Nothing is written: the keys arrive in the body, are tried once, and are answered
+ * with the same three outcomes a stored ring gets — a draft has no row to hang a probe result on.
+ */
+assistantRoutes.post('/providers/probe', async (c) => {
+  const s = store(c)
+  await throttle(c, 'key.probe', 10, 60_000)
+  const body = await readJson<{ protocol?: unknown, baseUrl?: unknown, apiKeys?: unknown, providerId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const protocol = asProtocol(body.protocol)
+  const saved = await s.listProviders()
+  // A credential typed into a form is still a credential: do not send it to an address this account
+  // never saved, or the form becomes a batch blind-SSRF primitive against arbitrary hosts. Naming a
+  // saved provider is the editing case — the address then comes from the row, not from the request.
+  const named = typeof body.providerId === 'string' ? saved.find((provider) => provider.id === body.providerId) : undefined
+  const baseUrl = named ? vetBaseUrl(named.baseUrl) : vetBaseUrl(body.baseUrl)
+  if (!saved.some((provider) => provider.baseUrl === baseUrl)) {
+    throw ApiError.badRequest('Draft probes are limited to an address already saved on this account.')
+  }
+  const keys = (Array.isArray(body.apiKeys) ? body.apiKeys : [])
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .slice(0, MAX_PROVIDER_KEYS)
+  if (!keys.length) throw ApiError.badRequest('Nothing to test.')
+  const settled = await Promise.allSettled(
+    keys.map(async (key) => await probeProviderKey(protocol, baseUrl, key.slice(0, 4096))),
+  )
+  return c.json({
+    results: settled.map((outcome, index) => ({
+      keyHint: keys[index]!.trim().slice(-4),
+      ...(outcome.status === 'fulfilled'
+        ? outcome.value
+        : { outcome: 'inconclusive' as const, reason: 'unknown' as const, latencyMs: null }),
+    })),
+  })
+})
+
+/**
+ * Ask the provider whether each stored key still works.
+ *
+ * One free request per key, against the model listing every supported protocol publishes. The answer is
+ * three outcomes rather than two, because a 429 or a timeout says nothing about the credential and a
+ * screen that called those "invalid" would send the reader to delete a working key.
+ *
+ * Nothing here changes the rotation: this is a diagnosis the reader asked for, and acting on it is a
+ * separate decision. A key that comes back `failed` is shown as such, and the reader may disable it.
+ */
+assistantRoutes.post('/providers/:id/keys/probe', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const provider = await s.providerRecord(id)
+  if (!provider) throw ApiError.notFound('Provider not found')
+  const ring = await s.providerKeySecrets(id)
+  if (!ring.keys.length) throw ApiError.badRequest('This provider has no key to test.')
+  const protocol = asProtocol(provider.protocol)
+  const settled = await Promise.allSettled(
+    ring.keys.map(async (entry) => await probeProviderKey(protocol, ring.baseUrl, entry.key)),
+  )
+  const results = await Promise.allSettled(ring.keys.map(async (entry, index) => {
+    const outcome = settled[index]
+    const result = outcome?.status === 'fulfilled'
+      ? outcome.value
+      // A probe that threw is not evidence about the key: the same three-outcome rule applies to the
+      // probe's own failure, so it is recorded as "cannot tell" and never as "invalid".
+      : { outcome: 'inconclusive' as const, reason: 'unknown' as const, latencyMs: null }
+    const saved = await s.recordKeyProbe(id, {
+      keyId: entry.keyId, outcome: result.outcome, reason: result.reason, latencyMs: result.latencyMs,
+    })
+    return { ...entry, ...saved }
+  }))
+  return c.json({
+    results: results.map((outcome, index) => outcome.status === 'fulfilled'
+      ? outcome.value
+      : {
+        ...ring.keys[index], outcome: 'inconclusive' as const, reason: 'unknown' as const,
+        latencyMs: null, probedAt: Date.now(),
+      }),
+  })
 })
 
 assistantRoutes.post('/providers/:id/keys', async (c) => {
@@ -3479,13 +3838,16 @@ assistantRoutes.patch('/providers/:id/keys/:keyId', async (c) => {
   const id = requiredId(c.req.param('id'))
   const keyId = requiredId(c.req.param('keyId'))
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  // Checked before the write: the update matches on id alone, so a key from another provider would
+  // otherwise be changed and only then reported as not found.
+  if (!(await s.listProviderKeys(id)).some((key) => key.id === keyId)) throw ApiError.notFound('Key not found')
   const updated = await s.updateProviderKey(keyId, {
     ...(body.label !== undefined ? { label: optionalText(body.label, 60) ?? '' } : {}),
     ...(body.enabled !== undefined ? { enabled: body.enabled === true } : {}),
     ...(body.apiKey === null ? { apiKey: null } : typeof body.apiKey === 'string' ? { apiKey: text(body.apiKey, 4096) } : {}),
   })
-  // The provider in the path is checked too, so a key id from another provider reads as not found.
-  if (!updated || updated.providerId !== id) throw ApiError.notFound('Key not found')
+  if (!updated) throw ApiError.notFound('Key not found')
+  if (body.apiKey !== undefined) forgetProviderBalances(c, id)
   return c.json({ key: updated })
 })
 
@@ -3495,7 +3857,17 @@ assistantRoutes.delete('/providers/:id/keys/:keyId', async (c) => {
   const keyId = requiredId(c.req.param('keyId'))
   if (!(await s.listProviderKeys(id)).some((key) => key.id === keyId)) throw ApiError.notFound('Key not found')
   await s.deleteProviderKey(keyId)
+  forgetProviderBalances(c, id)
   return c.json({ deleted: true })
+})
+
+assistantRoutes.post('/providers/:id/keys/:keyId/reset', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const keyId = requiredId(c.req.param('keyId'))
+  if (!(await s.listProviderKeys(id)).some((key) => key.id === keyId)) throw ApiError.notFound('Key not found')
+  await s.clearProviderKeyFailure(keyId, id)
+  return c.json({ ok: true })
 })
 
 /**
@@ -3527,8 +3899,10 @@ assistantRoutes.post('/providers/model-list', async (c) => {
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
   const protocol = asProtocol(body.protocol)
   const baseUrl = vetBaseUrl(body.baseUrl)
-  const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
-  if (apiKey.length > 4096) throw ApiError.badRequest('That API key is too long to send.')
+  const rawKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
+  if (rawKey.length > 4096) throw ApiError.badRequest('That API key is too long to send.')
+  // Only one credential can sign a listing; the ring's first key is the one the form would have stored.
+  const apiKey = parseProviderKeys(rawKey)[0] ?? ''
   return c.json(await listVendorModels(protocol, baseUrl, apiKey))
 })
 
@@ -3541,6 +3915,7 @@ assistantRoutes.delete('/providers/:id', async (c) => {
   // with it, so the question "did this provider carry the active one" can only be asked now.
   const active = settings.activeModelId ? await s.getModel(settings.activeModelId) : null
   await s.deleteProvider(id)
+  forgetProviderBalances(c, id)
   // Only a provider that carried the active model takes the default down with it. Recomputing for
   // every deletion replaced a default the reader had chosen with the first suggestion, which made
   // removing an unrelated provider an edit of a setting nobody asked to change.
@@ -3549,6 +3924,22 @@ assistantRoutes.delete('/providers/:id', async (c) => {
   }
   return c.json({ deleted: true })
 })
+
+/**
+ * The keys a create or edit actually named, before any of them reaches the vault.
+ *
+ * A comma-separated box is one ring, so the byte ceiling and the cap are checked here rather than in the
+ * store: an edit that says "replace" must write all of the keys the form counted, or refuse the request.
+ */
+function providerKeys(value: unknown): string[] {
+  const raw = typeof value === 'string' ? value : ''
+  if (raw.length > 4096) throw ApiError.badRequest('That API key list is too long to store.')
+  const keys = parseProviderKeys(raw)
+  if (keys.length > MAX_PROVIDER_KEYS) {
+    throw ApiError.badRequest(`A provider may hold at most ${MAX_PROVIDER_KEYS} keys.`)
+  }
+  return keys
+}
 
 function asProtocol(value: unknown): AssistantProtocol {
   if (typeof value === 'string' && (ASSISTANT_PROTOCOLS as readonly string[]).includes(value)) return value as AssistantProtocol
@@ -3883,10 +4274,16 @@ assistantRoutes.get('/realtime/relay', async (c) => {
   try {
     upstreamResponse = await fetch(target.toString(), {
       headers: { Upgrade: 'websocket', Authorization: `Bearer ${key.key}` },
+      redirect: NO_REDIRECT,
     })
   } catch (error) {
     console.warn('[inkstone] realtime relay could not reach the provider', error instanceof Error ? error.message : 'unknown')
     throw new ApiError(502, 'realtime_refused', 'The realtime provider could not be reached.')
+  }
+  // A redirect would move the bearer key to an address the guard never saw; a WebSocket upgrade
+  // cannot answer over one anyway, so the refusal is both the safe and the honest answer.
+  if (isRedirectResponse(upstreamResponse)) {
+    throw new ApiError(502, 'realtime_refused', 'The realtime provider redirected instead of answering; redirects are refused.')
   }
   const upstream = upstreamResponse.webSocket
   if (!upstream) {
@@ -4338,6 +4735,10 @@ function foldKeyUsage(
 assistantRoutes.get('/stats/overview', async (c) => c.json({ overview: await store(c).usageOverview() }))
 
 assistantRoutes.get('/activity', async (c) => c.json({ activity: await store(c).listActivity(100) }))
+
+/** Security events are read apart from the capped activity feed, so a disclosure is never evicted. */
+assistantRoutes.get('/security-audit', async (c) =>
+  c.json({ events: await store(c).listSecurityAudit(100) }))
 
 // -------------------------------------------------------------- export/import
 

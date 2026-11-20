@@ -30,6 +30,7 @@ import {
     type ChartConfigReason,
     type StyleRead,
 } from './chart';
+import { insertSanitizedHtml } from '../sanitized-dom'
 
 const OPTIONAL_RENDERER_LOAD_TIMEOUT_MS = 15000;
 
@@ -372,7 +373,7 @@ export async function renderMath(root: HTMLElement | Document): Promise<void> {
                 output: 'html',
             }));
             remember(mathCache, key, html, 160);
-            node.innerHTML = html;
+            insertSanitizedHtml(node, html);
             node.classList.remove('math-source');
             node.dataset.rendered = '1';
         }

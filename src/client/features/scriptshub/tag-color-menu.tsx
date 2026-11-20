@@ -18,7 +18,7 @@ import {
   organizerColorLabel,
 } from '@shared/organizer-colors'
 import { cn } from '../../lib/cn'
-import { isImeComposing } from '../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { Input } from '../../components/form'
 import { Swatch } from '../../components/color-swatch'
 import { ColorWheelTrigger } from '../../components/color-field'
@@ -109,7 +109,7 @@ export function TagColorMenu({ color, onSelectColor, onManageTags }: {
           onBlur={(event) => offer(event.target.value)}
           onKeyDown={(event) => {
             if (isImeComposing(event)) return
-            if (event.key === 'Enter') {
+            if (isEnterKey(event)) {
               event.preventDefault()
               offer(event.currentTarget.value)
             }

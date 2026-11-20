@@ -156,10 +156,12 @@ export function createApp() {
     if (isXgetProxyPath(c.req.path)) return
     const contentType = c.res.headers.get('content-type') ?? ''
     const devDocument = import.meta.env?.DEV === true && contentType.includes('text/html')
-    for (const [name, value] of Object.entries(securityHeaders(c.req.url, {
+    const headers = securityHeaders(c.req.url, {
       allowDevInlineScripts: devDocument,
       aiConnectHosts: c.env.AI_CONNECT_HOSTS,
-    }))) {
+    })
+    for (const [name, value] of Object.entries(headers)) {
+      if (name === 'Content-Security-Policy' && c.res.headers.has(name)) continue
       c.header(name, value)
     }
     // A response that can vary by cookie (the app shell, an unlock form, a share page) must not be

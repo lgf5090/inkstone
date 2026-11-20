@@ -125,6 +125,17 @@ import type {
   AssistantNotification,
   AssistantProvider,
   AssistantProviderKey,
+  AssistantKeyProbe,
+  AssistantKeyRotation,
+  AssistantKeyStats,
+  AssistantRequestLog,
+  AssistantLogQuery,
+  AssistantLogPage,
+  AssistantLogFacets,
+  AssistantLogPatch,
+  AssistantLogCleanupResult,
+  AssistantStatsReport,
+  AssistantStatsDimension,
   AssistantRealtimeSession,
   AssistantSearchKey,
   AssistantSettings,
@@ -825,6 +836,25 @@ function withReminderList(body: Record<string, unknown>): Record<string, unknown
   const delay = REMIND_OFFSET_MS[remind as RemindTier]
   if (delay === undefined) return rest
   return { ...rest, reminders: [dueAt - delay] }
+}
+
+/** The log screen's filters, plus the two legacy names the insights drawer still uses. */
+export type LogQuery = AssistantLogQuery & { before?: number, limit?: number }
+
+function logQueryParams(query: LogQuery): URLSearchParams {
+  const params = new URLSearchParams()
+  const values: Array<[string, string | number | boolean | undefined]> = [
+    ['q', query.q], ['providerId', query.providerId], ['keyId', query.keyId], ['model', query.model],
+    ['operation', query.operation], ['errorKind', query.errorKind], ['status', query.status],
+    ['starred', query.starred], ['from', query.from], ['to', query.to], ['sinceMs', query.sinceMs],
+    ['before', query.before], ['minLatencyMs', query.minLatencyMs], ['minInputTokens', query.minInputTokens],
+    ['page', query.page], ['pageSize', query.pageSize], ['limit', query.limit], ['order', query.order],
+    ['sortBy', query.sortBy], ['sortDir', query.sortDir],
+  ]
+  for (const [key, value] of values) {
+    if (value !== undefined && value !== '' && value !== false) params.set(key, String(value))
+  }
+  return params
 }
 
 export const api = {
@@ -2240,7 +2270,6 @@ export const api = {
     resolveReview: (id: string, action: string) =>
       request<{ kept: number, deleted: boolean }>(`/api/assistant/memories/reviews/${id}`, { method: 'POST', body: { action } }),
     projects: () => request<{ projects: AssistantProject[] }>('/api/assistant/projects'),
-    getProject: (id: string) => request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`),
     createProject: (body: {
       name: string
       description?: string
@@ -2374,12 +2403,88 @@ export const api = {
     updateProvider: (id: string, body: Record<string, unknown>) =>
       request<{ provider: AssistantProvider }>(`/api/assistant/providers/${id}`, { method: 'PATCH', body }),
     deleteProvider: (id: string) => request<{ deleted: true }>(`/api/assistant/providers/${id}`, { method: 'DELETE' }),
-    /** The extra keys a provider rotates through. The plaintext is never in the answer. */
-    providerKeys: (id: string) => request<{ keys: AssistantProviderKey[] }>(`/api/assistant/providers/${id}/keys`),
+    /** The extra keys a provider rotates through, with what the last probe concluded about each. */
+    providerKeys: (id: string) =>
+      request<{ keys: AssistantProviderKey[], probes: AssistantKeyProbe[], primaryLastUsedAt: number | null }>(`/api/assistant/providers/${id}/keys`),
+    /** Asks the provider whether each stored key still works. Free: it reads the model listing. */
+    probeProviderKeys: (id: string) =>
+      request<{ results: Array<AssistantKeyProbe & { label: string, keyHint: string }> }>(
+        `/api/assistant/providers/${id}/keys/probe`,
+        { method: 'POST', body: {} },
+      ),
+    /** The ring in the order a turn would walk it, so the screen can name the next key. */
+    keyRotation: (id: string, model?: string) =>
+      request<{ order: AssistantKeyRotation[] }>(
+        `/api/assistant/providers/${id}/rotation${model ? `?model=${encodeURIComponent(model)}` : ''}`,
+      ),
+
+    /** A short-lived single-use ticket precedes every reveal; the worker binds it to this session. */
+    revealTicket: (id: string, keyId?: string) =>
+      request<{ ticket: string, expiresAt: number }>(
+        keyId
+          ? `/api/assistant/providers/${id}/keys/${encodeURIComponent(keyId)}/reveal-ticket`
+          : `/api/assistant/providers/${id}/reveal-ticket`,
+        { method: 'POST', body: {} },
+      ),
+
+    /** The one call that answers with a plaintext key; the worker writes an audit line first. */
+    revealProviderKey: (id: string, ticket?: string) =>
+      request<{ key: string, keyHint: string }>(`/api/assistant/providers/${id}/reveal`, { method: 'POST', body: { ticket } }),
+    revealExtraKey: (id: string, keyId: string, ticket?: string) =>
+      request<{ key: string, keyHint: string }>(
+        `/api/assistant/providers/${id}/keys/${encodeURIComponent(keyId)}/reveal`,
+        { method: 'POST', body: { ticket } },
+      ),
+
+    /** Totals for one slice: this key, its provider, or the whole account. */
+    keyStats: (query: { scope: 'key' | 'provider' | 'all', providerId?: string, keyId?: string }) => {
+      const params = new URLSearchParams({ scope: query.scope })
+      if (query.providerId !== undefined) params.set('providerId', query.providerId)
+      if (query.keyId !== undefined) params.set('keyId', query.keyId)
+      return request<{ rows: AssistantKeyStats[] }>(`/api/assistant/stats/keys?${params.toString()}`)
+    },
+    /** The attempts behind the current filters, with the total behind the pager. */
+    requestLogs: (query: LogQuery) =>
+      request<AssistantLogPage>(`/api/assistant/logs?${logQueryParams(query).toString()}`),
+    patchRequestLog: (id: string, patch: AssistantLogPatch) =>
+      request<{ entry: AssistantRequestLog }>(`/api/assistant/logs/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch }),
+    logFacets: () => request<AssistantLogFacets>('/api/assistant/logs/facets'),
+    /** The long-retained security timeline: plaintext disclosures, tickets and denials. */
+    securityAudit: () => request<{ events: Array<{
+      id: string, kind: string, summary: string, sessionId: string, ip: string, userAgent: string, createdAt: number,
+    }> }>('/api/assistant/security-audit'),
+    requestStats: (query: LogQuery, dimension: AssistantStatsDimension) => {
+      const params = logQueryParams(query)
+      params.set('dimension', dimension)
+      return request<AssistantStatsReport>(`/api/assistant/stats/requests?${params.toString()}`)
+    },
+    cleanupRequestLogs: (query: LogQuery, options: { days: number, rows: number, dryRun: boolean, cutoff?: number }) =>
+      request<AssistantLogCleanupResult>(`/api/assistant/logs/cleanup?${logQueryParams(query).toString()}`, { method: 'POST', body: options }),
+    deleteRequestLogs: (ids: string[], includeStarred = false) =>
+      request<{ deleted: number }>('/api/assistant/logs/delete', { method: 'POST', body: { ids, includeStarred } }),
+    deleteRequestLog: (id: string) =>
+      request<{ deleted: number }>(`/api/assistant/logs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    clearRequestLogs: (query: { providerId?: string, keyId?: string, all?: boolean, includeStarred?: boolean }) => {
+      const params = new URLSearchParams()
+      if (query.providerId !== undefined) params.set('providerId', query.providerId)
+      if (query.keyId !== undefined) params.set('keyId', query.keyId)
+      if (query.all) params.set('all', '1')
+      if (query.includeStarred) params.set('includeStarred', '1')
+      return request<{ deleted: number }>(`/api/assistant/logs?${params.toString()}`, { method: 'DELETE' })
+    },
+
+    /** The same question about keys the reader has typed and not saved yet. Nothing is stored. */
+    probeDraftKeys: (body: { protocol: string, baseUrl: string, apiKeys: string[], providerId?: string }) =>
+      request<{ results: Array<Omit<AssistantKeyProbe, 'keyId' | 'probedAt'> & { keyHint: string }> }>(
+        '/api/assistant/providers/probe',
+        { method: 'POST', body },
+      ),
     createProviderKey: (id: string, body: { label?: string, apiKey: string }) =>
       request<{ key: AssistantProviderKey }>(`/api/assistant/providers/${id}/keys`, { method: 'POST', body }),
     updateProviderKey: (id: string, keyId: string, body: { label?: string, enabled?: boolean, apiKey?: string | null }) =>
       request<{ key: AssistantProviderKey }>(`/api/assistant/providers/${id}/keys/${keyId}`, { method: 'PATCH', body }),
+    resetExtraKey: (id: string, keyId: string) =>
+      request<{ ok: true }>(`/api/assistant/providers/${id}/keys/${keyId}/reset`, { method: 'POST', body: {} }),
     deleteProviderKey: (id: string, keyId: string) =>
       request<{ deleted: true }>(`/api/assistant/providers/${id}/keys/${keyId}`, { method: 'DELETE' }),
     /**
@@ -2401,7 +2506,6 @@ export const api = {
       request<{ key: AssistantSearchKey }>(`/api/assistant/search-keys/${encodeURIComponent(engine)}`, { method: 'PUT', body }),
     deleteSearchKey: (engine: string) =>
       request<{ deleted: true }>(`/api/assistant/search-keys/${encodeURIComponent(engine)}`, { method: 'DELETE' }),
-    models: () => request<{ models: AssistantModel[] }>('/api/assistant/models'),
     /** A short-lived credential for a realtime voice session; the long-lived provider key stays server-side. */
     realtimeSession: (modelId?: string) =>
       request<{ session: AssistantRealtimeSession }>(
@@ -2426,8 +2530,6 @@ export const api = {
     /** The account's own totals, which no range narrows — see the type for why. */
     usageOverview: () =>
       request<{ overview: AssistantUsageOverview }>('/api/assistant/stats/overview'),
-    activity: () =>
-      request<{ activity: { id: string, type: string, summary: string, created_at: number }[] }>('/api/assistant/activity'),
     /**
      * The backup as data rather than as a download.
      *

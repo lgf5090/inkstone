@@ -15,6 +15,7 @@ import DOMPurify from 'dompurify'
 import type { ZipArchive } from './zip'
 import type { EpubPackage } from './epub-package'
 import { scopeCss } from './css-scope'
+import { insertSanitizedHtml } from '../../../lib/sanitized-dom'
 
 export interface ResourcePool {
   /** A loadable URL for a package member, minted once per path. */
@@ -289,7 +290,7 @@ export async function prepareChapter(
   })
 
   const host = document.createElement('div')
-  host.innerHTML = html
+  insertSanitizedHtml(host, html)
   await rewriteReferences(host, baseDir, pool, (target) => pkg.byPath.has(target) || archive.has(target))
 
   const heading = host.querySelector('h1, h2, h3, h4, h5, h6')?.textContent?.trim()

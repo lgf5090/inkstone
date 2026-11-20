@@ -36,7 +36,7 @@ const sprint = card('Sprint', new Date(2026, 10, 10), new Date(2026, 10, 13))
 const links: ProjectCardLink[] = []
 let view: RenderedElement
 
-beforeEach(async () => { await initI18n() })
+beforeEach(async () => { await initI18n(); vi.clearAllMocks() })
 afterEach(() => { view?.unmount() })
 
 function fields(extra: Partial<ProjectViewFields> = {}): ProjectViewFields {
@@ -146,6 +146,38 @@ describe('the gantt writes', () => {
     const written = JSON.parse((patch[1] as { values: Record<string, string> }).values.pd!) as { from: number, to: number }
     expect(projectStampToInput(written.from)).toBe('2026-11-10')
     expect(projectStampToInput(written.to)).toBe('2026-11-14')
+  })
+
+  it('pulls either end by a day from the handle keys', async () => {
+    const props = await mountGantt([sprint])
+    const start = view.container.querySelector<HTMLElement>('[data-bar-handle="start"]')!
+    const end = view.container.querySelector<HTMLElement>('[data-bar-handle="end"]')!
+    expect(start.tagName).toBe('BUTTON')
+    expect(end.tagName).toBe('BUTTON')
+    await act(async () => { end.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) })
+    const grown = JSON.parse(((props.onPatchCard as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { values: Record<string, string> }).values.pd!) as { from: number, to: number }
+    expect(projectStampToInput(grown.from)).toBe('2026-11-10')
+    expect(projectStampToInput(grown.to)).toBe('2026-11-14')
+    await act(async () => { start.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) })
+    const shrunk = JSON.parse(((props.onPatchCard as ReturnType<typeof vi.fn>).mock.calls[1]![1] as { values: Record<string, string> }).values.pd!) as { from: number, to: number }
+    expect(projectStampToInput(shrunk.from)).toBe('2026-11-11')
+    expect(projectStampToInput(shrunk.to)).toBe('2026-11-13')
+  })
+
+  it('creates a card from the canvas keyboard entry', async () => {
+    vi.mocked(prompt).mockResolvedValue('Typed')
+    vi.mocked(api.createProjectCard).mockResolvedValue(card('Typed'))
+    const props = await mountGantt([sprint])
+    const canvas = view.container.querySelector<HTMLElement>('.pv-sched-canvas')!
+    expect(canvas.getAttribute('tabindex')).toBe('0')
+    await act(async () => { canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    const [boardId, input] = vi.mocked(api.createProjectCard).mock.calls[0]!
+    expect(boardId).toBe('b1')
+    expect(input.title).toBe('Typed')
+    const written = JSON.parse(input.values!.pd!) as { from: number, to?: number }
+    expect(projectStampToInput(written.from)).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(written.to).toBeUndefined()
+    expect(props.onRefresh).toHaveBeenCalled()
   })
 
   it('outlines a card that starts before its blocker ends and counts the conflict', async () => {

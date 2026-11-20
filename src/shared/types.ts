@@ -637,6 +637,7 @@ export interface UserSettings {
 export interface ProjectSettings {
   pinnedBoards: string[]
   starredBoards: string[]
+  notifications: Record<string, 'all' | 'mentions' | 'off'>
 }
 
 /**
