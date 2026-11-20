@@ -19,6 +19,7 @@ import {
   hasReasonableImageDimensions,
   readImageSize,
 } from '../lib/image'
+import { asciiAt } from '@shared/bytes'
 
 /** The prefix read back from R2 for magic detection; no full-file read enters the isolate. */
 export const MUSIC_MAGIC_HEADER_BYTES = 4096
@@ -140,17 +141,16 @@ export function parseStoredUploadMetadata(raw: string, fallbackTitle: string): M
  */
 export function sniffMusicFormat(bytes: Uint8Array, declared: MusicFormat | null): MusicFormat | null {
   if (bytes.length < 4) return null
-  if (ascii(bytes, 0, 4) === 'fLaC') return 'flac'
-  if (ascii(bytes, 0, 4) === 'RIFF' && bytes.length >= 12 && ascii(bytes, 8, 12) === 'WAVE') return 'wav'
-  if (ascii(bytes, 0, 4) === 'OggS') return containsAscii(bytes, 'OpusHead') ? 'opus' : 'ogg'
-  if (ascii(bytes, 4, 8) === 'ftyp') {
-    const brand = ascii(bytes, 8, 12)
-    if (brand.startsWith('M4A') || brand.startsWith('M4B') || brand.startsWith('M4P')) return 'm4a'
-    if (brand === 'qt  ') return 'mp4'
+  if (asciiAt(bytes, 0, 'fLaC')) return 'flac'
+  if (asciiAt(bytes, 0, 'RIFF') && asciiAt(bytes, 8, 'WAVE')) return 'wav'
+  if (asciiAt(bytes, 0, 'OggS')) return containsAscii(bytes, 'OpusHead') ? 'opus' : 'ogg'
+  if (asciiAt(bytes, 4, 'ftyp')) {
+    if (asciiAt(bytes, 8, 'M4A') || asciiAt(bytes, 8, 'M4B') || asciiAt(bytes, 8, 'M4P')) return 'm4a'
+    if (asciiAt(bytes, 8, 'qt  ')) return 'mp4'
     // `isom`/`mp42`/`avc1` cover both audio-only and video files.
     return declared === 'm4a' || declared === 'mp4' ? declared : 'mp4'
   }
-  if (ascii(bytes, 0, 3) === 'ID3') return 'mp3'
+  if (asciiAt(bytes, 0, 'ID3')) return 'mp3'
   if (isAdts(bytes)) return 'aac'
   if (isMp3Frame(bytes)) return 'mp3'
   return null
@@ -201,11 +201,6 @@ function normalizeCoverMime(reported: string): string | null {
 
 function invalidCover(message: string): ApiError {
   return new ApiError(415, 'music_upload_invalid', message)
-}
-
-function ascii(bytes: Uint8Array, start: number, end: number): string {
-  if (end > bytes.length) return ''
-  return String.fromCharCode(...bytes.subarray(start, end))
 }
 
 function containsAscii(bytes: Uint8Array, text: string): boolean {

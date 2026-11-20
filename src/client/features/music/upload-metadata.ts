@@ -1,6 +1,7 @@
 /** Reads what the browser can tell us about a file before it is uploaded or imported. */
 import { parseBlob } from 'music-metadata'
 import { formatFromFilename } from '@shared/music/constants'
+import { asciiAt } from '@shared/bytes'
 
 export interface UploadMetadata {
   title: string
@@ -51,22 +52,16 @@ function titleFromFilename(filename: string): string {
 
 /** Tag writers sometimes label a PNG as JPEG; the bytes decide which type the server may accept. */
 function sniffImageMime(data: Uint8Array, declared: string): string {
-  const ascii = (start: number, end: number): string => {
-    if (end > data.length) return ''
-    return String.fromCharCode(...data.subarray(start, end))
-  }
-  if (data.length >= 8 && data[0] === 0x89 && ascii(1, 4) === 'PNG'
+  if (data.length >= 8 && data[0] === 0x89 && asciiAt(data, 1, 'PNG')
     && data[4] === 0x0d && data[5] === 0x0a && data[6] === 0x1a && data[7] === 0x0a) {
     return 'image/png'
   }
   if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return 'image/jpeg'
-  const gif = ascii(0, 6)
-  if (gif === 'GIF87a' || gif === 'GIF89a') return 'image/gif'
-  if (data.length >= 12 && ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'image/webp'
-  if (data.length >= 12 && ascii(4, 8) === 'ftyp') {
+  if (asciiAt(data, 0, 'GIF87a') || asciiAt(data, 0, 'GIF89a')) return 'image/gif'
+  if (data.length >= 12 && asciiAt(data, 0, 'RIFF') && asciiAt(data, 8, 'WEBP')) return 'image/webp'
+  if (data.length >= 12 && asciiAt(data, 4, 'ftyp')) {
     for (let offset = 8; offset + 4 <= Math.min(data.length, 64); offset += 4) {
-      const brand = ascii(offset, offset + 4)
-      if (brand === 'avif' || brand === 'avis') return 'image/avif'
+      if (asciiAt(data, offset, 'avif') || asciiAt(data, offset, 'avis')) return 'image/avif'
     }
   }
   return declared
@@ -90,18 +85,13 @@ function imageComplete(data: Uint8Array, mime: string): boolean {
   return true
 }
 
-function asciiOf(bytes: Uint8Array, start: number, end: number): string {
-  if (end > bytes.length) return ''
-  return String.fromCharCode(...bytes.subarray(start, end))
-}
-
 function uint32At(bytes: Uint8Array, offset: number): number {
   return ((bytes[offset]! << 24) | (bytes[offset + 1]! << 16)
     | (bytes[offset + 2]! << 8) | bytes[offset + 3]!) >>> 0
 }
 
 function id3TagsTruncated(bytes: Uint8Array): boolean {
-  if (bytes.length < 10 || asciiOf(bytes, 0, 3) !== 'ID3') return false
+  if (bytes.length < 10 || !asciiAt(bytes, 0, 'ID3')) return false
   const size = ((bytes[6]! & 0x7f) << 21) | ((bytes[7]! & 0x7f) << 14)
     | ((bytes[8]! & 0x7f) << 7) | (bytes[9]! & 0x7f)
   const footer = (bytes[5]! & 0x10) === 0 ? 0 : 10
@@ -109,7 +99,7 @@ function id3TagsTruncated(bytes: Uint8Array): boolean {
 }
 
 function flacTagsTruncated(bytes: Uint8Array): boolean {
-  if (bytes.length < 8 || asciiOf(bytes, 0, 4) !== 'fLaC') return false
+  if (bytes.length < 8 || !asciiAt(bytes, 0, 'fLaC')) return false
   let offset = 4
   while (offset + 4 <= bytes.length) {
     const header = bytes[offset]!
@@ -122,11 +112,10 @@ function flacTagsTruncated(bytes: Uint8Array): boolean {
 }
 
 function mp4TagsTruncated(bytes: Uint8Array): boolean {
-  if (bytes.length < 8 || asciiOf(bytes, 4, 8) !== 'ftyp') return false
+  if (bytes.length < 8 || !asciiAt(bytes, 4, 'ftyp')) return false
   let offset = 0
   while (offset + 8 <= bytes.length) {
     const size = uint32At(bytes, offset)
-    const type = asciiOf(bytes, offset + 4, offset + 8)
     if (size === 0) return true
     let header = 8
     let box = size
@@ -136,7 +125,7 @@ function mp4TagsTruncated(bytes: Uint8Array): boolean {
       header = 16
     }
     if (box < header || offset + box > bytes.length) return true
-    if (type === 'moov') return false
+    if (asciiAt(bytes, offset + 4, 'moov')) return false
     offset += box
   }
   return true

@@ -4,6 +4,7 @@ import type {
   MemoVideoMetadata,
 } from '@shared/memos/types'
 import { isInlineSafe, safeAttachmentMime } from '../lib/image'
+import { asciiAt } from '@shared/bytes'
 
 const ISO_BMFF_MIMES = new Set([
   'video/mp4',
@@ -122,12 +123,8 @@ function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === 'string' && value ? value.slice(0, 256) : undefined
 }
 
-function ascii(bytes: Uint8Array, start: number, end: number): string {
-  return String.fromCharCode(...bytes.subarray(start, end))
-}
-
 function isIsoBmff(bytes: Uint8Array): boolean {
-  return bytes.length >= 12 && ascii(bytes, 4, 8) === 'ftyp'
+  return bytes.length >= 12 && asciiAt(bytes, 4, 'ftyp')
 }
 
 function isEbml(bytes: Uint8Array): boolean {
@@ -139,20 +136,20 @@ function isEbml(bytes: Uint8Array): boolean {
 }
 
 function isOgg(bytes: Uint8Array): boolean {
-  return bytes.length >= 4 && ascii(bytes, 0, 4) === 'OggS'
+  return bytes.length >= 4 && asciiAt(bytes, 0, 'OggS')
 }
 
 function isWave(bytes: Uint8Array): boolean {
-  return bytes.length >= 12 && ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 12) === 'WAVE'
+  return bytes.length >= 12 && asciiAt(bytes, 0, 'RIFF') && asciiAt(bytes, 8, 'WAVE')
 }
 
 function isMpegAudio(bytes: Uint8Array): boolean {
-  if (bytes.length >= 3 && ascii(bytes, 0, 3) === 'ID3') return true
+  if (bytes.length >= 3 && asciiAt(bytes, 0, 'ID3')) return true
   return bytes.length >= 2 && bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0
 }
 
 function isFlac(bytes: Uint8Array): boolean {
-  return bytes.length >= 4 && ascii(bytes, 0, 4) === 'fLaC'
+  return bytes.length >= 4 && asciiAt(bytes, 0, 'fLaC')
 }
 
 function isAdts(bytes: Uint8Array): boolean {
