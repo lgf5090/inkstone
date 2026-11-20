@@ -24,8 +24,8 @@ const EMPTY_APPLIED: AppliedState = { folderId: null, tags: [], enabled: true };
 /** Tag order is not a property of a filing, so two lists match when they hold the same names. */
 export function sameShareTags(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
-  const sorted = [...b].sort();
-  return [...a].sort().every((tag, index) => tag === sorted[index]);
+  const sorted = b.toSorted();
+  return a.toSorted().every((tag, index) => tag === sorted[index]);
 }
 
 function errorText(err: unknown): string {

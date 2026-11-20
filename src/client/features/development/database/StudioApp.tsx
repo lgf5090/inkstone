@@ -73,7 +73,7 @@ function queryTab(initialSql?: string): StudioTab {
 }
 
 function sortConnections(list: DatabaseConnectionView[]): DatabaseConnectionView[] {
-  return [...list].sort((left, right) => {
+  return list.toSorted((left, right) => {
     if (left.isPinned !== right.isPinned) return left.isPinned ? -1 : 1
     if (left.isFavorite !== right.isFavorite) return left.isFavorite ? -1 : 1
     if (left.sort !== right.sort) return left.sort - right.sort

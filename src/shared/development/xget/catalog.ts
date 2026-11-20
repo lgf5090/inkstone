@@ -700,7 +700,7 @@ export function xgetCategoryOf(key: string): XgetCategory | null {
   return XGET_PLATFORM_BY_KEY[key as XgetPlatformKey]?.category ?? null
 }
 
-export const XGET_PLATFORMS_BY_LONGEST_PREFIX = [...XGET_PLATFORMS].sort(
+export const XGET_PLATFORMS_BY_LONGEST_PREFIX = XGET_PLATFORMS.toSorted(
   (a, b) => xgetPathPrefix(b.key).length - xgetPathPrefix(a.key).length,
 )
 
@@ -715,7 +715,7 @@ export const XGET_REGISTRY_PLATFORMS = XGET_PLATFORMS.filter((platform) =>
   XGET_REGISTRY_KEYS.has(platform.key),
 )
 
-export const XGET_REGISTRY_PLATFORMS_BY_LONGEST_PREFIX = [...XGET_REGISTRY_PLATFORMS].sort(
+export const XGET_REGISTRY_PLATFORMS_BY_LONGEST_PREFIX = XGET_REGISTRY_PLATFORMS.toSorted(
   (a, b) => xgetPathPrefix(b.key).length - xgetPathPrefix(a.key).length,
 )
 

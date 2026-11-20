@@ -287,7 +287,7 @@ clouddriveMaintenanceRoutes.post('/admin/maintenance/import', async (c) => {
   if (!Array.isArray(body.entries)) throw ApiError.badRequest('entries must be an array')
   if (body.entries.length > IMPORT_MAX) throw ApiError.badRequest(`entries holds at most ${IMPORT_MAX} entries`)
   const entries = body.entries as ManifestEntry[]
-  const ordered = [...entries].sort((left, right) => {
+  const ordered = entries.toSorted((left, right) => {
     const leftPath = typeof left?.path === 'string' ? left.path : ''
     const rightPath = typeof right?.path === 'string' ? right.path : ''
     return leftPath.split('/').length - rightPath.split('/').length

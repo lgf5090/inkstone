@@ -55,7 +55,7 @@ function parseByteRange(value: string, total: number): { start: number; end: num
 }
 
 async function chunkedResponse(file: ImgbedFile, channel: NonNullable<Awaited<ReturnType<typeof resolveChannel>>>, range: string | null, headers: Headers): Promise<Response | null> {
-  const parts = [...(file.parts ?? [])].sort((a, b) => a.index - b.index)
+  const parts = (file.parts ?? []).toSorted((a, b) => a.index - b.index)
   if (!parts.length) return null
   const total = parts.reduce((sum, part) => sum + Number(part.size ?? 0), 0)
   headers.set('ETag', `"${file.createdAt}-${total}"`)

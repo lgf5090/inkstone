@@ -123,7 +123,7 @@ export function SftpPanel({
         if (cancelled) return
         setPath(listing.path)
         setPathDraft(listing.path)
-        setEntries([...listing.entries].sort((left, right) => {
+        setEntries(listing.entries.toSorted((left, right) => {
           if (left.kind === 'directory' && right.kind !== 'directory') return -1
           if (right.kind === 'directory' && left.kind !== 'directory') return 1
           return left.name.localeCompare(right.name)

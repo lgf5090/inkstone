@@ -630,7 +630,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       map.set(name, [...(map.get(name) ?? []), entry])
     }
     return [...map.entries()].map(
-      ([name, items]) => [name, [...items].sort((left, right) => right.updatedAt - left.updatedAt)] as const,
+      ([name, items]) => [name, items.toSorted((left, right) => right.updatedAt - left.updatedAt)] as const,
     )
   }, [saved])
 

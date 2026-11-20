@@ -69,7 +69,7 @@ export function prioritizePhrase(
 
 /** Matches closer together than `window` are one result, so a repeated word is not ten rows. */
 export function groupOffsets(matches: readonly OmnisearchMatch[], window = EXCERPT_AFTER): number[] {
-  const sorted = [...matches].sort((a, b) => a.offset - b.offset)
+  const sorted = matches.toSorted((a, b) => a.offset - b.offset)
   const out: number[] = []
   let covered = -1
   for (const item of sorted) {
@@ -159,7 +159,7 @@ function markLines(display: string, terms: readonly string[], ignoreDiacritics: 
 }
 
 function mergeRanges(ranges: [number, number][]): [number, number][] {
-  const sorted = [...ranges].sort((a, b) => a[0] - b[0])
+  const sorted = ranges.toSorted((a, b) => a[0] - b[0])
   const out: [number, number][] = []
   for (const range of sorted) {
     const last = out[out.length - 1]

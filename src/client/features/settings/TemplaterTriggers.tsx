@@ -35,13 +35,13 @@ export function useTemplaterLibrary(): { templates: NoteTemplate[], read: boolea
       console.warn('[templater] the settings lists could not hydrate the library', error)
     })
   }, [owner, read, hydrate])
-  return { templates: useMemo(() => [...templates].sort(compareTemplates), [templates]), read }
+  return { templates: useMemo(() => templates.toSorted(compareTemplates), [templates]), read }
 }
 
 /** Folders in the order a reader scans them: by path, root-first. */
 function useSortedFolders(): Folder[] {
   const folders = useNotes((state) => state.folders)
-  return useMemo(() => [...folders].sort((a, b) =>
+  return useMemo(() => folders.toSorted((a, b) =>
     folderPathLabel(folders, a.id).localeCompare(folderPathLabel(folders, b.id))), [folders])
 }
 

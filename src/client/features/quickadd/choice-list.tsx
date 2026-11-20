@@ -31,7 +31,7 @@ interface FlatRow {
 }
 
 function flatten(choices: QuickAddChoice[]): FlatRow[] {
-  const ordered = [...choices].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+  const ordered = choices.toSorted((a, b) => a.position - b.position || a.name.localeCompare(b.name))
   const byId = new Map(choices.map((choice) => [choice.id, choice]))
   const out: FlatRow[] = []
   const visit = (parentId: string | null, depth: number): void => {

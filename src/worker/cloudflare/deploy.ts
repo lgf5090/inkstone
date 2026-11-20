@@ -796,7 +796,7 @@ export async function deployPagesProject(input: PagesDeployInput): Promise<{ url
   const form = new FormData()
   const manifest: Record<string, string> = {}
   let total = 0
-  for (const entry of [...entries].sort((left, right) => left.path.localeCompare(right.path))) {
+  for (const entry of entries.toSorted((left, right) => left.path.localeCompare(right.path))) {
     if (entry.bytes.byteLength > MAX_PAGES_FILE_BYTES) {
       throw ApiError.tooLarge(`The archive contains a file larger than 5 MB: ${entry.path}`)
     }

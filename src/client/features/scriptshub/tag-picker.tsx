@@ -36,7 +36,7 @@ export function TagPickerDialog({
   const [chosen, setChosen] = useState<Set<string>>(() => new Set(selected))
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
-  const flat = useMemo(() => [...tags].sort((a, b) => tagPathOf(tags, a.id).map((tag) => tag.name).join('/').localeCompare(
+  const flat = useMemo(() => tags.toSorted((a, b) => tagPathOf(tags, a.id).map((tag) => tag.name).join('/').localeCompare(
     tagPathOf(tags, b.id).map((tag) => tag.name).join('/'),
   )), [tags])
   useEffect(() => {

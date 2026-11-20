@@ -62,7 +62,7 @@ export function kanbanColumnKeys(property: ProjectProperty | undefined, fields: 
   const base = [...new Set([...options, ...discovered, ''])]
   const order = fields.columnOrder ?? []
   const rank = new Map(order.map((id, index) => [id, index]))
-  const sorted = [...base].sort((left, right) => {
+  const sorted = base.toSorted((left, right) => {
     const a = rank.get(left)
     const b = rank.get(right)
     if (a === undefined && b === undefined) return 0

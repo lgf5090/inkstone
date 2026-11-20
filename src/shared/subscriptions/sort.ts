@@ -52,5 +52,5 @@ function compare(sort: ListSort, rates: RateTable): (left: SubscriptionItem, rig
  * quietly reorder the list a heading was just counted off.
  */
 export function sortSubscriptions(items: readonly SubscriptionItem[], sort: ListSort, rates: RateTable): SubscriptionItem[] {
-  return [...items].sort(compare(sort, rates))
+  return items.toSorted(compare(sort, rates))
 }

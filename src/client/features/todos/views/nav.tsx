@@ -151,9 +151,7 @@ export function surfaceBadge(surface: TodoSurface, nav: 'sidebar' | 'phone', cou
  */
 export function surfacesFor(nav: 'sidebar' | 'phone', flags: TodoNavFlags): TodoSurface[] {
   return TODO_SURFACES
-    .filter((surface) => surface[nav] !== undefined)
-    .slice()
-    .sort((left, right) => left[nav]!.order - right[nav]!.order)
+    .filter((surface) => surface[nav] !== undefined).toSorted((left, right) => left[nav]!.order - right[nav]!.order)
     .filter((surface) => (surface[nav]!.requires ?? OFFERED)(flags))
 }
 

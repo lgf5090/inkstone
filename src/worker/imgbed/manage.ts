@@ -97,7 +97,7 @@ function fileForBackup(file: ImgbedFile) {
 function directoryTree(directories: string[]): { name: string; path: string; children: unknown[] } {
   const root: { name: string; path: string; children: any[] } = { name: '/', path: '', children: [] }
   const nodes = new Map<string, { name: string; path: string; children: any[] }>([['', root]])
-  for (const directory of [...directories].sort()) {
+  for (const directory of directories.toSorted()) {
     const parts = directory.split('/').filter(Boolean)
     let parent = root
     let path = ''

@@ -52,7 +52,7 @@ export function folderBranches(nodes: ChatFolderNode[]): ChatFolderBranch[] {
     byParent.set(parent, siblings)
   }
   const build = (parent: string | null, depth: number): ChatFolderBranch[] => {
-    const siblings = (byParent.get(parent) ?? []).slice().sort((left, right) => left.name.localeCompare(right.name))
+    const siblings = (byParent.get(parent) ?? []).toSorted((left, right) => left.name.localeCompare(right.name))
     return siblings.map((node, index) => ({
       node,
       depth,

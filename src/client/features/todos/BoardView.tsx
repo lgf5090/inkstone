@@ -224,8 +224,7 @@ function QuickAddMirror({ input, tokens, mirrorRef }: {
  * be heard in.
  */
 function quickAddSummary(parsed: QuickAddParse): string {
-  const items = [...parsed.tokens]
-    .sort((a, b) => a.start - b.start)
+  const items = parsed.tokens.toSorted((a, b) => a.start - b.start)
     .map((token) => t(`todo.quickadd.kind.${token.kind}` as MessageKey, { text: token.text }))
   if (items.length === 0) return ''
   return t('todo.quickadd.summary', { items: items.join(t('todo.quickadd.summary.join')) })

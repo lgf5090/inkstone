@@ -445,7 +445,7 @@ export function listNamed(lists: readonly TaskList[], name: string): TaskList | 
 
 /** The organizer order — position, then name — which is the order the route reads them in. */
 function sortLists(entries: TaskListEntry[]): TaskListEntry[] {
-  return [...entries].sort((left, right) =>
+  return entries.toSorted((left, right) =>
     left.position - right.position || left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
 }
 

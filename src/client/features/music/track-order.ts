@@ -58,7 +58,7 @@ export function sortTracks<T extends MusicTrack>(
   locale?: string,
 ): T[] {
   const direction = sort.direction === 'asc' ? 1 : -1
-  return [...tracks].sort((left, right) => direction * compareTracks(left, right, sort.key, locale))
+  return tracks.toSorted((left, right) => direction * compareTracks(left, right, sort.key, locale))
 }
 
 /** A stored drag order; unknown ids keep the server's relative order after the known ones. */

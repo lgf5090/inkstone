@@ -2620,9 +2620,7 @@ async function loadReplayOutbox(): Promise<OutboxItem[]> {
     }));
 }
 function sortOutboxForReplay(items: OutboxItem[]): OutboxItem[] {
-    const stable = items
-        .slice()
-        .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+    const stable = items.toSorted((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
     const byWriteId = new Map(stable.map((item) => [item.writeId, item]));
     const visiting = new Set<string>();
     const visited = new Set<string>();
@@ -3719,7 +3717,7 @@ export function buildFolderTree(folders: Folder[], direct: ReadonlyMap<string, n
         const node = build(folder, 0, null);
         return node ? [node] : [];
     });
-    for (const folder of [...folders].sort(compare)) {
+    for (const folder of folders.toSorted(compare)) {
         if (visited.has(folder.id))
             continue;
         const node = build(folder, 0, null);

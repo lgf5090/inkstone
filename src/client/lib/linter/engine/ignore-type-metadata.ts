@@ -11,7 +11,7 @@ export function registerCanonicalIgnoreTypeOrder(ignoreTypes: IgnoreType[]): voi
 }
 
 export function inCanonicalOrder(ignoreTypes: IgnoreType[]): IgnoreType[] {
-  return [...ignoreTypes].sort((a, b) => (canonicalRank.get(a) ?? Number.MAX_SAFE_INTEGER) - (canonicalRank.get(b) ?? Number.MAX_SAFE_INTEGER));
+  return ignoreTypes.toSorted((a, b) => (canonicalRank.get(a) ?? Number.MAX_SAFE_INTEGER) - (canonicalRank.get(b) ?? Number.MAX_SAFE_INTEGER));
 }
 
 /**

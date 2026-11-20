@@ -314,7 +314,7 @@ export function runTasksQuery(
   let filtered = scoped.filter((task) => parsed.filters.every((filter) => filter(task, info)))
 
   const comparators = parsed.sorters.map((sorter) => ({ sorter, comparator: sorter.comparator }))
-  filtered = filtered.slice().sort((a, b) => {
+  filtered = filtered.toSorted((a, b) => {
     for (const { sorter, comparator } of comparators) {
       const result = comparator(a, b, info)
       if (result !== 0) return sorter.reverse ? -result : result

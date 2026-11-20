@@ -44,7 +44,7 @@ function lumaWeightedDistance(
 
 function median(values: number[]): number {
   if (values.length === 0) return 255
-  const sorted = [...values].sort((a, b) => a - b)
+  const sorted = values.toSorted((a, b) => a - b)
   return sorted[Math.floor(sorted.length / 2)]
 }
 

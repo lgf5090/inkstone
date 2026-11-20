@@ -281,8 +281,7 @@ function ScriptFolderRow({
         value={templater.userScriptsFolderId ?? ''}
         onChange={(event) => update({ userScriptsFolderId: event.target.value === '' ? null : event.target.value })}>
         <option value="">{t('templater.script.none')}</option>
-        {[...folders]
-          .sort((a, b) => folderPathLabel(folders, a.id).localeCompare(folderPathLabel(folders, b.id)))
+        {folders.toSorted((a, b) => folderPathLabel(folders, a.id).localeCompare(folderPathLabel(folders, b.id)))
           .map((folder) => (
             <option key={folder.id} value={folder.id}>{folderPathLabel(folders, folder.id)}</option>
           ))}

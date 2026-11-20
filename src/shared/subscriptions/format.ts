@@ -72,8 +72,7 @@ export function formatAmount(amount: number | null | undefined, currency: string
  * with no receipts has not paid anything and `¥0.00` would say it did.
  */
 export function formatPaid(paid: readonly PaidAmount[]): string {
-  return [...paid]
-    .sort((left, right) => right.amount - left.amount || (left.currency < right.currency ? -1 : 1))
+  return paid.toSorted((left, right) => right.amount - left.amount || (left.currency < right.currency ? -1 : 1))
     .map((entry) => formatAmount(entry.amount, entry.currency))
     .join(' + ')
 }

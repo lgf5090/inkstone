@@ -195,7 +195,7 @@ export async function buildPngSprite(
     const high = await buildSheet(loaded, padding, 2)
     files.sprite2x = high
   }
-  const setHash = await sha256Text(JSON.stringify({ kind: 'sprite_png', padding, scales: [...scales].sort(), assets: loaded.map((entry) => entry.asset.sha256).sort() }))
+  const setHash = await sha256Text(JSON.stringify({ kind: 'sprite_png', padding, scales: scales.toSorted(), assets: loaded.map((entry) => entry.asset.sha256).sort() }))
   return { files, setHash }
 }
 

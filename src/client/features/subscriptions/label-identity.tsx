@@ -122,7 +122,7 @@ export function useLabelIdentity(): (kind: LabelKind, name: string) => LabelIden
  */
 function identitySlots(names: readonly string[], count: number, locale: string): Map<string, number> {
   const slots = new Map<string, number>()
-  const ordered = [...names].sort((left, right) => left.localeCompare(right, locale))
+  const ordered = names.toSorted((left, right) => left.localeCompare(right, locale))
   ordered.forEach((name, index) => slots.set(name, index % count))
   return slots
 }

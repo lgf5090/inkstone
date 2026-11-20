@@ -268,9 +268,7 @@ export function lyricQuiets(
   const duration = Math.max(0, trackDurationMs)
   if (duration <= 0) return []
   const sung = lines
-    .filter((line) => line.startTime >= 0 && line.fullText.trim() && !isCreditLine(line.fullText) && !isInstrumentalText(line.fullText))
-    .slice()
-    .sort((left, right) => left.startTime - right.startTime)
+    .filter((line) => line.startTime >= 0 && line.fullText.trim() && !isCreditLine(line.fullText) && !isInstrumentalText(line.fullText)).toSorted((left, right) => left.startTime - right.startTime)
   if (sung.length === 0) {
     return duration >= Math.max(minMs, NO_LYRIC_QUIET_MIN_MS) ? [{ from: 0, to: duration }] : []
   }

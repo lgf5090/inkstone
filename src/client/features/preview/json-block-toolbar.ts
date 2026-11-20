@@ -217,10 +217,10 @@ function headToolsHtml(state: JsonBlockState): string {
         tools.unshift(toolButton('fold-all', 'preview.json_fold_all', FOLD_ICON));
     if (state.mode === 'map') {
         if (state.fullscreen) {
-            for (const [action, key, glyph] of [...EXPORT_TOOLS].reverse())
+            for (const [action, key, glyph] of EXPORT_TOOLS.toReversed())
                 tools.unshift(toolButton(action, key, glyph, '', 'json-tool--text'));
         }
-        for (const [action, key, icon] of [...MAP_TOOLS].reverse())
+        for (const [action, key, icon] of MAP_TOOLS.toReversed())
             tools.unshift(toolButton(action, key, icon));
         tools.unshift(toolButton('fold-all-map', 'preview.json_fold_all', FOLD_ICON));
         tools.unshift(toolButton(state.fullscreen ? 'exit-fullscreen' : 'fullscreen',

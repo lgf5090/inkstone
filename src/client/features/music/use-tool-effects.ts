@@ -138,7 +138,7 @@ async function play(effect: Extract<MusicClientEffect, { kind: 'music.play' }>):
   if (effect.mode === 'append') {
     // `addNext` inserts directly after the current track, so the list is added back to front to read
     // in the order the model named it.
-    for (const track of [...tracks].reverse()) player.addNext(track)
+    for (const track of tracks.toReversed()) player.addNext(track)
     return
   }
   if (!player.setQueue(tracks, { autoplay: true })) fail(musicText('music.assistant.play_none'))
@@ -194,7 +194,7 @@ async function queue(effect: Extract<MusicClientEffect, { kind: 'music.queue' }>
   }
   const { tracks } = await resolveTrackRefs(refs)
   if (!tracks.length) return fail(musicText('music.assistant.play_none'))
-  for (const track of [...tracks].reverse()) player.addNext(track)
+  for (const track of tracks.toReversed()) player.addNext(track)
 }
 
 async function runEffect(effect: MusicClientEffect): Promise<void> {

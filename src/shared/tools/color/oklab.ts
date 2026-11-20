@@ -61,7 +61,7 @@ export function buildCssGradient(config: GradientConfig): string {
     return 'linear-gradient(90deg, #627486 0%, #475569 100%)'
   }
 
-  const sortedStops = [...stops].sort((a, b) => a.offset - b.offset)
+  const sortedStops = stops.toSorted((a, b) => a.offset - b.offset)
 
   let renderedStops: Array<{ color: string; offset: number }> = []
 

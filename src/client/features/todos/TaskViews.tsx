@@ -70,7 +70,7 @@ export function inServerOrder(groups: TaskGroup[], tasks: readonly TodoTask[]): 
   const position = new Map(tasks.map((task, index) => [task.id, index]))
   return groups.map((group) => ({
     ...group,
-    tasks: [...group.tasks].sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0)),
+    tasks: group.tasks.toSorted((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0)),
   }))
 }
 

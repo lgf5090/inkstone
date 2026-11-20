@@ -51,7 +51,7 @@ export function buildCategoryTree(
 ): CategoryTreeNode[] {
   const roots: CategoryTreeNode[] = []
   const nodeMap = new Map<string, CategoryTreeNode>()
-  const sortedCategories = [...categories].sort((a, b) => a.sortOrder - b.sortOrder)
+  const sortedCategories = categories.toSorted((a, b) => a.sortOrder - b.sortOrder)
   const boardsById = new Map(boards.map((board) => [board.id, board]))
   const edgesByCategory = new Map<string, ProjectCategoryBoard[]>()
   for (const edge of edges) {
@@ -91,7 +91,7 @@ export function buildCategoryTree(
       }
 
       if (isLeaf) {
-        const catEdges = [...(edgesByCategory.get(cat.id) ?? [])].sort((a, b) => a.position - b.position)
+        const catEdges = (edgesByCategory.get(cat.id) ?? []).toSorted((a, b) => a.position - b.position)
         node.boards = catEdges.flatMap((edge) => {
           const board = boardsById.get(edge.boardId)
           return board && matches(board) ? [{ board, edge }] : []
@@ -166,8 +166,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
 
   const visibleBoards = useMemo(() => {
     const fromCategories = categories.flatMap((category) =>
-      [...(edgesByCategory.get(category.id) ?? [])]
-        .sort((a, b) => a.position - b.position)
+      (edgesByCategory.get(category.id) ?? []).toSorted((a, b) => a.position - b.position)
         .flatMap((edge) => {
           const board = boardsById.get(edge.boardId)
           return board && matches(board) ? [board] : []
@@ -427,7 +426,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       const targetId = target.slice('board:'.length)
       const categoryId = edgeForBoard(targetId)?.categoryId ?? ''
       if (!categoryId || boardId === targetId) return
-      const ids = [...(edgesByCategory.get(categoryId) ?? [])].sort((a, b) => a.position - b.position).map((e) => e.boardId).filter((id) => id !== boardId)
+      const ids = (edgesByCategory.get(categoryId) ?? []).toSorted((a, b) => a.position - b.position).map((e) => e.boardId).filter((id) => id !== boardId)
       const at = ids.indexOf(targetId)
       if (at < 0) return
       ids.splice(at, 0, boardId)

@@ -32,7 +32,7 @@ export function GradientBarController({
   // gradient with black, and normalizing it silently would accept anything.
   const [hexDraft, setHexDraft] = useState<{ id: string; text: string } | null>(null)
 
-  const sortedStops = [...config.stops].sort((a, b) => a.offset - b.offset)
+  const sortedStops = config.stops.toSorted((a, b) => a.offset - b.offset)
   const activeStop = config.stops.find((s) => s.id === activeStopId) || sortedStops[0]
   const draftText =
     hexDraft && activeStop && hexDraft.id === activeStop.id ? hexDraft.text : (activeStop?.color ?? '')

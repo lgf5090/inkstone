@@ -221,7 +221,7 @@ export function isOmnisearchQueryEmpty(query: ParsedOmnisearchQuery): boolean {
 /** The longest phrase to anchor the excerpt on, which is what a reader actually wants to see. */
 export function excerptStringOf(query: ParsedOmnisearchQuery): string {
   if (query.exact.length) {
-    return [...query.exact].sort((a, b) => b.length - a.length)[0] ?? ''
+    return query.exact.toSorted((a, b) => b.length - a.length)[0] ?? ''
   }
   return query.text
 }

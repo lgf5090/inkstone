@@ -27,9 +27,7 @@ export function PlaylistSection({
 }) {
   const reorderPlaylists = useYoutubeStore((state) => state.reorderPlaylists)
   const [draggingId, setDraggingId] = useState<string | null>(null)
-  const ordered = playlists
-    .slice()
-    .sort((left, right) => Number(right.pinned) - Number(left.pinned)
+  const ordered = playlists.toSorted((left, right) => Number(right.pinned) - Number(left.pinned)
       || left.sortOrder - right.sortOrder
       || right.updatedAt - left.updatedAt)
 

@@ -207,7 +207,7 @@ export function applyKanbanSorts(
   context: { columns?: KanbanProperty[] } = {},
 ): KanbanItem[] {
   if (!sorts || sorts.length === 0) return items
-  return [...items].sort((a, b) => {
+  return items.toSorted((a, b) => {
     for (const sort of sorts) {
       const column = context.columns?.find((c) => c.id === sort.propertyId)
       const aVal = sort.propertyId === 'title' ? a.title : a.properties[sort.propertyId]

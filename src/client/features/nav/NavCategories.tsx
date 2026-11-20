@@ -290,7 +290,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
   const targetKey = `${initialEditId ?? ''}|${initialParentId === undefined ? 'none' : initialParentId ?? 'root'}|${initialDeleteId ?? ''}`
 
   const tree = useMemo(() => {
-    const sorted = [...categories].sort((a, b) => a.sortOrder - b.sortOrder || nameCollator().compare(a.name, b.name))
+    const sorted = categories.toSorted((a, b) => a.sortOrder - b.sortOrder || nameCollator().compare(a.name, b.name))
     const roots = sorted.filter((category) => !category.parentId)
     const children = new Map<string, NavCategory[]>()
     for (const category of sorted) {

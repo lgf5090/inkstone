@@ -230,7 +230,7 @@ export function Sidebar({ bootstrap, state, onChange, onManageCollections, onMan
   }
 
   const recentCollections = useMemo(
-    () => [...bootstrap.collections].sort((a, b) => b.createdAt - a.createdAt).slice(0, 5),
+    () => bootstrap.collections.toSorted((a, b) => b.createdAt - a.createdAt).slice(0, 5),
     [bootstrap.collections],
   )
 

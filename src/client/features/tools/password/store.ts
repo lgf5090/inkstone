@@ -212,7 +212,7 @@ function buildTree(groups: PasswordGroup[]): PasswordGroup[] {
   const groupMap = new Map<string, PasswordGroup>()
   const rootGroups: PasswordGroup[] = []
 
-  const sorted = [...groups].sort((a, b) =>
+  const sorted = groups.toSorted((a, b) =>
     a.sort !== b.sort ? a.sort - b.sort : a.name.localeCompare(b.name, 'zh-Hans-CN', { sensitivity: 'accent' })
   )
 

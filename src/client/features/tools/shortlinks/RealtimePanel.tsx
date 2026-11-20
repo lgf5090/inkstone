@@ -88,7 +88,7 @@ export function RealtimePanel() {
     }
   }, [paused])
 
-  const newestFirst = [...items].reverse()
+  const newestFirst = items.toReversed()
 
   return (
     <section

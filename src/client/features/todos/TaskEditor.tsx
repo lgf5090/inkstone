@@ -480,7 +480,7 @@ export function TaskEditor() {
   const rule: RepeatRule | null = repeat === 'none' ? null : {
     freq: repeat,
     interval: Math.max(MIN_REPEAT_INTERVAL, Math.min(MAX_REPEAT_INTERVAL, interval)),
-    ...(repeat === 'weekly' && weekdays.length ? { weekdays: [...weekdays].sort((a, b) => a - b) } : {}),
+    ...(repeat === 'weekly' && weekdays.length ? { weekdays: weekdays.toSorted((a, b) => a - b) } : {}),
     ...(repeat === 'monthly' && monthlyMode !== 'day' ? { monthlyMode } : {}),
     ...storedSeries(series),
   }

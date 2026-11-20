@@ -268,7 +268,7 @@ function mergeRanges(ranges: TextRange[]): TextRange[] {
     return [];
   }
 
-  const sorted = [...ranges].sort((a, b) => a.startIndex - b.startIndex || a.endIndex - b.endIndex);
+  const sorted = ranges.toSorted((a, b) => a.startIndex - b.startIndex || a.endIndex - b.endIndex);
   const merged: TextRange[] = [];
   let current = { startIndex: sorted[0].startIndex, endIndex: sorted[0].endIndex };
 

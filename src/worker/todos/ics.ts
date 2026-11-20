@@ -225,7 +225,7 @@ function truncationLines(limit: number, shown: number): string[] {
 
 /** Render a set of open, dated tasks as a complete `text/calendar` document, earliest due first. */
 export function buildIcsCalendar(tasks: readonly IcsTask[], options: IcsCalendarOptions): string {
-  const ordered = [...tasks].sort((a, b) => a.dueAt - b.dueAt || a.id.localeCompare(b.id))
+  const ordered = tasks.toSorted((a, b) => a.dueAt - b.dueAt || a.id.localeCompare(b.id))
   const limit = options.taskLimit ?? MAX_TASKS_PER_QUERY
   const lines = [
     'BEGIN:VCALENDAR',

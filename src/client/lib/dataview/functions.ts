@@ -423,7 +423,7 @@ export namespace DefaultFunctions {
     }
 
     export const reverse: FunctionImpl = new Builder('reverse')
-        .add('array', (_context, values) => [...(values as Literal[])].reverse())
+        .add('array', (_context, values) => (values as Literal[]).toReversed())
         .add('string', (_context, value) => [...text(value)].reverse().join(''))
         .nullish(1)
         .build()

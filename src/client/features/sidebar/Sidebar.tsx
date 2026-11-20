@@ -497,7 +497,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
     };
     const sortSiblings = (ordered: FolderNode[]) => {
         const collator = numericCollator(locale);
-        const target = [...ordered].sort((a, b) => collator.compare(a.name, b.name) || a.id.localeCompare(b.id));
+        const target = ordered.toSorted((a, b) => collator.compare(a.name, b.name) || a.id.localeCompare(b.id));
         if (target.every((node, index) => node.id === ordered[index]?.id))
             return;
         for (const node of target)

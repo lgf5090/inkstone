@@ -183,7 +183,7 @@ function isEditable(state: EditorState): boolean {
 
 /** Ranges in ascending order with the overlaps merged, so one window is scanned once. */
 function mergeWindows(windows: readonly { from: number, to: number }[]): { from: number, to: number }[] {
-  const sorted = [...windows].sort((left, right) => left.from - right.from || left.to - right.to)
+  const sorted = windows.toSorted((left, right) => left.from - right.from || left.to - right.to)
   const merged: { from: number, to: number }[] = []
   for (const window of sorted) {
     const last = merged[merged.length - 1]

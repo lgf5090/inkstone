@@ -90,7 +90,7 @@ function commitSlotJob(generation: number): void {
     return
   }
   let next = content
-  for (const slot of [...job.slots].sort((left, right) => right.at - left.at)) {
+  for (const slot of job.slots.toSorted((left, right) => right.at - left.at)) {
     next = insertBlockAt(next, Math.min(slot.at, next.length), slot.answer ?? '')
   }
   useNotes.getState().editContent(job.noteId, next)

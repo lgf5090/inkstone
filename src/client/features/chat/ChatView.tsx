@@ -1494,7 +1494,7 @@ export function ConversationList({ activeId, onPick, focusSearch = 0 }: {
   // The list is sorted by the server; a pinned row would reappear on every page of a keyset cursor,
   // so the order is applied here where the whole set is in hand.
   const ordered = useMemo(
-    () => [...conversations].sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.updatedAt - left.updatedAt),
+    () => conversations.toSorted((left, right) => Number(right.pinned) - Number(left.pinned) || right.updatedAt - left.updatedAt),
     [conversations],
   )
 

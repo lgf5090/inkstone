@@ -234,5 +234,5 @@ function orderShares(rows: ShareListItem[], sort: ShareSortKey): ShareListItem[]
           ? (a: ShareListItem, b: ShareListItem) =>
             (a.noteTitle ?? '').localeCompare(b.noteTitle ?? '') || byNewest(a, b)
           : byNewest
-  return [...rows].sort(comparator)
+  return rows.toSorted(comparator)
 }

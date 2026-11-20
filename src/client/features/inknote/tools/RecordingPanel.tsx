@@ -115,7 +115,7 @@ export function RecordingPanel({ open, noteId, onClose, getEngine, onPage }: { o
     if (replayId) { stopReplay(); return }
     try {
       const response = await inknoteApi.timeline(item.id)
-      const events = [...response.events].sort((a, b) => a.t - b.t)
+      const events = response.events.toSorted((a, b) => a.t - b.t)
       if (events.length === 0) { toast({ title: t('inknote.recording.no_timeline') }); return }
       const store = useInknoteStore.getState()
       const snapshot = snapshotReplayPages(store.pages) as Map<string, ReturnType<typeof JSON.parse>>

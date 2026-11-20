@@ -144,7 +144,7 @@ export async function hcloudSign(input: SignInput): Promise<SignOutput> {
     headersToSign.push('content-type')
   }
 
-  const sortedHeaders = [...headersToSign].sort()
+  const sortedHeaders = headersToSign.toSorted()
   const canonicalHeaders = sortedHeaders.map((header) => `${header}:${headers[header]}\n`).join('')
   const signedHeaders = sortedHeaders.join(';')
 

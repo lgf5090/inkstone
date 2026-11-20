@@ -299,7 +299,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
     const from = pendingStepRef.current ?? (standing && standing.page === `${unit}:${offset}`
       ? { chapter: standing.chapter, start: standing.start }
       : { chapter: unit, start: offset })
-    const ordered = [...list].sort((a, b) => a.chapter - b.chapter || a.start - b.start)
+    const ordered = list.toSorted((a, b) => a.chapter - b.chapter || a.start - b.start)
     const after = ordered.findIndex((one) => one.chapter > from.chapter || (one.chapter === from.chapter && one.start > from.start))
     let before = -1
     for (let i = ordered.length - 1; i >= 0; i -= 1) {

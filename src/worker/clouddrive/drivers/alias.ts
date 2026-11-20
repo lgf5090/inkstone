@@ -77,7 +77,7 @@ function stableIndex(value: string, length: number): number {
 function sortEntries(entries: DriverEntry[], orderBy: string, orderDirection: string): DriverEntry[] {
   const descending = orderDirection.toLowerCase() === 'desc'
   const key = (orderBy || 'name').toLowerCase()
-  return [...entries].sort((left, right) => {
+  return entries.toSorted((left, right) => {
     if (left.kind !== right.kind) return left.kind === 'folder' ? -1 : 1
     let compared: number
     if (key.includes('size')) {

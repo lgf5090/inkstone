@@ -467,7 +467,7 @@ async function collectEvents(
 
 function mergeBusy(blocks: ReadonlyArray<{ startMs: number; endMs: number }>): Array<{ startMs: number; endMs: number }> {
   const merged: Array<{ startMs: number; endMs: number }> = []
-  for (const block of [...blocks].sort((left, right) => left.startMs - right.startMs)) {
+  for (const block of blocks.toSorted((left, right) => left.startMs - right.startMs)) {
     const last = merged[merged.length - 1]
     if (last && block.startMs <= last.endMs) last.endMs = Math.max(last.endMs, block.endMs)
     else merged.push({ ...block })

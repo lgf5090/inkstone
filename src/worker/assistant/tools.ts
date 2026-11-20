@@ -5304,7 +5304,7 @@ export class ToolExecutor {
     // A remote server lists its tools in whatever order it likes, and that order is not stable across
     // connections. Sorting by name makes the block the same bytes on every request, so the cache in front
     // of it stays valid.
-    const orderedRemote = [...remote].sort((left, right) => left.name.localeCompare(right.name))
+    const orderedRemote = remote.toSorted((left, right) => left.name.localeCompare(right.name))
     // The reader's policy comes last and can only ever take tools away: it is a ceiling on what the turn
     // may reach, not a second list of things to reach for.
     return [...own, ...orderedRemote].filter((definition) => this.offers(definition))

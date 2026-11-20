@@ -55,7 +55,7 @@ export function indexFingerprint(search: SearchSettings): string {
     search.cjkBigrams,
     search.pinyinSearch && pinyinIsLoaded(),
   ].map((value) => (value ? '1' : '0')).join('')
-  const properties = [...search.weightCustomProperties.map((item) => item.name)].sort().join(',')
+  const properties = search.weightCustomProperties.map((item) => item.name).toSorted().join(',')
   return [
     String(OMNISEARCH_TOKEN_REVISION),
     flags,

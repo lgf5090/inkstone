@@ -23,7 +23,7 @@ export function buildSchemaPrompt(
   currentSql = '',
   budget = SCHEMA_PROMPT_BUDGET_CHARS,
 ): { text: string; omitted: number } {
-  const ordered = [...tables].sort((left, right) => {
+  const ordered = tables.toSorted((left, right) => {
     const leftRank = mentions(left, currentSql) ? 0 : 1
     const rightRank = mentions(right, currentSql) ? 0 : 1
     return leftRank - rightRank

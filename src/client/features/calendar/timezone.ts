@@ -14,7 +14,7 @@ let cachedTimeZones: string[] | null = null
 export function supportedTimeZones(): string[] {
   if (cachedTimeZones) return cachedTimeZones
   try {
-    cachedTimeZones = Intl.supportedValuesOf('timeZone').slice().sort((a, b) => a.localeCompare(b))
+    cachedTimeZones = Intl.supportedValuesOf('timeZone').toSorted((a, b) => a.localeCompare(b))
   } catch {
     // Older engines without `supportedValuesOf` still get the zone the account is already using.
     cachedTimeZones = ['UTC', Intl.DateTimeFormat().resolvedOptions().timeZone].filter(Boolean)

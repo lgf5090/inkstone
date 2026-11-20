@@ -144,7 +144,7 @@ export function splitByRanges(
 }
 
 function mergeRanges(ranges: [number, number][]): [number, number][] {
-  const sorted = [...ranges].sort((a, b) => a[0] - b[0])
+  const sorted = ranges.toSorted((a, b) => a[0] - b[0])
   const out: [number, number][] = []
   for (const range of sorted) {
     const last = out[out.length - 1]

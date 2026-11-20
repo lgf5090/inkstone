@@ -1970,7 +1970,7 @@ export class ShortlinksStore {
       }
     })
 
-    const topPerformerItem = perLink.slice().sort((a, b) => b.click_count - a.click_count)[0]
+    const topPerformerItem = perLink.toSorted((a, b) => b.click_count - a.click_count)[0]
     const topPerformer = topPerformerItem && topPerformerItem.click_count > 0 ? {
       slug: topPerformerItem.primary_slug,
       label: topPerformerItem.label,

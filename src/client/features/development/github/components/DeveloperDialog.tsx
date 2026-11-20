@@ -56,7 +56,7 @@ export function DeveloperDialog({
     const matched = needle
       ? (profile?.repos ?? []).filter((repo) => repo.name.toLowerCase().includes(needle) || (repo.description ?? '').toLowerCase().includes(needle))
       : (profile?.repos ?? [])
-    return [...matched].sort((left, right) => {
+    return matched.toSorted((left, right) => {
       if (repoSort === 'name') return left.name.localeCompare(right.name)
       if (repoSort === 'stars') return right.stargazersCount - left.stargazersCount
       return right.updatedAt.localeCompare(left.updatedAt)

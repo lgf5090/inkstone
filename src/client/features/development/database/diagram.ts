@@ -303,8 +303,7 @@ export function tableContentSignature(table: DiagramTable): string {
 }
 
 export function diagramSignature(draft: DiagramDraft): string {
-  const tables = [...draft.tables]
-    .sort((left, right) => left.name.localeCompare(right.name))
+  const tables = draft.tables.toSorted((left, right) => left.name.localeCompare(right.name))
     .map((table) => [table.name, tableContentSignature(table)])
   return JSON.stringify([tables, draft.renames ?? []])
 }

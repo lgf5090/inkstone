@@ -232,7 +232,7 @@ export function sortProjectCards(
   for (const card of cards) {
     keys.set(card.id, sortOptions.map((option) => projectSortKey(card, option.propertyId, properties, people)))
   }
-  return [...cards].sort((a, b) => {
+  return cards.toSorted((a, b) => {
     const ak = keys.get(a.id)!
     const bk = keys.get(b.id)!
     for (let index = 0; index < sortOptions.length; index += 1) {
@@ -355,7 +355,7 @@ export function matchProjectViewSearch(
 export function orderProjectCards(cards: readonly ProjectCard[], cardOrder: readonly string[]): ProjectCard[] {
   if (cardOrder.length === 0) return [...cards]
   const rank = new Map(cardOrder.map((id, index) => [id, index]))
-  return [...cards].sort((left, right) => {
+  return cards.toSorted((left, right) => {
     const a = rank.get(left.id)
     const b = rank.get(right.id)
     if (a === undefined && b === undefined) return 0

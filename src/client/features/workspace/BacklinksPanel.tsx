@@ -63,7 +63,7 @@ export function BacklinksPanel({ noteId, fill = false }: {
             // Newest first, whatever the list screen's pinned-shortcut order says: this section answers "what
             // have I been talking about here lately", and a pinned thread about something else would lead it.
             if (!cancelled) {
-                setAbout([...res.conversations].sort((a, b) => b.updatedAt - a.updatedAt));
+                setAbout(res.conversations.toSorted((a, b) => b.updatedAt - a.updatedAt));
                 setAboutError(null);
             }
         })

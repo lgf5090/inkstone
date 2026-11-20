@@ -294,7 +294,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       await moveCardContent(id, targetId, where)
       onUpdated({ ...card, contentOrder: order })
       const flat = order.flat()
-      setBlocks((current) => [...current].sort((a, b) => flat.indexOf(a.id) - flat.indexOf(b.id)))
+      setBlocks((current) => current.toSorted((a, b) => flat.indexOf(a.id) - flat.indexOf(b.id)))
     })
   }
   const blocksRef = useRef<HTMLDivElement>(null)

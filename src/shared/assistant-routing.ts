@@ -30,7 +30,7 @@ export function pickModelForTurn(models: readonly AssistantModel[], input: Route
   // explicit number wins, and among the declared ones the smallest that still fits is the choice.
   const declared = fits.filter((model): model is AssistantModel & { contextTokens: number } => model.contextTokens !== null)
   if (declared.length) {
-    return [...declared].sort((left, right) => left.contextTokens - right.contextTokens)[0] ?? null
+    return declared.toSorted((left, right) => left.contextTokens - right.contextTokens)[0] ?? null
   }
   return fits[0] ?? null
 }

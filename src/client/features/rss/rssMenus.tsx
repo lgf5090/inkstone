@@ -44,7 +44,7 @@ export function folderChoices(
     checked: options.currentGroupId === '',
     onSelect: () => options.onPick(''),
   }]
-  for (const group of [...library.groups].sort((a, b) => a.position - b.position)) {
+  for (const group of library.groups.toSorted((a, b) => a.position - b.position)) {
     if (blocked.has(group.id)) continue
     const indent = ' '.repeat(depthOf(group) * 2)
     items.push({

@@ -805,7 +805,7 @@ export async function applyBackupTodos(
   }
 
   const statements: D1PreparedStatement[] = []
-  for (const table of [...CARRIED_TABLES].reverse()) {
+  for (const table of CARRIED_TABLES.toReversed()) {
     statements.push(db.prepare(`DELETE FROM ${table} WHERE ${TENANT_COLUMN} = ?1`).bind(userId))
   }
   // `todos_attachments` points outside the section, at the shared file hub. A link is written only where

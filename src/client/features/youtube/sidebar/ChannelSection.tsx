@@ -27,9 +27,7 @@ export function ChannelSection({
 }) {
   const reorderChannels = useYoutubeStore((state) => state.reorderChannels)
   const [draggingId, setDraggingId] = useState<string | null>(null)
-  const ordered = channels
-    .slice()
-    .sort((left, right) => Number(right.pinned) - Number(left.pinned)
+  const ordered = channels.toSorted((left, right) => Number(right.pinned) - Number(left.pinned)
       || left.sortOrder - right.sortOrder
       || right.updatedAt - left.updatedAt)
 

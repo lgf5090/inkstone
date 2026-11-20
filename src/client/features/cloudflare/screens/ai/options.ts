@@ -323,7 +323,7 @@ export function sessionTitleFromAnswer(answer: string, question: string): string
 }
 
 export function sortChatSessions(sessions: readonly AiChatSession[]): AiChatSession[] {
-  return [...sessions].sort((left, right) => (
+  return sessions.toSorted((left, right) => (
     right.pinned - left.pinned || right.updated_at - left.updated_at
   ))
 }

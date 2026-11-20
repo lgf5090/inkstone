@@ -593,7 +593,7 @@ export async function saveRssReadingFeed(
   let chars = 0
   for (const [id, feed] of Object.entries(snapshot.feeds)) {
     const rows: RssReadingEntry[] = []
-    for (const entry of [...feed.entries].sort(newestFirst)) {
+    for (const entry of feed.entries.toSorted(newestFirst)) {
       const cost = entry.content.length + entry.summary.length + entry.title.length
       if (stored >= READING_ENTRIES_TOTAL || chars + cost > READING_SNAPSHOT_CHARS) break
       rows.push(entry)

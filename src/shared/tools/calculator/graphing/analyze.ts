@@ -65,7 +65,7 @@ function refineExtremum(node: GraphNode, left: number, right: number, variables:
 
 function intervals(values: number[], formatter: (value: number) => string): string[] {
   if (values.length === 0) return []
-  const sorted = [...values].sort((a, b) => a - b)
+  const sorted = values.toSorted((a, b) => a - b)
   const unique: number[] = []
   for (const value of sorted) {
     if (unique.length === 0 || Math.abs(unique[unique.length - 1] - value) > 1e-8) unique.push(value)
