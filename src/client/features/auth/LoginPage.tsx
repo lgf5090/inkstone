@@ -9,6 +9,7 @@ import { ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { initialLoginCredentials } from '../../lib/runtime'
 import { useSession } from '../../store/session'
+import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../lib/autocomplete'
 
 export function LoginPage() {
   const initialCredentials = initialLoginCredentials()
@@ -196,7 +197,7 @@ export function LoginPage() {
               onChange={(event) => setSetupToken(event.target.value)}
               disabled={busy}
               placeholder={t("auth.setup_token")}
-              autoComplete="off"
+              autoComplete={NON_CREDENTIAL_AUTOCOMPLETE}
             />
           )}
           {!challenge && registerMode && (

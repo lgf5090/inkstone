@@ -8,6 +8,7 @@ import { t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
 import { useShortlinksStore } from '../store'
 import { shortlinksApi } from '../api'
+import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../../../lib/autocomplete'
 
 export function EditLinkModal() {
   const open = useShortlinksStore((s) => s.editModalOpen)
@@ -164,6 +165,7 @@ export function EditLinkModal() {
             </label>
             <Input
               type="password"
+              autoComplete={NON_CREDENTIAL_AUTOCOMPLETE}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={link?.password_protected ? `•••••••• (${t('tools.shortlinks.links.password_protected')})` : t('tools.shortlinks.modal.password_placeholder')}

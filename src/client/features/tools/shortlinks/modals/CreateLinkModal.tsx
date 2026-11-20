@@ -9,6 +9,7 @@ import { useUiStore } from '../../../../lib/ui-store'
 import { useShortlinksStore } from '../store'
 import { shortlinksApi } from '../api'
 import { createShortlinkSafely } from '../create-link'
+import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../../../lib/autocomplete'
 
 export function CreateLinkModal() {
   const open = useShortlinksStore((s) => s.createModalOpen)
@@ -186,6 +187,7 @@ export function CreateLinkModal() {
             </label>
             <Input
               type="password"
+              autoComplete={NON_CREDENTIAL_AUTOCOMPLETE}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={t('tools.shortlinks.modal.password_placeholder')}

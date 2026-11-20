@@ -27,6 +27,7 @@ import { useMusicQuery } from '../query'
 import { useMusicLibrary } from '../store/library'
 import { musicText } from './labels'
 import { PageError } from '../pages/parts/PageState'
+import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../../lib/autocomplete'
 
 const UPLOAD_ACCEPT = MUSIC_ALL_FORMATS.map((format) => `.${format}`).join(',')
 
@@ -113,7 +114,7 @@ function MountDialog({
         </label>
         <label className="flex flex-col gap-1 text-[length:var(--text-12)] text-[var(--text-secondary)]">
           {musicText('music.cloud.alist.token')}
-          <Input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} required maxLength={4096} />
+          <Input type="password" autoComplete={NON_CREDENTIAL_AUTOCOMPLETE} value={token} onChange={(event) => setToken(event.target.value)} required maxLength={4096} />
         </label>
         {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
       </form>
