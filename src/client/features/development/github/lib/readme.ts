@@ -4,6 +4,7 @@ import DOMPurify from 'dompurify'
 import { normalizeGithubImageUrl } from '@shared/development/github/image'
 import { t } from '../../../../lib/i18n'
 import { encodeDataValue } from '../../../../lib/markdown/data-attr'
+import { sanitizedElement } from '../../../../lib/sanitized-dom'
 
 export interface ReadmeRenderOptions {
   fullName: string
@@ -101,9 +102,9 @@ function slugifyHeading(value: string): string {
   return slug || 'section'
 }
 
-function assignHeadingIds(template: HTMLTemplateElement): void {
+function assignHeadingIds(root: ParentNode): void {
   const used = new Set<string>()
-  for (const heading of Array.from(template.content.querySelectorAll('h1, h2, h3, h4, h5, h6'))) {
+  for (const heading of Array.from(root.querySelectorAll('h1, h2, h3, h4, h5, h6'))) {
     const existing = heading.getAttribute('id')
     if (existing) {
       used.add(existing)
@@ -318,10 +319,9 @@ function sanitizeHtml(html: string, options: ReadmeRenderOptions): string {
     KEEP_CONTENT: true,
   })
   if (typeof document === 'undefined') return clean
-  const template = document.createElement('template')
-  template.innerHTML = clean
+  const root = sanitizedElement(clean)
 
-  for (const element of Array.from(template.content.querySelectorAll('*'))) {
+  for (const element of Array.from(root.querySelectorAll('*'))) {
     const tag = element.tagName.toLowerCase()
     for (const attribute of Array.from(element.attributes)) {
       if (attribute.name === 'style' || attribute.name.startsWith('on')) element.removeAttribute(attribute.name)
@@ -357,17 +357,17 @@ function sanitizeHtml(html: string, options: ReadmeRenderOptions): string {
     }
   }
 
-  assignHeadingIds(template)
-  for (const element of Array.from(template.content.querySelectorAll('[id]'))) {
+  assignHeadingIds(root)
+  for (const element of Array.from(root.querySelectorAll('[id]'))) {
     const id = element.getAttribute('id')
     if (id) element.setAttribute('id', `${README_ID_PREFIX}${id}`)
   }
-  for (const link of Array.from(template.content.querySelectorAll('a[href^="#"]'))) {
+  for (const link of Array.from(root.querySelectorAll('a[href^="#"]'))) {
     const href = link.getAttribute('href') ?? ''
     if (href.length <= 1) continue
     link.setAttribute('href', `#${README_ID_PREFIX}${href.slice(1)}`)
   }
-  return template.innerHTML
+  return root.innerHTML
 }
 
 export function renderGithubReadme(md: string, options: ReadmeRenderOptions, emptyHtml = ''): string {

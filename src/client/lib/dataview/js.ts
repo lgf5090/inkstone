@@ -18,6 +18,7 @@ import DOMPurify from 'dompurify'
 import { t } from '../i18n'
 import { renderMarkdown, PURIFY_CONFIG } from '../markdown/renderer'
 import { encodeDataValue } from '../markdown/data-attr'
+import { insertSanitizedHtml } from '../sanitized-dom'
 
 export const DV_RUN_TIMEOUT_MS = 2000
 
@@ -327,7 +328,7 @@ function renderDvNode(node: DvNode): Node | null {
             // note's prose is sanitized with: no script, no event handler, no foreign scheme.
             const wrap = document.createElement('div')
             wrap.className = 'dataview-html'
-            wrap.innerHTML = DOMPurify.sanitize(node.html, PURIFY_CONFIG)
+            insertSanitizedHtml(wrap, DOMPurify.sanitize(node.html, PURIFY_CONFIG))
             return wrap
         }
         case 'section': {
