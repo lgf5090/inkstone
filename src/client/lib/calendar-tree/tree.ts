@@ -104,7 +104,7 @@ function nameOf(id: string, ns: VirtualTreeNamespace): string {
 }
 
 function buildVirtualNode(id: string, depth: number, childrenOf: Map<string, Set<string>>, counts: Map<string, number>, ns: VirtualTreeNamespace): CalendarNode {
-    const children = [...(childrenOf.get(id) ?? [])]
+    const children = Array.from(childrenOf.get(id) ?? [])
         .sort()
         .map((child) => buildVirtualNode(child, depth + 1, childrenOf, counts, ns));
     const count = children.length
@@ -125,7 +125,7 @@ function buildEmptyVirtualTree(collected: VirtualCounts, ns: VirtualTreeNamespac
             const firstMonth = (quarter - 1) * 3 + 1;
             for (let month = firstMonth; month < firstMonth + 3; month++) {
                 const id = virtualId({ kind: 'month', year, month }, ns);
-                const weeks = [...(childrenOf.get(id) ?? [])]
+                const weeks = Array.from(childrenOf.get(id) ?? [])
                     .sort()
                     .map((child) => buildVirtualNode(child, 3, childrenOf, counts, ns));
                 months.push({ id, name: calendarNodeName({ kind: 'month', year, month }), depth: 2, count: counts.get(id) ?? 0, children: weeks });

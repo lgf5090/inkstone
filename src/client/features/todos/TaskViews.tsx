@@ -245,7 +245,7 @@ export function CompletedView() {
     seenYears.current.add(localDate(task.completedAt ?? task.updatedAt, timezone).slice(0, 4))
   }
   if (completedFrom) seenYears.current.add(completedFrom.slice(0, 4))
-  const years = [...seenYears.current].sort((a, b) => (a < b ? 1 : -1))
+  const years = Array.from(seenYears.current).sort((a, b) => (a < b ? 1 : -1))
 
   const groups = useMemo(() => {
     const { done, abandoned } = groupCompletedAndAbandoned(completed, timezone)

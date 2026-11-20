@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as React
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronsUpDown, EyeOff, ListFilter, Pin, PinOff, X } from 'lucide-react'
 import { INKSTONE_BLOB_KEY, type TableSortRule } from '@shared/development/database/types'
 import { cn } from '../../../lib/cn'
-import { isImeComposing } from '../../../lib/ime'
+import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
 import { useUi } from '../../../store/ui'
@@ -244,7 +244,7 @@ export const ResultGrid = memo(function ResultGrid({
 
   const copySelected = async () => {
     if (!selectedRows || selectedRows.size === 0) return
-    const tsv = [...selectedRows]
+    const tsv = Array.from(selectedRows)
       .sort((left, right) => left - right)
       .map((index) => columns.map((_, column) => {
         const value = rows[index]?.[column]
@@ -286,7 +286,7 @@ export const ResultGrid = memo(function ResultGrid({
   }
 
   const copySelectedMarkdown = async () => {
-    const selected = [...(selectedRows ?? [])].sort((left, right) => left - right)
+    const selected = Array.from(selectedRows ?? []).sort((left, right) => left - right)
       .map((index) => rows[index])
       .filter((row): row is unknown[] => Boolean(row))
     if (selected.length === 0) return

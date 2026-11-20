@@ -455,8 +455,8 @@ export function nextCronAfter(expression: string, afterMs: number): number | nul
     after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate(),
     after.getUTCHours(), after.getUTCMinutes(),
   ) + 60_000
-  const hours = [...schedule.hour].sort((left, right) => left - right)
-  const minutes = [...schedule.minute].sort((left, right) => left - right)
+  const hours = Array.from(schedule.hour).sort((left, right) => left - right)
+  const minutes = Array.from(schedule.minute).sort((left, right) => left - right)
   for (let offset = 0; offset <= 366; offset++) {
     const dayStart = start + offset * 86_400_000
     const date = new Date(dayStart)
