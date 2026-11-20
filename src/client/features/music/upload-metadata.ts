@@ -189,54 +189,49 @@ export async function parseUploadMetadata(file: File): Promise<UploadMetadataRes
 
 /** Read the first `limit` bytes of a same-origin stream and stop paying for the rest. */
 async function readHead(url: string, limit: number): Promise<{ bytes: Uint8Array; complete: boolean }> {
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), REMOTE_HEAD_TIMEOUT_MS)
-  try {
-    const response = await fetch(url, {
-      headers: { Range: `bytes=0-${limit - 1}` },
-      signal: controller.signal,
-    })
-    if (!response.ok) throw new Error(`The audio stream answered ${response.status}`)
-    const contentRange = response.headers.get('content-range')
-    const rangedTotal = contentRange ? /\/(\d+)$/.exec(contentRange)?.[1] : undefined
-    const contentLength = Number(response.headers.get('content-length') ?? '')
-    const total = rangedTotal
-      ? Number(rangedTotal)
-      : response.status === 200 && Number.isFinite(contentLength) && contentLength > 0
-        ? contentLength
-        : null
-    const reader = response.body?.getReader()
-    if (!reader) {
-      const whole = new Uint8Array(await response.arrayBuffer())
-      const bytes = whole.subarray(0, limit)
-      return { bytes, complete: bytes.byteLength >= whole.byteLength }
-    }
-    const chunks: Uint8Array[] = []
-    let read = 0
-    try {
-      while (read < limit) {
-        const { value, done } = await reader.read()
-        if (done) break
-        if (!value?.byteLength) continue
-        const take = value.byteLength > limit - read ? value.subarray(0, limit - read) : value
-        chunks.push(take)
-        read += take.byteLength
-      }
-    } finally {
-      await reader.cancel().catch(() => {
-        // The head was already read; a cancel after the stream closed is not a metadata failure.
-      })
-    }
-    const bytes = new Uint8Array(read)
-    let offset = 0
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset)
-      offset += chunk.byteLength
-    }
-    return { bytes, complete: total === null ? read < limit : read >= total }
-  } finally {
-    window.clearTimeout(timeout)
+  const signal = AbortSignal.timeout(REMOTE_HEAD_TIMEOUT_MS)
+  const response = await fetch(url, {
+    headers: { Range: `bytes=0-${limit - 1}` },
+    signal,
+  })
+  if (!response.ok) throw new Error(`The audio stream answered ${response.status}`)
+  const contentRange = response.headers.get('content-range')
+  const rangedTotal = contentRange ? /\/(\d+)$/.exec(contentRange)?.[1] : undefined
+  const contentLength = Number(response.headers.get('content-length') ?? '')
+  const total = rangedTotal
+    ? Number(rangedTotal)
+    : response.status === 200 && Number.isFinite(contentLength) && contentLength > 0
+      ? contentLength
+      : null
+  const reader = response.body?.getReader()
+  if (!reader) {
+    const whole = new Uint8Array(await response.arrayBuffer())
+    const bytes = whole.subarray(0, limit)
+    return { bytes, complete: bytes.byteLength >= whole.byteLength }
   }
+  const chunks: Uint8Array[] = []
+  let read = 0
+  try {
+    while (read < limit) {
+      const { value, done } = await reader.read()
+      if (done) break
+      if (!value?.byteLength) continue
+      const take = value.byteLength > limit - read ? value.subarray(0, limit - read) : value
+      chunks.push(take)
+      read += take.byteLength
+    }
+  } finally {
+    await reader.cancel().catch(() => {
+      // The head was already read; a cancel after the stream closed is not a metadata failure.
+    })
+  }
+  const bytes = new Uint8Array(read)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return { bytes, complete: total === null ? read < limit : read >= total }
 }
 
 /**

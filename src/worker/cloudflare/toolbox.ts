@@ -32,18 +32,14 @@ function assertDomain(value: string, label: string): string {
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
     return await fetch(url, {
       ...init,
-      signal: controller.signal,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: { 'User-Agent': 'inkstone-toolbox/1', ...(init.headers ?? {}) },
     })
   } catch (error) {
     throw new ApiError(502, 'cloudflare_upstream', `The request did not complete: ${(error as Error).message}`)
-  } finally {
-    clearTimeout(timer)
   }
 }
 

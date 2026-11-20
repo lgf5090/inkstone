@@ -20,68 +20,62 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308])
 export async function guardedFetch(raw: string, options: GuardedFetchOptions = {}): Promise<GuardedFetchResult> {
   const timeoutMs = options.timeoutMs ?? 8000
   const maxRedirects = options.maxRedirects ?? 5
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const signal = AbortSignal.timeout(timeoutMs)
   let current: URL
   try {
     current = new URL(raw)
   } catch {
-    clearTimeout(timer)
     return { response: new Response(null, { status: 400 }), finalUrl: raw, error: 'invalid_url' }
   }
-  try {
-    for (let hop = 0; hop <= maxRedirects; hop += 1) {
-      if (current.protocol !== 'http:' && current.protocol !== 'https:') {
-        return { response: new Response(null, { status: 400 }), finalUrl: current.toString(), error: 'invalid_url' }
-      }
-      if (current.username || current.password) {
-        return { response: new Response(null, { status: 400 }), finalUrl: current.toString(), error: 'invalid_url' }
-      }
-      if (isBlockedTarget(current.hostname)) {
-        return { response: new Response(null, { status: 403 }), finalUrl: current.toString(), error: 'blocked_target' }
-      }
-      const hostVerdict = await resolvePublicHost(current.hostname)
-      if (hostVerdict !== 'ok') {
-        return {
-          response: new Response(null, { status: hostVerdict === 'blocked' ? 403 : 502 }),
-          finalUrl: current.toString(),
-          error: hostVerdict === 'blocked' ? 'blocked_target' : hostVerdict === 'failed' ? 'dns_unavailable' : 'network',
-        }
-      }
-      let response: Response
-      try {
-        response = await fetch(current.toString(), {
-          method: options.method ?? 'GET',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; InkstoneNavLinkChecker/1.0)',
-            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*;q=0.8,*/*;q=0.5',
-            ...options.headers,
-          },
-          redirect: 'manual',
-          signal: controller.signal,
-        })
-      } catch (error) {
-        const name = error instanceof Error ? error.name : ''
-        if (name === 'TimeoutError' || name === 'AbortError') {
-          return { response: new Response(null, { status: 504 }), finalUrl: current.toString(), error: 'timeout' }
-        }
-        return { response: new Response(null, { status: 502 }), finalUrl: current.toString(), error: 'network' }
-      }
-      if (!REDIRECTS.has(response.status)) return { response, finalUrl: current.toString(), error: null }
-      const location = response.headers.get('location')
-      await response.body?.cancel().catch(() => null)
-      if (!location) return { response: new Response(null, { status: 502 }), finalUrl: current.toString(), error: 'network' }
-      if (hop === maxRedirects) return { response: new Response(null, { status: 502 }), finalUrl: current.toString(), error: 'too_many_redirects' }
-      try {
-        current = new URL(location, current)
-      } catch {
-        return { response: new Response(null, { status: 400 }), finalUrl: current.toString(), error: 'invalid_url' }
+  for (let hop = 0; hop <= maxRedirects; hop += 1) {
+    if (current.protocol !== 'http:' && current.protocol !== 'https:') {
+      return { response: new Response(null, { status: 400 }), finalUrl: current.toString(), error: 'invalid_url' }
+    }
+    if (current.username || current.password) {
+      return { response: new Response(null, { status: 400 }), finalUrl: current.toString(), error: 'invalid_url' }
+    }
+    if (isBlockedTarget(current.hostname)) {
+      return { response: new Response(null, { status: 403 }), finalUrl: current.toString(), error: 'blocked_target' }
+    }
+    const hostVerdict = await resolvePublicHost(current.hostname)
+    if (hostVerdict !== 'ok') {
+      return {
+        response: new Response(null, { status: hostVerdict === 'blocked' ? 403 : 502 }),
+        finalUrl: current.toString(),
+        error: hostVerdict === 'blocked' ? 'blocked_target' : hostVerdict === 'failed' ? 'dns_unavailable' : 'network',
       }
     }
-    return { response: new Response(null, { status: 502 }), finalUrl: current.toString(), error: 'too_many_redirects' }
-  } finally {
-    clearTimeout(timer)
+    let response: Response
+    try {
+      response = await fetch(current.toString(), {
+        method: options.method ?? 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; InkstoneNavLinkChecker/1.0)',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*;q=0.8,*/*;q=0.5',
+          ...options.headers,
+        },
+        redirect: 'manual',
+        signal,
+      })
+    } catch (error) {
+      const name = error instanceof Error ? error.name : ''
+      if (name === 'TimeoutError' || name === 'AbortError') {
+        return { response: new Response(null, { status: 504 }), finalUrl: current.toString(), error: 'timeout' }
+      }
+      return { response: new Response(null, { status: 502 }), finalUrl: current.toString(), error: 'network' }
+    }
+    if (!REDIRECTS.has(response.status)) return { response, finalUrl: current.toString(), error: null }
+    const location = response.headers.get('location')
+    await response.body?.cancel().catch(() => null)
+    if (!location) return { response: new Response(null, { status: 502 }), finalUrl: current.toString(), error: 'network' }
+    if (hop === maxRedirects) return { response: new Response(null, { status: 502 }), finalUrl: current.toString(), error: 'too_many_redirects' }
+    try {
+      current = new URL(location, current)
+    } catch {
+      return { response: new Response(null, { status: 400 }), finalUrl: current.toString(), error: 'invalid_url' }
+    }
   }
+  return { response: new Response(null, { status: 502 }), finalUrl: current.toString(), error: 'too_many_redirects' }
 }
 
 export async function readGuardedBytes(response: Response, maxBytes: number, timeoutMs = 8000): Promise<Uint8Array | null> {

@@ -174,8 +174,7 @@ function readExpiry(payload: SessionShape): number | null {
 
 async function postSession(url: string, apiKey: string, body: Record<string, unknown>): Promise<Response> {
   const target = assertRelayableEndpoint(url)
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 15_000)
+  const signal = AbortSignal.timeout(15_000)
   let response: Response
   try {
     response = await fetch(target, {
@@ -187,12 +186,10 @@ async function postSession(url: string, apiKey: string, body: Record<string, unk
       },
       body: JSON.stringify(body),
       redirect: NO_REDIRECT,
-      signal: controller.signal,
+      signal,
     })
   } catch {
     throw new RealtimeSessionError(502, 'The realtime provider could not be reached.')
-  } finally {
-    clearTimeout(timer)
   }
   // The guard vetted the first address only. Following a 30x would carry the account's long-lived key
   // to a target that was never checked, so a redirect ends the request instead of being followed.

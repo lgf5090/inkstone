@@ -30,13 +30,7 @@ async function fetchWithTimeout(
   init: RequestInit,
   timeoutSeconds: number,
 ): Promise<Response> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutSeconds * 1000)
-  try {
-    return await fetch(url, { ...init, signal: controller.signal })
-  } finally {
-    clearTimeout(timeoutId)
-  }
+  return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutSeconds * 1000) })
 }
 
 export function parseAuthenticate(authenticateStr: string): WwwAuthenticate {

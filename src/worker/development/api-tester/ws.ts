@@ -318,17 +318,14 @@ wsRoutes.get('/ws', async (c) => {
       `At most ${MAX_WS_CONNECTIONS_PER_USER} WebSocket connections may be open at once`,
     )
   }
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), WS_HANDSHAKE_TIMEOUT_MS)
+  const signal = AbortSignal.timeout(WS_HANDSHAKE_TIMEOUT_MS)
   let upstreamResponse: Response
   try {
-    upstreamResponse = await fetch(target.toString(), { headers, signal: controller.signal })
+    upstreamResponse = await fetch(target.toString(), { headers, signal })
   } catch {
     await releaseSession(c.env.DB, userId, sessionId)
     console.warn('[inkstone] API tester WebSocket target could not be reached:', target.hostname)
     throw new ApiError(502, 'apitester_upstream_unreachable', 'The WebSocket target could not be reached')
-  } finally {
-    clearTimeout(timer)
   }
 
   const upstream = upstreamResponse.webSocket

@@ -1891,8 +1891,7 @@ export class AssistantRunner {
     const transcript = overflow
       .map((entry) => `${entry.role === 'user' ? 'Reader' : 'Assistant'}: ${entry.content.slice(0, 1500)}`)
       .join('\n')
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), SUMMARIZE_DEADLINE_MS)
+    const signal = AbortSignal.timeout(SUMMARIZE_DEADLINE_MS)
     let text = ''
     try {
       if (!(await this.reserve(1, this.settings.limits.maxRequestsPerDay))) return null
@@ -1909,7 +1908,7 @@ export class AssistantRunner {
         reasoning: 'off',
         reasoningDialect: call.reasoningDialect,
         retry: this.retryFor(resolved.provider, resolved.model.model),
-        signal: controller.signal,
+        signal,
       })) {
         if (event.type === 'text') text += event.delta
       }
@@ -1919,8 +1918,6 @@ export class AssistantRunner {
       // and the log line is for whoever operates the deployment, not for the reader.
       console.warn('[inkstone] assistant summarization skipped:', error instanceof Error ? error.name : error)
       return null
-    } finally {
-      clearTimeout(timer)
     }
     const summary = text.trim().slice(0, 2000)
     if (!summary) return null
@@ -2724,8 +2721,7 @@ export class AssistantRunner {
     const call = modelEndpoint(resolved.model, resolved.provider)
     if (!(await this.reserve(1, this.settings.limits.maxRequestsPerDay))) return null
     const catalog = promptCatalog(this.settings.language)
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), CONFLICT_JUDGE_DEADLINE_MS)
+    const signal = AbortSignal.timeout(CONFLICT_JUDGE_DEADLINE_MS)
     let text = ''
     try {
       for await (const event of streamUpstream(call.protocol, {
@@ -2751,7 +2747,7 @@ export class AssistantRunner {
         reasoning: 'off',
         reasoningDialect: call.reasoningDialect,
         retry: this.retryFor(resolved.provider, resolved.model.model),
-        signal: controller.signal,
+        signal,
       })) {
         if (event.type === 'text') text += event.delta
       }
@@ -2762,8 +2758,6 @@ export class AssistantRunner {
       // `null` is the answer "no opinion", which is what the caller was built to take.
       await this.store.incrementUsage({ errors: 1 })
       return null
-    } finally {
-      clearTimeout(timer)
     }
     return parseVerdict(text)
   }

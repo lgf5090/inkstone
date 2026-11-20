@@ -92,8 +92,7 @@ async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
   catch {
     return { url: requested, status: 0, ok: false, reason: 'blocked' }
   }
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
   const etag = headerOnly(input.etag, 200)
   const lastModified = headerOnly(input.lastModified, 200)
   try {
@@ -101,7 +100,7 @@ async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
       const headers: Record<string, string> = { accept: FEED_ACCEPT, 'user-agent': READER_AGENT }
       if (etag) headers['if-none-match'] = etag
       if (lastModified) headers['if-modified-since'] = lastModified
-      const response = await fetch(url.href, { headers, redirect: NO_REDIRECT, signal: controller.signal })
+      const response = await fetch(url.href, { headers, redirect: NO_REDIRECT, signal })
       // A 304 is a 3xx, so it has to be read before the redirect branch or an unchanged feed looks
       // like a hop with nowhere to go.
       if (response.status === 304) {
@@ -137,10 +136,7 @@ async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
     return { url: requested, status: 0, ok: false, reason: 'unreachable' }
   }
   catch {
-    return { url: requested, status: 0, ok: false, reason: controller.signal.aborted ? 'timeout' : 'unreachable' }
-  }
-  finally {
-    clearTimeout(timer)
+    return { url: requested, status: 0, ok: false, reason: signal.aborted ? 'timeout' : 'unreachable' }
   }
 }
 
