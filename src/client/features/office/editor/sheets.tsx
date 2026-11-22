@@ -1,4 +1,4 @@
-import { IAuthzIoService, IImageIoService, IUndoRedoService, LocaleType, mergeLocales } from '@univerjs/core'
+import { LocaleType, mergeLocales } from '@univerjs/core'
 import type { FUniver } from '@univerjs/core/facade'
 import DesignEnUS from '@univerjs/design/locale/en-US'
 import DesignZhCN from '@univerjs/design/locale/zh-CN'
@@ -72,12 +72,6 @@ import { UniverUIPlugin } from '@univerjs/ui'
 import UIEnUS from '@univerjs/ui/locale/en-US'
 import UIzhCN from '@univerjs/ui/locale/zh-CN'
 import { UniverWatermarkPlugin } from '@univerjs/watermark'
-import { UniverCollaborationClientPlugin } from '@univerjs-pro/collaboration-client'
-import { UniverEditHistoryPlugin } from '@univerjs-pro/edit-history'
-import { UniverSheetsHistoryPlugin } from '@univerjs-pro/sheets-history'
-import { UniverSheetsHistoryUIPlugin } from '@univerjs-pro/sheets-history-ui'
-import SheetsHistoryUIEnUS from '@univerjs-pro/sheets-history-ui/locale/en-US'
-import SheetsHistoryUIZhCN from '@univerjs-pro/sheets-history-ui/locale/zh-CN'
 import { UniverSheetsChartPlugin } from '@univerjs-pro/sheets-chart'
 import { UniverSheetsChartUIPlugin } from '@univerjs-pro/sheets-chart-ui'
 import SheetsChartUIEnUS from '@univerjs-pro/sheets-chart-ui/locale/en-US'
@@ -129,7 +123,6 @@ import '@univerjs/sheets-table-ui/lib/index.css'
 import '@univerjs/sheets-thread-comment-ui/lib/index.css'
 import '@univerjs/thread-comment-ui/lib/index.css'
 import '@univerjs-pro/sheets-chart-ui/lib/index.css'
-import '@univerjs-pro/sheets-history-ui/lib/index.css'
 import '@univerjs-pro/sheets-outline-ui/lib/index.css'
 import '@univerjs-pro/sheets-pivot-ui/lib/index.css'
 import '@univerjs-pro/sheets-pivot-chart-ui/lib/index.css'
@@ -138,10 +131,8 @@ import '@univerjs-pro/sheets-shape-ui/lib/index.css'
 import '@univerjs-pro/sheets-slicer-ui/lib/index.css'
 import '@univerjs-pro/sheets-sparkline-ui/lib/index.css'
 
-import { OFFICE_HISTORY_PATH } from '@shared/office/constants'
 import type { OfficeEditPlan } from '@shared/office/ai'
 import type { OfficeEditorContext, OfficeEditorProps } from './contracts'
-import { OfficeLocalCollaborationSocket } from './local-collab'
 import { OfficeEditorSurface } from './OfficeEditorSurface'
 import type { OfficeEditorProduct } from './runtime'
 
@@ -151,7 +142,6 @@ const en = mergeLocales([
   SheetsFilterUIEnUS, SheetsHyperLinkUIEnUS, SheetsNoteUIEnUS, SheetsSortUIEnUS, SheetsTableUIEnUS,
   SheetsThreadCommentUIEnUS, ThreadCommentUIEnUS,
   SheetsChartUIEnUS, SheetsOutlineUIEnUS,
-  SheetsHistoryUIEnUS,
   SheetsPivotUIEnUS, SheetsPivotChartUIEnUS, SheetsPrintEnUS, SheetsShapeUIEnUS, SheetsSlicerUIEnUS,
   SheetsSparklineUIEnUS, DrawingUIEnUS,
 ])
@@ -162,7 +152,6 @@ const zh = mergeLocales([
   SheetsFilterUIZhCN, SheetsHyperLinkUIZhCN, SheetsNoteUIZhCN, SheetsSortUIZhCN, SheetsTableUIZhCN,
   SheetsThreadCommentUIZhCN, ThreadCommentUIZhCN,
   SheetsChartUIZhCN, SheetsOutlineUIZhCN,
-  SheetsHistoryUIZhCN,
   SheetsPivotUIZhCN, SheetsPivotChartUIZhCN, SheetsPrintZhCN, SheetsShapeUIZhCN, SheetsSlicerUIZhCN,
   SheetsSparklineUIZhCN, DrawingUIZhCN,
 ])
@@ -269,18 +258,6 @@ const product: OfficeEditorProduct = {
     univer.registerPlugin(UniverSheetSparklineUIPlugin)
     univer.registerPlugin(UniverSheetsOutlinePlugin)
     univer.registerPlugin(UniverSheetsOutlineUIPlugin)
-    // The panel reads revisions from our own endpoint; the collaboration client is only its transport
-    // contract, so it is given a socket that never opens.
-    univer.registerPlugin(UniverCollaborationClientPlugin, {
-      socketService: OfficeLocalCollaborationSocket,
-      enableCollaboration: false,
-      // The local authz model and the local undo stack are what this editor already runs on: the
-      // collaboration client's own versions would replace them and collide with the sheets plugin.
-      override: [[IAuthzIoService, null], [IUndoRedoService, null], [IImageIoService, null]],
-    })
-    univer.registerPlugin(UniverEditHistoryPlugin, { historyServerUrl: OFFICE_HISTORY_PATH })
-    univer.registerPlugin(UniverSheetsHistoryPlugin)
-    univer.registerPlugin(UniverSheetsHistoryUIPlugin)
   },
   create(api, { fileId, snapshot }) {
     // The file id is the unit id, as every other product already does: the history panel asks the server

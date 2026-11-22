@@ -9580,9 +9580,6 @@ const allowed = new Map([
   ["src/client/features/office/editor/docs.tsx", [
     "/*\r\n * `docs-code-ui` imports one Prism grammar per language but never the base grammars those grammars\r\n * extend, so a bundler that hands `prismjs` its own copy of the core leaves `clike` undefined and\r\n * `prism-c` throws while it loads. Importing the bases here registers them on the core the grammars\r\n * share, before the plugin's own imports run.\r\n */",
   ]],
-  ["src/client/features/office/editor/local-collab.ts", [
-    "/**\n * The socket the collaboration client insists on, answered by nothing.\n *\n * `UniverCollaborationClientPlugin` refuses to construct without a `socketService`, and its job here is\n * only to enable the history panel: this deployment has no collaboration server, so `createSocket`\n * returns `null` — the documented \"no socket\" answer — instead of opening a connection that would fail\n * on every heartbeat. Nothing in this app exchanges edits with a server; saving goes through our own\n * revision API.\n */",
-  ]],
   ["src/client/features/office/editor/office-api.ts", [
     "/**\n * The editor's own HTTP calls: read the revision it is about to edit, write it back, and upload the\n * images a snapshot carries.\n *\n * These sit here rather than in `lib/api.ts` only because that table belongs to the office file shell,\n * which lands separately. The GET/PUT shapes are exactly the ones that table will expose, so the whole\n * module can move into `api.office` without touching a caller.\n */",
     "/** The authoritative revision and content. A missing snapshot answers `{ rev: 0, snapshot: null }`. */",
@@ -9632,10 +9629,6 @@ const allowed = new Map([
     "// container untouched until this one has released it.",
   ]],
   ["src/client/features/office/editor/sheets.tsx", [
-    "// The panel reads revisions from our own endpoint; the collaboration client is only its transport",
-    "// contract, so it is given a socket that never opens.",
-    "// The local authz model and the local undo stack are what this editor already runs on: the",
-    "// collaboration client's own versions would replace them and collide with the sheets plugin.",
     "// The file id is the unit id, as every other product already does: the history panel asks the server",
     "// by unit id, and a workbook that invents its own id would be a document the server cannot find.",
   ]],
