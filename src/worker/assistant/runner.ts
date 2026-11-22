@@ -12,7 +12,7 @@
  *    who closes the tab still finds the half-answer and the reason.
  */
 
-import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, clipMusicClientEffect, isToolEffectEnvelope, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
+import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, clipClientToolEffect, isToolEffectEnvelope, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
 import type { AssistantArtifact, AssistantConversationOrigin, AssistantConversationSettings, AssistantMessage, AssistantModel, AssistantModelModality, AssistantPageContext, AssistantProtocol, AssistantSettings, AssistantSource, AssistantToolMode, ChatStreamEvent, Project, ToolActivity } from '@shared/assistant'
 import { renderAssistantPageContext } from '@shared/assistant'
@@ -1578,7 +1578,7 @@ export class AssistantRunner {
         // never reaches a citation reader or the wire as the tool's answer. Only the first-party music
         // namespace may carry one — an external tool's result is somebody else's JSON, not a press on the
         // reader's player.
-        const envelope = call.name.startsWith('music_') && isToolEffectEnvelope(result) ? result : null
+        const envelope = (call.name.startsWith('music_') || call.name.startsWith('office_')) && isToolEffectEnvelope(result) ? result : null
         const toolResult = envelope ? envelope.result ?? { ok: true } : result
         call.result = JSON.stringify(toolResult ?? null)
         call.error = false
@@ -1594,7 +1594,7 @@ export class AssistantRunner {
         // A search the worker ran itself joins the same list as one a vendor ran on its own server, so the
         // chips under the answer do not care which wire the pages came from.
         for (const source of webSearchSources(call.name, toolResult)) this.collectSource(source)
-        if (envelope) activity.effect = clipMusicClientEffect(envelope.effect)
+        if (envelope) activity.effect = clipClientToolEffect(envelope.effect)
         // What came back, kept beside the arguments above. The `result` sent to the model stays the
         // compact JSON the wire wants; what the reader is shown is the tool's own text where the tool
         // returned text, because a quoted JSON string is not what the search returned.

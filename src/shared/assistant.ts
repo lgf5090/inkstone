@@ -11,6 +11,7 @@ import { assertRelayableEndpoint } from './ai-proxy-guard'
 import { isValidTimeZone, parseScheduleSpec, type ScheduleSpec } from './assistant-schedule'
 import { DEFAULT_WEB_SEARCH_ENGINE_ID, webSearchEngineFor, webSearchEngineValue } from './web-search-engines'
 import type { MessageKey } from './locales/en-US'
+import { clipOfficeClientEffect, isOfficeClientEffect, type OfficeClientEffect } from './office/ai'
 
 export type AssistantProtocol = 'openai' | 'anthropic' | 'gemini'
 
@@ -2303,6 +2304,9 @@ export type MusicClientEffect =
   | { kind: 'music.queue'; action: 'add' | 'remove' | 'clear'; trackRefs?: string[] }
   | { kind: 'music.open'; view: 'nowPlaying' | 'lyrics' | 'queue' | 'cloud'; path?: string }
 
+/** Effects a browser tab can run on behalf of a tool. Music and Office share the same channel. */
+export type ClientToolEffect = MusicClientEffect | OfficeClientEffect
+
 /**
  * A tool result that also carries an effect for the reader's tab.
  *
@@ -2310,7 +2314,7 @@ export type MusicClientEffect =
  * with an object it did not ask for, so the runner substitutes `{ ok: true }` when this is absent.
  */
 export interface ToolEffectEnvelope {
-  effect: MusicClientEffect
+  effect: ClientToolEffect
   result?: unknown
 }
 
@@ -2358,7 +2362,18 @@ export function isMusicClientEffect(value: unknown): value is MusicClientEffect 
 /** Whether a tool result is an envelope rather than the value the model reads. */
 export function isToolEffectEnvelope(value: unknown): value is ToolEffectEnvelope {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
-  return isMusicClientEffect((value as Record<string, unknown>).effect)
+  const effect = (value as Record<string, unknown>).effect
+  return isMusicClientEffect(effect) || isOfficeClientEffect(effect)
+}
+
+export function isClientToolEffect(value: unknown): value is ClientToolEffect {
+  return isMusicClientEffect(value) || isOfficeClientEffect(value)
+}
+
+export function clipClientToolEffect(effect: ClientToolEffect): ClientToolEffect {
+  return effect.kind.startsWith('music.')
+    ? clipMusicClientEffect(effect as MusicClientEffect)
+    : clipOfficeClientEffect(effect as OfficeClientEffect)
 }
 
 function clipTrackRefs(value: readonly string[]): string[] {
@@ -2407,7 +2422,7 @@ export interface ToolActivity {
   artifactId?: string
   approval?: PendingAction
   /** A playback instruction for the tab that asked; never replayed from an old thread. */
-  effect?: MusicClientEffect
+  effect?: ClientToolEffect
   /**
    * What the model asked the tool for, as JSON — and what came back.
    *
@@ -2895,6 +2910,16 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'create_artifact', labelKey: 'assistant.tool.create_artifact', permission: 'write' },
   { name: 'update_artifact', labelKey: 'assistant.tool.update_artifact', permission: 'write' },
   { name: 'delete_note', labelKey: 'assistant.tool.delete_note', approvalKey: 'assistant.approval.delete_note', permission: 'destructive' },
+  { name: 'office_list_files', labelKey: 'assistant.tool.office_list_files', permission: 'read' },
+  { name: 'office_search_files', labelKey: 'assistant.tool.office_search_files', permission: 'read' },
+  { name: 'office_read_file', labelKey: 'assistant.tool.office_read_file', permission: 'read' },
+  { name: 'office_list_folders', labelKey: 'assistant.tool.office_list_folders', permission: 'read' },
+  { name: 'office_list_tags', labelKey: 'assistant.tool.office_list_tags', permission: 'read' },
+  { name: 'office_create_file', labelKey: 'assistant.tool.office_create_file', permission: 'write' },
+  { name: 'office_update_file', labelKey: 'assistant.tool.office_update_file', permission: 'write' },
+  { name: 'office_duplicate_file', labelKey: 'assistant.tool.office_duplicate_file', permission: 'write' },
+  { name: 'office_delete_file', labelKey: 'assistant.tool.office_delete_file', approvalKey: 'assistant.approval.delete_file', permission: 'destructive' },
+  { name: 'office_propose_edit', labelKey: 'assistant.tool.office_propose_edit', permission: 'write' },
   { name: 'create_reminder', labelKey: 'assistant.tool.create_reminder', permission: 'write' },
   { name: 'create_automation', labelKey: 'assistant.tool.create_automation', permission: 'write' },
   { name: 'list_automations', labelKey: 'assistant.tool.list_automations', permission: 'read' },

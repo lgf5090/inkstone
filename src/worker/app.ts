@@ -68,6 +68,9 @@ import { todoImportRoutes } from './routes/todo-import'
 import { todoFeedRoutes } from './routes/todo-feeds'
 import { emailRoutes } from './routes/email'
 import { musicRoutes } from './routes/music'
+import { officeRoutes } from './routes/office'
+import { officeContentRoutes } from './routes/office-content'
+import { officeHistoryRoutes } from './routes/office-history'
 import { cloudflareRoutes } from './routes/cloudflare'
 import { toolsPasswordRoutes } from './routes/tools-password'
 import { toolsQrcodeRoutes } from './routes/tools-qrcode'
@@ -209,6 +212,9 @@ export function createApp() {
   })
 
   app.use('/api/*', loadSession)
+  // The history panel speaks its own read-only protocol and cannot be taught our client header, so it
+  // gets the session without the header gate every `/api` write passes through.
+  app.use('/universer-api/*', loadSession)
   app.use('/authorize', loadSession)
 
   app.get('/api/health', async (c) => {
@@ -316,6 +322,9 @@ export function createApp() {
   app.route('/api/email', emailSendRoutes)
   app.route('/api/email', emailRoutes)
   app.route('/api/music', musicRoutes)
+  app.route('/universer-api/history', officeHistoryRoutes)
+  app.route('/api/office', officeContentRoutes)
+  app.route('/api/office', officeRoutes)
   // The Cloudflare app's own API; the prefix keeps every one of its ~150 endpoints out of the
   // notebook's namespace.
   app.route('/api/cloudflare', cloudflareRoutes)

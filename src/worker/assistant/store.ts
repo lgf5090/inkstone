@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, CONVERSATION_ORIGINS, LOG_BATCH_DELETE_LIMIT, LOG_MAX_PAGE_SIZE, LOG_MAX_ROWS_LIMIT, LOG_NOTE_MAX_CHARS, LOG_PAGE_SIZE, LOG_QUERY_MAX_CHARS, LOG_RETENTION_MAX_DAYS, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, PROJECT_MCP_MODES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, normalizeConversationSettings, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, CONVERSATION_ORIGINS, LOG_BATCH_DELETE_LIMIT, LOG_MAX_PAGE_SIZE, LOG_MAX_ROWS_LIMIT, LOG_NOTE_MAX_CHARS, LOG_PAGE_SIZE, LOG_QUERY_MAX_CHARS, LOG_RETENTION_MAX_DAYS, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, PROJECT_MCP_MODES, SAVED_MESSAGE_EXCERPT_CHARS, clipClientToolEffect, clipSuggestionList, clipToolPayload, isClientToolEffect, normalizeConversationSettings, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import { activePricePeriod, parsePricePeriods } from '@shared/price-periods'
 import { parseAssistantIcon } from '@shared/assistant-icons'
 import type {
@@ -743,7 +743,7 @@ export function decodeTools(value: unknown): ToolActivity[] {
     const approval = decodeAction(raw.approval)
     // A stored playback effect is decoded like every other JSON column: a row may come from an older
     // build or a backup file, so only a shape this client can run is kept.
-    const effect = isMusicClientEffect(raw.effect) ? clipMusicClientEffect(raw.effect) : null
+    const effect = isClientToolEffect(raw.effect) ? clipClientToolEffect(raw.effect) : null
     out.push({
       id: raw.id,
       name: raw.name,

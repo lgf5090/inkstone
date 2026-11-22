@@ -67,6 +67,8 @@ import { MEMOS_TOOLS } from './memos-tools'
 import { BLOG_TOOLS } from './blog-tools'
 import { READING_TOOLS } from './reading-tools'
 import { RSS_TOOLS } from './rss-tools'
+import { tool, ToolError } from './tool-kit'
+import { OFFICE_TOOLS } from './office-tools'
 import { SCRIPTSHUB_TOOLS } from './scriptshub-tools'
 import { COMPARE_TOOLS } from './compare-tools'
 import { readMcpNote, loadMcpNote, searchMcpNotes } from '../mcp/retrieval'
@@ -359,16 +361,7 @@ export interface DestructiveTool extends BaseTool {
 
 export type ToolDefinition = ImmediateTool | DestructiveTool
 
-export class ToolError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'ToolError'
-  }
-}
-
-function tool(definition: ToolDefinition): ToolDefinition {
-  return definition
-}
+export { tool, ToolError } from './tool-kit'
 
 /** A catalog line: enough to decide whether the tool is worth loading, not the whole description. */
 function firstSentence(text: string): string {
@@ -5044,6 +5037,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...READING_TOOLS,
   ...RSS_TOOLS,
   ...COMPARE_TOOLS,
+  ...OFFICE_TOOLS,
 ]
 
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))
