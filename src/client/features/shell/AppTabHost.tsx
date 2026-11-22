@@ -51,6 +51,7 @@ const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
   rss: lazy(() => import('../rss/RssApp').then(module => ({ default: module.RssApp }))),
   imgbed: lazy(() => import('../imgbed/ImgbedApp').then((module) => ({ default: module.ImgbedApp }))),
   music: lazy(() => import('../music/MusicApp').then((module) => ({ default: module.MusicApp }))),
+  office: lazy(() => import('../office/OfficeApp').then((module) => ({ default: module.OfficeApp }))),
   cloudflare: lazy(() => import('../cloudflare/CloudflareApp').then((module) => ({ default: module.CloudflareApp }))),
   youtube: lazy(() => import('../youtube/YoutubeApp').then((module) => ({ default: module.YoutubeApp }))),
   calendar: lazy(() => import('../calendar/CalendarApp').then((module) => ({ default: module.CalendarApp }))),

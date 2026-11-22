@@ -44,6 +44,7 @@ import { EN_US_INK } from './en-US-ink';
 import { EN_US_INK_ELEMENTS } from './en-US-ink-elements';
 import { EN_US_INK_SETTINGS } from './en-US-ink-settings';
 import { EN_US_PROJECT } from './en-US-project';
+import { EN_US_OFFICE } from './en-US-office';
 const CORE_MESSAGES = {
     "template.kanban_sprint_board.name": "Sprint Board",
     "template.kanban_sprint_board.description": "A kanban board with the four columns a sprint actually needs.",
@@ -11216,6 +11217,7 @@ const CORE_MESSAGES_TAIL = {
     ...EN_US_INK_ELEMENTS,
     ...EN_US_INK_SETTINGS,
     ...EN_US_PROJECT,
+    ...EN_US_OFFICE,
 } as const;
 
 const CORE_MESSAGES_ALL: typeof CORE_MESSAGES & typeof CORE_MESSAGES_TAIL = { ...CORE_MESSAGES, ...CORE_MESSAGES_TAIL };
@@ -11223,4 +11225,4 @@ const GITHUB_MESSAGES = { ...EN_US_DEVELOPMENT_GITHUB } as const;
 const CERTHUB_MESSAGES = { ...EN_US_DEVELOPMENT_CERTHUB } as const;
 export const EN_US_MESSAGES: typeof CORE_MESSAGES_ALL & typeof GITHUB_MESSAGES & typeof CERTHUB_MESSAGES & typeof EN_US_INKNOTE & typeof EN_US_YOUTUBE & typeof EN_US_BLOG_ADMIN = { ...CORE_MESSAGES, ...CORE_MESSAGES_TAIL, ...GITHUB_MESSAGES, ...CERTHUB_MESSAGES, ...EN_US_INKNOTE, ...EN_US_YOUTUBE, ...EN_US_BLOG_ADMIN };
 export type BaseMessageKey = keyof typeof CORE_MESSAGES_ALL | keyof typeof EN_US_INKNOTE | keyof typeof GITHUB_MESSAGES | keyof typeof CERTHUB_MESSAGES | keyof typeof EN_US_BLOG_ADMIN;
-export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED | keyof typeof EN_US_YOUTUBE | keyof typeof EN_US_NAV | keyof typeof EN_US_CLOUDDRIVE | keyof typeof EN_US_CLOUDDRIVE_ADMIN | keyof typeof EN_US_CLOUDDRIVE_MEDIA | keyof typeof EN_US_WEBSSH;
+export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED | keyof typeof EN_US_YOUTUBE | keyof typeof EN_US_NAV | keyof typeof EN_US_CLOUDDRIVE | keyof typeof EN_US_CLOUDDRIVE_ADMIN | keyof typeof EN_US_CLOUDDRIVE_MEDIA | keyof typeof EN_US_WEBSSH | keyof typeof EN_US_OFFICE;

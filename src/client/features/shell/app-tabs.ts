@@ -11,7 +11,7 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Cloud, Compass, FileCode2, FileText, HardDrive, Images, ListChecks, Mail, MessageSquare, Music, Newspaper, NotebookPen, PlaySquare, Rss, SquareKanban, SquareTerminal, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Cloud, Compass, FileCode2, FileText, Files, HardDrive, Images, ListChecks, Mail, MessageSquare, Music, Newspaper, NotebookPen, PlaySquare, Rss, SquareKanban, SquareTerminal, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
@@ -31,6 +31,7 @@ export type AppTabId =
   | 'rss'
   | 'imgbed'
   | 'music'
+  | 'office'
   | 'cloudflare'
   | 'youtube'
   | 'webssh'
@@ -63,6 +64,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'rss', path: '/rss', labelKey: 'app.tabs.rss', icon: Rss },
   { id: 'imgbed', path: '/imgbed', labelKey: 'app.tabs.imgbed', icon: Images },
   { id: 'music', path: '/music', labelKey: 'app.tabs.music', icon: Music },
+  { id: 'office', path: '/office', labelKey: 'app.tabs.office', icon: Files },
   { id: 'cloudflare', path: '/cloudflare', labelKey: 'app.tabs.cloudflare', icon: Cloud },
   { id: 'youtube', path: '/youtube', labelKey: 'app.tabs.youtube', icon: PlaySquare },
   { id: 'scriptshub', path: '/scripts', labelKey: 'app.tabs.scriptshub', icon: FileCode2 },
@@ -88,6 +90,7 @@ const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
   ['/clouddrive/', 'clouddrive'],
   ['/email/', 'email'],
   ['/music/', 'music'],
+  ['/office/', 'office'],
   ['/cloudflare/', 'cloudflare'],
   ['/youtube/', 'youtube'],
   ['/tools/', 'tools'],

@@ -37,6 +37,7 @@ import { ZH_CN_INK } from './zh-CN-ink';
 import { ZH_CN_INK_ELEMENTS } from './zh-CN-ink-elements';
 import { ZH_CN_INK_SETTINGS } from './zh-CN-ink-settings';
 import { ZH_CN_PROJECT } from './zh-CN-project';
+import { ZH_CN_OFFICE } from './zh-CN-office';
 const ZH_CORE_MESSAGES = {
     "template.kanban_sprint_board.name": "迭代看板",
     "template.kanban_sprint_board.description": "用看板排一个迭代：四条泳道，任务带勾选。",
@@ -11210,5 +11211,6 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_INK_ELEMENTS,
     ...ZH_CN_INK_SETTINGS,
     ...ZH_CN_PROJECT,
+    ...ZH_CN_OFFICE,
 } as const;
 export const ZH_CN_MESSAGES: Record<BaseMessageKey, string> = { ...ZH_CORE_MESSAGES, ...ZH_CN_INKNOTE, ...ZH_CN_BLOG_ADMIN };

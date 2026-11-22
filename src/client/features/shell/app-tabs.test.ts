@@ -21,6 +21,7 @@ const EVERY_TAB_ID: Record<AppTabId, true> = {
   rss: true,
   imgbed: true,
   music: true,
+  office: true,
   cloudflare: true,
   youtube: true,
   webssh: true,
