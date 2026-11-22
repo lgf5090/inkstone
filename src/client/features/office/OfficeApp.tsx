@@ -997,13 +997,23 @@ export function OfficeApp() {
   const anyDirty = Object.values(tabStates).some((state) => state.dirty || state.save === 'dirty' || state.save === 'failed')
   useEffect(() => {
     if (!anyDirty) return
-    // AGENTS allows `beforeunload` as the forced-API exception; the shell uses it only to warn.
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ''
+    // A dirty tab leaves with the last edit written: the page is hidden rather than blocked, because the
+    // browser's own leave-page dialog is a forced API this app does not use.
+    const flushOnHide = () => {
+      void handleRef.current?.flush().catch((cause: unknown) => {
+        // The tab is going away; the next open reads the server copy and reports what did not land.
+        console.warn('[office] final save failed', cause)
+      })
     }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushOnHide()
+    }
+    window.addEventListener('pagehide', flushOnHide)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.removeEventListener('pagehide', flushOnHide)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [anyDirty])
 
   const activeState = activeTab ? tabStates[activeTab.id] : undefined

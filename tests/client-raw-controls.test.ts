@@ -351,6 +351,13 @@ function findControl(element: ts.JsxElement): string | null {
  */
 const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: string }>([
   [
+    'src/client/features/office/office-menus.tsx',
+    {
+      sites: 1,
+      reason: "The tag picker overlay root stops clicks so the menu cannot close while the reader types in the field it holds; the field inside is the control and carries its own label.",
+    },
+  ],
+  [
     'src/client/features/clouddrive/files/FileList.tsx',
     {
       sites: 1,
@@ -604,6 +611,7 @@ const LIST_FILTER_BASELINE = new Map<string, { sites: number; reason: string }>(
   ['src/client/features/preview/NoteProperties.tsx', { sites: 2, reason: 'Property key/value entry fields (`properties.new_key` at 464 and its value editor). A form, not a list filter.' }],
   ['src/client/features/preview/property-colors.tsx', { sites: 1, reason: 'The colour property editor writes its own labelled value field (496) with an aria-label and placeholder; a field, not a list filter.' }],
   ['src/client/features/quickadd/launcher.tsx', { sites: 1, reason: 'QuickAdd draft entry (84) — it filters the command list, so it is a real filter that has not been converged onto FilterInput.' }],
+  ['src/client/features/office/office-menus.tsx', { sites: 1, reason: 'The tag picker narrows the tag list inside a 236px overlay menu; it is a real filter that has not been converged onto FilterInput yet.' }],
   ['src/client/features/quickadd/prompts.tsx', { sites: 4, reason: 'The QuickAdd prompt family (text, number and date prompts) each write a labelled field. Prompts, not list filters.' }],
   ['src/client/features/share/SharePanel.tsx', { sites: 1, reason: 'Read-only share link field that selects on focus (221). Not a filter at all.' }],
   ['src/client/features/settings/FeedSettings.tsx', { sites: 1, reason: 'The read-only subscription address that selects on focus (236); a copy field, not a list filter.' }],

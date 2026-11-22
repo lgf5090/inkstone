@@ -111,7 +111,9 @@ export function createOfficeAutosave(options: OfficeAutosaveOptions): OfficeAuto
       timer = undefined
       // A background save reports through the save state and the conflict callback; there is no
       // caller above it to receive the rejection.
-      void flush().catch(() => {})
+      void flush().catch(() => {
+        // The autosave listener already moved the state to `failed`; a second toast would repeat it.
+      })
     }, delay)
   }
 
@@ -210,7 +212,9 @@ export function createOfficeAutosave(options: OfficeAutosaveOptions): OfficeAuto
       dirty = true
       setState('dirty')
       // The reader asked; a failure is reported again through `onFailure`.
-      void flush().catch(() => {})
+      void flush().catch(() => {
+        // The autosave listener already moved the state to `failed`; a second toast would repeat it.
+      })
     },
     overwrite(currentRev: number) {
       if (disposed) return
@@ -218,7 +222,9 @@ export function createOfficeAutosave(options: OfficeAutosaveOptions): OfficeAuto
       dirty = true
       setState('dirty')
       // The reader chose to replace the newer revision; a second 409 is still reported.
-      void flush({ force: true }).catch(() => {})
+      void flush({ force: true }).catch(() => {
+        // Closing the tab is the reader's decision; the failure is reported by the next open.
+      })
     },
     dispose() {
       if (disposed) return

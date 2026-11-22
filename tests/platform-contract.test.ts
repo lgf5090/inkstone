@@ -69,6 +69,9 @@ it('keeps lockfile sources on the pinned registries with content hashes', () => 
     // Wrangler now pins its own workerd beside itself; it is the same runtime package as the
     // top-level entry, whose postinstall resolves the platform binary.
     'node_modules/wrangler/node_modules/workerd',
+    // Univer's protocol package brings protobufjs in transitively; its postinstall only prepares the
+    // CLI shim, and the version is exact so the script cannot change under us.
+    'node_modules/protobufjs',
   ])
   for (const [name, entry] of Object.entries(lock.packages)) {
     if (!name || !entry.resolved) continue

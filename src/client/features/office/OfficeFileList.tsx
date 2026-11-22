@@ -4,6 +4,7 @@ import { formatBytes } from '@shared/byte-format'
 import type { OfficeFileType } from '@shared/office/constants'
 import type { OfficeFileSummary, OfficeTag } from '@shared/office/model'
 import { useLocale, t } from '../../lib/i18n'
+import { isImeComposing } from '../../lib/ime'
 import { cn } from '../../lib/cn'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Checkbox, Input, Segmented } from '../../components/form'
@@ -192,6 +193,7 @@ export function OfficeFileList(props: OfficeFileListProps) {
   }
 
   const onListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (isImeComposing(event)) return
     const target = event.target as HTMLElement
     const typing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable
     if (typing) return
