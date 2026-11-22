@@ -1,0 +1,29 @@
+/*
+ * The Office shell's own styles. Everything visual that a utility class can express stays in the
+ * components; this file only carries the few rules utilities cannot: the tab strip's hidden
+ * scrollbar (a horizontal strip of tabs should scroll without a second chrome row) and the focus
+ * ring the custom tab buttons draw inside their own rounded box.
+ */
+.office-app {
+  min-height: 0;
+}
+
+.office-tab-strip {
+  scrollbar-width: none;
+}
+
+.office-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.office-tab-strip [role='tab']:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-ring-focus);
+  border-radius: var(--r-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .office-tab-strip * {
+    transition-duration: 0ms;
+  }
+}
