@@ -9498,6 +9498,9 @@ const allowed = new Map([
   ["src/client/features/office/OfficeEditorTabs.tsx", [
     "/**\n * The workbench's tab strip.\n *\n * `Tabs` cannot be reused: its items only hold a label, and a tab needs a close button and a dirty\n * marker beside the name. The semantics stay the same — a `tablist` of `role=\"tab\"` buttons with a\n * roving tab stop and arrow-key movement.\n */",
   ]],
+  ["src/client/features/office/OfficeFileList.test.tsx", [
+    "/**\n * The list's three states and its type tabs.\n *\n * Every callback is a spy: the component's contract is \"one object of actions\", so a test that renders\n * it without one would prove nothing about the tabs, the empty copy or the retry path.\n */",
+  ]],
   ["src/client/features/office/OfficeFileList.tsx", [
     "/** Everything a file row may do. One object so the three layouts cannot drift apart. */",
   ]],
@@ -51051,6 +51054,9 @@ const allowed = new Map([
   ]],
   ["tests/office-history.test.ts", [
     "/**\n * The history protocol the official panel reads.\n *\n * The panel is a client of a wire shape, not of our store: `error.code` has to be `ErrorCode.OK` (1),\n * versions arrive as `historyIds` + `entities.datas`, and the creator comes from `entities.users`.\n * These tests assert that shape, the ownership rule, and the one deliberate gap: no changesets.\n */",
+  ]],
+  ["tests/office-snapshot.test.ts", [
+    "/**\n * The snapshot helpers decide two things the editors depend on: which product an imported file is, and\n * which inline images still need a trip to R2. Both run on data the app did not author, so the tests\n * cover the shapes that made them necessary — nested arrays, repeated images, and depth cut-offs.\n */",
   ]],
   ["tests/phase4-regressions.test.ts", [
     "// The curated hints stay, because they are what tells an operator what to fix.",
