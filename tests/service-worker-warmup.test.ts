@@ -138,6 +138,12 @@ function buildServiceWorker() {
     'assets/ProjectApp-9.js': chunk('assets/ProjectApp-9.js', {
       facadeModuleId: '/src/client/features/project/ProjectApp.tsx',
     }),
+    'assets/OfficeApp-7.js': chunk('assets/OfficeApp-7.js', {
+      facadeModuleId: '/src/client/features/office/OfficeApp.tsx',
+    }),
+    'assets/office-editor-sheets-8.js': chunk('assets/office-editor-sheets-8.js', {
+      facadeModuleId: '/src/client/features/office/editor/sheets.tsx',
+    }),
     'vendor/excalidraw/excalidraw.production.min.js':
       asset('vendor/excalidraw/excalidraw.production.min.js', 'engine'),
     'vendor/excalidraw/fonts/Xiaolai/Xiaolai-Regular-abc.woff2':
@@ -303,6 +309,17 @@ it('keeps the project container out of the background download but caches it on 
 
   await expect(worker.requestPath(chunk)).resolves.toBeInstanceOf(FakeResponse)
   expect((await worker.assetCache()).has(ORIGIN + chunk)).toBe(true)
+})
+
+it('keeps the office shell and each editor chunk out of the background download', async () => {
+  const worker = bootServiceWorker({ previousShell: true })
+  await expect(worker.install()).resolves.toHaveLength(1)
+  for (const chunk of ['/assets/OfficeApp-7.js', '/assets/office-editor-sheets-8.js']) {
+    expect(worker.fetched).not.toContain(chunk)
+    expect((await worker.assetCache()).has(ORIGIN + chunk)).toBe(false)
+    await expect(worker.requestPath(chunk)).resolves.toBeInstanceOf(FakeResponse)
+    expect((await worker.assetCache()).has(ORIGIN + chunk)).toBe(true)
+  }
 })
 
 it('caches a dropped drawing engine file on first use instead of at install', async () => {
