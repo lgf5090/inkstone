@@ -165,16 +165,15 @@ export function OfficeEditorSurface(props: OfficeEditorSurfaceProps) {
     // A new revision is a new editor: `attempt` is the remount for reload/retry. The snapshot and title
     // props are read once, on purpose — a parent re-render that recreates either object must not throw
     // away the reader's editing session; a changed revision arrives as a new `fileId` or an `attempt`.
-  }, [fileId, fileType, product, attempt])
+  }, [fileId, fileType, product, attempt, dark])
 
-  // Theme and language are live: Univer repaints in place rather than losing the reader's selection.
+  // Language is live; the theme is not. Univer's own toggle left this container painted light, so the
+  // theme joins the mount effect's dependencies instead: a flip remounts under the new theme, and the
+  // unmount flushes the last edit first.
   useEffect(() => {
     instanceRef.current?.setLocale(locale)
   }, [locale])
 
-  useEffect(() => {
-    instanceRef.current?.setDarkMode(dark)
-  }, [dark])
 
   const reload = useCallback(() => {
     requireServerCopy.current = true

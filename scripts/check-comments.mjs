@@ -9540,7 +9540,9 @@ const allowed = new Map([
     "// A new revision is a new editor: `attempt` is the remount for reload/retry. The snapshot and title",
     "// props are read once, on purpose — a parent re-render that recreates either object must not throw",
     "// away the reader's editing session; a changed revision arrives as a new `fileId` or an `attempt`.",
-    "// Theme and language are live: Univer repaints in place rather than losing the reader's selection.",
+    "// Language is live; the theme is not. Univer's own toggle left this container painted light, so the",
+    "// theme joins the mount effect's dependencies instead: a flip remounts under the new theme, and the",
+    "// unmount flushes the last edit first.",
   ]],
   ["src/client/features/office/editor/Placeholder.tsx", [
     "/** The editor could not start; offers the one action that can help. */",
@@ -9627,6 +9629,8 @@ const allowed = new Map([
     "// The local authz mock derives the role from the user id prefix.",
     "// Subscribed before the product creates its unit: a product whose first frame renders inside `create`",
     "// reports Rendered before a handle exists, and for that product it is the only report there is.",
+    "// The constructor's `darkMode`/`theme` only seed the model; the theme service is what the UI reads, so",
+    "// the reader's choice is applied once the instance exists (a flip remounts under the new value).",
   ]],
   ["src/client/features/office/editor/sheets.tsx", [
     "// The file id is the unit id, as every other product already does: the history panel asks the server",

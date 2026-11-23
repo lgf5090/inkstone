@@ -77,7 +77,6 @@ export interface OfficeEditorProduct {
 export interface OfficeEditorInstance extends OfficeEditorHandle {
   readonly unitId: string
   setLocale(locale: AppLocale): void
-  setDarkMode(dark: boolean): void
   /** A failed save, on the reader's request. */
   retrySave(): void
   /** After the reader chose to replace the newer revision, write with it. */
@@ -183,6 +182,11 @@ export function mountOfficeEditor(options: MountOfficeEditorOptions): OfficeEdit
     snapshot: options.snapshot,
   })
 
+  // The constructor's `darkMode`/`theme` only seed the model; the theme service is what the UI reads, so
+  // the reader's choice is applied once the instance exists (a flip remounts under the new value).
+  api.setTheme(themeFor(options.dark))
+  api.toggleDarkMode(options.dark)
+
   const autosave = createOfficeAutosave({
     fileId: options.fileId,
     baseRev: options.baseRev,
@@ -231,10 +235,6 @@ export function mountOfficeEditor(options: MountOfficeEditorOptions): OfficeEdit
       baseRev: autosave.baseRev(),
     }),
     setLocale: (locale) => api.setLocale(univerLocale(locale)),
-    setDarkMode(dark) {
-      api.setTheme(themeFor(dark))
-      api.toggleDarkMode(dark)
-    },
     retrySave: () => autosave.retry(),
     overwriteConflict: (currentRev) => autosave.overwrite(currentRev),
     dispose,
