@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { ArrowLeft, PanelLeftClose, PanelLeftOpen, Plus, Sparkles } from 'lucide-react'
+import { ArrowLeft, Columns2, PanelLeftClose, PanelLeftOpen, Plus, Sparkles, Undo2 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
   isOfficeFolderName,
@@ -63,6 +63,9 @@ import type { OfficeEditorHandle } from './editor/contracts'
 import type { OfficeEditPlan } from '@shared/office/ai'
 import { getOfficeEditorHandle } from './editor/runtime'
 import './office.css'
+
+/** How many closed tabs the header's restore button can walk back. */
+const RECENTLY_CLOSED_MAX = 10
 
 const DEFAULT_TITLES: Record<OfficeFileType, MessageKey> = {
   sheets: 'office.default_title.sheets',
@@ -142,6 +145,10 @@ export function OfficeApp() {
   /** The workbench header's own surfaces: a new-file menu and a way to fold the rails away. */
   const [newTabAnchor, setNewTabAnchor] = useState<{ x: number; y: number } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  /** Tabs closed this session, newest last, so a mis-click costs one button rather than a re-navigation. */
+  const [recentlyClosed, setRecentlyClosed] = useState<OfficeOpenTab[]>([])
+  /** The tab shown beside the active one, or null for the single-pane workbench. */
+  const [splitId, setSplitId] = useState<string | null>(null)
 
   const lastListRef = useRef<OfficeListState>(emptyOfficeListState())
   const loadedListKeyRef = useRef<string | null>(null)
@@ -305,6 +312,18 @@ export function OfficeApp() {
     () => (activeFileId ? tabs.find((tab) => tab.id === activeFileId) ?? null : null),
     [activeFileId, tabs],
   )
+
+  const splitTab = useMemo(
+    () => (splitId ? tabs.find((tab) => tab.id === splitId) ?? null : null),
+    [splitId, tabs],
+  )
+  /** The tab a split would open: the next one, or the previous when the active tab is last. */
+  const splitCandidate = useMemo(() => {
+    if (tabs.length < 2 || !activeFileId) return null
+    const index = tabs.findIndex((tab) => tab.id === activeFileId)
+    if (index < 0) return null
+    return tabs[(index + 1) % tabs.length] ?? null
+  }, [tabs, activeFileId])
 
   const markOpened = useCallback((fileId: string) => {
     // Recency is a nicety: a failed write leaves the list's order as it was, not the screen broken.
@@ -812,6 +831,34 @@ export function OfficeApp() {
     navigateToAddress(officeFileAddress(tab.type, tab.id))
   }, [address, tabs, flushActive])
 
+  const rememberClosed = useCallback((closed: readonly OfficeOpenTab[]) => {
+    if (closed.length === 0) return
+    setRecentlyClosed((current) => [...current, ...closed].slice(-RECENTLY_CLOSED_MAX))
+  }, [])
+
+  const reorderTabs = useCallback((from: number, to: number) => {
+    setTabs((current) => {
+      if (from === to || from < 0 || to < 0 || from >= current.length || to >= current.length) return current
+      const next = [...current]
+      const [moved] = next.splice(from, 1)
+      if (!moved) return current
+      next.splice(to, 0, moved)
+      return next
+    })
+  }, [])
+
+  const reopenLastClosed = useCallback(async () => {
+    const tab = recentlyClosed[recentlyClosed.length - 1]
+    if (!tab) return
+    setRecentlyClosed((current) => current.slice(0, -1))
+    try {
+      const { file } = await officeApi.getFile(tab.id)
+      openFile(file)
+    } catch (cause: unknown) {
+      toast({ title: t('office.editor.unavailable'), description: officeErrorText(cause), tone: 'danger' })
+    }
+  }, [recentlyClosed, openFile, toast])
+
   const closeTab = useCallback(async (id: string) => {
     const index = tabs.findIndex((tab) => tab.id === id)
     if (index < 0) return
@@ -822,7 +869,10 @@ export function OfficeApp() {
     } else if (isTabDirty(id) && !(await confirmDiscard())) {
       return
     }
+    const closing = tabs[index]
     const next = tabs.filter((tab) => tab.id !== id)
+    if (closing) rememberClosed([closing])
+    if (splitId === id) setSplitId(null)
     setTabs(next)
     setTabStates((current) => {
       const copy = { ...current }
@@ -835,20 +885,22 @@ export function OfficeApp() {
         ? officeFileAddress(neighbor.type, neighbor.id)
         : officeListAddress(lastListRef.current))
     }
-  }, [address, tabs, flushActive, confirmDiscard, isTabDirty])
+  }, [address, tabs, flushActive, confirmDiscard, isTabDirty, rememberClosed, splitId])
 
   const closeOthers = useCallback(async (id: string) => {
     const keep = tabs.find((tab) => tab.id === id)
     if (!keep) return
     const closing = tabs.filter((tab) => tab.id !== id)
     if (closing.some((tab) => isTabDirty(tab.id)) && !(await confirmDiscard())) return
+    rememberClosed(closing)
+    if (splitId && splitId !== id) setSplitId(null)
     setTabs([keep])
     setTabStates((current) => {
       const next: Record<string, OfficeTabState> = {}
       if (current[id]) next[id] = current[id]!
       return next
     })
-  }, [tabs, confirmDiscard, isTabDirty])
+  }, [tabs, confirmDiscard, isTabDirty, rememberClosed, splitId])
 
   const closeRight = useCallback(async (id: string) => {
     const index = tabs.findIndex((tab) => tab.id === id)
@@ -856,7 +908,9 @@ export function OfficeApp() {
     const closing = tabs.slice(index + 1)
     if (closing.length === 0) return
     if (closing.some((tab) => isTabDirty(tab.id)) && !(await confirmDiscard())) return
+    rememberClosed(closing)
     const kept = tabs.slice(0, index + 1)
+    if (splitId && !kept.some((tab) => tab.id === splitId)) setSplitId(null)
     setTabs(kept)
     setTabStates((current) => {
       const next: Record<string, OfficeTabState> = {}
@@ -1171,12 +1225,35 @@ export function OfficeApp() {
                   onCloseRight={(id) => { void closeRight(id) }}
                   onDuplicate={(tab) => { void duplicateFile(tab, true) }}
                   onShowInList={showInList}
+                  onReorder={reorderTabs}
                 />
                 {activeStatus && (
                   <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]" aria-live="polite">
                     {activeStatus}
                   </span>
                 )}
+                <Tooltip label={t('office.split.toggle')} side="bottom">
+                  <IconButton
+                    label={t('office.split.toggle')}
+                    active={splitTab !== null}
+                    disabled={splitTab === null && splitCandidate === null}
+                    onClick={() => {
+                      if (splitTab) { setSplitId(null); return }
+                      if (splitCandidate) setSplitId(splitCandidate.id)
+                    }}
+                  >
+                    <Columns2 size={15} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip label={t('office.tab.reopen')} side="bottom">
+                  <IconButton
+                    label={t('office.tab.reopen')}
+                    disabled={recentlyClosed.length === 0}
+                    onClick={() => { void reopenLastClosed() }}
+                  >
+                    <Undo2 size={15} />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip label={t('office.tab.new')} side="bottom">
                   <IconButton
                     label={t('office.tab.new')}
@@ -1221,14 +1298,30 @@ export function OfficeApp() {
               </div>
               {activeTab
                 ? (
-                    <OfficeEditorHost
-                      file={activeTab}
-                      reloadKey={hostReloadKey}
-                      onDirtyChange={onEditorDirty}
-                      onSaveState={onEditorSave}
-                      onHandle={onEditorHandle}
-                      onUnavailable={onUnavailable}
-                    />
+                    <div className="flex min-h-0 min-w-0 flex-1">
+                      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                        <OfficeEditorHost
+                          file={activeTab}
+                          reloadKey={hostReloadKey}
+                          onDirtyChange={onEditorDirty}
+                          onSaveState={onEditorSave}
+                          onHandle={onEditorHandle}
+                          onUnavailable={onUnavailable}
+                        />
+                      </div>
+                      {splitTab && (
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-[var(--border-subtle)]">
+                          <OfficeEditorHost
+                            file={splitTab}
+                            reloadKey={hostReloadKey}
+                            onDirtyChange={onEditorDirty}
+                            onSaveState={onEditorSave}
+                            onHandle={onEditorHandle}
+                            onUnavailable={onUnavailable}
+                          />
+                        </div>
+                      )}
+                    </div>
                   )
                 : <OfficeFileListPlaceholder />}
             </section>

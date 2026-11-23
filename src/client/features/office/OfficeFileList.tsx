@@ -114,6 +114,8 @@ export function OfficeFileList(props: OfficeFileListProps) {
   const [search, setSearch] = useState(query)
   const [anchorId, setAnchorId] = useState<string | null>(null)
   const [newMenuOpen, setNewMenuOpen] = useState(false)
+  /** The breadcrumb row has its own "+", so a file can be created without leaving the current folder. */
+  const [crumbMenuAnchor, setCrumbMenuAnchor] = useState<{ x: number; y: number } | null>(null)
   const [sortMenuOpen, setSortMenuOpen] = useState(false)
   const [tagMenuOpen, setTagMenuOpen] = useState(false)
   const newButtonRef = useRef<HTMLButtonElement>(null)
@@ -135,6 +137,21 @@ export function OfficeFileList(props: OfficeFileListProps) {
   }, [search, query, onSearchChange])
 
   const selectedFiles = useMemo(() => files.filter((file) => selected.has(file.id)), [files, selected])
+
+  const newFileItems: MenuItem[] = [
+    ...officeNewFileMenuItems(props.onCreateFile),
+    {
+      id: 'new-folder',
+      label: t('office.menu.blank.new_folder'),
+      separatorBefore: true,
+      onSelect: props.onCreateFolder,
+    },
+    {
+      id: 'import',
+      label: t('office.action.import'),
+      onSelect: props.onImport,
+    },
+  ]
 
   useEffect(() => {
     if (anchorId && !files.some((file) => file.id === anchorId)) setAnchorId(null)
@@ -205,6 +222,30 @@ export function OfficeFileList(props: OfficeFileListProps) {
     if (event.key === 'Escape' && selected.size > 0) {
       event.preventDefault()
       clearSelection()
+      return
+    }
+    if (files.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault()
+      const index = files.findIndex((file) => selected.has(file.id))
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      const next = index < 0
+        ? (step > 0 ? 0 : files.length - 1)
+        : Math.min(files.length - 1, Math.max(0, index + step))
+      const target = files[next]
+      if (!target) return
+      props.onSelectChange(new Set([target.id]))
+      listRef.current?.querySelector<HTMLElement>(`[data-office-file-id="${CSS.escape(target.id)}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+      return
+    }
+    if (event.key === 'Enter' && selectedFiles.length === 1) {
+      event.preventDefault()
+      props.onOpen(selectedFiles[0]!)
+      return
+    }
+    if (event.key === 'Delete' && selectedFiles.length > 0) {
+      event.preventDefault()
+      props.onDelete(selectedFiles)
       return
     }
     if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && !blankMenu.point) {
@@ -325,6 +366,18 @@ export function OfficeFileList(props: OfficeFileListProps) {
             </span>
           )
         })}
+        <span className="ml-1 flex shrink-0 items-center">
+          <IconButton
+            label={t('office.crumb.new')}
+            size="xs"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect()
+              setCrumbMenuAnchor({ x: rect.left, y: rect.bottom + 4 })
+            }}
+          >
+            <Plus size={12} />
+          </IconButton>
+        </span>
       </nav>
 
       {selected.size > 0 && (
@@ -452,20 +505,10 @@ export function OfficeFileList(props: OfficeFileListProps) {
         {status === 'loading' && <span className="ml-auto">{t('common.loading')}</span>}
       </div>
 
-      <Menu anchor={newButtonRef} open={newMenuOpen} onClose={() => setNewMenuOpen(false)} items={[
-        ...officeNewFileMenuItems(props.onCreateFile),
-        {
-          id: 'new-folder',
-          label: t('office.menu.blank.new_folder'),
-          separatorBefore: true,
-          onSelect: props.onCreateFolder,
-        },
-        {
-          id: 'import',
-          label: t('office.action.import'),
-          onSelect: props.onImport,
-        },
-      ]} width={216} />
+      <Menu anchor={newButtonRef} open={newMenuOpen} onClose={() => setNewMenuOpen(false)} items={newFileItems} width={216} />
+      {crumbMenuAnchor && (
+        <Menu anchor={crumbMenuAnchor} open onClose={() => setCrumbMenuAnchor(null)} items={newFileItems} width={216} />
+      )}
       <Menu
         anchor={sortButtonRef}
         open={sortMenuOpen}
@@ -647,6 +690,7 @@ function FileTile({
       <div
         role="listitem"
         data-office-file=""
+        data-office-file-id={file.id}
         draggable={!trashed}
         onDragStart={dragStart}
         onDragEnd={endOfficeDrag}
@@ -683,6 +727,7 @@ function FileTile({
     <div
       role="listitem"
       data-office-file=""
+      data-office-file-id={file.id}
       draggable={!trashed}
       onDragStart={dragStart}
       onDragEnd={endOfficeDrag}

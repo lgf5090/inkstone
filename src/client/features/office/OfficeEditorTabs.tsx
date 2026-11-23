@@ -37,6 +37,8 @@ export interface OfficeEditorTabsProps {
   onCloseRight: (id: string) => void
   onDuplicate: (tab: OfficeOpenTab) => void
   onShowInList: (tab: OfficeOpenTab) => void
+  /** Move the tab at `from` to sit at `to`, the index the drop landed on. */
+  onReorder: (from: number, to: number) => void
 }
 
 function SaveIndicator({ state }: { state: OfficeTabState | undefined }) {
@@ -61,9 +63,10 @@ function SaveIndicator({ state }: { state: OfficeTabState | undefined }) {
  * roving tab stop and arrow-key movement.
  */
 export function OfficeEditorTabs({
-  tabs, activeId, states, onActivate, onClose, onCloseOthers, onCloseRight, onDuplicate, onShowInList,
+  tabs, activeId, states, onActivate, onClose, onCloseOthers, onCloseRight, onDuplicate, onShowInList, onReorder,
 }: OfficeEditorTabsProps) {
   const [menuTabId, setMenuTabId] = useState<string | null>(null)
+  const [dragging, setDragging] = useState<number | null>(null)
   const stripRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -122,6 +125,13 @@ export function OfficeEditorTabs({
           onClose={() => onClose(tab.id)}
           onKeyDown={(event) => onTabKeyDown(event, index)}
           menuItems={menuItemsFor(tab, index)}
+          dragging={dragging === index}
+          onDragStart={() => setDragging(index)}
+          onDragEnd={() => setDragging(null)}
+          onDropOn={() => {
+            if (dragging !== null && dragging !== index) onReorder(dragging, index)
+            setDragging(null)
+          }}
         />
       ))}
       {tabs.length === 0 && (
@@ -133,6 +143,7 @@ export function OfficeEditorTabs({
 
 function TabItem({
   tab, selected, state, menuOpen, setMenuOpen, onActivate, onClose, onKeyDown, menuItems,
+  dragging, onDragStart, onDragEnd, onDropOn,
 }: {
   tab: OfficeOpenTab
   selected: boolean
@@ -143,6 +154,10 @@ function TabItem({
   onClose: () => void
   onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void
   menuItems: MenuItem[]
+  dragging: boolean
+  onDragStart: () => void
+  onDragEnd: () => void
+  onDropOn: () => void
 }) {
   const menu = useContextMenu()
   const rowRef = useRef<HTMLDivElement>(null)
@@ -167,9 +182,27 @@ function TabItem({
   return (
     <div
       ref={rowRef}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', tab.id)
+        onDragStart()
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={(event) => {
+        if (dragging) {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'move'
+        }
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        onDropOn()
+      }}
       onContextMenu={onContextMenu}
       className={cn(
         'group relative flex h-8 shrink-0 items-center rounded-[var(--r-sm)] border transition-colors duration-[var(--dur-fast)]',
+        dragging && 'opacity-50',
         selected
           ? 'border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[0_1px_2px_rgba(0,0,0,.08)]'
           : 'border-transparent text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]',
@@ -183,6 +216,15 @@ function TabItem({
         data-office-tab={tab.id}
         onClick={onActivate}
         onKeyDown={onKeyDown}
+        // Middle click and double click both close, the two gestures a desktop tab is expected to answer.
+        // `auxclick` is the documented event but not every input path raises it, so the middle press is
+        // answered here and its default (autoscroll) suppressed.
+        onMouseDown={(event) => {
+          if (event.button !== 1) return
+          event.preventDefault()
+          onClose()
+        }}
+        onDoubleClick={onClose}
         title={tab.title}
         className="flex min-w-0 max-w-[180px] items-center gap-1.5 py-1 pr-1 pl-2 text-left text-[length:var(--text-12)] font-medium text-[var(--text-primary)]"
       >

@@ -9490,6 +9490,10 @@ const allowed = new Map([
     "/*\r\n   * A development-only door onto the open editor, so an end-to-end check can apply a plan and undo it\r\n   * without asking a model to produce one. `import.meta.env.DEV` is statically false in a production\r\n   * build, so the whole effect is dropped there and nothing ships with this surface.\r\n   */",
     "// The same registry the assistant's effects write through, so a check here exercises that path.",
     "/** The workbench header's own surfaces: a new-file menu and a way to fold the rails away. */",
+    "/** How many closed tabs the header's restore button can walk back. */",
+    "/** Tabs closed this session, newest last, so a mis-click costs one button rather than a re-navigation. */",
+    "/** The tab shown beside the active one, or null for the single-pane workbench. */",
+    "/** The tab a split would open: the next one, or the previous when the active tab is last. */",
   ]],
   ["src/client/features/office/OfficeEditorHost.tsx", [
     "/** Bumped by the shell after a version restore, so the open editor reloads its snapshot. */",
@@ -9499,13 +9503,18 @@ const allowed = new Map([
     "// state report drive the next render — a loop that never reaches a stable frame.",
   ]],
   ["src/client/features/office/OfficeEditorTabs.tsx", [
-    "/**\n * The workbench's tab strip.\n *\n * `Tabs` cannot be reused: its items only hold a label, and a tab needs a close button and a dirty\n * marker beside the name. The semantics stay the same — a `tablist` of `role=\"tab\"` buttons with a\n * roving tab stop and arrow-key movement.\n */",
+    "/** Move the tab at `from` to sit at `to`, the index the drop landed on. */",
+    "/**\r\n * The workbench's tab strip.\r\n *\r\n * `Tabs` cannot be reused: its items only hold a label, and a tab needs a close button and a dirty\r\n * marker beside the name. The semantics stay the same — a `tablist` of `role=\"tab\"` buttons with a\r\n * roving tab stop and arrow-key movement.\r\n */",
+    "// Middle click and double click both close, the two gestures a desktop tab is expected to answer.",
+    "// `auxclick` is the documented event but not every input path raises it, so the middle press is",
+    "// answered here and its default (autoscroll) suppressed.",
   ]],
   ["src/client/features/office/OfficeFileList.test.tsx", [
     "/**\n * The list's three states and its type tabs.\n *\n * Every callback is a spy: the component's contract is \"one object of actions\", so a test that renders\n * it without one would prove nothing about the tabs, the empty copy or the retry path.\n */",
   ]],
   ["src/client/features/office/OfficeFileList.tsx", [
     "/** Everything a file row may do. One object so the three layouts cannot drift apart. */",
+    "/** The breadcrumb row has its own \"+\", so a file can be created without leaving the current folder. */",
   ]],
   ["src/client/features/office/OfficeSidebar.tsx", [
     "/** The folder forest, sorted by the stored position and then by name in the reader's locale. */",
