@@ -78,3 +78,7 @@ public/flyfish-viewer-assets.json
 # Local CloudDrive probe artifacts
 .scratch/
 
+
+# The local collaboration service keeps its own dependency tree; it is not part of the app build.
+services/univer-collab/node_modules/
+services/univer-collab/package-lock.json
