@@ -19,6 +19,8 @@ import { UniverDocsTocPlugin } from '@univerjs/docs-toc'
 import { UniverDocsTocUIPlugin } from '@univerjs/docs-toc-ui'
 import DocsTocUIEnUS from '@univerjs/docs-toc-ui/locale/en-US'
 import DocsTocUIZhCN from '@univerjs/docs-toc-ui/locale/zh-CN'
+import { UniverDocsChartThreadCommentPlugin } from '@univerjs-pro/docs-chart-thread-comment'
+import { UniverDocsDrawingThreadCommentPlugin } from '@univerjs-pro/docs-drawing-thread-comment'
 import { UniverDocsThreadCommentPlugin } from '@univerjs/docs-thread-comment'
 import { UniverDocsThreadCommentUIPlugin } from '@univerjs/docs-thread-comment-ui'
 import DocsThreadCommentUIEnUS from '@univerjs/docs-thread-comment-ui/locale/en-US'
@@ -205,6 +207,8 @@ const product: OfficeEditorProduct = {
     univer.registerPlugin(UniverThreadCommentUIPlugin)
     univer.registerPlugin(UniverDocsThreadCommentPlugin)
     univer.registerPlugin(UniverDocsThreadCommentUIPlugin)
+    univer.registerPlugin(UniverDocsDrawingThreadCommentPlugin)
+    univer.registerPlugin(UniverDocsChartThreadCommentPlugin)
     univer.registerPlugin(UniverWatermarkPlugin)
     univer.registerPlugin(UniverDocsCalloutPlugin)
     univer.registerPlugin(UniverDocsCalloutUIPlugin)

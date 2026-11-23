@@ -60,6 +60,9 @@ import { UniverSheetsTablePlugin } from '@univerjs/sheets-table'
 import { UniverSheetsTableUIPlugin } from '@univerjs/sheets-table-ui'
 import SheetsTableUIEnUS from '@univerjs/sheets-table-ui/locale/en-US'
 import SheetsTableUIZhCN from '@univerjs/sheets-table-ui/locale/zh-CN'
+import { UniverSheetsChartThreadCommentPlugin } from '@univerjs-pro/sheets-chart-thread-comment'
+import { UniverSlicerPlugin } from '@univerjs-pro/slicer'
+import { UniverSheetsDrawingThreadCommentPlugin } from '@univerjs-pro/sheets-drawing-thread-comment'
 import { UniverSheetsThreadCommentPlugin } from '@univerjs/sheets-thread-comment'
 import { UniverSheetsThreadCommentUIPlugin } from '@univerjs/sheets-thread-comment-ui'
 import SheetsThreadCommentUIEnUS from '@univerjs/sheets-thread-comment-ui/locale/en-US'
@@ -242,6 +245,8 @@ const product: OfficeEditorProduct = {
     univer.registerPlugin(UniverThreadCommentUIPlugin)
     univer.registerPlugin(UniverSheetsThreadCommentPlugin)
     univer.registerPlugin(UniverSheetsThreadCommentUIPlugin)
+    univer.registerPlugin(UniverSheetsDrawingThreadCommentPlugin)
+    univer.registerPlugin(UniverSheetsChartThreadCommentPlugin)
     univer.registerPlugin(UniverWatermarkPlugin)
     univer.registerPlugin(UniverSheetsChartPlugin)
     univer.registerPlugin(UniverSheetsChartUIPlugin)
@@ -252,6 +257,7 @@ const product: OfficeEditorProduct = {
     univer.registerPlugin(UniverSheetsPrintPlugin)
     univer.registerPlugin(UniverSheetsShapePlugin)
     univer.registerPlugin(UniverSheetsShapeUIPlugin)
+    univer.registerPlugin(UniverSlicerPlugin)
     univer.registerPlugin(UniverSheetsSlicerPlugin)
     univer.registerPlugin(UniverSheetsSlicerUIPlugin)
     univer.registerPlugin(UniverSheetSparklinePlugin)

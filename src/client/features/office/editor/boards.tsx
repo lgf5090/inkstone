@@ -27,6 +27,7 @@ import { UniverBoardsChartUIPlugin } from '@univerjs-pro/boards-chart-ui'
 import BoardsChartUIEnUS from '@univerjs-pro/boards-chart-ui/locale/en-US'
 import BoardsChartUIZhCN from '@univerjs-pro/boards-chart-ui/locale/zh-CN'
 import { UniverBoardsLatexUIPlugin } from '@univerjs-pro/boards-latex-ui'
+import { UniverShapeEditorUIPlugin } from '@univerjs-pro/shape-editor-ui'
 import { UniverBoardsMindPlugin } from '@univerjs-pro/boards-mind'
 import { UniverBoardsMindUIPlugin } from '@univerjs-pro/boards-mind-ui'
 import BoardsMindUIEnUS from '@univerjs-pro/boards-mind-ui/locale/en-US'
@@ -141,6 +142,7 @@ const product: OfficeEditorProduct = {
     univer.registerPlugin(UniverBoardsUIPlugin)
     univer.registerPlugin(UniverBoardsMindPlugin)
     univer.registerPlugin(UniverBoardsMindUIPlugin)
+    univer.registerPlugin(UniverShapeEditorUIPlugin)
     univer.registerPlugin(UniverBoardsTablePlugin)
     univer.registerPlugin(UniverBoardsTableUIPlugin)
     univer.registerPlugin(UniverBoardsChartPlugin)
