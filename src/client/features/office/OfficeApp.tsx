@@ -59,6 +59,8 @@ import { officePageContext } from './ai/office-surface'
 import { AssistantDock } from '../chat/AssistantDock'
 import { officeSmartViewLabel, officeTypeLabel } from './office-menus'
 import type { OfficeEditorHandle } from './editor/contracts'
+import type { OfficeEditPlan } from '@shared/office/ai'
+import { getOfficeEditorHandle } from './editor/runtime'
 import './office.css'
 
 const DEFAULT_TITLES: Record<OfficeFileType, MessageKey> = {
@@ -892,6 +894,30 @@ export function OfficeApp() {
     if (handleFileRef.current === fileId) {
       handleRef.current = null
       handleFileRef.current = null
+    }
+  }, [])
+
+  /*
+   * A development-only door onto the open editor, so an end-to-end check can apply a plan and undo it
+   * without asking a model to produce one. `import.meta.env.DEV` is statically false in a production
+   * build, so the whole effect is dropped there and nothing ships with this surface.
+   */
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    // The same registry the assistant's effects write through, so a check here exercises that path.
+    const bridge = {
+      applyPlan: async (fileId: string, plan: OfficeEditPlan): Promise<void> => {
+        const handle = getOfficeEditorHandle(fileId)
+        if (!handle) throw new Error('No office editor is open for ' + fileId)
+        await handle.applyPlan(plan)
+        await handle.flush()
+      },
+      undo: (fileId: string): void => getOfficeEditorHandle(fileId)?.undo(),
+      handle: (fileId: string): OfficeEditorHandle | null => getOfficeEditorHandle(fileId),
+    }
+    ;(window as unknown as { __officeTest?: typeof bridge }).__officeTest = bridge
+    return () => {
+      delete (window as unknown as { __officeTest?: typeof bridge }).__officeTest
     }
   }, [])
 

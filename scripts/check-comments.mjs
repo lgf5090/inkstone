@@ -9487,6 +9487,8 @@ const allowed = new Map([
     "// A dirty tab leaves with the last edit written: the page is hidden rather than blocked, because the",
     "// browser's own leave-page dialog is a forced API this app does not use.",
     "// The tab is going away; the next open reads the server copy and reports what did not land.",
+    "/*\r\n   * A development-only door onto the open editor, so an end-to-end check can apply a plan and undo it\r\n   * without asking a model to produce one. `import.meta.env.DEV` is statically false in a production\r\n   * build, so the whole effect is dropped there and nothing ships with this surface.\r\n   */",
+    "// The same registry the assistant's effects write through, so a check here exercises that path.",
   ]],
   ["src/client/features/office/OfficeEditorHost.tsx", [
     "/** Bumped by the shell after a version restore, so the open editor reloads its snapshot. */",
