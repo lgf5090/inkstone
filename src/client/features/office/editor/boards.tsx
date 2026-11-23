@@ -73,6 +73,7 @@ import type { OfficeEditPlan } from '@shared/office/ai'
 import type { OfficeEditorContext, OfficeEditorProps } from './contracts'
 import { OfficeEditorSurface } from './OfficeEditorSurface'
 import type { OfficeEditorProduct } from './runtime'
+import { registerPro } from '../office-build'
 
 const en = mergeLocales([
   DesignEnUS, UIEnUS, DocsUIEnUS, DrawingUIEnUS, ThreadCommentUIEnUS, InkUIEnUS, BoardsUIEnUS,
@@ -137,24 +138,24 @@ const product: OfficeEditorProduct = {
     univer.registerPlugin(UniverDocsUIPlugin)
     univer.registerPlugin(UniverDrawingPlugin)
     univer.registerPlugin(UniverDrawingUIPlugin)
-    univer.registerPlugin(UniverInkUIPlugin)
-    univer.registerPlugin(UniverBoardsPlugin)
-    univer.registerPlugin(UniverBoardsUIPlugin)
-    univer.registerPlugin(UniverBoardsMindPlugin)
-    univer.registerPlugin(UniverBoardsMindUIPlugin)
-    univer.registerPlugin(UniverShapeEditorUIPlugin)
-    univer.registerPlugin(UniverBoardsTablePlugin)
-    univer.registerPlugin(UniverBoardsTableUIPlugin)
-    univer.registerPlugin(UniverBoardsChartPlugin)
-    univer.registerPlugin(UniverBoardsChartUIPlugin)
-    univer.registerPlugin(UniverBoardsResourcesPlugin)
-    univer.registerPlugin(UniverBoardsResourcesUIPlugin)
-    univer.registerPlugin(UniverBoardsPrintPlugin)
-    univer.registerPlugin(UniverBoardsLatexUIPlugin)
+    registerPro(univer, UniverInkUIPlugin)
+    registerPro(univer, UniverBoardsPlugin)
+    registerPro(univer, UniverBoardsUIPlugin)
+    registerPro(univer, UniverBoardsMindPlugin)
+    registerPro(univer, UniverBoardsMindUIPlugin)
+    registerPro(univer, UniverShapeEditorUIPlugin)
+    registerPro(univer, UniverBoardsTablePlugin)
+    registerPro(univer, UniverBoardsTableUIPlugin)
+    registerPro(univer, UniverBoardsChartPlugin)
+    registerPro(univer, UniverBoardsChartUIPlugin)
+    registerPro(univer, UniverBoardsResourcesPlugin)
+    registerPro(univer, UniverBoardsResourcesUIPlugin)
+    registerPro(univer, UniverBoardsPrintPlugin)
+    registerPro(univer, UniverBoardsLatexUIPlugin)
     univer.registerPlugin(UniverThreadCommentPlugin)
     univer.registerPlugin(UniverThreadCommentUIPlugin)
-    univer.registerPlugin(UniverBoardsThreadCommentPlugin)
-    univer.registerPlugin(UniverBoardsThreadCommentUIPlugin)
+    registerPro(univer, UniverBoardsThreadCommentPlugin)
+    registerPro(univer, UniverBoardsThreadCommentUIPlugin)
   },
   create(api, { fileId, title, snapshot }) {
     api.createBoard({ ...(snapshot ?? {}), id: fileId, name: title })

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { ArrowLeft, Columns2, PanelLeftClose, PanelLeftOpen, Plus, Sparkles, Undo2 } from 'lucide-react'
+import { ArrowLeft, Columns2, PanelLeftClose, PanelLeftOpen, Plus, Settings, Sparkles, Undo2 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
   isOfficeFolderName,
@@ -54,6 +54,8 @@ import {
   type OfficeTabState,
 } from './OfficeEditorTabs'
 import { OfficeEditorHost } from './OfficeEditorHost'
+import { OfficeSettingsDialog } from './OfficeSettingsDialog'
+import { setOfficeBuild } from './office-build'
 import { OfficeVersions } from './OfficeVersions'
 import { OfficeAiBridge } from './ai/OfficeAiBridge'
 import { officePageContext } from './ai/office-surface'
@@ -149,6 +151,7 @@ export function OfficeApp() {
   const [recentlyClosed, setRecentlyClosed] = useState<OfficeOpenTab[]>([])
   /** The tab shown beside the active one, or null for the single-pane workbench. */
   const [splitId, setSplitId] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const lastListRef = useRef<OfficeListState>(emptyOfficeListState())
   const loadedListKeyRef = useRef<string | null>(null)
@@ -280,9 +283,14 @@ export function OfficeApp() {
     }
   }, [address, tags, folders, navigateList])
 
+  // Registration reads this synchronously on the next mount, so it is mirrored as soon as prefs load.
+  useEffect(() => {
+    setOfficeBuild(prefs.build, prefs.license, prefs.autosaveDelayMs)
+  }, [prefs.build, prefs.license, prefs.autosaveDelayMs])
+
   useEffect(() => {
     let alive = true
-    const stored = readOfficeOpenTabs()
+    const stored = prefs.restoreTabs ? readOfficeOpenTabs() : []
     if (stored.length === 0) {
       setTabsReady(true)
       return
@@ -364,6 +372,17 @@ export function OfficeApp() {
       return next
     })
   }, [userId])
+
+  const saveSettings = useCallback((next: Partial<OfficePrefs>) => {
+    const rebuild = (next.build !== undefined && next.build !== prefs.build)
+      || (next.license !== undefined && next.license !== prefs.license)
+    savePrefs(next)
+    if (rebuild) {
+      // Registration happens once per editor mount; a reload is the honest way to apply a new set.
+      setOfficeBuild(next.build ?? prefs.build, next.license ?? prefs.license, next.autosaveDelayMs ?? prefs.autosaveDelayMs)
+      window.location.reload()
+    }
+  }, [prefs, savePrefs])
 
   const currentFolderId = address.kind === 'list' && address.view === 'all' ? address.folderId : null
 
@@ -1168,6 +1187,12 @@ export function OfficeApp() {
       onContextMenu={(event) => event.preventDefault()}
     >
       {sidebarOpen && sidebar}
+      <OfficeSettingsDialog
+        open={settingsOpen}
+        prefs={prefs}
+        onClose={() => setSettingsOpen(false)}
+        onSave={saveSettings}
+      />
       {address.kind === 'list'
         ? (
             <OfficeFileList
@@ -1202,6 +1227,7 @@ export function OfficeApp() {
               onToggleCheckboxes={() => savePrefs({ showCheckboxes: !prefs.showCheckboxes })}
               onSelectChange={setSelected}
               onNavigate={navigateList}
+              onOpenSettings={() => setSettingsOpen(true)}
             />
           )
         : (
@@ -1252,6 +1278,11 @@ export function OfficeApp() {
                     onClick={() => { void reopenLastClosed() }}
                   >
                     <Undo2 size={15} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip label={t('office.settings.title')} side="bottom">
+                  <IconButton label={t('office.settings.title')} onClick={() => setSettingsOpen(true)}>
+                    <Settings size={15} />
                   </IconButton>
                 </Tooltip>
                 <Tooltip label={t('office.tab.new')} side="bottom">

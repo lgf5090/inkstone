@@ -55,6 +55,7 @@ import type { OfficeEditPlan } from '@shared/office/ai'
 import type { OfficeEditorContext, OfficeEditorProps } from './contracts'
 import { OfficeEditorSurface } from './OfficeEditorSurface'
 import type { OfficeEditorProduct } from './runtime'
+import { registerPro } from '../office-build'
 
 const en = mergeLocales([
   DesignEnUS, UIEnUS, DocsUIEnUS, SlidesEnUS, SlidesUIEnUS, ThreadCommentUIEnUS,
@@ -96,17 +97,17 @@ const product: OfficeEditorProduct = {
     univer.registerPlugin(UniverDocsPlugin)
     univer.registerPlugin(UniverDocsUIPlugin)
     univer.registerPlugin(UniverDrawingPlugin)
-    univer.registerPlugin(UniverSlidesPlugin)
-    univer.registerPlugin(UniverSlidesUIPlugin)
+    registerPro(univer, UniverSlidesPlugin)
+    registerPro(univer, UniverSlidesUIPlugin)
     univer.registerPlugin(UniverThreadCommentPlugin)
     univer.registerPlugin(UniverThreadCommentUIPlugin)
-    univer.registerPlugin(UniverSlidesThreadCommentPlugin)
-    univer.registerPlugin(UniverSlidesThreadCommentUIPlugin)
-    univer.registerPlugin(UniverSlidesChartPlugin)
-    univer.registerPlugin(UniverSlidesChartUIPlugin)
-    univer.registerPlugin(UniverSlidesPrintPlugin)
-    univer.registerPlugin(UniverSlidesTablePlugin)
-    univer.registerPlugin(UniverSlidesTableUIPlugin)
+    registerPro(univer, UniverSlidesThreadCommentPlugin)
+    registerPro(univer, UniverSlidesThreadCommentUIPlugin)
+    registerPro(univer, UniverSlidesChartPlugin)
+    registerPro(univer, UniverSlidesChartUIPlugin)
+    registerPro(univer, UniverSlidesPrintPlugin)
+    registerPro(univer, UniverSlidesTablePlugin)
+    registerPro(univer, UniverSlidesTableUIPlugin)
   },
   create(api, { fileId, title, snapshot }) {
     api.createPresentation({ ...(snapshot ?? {}), id: fileId, name: title })

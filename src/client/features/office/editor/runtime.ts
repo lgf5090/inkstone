@@ -23,6 +23,7 @@ import type { OfficeFileType } from '@shared/office/constants'
 import type { OfficeSnapshot } from '@shared/office/model'
 import { t } from '../../../lib/i18n'
 import { useSession } from '../../../store/session'
+import { officeAutosaveDelay, officeLicense, officeUsesProPackages } from '../office-build'
 import { createOfficeAutosave, type OfficeSaveState } from './autosave'
 import type { OfficeEditorContext, OfficeEditorHandle } from './contracts'
 import { registerOfficeEditorHandle } from './handles'
@@ -55,6 +56,8 @@ export interface OfficeEditorUnitInput {
 
 export interface OfficeEditorProductContext {
   container: HTMLElement
+  /** `lite` registers the open-source packages only, which is also what removes the Pro watermark. */
+  build: 'full' | 'lite'
 }
 
 export interface OfficeEditorProduct {
@@ -142,9 +145,9 @@ export function mountOfficeEditor(options: MountOfficeEditorOptions): OfficeEdit
   })
 
   // First, before any Pro package registers: a dependency registered on our behalf carries no license.
-  const license = String(import.meta.env.VITE_UNIVER_LICENSE ?? '')
+  const license = officeLicense()
   if (options.product.needsLicense) univer.registerPlugin(UniverLicensePlugin, { license })
-  options.product.register(univer, { container })
+  options.product.register(univer, { container, build: officeUsesProPackages() ? 'full' : 'lite' })
   applySessionUser(univer)
 
   const api = FUniver.newAPI(univer)
@@ -203,6 +206,7 @@ export function mountOfficeEditor(options: MountOfficeEditorOptions): OfficeEdit
     onStateChange: options.onSaveState,
     onConflict: (currentRev) => options.onConflict?.(currentRev),
     onAssetFailure: options.onAssetFailure,
+    delayMs: officeAutosaveDelay(),
   })
 
   const handle: OfficeEditorInstance = {

@@ -44,6 +44,7 @@ import type { OfficeEditorContext, OfficeEditorProps } from './contracts'
 import { OfficeEditorSurface } from './OfficeEditorSurface'
 import { uploadOfficeAsset } from './office-api'
 import type { OfficeEditorProduct } from './runtime'
+import { registerPro } from '../office-build'
 
 const en = mergeLocales([
   DesignEnUS, UIEnUS, ThreadCommentUIEnUS, BasesEnUS, BasesUIEnUS, DashboardUIEnUS,
@@ -111,8 +112,8 @@ const product: OfficeEditorProduct = {
   register(univer, { container }) {
     univer.registerPlugin(UniverRenderEnginePlugin)
     univer.registerPlugin(UniverUIPlugin, { container, ribbonType: 'grid' })
-    univer.registerPlugin(UniverProFormulaEnginePlugin)
-    univer.registerPlugin(UniverBasesPlugin)
+    registerPro(univer, UniverProFormulaEnginePlugin)
+    registerPro(univer, UniverBasesPlugin)
     univer.registerPlugin(UniverBasesUIPlugin, {
       attachment: {
         accept: ['image/*', '.pdf', '.txt', '.csv'],
@@ -129,12 +130,12 @@ const product: OfficeEditorProduct = {
       },
       personOptions: personOptions(),
     })
-    univer.registerPlugin(UniverBaseDashboardPlugin)
-    univer.registerPlugin(UniverBaseDashboardUIPlugin)
+    registerPro(univer, UniverBaseDashboardPlugin)
+    registerPro(univer, UniverBaseDashboardUIPlugin)
     univer.registerPlugin(UniverThreadCommentPlugin)
     univer.registerPlugin(UniverThreadCommentUIPlugin)
-    univer.registerPlugin(UniverBasesThreadCommentPlugin)
-    univer.registerPlugin(UniverBasesThreadCommentUIPlugin)
+    registerPro(univer, UniverBasesThreadCommentPlugin)
+    registerPro(univer, UniverBasesThreadCommentUIPlugin)
   },
   create(api, { fileId, title, snapshot }) {
     api.createBase({ ...(snapshot ?? {}), id: fileId, name: title })

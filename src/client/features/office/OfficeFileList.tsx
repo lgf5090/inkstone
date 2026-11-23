@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { AlertTriangle, ArrowUpDown, FolderInput, ListChecks, MoreHorizontal, Pin, Plus, RefreshCw, RotateCcw, Search, Star, Tags, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, FolderInput, ListChecks, MoreHorizontal, Pin, Plus, RefreshCw, RotateCcw, Search, Settings, Star, Tags, Trash2, X } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import type { OfficeFileType } from '@shared/office/constants'
 import type { OfficeFileSummary, OfficeTag } from '@shared/office/model'
@@ -79,6 +79,7 @@ export interface OfficeFileListProps extends OfficeFileActions {
   onToggleCheckboxes: () => void
   onSelectChange: (ids: ReadonlySet<string>) => void
   onNavigate: (state: OfficeListState) => void
+  onOpenSettings: () => void
 }
 
 const DATE_FORMATS = new Map<string, Intl.DateTimeFormat>()
@@ -337,6 +338,9 @@ export function OfficeFileList(props: OfficeFileListProps) {
           <Button ref={newButtonRef} size="sm" variant="primary" icon={<Plus size={13} />} onClick={() => setNewMenuOpen(true)}>
             <span className="hidden sm:inline">{t('office.action.new_file')}</span>
           </Button>
+          <IconButton label={t('office.settings.title')} onClick={props.onOpenSettings}>
+            <Settings size={14} />
+          </IconButton>
           <IconButton label={t('office.action.refresh')} onClick={props.onRefresh}>
             <RefreshCw size={15} />
           </IconButton>

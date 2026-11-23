@@ -9494,6 +9494,8 @@ const allowed = new Map([
     "/** Tabs closed this session, newest last, so a mis-click costs one button rather than a re-navigation. */",
     "/** The tab shown beside the active one, or null for the single-pane workbench. */",
     "/** The tab a split would open: the next one, or the previous when the active tab is last. */",
+    "// Registration reads this synchronously on the next mount, so it is mirrored as soon as prefs load.",
+    "// Registration happens once per editor mount; a reload is the honest way to apply a new set.",
   ]],
   ["src/client/features/office/OfficeEditorHost.tsx", [
     "/** Bumped by the shell after a version restore, so the open editor reloads its snapshot. */",
@@ -9510,11 +9512,14 @@ const allowed = new Map([
     "// answered here and its default (autoscroll) suppressed.",
   ]],
   ["src/client/features/office/OfficeFileList.test.tsx", [
-    "/**\n * The list's three states and its type tabs.\n *\n * Every callback is a spy: the component's contract is \"one object of actions\", so a test that renders\n * it without one would prove nothing about the tabs, the empty copy or the retry path.\n */",
+    "/**\r\n * The list's three states and its type tabs.\r\n *\r\n * Every callback is a spy: the component's contract is \"one object of actions\", so a test that renders\r\n * it without one would prove nothing about the tabs, the empty copy or the retry path.\r\n */",
   ]],
   ["src/client/features/office/OfficeFileList.tsx", [
     "/** Everything a file row may do. One object so the three layouts cannot drift apart. */",
     "/** The breadcrumb row has its own \"+\", so a file can be created without leaving the current folder. */",
+  ]],
+  ["src/client/features/office/OfficeSettingsDialog.tsx", [
+    "/**\r\n * The reader's own decisions about the Office tab.\r\n *\r\n * Two of these change what the editors load rather than how they look: the build (Pro package set) and\r\n * the licence. Both are applied on the next mount, so the dialog says so instead of pretending a\r\n * running editor can switch underneath the reader.\r\n */",
   ]],
   ["src/client/features/office/OfficeSidebar.tsx", [
     "/** The folder forest, sorted by the stored position and then by name in the reader's locale. */",
@@ -9646,6 +9651,7 @@ const allowed = new Map([
     "// light. A light editor keeps the shared default theme.",
     "// The constructor's `darkMode` only seeds the model; the theme service is what the UI reads, so the",
     "// reader's choice is applied once the instance exists (a flip remounts under the new value).",
+    "/** `lite` registers the open-source packages only, which is also what removes the Pro watermark. */",
   ]],
   ["src/client/features/office/editor/sheets.tsx", [
     "// The file id is the unit id, as every other product already does: the history panel asks the server",
@@ -9661,6 +9667,11 @@ const allowed = new Map([
     "/**\n * The address as the office shell reads it. Anything that is not a known product under `/office`\n * falls back to the file list, so a stale deep link lands somewhere usable instead of nowhere.\n */",
     "/** The address a list state occupies. The query keeps only the parameters that carry meaning. */",
   ]],
+  ["src/client/features/office/office-build.ts", [
+    "/**\r\n * The package set the next editor mount registers.\r\n *\r\n * Registration happens synchronously inside `mountOfficeEditor`, before any React state can reach it,\r\n * so the reader's choice is mirrored here when their settings load or change. `officeLicense()` falls\r\n * back to the deployment's own `VITE_UNIVER_LICENSE`, which is what an instance-wide licence uses.\r\n */",
+    "/** True when Pro packages should register: the full build, licensed or not. */",
+    "/**\r\n * Registers a Pro plugin only in the full build.\r\n *\r\n * The lite build exists for readers who would rather have the open-source editors without the Pro\r\n * watermark than the Pro features; every `@univerjs-pro` registration goes through here so the two\r\n * sets cannot drift apart.\r\n */",
+  ]],
   ["src/client/features/office/office-drag.ts", [
     "/**\n * One private `dataTransfer` type for every in-app drag the office shell starts: files onto a\n * folder, folders into another folder, and tags under another tag. The payload is also kept in a\n * module variable because `dataTransfer` refuses to hand its data back before the drop, and every\n * drop target has to decide whether to accept the drag while it is still in flight.\n */",
   ]],
@@ -9675,6 +9686,9 @@ const allowed = new Map([
     "// A full or disabled localStorage only costs the preference, never the files.",
     "/** The workbench's open set, restored after a reload so a reader keeps their place. */",
     "// The workbench still works without remembering its set across a reload.",
+    "/** `lite` registers only the open-source packages: no watermark, no Pro features. */",
+    "/** Which package set an editor registers; a change takes effect on the next mount. */",
+    "/** The reader's own Univer license; blank means the Pro watermark stays. */",
   ]],
   ["src/client/features/office/office.css", [
     "/*\n * The Office shell's own styles. Everything visual that a utility class can express stays in the\n * components; this file only carries the few rules utilities cannot: the tab strip's hidden\n * scrollbar (a horizontal strip of tabs should scroll without a second chrome row) and the focus\n * ring the custom tab buttons draw inside their own rounded box.\n */",

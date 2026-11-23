@@ -138,6 +138,7 @@ import type { OfficeEditPlan } from '@shared/office/ai'
 import type { OfficeEditorContext, OfficeEditorProps } from './contracts'
 import { OfficeEditorSurface } from './OfficeEditorSurface'
 import type { OfficeEditorProduct } from './runtime'
+import { registerPro } from '../office-build'
 
 const en = mergeLocales([
   DesignEnUS, UIEnUS, DocsUIEnUS, SheetsEnUS, SheetsUIEnUS, SheetsFormulaUIEnUS, SheetsNumfmtUIEnUS,
@@ -245,25 +246,25 @@ const product: OfficeEditorProduct = {
     univer.registerPlugin(UniverThreadCommentUIPlugin)
     univer.registerPlugin(UniverSheetsThreadCommentPlugin)
     univer.registerPlugin(UniverSheetsThreadCommentUIPlugin)
-    univer.registerPlugin(UniverSheetsDrawingThreadCommentPlugin)
-    univer.registerPlugin(UniverSheetsChartThreadCommentPlugin)
+    registerPro(univer, UniverSheetsDrawingThreadCommentPlugin)
+    registerPro(univer, UniverSheetsChartThreadCommentPlugin)
     univer.registerPlugin(UniverWatermarkPlugin)
-    univer.registerPlugin(UniverSheetsChartPlugin)
-    univer.registerPlugin(UniverSheetsChartUIPlugin)
-    univer.registerPlugin(UniverSheetsPivotTablePlugin)
-    univer.registerPlugin(UniverSheetsPivotTableUIPlugin)
-    univer.registerPlugin(UniverSheetsPivotChartPlugin)
-    univer.registerPlugin(UniverSheetsPivotChartUIPlugin)
-    univer.registerPlugin(UniverSheetsPrintPlugin)
-    univer.registerPlugin(UniverSheetsShapePlugin)
-    univer.registerPlugin(UniverSheetsShapeUIPlugin)
-    univer.registerPlugin(UniverSlicerPlugin)
-    univer.registerPlugin(UniverSheetsSlicerPlugin)
-    univer.registerPlugin(UniverSheetsSlicerUIPlugin)
-    univer.registerPlugin(UniverSheetSparklinePlugin)
-    univer.registerPlugin(UniverSheetSparklineUIPlugin)
-    univer.registerPlugin(UniverSheetsOutlinePlugin)
-    univer.registerPlugin(UniverSheetsOutlineUIPlugin)
+    registerPro(univer, UniverSheetsChartPlugin)
+    registerPro(univer, UniverSheetsChartUIPlugin)
+    registerPro(univer, UniverSheetsPivotTablePlugin)
+    registerPro(univer, UniverSheetsPivotTableUIPlugin)
+    registerPro(univer, UniverSheetsPivotChartPlugin)
+    registerPro(univer, UniverSheetsPivotChartUIPlugin)
+    registerPro(univer, UniverSheetsPrintPlugin)
+    registerPro(univer, UniverSheetsShapePlugin)
+    registerPro(univer, UniverSheetsShapeUIPlugin)
+    registerPro(univer, UniverSlicerPlugin)
+    registerPro(univer, UniverSheetsSlicerPlugin)
+    registerPro(univer, UniverSheetsSlicerUIPlugin)
+    registerPro(univer, UniverSheetSparklinePlugin)
+    registerPro(univer, UniverSheetSparklineUIPlugin)
+    registerPro(univer, UniverSheetsOutlinePlugin)
+    registerPro(univer, UniverSheetsOutlineUIPlugin)
   },
   create(api, { fileId, snapshot }) {
     // The file id is the unit id, as every other product already does: the history panel asks the server

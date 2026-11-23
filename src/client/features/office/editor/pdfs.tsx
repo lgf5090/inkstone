@@ -30,6 +30,7 @@ import type { OfficeEditPlan } from '@shared/office/ai'
 import type { OfficeEditorContext, OfficeEditorProps } from './contracts'
 import { OfficeEditorSurface } from './OfficeEditorSurface'
 import type { OfficeEditorProduct } from './runtime'
+import { registerPro } from '../office-build'
 
 const en = mergeLocales([DesignEnUS, UIEnUS, DocsUIEnUS, PdfsUIEnUS, PdfsPrintEnUS])
 const zh = mergeLocales([DesignZhCN, UIzhCN, DocsUIZhCN, PdfsUIZhCN, PdfsPrintZhCN])
@@ -75,9 +76,9 @@ const product: OfficeEditorProduct = {
   register(univer, { container }) {
     univer.registerPlugin(UniverUIPlugin, { container, ribbonType: 'grid' })
     univer.registerPlugin(UniverDocsUIPlugin)
-    univer.registerPlugin(UniverPdfsPlugin)
-    univer.registerPlugin(UniverPdfsUIPlugin)
-    univer.registerPlugin(UniverPdfsPrintPlugin)
+    registerPro(univer, UniverPdfsPlugin)
+    registerPro(univer, UniverPdfsUIPlugin)
+    registerPro(univer, UniverPdfsPrintPlugin)
   },
   create(api, { fileId, title, snapshot }) {
     api.createPdf({ ...(snapshot ?? {}), id: fileId, name: title })

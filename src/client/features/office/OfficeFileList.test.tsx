@@ -60,6 +60,7 @@ function props(overrides: Partial<OfficeFileListProps> = {}): OfficeFileListProp
     onToggleCheckboxes: handler,
     onSelectChange: handler,
     onNavigate: handler,
+    onOpenSettings: handler,
     onOpen: handler,
     onRename: handler,
     onDuplicate: handler,

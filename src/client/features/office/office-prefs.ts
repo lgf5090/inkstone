@@ -10,11 +10,24 @@ export const OFFICE_VIEW_MODES: readonly OfficeViewMode[] = ['list', 'card', 'ga
 export const OFFICE_SORT_KEYS: readonly OfficeSortKey[] = ['updated', 'name', 'created', 'type', 'size']
 export const OFFICE_SORT_DIRECTIONS: readonly OfficeSortDirection[] = ['asc', 'desc']
 
+/** `lite` registers only the open-source packages: no watermark, no Pro features. */
+export type OfficeBuild = 'full' | 'lite'
+
+export const OFFICE_BUILDS: readonly OfficeBuild[] = ['full', 'lite']
+export const OFFICE_AUTOSAVE_DELAYS: readonly number[] = [600, 1200, 2000]
+
 export interface OfficePrefs {
   viewMode: OfficeViewMode
   sortKey: OfficeSortKey
   sortDir: OfficeSortDirection
   showCheckboxes: boolean
+  /** Which package set an editor registers; a change takes effect on the next mount. */
+  build: OfficeBuild
+  /** The reader's own Univer license; blank means the Pro watermark stays. */
+  license: string
+  autosaveDelayMs: number
+  restoreTabs: boolean
+  openSplitByDefault: boolean
 }
 
 export const DEFAULT_OFFICE_PREFS: OfficePrefs = {
@@ -22,6 +35,11 @@ export const DEFAULT_OFFICE_PREFS: OfficePrefs = {
   sortKey: 'updated',
   sortDir: 'desc',
   showCheckboxes: true,
+  build: 'full',
+  license: '',
+  autosaveDelayMs: 1200,
+  restoreTabs: true,
+  openSplitByDefault: false,
 }
 
 const PREFS_VERSION = 'v1'
@@ -46,11 +64,19 @@ export function parseOfficePrefs(value: unknown): OfficePrefs {
   const sortDir = OFFICE_SORT_DIRECTIONS.includes(value.sortDir as OfficeSortDirection)
     ? value.sortDir as OfficeSortDirection
     : DEFAULT_OFFICE_PREFS.sortDir
+  const autosaveDelayMs = OFFICE_AUTOSAVE_DELAYS.includes(value.autosaveDelayMs as number)
+    ? value.autosaveDelayMs as number
+    : DEFAULT_OFFICE_PREFS.autosaveDelayMs
   return {
     viewMode,
     sortKey,
     sortDir,
     showCheckboxes: typeof value.showCheckboxes === 'boolean' ? value.showCheckboxes : DEFAULT_OFFICE_PREFS.showCheckboxes,
+    build: OFFICE_BUILDS.includes(value.build as OfficeBuild) ? value.build as OfficeBuild : DEFAULT_OFFICE_PREFS.build,
+    license: typeof value.license === 'string' ? value.license.slice(0, 4096) : DEFAULT_OFFICE_PREFS.license,
+    autosaveDelayMs,
+    restoreTabs: typeof value.restoreTabs === 'boolean' ? value.restoreTabs : DEFAULT_OFFICE_PREFS.restoreTabs,
+    openSplitByDefault: typeof value.openSplitByDefault === 'boolean' ? value.openSplitByDefault : DEFAULT_OFFICE_PREFS.openSplitByDefault,
   }
 }
 
