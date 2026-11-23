@@ -13,7 +13,7 @@ import {
   type OfficeFileType,
 } from '@shared/office/constants'
 import type { OfficeFileSummary } from '@shared/office/model'
-import { extractOfficeText, validateOfficeEditPlan } from '@shared/office/ai'
+import { OFFICE_AI_OP_SPEC, extractOfficeText, validateOfficeEditPlan } from '@shared/office/ai'
 import { newId } from '../lib/id'
 import { tool, ToolError } from './tool-kit'
 import type { ToolContext, ToolDefinition } from './tools'
@@ -363,7 +363,12 @@ export const OFFICE_TOOLS: ToolDefinition[] = [
     name: 'office_propose_edit',
     permission: 'write',
     maxCallsPerTurn: 2,
-    description: 'Propose structured edits for an open office file. The Office tab applies them through the editor.',
+    description: [
+      'Propose structured edits for an open office file. The Office tab applies them through the editor.',
+      'Each op is an object whose kind is one of the lines below and whose other keys are that line fields.',
+      'Every op in one call must belong to the plan type. Sheets ranges are A1 notation.',
+      OFFICE_AI_OP_SPEC,
+    ].join('\n'),
     fields: {
       fileId: { type: 'string', minLength: 26, maxLength: 26, description: 'The target file id.' },
       type: { type: 'string', enum: OFFICE_FILE_TYPES, description: 'The target product.' },

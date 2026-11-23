@@ -35,6 +35,48 @@ export type OfficeAiOp =
   | { kind: 'pdfs.add-table'; pageIndex: number; rows: number; columns: number; values?: string[][] }
   | { kind: 'pdfs.add-page'; index?: number }
 
+/**
+ * The op vocabulary in the words a model needs.
+ *
+ * A language model can only produce a plan this app accepts if the tool tells it what an op looks
+ * like: the union above is a TypeScript type, invisible at the tool boundary. Every kind is listed
+ * here with its fields, per product, and `OFFICE_AI_OP_KINDS` is the list a test compares the spec
+ * against — a kind added to the union without a line here fails that test rather than the model.
+ */
+export const OFFICE_AI_OP_SPEC: string = [
+  'sheets.set-values{range,values:[[cell,...],...],sheet?}',
+  'sheets.set-formula{range,formula,sheet?}',
+  'sheets.set-number-format{range,pattern,sheet?}',
+  'sheets.set-style{range,bold?,italic?,background?,color?,sheet?}',
+  'sheets.insert-rows{index,count,sheet?}',
+  'sheets.delete-rows{index,count,sheet?}',
+  'sheets.add-sheet{name}',
+  'sheets.rename-sheet{sheet,name}',
+  'docs.append-paragraph{text}',
+  'docs.insert-text{offset,text}',
+  'docs.replace-text{search,replacement}',
+  'docs.insert-table{rows,columns,values?}',
+  'slides.add-slide{name?}',
+  'slides.set-title{slideIndex,text}',
+  'slides.add-text{slideIndex,text,left?,top?,width?,height?,fontSize?}',
+  'slides.add-shape{slideIndex,shape:rect|ellipse|roundRect|diamond,text?,left?,top?,width?,height?}',
+  'bases.add-table{name,primaryField?}',
+  'bases.add-field{table,name,fieldType}',
+  'bases.add-record{table,values:{field:value}}',
+  'bases.set-record{table,recordId,field,value}',
+  'boards.add-sticky{text,left,top,width?,height?}',
+  'boards.add-shapes{shapes:[{shapeType,left,top,width?,height?,text?}]}',
+  'boards.add-connector{from:{x,y},to:{x,y},label?}',
+  'pdfs.add-text{pageIndex,text,x?,y?,width?,height?,fontSize?}',
+  'pdfs.add-table{pageIndex,rows,columns,values?}',
+  'pdfs.add-page{index?}',
+].join('\n')
+
+/** The kinds the spec promises, for the drift test. */
+export const OFFICE_AI_OP_KINDS: readonly string[] = OFFICE_AI_OP_SPEC
+  .split('\n')
+  .map((line) => line.slice(0, line.indexOf('{')))
+
 export interface OfficeEditPlan {
   type: OfficeFileType
   fileId: string

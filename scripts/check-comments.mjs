@@ -33819,6 +33819,8 @@ const allowed = new Map([
   ]],
   ["src/shared/office/ai.ts", [
     "/** A bounded plain-text view of a snapshot for the assistant. It never returns binary assets. */",
+    "/**\r\n * The op vocabulary in the words a model needs.\r\n *\r\n * A language model can only produce a plan this app accepts if the tool tells it what an op looks\r\n * like: the union above is a TypeScript type, invisible at the tool boundary. Every kind is listed\r\n * here with its fields, per product, and `OFFICE_AI_OP_KINDS` is the list a test compares the spec\r\n * against — a kind added to the union without a line here fails that test rather than the model.\r\n */",
+    "/** The kinds the spec promises, for the drift test. */",
   ]],
   ["src/shared/office/constants.ts", [
     "/** The snapshot key for one immutable revision. */",
@@ -36643,7 +36645,7 @@ const allowed = new Map([
     "// turn's own additions and the pages a project named.",
   ]],
   ["src/worker/assistant/office-tools.ts", [
-    "/**\n * Office tools for the assistant.\n *\n * Reads and metadata writes run against D1. Content edits are returned as an `OfficeEditPlan` inside a\n * tool-effect envelope: the Univer model lives in the reader's tab, not in this Worker, and the office\n * bridge applies the plan through the Facade. Every query is scoped to the account in `ToolContext`.\n */",
+    "/**\r\n * Office tools for the assistant.\r\n *\r\n * Reads and metadata writes run against D1. Content edits are returned as an `OfficeEditPlan` inside a\r\n * tool-effect envelope: the Univer model lives in the reader's tab, not in this Worker, and the office\r\n * bridge applies the plan through the Facade. Every query is scoped to the account in `ToolContext`.\r\n */",
   ]],
   ["src/worker/assistant/one-shot.ts", [
     "/**\n * One cheap, tool-less call to the reader's active model.\n *\n * The assistant makes several calls that are not turns: naming a thread, judging a conflicting note\n * write, summarising an overflow, translating a lyric. They share the same obligations — resolve the\n * account's model, sign with a key from that provider's ring, reserve one request from the day's\n * ceiling, meter what was actually spent, and stop after a deadline — and differ only in their\n * prompt and their budget. This is that shared path, kept in one place so a new one cannot quietly\n * forget the meter or the ceiling.\n *\n * Nothing here logs the prompt, the key or the answer: a failure is reported by its kind, because\n * those are the only facts the caller needs to choose between \"no model\", \"no budget\" and \"the\n * provider refused\".\n */",
@@ -51044,6 +51046,9 @@ const allowed = new Map([
     "// The account receiving the file already knows this id, and the notice it holds is its own.",
     "/**\n * `chat_notifications.link`: the screen a delivered notice was about, carried on the row.\n *\n * A reminder that cannot be opened from is a delivery with the last step missing. The row said what\n * arrived and whether the reader had looked; it never said where the thing itself lives, so pressing the\n * notice could only ever show a list. The link is that pointer, spelled `<app>:<id>` — today `todo:<task\n * id>` — and it is deliberately not a URL: the row must not carry an address the deployment did not choose\n * (an open redirect waiting to be handed to a browser), while an app-and-id pair is resolved by the client,\n * which already knows how to reach a task and what to do when the reader cannot.\n *\n * Version 128 spends one column, as every version here does. The three properties that matter are that an\n * account predating it gets the column on its next boot, that the writer keeps what it was given and answers\n * null for what it was not, and that the backup carries it across — `chat_notifications` is in the export,\n * so a column that is exported but not in the import allowlist is a pointer a restore quietly loses.\n */",
     "/** The notification table as the shape before version 128, with every later boot able to notice it is missing. */",
+  ]],
+  ["tests/office-ai-plan.test.ts", [
+    "/**\n * The edit-plan vocabulary the assistant tool publishes.\n *\n * A model can only answer with an op this app accepts if the tool description spells the op out. These\n * tests keep that description honest: every kind the validator understands appears in it, and the\n * validator still refuses the cases a model is most likely to produce by accident.\n */",
   ]],
   ["tests/office-api.test.ts", [
     "/**\n * The office API's own door: files, snapshots, versions and assets.\n *\n * Ownership is the first thing every section checks: an id from another account must answer 404,\n * never a 403 that confirms the row exists. Snapshot tests assert the R2 key shape, because the\n * revision objects are what the conflict rules protect.\n */",
