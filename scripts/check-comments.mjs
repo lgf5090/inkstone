@@ -9489,6 +9489,7 @@ const allowed = new Map([
     "// The tab is going away; the next open reads the server copy and reports what did not land.",
     "/*\r\n   * A development-only door onto the open editor, so an end-to-end check can apply a plan and undo it\r\n   * without asking a model to produce one. `import.meta.env.DEV` is statically false in a production\r\n   * build, so the whole effect is dropped there and nothing ships with this surface.\r\n   */",
     "// The same registry the assistant's effects write through, so a check here exercises that path.",
+    "/** The workbench header's own surfaces: a new-file menu and a way to fold the rails away. */",
   ]],
   ["src/client/features/office/OfficeEditorHost.tsx", [
     "/** Bumped by the shell after a version restore, so the open editor reloads its snapshot. */",

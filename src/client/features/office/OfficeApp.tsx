@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { ArrowLeft, Sparkles } from 'lucide-react'
+import { ArrowLeft, PanelLeftClose, PanelLeftOpen, Plus, Sparkles } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
   isOfficeFolderName,
   isOfficeTagName,
   normalizeOfficeTitle,
+  OFFICE_FILE_TYPES,
   OFFICE_LIMITS,
   officeSnapshotLimit,
   type OfficeFileType,
@@ -18,7 +19,7 @@ import { t, useLocale } from '../../lib/i18n'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
-import { confirm, Modal, prompt, Tooltip } from '../../components/overlay'
+import { confirm, Menu, Modal, prompt, Tooltip } from '../../components/overlay'
 import { FolderPicker } from '../folders/FolderPicker'
 import { childTagPath, renameTagSegment } from '../../lib/tag-tree'
 import { officeApi, officeErrorText, type OfficeFolderPatch, type OfficeTagPatch } from './api'
@@ -57,7 +58,7 @@ import { OfficeVersions } from './OfficeVersions'
 import { OfficeAiBridge } from './ai/OfficeAiBridge'
 import { officePageContext } from './ai/office-surface'
 import { AssistantDock } from '../chat/AssistantDock'
-import { officeSmartViewLabel, officeTypeLabel } from './office-menus'
+import { officeSmartViewLabel, officeTypeIcon, officeTypeLabel } from './office-menus'
 import type { OfficeEditorHandle } from './editor/contracts'
 import type { OfficeEditPlan } from '@shared/office/ai'
 import { getOfficeEditorHandle } from './editor/runtime'
@@ -138,6 +139,9 @@ export function OfficeApp() {
   const [versionsFile, setVersionsFile] = useState<OfficeFileSummary | null>(null)
   const [detailsFile, setDetailsFile] = useState<OfficeFileSummary | null>(null)
   const [hostReloadKey, setHostReloadKey] = useState(0)
+  /** The workbench header's own surfaces: a new-file menu and a way to fold the rails away. */
+  const [newTabAnchor, setNewTabAnchor] = useState<{ x: number; y: number } | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const lastListRef = useRef<OfficeListState>(emptyOfficeListState())
   const loadedListKeyRef = useRef<string | null>(null)
@@ -1109,7 +1113,7 @@ export function OfficeApp() {
       className="office-app flex h-full min-h-0 min-w-0 bg-[var(--bg-base)]"
       onContextMenu={(event) => event.preventDefault()}
     >
-      {sidebar}
+      {sidebarOpen && sidebar}
       {address.kind === 'list'
         ? (
             <OfficeFileList
@@ -1173,6 +1177,42 @@ export function OfficeApp() {
                     {activeStatus}
                   </span>
                 )}
+                <Tooltip label={t('office.tab.new')} side="bottom">
+                  <IconButton
+                    label={t('office.tab.new')}
+                    active={newTabAnchor !== null}
+                    onClick={(event) => {
+                      if (newTabAnchor) { setNewTabAnchor(null); return }
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      setNewTabAnchor({ x: rect.right - 200, y: rect.bottom + 4 })
+                    }}
+                  >
+                    <Plus size={15} />
+                  </IconButton>
+                </Tooltip>
+                <Menu
+                  anchor={newTabAnchor ?? { x: 0, y: 0 }}
+                  open={newTabAnchor !== null}
+                  onClose={() => setNewTabAnchor(null)}
+                  width={200}
+                  items={OFFICE_FILE_TYPES.map((type) => ({
+                    id: type,
+                    label: officeTypeLabel(type),
+                    icon: officeTypeIcon(type),
+                    onSelect: () => {
+                      setNewTabAnchor(null)
+                      void createFile(type, currentFolderId)
+                    },
+                  }))}
+                />
+                <Tooltip label={sidebarOpen ? t('office.sidebar.hide') : t('office.sidebar.show')} side="bottom">
+                  <IconButton
+                    label={sidebarOpen ? t('office.sidebar.hide') : t('office.sidebar.show')}
+                    onClick={() => setSidebarOpen((open) => !open)}
+                  >
+                    {sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
+                  </IconButton>
+                </Tooltip>
                 <Tooltip label={t('office.ai.open')} side="bottom">
                   <IconButton label={t('office.ai.open')} onClick={toggleAssistantDock}>
                     <Sparkles size={15} />
