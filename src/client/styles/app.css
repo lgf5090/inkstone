@@ -1,4 +1,36 @@
 @import 'tailwindcss';
+
+/*
+ * Univer's UI writes Tailwind utilities in its own class names (`univer-bg-gray-0`,
+ * `dark:!univer-bg-gray-800`), and Tailwind only emits what it can see. Without these sources the
+ * utilities do not exist and the editor paints its own light fallback even under `.univer-dark`.
+ */
+@source '../../../node_modules/@univerjs/ui/lib/es';
+@source '../../../node_modules/@univerjs/design/lib/es';
+
+/*
+ * Those sources also spell `dark:` utilities Univer never shipped. Under the media strategy Tailwind
+ * would emit them, and `dark:!univer-bg-gray-800` carries `!important` — it beats `.univer-dark`'s
+ * tokens and paints the workbench light in dark mode. The app themes itself through `[data-theme]`, so
+ * the variant is pinned to a class nothing sets: `.univer-dark` stays the only dark switch.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Those sources also spell `dark:` utilities Univer never shipped. Under the media strategy Tailwind
+ * would emit them, and `dark:!univer-bg-gray-800` carries `!important` — it beats `.univer-dark`'s
+ * tokens and paints the workbench light in dark mode. The app themes itself through `[data-theme]`, so
+ * the variant is pinned to a class nothing sets: `.univer-dark` stays the only dark switch.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Univer's UI writes Tailwind utilities in its own class names (`univer-bg-gray-0`,
+ * `dark:!univer-bg-gray-800`), and Tailwind only emits what it can see. Without these sources the
+ * utilities do not exist and the editor paints its own light fallback even under `.univer-dark`.
+ */
+@source '../../../node_modules/@univerjs/ui/lib/es';
+@source '../../../node_modules/@univerjs/design/lib/es';
 @import './ui-theme.css';
 @import './tokens.css';
 @import './ui-primitives.css';

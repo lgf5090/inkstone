@@ -15,7 +15,7 @@ import {
 } from '@univerjs/core'
 import { FUniver } from '@univerjs/core/facade'
 import { UniverLicensePlugin } from '@univerjs-pro/license'
-import { darkBlueTheme, defaultTheme, type Theme } from '@univerjs/themes'
+import { defaultTheme } from '@univerjs/themes'
 import type { AppLocale } from '@shared/types'
 import type { OfficeEditPlan } from '@shared/office/ai'
 import { validateOfficeEditPlan } from '@shared/office/ai'
@@ -107,10 +107,6 @@ function univerLocale(locale: AppLocale): LocaleType {
   return locale === 'zh-CN' ? LocaleType.ZH_CN : LocaleType.EN_US
 }
 
-function themeFor(dark: boolean): Theme {
-  return dark ? darkBlueTheme : defaultTheme
-}
-
 /** Comment authors and avatars are read from the session; without this every thread has no author. */
 function applySessionUser(univer: Univer): void {
   const user = useSession.getState().user
@@ -139,8 +135,10 @@ export function mountOfficeEditor(options: MountOfficeEditorOptions): OfficeEdit
   const univer = new Univer({
     locale: univerLocale(options.locale),
     locales: options.product.locales,
-    theme: themeFor(options.dark),
-    darkMode: options.dark,
+    // Dark mode is Univer's own token block (`.univer-dark`); passing an accent theme alongside it also
+    // overrides the gray scale the stylesheet's `dark:` utilities assume, which paints the workbench
+    // light. A light editor keeps the shared default theme.
+    ...(options.dark ? {} : { theme: defaultTheme }),
   })
 
   // First, before any Pro package registers: a dependency registered on our behalf carries no license.
@@ -182,9 +180,8 @@ export function mountOfficeEditor(options: MountOfficeEditorOptions): OfficeEdit
     snapshot: options.snapshot,
   })
 
-  // The constructor's `darkMode`/`theme` only seed the model; the theme service is what the UI reads, so
-  // the reader's choice is applied once the instance exists (a flip remounts under the new value).
-  api.setTheme(themeFor(options.dark))
+  // The constructor's `darkMode` only seeds the model; the theme service is what the UI reads, so the
+  // reader's choice is applied once the instance exists (a flip remounts under the new value).
   api.toggleDarkMode(options.dark)
 
   const autosave = createOfficeAutosave({
