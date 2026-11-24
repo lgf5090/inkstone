@@ -1,10 +1,15 @@
 import type { EmailSendInput, EmailSendResult } from '@shared/email/model'
-import { normalizeRecipients } from './outbound'
-import { buildThreadingHeaders } from './outbound'
-import { loadOutgoingAttachments } from './outbound'
-import { outgoingMessageId } from './outbound'
-import { replyToHeader, sendViaProvider } from './outbound'
-import { validateBody } from './outbound'
+import {
+  buildOutgoingHeaders,
+  buildThreadingHeaders,
+  formatMessageId,
+  loadOutgoingAttachments,
+  normalizeRecipients,
+  outgoingMessageId,
+  replyToHeader,
+  sendViaProvider,
+  validateBody,
+} from './outbound'
 import { ApiError } from '../lib/errors'
 import { sha256Hex } from '../lib/encoding'
 import type { Env } from '../env'
@@ -20,11 +25,19 @@ export function sender(account: EmailAccountRow): string | { email: string; name
     : account.address
 }
 
-export function headerList(account: EmailAccountRow, input: EmailSendInput, outgoingId: string): string {
+export function headerList(
+  account: EmailAccountRow,
+  input: EmailSendInput,
+  outgoingId: string,
+  threading?: Record<string, string>,
+): string {
   const to = normalizeRecipients(input.to, 'to')
   const cc = normalizeRecipients(input.cc, 'cc')
   const bcc = normalizeRecipients(input.bcc, 'bcc')
-  const replyTo = readAccountSettings(account.settings).replyTo
+  const headers = threading ?? {
+    ...(input.inReplyTo ? buildThreadingHeaders(input.inReplyTo, []) : {}),
+    ...replyToHeader(readAccountSettings(account.settings)),
+  }
   return JSON.stringify([
     { key: 'from', value: `${account.display_name} <${account.address}>` },
     { key: 'to', value: to.join(', ') },
@@ -32,9 +45,8 @@ export function headerList(account: EmailAccountRow, input: EmailSendInput, outg
     ...(bcc.length ? [{ key: 'bcc', value: bcc.join(', ') }] : []),
     { key: 'subject', value: input.subject },
     { key: 'date', value: new Date().toISOString() },
-    { key: 'message-id', value: `<${outgoingId}>` },
-    ...(input.inReplyTo ? [{ key: 'in-reply-to', value: `<${input.inReplyTo}>` }] : []),
-    ...(replyTo ? [{ key: 'reply-to', value: replyTo }] : []),
+    { key: 'message-id', value: formatMessageId(outgoingId) },
+    ...Object.entries(headers).map(([key, value]) => ({ key: key.toLowerCase(), value })),
   ])
 }
 
@@ -111,10 +123,10 @@ export async function sendDraftEmail(
     threadId = original.thread_id || original.id
   }
   const outgoingId = outgoingMessageId(draftId, account.address)
-  const headers = {
+  const headers = buildOutgoingHeaders(outgoingId, {
     ...(inReplyTo ? buildThreadingHeaders(inReplyTo, references) : {}),
     ...replyToHeader(readAccountSettings(account.settings)),
-  }
+  })
   const hasHeaders = Object.keys(headers).length > 0
   const moved = await mailbox.sendDraft(draftId, {
     body: body.html,
@@ -128,7 +140,7 @@ export async function sendDraftEmail(
     inReplyTo,
     threadId,
     emailReferences: references.length ? JSON.stringify(references) : null,
-    rawHeaders: headerList(account, input, outgoingId),
+    rawHeaders: headerList(account, input, outgoingId, headers),
     subject: input.subject,
   })
   if (!moved) throw ApiError.notFound('Draft not found')
@@ -185,10 +197,11 @@ export async function sendStoredEmail(
       return []
     }
   })()
-  const headers = {
+  const outgoingId = row.message_id || outgoingMessageId(row.id, account.address)
+  const headers = buildOutgoingHeaders(outgoingId, {
     ...(row.in_reply_to ? buildThreadingHeaders(row.in_reply_to, references) : {}),
     ...replyToHeader(readAccountSettings(account.settings)),
-  }
+  })
   const hasHeaders = Object.keys(headers).length > 0
   let attachments: Awaited<ReturnType<typeof loadOutgoingAttachments>> = []
   if (row.has_attachment) {

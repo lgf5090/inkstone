@@ -1590,6 +1590,64 @@ describe('email send idempotency', () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 
+  it('sends a draft with the same local Message-ID and threading headers stored in rawHeaders', async () => {
+    const send = useEmailProvider('draft-threading-provider')
+    const originalId = newId()
+    seedMessage(originalId, {
+      folder: 'sent',
+      subject: 'Roadmap',
+      messageId: '<original@example.com>',
+      threadId: originalId,
+      emailReferences: JSON.stringify(['<root@example.com>']),
+    })
+    const draftId = newId()
+    seedMessage(draftId, {
+      folder: 'draft',
+      subject: 'Re: Roadmap',
+      recipient: 'bob@example.com',
+      inReplyTo: originalId,
+      threadId: originalId,
+    })
+
+    const response = await call('POST', `/accounts/${accountId}/drafts/${draftId}/send`, sendInput('draft-threading'))
+
+    expect(response.status).toBe(202)
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      headers: {
+        'In-Reply-To': '<original@example.com>',
+        References: '<root@example.com> <original@example.com>',
+        'Message-ID': `<${draftId}@example.com>`,
+      },
+    }))
+    const stored = store.getEmail(draftId)!
+    expect(stored.message_id).toBe(`${draftId}@example.com`)
+    expect(JSON.parse(stored.raw_headers!)).toEqual(expect.arrayContaining([
+      { key: 'message-id', value: `<${draftId}@example.com>` },
+      { key: 'in-reply-to', value: '<original@example.com>' },
+      { key: 'references', value: '<root@example.com> <original@example.com>' },
+    ]))
+  })
+
+  it('retries a failed send with its existing local Message-ID', async () => {
+    const send = useEmailProvider('retry-provider')
+    const messageId = newId()
+    const outgoingId = `${messageId}@example.com`
+    seedMessage(messageId, {
+      folder: 'sent',
+      recipient: 'bob@example.com',
+      messageId: outgoingId,
+      deliveryStatus: 'failed',
+      deliveryError: 'Provider unavailable',
+    })
+
+    const response = await call('POST', `/accounts/${accountId}/emails/${messageId}/retry`)
+
+    expect(response.status).toBe(202)
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      headers: { 'Message-ID': `<${outgoingId}>` },
+    }))
+  })
+
   it('returns the first direct-send result on a normal duplicate request', async () => {
     const send = useEmailProvider('direct-provider-1')
     const input = sendInput('direct-duplicate')
@@ -1622,6 +1680,99 @@ describe('email send idempotency', () => {
     sqlite.prepare('UPDATE email_messages SET delivery_status = NULL WHERE id = ?').run(id)
     expect((await call('POST', `/accounts/${accountId}/emails`, input)).status).toBe(409)
     expect(send).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('MCP email sending', () => {
+  function context() {
+    seedUser(sqlite, userId, 'owner')
+    return { env, userId, role: 'owner' as const }
+  }
+
+  function useEmailProvider(messageId: string) {
+    const send = vi.fn(async () => ({ messageId }))
+    env = testBindings(db, {
+      FILES: bucket,
+      EMAIL_MAILBOX: mailboxNamespace(store),
+      EMAIL: { send } as unknown as Env['EMAIL'],
+    })
+    return send
+  }
+
+  it('sends a new message with the local Message-ID in provider and raw headers', async () => {
+    const send = useEmailProvider('mcp-provider')
+
+    const result = await sendMcpEmail(context(), {
+      accountId,
+      to: 'bob@example.com',
+      subject: 'Hello',
+      body: 'Hello',
+    })
+
+    expect(result.status).toBe('sent')
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      headers: { 'Message-ID': `<${result.messageId}@example.com>` },
+    }))
+    const stored = store.getEmail(result.messageId)!
+    expect(stored.message_id).toBe(`${result.messageId}@example.com`)
+    expect(JSON.parse(stored.raw_headers!)).toContainEqual({
+      key: 'message-id',
+      value: `<${result.messageId}@example.com>`,
+    })
+  })
+
+  it('preserves an existing Chinese reply subject and the referenced thread', async () => {
+    const send = useEmailProvider('mcp-reply-provider')
+    const originalId = newId()
+    seedMessage(originalId, {
+      subject: '回复：Hello',
+      messageId: '<original@example.com>',
+      threadId: 'thread-1',
+      emailReferences: JSON.stringify(['<root@example.com>']),
+    })
+
+    const result = await sendMcpEmailReply(context(), {
+      accountId,
+      emailId: originalId,
+      body: 'Reply',
+    })
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      subject: '回复：Hello',
+      headers: {
+        'In-Reply-To': '<original@example.com>',
+        References: '<root@example.com> <original@example.com>',
+        'Message-ID': `<${result.messageId}@example.com>`,
+      },
+    }))
+    const stored = store.getEmail(result.messageId)!
+    expect(stored.thread_id).toBe('thread-1')
+    expect(JSON.parse(stored.raw_headers!)).toEqual(expect.arrayContaining([
+      { key: 'message-id', value: `<${result.messageId}@example.com>` },
+      { key: 'in-reply-to', value: '<original@example.com>' },
+      { key: 'references', value: '<root@example.com> <original@example.com>' },
+    ]))
+  })
+
+  it('sends a stored draft with block line breaks and its local Message-ID', async () => {
+    const send = useEmailProvider('mcp-draft-provider')
+    const draftId = newId()
+    seedMessage(draftId, {
+      folder: 'draft',
+      recipient: 'bob@example.com',
+      body: '<p>Hello</p><p>Second</p>',
+    })
+
+    const result = await sendMcpEmail(context(), { accountId, draftId })
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'Hello\n\nSecond',
+      headers: { 'Message-ID': `<${draftId}@example.com>` },
+    }))
+    expect(JSON.parse(store.getEmail(draftId)!.raw_headers!)).toContainEqual({
+      key: 'message-id',
+      value: `<${draftId}@example.com>`,
+    })
   })
 })
 

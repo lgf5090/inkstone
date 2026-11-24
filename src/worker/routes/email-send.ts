@@ -10,6 +10,7 @@ import type { AppBindings } from '../env'
 import { getEmailAccount, readAccountSettings, type EmailAccountRow } from '../email/account-store'
 import { emailMailbox } from '../email/mailbox-stub'
 import {
+  buildOutgoingHeaders,
   buildThreadingHeaders,
   normalizeRecipients,
   outgoingMessageId,
@@ -83,11 +84,6 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
     references = []
     threadId = ''
   }
-  const headers = {
-    ...(original && mode === 'reply' && inReplyTo ? buildThreadingHeaders(inReplyTo, references) : {}),
-    ...replyToHeader(readAccountSettings(account.settings)),
-  }
-  const hasHeaders = Object.keys(headers).length > 0
   const requestHash = await sha256Hex(JSON.stringify({ mode, account: account.id, originalId: originalId ?? null, input }))
   const claim = await mailbox.claimOperation(input.operationId.trim(), requestHash, newId())
   if (claim.status === 'conflict') throw ApiError.conflict('operationId was already used with different arguments')
@@ -100,6 +96,11 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
   const rate = await mailbox.checkSendRateLimit()
   if (rate) throw new ApiError(429, 'email_rate_limited', rate)
   const outgoingId = outgoingMessageId(messageId, account.address)
+  const headers = {
+    ...buildOutgoingHeaders(outgoingId),
+    ...(original && mode === 'reply' && inReplyTo ? buildThreadingHeaders(inReplyTo, references) : {}),
+    ...replyToHeader(readAccountSettings(account.settings)),
+  }
   threadId ||= messageId
   const created = await mailbox.createEmail('sent', {
     id: messageId,
@@ -115,7 +116,7 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
     inReplyTo,
     emailReferences: references.length ? JSON.stringify(references) : null,
     messageId: outgoingId,
-    rawHeaders: headerList(account, input, outgoingId),
+    rawHeaders: headerList(account, input, outgoingId, headers),
     deliveryStatus: 'pending',
     size: new TextEncoder().encode(body.html).byteLength,
   })
@@ -129,7 +130,7 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
       subject: input.subject,
       html: body.html,
       text: body.text,
-      ...(hasHeaders ? { headers } : {}),
+      headers,
     })
     await mailbox.updateDelivery(messageId, 'sent', null, sent.messageId)
     void rememberRecipientAddresses(c.env.DB, c.get('userId'), [...to, ...cc, ...bcc]).catch((error) => {

@@ -23,15 +23,25 @@ export function textToEmailHtml(text: string): string {
   return `<div style="white-space:pre-wrap">${escapeEmailHtml(text).replace(/\n/g, '<br>')}</div>`
 }
 
+const EMAIL_BLOCK_TAG_RE = /<\/?(?:address|article|aside|blockquote|caption|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|li|main|nav|ol|p|pre|section|summary|table|tbody|tfoot|thead|tr|ul)(?:\s[^>]*)?\/?>/gi
+const EMAIL_LINE_BREAK_TAG_RE = /<br(?:\s[^>]*)?\/?>/gi
+const EMAIL_CELL_TAG_RE = /<\/?(?:td|th)(?:\s[^>]*)?\/?>/gi
+
 export function stripEmailHtmlToText(html: string): string {
   if (!html) return ''
   return decodeEmailEntities(
     html
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(EMAIL_LINE_BREAK_TAG_RE, '\n')
+      .replace(EMAIL_CELL_TAG_RE, '\t')
+      .replace(EMAIL_BLOCK_TAG_RE, '\n')
       .replace(/<[^>]+>/g, ' '),
   )
-    .replace(/\s+/g, ' ')
+    .split('\n')
+    .map((line) => line.replace(/[^\S\n]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
@@ -50,7 +60,7 @@ export function decodeEmailEntities(text: string): string {
 
 export function emailSnippet(html: string | null | undefined, maxLength = 100): string {
   if (!html) return ''
-  const clean = stripEmailHtmlToText(html)
+  const clean = stripEmailHtmlToText(html).replace(/\s+/g, ' ')
   return clean.length > maxLength ? `${clean.slice(0, maxLength)}...` : clean
 }
 
@@ -68,6 +78,13 @@ export function toEmailListValue(addresses: string[]): string | string[] | undef
 
 export function normalizeEmailAddress(value: string): string {
   return value.trim().toLowerCase()
+}
+
+export function normalizeSubject(value: string): string {
+  return value
+    .replace(/^(?:(?:re|fwd?|fw|aw|wg|r[eé]f|sv)\s*[:\uff1a]\s*|(?:\u56de\u590d|\u56de\u8986|\u7b54\u590d|\u8f6c\u5bc4|\u8f49\u5bc4|\u8f6c\u53d1|\u8f49\u53d1)\s*[:\uff1a]\s*)+/i, '')
+    .trim()
+    .toLowerCase()
 }
 
 export function isValidEmailAddress(value: string): boolean {

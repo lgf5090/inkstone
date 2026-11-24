@@ -61,7 +61,8 @@ function deliver(input: ForwardedMailInput): Promise<MailboxInboundResult> {
 }
 
 function inbox() {
-  return harness.store(ACCOUNT).getEmails({ folder: 'inbox' })
+  const mailbox = harness.store(ACCOUNT)
+  return mailbox.getEmails({ folder: 'inbox' }).map((row) => mailbox.getEmail(row.id)!)
 }
 
 async function setSettings(settings: EmailAccountSettings): Promise<void> {
@@ -124,11 +125,12 @@ describe('the inbound mailbox handler', () => {
     expect(row!.recipient).toBe(ADDRESS)
     expect(row!.body).toBe('<p>HTML body</p>')
     expect(row!.body_source).toBeNull()
-    expect(row!.message_id).toBe('<html@example.com>')
+    expect(row!.message_id).toBe('html@example.com')
     expect(row!.read).toBe(0)
     expect(row!.size).toBe(new TextEncoder().encode(raw).byteLength)
     const headers = JSON.parse(row!.raw_headers!) as { key: string; value: string }[]
     expect(headers.some((header) => header.key === 'subject' && header.value.includes('Q2Fmw6kgcnVu'))).toBe(true)
+    expect(headers).toContainEqual({ key: 'message-id', value: '<html@example.com>' })
   })
 
   it('stores a text-only body when the message has no HTML part', async () => {
@@ -254,6 +256,16 @@ describe('the inbound mailbox handler', () => {
     expect(inbox()).toHaveLength(1)
   })
 
+  it('deduplicates bracketed and bare forms under the canonical Message-ID', async () => {
+    const bracketed = buildMime({ to: ADDRESS, messageId: '<canonical@example.com>', text: 'Once' })
+    const bare = buildMime({ to: ADDRESS, messageId: 'canonical@example.com', text: 'Once' })
+
+    expect(await deliver({ to: ADDRESS, raw: bracketed })).toBe('created')
+    expect(await deliver({ to: ADDRESS, raw: bare })).toBe('duplicate')
+    expect(inbox()).toHaveLength(1)
+    expect(inbox()[0]!.message_id).toBe('canonical@example.com')
+  })
+
   it('falls back to a digest of the raw message when Message-ID is missing', async () => {
     const raw = buildMime({ to: ADDRESS, messageId: null, text: 'No id' })
 
@@ -270,7 +282,7 @@ describe('the inbound mailbox handler', () => {
     expect(await deliver({ to: ADDRESS, from: ADDRESS, raw })).toBe('dropped')
     expect(inbox()).toHaveLength(0)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('own mailbox'))
-    expect(harness.store(ACCOUNT).claimInbound('<self@example.com>', Date.now())).toBe(true)
+    expect(harness.store(ACCOUNT).claimInbound('self@example.com', Date.now())).toBe(true)
   })
 
   it('rejects a message over the raw ceiling before reading the stream', async () => {
@@ -319,12 +331,12 @@ describe('the inbound mailbox handler', () => {
     })
 
     const rows = inbox()
-    const threaded = rows.find((row) => row.message_id === '<child@example.com>')!
+    const threaded = rows.find((row) => row.message_id === 'child@example.com')!
     expect(threaded.thread_id).toBe('root@example.com')
     expect(threaded.in_reply_to).toBe('parent@example.com')
     expect(JSON.parse(threaded.email_references!)).toEqual(['root@example.com', 'parent@example.com'])
 
-    const second = rows.find((row) => row.message_id === '<other@example.com>')!
+    const second = rows.find((row) => row.message_id === 'other@example.com')!
     expect(second.thread_id).toBe('parent@example.com')
   })
 
@@ -352,8 +364,41 @@ describe('the inbound mailbox handler', () => {
     })
 
     const rows = inbox()
-    expect(rows.find((row) => row.message_id === '<fallback@example.com>')!.thread_id).toBe('thread-1')
-    expect(rows.find((row) => row.message_id === '<fresh@example.com>')!.thread_id).toBe('<fresh@example.com>')
+    expect(rows.find((row) => row.message_id === 'fallback@example.com')!.thread_id).toBe('thread-1')
+    expect(rows.find((row) => row.message_id === 'fresh@example.com')!.thread_id).toBe('fresh@example.com')
+  })
+
+  it.each([
+    { subject: '回复：Hello', index: 0 },
+    { subject: '转发：Hello', index: 1 },
+    { subject: 'RE:Hello', index: 2 },
+  ])('matches a normalized $subject subject to an existing thread', async ({ subject, index }) => {
+    const mailbox = harness.store(ACCOUNT)
+    const threadId = `subject-thread-${index}`
+    expect(mailbox.createEmail('inbox', {
+      id: `subject-original-${index}`,
+      subject: 'Hello',
+      sender: 'Alice <alice@example.com>',
+      recipient: ADDRESS,
+      date: Date.now() - 60_000,
+      body: 'Earlier',
+      threadId,
+      messageId: `subject-original-${index}@example.com`,
+    })).toBe(true)
+
+    expect(await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({
+        to: ADDRESS,
+        from: 'alice@example.com',
+        subject,
+        messageId: `<subject-reply-${index}@example.com>`,
+        text: 'Same thread',
+      }),
+    })).toBe('created')
+
+    expect(inbox().find((row) => row.message_id === `subject-reply-${index}@example.com`)!.thread_id).toBe(threadId)
   })
 
   it('joins a reply to the stored thread behind its referenced Message-ID', async () => {
@@ -385,7 +430,7 @@ describe('the inbound mailbox handler', () => {
 
     const thread = mailbox.getThreadEmails('sent-1')
     expect(thread.map((row) => row.subject)).toEqual(['Product roadmap', 'Re: Product roadmap'])
-    expect(inbox().find((row) => row.message_id === '<reply-1@example.com>')!.thread_id).toBe('sent-1')
+    expect(inbox().find((row) => row.message_id === 'reply-1@example.com')!.thread_id).toBe('sent-1')
   })
 
   it('joins a reply that references an inbound Message-ID stored with brackets', async () => {
@@ -415,7 +460,7 @@ describe('the inbound mailbox handler', () => {
       }),
     })).toBe('created')
 
-    expect(inbox().find((row) => row.message_id === '<reply-2@example.com>')!.thread_id).toBe('<in-1@example.com>')
+    expect(inbox().find((row) => row.message_id === 'reply-2@example.com')!.thread_id).toBe('<in-1@example.com>')
   })
 
   it('clamps an invalid, pre-1970 or future Date header to the receive time', async () => {
@@ -454,7 +499,7 @@ describe('the inbound mailbox handler', () => {
     expect(jobs.results[0]).toMatchObject({
       account_id: ACCOUNT,
       message_id: inbox()[0]!.id,
-      thread_id: '<auto@example.com>',
+      thread_id: 'auto@example.com',
       status: 'queued',
     })
     expect(harness.store(ACCOUNT).getEmails({ folder: 'draft' })).toHaveLength(0)
@@ -513,7 +558,7 @@ describe('the inbound mailbox handler', () => {
       `SELECT COUNT(*) AS total FROM email_attachments WHERE user_id = ?1`,
     ).bind(USER).first<{ total: number }>()
     expect(Number(attachments!.total)).toBe(0)
-    expect(harness.store(ACCOUNT).claimInbound('<failure@example.com>', Date.now())).toBe(true)
+    expect(harness.store(ACCOUNT).claimInbound('failure@example.com', Date.now())).toBe(true)
   })
 
   it('sends one vacation reply per sender inside the window', async () => {
@@ -550,6 +595,12 @@ describe('the inbound mailbox handler', () => {
       recipient: 'alice@example.com',
       delivery_status: 'sent',
     })
+    const storedReply = harness.store(ACCOUNT).getEmail(sentRows[0]!.id)!
+    expect(mail.headers['Message-ID']).toBe(`<${storedReply.message_id}>`)
+    expect(JSON.parse(storedReply.raw_headers!)).toContainEqual({
+      key: 'message-id',
+      value: `<${storedReply.message_id}>`,
+    })
 
     await deliver({
       to: ADDRESS,
@@ -580,7 +631,11 @@ describe('the inbound mailbox handler', () => {
     const mail = sentMail(send)
     expect(mail.subject).toBe('Out of office')
     expect(mail.text).toBe('Back on Monday')
-    expect(mail.headers).toEqual({ 'Auto-Submitted': 'auto-replied' })
+    expect(mail.headers).toMatchObject({
+      'Auto-Submitted': 'auto-replied',
+      'Message-ID': expect.stringMatching(/^<[^<>]+@example\.com>$/),
+    })
+    expect(mail.headers).not.toHaveProperty('In-Reply-To')
   })
 
   it('does not reply while disabled, outside the window or without a body', async () => {

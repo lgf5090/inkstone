@@ -62,10 +62,28 @@ export function validateFrom(accountAddress: string, from: string): { address: s
   return { address, name }
 }
 
+export function normalizeMessageId(value: string): string {
+  return value.trim().replace(/^<+|>+$/g, '')
+}
+
+export function formatMessageId(value: string): string {
+  const messageId = normalizeMessageId(value)
+  return messageId ? `<${messageId}>` : ''
+}
+
 export function buildThreadingHeaders(originalMessageId: string, references: readonly string[]): Record<string, string> {
+  const inReplyTo = formatMessageId(originalMessageId)
+  const formattedReferences = references.map(formatMessageId).filter(Boolean)
   return {
-    'In-Reply-To': `<${originalMessageId}>`,
-    ...(references.length ? { References: references.map((reference) => `<${reference}>`).join(' ') } : {}),
+    ...(inReplyTo ? { 'In-Reply-To': inReplyTo } : {}),
+    ...(formattedReferences.length ? { References: formattedReferences.join(' ') } : {}),
+  }
+}
+
+export function buildOutgoingHeaders(outgoingId: string, headers: Record<string, string> = {}): Record<string, string> {
+  return {
+    ...Object.fromEntries(Object.entries(headers).filter(([key]) => key.toLowerCase() !== 'message-id')),
+    'Message-ID': formatMessageId(outgoingId),
   }
 }
 

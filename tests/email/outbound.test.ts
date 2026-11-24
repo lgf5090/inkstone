@@ -1,10 +1,11 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EMAIL_RECIPIENTS_MAX } from '../../src/shared/email/model'
+import { buildEmailQuoteMarkdown, normalizeSubject, stripEmailHtmlToText } from '../../src/shared/email/format'
 import { CredentialVault } from '../../src/worker/durable/credential-vault'
 import { writeEmailDeployment } from '../../src/worker/email/deployment'
 import type { Env } from '../../src/worker/env'
-import { buildThreadingHeaders, loadOutgoingAttachments, normalizeRecipients, outgoingMessageId, sendViaBinding, sendViaProvider, validateBody, validateFrom } from '../../src/worker/email/outbound'
+import { buildOutgoingHeaders, buildThreadingHeaders, loadOutgoingAttachments, normalizeRecipients, outgoingMessageId, sendViaBinding, sendViaProvider, validateBody, validateFrom } from '../../src/worker/email/outbound'
 import { encryptEmailSecret } from '../../src/worker/lib/crypto'
 import { newId } from '../../src/worker/lib/id'
 import { makeD1 } from '../doubles/d1-sqlite'
@@ -26,7 +27,37 @@ describe('outbound helpers', () => {
       'In-Reply-To': '<one>',
       References: '<zero> <one>',
     })
+    expect(buildThreadingHeaders('<one>', ['<zero>', '<one>'])).toEqual({
+      'In-Reply-To': '<one>',
+      References: '<zero> <one>',
+    })
     expect(outgoingMessageId('m1', 'me@example.com')).toBe('m1@example.com')
+  })
+
+  it('sets one local Message-ID header without keeping a conflicting casing', () => {
+    expect(buildOutgoingHeaders('local@example.com', {
+      'message-id': '<provider@example.com>',
+      'In-Reply-To': '<parent@example.com>',
+    })).toEqual({
+      'In-Reply-To': '<parent@example.com>',
+      'Message-ID': '<local@example.com>',
+    })
+  })
+
+  it('normalizes English and Chinese reply or forward subject prefixes', () => {
+    expect(normalizeSubject('RE:Hello')).toBe('hello')
+    expect(normalizeSubject('Re: Fwd: 回复：Hello')).toBe('hello')
+    expect(normalizeSubject('转发:Hello')).toBe('hello')
+    expect(normalizeSubject('轉寄：Hello')).toBe('hello')
+    expect(normalizeSubject('回复计划')).toBe('回复计划')
+  })
+
+  it('keeps block and quoted line breaks when converting HTML to text', () => {
+    const html = '<p>Hello <strong>world</strong></p><p>Second<br>line</p><blockquote><div>On Monday, Alice wrote:</div><div>first<br>second</div></blockquote>'
+    expect(stripEmailHtmlToText(html)).toBe(
+      'Hello world\n\nSecond\nline\n\nOn Monday, Alice wrote:\n\nfirst\nsecond',
+    )
+    expect(buildEmailQuoteMarkdown(undefined, 'Alice', '<p>first</p><p>second</p>')).toContain('> first\n> second')
   })
 
   it('rejects an empty body', () => {
@@ -56,6 +87,7 @@ describe('outbound helpers', () => {
       from: 'me@example.com',
       subject: 'Picture',
       html: '<p>see <img src="cid:inline-1"></p>',
+      headers: buildOutgoingHeaders('local@example.com'),
       attachments: [{
         content: 'AA==',
         filename: 'photo.png',
@@ -67,6 +99,7 @@ describe('outbound helpers', () => {
 
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       html: '<p>see <img src="cid:inline-1"></p>',
+      headers: { 'Message-ID': '<local@example.com>' },
       attachments: [{
         content: 'AA==',
         filename: 'photo.png',
@@ -200,7 +233,10 @@ describe('outbound provider selection', () => {
       from: { email: 'owner@example.com', name: 'Owner' },
       subject: 'Hi',
       html: '<p>Hi</p>',
-      headers: { 'Reply-To': 'support@example.com', 'In-Reply-To': '<one@example.com>' },
+      headers: buildOutgoingHeaders('local@example.com', {
+        'Reply-To': 'support@example.com',
+        'In-Reply-To': '<one@example.com>',
+      }),
       attachments: [{ content: btoa('file'), filename: 'a.txt', type: 'text/plain', disposition: 'attachment' }],
     })
 
@@ -214,7 +250,7 @@ describe('outbound provider selection', () => {
       to: ['a@example.com'],
       subject: 'Hi',
       reply_to: 'support@example.com',
-      headers: { 'In-Reply-To': '<one@example.com>' },
+      headers: { 'In-Reply-To': '<one@example.com>', 'Message-ID': '<local@example.com>' },
     })
     expect(body.attachments).toEqual([
       { filename: 'a.txt', content: btoa('file'), content_type: 'text/plain' },

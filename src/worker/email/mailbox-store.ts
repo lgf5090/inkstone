@@ -14,6 +14,7 @@ import {
   EMAIL_SQLITE_MAX_IDS_PER_QUERY,
 } from '@shared/email/model'
 import { utf8ByteLength } from '@shared/text-utils'
+import { normalizeSubject } from '@shared/email/format'
 import type { EmailBatchAction, EmailFolderPatch, EmailMailboxStats, EmailTagPatch } from '@shared/email/model'
 import {
   emailFolderDepthAllowed,
@@ -322,10 +323,6 @@ function pushFlagFilters(
     clauses.push(`${column('read')} = ?`)
     bindings.push(options.isRead ? 1 : 0)
   }
-}
-
-function normalizeSubject(value: string): string {
-  return value.replace(/^(?:(?:re|fwd?|fw|aw|wg|r[eé]f|sv)\s*:\s*)+/i, '').trim().toLowerCase()
 }
 
 function emailFilterMatches(conditions: readonly EmailFilterCondition[], input: InboundRuleInput): boolean {
@@ -1742,10 +1739,11 @@ export class MailboxStore {
     const row = this.one<{ thread_id: string | null }>(
       `SELECT thread_id FROM email_messages
         WHERE deleted_at IS NULL
-          AND (message_id = ?1 OR message_id = ?2 OR id = ?3)
+          AND (message_id = ?1 OR message_id = ?2 OR id = ?3 OR provider_message_id = ?4)
         ORDER BY date DESC LIMIT 1`,
       canonical,
       `<${canonical}>`,
+      canonical,
       canonical,
     )
     return row?.thread_id ?? null

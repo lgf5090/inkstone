@@ -1,6 +1,6 @@
 import type { EmailMessage, EmailSummary } from '@shared/email/model'
 import { EMAIL_BODY_MAX_BYTES, EMAIL_SUBJECT_MAX_CHARS } from '@shared/email/model'
-import { stripEmailHtmlToText, textToEmailHtml } from '@shared/email/format'
+import { normalizeSubject, stripEmailHtmlToText, textToEmailHtml } from '@shared/email/format'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
@@ -9,7 +9,9 @@ import { listEmailAccounts, readAccountSettings, type EmailAccountRow } from '..
 import { deleteEmailAttachmentsForMessages, loadEmailAttachments, lockEmailAttachments } from '../email/attachments'
 import { emailMailbox } from '../email/mailbox-stub'
 import {
+  buildOutgoingHeaders,
   buildThreadingHeaders,
+  formatMessageId,
   loadOutgoingAttachments,
   normalizeRecipients,
   outgoingMessageId,
@@ -88,7 +90,8 @@ function recipientAddress(value: string): string {
 }
 
 function replySubject(subject: string): string {
-  const prefixed = /^re\s*:/i.test(subject) ? subject : `Re: ${subject}`
+  const trimmed = subject.trim()
+  const prefixed = normalizeSubject(trimmed) !== trimmed.toLowerCase() ? subject : `Re: ${subject}`
   return prefixed.slice(0, EMAIL_SUBJECT_MAX_CHARS)
 }
 
@@ -105,7 +108,7 @@ function sentHeaders(
     { key: 'to', value: recipients.join(', ') },
     { key: 'subject', value: subject },
     { key: 'date', value: new Date().toISOString() },
-    { key: 'message-id', value: `<${outgoingId}>` },
+    { key: 'message-id', value: formatMessageId(outgoingId) },
     ...Object.entries(threading ?? {}).map(([key, value]) => ({ key: key.toLowerCase(), value })),
     ...(replyTo ? [{ key: 'reply-to', value: replyTo }] : []),
   ])
@@ -336,6 +339,7 @@ export async function sendMcpEmail(
   const to = normalizeRecipients(input.to, 'to')
   const messageId = newId()
   const outgoingId = outgoingMessageId(messageId, account.address)
+  const headers = buildOutgoingHeaders(outgoingId, replyToHeader(readAccountSettings(account.settings)))
   const created = await mailbox.createEmail('sent', {
     id: messageId,
     subject: input.subject,
@@ -358,7 +362,7 @@ export async function sendMcpEmail(
       subject: input.subject,
       html,
       text: input.body.trim(),
-      headers: replyToHeader(readAccountSettings(account.settings)),
+      headers,
     })
     await mailbox.updateDelivery(messageId, 'sent', null, sent.messageId)
   } catch (error) {
@@ -391,6 +395,10 @@ export async function sendMcpEmailReply(
   const inReplyTo = original.message_id || original.id
   const threadId = original.thread_id || original.id
   const threading = buildThreadingHeaders(inReplyTo, references)
+  const headers = buildOutgoingHeaders(outgoingId, {
+    ...threading,
+    ...replyToHeader(readAccountSettings(account.settings)),
+  })
   const created = await mailbox.createEmail('sent', {
     id: messageId,
     subject,
@@ -415,7 +423,7 @@ export async function sendMcpEmailReply(
       subject,
       html,
       text: input.body.trim(),
-      headers: { ...threading, ...replyToHeader(readAccountSettings(account.settings)) },
+      headers,
     })
     await mailbox.updateDelivery(messageId, 'sent', null, sent.messageId)
     await mailbox.markThreadRead(threadId)
@@ -465,6 +473,10 @@ async function sendStoredDraft(
     threadId = original.thread_id || original.id
   }
   const threading = inReplyTo ? buildThreadingHeaders(inReplyTo, references) : undefined
+  const headers = buildOutgoingHeaders(outgoingId, {
+    ...(threading ?? {}),
+    ...replyToHeader(readAccountSettings(account.settings)),
+  })
   const moved = await mailbox.sendDraft(draftId, {
     body: html,
     bodySource: text,
@@ -492,7 +504,7 @@ async function sendStoredDraft(
       html,
       text,
       ...(attachments.length ? { attachments } : {}),
-      headers: { ...(threading ?? {}), ...replyToHeader(readAccountSettings(account.settings)) },
+      headers,
     })
     await mailbox.updateDelivery(draftId, 'sent', null, sent.messageId)
     if (inReplyTo) await mailbox.markThreadRead(threadId)

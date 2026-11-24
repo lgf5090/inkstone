@@ -41,7 +41,7 @@ describe('email formatting', () => {
   it('builds a markdown quote instead of injecting html', () => {
     const quote = buildEmailQuoteMarkdown('2026-10-22T10:00:00.000Z', 'a@example.com', '<p>first</p><p>second</p>')
     expect(quote).toContain('a@example.com wrote:')
-    expect(quote).toContain('> first second')
+    expect(quote).toContain('> first\n> second')
     expect(quote).not.toContain('<p>')
   })
 

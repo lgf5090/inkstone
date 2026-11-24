@@ -8,9 +8,9 @@ import {
   normalizeEmailVacation,
 } from '@shared/email/model'
 import type { EmailVacationSettings } from '@shared/email/model'
-import { textToEmailHtml } from '@shared/email/format'
-import { utf8ByteLength } from '@shared/text-utils'
+import { normalizeSubject, textToEmailHtml } from '@shared/email/format'
 import { normalizeEmailSenderAddress } from '@shared/email/rules'
+import { utf8ByteLength } from '@shared/text-utils'
 import { deleteAttachmentObjects, selectAttachmentStorage } from '../attachments/backend'
 import { persistEmailAttachment } from '../attachments/storage'
 import type { Env } from '../env'
@@ -21,7 +21,7 @@ import { queueAutoDraftJob, readAccountSettings, type EmailAccountRow } from './
 import { deleteEmailAttachments } from './attachments'
 import { rememberRecipientAddresses, findEmailContactByEmail } from './contacts'
 import { emailMailbox } from './mailbox-stub'
-import { buildThreadingHeaders, outgoingMessageId, replyToHeader, sendViaProvider } from './outbound'
+import { buildOutgoingHeaders, buildThreadingHeaders, normalizeMessageId, outgoingMessageId, replyToHeader, sendViaProvider } from './outbound'
 
 export const MAX_MAILBOX_INBOUND_BYTES = EMAIL_INBOUND_MAX_BYTES
 
@@ -152,12 +152,11 @@ export async function handleMailboxInbound(
 
     const references = extractInboundMessageIds(parsed.references)
     const inReplyTo = extractInboundMessageIds(parsed.inReplyTo)[0] ?? null
-    const headerMessageId = (parsed.messageId ?? '').trim()
-    const messageId = headerMessageId && headerMessageId.length <= MAX_MESSAGE_ID_CHARS ? headerMessageId : null
+    const messageId = validInboundMessageId(parsed.messageId)
     const subject = parsed.subject ?? ''
     const headerThreadId = references[0] ?? inReplyTo ?? null
     const knownThreadId = headerThreadId ? await mailbox.findThreadIdByMessageId(headerThreadId) : null
-    const subjectThreadId = headerThreadId ? null : await mailbox.findThreadBySubject(subject, sender)
+    const subjectThreadId = headerThreadId ? null : await mailbox.findThreadBySubject(normalizeSubject(subject), sender)
     const threadId = knownThreadId ?? headerThreadId ?? subjectThreadId ?? messageId ?? emailId
 
     const storedSender = formatAddressList(parsed.from ? [parsed.from] : [])
@@ -328,8 +327,11 @@ function vacationReplySubject(vacation: EmailVacationSettings, original: string)
   return subject.slice(0, EMAIL_SUBJECT_MAX_CHARS)
 }
 
-function vacationHeaders(parsed: ParsedEmail): Record<string, string> {
-  const headers: Record<string, string> = { 'Auto-Submitted': 'auto-replied' }
+function vacationHeaders(parsed: ParsedEmail, outgoingId: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Auto-Submitted': 'auto-replied',
+    ...buildOutgoingHeaders(outgoingId),
+  }
   const original = extractInboundMessageIds(parsed.messageId)[0]
   if (original && original.length <= MAX_MESSAGE_ID_CHARS && !/[\u0000-\u001f\u007f\s<>]/.test(original)) {
     Object.assign(headers, buildThreadingHeaders(original, []))
@@ -370,19 +372,22 @@ async function sendVacationReply(
   const body = vacation.body.trim()
   const subject = vacationReplySubject(vacation, parsed.subject ?? '')
   const inReplyTo = extractInboundMessageIds(parsed.messageId)[0] ?? null
+  const id = newId()
+  const outgoingId = outgoingMessageId(id, account.address)
+  const from = account.display_name && account.display_name !== account.address
+    ? { email: account.address, name: account.display_name }
+    : account.address
+  const headers = { ...vacationHeaders(parsed, outgoingId), ...replyToHeader(readAccountSettings(account.settings)) }
   try {
     const sent = await sendViaProvider(env, account.user_id, {
       to: sender,
-      from: account.display_name && account.display_name !== account.address
-        ? { email: account.address, name: account.display_name }
-        : account.address,
+      from,
       subject,
       html: textToEmailHtml(body),
       text: body,
-      headers: { ...vacationHeaders(parsed), ...replyToHeader(readAccountSettings(account.settings)) },
+      headers,
     })
     try {
-      const id = newId()
       const created = await mailbox.createEmail('sent', {
         id,
         subject,
@@ -393,7 +398,14 @@ async function sendVacationReply(
         bodySource: body,
         inReplyTo,
         threadId: id,
-        messageId: outgoingMessageId(id, account.address),
+        messageId: outgoingId,
+        rawHeaders: JSON.stringify([
+          { key: 'from', value: typeof from === 'string' ? from : `${from.name} <${from.email}>` },
+          { key: 'to', value: sender },
+          { key: 'subject', value: subject },
+          { key: 'date', value: new Date(now).toISOString() },
+          ...Object.entries(headers).map(([key, value]) => ({ key: key.toLowerCase(), value })),
+        ]),
         deliveryStatus: 'sent',
         providerMessageId: sent.messageId,
       })
@@ -417,9 +429,16 @@ async function sendVacationReply(
   }
 }
 
+function validInboundMessageId(header: string | undefined): string | null {
+  const messageId = normalizeMessageId(header ?? '')
+  return messageId && messageId.length <= MAX_MESSAGE_ID_CHARS && !/[\u0000-\u001f\u007f\s<>]/.test(messageId)
+    ? messageId
+    : null
+}
+
 async function inboundKey(header: string | undefined, raw: Uint8Array): Promise<string> {
-  const normalized = (header ?? '').trim().replace(/\s+/g, ' ')
-  if (normalized && normalized.length <= MAX_MESSAGE_ID_CHARS) return normalized
+  const messageId = validInboundMessageId(header)
+  if (messageId) return messageId
   return `sha256:${await sha256Hex(raw)}`
 }
 
