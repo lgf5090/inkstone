@@ -570,25 +570,33 @@ export const localDb = {
     return update<OutboxItem[]>(
       userScopedKey(KEY.outbox),
       (current) => {
-        let merged = normalizeOutbox(current)
+        // Map insertion order is the queue order: deleting and re-setting a key moves it to the tail,
+        // exactly like the old remove-and-append loop, without re-scanning or cloning the queue per row.
+        const merged = new Map<string, OutboxItem>()
+        for (const item of normalizeOutbox(current)) merged.set(item.id, item)
         for (const item of items) {
-          const previous = merged.find((entry) => entry.id === item.id)
-          merged = [
-            ...merged.filter((entry) => entry.id !== item.id),
-            { ...item, createdAt: previous?.createdAt ?? item.createdAt },
-          ]
+          const previous = merged.get(item.id)
+          merged.delete(item.id)
+          merged.set(item.id, { ...item, createdAt: previous?.createdAt ?? item.createdAt })
         }
-        return merged
+        return [...merged.values()]
       },
       store,
     )
   },
 
   completeOutboxItem(id: string, writeId: string): Promise<void> {
+    return this.completeOutboxBatch([{ id, writeId }])
+  },
+
+  /** Clear one replay wave atomically; a newer write reusing an id must survive stale completion. */
+  completeOutboxBatch(items: readonly Pick<OutboxItem, 'id' | 'writeId'>[]): Promise<void> {
+    if (!items.length) return Promise.resolve()
+    const completed = new Set(items.map((item) => JSON.stringify([item.id, item.writeId])))
     return update<OutboxItem[]>(
       userScopedKey(KEY.outbox),
       (current) => normalizeOutbox(current)
-        .filter((item) => item.id !== id || item.writeId !== writeId),
+        .filter((item) => !completed.has(JSON.stringify([item.id, item.writeId]))),
       store,
     )
   },

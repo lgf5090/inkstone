@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   linkMention: vi.fn(),
   replayProject: vi.fn(),
+  completeBatch: vi.fn(),
 }))
 
 vi.mock('../lib/db', async (importOriginal) => {
@@ -42,6 +43,7 @@ vi.mock('../lib/db', async (importOriginal) => {
           return !item || item.id !== id || item.writeId !== writeId
         })
       },
+      completeOutboxBatch: mocks.completeBatch,
       updateOutboxRevision: vi.fn(async () => {}),
       setOutboxRecoveryId: vi.fn(async () => {}),
       advanceOutboxDependents: vi.fn(async () => {}),
@@ -71,7 +73,7 @@ vi.mock('../lib/api', async () => {
   }
 })
 
-import { CLIENT_ID } from '../lib/api'
+import { ApiError, CLIENT_ID } from '../lib/api'
 import { useNotes } from './notes'
 
 const note: Note = {
@@ -99,6 +101,13 @@ beforeEach(() => {
   mocks.create.mockReset()
   mocks.linkMention.mockReset()
   mocks.replayProject.mockReset()
+  mocks.completeBatch.mockReset().mockImplementation(async (items: Array<{ id: string; writeId: string }>) => {
+    const completed = new Set(items.map((item) => JSON.stringify([item.id, item.writeId])))
+    mocks.queue = mocks.queue.filter((entry) => {
+      const item = entry as { id?: string; writeId?: string }
+      return !completed.has(JSON.stringify([item.id, item.writeId]))
+    })
+  })
   mocks.queue = [{
     id: `patch:${CLIENT_ID}:${note.id}`,
     clientId: CLIENT_ID,
@@ -146,5 +155,80 @@ describe('a queued project write', () => {
     expect(mocks.replayProject.mock.calls[0]![0]).toMatchObject({ entity: 'project', writeId: 'pw_1' })
     expect(mocks.queue).toHaveLength(0)
     expect(mocks.patch).not.toHaveBeenCalled()
+  })
+})
+
+function queuedNote(id: string, writeId: string, createdAt: number, rev: number, dependsOnWriteId?: string) {
+  return {
+    id: `patch:${CLIENT_ID}:${id}`,
+    clientId: CLIENT_ID,
+    writeId,
+    ...(dependsOnWriteId ? { dependsOnWriteId } : {}),
+    entity: 'note',
+    entityId: id,
+    payload: { content: `content:${writeId}`, contentDirty: true, rev },
+    attempts: 0,
+    createdAt,
+  }
+}
+
+describe('independent-note replay waves', () => {
+  it('commits independent notes together without moving a dependent write ahead of its base', async () => {
+    const ids = ['note-a', 'note-b']
+    mocks.queue = [
+      queuedNote('note-a', 'a-1', 1, 1),
+      queuedNote('note-b', 'b-1', 2, 1),
+      queuedNote('note-a', 'a-2', 3, 2, 'a-1'),
+    ]
+    useNotes.setState({
+      notes: Object.fromEntries(ids.map((id) => [id, { ...note, id }])),
+      contents: Object.fromEntries(ids.map((id) => [id, 'before'])),
+      online: true,
+    })
+    mocks.patch.mockImplementation(async (id: string, patch: { rev: number; content: string }) => ({
+      ...note, id, rev: patch.rev + 1, content: patch.content, updatedAt: patch.rev + 1,
+    }))
+
+    await useNotes.getState().replayPending()
+
+    expect(mocks.patch.mock.calls.map(([id, patch]) => [id, patch.rev])).toEqual([
+      ['note-a', 1],
+      ['note-b', 1],
+      ['note-a', 2],
+    ])
+    expect(mocks.completeBatch.mock.calls.map(([items]) => items.map((entry: { writeId: string }) => entry.writeId)))
+      .toEqual([['a-1', 'b-1', 'a-2']])
+    expect(mocks.queue).toEqual([])
+  })
+
+  it('can replay after a crash between server acceptance and the batch queue commit', async () => {
+    const ids = ['note-a', 'note-b']
+    const remote = new Map(ids.map((id) => [id, { ...note, id }]))
+    mocks.queue = [queuedNote('note-a', 'a-1', 1, 1), queuedNote('note-b', 'b-1', 2, 1)]
+    useNotes.setState({
+      notes: Object.fromEntries(ids.map((id) => [id, remote.get(id)!])),
+      contents: Object.fromEntries(ids.map((id) => [id, 'before'])),
+      online: true,
+    })
+    mocks.patch.mockImplementation(async (id: string, patch: { rev: number; content: string }) => {
+      const current = remote.get(id)!
+      if (current.content === patch.content) {
+        throw new ApiError(409, 'conflict', 'already saved', { server: current })
+      }
+      const saved = { ...current, rev: patch.rev + 1, content: patch.content, updatedAt: patch.rev + 1 }
+      remote.set(id, saved)
+      return saved
+    })
+    mocks.completeBatch.mockRejectedValueOnce(new Error('simulated crash before queue commit'))
+
+    await useNotes.getState().replayPending()
+    expect(mocks.queue).toHaveLength(2)
+
+    await useNotes.getState().replayPending()
+    expect(mocks.queue).toEqual([])
+    expect(mocks.patch).toHaveBeenCalledTimes(4)
+    expect(remote.get('note-a')!.content).toBe('content:a-1')
+    expect(remote.get('note-b')!.content).toBe('content:b-1')
+    expect(useNotes.getState().pendingCount).toBe(0)
   })
 })

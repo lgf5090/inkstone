@@ -22391,6 +22391,13 @@ const allowed = new Map([
     "// The answer sits behind a dynamic import, so waiting for the loading state to clear is the",
     "// assertion; a block that never cleared it would keep the dashed border a waiting block wears.",
   ]],
+  ["src/client/lib/db-outbox.test.ts", [
+    "// The old implementation called find/filter for every incoming row. Watching the prototypes",
+    "// catches a regression directly instead of relying on a noisy wall-clock budget.",
+    "// The server accepted the wave, but the tab crashed before this transaction landed. Replaying",
+    "// the same completion is harmless and leaves no duplicate row behind.",
+    "// Pair encoding must not collide when an id itself contains the separator.",
+  ]],
   ["src/client/lib/db.ts", [
     "/** The store slices a shell snapshot is built from; identities decide whether to re-write. */",
     "/**\n   * Takes a getter so a keystroke only stores a closure: materialising 5000 summaries per\n   * change used to cost ~1.9 ms even though the debounced write happens once.\n   */",
@@ -22452,6 +22459,9 @@ const allowed = new Map([
     "/**\n   * Move every queued write of one task that still names an older revision up to `nextRev`.\n   *\n   * The task queue is strictly ordered, so a later edit was typed on top of the row an earlier write\n   * produced. Without this, replaying three offline edits would make the second and third conflict\n   * with the first one's own result — a conflict this device caused and can settle itself.\n   */",
     "/**\n   * How far the task delta has been read, as the newest `updated_at` the server has sent.\n   *\n   * Stored apart from the note cursor because the two streams move on different clocks: notes page\n   * on a change sequence, tasks on their own write timestamps.\n   */",
     "/**\n   * Turn the queued first write of a note that was created offline into a patch.\n   *\n   * Once the server has the note, any later content queued under the same note must be applied\n   * against the revision the create produced; leaving `create` on it would make the next replay\n   * ask the idempotent create endpoint for the note it already has, which answers with the row\n   * it created and discards the newer text.\n   */",
+    "// Map insertion order is the queue order: deleting and re-setting a key moves it to the tail,",
+    "// exactly like the old remove-and-append loop, without re-scanning or cloning the queue per row.",
+    "/** Clear one replay wave atomically; a newer write reusing an id must survive stale completion. */",
   ]],
   ["src/client/lib/drop-state.ts", [
     "/**\n * Drop-indicator state that cannot get stuck.\n *\n * A drag that ends outside the window, or one the user cancels with Escape, never fires `drop` on the\n * element that was highlighting itself, so a plain `useState` would leave the ring or the line painted\n * until the next drag. Every surface that shows a drop target needs the same five bail-outs, and a\n * surface that forgets one of them looks like a broken hover rather than a missing listener.\n */",
@@ -41550,6 +41560,12 @@ const allowed = new Map([
     "// The log table's custom sort columns had no leading index, so every \"sort by provider / model /",
     "// status\" paged read sorted the whole account. Each index starts with the tenant key and ends with",
     "// the default tie-breaker, so the ORDER BY in listRequestLogs can walk the index instead.",
+    "// EXPLAIN QUERY PLAN on the pre-migration shapes reports a temporary B-tree for every ordering",
+    "// below: the old keys stopped at the timestamp, while the queries tie-break on id. Semantic",
+    "// retrieval pages (indexed_at DESC, note_id ASC); MCP attachments page (created_at DESC, id DESC),",
+    "// globally and within one note. The note list/folder/starred orders likewise end in id ASC.",
+    "// Replacing the keys (rather than adding parallel names) makes the planner's existing choices",
+    "// ordered and covering. Applied migrations above are intentionally left untouched.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -42280,6 +42296,7 @@ const allowed = new Map([
     "// D1 round trips (≈1.2–3.5 s) to flip twenty flags.",
     "/** Chunk bounds for read_attachment, kept pure so the arithmetic is testable. */",
     "/** KV has no ranged get, so only that backend still pays for a full object read. */",
+    "/** Numeric offsets remain accepted for callers of the original MCP tool; new pages use a sort key. */",
   ]],
   ["src/worker/mcp/oauth.ts", [
     "// Static API keys let small or generic MCP clients authenticate with a",

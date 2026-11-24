@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
  * timer. This reads the doubles instead: a mock that names one of the outbox methods has to name the
  * lock with it.
  */
-const OUTBOX_METHODS = ['getOutbox', 'enqueueOutbox', 'markOutboxFailure', 'advanceOutboxDependents', 'setContentBatch']
+const OUTBOX_METHODS = ['getOutbox', 'enqueueOutbox', 'enqueueOutboxBatch', 'completeOutboxBatch', 'markOutboxFailure', 'advanceOutboxDependents', 'setContentBatch']
 const LOCK = 'withOutboxReplayLock'
 
 function testFiles(dir: string, out: string[] = []): string[] {

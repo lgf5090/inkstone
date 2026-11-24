@@ -59,6 +59,13 @@ vi.mock('../../lib/db', async (importOriginal) => {
           return !item || item.id !== id || item.writeId !== writeId
         })
       },
+      completeOutboxBatch: async (items: Array<{ id: string; writeId: string }>) => {
+        const completed = new Set(items.map((item) => JSON.stringify([item.id, item.writeId])))
+        mocks.queue = mocks.queue.filter((entry) => {
+          const item = normalize(entry)
+          return !item || !completed.has(JSON.stringify([item.id, item.writeId]))
+        })
+      },
       retargetOutboxEntity: async (_entity: string, fromId: string, toId: string) => {
         mocks.queue = mocks.queue.map((entry) => {
           const item = normalize(entry)

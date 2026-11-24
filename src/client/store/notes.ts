@@ -2806,6 +2806,37 @@ function publishOutboxResult(item: OutboxItem, result: Pick<OutboxResult, 'outco
         ...result,
     });
 }
+async function completeOutboxBatchQuietly(items: readonly Pick<OutboxItem, 'id' | 'writeId'>[]): Promise<boolean> {
+    if (!items.length) return true;
+    try {
+        await localDb.completeOutboxBatch(items);
+        return true;
+    }
+    catch {
+        useUi.getState().toast({
+            title: t("notes.could_not_update_the_offline_queue_state"),
+            description: t("notes.the_server_received_your_content_but_the_browser_could_not_update_its_lo"),
+            tone: 'warning',
+            duration: 12_000,
+        });
+        return false;
+    }
+}
+interface CompletedNoteReplay {
+    item: OutboxItem;
+    result?: Pick<OutboxResult, 'outcome' | 'recoveryReason' | 'rev' | 'updatedAt' | 'savedTitle' | 'savedNote' | 'copyId'>;
+}
+async function completeNoteReplayWave(entries: CompletedNoteReplay[], get: () => NotesState, set: SetNotesState): Promise<void> {
+    if (!entries.length) return;
+    if (!await completeOutboxBatchQuietly(entries.map(({ item }) => item))) return;
+    for (const { item, result } of entries) {
+        if (result) publishOutboxResult(item, result);
+        else publishBroadcast({ type: 'local-write', clientId: CLIENT_ID });
+        // A later write in this wave may have gone offline; its state must not be undone by the
+        // successful writes ahead of it whose queue commit we just finished.
+        set({ lastSavedAt: Date.now(), ...(get().online ? { online: true } : {}) });
+    }
+}
 function showOfflineRecoveryToast(copyId: string, conflict: boolean): void {
     useUi.getState().toast({
         title: conflict
@@ -2875,8 +2906,10 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
         const batch = outbox.filter((item) => !attempted.has(replayAttemptKey(item)));
         if (!batch.length)
             break;
-        for (const item of batch) {
-            attempted.add(replayAttemptKey(item));
+        const completedNotes: CompletedNoteReplay[] = [];
+        try {
+            for (const item of batch) {
+                attempted.add(replayAttemptKey(item));
             // Project writes are handed to the module that owns their HTTP shape; the note store only
             // owns the queue's lease, the completion bookkeeping and the decision to stop when offline.
             if (item.entity === 'project') {
@@ -2994,10 +3027,7 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                     // revision the server just made. Without this it replays as a create, and the
                     // idempotent create answers with the old body and drops the newer text.
                     await localDb.settleOfflineCreate(item.entityId, created.rev);
-                    const completed = await completeOutboxQuietly(item.id, item.writeId);
-                    if (completed)
-                        publishBroadcast({ type: 'local-write', clientId: CLIENT_ID });
-                    set({ lastSavedAt: Date.now(), online: true });
+                    completedNotes.push({ item });
                 }
                 catch (error) {
                     if (error instanceof ApiError && error.isOffline) {
@@ -3041,17 +3071,16 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                     true,
                     batch,
                 );
-                const completed = await completeOutboxQuietly(item.id, item.writeId);
-                if (completed) {
-                    publishOutboxResult(item, {
+                completedNotes.push({
+                    item,
+                    result: {
                         outcome: 'saved',
                         rev: saved.rev,
                         updatedAt: saved.updatedAt,
                         savedTitle: saved.title,
                         ...(!contentDirty && saved.content !== content ? { savedNote: saved } : {}),
-                    });
-                    set({ lastSavedAt: Date.now(), online: true });
-                }
+                    },
+                });
             }
             catch (err) {
                 if (err instanceof ApiError && err.isConflict) {
@@ -3081,17 +3110,16 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                             true,
                             batch,
                         );
-                        const completed = await completeOutboxQuietly(item.id, acknowledged.writeId);
-                        if (completed) {
-                            publishOutboxResult(item, {
+                        completedNotes.push({
+                            item: { ...item, writeId: acknowledged.writeId },
+                            result: {
                                 outcome: 'saved',
                                 rev: server.rev,
                                 updatedAt: server.updatedAt,
                                 savedTitle: server.title,
                                 ...(!localContentDirty && server.content !== localContent ? { savedNote: server } : {}),
-                            });
-                            set({ lastSavedAt: Date.now(), online: true });
-                        }
+                            },
+                        });
                         continue;
                     }
                     if (!server) {
@@ -3205,6 +3233,9 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                     outboxFailureOptions(err),
                 ).catch(() => {});
             }
+            }
+        } finally {
+            await completeNoteReplayWave(completedNotes, get, set);
         }
     }
     const remaining = await localDb.getOutbox();

@@ -30,6 +30,7 @@ vi.mock('../../lib/db', () => ({
     enqueueOutbox: async () => {},
     enqueueOutboxBatch: async () => {},
     completeOutboxItem: async () => {},
+    completeOutboxBatch: async () => {},
     markOutboxFailure: async () => {},
     updateOutboxRevision: async () => {},
     advanceOutboxDependents: async () => {},

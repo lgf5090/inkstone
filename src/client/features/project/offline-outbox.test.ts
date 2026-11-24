@@ -22,6 +22,7 @@ vi.mock('../../lib/db', async (importOriginal) => {
       getOutbox: vi.fn(),
       enqueueOutbox: vi.fn(),
       completeOutboxItem: vi.fn(),
+      completeOutboxBatch: vi.fn(async () => undefined),
       markOutboxFailure: vi.fn(),
       withOutboxReplayLock: vi.fn(),
     },

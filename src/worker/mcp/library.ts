@@ -778,19 +778,68 @@ export async function listMcpBackupRuns(db: D1Database, userId: string, limit = 
   }
 }
 
+type AttachmentListCursor =
+  | { kind: 'offset'; offset: number }
+  | { kind: 'key'; createdAt: number; id: string }
+
+const ATTACHMENT_CURSOR_SORT = 'created-desc'
+
+/** Numeric offsets remain accepted for callers of the original MCP tool; new pages use a sort key. */
+function parseAttachmentListCursor(value: number | string | undefined, noteId?: string): AttachmentListCursor {
+  if (value === undefined) return { kind: 'offset', offset: 0 }
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value < 0) throw ApiError.badRequest('Invalid cursor')
+    return { kind: 'offset', offset: value }
+  }
+  if (/^(?:0|[1-9][0-9]*)$/.test(value)) {
+    const offset = Number(value)
+    if (!Number.isSafeInteger(offset)) throw ApiError.badRequest('Invalid cursor')
+    return { kind: 'offset', offset }
+  }
+  const parts = value.split('.')
+  if (parts.length !== 5 || parts[0] !== 'a1' || parts[1] !== ATTACHMENT_CURSOR_SORT || parts[4] !== (noteId ?? '')) {
+    throw ApiError.badRequest('Invalid cursor')
+  }
+  const createdAt = /^[0-9a-z]+$/.test(parts[2]!) ? Number.parseInt(parts[2]!, 36) : Number.NaN
+  const id = parts[3]!
+  if (!Number.isSafeInteger(createdAt) || createdAt < 0 || !isValidId(id)) {
+    throw ApiError.badRequest('Invalid cursor')
+  }
+  return { kind: 'key', createdAt, id }
+}
+
+function encodeAttachmentListCursor(createdAt: number, id: string, noteId?: string): string {
+  return `a1.${ATTACHMENT_CURSOR_SORT}.${createdAt.toString(36)}.${id}.${noteId ?? ''}`
+}
+
 export async function listMcpAttachments(
   db: D1Database,
   userId: string,
-  input: { noteId?: string; limit?: number; cursor?: number },
+  input: { noteId?: string; limit?: number; cursor?: number | string },
 ) {
   if (input.noteId) await requireOwnedNote(db, userId, input.noteId)
   const limit = Math.max(1, Math.min(50, input.limit ?? 20))
-  const cursor = Math.max(0, Math.trunc(input.cursor ?? 0))
+  const cursor = parseAttachmentListCursor(input.cursor, input.noteId)
+  const scope = input.noteId ? 'user_id = ?1 AND note_id = ?2' : 'user_id = ?1'
+  const valueParam = input.noteId ? 3 : 2
+  const continuation = cursor.kind === 'key'
+    ? ` AND (created_at < ?${valueParam} OR (created_at = ?${valueParam} AND id < ?${valueParam + 1}))`
+    : ''
+  const page = cursor.kind === 'key'
+    ? `LIMIT ?${valueParam + 2}`
+    : input.noteId ? 'LIMIT ?3 OFFSET ?4' : 'LIMIT ?2 OFFSET ?3'
+  const binds = cursor.kind === 'key'
+    ? input.noteId
+      ? [userId, input.noteId, cursor.createdAt, cursor.id, limit + 1]
+      : [userId, cursor.createdAt, cursor.id, limit + 1]
+    : input.noteId
+      ? [userId, input.noteId, limit + 1, cursor.offset]
+      : [userId, limit + 1, cursor.offset]
   const { results } = await db.prepare(
     `SELECT id, note_id, filename, mime, size, width, height, created_at
-       FROM attachments WHERE user_id = ?1 AND (?2 IS NULL OR note_id = ?2)
-      ORDER BY created_at DESC, id DESC LIMIT ?3 OFFSET ?4`,
-  ).bind(userId, input.noteId ?? null, limit + 1, cursor).all<{
+       FROM attachments WHERE ${scope}${continuation}
+      ORDER BY created_at DESC, id DESC ${page}`,
+  ).bind(...binds).all<{
     id: string
     note_id: string | null
     filename: string
@@ -800,6 +849,8 @@ export async function listMcpAttachments(
     height: number | null
     created_at: number
   }>()
+  const hasMore = results.length > limit
+  const last = results[limit - 1]
   return {
     attachments: results.slice(0, limit).map((row) => ({
       id: row.id,
@@ -811,7 +862,7 @@ export async function listMcpAttachments(
       height: row.height,
       created_at: new Date(row.created_at).toISOString(),
     })),
-    next_cursor: results.length > limit ? cursor + limit : null,
+    next_cursor: hasMore && last ? encodeAttachmentListCursor(last.created_at, last.id, input.noteId) : null,
   }
 }
 

@@ -829,11 +829,11 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     'list_attachments',
     {
       title: 'List attachments',
-      description: 'List bounded private attachment metadata, optionally for one note.',
+      description: 'List bounded private attachment metadata, optionally for one note. Continue with the returned opaque cursor; legacy numeric offsets remain accepted.',
       inputSchema: z.object({
         note_id: noteId.optional(),
         limit: z.number().int().min(1).max(50).default(20),
-        cursor: z.number().int().nonnegative().optional(),
+        cursor: z.union([z.number().int().nonnegative(), z.string().max(96)]).optional(),
       }),
       outputSchema: generalOutputSchema,
       annotations: readOnlyAnnotations(),

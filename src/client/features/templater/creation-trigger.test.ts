@@ -22,6 +22,7 @@ vi.mock('../../lib/db', () => ({
     getOutbox: async () => [],
     enqueueOutbox: async () => {},
     completeOutboxItem: async () => {},
+    completeOutboxBatch: async () => {},
     withOutboxReplayLock: async (_owner: string, task: () => Promise<void>) => { await task(); return true },
     scheduleShellSave: () => {},
   },

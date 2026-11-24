@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   linkMention: vi.fn(),
   setContent: vi.fn(),
   markOutboxFailure: vi.fn(),
+  completeBatch: vi.fn(),
 }))
 vi.mock('../lib/db', () => ({
   localDb: {
@@ -22,6 +23,7 @@ vi.mock('../lib/db', () => ({
     completeOutboxItem: async (id: string, writeId: string) => {
       mocks.queue = mocks.queue.filter((q) => q.id !== id || q.writeId !== writeId)
     },
+    completeOutboxBatch: mocks.completeBatch,
     setOutboxRecoveryId: async (id: string, writeId: string, recoveryId: string) => {
       mocks.queue = mocks.queue.map((q) => q.id === id && q.writeId === writeId
         ? { ...q, payload: { ...q.payload, recoveryId } } : q)
@@ -80,6 +82,10 @@ beforeEach(() => {
   mocks.queue = []
   mocks.get.mockReset(); mocks.patch.mockReset(); mocks.create.mockReset(); mocks.linkMention.mockReset()
   mocks.setContent.mockReset().mockResolvedValue(undefined)
+  mocks.completeBatch.mockReset().mockImplementation(async (items: Array<{ id: string; writeId: string }>) => {
+    const completed = new Set(items.map((item) => JSON.stringify([item.id, item.writeId])))
+    mocks.queue = mocks.queue.filter((item) => !completed.has(JSON.stringify([item.id, item.writeId])))
+  })
   mocks.markOutboxFailure.mockReset().mockImplementation(async (id: string, writeId: string, message: string, options?: { permanent?: boolean }) => {
     mocks.queue = mocks.queue.map((item: any) => item.id === id && item.writeId === writeId
       ? { ...item, attempts: item.attempts + 1, lastError: message, failed: options?.permanent === true, nextAttemptAt: options?.permanent ? undefined : Date.now() + 1000 }

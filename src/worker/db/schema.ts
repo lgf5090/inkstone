@@ -433,11 +433,11 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     deleted_at INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_notes_user_updated
-     ON notes(user_id, deleted_at, is_archived, updated_at DESC)`,
+     ON notes(user_id, deleted_at, is_archived, updated_at DESC, id ASC)`,
   `CREATE INDEX IF NOT EXISTS idx_notes_user_pinned_updated
      ON notes(user_id, deleted_at, is_archived, is_pinned DESC, updated_at DESC, id)`,
-  `CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(user_id, folder_id, updated_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_notes_starred ON notes(user_id, is_starred, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(user_id, folder_id, updated_at DESC, id ASC)`,
+  `CREATE INDEX IF NOT EXISTS idx_notes_starred ON notes(user_id, is_starred, updated_at DESC, id ASC)`,
   `CREATE INDEX IF NOT EXISTS idx_notes_trash ON notes(user_id, deleted_at)`,
   `CREATE INDEX IF NOT EXISTS idx_notes_title_key
      ON notes(user_id, title_key, deleted_at, created_at, id)`,
@@ -505,9 +505,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     storage TEXT NOT NULL CHECK (storage IN ('r2', 'kv')),
     created_at INTEGER NOT NULL
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id, created_at DESC, id DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_attachments_user_sha ON attachments(user_id, sha256)`,
-  `CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id, created_at DESC, id DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_attachments_user_scope ON attachments(user_id, scope, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_attachments_user_folder ON attachments(user_id, folder_id)`,
 
@@ -771,7 +771,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id, note_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_embeddings_indexed
-     ON ai_note_embeddings(user_id, indexed_at)`,
+     ON ai_note_embeddings(user_id, indexed_at DESC, note_id ASC)`,
 
   `CREATE TABLE IF NOT EXISTS ai_index_queue (
     user_id TEXT NOT NULL,
@@ -4556,6 +4556,31 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 420,
     statements: EMAIL_RAW_MIME_SCHEMA_STATEMENTS,
+  },
+  {
+    // EXPLAIN QUERY PLAN on the pre-migration shapes reports a temporary B-tree for every ordering
+    // below: the old keys stopped at the timestamp, while the queries tie-break on id. Semantic
+    // retrieval pages (indexed_at DESC, note_id ASC); MCP attachments page (created_at DESC, id DESC),
+    // globally and within one note. The note list/folder/starred orders likewise end in id ASC.
+    // Replacing the keys (rather than adding parallel names) makes the planner's existing choices
+    // ordered and covering. Applied migrations above are intentionally left untouched.
+    version: 421,
+    statements: [
+      'DROP INDEX IF EXISTS idx_notes_user_updated',
+      `CREATE INDEX idx_notes_user_updated
+         ON notes(user_id, deleted_at, is_archived, updated_at DESC, id ASC)`,
+      'DROP INDEX IF EXISTS idx_notes_folder',
+      `CREATE INDEX idx_notes_folder ON notes(user_id, folder_id, updated_at DESC, id ASC)`,
+      'DROP INDEX IF EXISTS idx_notes_starred',
+      `CREATE INDEX idx_notes_starred ON notes(user_id, is_starred, updated_at DESC, id ASC)`,
+      'DROP INDEX IF EXISTS idx_ai_embeddings_indexed',
+      `CREATE INDEX idx_ai_embeddings_indexed
+         ON ai_note_embeddings(user_id, indexed_at DESC, note_id ASC)`,
+      'DROP INDEX IF EXISTS idx_attachments_user',
+      `CREATE INDEX idx_attachments_user ON attachments(user_id, created_at DESC, id DESC)`,
+      'DROP INDEX IF EXISTS idx_attachments_note',
+      `CREATE INDEX idx_attachments_note ON attachments(note_id, created_at DESC, id DESC)`,
+    ],
   },
 ]
 
