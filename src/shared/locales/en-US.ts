@@ -1072,6 +1072,7 @@ const CORE_MESSAGES = {
     "email.detail.empty_body": "This message has no readable body.",
     "email.detail.load_remote_images": "Load images",
     "email.detail.remote_images_blocked": "Remote images are blocked to protect your privacy.",
+    "email.detail.unsubscribe": "Unsubscribe",
     "email.detail.error": "The message could not be loaded.",
     "email.detail.forward": "Forward",
     "email.detail.header_bcc": "Bcc",

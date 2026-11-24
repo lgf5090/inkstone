@@ -1065,6 +1065,7 @@ const ZH_CORE_MESSAGES = {
     "email.detail.empty_body": "这封邮件没有可读的正文。",
     "email.detail.load_remote_images": "加载图片",
     "email.detail.remote_images_blocked": "远程图片已阻止，以保护你的隐私。",
+    "email.detail.unsubscribe": "退订",
     "email.detail.error": "邮件加载失败。",
     "email.detail.forward": "转发",
     "email.detail.header_bcc": "密送",

@@ -80,3 +80,26 @@ describe('an inline draft in a thread', () => {
     expect(() => button(t('email.compose.send'))).toThrow()
   })
 })
+
+describe('thread unsubscribe actions', () => {
+  it('renders a keyboard-reachable link outside the thread toggle', () => {
+    view = renderElement(createElement(ThreadMessage, {
+      message: {
+        ...draft,
+        folderId: 'inbox',
+        rawHeaders: [
+          { key: 'List-Unsubscribe', value: '<mailto:unsubscribe@example.com?subject=unsubscribe>, <https://example.com/remove>' },
+          { key: 'List-Unsubscribe-Post', value: 'List-Unsubscribe=One-Click' },
+        ],
+      },
+      expanded: false,
+      onToggle: vi.fn(),
+    }))
+    const link = view.container.querySelector<HTMLAnchorElement>(`a[href="https://example.com/remove"]`)
+    expect(link).not.toBeNull()
+    expect(link?.closest('button')).toBeNull()
+    expect(link?.getAttribute('rel')).toBe('noopener noreferrer')
+    act(() => { link!.focus() })
+    expect(document.activeElement).toBe(link)
+  })
+})

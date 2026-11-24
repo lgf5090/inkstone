@@ -1,6 +1,7 @@
 import { lazy, Suspense, useId, useMemo } from 'react'
-import { ChevronDown, ChevronUp, Send } from 'lucide-react'
+import { ChevronDown, ChevronUp, MailX, Send } from 'lucide-react'
 import type { EmailMessage } from '@shared/email/model'
+import { emailUnsubscribeAction } from '@shared/email/unsubscribe'
 import { Badge, Button } from '../../components/primitives'
 import { t } from '../../lib/i18n'
 import { AttachmentList } from './AttachmentList'
@@ -23,15 +24,16 @@ export function ThreadMessage({ message, expanded, onToggle, busy = false, markd
 }) {
   const bodyId = useId()
   const markdownSource = useMemo(() => markdown ? emailMarkdownSource(message.body) : null, [markdown, message.body])
+  const unsubscribe = useMemo(() => emailUnsubscribeAction(message.rawHeaders), [message.rawHeaders])
   return (
     <article className="border-b border-[var(--border-subtle)] last:border-b-0">
-      <h3 className="m-0">
+      <h3 className="m-0 flex items-start gap-2 px-4 py-3">
         <button
           type="button"
           onClick={onToggle}
           aria-expanded={expanded}
           aria-controls={bodyId}
-          className="flex w-full items-start gap-2 px-4 py-3 text-left hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)] focus-visible:ring-inset"
+          className="flex min-w-0 flex-1 items-start gap-2 text-left hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)] focus-visible:ring-inset"
         >
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -55,6 +57,17 @@ export function ThreadMessage({ message, expanded, onToggle, busy = false, markd
             {expanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
           </span>
         </button>
+        {unsubscribe && (
+          <a
+            href={unsubscribe.url ?? `mailto:${unsubscribe.email}?subject=unsubscribe`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-0.5 inline-flex shrink-0 items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] underline"
+          >
+            <MailX size={12} aria-hidden />
+            {t('email.detail.unsubscribe')}
+          </a>
+        )}
       </h3>
       <div id={bodyId} hidden={!expanded} className="px-4 pb-4">
         <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
