@@ -5,6 +5,8 @@ export type OfficeFileType = (typeof OFFICE_FILE_TYPES)[number]
 export const OFFICE_LIMITS = {
   titleMax: 120,
   filesPerUser: 500,
+  /** Snapshots and assets together: the ceiling one account's Office content may occupy. */
+  bytesPerUser: 512 * 1024 * 1024,
   foldersMaxPerUser: 2_000,
   folderDepthMax: 12,
   tagsMaxPerUser: 5_000,

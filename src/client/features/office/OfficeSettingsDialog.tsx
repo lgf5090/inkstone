@@ -3,6 +3,9 @@ import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Checkbox, Input, Segmented } from '../../components/form'
 import { Modal } from '../../components/overlay'
+import { officeApi } from './api'
+import { formatBytes } from '@shared/byte-format'
+import { OFFICE_LIMITS } from '@shared/office/constants'
 import {
   DEFAULT_OFFICE_PREFS,
   OFFICE_AUTOSAVE_DELAYS,
@@ -33,10 +36,18 @@ function delayLabel(ms: number): string {
  */
 export function OfficeSettingsDialog({ open, prefs, onClose, onSave }: OfficeSettingsDialogProps) {
   const [draft, setDraft] = useState<OfficePrefs>(prefs)
+  const [usage, setUsage] = useState<{ files: number; bytes: number } | null>(null)
 
   useEffect(() => {
     if (open) setDraft(prefs)
   }, [open, prefs])
+
+  useEffect(() => {
+    if (!open) return
+    let alive = true
+    officeApi.usage().then((result) => { if (alive) setUsage(result.usage) }, () => { if (alive) setUsage(null) })
+    return () => { alive = false }
+  }, [open])
 
   const patch = (next: Partial<OfficePrefs>) => setDraft((current) => ({ ...current, ...next }))
   const rebuilds = draft.build !== prefs.build || draft.license !== prefs.license
@@ -129,6 +140,20 @@ export function OfficeSettingsDialog({ open, prefs, onClose, onSave }: OfficeSet
             <span className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('office.settings.checkboxes')}</span>
             <Checkbox checked={draft.showCheckboxes} onChange={(checked) => patch({ showCheckboxes: checked })} label={t('office.settings.checkboxes')} />
           </label>
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h3 className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{t('office.settings.usage.title')}</h3>
+          <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {usage
+              ? t('office.settings.usage.line', {
+                  files: usage.files,
+                  fileLimit: OFFICE_LIMITS.filesPerUser,
+                  bytes: formatBytes(usage.bytes),
+                  byteLimit: formatBytes(OFFICE_LIMITS.bytesPerUser),
+                })
+              : t('office.settings.usage.unknown')}
+          </p>
         </section>
 
         {rebuilds && (

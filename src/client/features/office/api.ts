@@ -109,6 +109,8 @@ export const officeApi = {
   createFile: (body: { type: OfficeFileType; title: string; folderId?: string | null }) =>
     request<{ file: OfficeFileSummary }>('/api/office/files', { method: 'POST', body }),
 
+  usage: (signal?: AbortSignal) =>
+    request<{ usage: { files: number; bytes: number }; limits: { files: number; bytes: number } }>('/api/office/usage', { signal }),
   getFile: (id: string, signal?: AbortSignal) =>
     request<{ file: OfficeFileSummary }>(filePath(id), { signal }),
 

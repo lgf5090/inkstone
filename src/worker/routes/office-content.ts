@@ -24,6 +24,7 @@ import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings, Env } from '../env'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
+import { officeBytesExceeded } from '@shared/office/quota'
 import { isValidId } from '../lib/id'
 import { readBytesWithinLimit, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
@@ -234,6 +235,15 @@ function toOfficeAsset(row: OfficeAssetRow): OfficeAsset {
 
 // ------------------------------------------------------------- snapshots
 
+officeContentRoutes.get('/usage', async (c) => {
+  const s = store(c)
+  const [files, bytes] = await Promise.all([s.countFiles(), s.sumBytes()])
+  return c.json({
+    usage: { files, bytes },
+    limits: { files: OFFICE_LIMITS.filesPerUser, bytes: OFFICE_LIMITS.bytesPerUser },
+  })
+})
+
 officeContentRoutes.get('/files/:id/snapshot', async (c) => {
   const s = store(c)
   const file = await s.fileRow(fileIdParam(c))
@@ -255,6 +265,17 @@ officeContentRoutes.get('/files/:id/snapshot', async (c) => {
   return c.json({ rev: file.rev, snapshot: parsed, updatedAt: file.updated_at })
 })
 
+/** Refuses a write that would push the account past its Office storage ceiling. */
+async function assertOfficeBytesRoom(s: OfficeStore, incoming: number, replacing = 0): Promise<void> {
+  const used = await s.sumBytes()
+  if (!officeBytesExceeded(used, incoming, replacing)) return
+  throw new ApiError(
+    403,
+    'office_quota_exceeded',
+    `Office storage is full: ${used} of ${OFFICE_LIMITS.bytesPerUser} bytes are in use`,
+  )
+}
+
 officeContentRoutes.put('/files/:id/snapshot', async (c) => {
   const s = store(c)
   const file = await s.fileRow(fileIdParam(c))
@@ -263,6 +284,8 @@ officeContentRoutes.put('/files/:id/snapshot', async (c) => {
   // Check the binding before a possibly large body is read.
   requireOfficeBucket(c.env)
   const payload = await readSnapshotPayload(c, file.type)
+  // The file's own bytes are replaced, not added: a save may grow it, never spend them twice.
+  await assertOfficeBytesRoom(s, payload.size, file.size)
   const result = await writeSnapshot(c, s, file, payload.baseRev, payload.text, payload.size)
   return c.json(result)
 })
@@ -326,6 +349,7 @@ officeContentRoutes.post('/assets', async (c) => {
     return c.json(toOfficeAsset(row))
   }
 
+  await assertOfficeBytesRoom(s, bytes.length)
   const key = officeAssetKey({ userId, sha256, mime })
   if (!key) throw unsupportedAsset('This asset type is not supported')
   await putOfficeAsset(c.env, key, bytes, mime)

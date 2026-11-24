@@ -1510,6 +1510,7 @@ export type ApiErrorCode =
   | 'sftp_error'
   | 'invalid_path'
   | 'file_too_large'
+  | 'office_quota_exceeded'
   | 'block_too_large'
   | 'invalid_range'
   | 'size_mismatch'

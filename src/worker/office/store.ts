@@ -362,6 +362,22 @@ export class OfficeStore {
     return rows
   }
 
+  /**
+   * Every byte this account's Office content occupies: saved snapshots plus stored assets.
+   *
+   * Deleted files are excluded — their snapshots are already discarded — while trashed files still
+   * count, because their bytes are still held.
+   */
+  async sumBytes(): Promise<number> {
+    const row = await this.db
+      .prepare(`SELECT
+          COALESCE((SELECT SUM(size) FROM office_file WHERE user_id = ?1 AND deleted_at IS NULL), 0)
+        + COALESCE((SELECT SUM(size) FROM office_asset WHERE user_id = ?1), 0) AS total`)
+      .bind(this.userId)
+      .first<{ total: number }>()
+    return Number(row?.total ?? 0)
+  }
+
   async countFiles(): Promise<number> {
     const row = await this.db
       .prepare(`SELECT COUNT(*) AS n FROM office_file WHERE user_id = ?1 AND deleted_at IS NULL`)
