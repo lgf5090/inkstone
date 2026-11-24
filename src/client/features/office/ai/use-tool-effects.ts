@@ -12,6 +12,9 @@ import { t } from '../../../lib/i18n'
 import { navigateToPath } from '../../../lib/app-history'
 import { useUi } from '../../../store/ui'
 import { useAssistant } from '../../chat/assistant-store'
+import { useSession } from '../../../store/session'
+import { readOfficePrefs } from '../office-prefs'
+import { confirm } from '../../../components/overlay'
 import { getOfficeEditorHandle } from '../editor/handles'
 
 const STORAGE_KEY = 'inkstone.office.appliedToolEffects'
@@ -69,14 +72,39 @@ async function waitForHandle(fileId: string, timeoutMs = 10_000) {
   }
 }
 
-async function runEffect(effect: OfficeClientEffect): Promise<void> {
+/**
+ * Asks before a plan reaches the document.
+ *
+ * The turn's write is proposed, not performed: the server never touches a file, this client does — so
+ * the reader's consent belongs here, next to the edit. A declined plan is spent (its activity is
+ * already claimed), which is what stops the same card from asking twice.
+ */
+async function askToApply(effect: Extract<OfficeClientEffect, { kind: 'office.apply-plan' }>): Promise<boolean> {
+  return confirm({
+    title: t('office.ai.confirm.title'),
+    description: t('office.ai.confirm.description', {
+      count: effect.plan.ops.length,
+      summary: effect.plan.summary,
+    }),
+    confirmLabel: t('office.ai.confirm.apply'),
+  })
+}
+
+async function runEffect(
+  effect: OfficeClientEffect,
+  options: { autoApply: boolean, confirmApply: (effect: Extract<OfficeClientEffect, { kind: 'office.apply-plan' }>) => Promise<boolean> },
+): Promise<boolean> {
   if (effect.kind === 'office.open') {
     navigateToPath(`/office/${effect.fileType}/${effect.fileId}`)
-    return
+    return true
   }
   if (effect.kind === 'office.refresh') {
     window.dispatchEvent(new Event('office:refresh'))
-    return
+    return true
+  }
+  if (!options.autoApply && !(await options.confirmApply(effect))) {
+    useUi.getState().toast({ title: t('office.ai.confirm.declined'), description: effect.plan.summary })
+    return false
   }
   // Apply after opening the target, because the effect may arrive while another file is active.
   navigateToPath(`/office/${effect.fileType}/${effect.fileId}`)
@@ -96,6 +124,7 @@ async function runEffect(effect: OfficeClientEffect): Promise<void> {
       },
     },
   })
+  return true
 }
 
 export interface OfficeEffectTurn {
@@ -103,13 +132,33 @@ export interface OfficeEffectTurn {
 }
 
 /** Exported so the claim/order decision can be tested without a renderer. */
-export async function runPendingOfficeEffects(turn: OfficeEffectTurn | null, remoteStreaming: boolean): Promise<void> {
+export interface OfficeEffectOptions {
+  /** Skip the confirmation: the reader asked for this in Office settings. */
+  autoApply?: boolean
+  /** Exposed so the declined and accepted paths can be tested without a renderer. */
+  confirmApply?: (effect: Extract<OfficeClientEffect, { kind: 'office.apply-plan' }>) => Promise<boolean>
+}
+
+/** The reader's own setting, read at decision time so a change applies without a remount. */
+function autoApplyFromSettings(): boolean {
+  const userId = useSession.getState().user?.id
+  return userId ? readOfficePrefs(userId).autoApplyPlans : false
+}
+
+export async function runPendingOfficeEffects(
+  turn: OfficeEffectTurn | null,
+  remoteStreaming: boolean,
+  options: OfficeEffectOptions = {},
+): Promise<void> {
   if (!turn || remoteStreaming) return
+  const autoApply = options.autoApply ?? autoApplyFromSettings()
+  const confirmApply = options.confirmApply ?? askToApply
   for (const tool of turn.tools) {
     if (tool.status !== 'success' || !tool.effect || !isOfficeClientEffect(tool.effect)) continue
     if (!claim(tool.id)) continue
     try {
-      await runEffect(tool.effect)
+      const applied = await runEffect(tool.effect, { autoApply, confirmApply })
+      if (!applied) return
     } catch (error) {
       fail(error instanceof Error ? error.message : undefined)
       // Stop at the first failure: later effects were planned against a state this one did not reach.

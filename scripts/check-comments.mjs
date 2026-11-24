@@ -9538,11 +9538,15 @@ const allowed = new Map([
     "/** A pointer to the screen, never the document body. */",
   ]],
   ["src/client/features/office/ai/use-tool-effects.ts", [
-    "/**\n * Runs the office effects a local assistant turn brings back.\n *\n * The worker reads files and builds plans; the Univer model lives in this tab. This is the only place\n * that turns an `office.*` effect into a Facade call. It mirrors the music player's effect runner:\n * only the local turn is executed, each activity is claimed once, and a failure is shown to the reader.\n */",
     "// Private mode or a full quota. The in-memory set still stops a double run this session.",
     "// Apply after opening the target, because the effect may arrive while another file is active.",
     "/** Exported so the claim/order decision can be tested without a renderer. */",
     "// Stop at the first failure: later effects were planned against a state this one did not reach.",
+    "/**\r\n * Runs the office effects a local assistant turn brings back.\r\n *\r\n * The worker reads files and builds plans; the Univer model lives in this tab. This is the only place\r\n * that turns an `office.*` effect into a Facade call. It mirrors the music player's effect runner:\r\n * only the local turn is executed, each activity is claimed once, and a failure is shown to the reader.\r\n */",
+    "/**\r\n * Asks before a plan reaches the document.\r\n *\r\n * The turn's write is proposed, not performed: the server never touches a file, this client does — so\r\n * the reader's consent belongs here, next to the edit. A declined plan is spent (its activity is\r\n * already claimed), which is what stops the same card from asking twice.\r\n */",
+    "/** Skip the confirmation: the reader asked for this in Office settings. */",
+    "/** Exposed so the declined and accepted paths can be tested without a renderer. */",
+    "/** The reader's own setting, read at decision time so a change applies without a remount. */",
   ]],
   ["src/client/features/office/api.ts", [
     "/** The filter set the list screen actually sends; `pinned` is an extra view switch on top of §7. */",
@@ -9694,6 +9698,7 @@ const allowed = new Map([
     "/** `lite` registers only the open-source packages: no watermark, no Pro features. */",
     "/** Which package set an editor registers; a change takes effect on the next mount. */",
     "/** The reader's own Univer license; blank means the Pro watermark stays. */",
+    "/** Apply the assistant's edit plans without asking first. Off by default: a write is a decision. */",
   ]],
   ["src/client/features/office/office.css", [
     "/*\n * The Office shell's own styles. Everything visual that a utility class can express stays in the\n * components; this file only carries the few rules utilities cannot: the tab strip's hidden\n * scrollbar (a horizontal strip of tabs should scroll without a second chrome row) and the focus\n * ring the custom tab buttons draw inside their own rounded box.\n */",

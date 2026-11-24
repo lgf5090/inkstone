@@ -44,8 +44,8 @@ describe('office tool effects', () => {
       fileType: 'docs',
       plan: plan(),
     })
-    await runPendingOfficeEffects({ tools: [activity] }, false)
-    await runPendingOfficeEffects({ tools: [activity] }, false)
+    await runPendingOfficeEffects({ tools: [activity] }, false, { autoApply: true })
+    await runPendingOfficeEffects({ tools: [activity] }, false, { autoApply: true })
 
     expect(applyPlan).toHaveBeenCalledTimes(1)
     expect(flush).toHaveBeenCalledTimes(1)
@@ -57,10 +57,10 @@ describe('office tool effects', () => {
     const listener = vi.fn()
     window.addEventListener('office:refresh', listener)
     const activity = tool('a-refresh-once', { kind: 'office.refresh' })
-    await runPendingOfficeEffects({ tools: [activity] }, true)
+    await runPendingOfficeEffects({ tools: [activity] }, true, { autoApply: true })
     expect(listener).not.toHaveBeenCalled()
-    await runPendingOfficeEffects({ tools: [activity] }, false)
-    await runPendingOfficeEffects({ tools: [activity] }, false)
+    await runPendingOfficeEffects({ tools: [activity] }, false, { autoApply: true })
+    await runPendingOfficeEffects({ tools: [activity] }, false, { autoApply: true })
     expect(listener).toHaveBeenCalledTimes(1)
     window.removeEventListener('office:refresh', listener)
   })
@@ -81,9 +81,67 @@ describe('office tool effects', () => {
         tool('a-fail', { kind: 'office.apply-plan', fileId: FILE_ID, fileType: 'docs', plan: plan() }),
         tool('a-after-fail', { kind: 'office.refresh' }),
       ],
-    }, false)
+    }, false, { autoApply: true })
     expect(applyPlan).toHaveBeenCalledTimes(1)
     expect(listener).not.toHaveBeenCalled()
     window.removeEventListener('office:refresh', listener)
+  })
+
+  it('does not touch the document when the reader declines', async () => {
+    const applyPlan = vi.fn(async () => {})
+    registerOfficeEditorHandle(FILE_ID, {
+      save: () => ({}),
+      flush: async () => {},
+      undo: () => {},
+      applyPlan,
+      context: () => ({}),
+    })
+    const confirmApply = vi.fn(async () => false)
+
+    await runPendingOfficeEffects({
+      tools: [tool('a-declined', { kind: 'office.apply-plan', fileId: FILE_ID, fileType: 'docs', plan: plan() })],
+    }, false, { autoApply: false, confirmApply })
+
+    expect(confirmApply).toHaveBeenCalledTimes(1)
+    expect(applyPlan).not.toHaveBeenCalled()
+  })
+
+  it('asks once per activity: a declined plan is not offered again', async () => {
+    const applyPlan = vi.fn(async () => {})
+    registerOfficeEditorHandle(FILE_ID, {
+      save: () => ({}),
+      flush: async () => {},
+      undo: () => {},
+      applyPlan,
+      context: () => ({}),
+    })
+    const confirmApply = vi.fn(async () => false)
+    const turn = {
+      tools: [tool('a-once', { kind: 'office.apply-plan', fileId: FILE_ID, fileType: 'docs', plan: plan() })],
+    }
+    await runPendingOfficeEffects(turn, false, { autoApply: false, confirmApply })
+    await runPendingOfficeEffects(turn, false, { autoApply: false, confirmApply })
+
+    expect(confirmApply).toHaveBeenCalledTimes(1)
+    expect(applyPlan).not.toHaveBeenCalled()
+  })
+
+  it('applies without asking when the reader turned that on', async () => {
+    const applyPlan = vi.fn(async () => {})
+    registerOfficeEditorHandle(FILE_ID, {
+      save: () => ({}),
+      flush: async () => {},
+      undo: () => {},
+      applyPlan,
+      context: () => ({}),
+    })
+    const confirmApply = vi.fn(async () => false)
+
+    await runPendingOfficeEffects({
+      tools: [tool('a-auto', { kind: 'office.apply-plan', fileId: FILE_ID, fileType: 'docs', plan: plan() })],
+    }, false, { autoApply: true, confirmApply })
+
+    expect(confirmApply).not.toHaveBeenCalled()
+    expect(applyPlan).toHaveBeenCalledTimes(1)
   })
 })

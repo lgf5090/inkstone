@@ -119,6 +119,10 @@ export function OfficeSettingsDialog({ open, prefs, onClose, onSave }: OfficeSet
             <Checkbox checked={draft.restoreTabs} onChange={(checked) => patch({ restoreTabs: checked })} label={t('office.settings.restore_tabs')} />
           </label>
           <label className="flex items-center justify-between gap-3">
+            <span className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('office.settings.auto_apply')}</span>
+            <Checkbox checked={draft.autoApplyPlans} onChange={(checked) => patch({ autoApplyPlans: checked })} label={t('office.settings.auto_apply')} />
+          </label>
+          <label className="flex items-center justify-between gap-3">
             <span className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('office.settings.split_default')}</span>
             <Checkbox checked={draft.openSplitByDefault} onChange={(checked) => patch({ openSplitByDefault: checked })} label={t('office.settings.split_default')} />
           </label>

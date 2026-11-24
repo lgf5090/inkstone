@@ -28,6 +28,8 @@ export interface OfficePrefs {
   autosaveDelayMs: number
   restoreTabs: boolean
   openSplitByDefault: boolean
+  /** Apply the assistant's edit plans without asking first. Off by default: a write is a decision. */
+  autoApplyPlans: boolean
 }
 
 export const DEFAULT_OFFICE_PREFS: OfficePrefs = {
@@ -40,6 +42,7 @@ export const DEFAULT_OFFICE_PREFS: OfficePrefs = {
   autosaveDelayMs: 1200,
   restoreTabs: true,
   openSplitByDefault: false,
+  autoApplyPlans: false,
 }
 
 const PREFS_VERSION = 'v1'
@@ -77,6 +80,7 @@ export function parseOfficePrefs(value: unknown): OfficePrefs {
     autosaveDelayMs,
     restoreTabs: typeof value.restoreTabs === 'boolean' ? value.restoreTabs : DEFAULT_OFFICE_PREFS.restoreTabs,
     openSplitByDefault: typeof value.openSplitByDefault === 'boolean' ? value.openSplitByDefault : DEFAULT_OFFICE_PREFS.openSplitByDefault,
+    autoApplyPlans: typeof value.autoApplyPlans === 'boolean' ? value.autoApplyPlans : DEFAULT_OFFICE_PREFS.autoApplyPlans,
   }
 }
 
