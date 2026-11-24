@@ -485,7 +485,7 @@ export function buildSelectionItems(ctx: MenuCtx): MenuItem[] | null {
       id: 'create-from-selection',
       label: t('contextmenu.create_note_from_selection'),
       icon: <Plus size={14} />,
-      onSelect: () => ctx.onCreateNote({ title: text.trim().slice(0, 200), open: true }),
+      onSelect: () => ctx.onCreateNote({ title: text.trim().slice(0, 200), content: text, open: true }),
     },
   )
   // Only the editor's own selection: a format command runs wherever the CodeMirror cursor is, which

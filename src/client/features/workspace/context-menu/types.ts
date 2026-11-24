@@ -152,7 +152,7 @@ export interface MenuCtx {
   onExport: (format: 'md' | 'html' | 'pdf') => void
   onPresent: () => void
   onOpenNote: (id: string) => void
-  onCreateNote: (input: { title: string; open?: boolean }) => void
+  onCreateNote: (input: { title: string; content?: string; open?: boolean }) => void
   onOpenInSecondary: (id: string) => void
   onToast: BlockToast
   onLightbox: (image: { src: string; alt: string }) => void
