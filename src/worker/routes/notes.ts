@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { isNoteLockEnvelope } from '@shared/crypto'
+import { parseNoteLockNote } from '@shared/crypto'
 import { countText, deriveExcerpt, normalizeLinkKey } from '@shared/markdown-utils'
 import { duplicateNoteTitle, truncateText, utf8ByteLength } from '@shared/text-utils'
 import type {
@@ -276,12 +276,14 @@ notesRoutes.patch('/:id', async (c) => {
     throw ApiError.badRequest('A lock change must carry both title and content')
   }
   if (sealing) {
-    if (!isNoteLockEnvelope(body.title!) || !isNoteLockEnvelope(body.content!)) {
-      throw ApiError.badRequest('A lock must carry sealed envelopes, not plaintext')
-    }
-    // The envelope is base64 JSON around the body, so the plaintext ceiling no longer describes it.
+    // The envelope adds base64 and authentication-tag overhead, so the plaintext ceiling no longer describes it.
     if (utf8ByteLength(body.content!) > LIMITS.contentMaxBytes || utf8ByteLength(body.title!) > LIMITS.noteLockTitleMaxBytes) {
       throw ApiError.tooLarge('Encrypted note content or title exceeds the limit')
+    }
+    try {
+      parseNoteLockNote({ title: body.title!, content: body.content! })
+    } catch {
+      throw ApiError.badRequest('A lock must carry matching, valid sealed envelopes')
     }
   }
   if (opening) assertContentSize(body.content!)

@@ -7,13 +7,19 @@ import { SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { notesRoutes } from '../src/worker/routes/notes'
 import { SearchStore } from '../src/worker/search/store'
 import { emptyParsedQuery } from '../src/shared/search-query'
-import { NoteLockSession, sealNote } from '../src/shared/crypto'
 import { LIMITS } from '../src/shared/constants'
+import {
+  NOTE_LOCK_KDF_MAX_ITERATIONS,
+  NOTE_LOCK_KDF_MIN_ITERATIONS,
+  NoteLockSession,
+  sealNote,
+} from '../src/shared/crypto'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'user-a'
+const FAST = { iterations: NOTE_LOCK_KDF_MIN_ITERATIONS }
 
 let sqlite: DatabaseSync
 let app: Hono<AppBindings>
@@ -81,7 +87,7 @@ beforeEach(() => {
 
 describe('a sealed note writes only ciphertext', () => {
   it('stores envelopes, clears the derived row, and removes plaintext projections', async () => {
-    const session = await NoteLockSession.create('pw', { iterations: 1_000 })
+    const session = await NoteLockSession.create('pw', FAST)
     const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body\nmore words' })
 
     const response = await patch({
@@ -110,7 +116,7 @@ describe('a sealed note writes only ciphertext', () => {
   })
 
   it('rolls the lock and every plaintext projection back together when the batch fails', async () => {
-    const session = await NoteLockSession.create('pw', { iterations: 1_000 })
+    const session = await NoteLockSession.create('pw', FAST)
     const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body\nmore words' })
     sqlite.exec('DROP TABLE blog_pages')
 
@@ -124,7 +130,7 @@ describe('a sealed note writes only ciphertext', () => {
   })
 
   it('refuses oversized plaintext when removing a lock', async () => {
-    const session = await NoteLockSession.create('pw', { iterations: 1_000 })
+    const session = await NoteLockSession.create('pw', FAST)
     const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body' })
     expect((await patch({ rev: 1, title: sealed.title, content: sealed.content, isEncrypted: true, quiet: true })).status).toBe(200)
 
@@ -139,7 +145,7 @@ describe('a sealed note writes only ciphertext', () => {
   })
 
   it('refuses a sealed title beyond the envelope byte limit', async () => {
-    const session = await NoteLockSession.create('pw', { iterations: 1_000 })
+    const session = await NoteLockSession.create('pw', FAST)
     const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body' })
     const title = `memoenc:v1:${'a'.repeat(LIMITS.noteLockTitleMaxBytes)}:iv:ct`
 
@@ -148,7 +154,7 @@ describe('a sealed note writes only ciphertext', () => {
   })
 
   it('refuses a plaintext text edit while the note is locked', async () => {
-    const session = await NoteLockSession.create('pw', { iterations: 1_000 })
+    const session = await NoteLockSession.create('pw', FAST)
     const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body\nmore words' })
     expect((await patch({ rev: 1, title: sealed.title, content: sealed.content, isEncrypted: true })).status).toBe(200)
 
@@ -163,8 +169,41 @@ describe('a sealed note writes only ciphertext', () => {
     expect(response.status).toBe(400)
   })
 
+  it('accepts a matching legacy v1 field pair', async () => {
+    const session = await NoteLockSession.create('pw')
+    const title = await session.seal('Secret title')
+    const content = await session.seal('visible body')
+
+    const response = await patch({ rev: 1, title, content, isEncrypted: true, quiet: true })
+    expect(response.status).toBe(200)
+  })
+
+  it('rejects an oversized v2 iteration count before storing the lock', async () => {
+    const sealed = await sealNote(await NoteLockSession.create('pw', FAST), 'n1', { title: 't', content: 'c' })
+    const title = sealed.title.replace(
+      `memoenc:v2:${FAST.iterations}:`,
+      `memoenc:v2:${NOTE_LOCK_KDF_MAX_ITERATIONS + 1}:`,
+    )
+
+    const response = await patch({ rev: 1, title, content: sealed.content, isEncrypted: true })
+    expect(response.status).toBe(400)
+    expect(sqlite.prepare(`SELECT is_encrypted, title FROM notes WHERE id = 'n1'`).get())
+      .toMatchObject({ is_encrypted: 0, title: 'Secret title' })
+  })
+
+  it('rejects fields whose salts do not match', async () => {
+    const sealed = await sealNote(await NoteLockSession.create('pw', FAST), 'n1', { title: 't', content: 'c' })
+    const [, , iv, data] = sealed.title.slice('memoenc:v2:'.length).split(':')
+    const title = `memoenc:v2:${FAST.iterations}:${'A'.repeat(22)}:${iv}:${data}`
+
+    const response = await patch({ rev: 1, title, content: sealed.content, isEncrypted: true })
+    expect(response.status).toBe(400)
+    expect(sqlite.prepare(`SELECT is_encrypted FROM notes WHERE id = 'n1'`).get())
+      .toMatchObject({ is_encrypted: 0 })
+  })
+
   it('refuses to duplicate a locked note', async () => {
-    const session = await NoteLockSession.create('pw', { iterations: 1_000 })
+    const session = await NoteLockSession.create('pw', FAST)
     const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body' })
     expect((await patch({ rev: 1, title: sealed.title, content: sealed.content, isEncrypted: true })).status).toBe(200)
     const response = await app.fetch(new Request('http://localhost/api/notes/n1/duplicate', { method: 'POST' }), env as never, ctx)
@@ -174,7 +213,7 @@ describe('a sealed note writes only ciphertext', () => {
 
 describe('removing a lock returns the note to plaintext', () => {
   it('writes the decrypted text back and rebuilds the derived row', async () => {
-    const session = await NoteLockSession.create('pw', { iterations: 1_000 })
+    const session = await NoteLockSession.create('pw', FAST)
     const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body\nmore words' })
     expect((await patch({ rev: 1, title: sealed.title, content: sealed.content, isEncrypted: true })).status).toBe(200)
 
@@ -191,7 +230,7 @@ describe('removing a lock returns the note to plaintext', () => {
 
 describe('search ignores locked notes', () => {
   it('does not match an encrypted note by its title or body', async () => {
-    const session = await NoteLockSession.create('pw', { iterations: 1_000 })
+    const session = await NoteLockSession.create('pw', FAST)
     const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body' })
     expect((await patch({ rev: 1, title: sealed.title, content: sealed.content, isEncrypted: true })).status).toBe(200)
     const store = new SearchStore(env.DB, USER)
