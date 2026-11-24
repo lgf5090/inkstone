@@ -13,8 +13,8 @@ import diagramPrintCss from '../styles/pele.css?inline'
 
 // Pinned so an exported document cannot silently load a different stylesheet: the hash
 // is the sha384 of node_modules/katex/dist/katex.min.css for the version in package.json.
-const KATEX_CSS_URL = 'https://cdn.jsdelivr.net/npm/katex@0.18.1/dist/katex.min.css'
-const KATEX_CSS_INTEGRITY = 'sha384-1vdNCNel6Tx/NQa8IR1mGOGKsbGreCkOPfbtPPnUURJ5Tu2PRVfQ/7KLZC+Pi1p1'
+const KATEX_CSS_URL = 'https://cdn.jsdelivr.net/npm/katex@0.18.2/dist/katex.min.css'
+const KATEX_CSS_INTEGRITY = 'sha384-qArEAQvOPs1o7K1iAybhs66g8nYTXVt4VLOQ3abu+OMLJyPNfaH4Wpko0X2epHJ+'
 
 // A downloaded .html has no CSP around it and is often opened away from the instance,
 // so it keeps the pinned CDN copy; the print frame cannot load it and inlines instead.
