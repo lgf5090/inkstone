@@ -33071,6 +33071,9 @@ const allowed = new Map([
   ["src/shared/development/xget/path-transforms.ts", [
     "// Derived from Xget (AGPL-3.0-only) src/routing/platform-transformers.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
   ]],
+  ["src/shared/email/backup.ts", [
+    "/** v1 is normalized to the v2 shape; this names everything the old file could not carry. */",
+  ]],
   ["src/shared/email/model.ts", [
     "/** The row's write time, the token a draft save compares before it overwrites another device. */",
     "/**\n   * The `updatedAt` this save was written against.\n   *\n   * Present, the save refuses to overwrite a draft another device wrote since; absent, it is the\n   * unconditional write the agent and import paths have always made.\n   */",
