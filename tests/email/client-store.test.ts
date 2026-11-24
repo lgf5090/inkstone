@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EmailMessage, EmailSummary } from '@shared/email/model'
+import type { EmailFolder, EmailMessage, EmailSummary, EmailTag } from '@shared/email/model'
+import type { EmailSavedSearch } from '@shared/email/searches'
 import { api } from '../../src/client/lib/api'
 import { useEmailStore } from '../../src/client/features/email/store'
 
@@ -32,10 +33,28 @@ function message(patch: Partial<EmailMessage> = {}): EmailMessage {
   }
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (reason: unknown) => void } {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
-  return { promise, resolve }
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
+
+function folder(patch: Partial<EmailFolder> = {}): EmailFolder {
+  return {
+    id: 'inbox',
+    name: 'Inbox',
+    isDeletable: false,
+    unreadCount: 1,
+    totalCount: 1,
+    parentId: null,
+    color: null,
+    sortOrder: 0,
+    ...patch,
+  }
 }
 
 beforeEach(() => {
@@ -51,6 +70,7 @@ describe('the mailbox store', () => {
   it('applies a star immediately and rolls it back when the write fails', async () => {
     const row = message()
     useEmailStore.setState({
+      accountId: 'a1',
       messages: [row],
       total: 1,
       selectedId: row.id,
@@ -66,6 +86,7 @@ describe('the mailbox store', () => {
     expect(update).toHaveBeenCalledWith('a1', row.id, { starred: true })
 
     useEmailStore.setState({
+      accountId: 'a1',
       messages: [row],
       total: 1,
       selectedId: row.id,
@@ -80,6 +101,158 @@ describe('the mailbox store', () => {
     await expect(failed).resolves.toBe(false)
     expect(useEmailStore.getState().messages[0]!.starred).toBe(false)
     expect(useEmailStore.getState().actionError).toBe('network down')
+  })
+
+  it.each([
+    {
+      name: 'markThreadRead',
+      start: (row: EmailMessage) => {
+        const pending = deferred<void>()
+        vi.spyOn(api.email, 'markThreadRead').mockReturnValue(pending.promise)
+        return { pending, run: () => useEmailStore.getState().markThreadRead('a1', row) }
+      },
+    },
+    {
+      name: 'setRead',
+      start: (row: EmailMessage) => {
+        const pending = deferred<EmailMessage>()
+        vi.spyOn(api.email, 'updateEmail').mockReturnValue(pending.promise)
+        return { pending, run: () => useEmailStore.getState().setRead('a1', row.id, true) }
+      },
+    },
+    {
+      name: 'toggleStar',
+      start: (row: EmailMessage) => {
+        const pending = deferred<EmailMessage>()
+        vi.spyOn(api.email, 'updateEmail').mockReturnValue(pending.promise)
+        return { pending, run: () => useEmailStore.getState().toggleStar('a1', row.id) }
+      },
+    },
+    {
+      name: 'toggleImportant',
+      start: (row: EmailMessage) => {
+        const pending = deferred<EmailMessage>()
+        vi.spyOn(api.email, 'updateEmail').mockReturnValue(pending.promise)
+        return { pending, run: () => useEmailStore.getState().toggleImportant('a1', row.id) }
+      },
+    },
+    {
+      name: 'muteThread',
+      start: (row: EmailMessage) => {
+        const pending = deferred<void>()
+        vi.spyOn(api.email, 'muteThread').mockReturnValue(pending.promise)
+        return { pending, run: () => useEmailStore.getState().muteThread('a1', row.threadId!, true) }
+      },
+    },
+    {
+      name: 'moveMessage',
+      start: (row: EmailMessage) => {
+        const pending = deferred<void>()
+        vi.spyOn(api.email, 'moveEmail').mockReturnValue(pending.promise)
+        return { pending, run: () => useEmailStore.getState().moveMessage('a1', row.id, 'archive') }
+      },
+    },
+    {
+      name: 'deleteMessage',
+      start: (row: EmailMessage) => {
+        const pending = deferred<void>()
+        vi.spyOn(api.email, 'deleteEmail').mockReturnValue(pending.promise)
+        return { pending, run: () => useEmailStore.getState().deleteMessage('a1', row.id) }
+      },
+    },
+  ])('does not roll $name state back after switching accounts', async ({ start }) => {
+    const row = message()
+    useEmailStore.setState({
+      accountId: 'a1',
+      folderId: 'inbox',
+      messages: [row],
+      total: 1,
+      trash: [row],
+      trashTotal: 1,
+      selectedId: row.id,
+      selectedMessage: row,
+      thread: [row],
+      folders: [folder()],
+      selectedIds: new Set([row.id]),
+      selectionAnchorId: row.id,
+      actionError: null,
+    })
+    const { pending, run } = start(row)
+    const applied = run()
+    const other = message({ id: 'other', read: true, starred: true, important: true, muted: true })
+    useEmailStore.setState({
+      accountId: 'b1',
+      folderId: 'sent',
+      messages: [other],
+      total: 7,
+      trash: [],
+      trashTotal: 0,
+      selectedId: other.id,
+      selectedMessage: other,
+      thread: [other],
+      folders: [folder({ id: 'sent', unreadCount: 0, totalCount: 7 })],
+      selectedIds: new Set([other.id]),
+      selectionAnchorId: other.id,
+    })
+    const beforeFailure = useEmailStore.getState()
+    pending.reject(new Error('account A failed'))
+    await expect(applied).resolves.toBe(false)
+    expect(useEmailStore.getState()).toEqual(beforeFailure)
+  })
+
+  it('does not let an older failed mutation roll back a newer request', async () => {
+    const first = message({ id: 'm1' })
+    const second = message({ id: 'm2' })
+    const older = deferred<EmailMessage>()
+    const newer = deferred<EmailMessage>()
+    vi.spyOn(api.email, 'updateEmail')
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise)
+    useEmailStore.setState({ accountId: 'a1', messages: [first, second], total: 2 })
+    const olderApplied = useEmailStore.getState().setRead('a1', first.id, true)
+    const newerApplied = useEmailStore.getState().setRead('a1', second.id, true)
+    older.reject(new Error('older request failed'))
+    await expect(olderApplied).resolves.toBe(false)
+    expect(useEmailStore.getState().messages).toEqual([first, { ...second, read: true }])
+    expect(useEmailStore.getState().actionError).toBe('older request failed')
+    newer.reject(new Error('newer request failed'))
+    await expect(newerApplied).resolves.toBe(false)
+    expect(useEmailStore.getState().messages).toEqual([
+      first,
+      second,
+    ])
+    expect(useEmailStore.getState().actionError).toBe('newer request failed')
+  })
+
+  it('does not roll an old A mutation back after switching A, B, then A again', async () => {
+    const row = message()
+    const pending = deferred<EmailMessage>()
+    vi.spyOn(api.email, 'updateEmail').mockReturnValue(pending.promise)
+    vi.spyOn(api.email, 'listEmails').mockResolvedValue({ emails: [], totalCount: 0 })
+    useEmailStore.setState({ accountId: 'a1', messages: [row], total: 1 })
+    const applied = useEmailStore.getState().setRead('a1', row.id, true)
+    await useEmailStore.getState().loadList('b1', 'inbox')
+    const current = message({ id: 'current', read: false })
+    await useEmailStore.getState().loadList('a1', 'inbox')
+    useEmailStore.setState({ accountId: 'a1', messages: [current], total: 1 })
+    const beforeFailure = useEmailStore.getState()
+    pending.reject(new Error('old A request failed'))
+    await expect(applied).resolves.toBe(false)
+    expect(useEmailStore.getState()).toEqual(beforeFailure)
+  })
+
+  it('ignores a successful update from an account that is no longer active', async () => {
+    const row = message()
+    const pending = deferred<EmailMessage>()
+    vi.spyOn(api.email, 'updateEmail').mockReturnValue(pending.promise)
+    useEmailStore.setState({ accountId: 'a1', messages: [row], total: 1 })
+    const applied = useEmailStore.getState().setRead('a1', row.id, true)
+    const other = message({ id: 'other', read: false })
+    useEmailStore.setState({ accountId: 'b1', messages: [other], total: 1 })
+    const beforeResponse = useEmailStore.getState()
+    pending.resolve({ ...row, read: false })
+    await expect(applied).resolves.toBe(true)
+    expect(useEmailStore.getState()).toEqual(beforeResponse)
   })
 
   it('deletes a draft that exists only inside the open thread', async () => {
@@ -207,6 +380,72 @@ describe('the mailbox store', () => {
 })
 
 describe('the mailbox refresh', () => {
+  it('ignores the first A folder response after loading A, B, then A again', async () => {
+    const older = deferred<EmailFolder[]>()
+    const other = deferred<EmailFolder[]>()
+    const current = deferred<EmailFolder[]>()
+    vi.spyOn(api.email, 'listFolders')
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(other.promise)
+      .mockReturnValueOnce(current.promise)
+    const olderLoad = useEmailStore.getState().loadFolders('a1')
+    const otherLoad = useEmailStore.getState().loadFolders('b1')
+    const currentLoad = useEmailStore.getState().loadFolders('a1')
+    other.resolve([folder({ id: 'b-folder', name: 'B' })])
+    await otherLoad
+    current.resolve([folder({ id: 'a-current', name: 'Current A' })])
+    await currentLoad
+    older.resolve([folder({ id: 'a-old', name: 'Old A' })])
+    await olderLoad
+    expect(useEmailStore.getState().folders.map((entry) => entry.id)).toEqual(['a-current'])
+    expect(useEmailStore.getState().foldersAccountId).toBe('a1')
+    expect(useEmailStore.getState().foldersStatus).toBe('ready')
+  })
+
+  it('ignores the first A tag response after loading A, B, then A again', async () => {
+    const older = deferred<EmailTag[]>()
+    const other = deferred<EmailTag[]>()
+    const current = deferred<EmailTag[]>()
+    vi.spyOn(api.email, 'listTags')
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(other.promise)
+      .mockReturnValueOnce(current.promise)
+    const olderLoad = useEmailStore.getState().loadTags('a1')
+    const otherLoad = useEmailStore.getState().loadTags('b1')
+    const currentLoad = useEmailStore.getState().loadTags('a1')
+    other.resolve([{ id: 'b-tag', name: 'B', color: null, count: 1 }])
+    await otherLoad
+    current.resolve([{ id: 'a-current', name: 'Current A', color: null, count: 2 }])
+    await currentLoad
+    older.resolve([{ id: 'a-old', name: 'Old A', color: null, count: 3 }])
+    await olderLoad
+    expect(useEmailStore.getState().tags.map((entry) => entry.id)).toEqual(['a-current'])
+    expect(useEmailStore.getState().tagsAccountId).toBe('a1')
+    expect(useEmailStore.getState().tagsStatus).toBe('ready')
+  })
+
+  it('ignores the first A saved-search response after loading A, B, then A again', async () => {
+    const older = deferred<EmailSavedSearch[]>()
+    const other = deferred<EmailSavedSearch[]>()
+    const current = deferred<EmailSavedSearch[]>()
+    vi.spyOn(api.email, 'listSearches')
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(other.promise)
+      .mockReturnValueOnce(current.promise)
+    const olderLoad = useEmailStore.getState().loadSearches('a1')
+    const otherLoad = useEmailStore.getState().loadSearches('b1')
+    const currentLoad = useEmailStore.getState().loadSearches('a1')
+    other.resolve([{ id: 'b-search', name: 'B', query: 'B', createdAt: '2026-01-01T00:00:00.000Z' }])
+    await otherLoad
+    current.resolve([{ id: 'a-current', name: 'Current A', query: 'current', createdAt: '2026-01-01T00:00:00.000Z' }])
+    await currentLoad
+    older.resolve([{ id: 'a-old', name: 'Old A', query: 'old', createdAt: '2026-01-01T00:00:00.000Z' }])
+    await olderLoad
+    expect(useEmailStore.getState().searches.map((entry) => entry.id)).toEqual(['a-current'])
+    expect(useEmailStore.getState().searchesAccountId).toBe('a1')
+    expect(useEmailStore.getState().searchesStatus).toBe('ready')
+  })
+
   it('reloads folders, tags, and saved searches together', async () => {
     vi.spyOn(api.email, 'listFolders').mockResolvedValue([])
     vi.spyOn(api.email, 'listTags').mockResolvedValue([{ id: 't1', name: 'ai/demo', color: null, count: 1 }])

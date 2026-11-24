@@ -77,21 +77,14 @@ let messageSequence = 0
 let trashSequence = 0
 let statsSequence = 0
 let contactsSequence = 0
+let foldersSequence = 0
+let tagsSequence = 0
+let searchesSequence = 0
+let mutationSequence = 0
+let structuralMutationSequence = 0
+const mutationVersions = new Map<string, number>()
 let pollTimer: number | null = null
 let visibilityBound = false
-
-interface MailboxSnapshot {
-  messages: EmailSummary[]
-  total: number
-  trash: EmailSummary[]
-  trashTotal: number
-  selectedId: string | null
-  selectedMessage: EmailMessage | null
-  thread: EmailMessage[]
-  folders: EmailFolder[]
-  selectedIds: Set<string>
-  selectionAnchorId: string | null
-}
 
 interface EmailState {
   config: EmailConfig | null
@@ -270,21 +263,6 @@ const visibilityHandler = (): void => {
   }
 }
 
-function snapshot(state: EmailState): MailboxSnapshot {
-  return {
-    messages: state.messages,
-    total: state.total,
-    trash: state.trash,
-    trashTotal: state.trashTotal,
-    selectedId: state.selectedId,
-    selectedMessage: state.selectedMessage,
-    thread: state.thread,
-    folders: state.folders,
-    selectedIds: state.selectedIds,
-    selectionAnchorId: state.selectionAnchorId,
-  }
-}
-
 function sortedThread(messages: EmailMessage[]): EmailMessage[] {
   const unique = new Map<string, EmailMessage>()
   for (const message of messages) unique.set(message.id, message)
@@ -312,6 +290,22 @@ function findSummary(state: EmailState, id: string): EmailSummary | null {
     ?? (state.selectedMessage?.id === id ? state.selectedMessage : null)
     ?? state.thread.find((entry) => entry.id === id)
     ?? null
+}
+
+function mutationKey(accountId: string, targetId: string): string {
+  return `${mutationSequence}:${accountId}:${targetId}`
+}
+
+function beginMutation(accountId: string, targetId: string): number {
+  const key = mutationKey(accountId, targetId)
+  const version = (mutationVersions.get(key) ?? 0) + 1
+  mutationVersions.set(key, version)
+  return version
+}
+
+function isCurrentMutation(accountId: string, targetId: string, version: number): boolean {
+  const state = useEmailStore.getState()
+  return state.accountId === accountId && mutationVersions.get(mutationKey(accountId, targetId)) === version
 }
 
 export const useEmailStore = create<EmailState>((set, get) => ({
@@ -378,6 +372,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     await api.email.deleteAccount(accountId)
     if (get().accountId === accountId) {
       get().stopPolling()
+      mutationSequence += 1
+      mutationVersions.clear()
       set({
         messages: [],
         total: 0,
@@ -425,6 +421,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   loadFolders: async (accountId, options) => {
     const silent = options?.silent === true
+    const sequence = ++foldersSequence
     set((state) => ({
       folders: state.foldersAccountId === accountId ? state.folders : [],
       foldersAccountId: accountId,
@@ -433,10 +430,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }))
     try {
       const folders = await api.email.listFolders(accountId)
-      if (get().foldersAccountId !== accountId) return
+      if (sequence !== foldersSequence || get().foldersAccountId !== accountId) return
       set({ folders, foldersStatus: 'ready', foldersError: null })
     } catch (reason) {
-      if (get().foldersAccountId !== accountId) return
+      if (sequence !== foldersSequence || get().foldersAccountId !== accountId) return
       set({
         foldersStatus: silent ? get().foldersStatus : 'error',
         foldersError: emailErrorText(reason),
@@ -466,6 +463,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   loadTags: async (accountId, options) => {
     const silent = options?.silent === true
+    const sequence = ++tagsSequence
     set((state) => ({
       tags: state.tagsAccountId === accountId ? state.tags : [],
       tagsAccountId: accountId,
@@ -474,10 +472,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }))
     try {
       const tags = await api.email.listTags(accountId)
-      if (get().tagsAccountId !== accountId) return
+      if (sequence !== tagsSequence || get().tagsAccountId !== accountId) return
       set({ tags, tagsStatus: 'ready', tagsError: null })
     } catch (reason) {
-      if (get().tagsAccountId !== accountId) return
+      if (sequence !== tagsSequence || get().tagsAccountId !== accountId) return
       set({
         tagsStatus: silent ? get().tagsStatus : 'error',
         tagsError: emailErrorText(reason),
@@ -487,6 +485,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   loadSearches: async (accountId, options) => {
     const silent = options?.silent === true
+    const sequence = ++searchesSequence
     set((state) => ({
       searches: state.searchesAccountId === accountId ? state.searches : [],
       searchesAccountId: accountId,
@@ -495,10 +494,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }))
     try {
       const searches = await api.email.listSearches(accountId)
-      if (get().searchesAccountId !== accountId) return
+      if (sequence !== searchesSequence || get().searchesAccountId !== accountId) return
       set({ searches, searchesStatus: 'ready', searchesError: null })
     } catch (reason) {
-      if (get().searchesAccountId !== accountId) return
+      if (sequence !== searchesSequence || get().searchesAccountId !== accountId) return
       set({
         searchesStatus: silent ? get().searchesStatus : 'error',
         searchesError: emailErrorText(reason),
@@ -569,6 +568,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   loadList: async (accountId, folderId, page = 1, options) => {
     const silent = options?.silent === true
     const sequence = ++listSequence
+    if (get().accountId !== accountId) {
+      mutationSequence += 1
+      mutationVersions.clear()
+    }
     const focusFilter = get().focusFilter
     const readFilter = get().readFilter
     set((state) => ({
@@ -621,6 +624,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   searchEmails: async (accountId, query, page = 1, options) => {
     const silent = options?.silent === true
     const sequence = ++listSequence
+    if (get().accountId !== accountId) {
+      mutationSequence += 1
+      mutationVersions.clear()
+    }
     const trimmed = query.trim()
     set((state) => ({
       accountId,
@@ -816,7 +823,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const listed = state.messages.filter((entry) => matches(entry) && !entry.read)
     const unread = state.thread.some((entry) => !entry.read) || !message.read
     if (listed.length === 0 && !unread) return true
-    const before = snapshot(state)
+    const targetId = threadId ?? message.id
+    const version = beginMutation(accountId, targetId)
+    const previousRead = new Map<string, boolean>()
+    for (const entry of [...state.messages, ...state.thread, ...(state.selectedMessage ? [state.selectedMessage] : [])]) {
+      if (ids.has(entry.id)) previousRead.set(entry.id, entry.read)
+    }
     const delta = Math.max(listed.length, !message.read ? 1 : 0)
     set({
       messages: state.messages.map((entry) => matches(entry) ? { ...entry, read: true } : entry),
@@ -829,7 +841,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       else await api.email.updateEmail(accountId, message.id, { read: true })
       return true
     } catch (reason) {
-      set({ ...before, actionError: emailErrorText(reason) })
+      if (isCurrentMutation(accountId, targetId, version)) {
+        set((current) => ({
+          messages: current.messages.map((entry) => previousRead.has(entry.id) ? { ...entry, read: previousRead.get(entry.id)! } : entry),
+          thread: current.thread.map((entry) => previousRead.has(entry.id) ? { ...entry, read: previousRead.get(entry.id)! } : entry),
+          selectedMessage: current.selectedMessage && previousRead.has(current.selectedMessage.id)
+            ? { ...current.selectedMessage, read: previousRead.get(current.selectedMessage.id)! }
+            : current.selectedMessage,
+          folders: adjustFolderUnread(current.folders, message.folderId, delta),
+          actionError: emailErrorText(reason),
+        }))
+      }
       return false
     }
   },
@@ -838,7 +860,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const state = get()
     const summary = findSummary(state, messageId)
     if (!summary || summary.read === read) return true
-    const before = snapshot(state)
+    const version = beginMutation(accountId, messageId)
     const delta = read ? -1 : 1
     set({
       messages: updateSummary(state.messages, messageId, { read }),
@@ -851,14 +873,27 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     })
     try {
       const updated = await api.email.updateEmail(accountId, messageId, { read })
-      set({
-        messages: updateSummary(get().messages, messageId, { read: updated.read }),
-        trash: updateSummary(get().trash, messageId, { read: updated.read }),
-        thread: updateThread(get().thread, messageId, { read: updated.read }),
-      })
+      if (isCurrentMutation(accountId, messageId, version)) {
+        set({
+          messages: updateSummary(get().messages, messageId, { read: updated.read }),
+          trash: updateSummary(get().trash, messageId, { read: updated.read }),
+          thread: updateThread(get().thread, messageId, { read: updated.read }),
+        })
+      }
       return true
     } catch (reason) {
-      set({ ...before, actionError: emailErrorText(reason) })
+      if (isCurrentMutation(accountId, messageId, version)) {
+        set((current) => ({
+          messages: updateSummary(current.messages, messageId, { read: summary.read }),
+          trash: updateSummary(current.trash, messageId, { read: summary.read }),
+          thread: updateThread(current.thread, messageId, { read: summary.read }),
+          selectedMessage: current.selectedMessage?.id === messageId
+            ? { ...current.selectedMessage, read: summary.read }
+            : current.selectedMessage,
+          folders: adjustFolderUnread(current.folders, summary.folderId, -delta),
+          actionError: emailErrorText(reason),
+        }))
+      }
       return false
     }
   },
@@ -868,7 +903,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const summary = findSummary(state, messageId)
     if (!summary) return false
     const starred = !summary.starred
-    const before = snapshot(state)
+    const version = beginMutation(accountId, messageId)
     set({
       messages: updateSummary(state.messages, messageId, { starred }),
       trash: updateSummary(state.trash, messageId, { starred }),
@@ -879,14 +914,26 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     })
     try {
       const updated = await api.email.updateEmail(accountId, messageId, { starred })
-      set({
-        messages: updateSummary(get().messages, messageId, { starred: updated.starred }),
-        trash: updateSummary(get().trash, messageId, { starred: updated.starred }),
-        thread: updateThread(get().thread, messageId, { starred: updated.starred }),
-      })
+      if (isCurrentMutation(accountId, messageId, version)) {
+        set({
+          messages: updateSummary(get().messages, messageId, { starred: updated.starred }),
+          trash: updateSummary(get().trash, messageId, { starred: updated.starred }),
+          thread: updateThread(get().thread, messageId, { starred: updated.starred }),
+        })
+      }
       return true
     } catch (reason) {
-      set({ ...before, actionError: emailErrorText(reason) })
+      if (isCurrentMutation(accountId, messageId, version)) {
+        set((current) => ({
+          messages: updateSummary(current.messages, messageId, { starred: summary.starred }),
+          trash: updateSummary(current.trash, messageId, { starred: summary.starred }),
+          thread: updateThread(current.thread, messageId, { starred: summary.starred }),
+          selectedMessage: current.selectedMessage?.id === messageId
+            ? { ...current.selectedMessage, starred: summary.starred }
+            : current.selectedMessage,
+          actionError: emailErrorText(reason),
+        }))
+      }
       return false
     }
   },
@@ -896,7 +943,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const summary = findSummary(state, messageId)
     if (!summary) return false
     const important = !summary.important
-    const before = snapshot(state)
+    const version = beginMutation(accountId, messageId)
     set({
       messages: updateSummary(state.messages, messageId, { important }),
       trash: updateSummary(state.trash, messageId, { important }),
@@ -907,6 +954,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     })
     try {
       const updated = await api.email.updateEmail(accountId, messageId, { important })
+      if (!isCurrentMutation(accountId, messageId, version)) return true
       set({
         messages: updateSummary(get().messages, messageId, { important: updated.important }),
         trash: updateSummary(get().trash, messageId, { important: updated.important }),
@@ -918,14 +966,28 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       }
       return true
     } catch (reason) {
-      set({ ...before, actionError: emailErrorText(reason) })
+      if (isCurrentMutation(accountId, messageId, version)) {
+        set((current) => ({
+          messages: updateSummary(current.messages, messageId, { important: summary.important }),
+          trash: updateSummary(current.trash, messageId, { important: summary.important }),
+          thread: updateThread(current.thread, messageId, { important: summary.important }),
+          selectedMessage: current.selectedMessage?.id === messageId
+            ? { ...current.selectedMessage, important: summary.important }
+            : current.selectedMessage,
+          actionError: emailErrorText(reason),
+        }))
+      }
       return false
     }
   },
 
   muteThread: async (accountId, threadId, muted) => {
     const state = get()
-    const before = snapshot(state)
+    const version = beginMutation(accountId, threadId)
+    const previousMuted = new Map<string, boolean>()
+    for (const entry of [...state.messages, ...state.trash, ...state.thread, ...(state.selectedMessage ? [state.selectedMessage] : [])]) {
+      if (entry.threadId === threadId) previousMuted.set(entry.id, Boolean(entry.muted))
+    }
     const apply = <T extends EmailSummary>(list: T[]): T[] =>
       list.map((entry) => entry.threadId === threadId ? { ...entry, muted } : entry)
     set({
@@ -938,10 +1000,23 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     })
     try {
       await api.email.muteThread(accountId, threadId, muted)
+      if (!isCurrentMutation(accountId, threadId, version)) return true
       await get().refresh()
       return true
     } catch (reason) {
-      set({ ...before, actionError: emailErrorText(reason) })
+      if (isCurrentMutation(accountId, threadId, version)) {
+        const restore = <T extends EmailSummary>(list: T[]): T[] =>
+          list.map((entry) => previousMuted.has(entry.id) ? { ...entry, muted: previousMuted.get(entry.id)! } : entry)
+        set((current) => ({
+          messages: restore(current.messages),
+          trash: restore(current.trash),
+          thread: restore(current.thread),
+          selectedMessage: current.selectedMessage && previousMuted.has(current.selectedMessage.id)
+            ? { ...current.selectedMessage, muted: previousMuted.get(current.selectedMessage.id)! }
+            : current.selectedMessage,
+          actionError: emailErrorText(reason),
+        }))
+      }
       return false
     }
   },
@@ -972,7 +1047,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const summary = findSummary(state, messageId)
     if (!summary) return false
     if (summary.folderId === folderId) return true
-    const before = snapshot(state)
+    const version = ++structuralMutationSequence
     const removeFromList = state.listMode === 'folder' && state.folderId === summary.folderId
     const clearsSelection = state.selectedId === messageId
       || state.thread.some((entry) => entry.id === messageId)
@@ -1000,7 +1075,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       await api.email.moveEmail(accountId, messageId, folderId)
       return true
     } catch (reason) {
-      set({ ...before, actionError: emailErrorText(reason) })
+      if (get().accountId === accountId && version === structuralMutationSequence) {
+        set({ actionError: emailErrorText(reason) })
+        await get().refresh()
+      }
       return false
     }
   },
@@ -1009,7 +1087,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const state = get()
     const summary = findSummary(state, messageId)
     if (!summary) return false
-    const before = snapshot(state)
+    const version = ++structuralMutationSequence
     const clearsSelection = state.selectedId === messageId
       || state.thread.some((entry) => entry.id === messageId)
     const inTrashList = state.trash.some((entry) => entry.id === messageId)
@@ -1036,7 +1114,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       await api.email.deleteEmail(accountId, messageId, permanent)
       return true
     } catch (reason) {
-      set({ ...before, actionError: emailErrorText(reason) })
+      if (get().accountId === accountId && version === structuralMutationSequence) {
+        set({ actionError: emailErrorText(reason) })
+        await get().refresh()
+      }
       return false
     }
   },
