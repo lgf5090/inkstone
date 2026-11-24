@@ -56,21 +56,13 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
   const bcc = normalizeRecipients(input.bcc, 'bcc')
   const body = validateBody(input)
   const mailbox = emailMailbox(c.env, account.id)
-  const rate = await mailbox.checkSendRateLimit()
-  if (rate) throw new ApiError(429, 'email_rate_limited', rate)
-  const messageId = newId()
-  const outgoingId = outgoingMessageId(messageId, account.address)
-  const requestHash = await sha256Hex(JSON.stringify({ mode, account: account.id, input }))
-  const claim = await mailbox.claimOperation(input.operationId.trim(), requestHash, messageId)
-  if (claim.status === 'conflict') throw ApiError.conflict('operationId was already used with different arguments')
-  if (claim.status === 'duplicate' && claim.messageId) return c.json(await alreadySent(c.env, account.id, claim.messageId), 200)
   let original = originalId ? await mailbox.getEmail(originalId) : null
   if (original?.folder_id === 'draft' && original.in_reply_to) {
     original = await mailbox.getEmail(original.in_reply_to) ?? original
   }
   if (originalId && !original) throw ApiError.notFound('Original email not found')
   let references: string[] = []
-  let threadId = messageId
+  let threadId: string
   let inReplyTo: string | null = null
   if (original && mode === 'reply') {
     try {
@@ -83,17 +75,32 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
     references = [...references, originalMsgId]
     threadId = original.thread_id || original.id
     inReplyTo = originalMsgId
+  } else {
+    threadId = ''
   }
   if (original && mode === 'forward') {
     inReplyTo = null
     references = []
-    threadId = messageId
+    threadId = ''
   }
   const headers = {
     ...(original && mode === 'reply' && inReplyTo ? buildThreadingHeaders(inReplyTo, references) : {}),
     ...replyToHeader(readAccountSettings(account.settings)),
   }
   const hasHeaders = Object.keys(headers).length > 0
+  const requestHash = await sha256Hex(JSON.stringify({ mode, account: account.id, originalId: originalId ?? null, input }))
+  const claim = await mailbox.claimOperation(input.operationId.trim(), requestHash, newId())
+  if (claim.status === 'conflict') throw ApiError.conflict('operationId was already used with different arguments')
+  const messageId = claim.messageId
+  if (!messageId) throw new Error('The email operation did not return a message id')
+  if (claim.status === 'duplicate') {
+    const result = await alreadySent(c.env, account.id, messageId)
+    if (result) return c.json(result, 200)
+  }
+  const rate = await mailbox.checkSendRateLimit()
+  if (rate) throw new ApiError(429, 'email_rate_limited', rate)
+  const outgoingId = outgoingMessageId(messageId, account.address)
+  threadId ||= messageId
   const created = await mailbox.createEmail('sent', {
     id: messageId,
     subject: input.subject,

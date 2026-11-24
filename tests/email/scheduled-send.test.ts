@@ -273,6 +273,34 @@ describe('scheduled send cron sweep', () => {
     expect(jobRow(job).status).toBe('sent')
   })
 
+  it('does not complete a fixed-operation replay when its attachment was not loaded', async () => {
+    const now = Date.now()
+    const draftId = newId()
+    seedDraft(draftId)
+    const attachmentId = await seedAttachment(draftId)
+    const key = `mail/docs/${attachmentId}.pdf`
+    bucket.objects.delete(key)
+    const job = await scheduleDraftSend(env, OWNER, accountId, draftId, now + MINUTE_MS)
+    const claim = vi.spyOn(harness.store(accountId), 'claimOperation')
+
+    const first = await runScheduledSends(env, now + 2 * MINUTE_MS, 5)
+    expect(first).toEqual({ started: 1, sent: 0, retried: 1, failed: 0 })
+    expect(jobRow(job.id)).toMatchObject({ status: 'queued', attempts: 1 })
+    expect(harness.store(accountId).getEmail(draftId)).toMatchObject({ folder_id: 'draft', delivery_status: null })
+    expect(provider).not.toHaveBeenCalled()
+
+    await bucket.put(key, new TextEncoder().encode('attachment bytes'), {
+      httpMetadata: { contentType: 'application/pdf' },
+      customMetadata: { sha256: `sha-${attachmentId}` },
+    })
+    const second = await runScheduledSends(env, now + 8 * MINUTE_MS, 5)
+    expect(second).toEqual({ started: 1, sent: 1, retried: 0, failed: 0 })
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(claim.mock.calls.map(([operationId]) => operationId)).toEqual([`scheduled:${job.id}`, `scheduled:${job.id}`])
+    expect(harness.store(accountId).getEmail(draftId)).toMatchObject({ folder_id: 'sent', delivery_status: 'sent' })
+    expect(jobRow(job.id)).toMatchObject({ status: 'sent', attempts: 2, last_error: null })
+  })
+
   it('retries a refused send and succeeds on the next pass', async () => {
     const now = Date.now()
     const draftId = newId()

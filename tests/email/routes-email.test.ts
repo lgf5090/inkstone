@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EMAIL_BODY_MAX_BYTES, EMAIL_FOLLOW_UP_MAX_MS, EMAIL_LEGACY_SIGNATURE_ID, EMAIL_SIGNATURES_MAX, EMAIL_SIGNATURE_NAME_MAX_CHARS, EMAIL_SIGNATURE_TEXT_MAX_CHARS, EMAIL_SNOOZE_MAX_MS, EMAIL_SUBJECT_MAX_CHARS, EMAIL_VACATION_BODY_MAX_CHARS, EMAIL_VACATION_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
 import type { EmailAccount, EmailFolder, EmailListResponse, EmailMailboxStats, EmailMessage, EmailTag } from '../../src/shared/email/model'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
@@ -13,6 +13,7 @@ import type { AppBindings, Env } from '../../src/worker/env'
 import { errorResponse } from '../../src/worker/lib/errors'
 import { newId } from '../../src/worker/lib/id'
 import { emailRoutes } from '../../src/worker/routes/email'
+import { emailSendRoutes } from '../../src/worker/routes/email-send'
 import { makeD1 } from '../doubles/d1-sqlite'
 import { makeSqlExec } from '../doubles/do-sqlite'
 import { fakeEmailMailboxNamespace } from '../doubles/email-mailbox'
@@ -46,6 +47,7 @@ function app(): Hono<AppBindings> {
     }
     await next()
   })
+  instance.route('/api/email', emailSendRoutes)
   instance.route('/api/email', emailRoutes)
   return instance
 }
@@ -1368,6 +1370,131 @@ describe('email drafts and attachments', () => {
     })
     expect(response.status).toBe(404)
     expect((await errorOf(response)).code).toBe('email_attachment_not_found')
+  })
+})
+
+describe('email send idempotency', () => {
+  function useEmailProvider(messageId = 'provider-1') {
+    const send = vi.fn(async () => ({ messageId }))
+    env = testBindings(db, {
+      FILES: bucket,
+      EMAIL_MAILBOX: mailboxNamespace(store),
+      EMAIL: { send } as unknown as Env['EMAIL'],
+    })
+    return send
+  }
+
+  function sendInput(operationId: string) {
+    return {
+      to: 'bob@example.com',
+      subject: 'Hello',
+      body: 'Hello',
+      bodyHtml: '<p>Hello</p>',
+      operationId,
+    }
+  }
+
+  it('keeps a missing reply original as 404 when the operation is replayed', async () => {
+    const send = useEmailProvider()
+    const originalId = newId()
+    const input = sendInput('reply-missing-original')
+
+    const first = await call('POST', `/accounts/${accountId}/emails/${originalId}/reply`, input)
+    const replay = await call('POST', `/accounts/${accountId}/emails/${originalId}/reply`, input)
+
+    expect(first.status).toBe(404)
+    expect(replay.status).toBe(404)
+    expect(await errorOf(replay)).toMatchObject({ message: 'Original email not found' })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('does not claim an attachment load failure as sent and retries the same operation', async () => {
+    const send = useEmailProvider('attachment-provider-1')
+    const created = await call('POST', `/accounts/${accountId}/drafts`, {
+      to: 'bob@example.com',
+      subject: 'With attachment',
+      body: 'Hello',
+      bodyHtml: '<p>Hello</p>',
+    })
+    const { draftId } = await json<{ draftId: string }>(created)
+    const attachmentId = await seedAttachment({ emailId: draftId })
+    const key = `mail/docs/${attachmentId}.pdf`
+    bucket.objects.delete(key)
+    const input = { ...sendInput('draft-attachment-retry'), attachmentIds: [attachmentId] }
+    const path = `/accounts/${accountId}/drafts/${draftId}/send`
+
+    expect((await call('POST', path, input)).status).toBe(404)
+    const failedReplay = await call('POST', path, input)
+    expect(failedReplay.status).toBe(404)
+    expect(await json(failedReplay)).not.toMatchObject({ status: 'sent' })
+    expect(store.getEmail(draftId)).toMatchObject({ folder_id: 'draft', delivery_status: null })
+    expect(send).not.toHaveBeenCalled()
+
+    await bucket.put(key, new TextEncoder().encode('attachment bytes'), {
+      httpMetadata: { contentType: 'application/pdf' },
+      customMetadata: { sha256: `sha-${attachmentId}` },
+    })
+    const sent = await call('POST', path, input)
+    const replay = await call('POST', path, input)
+    expect(sent.status).toBe(202)
+    expect(replay.status).toBe(200)
+    expect(await json(replay)).toEqual(await json(sent))
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows the same operation to retry after a claimed draft could not be moved', async () => {
+    const send = useEmailProvider('draft-provider-1')
+    const created = await call('POST', `/accounts/${accountId}/drafts`, {
+      to: 'bob@example.com',
+      subject: 'Retry move',
+      body: 'Hello',
+      bodyHtml: '<p>Hello</p>',
+    })
+    const { draftId } = await json<{ draftId: string }>(created)
+    const move = vi.spyOn(store, 'sendDraft').mockReturnValueOnce(false)
+    const input = sendInput('draft-move-retry')
+    const path = `/accounts/${accountId}/drafts/${draftId}/send`
+
+    expect((await call('POST', path, input)).status).toBe(404)
+    move.mockRestore()
+    const retried = await call('POST', path, input)
+    expect(retried.status).toBe(202)
+    expect(await json(retried)).toMatchObject({ id: draftId, status: 'sent', messageId: 'draft-provider-1' })
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns the first direct-send result on a normal duplicate request', async () => {
+    const send = useEmailProvider('direct-provider-1')
+    const input = sendInput('direct-duplicate')
+
+    const first = await call('POST', `/accounts/${accountId}/emails`, input)
+    const replay = await call('POST', `/accounts/${accountId}/emails`, input)
+
+    expect(first.status).toBe(202)
+    expect(replay.status).toBe(200)
+    expect(await json(replay)).toEqual(await json(first))
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports pending, failed and unconfirmed delivery states instead of sent on replay', async () => {
+    const send = useEmailProvider('delivery-provider-1')
+    const input = sendInput('delivery-state-replay')
+    const first = await call('POST', `/accounts/${accountId}/emails`, input)
+    const { id } = await json<{ id: string }>(first)
+
+    store.updateDelivery(id, 'pending', null)
+    const pending = await call('POST', `/accounts/${accountId}/emails`, input)
+    expect(pending.status).toBe(200)
+    expect(await json(pending)).toEqual({ id, status: 'pending' })
+
+    store.updateDelivery(id, 'failed', 'Provider refused the message')
+    const failed = await call('POST', `/accounts/${accountId}/emails`, input)
+    expect(failed.status).toBe(200)
+    expect(await json(failed)).toEqual({ id, status: 'failed', error: 'Provider refused the message' })
+
+    sqlite.prepare('UPDATE email_messages SET delivery_status = NULL WHERE id = ?').run(id)
+    expect((await call('POST', `/accounts/${accountId}/emails`, input)).status).toBe(409)
+    expect(send).toHaveBeenCalledTimes(1)
   })
 })
 

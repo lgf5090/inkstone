@@ -38,9 +38,18 @@ export function headerList(account: EmailAccountRow, input: EmailSendInput, outg
   ])
 }
 
-export async function alreadySent(env: Env, accountId: string, messageId: string): Promise<EmailSendResult> {
+export async function alreadySent(env: Env, accountId: string, messageId: string): Promise<EmailSendResult | null> {
   const row = await emailMailbox(env, accountId).getEmail(messageId)
-  return { id: messageId, status: (row?.delivery_status as EmailSendResult['status']) ?? 'sent' }
+  if (!row) return null
+  if (row.delivery_status !== 'sent' && row.delivery_status !== 'pending' && row.delivery_status !== 'failed') {
+    throw ApiError.conflict('The email delivery status is unconfirmed')
+  }
+  return {
+    id: messageId,
+    status: row.delivery_status,
+    ...(row.delivery_status === 'sent' && row.provider_message_id ? { messageId: row.provider_message_id } : {}),
+    ...(row.delivery_status === 'failed' && row.delivery_error ? { error: row.delivery_error } : {}),
+  }
 }
 
 export interface DraftSendOutcome {
@@ -56,24 +65,35 @@ export async function sendDraftEmail(
   input: EmailSendInput,
 ): Promise<DraftSendOutcome> {
   const mailbox = emailMailbox(env, account.id)
-  const draft = await mailbox.getEmail(draftId)
-  if (!draft || draft.folder_id !== 'draft') throw ApiError.notFound('Draft not found')
+  let draft = await mailbox.getEmail(draftId)
+  if (!draft || (draft.folder_id !== 'draft' && draft.folder_id !== 'sent')) throw ApiError.notFound('Draft not found')
   const to = normalizeRecipients(input.to, 'to')
   const cc = normalizeRecipients(input.cc, 'cc')
   const bcc = normalizeRecipients(input.bcc, 'bcc')
   const body = validateBody(input)
-  const rate = await mailbox.checkSendRateLimit()
-  if (rate) throw new ApiError(429, 'email_rate_limited', rate)
+  const loadAttachments = async () => await loadOutgoingAttachments(env, userId, draftId, [...new Set([
+    ...(input.attachmentIds ?? []),
+    ...((await loadEmailAttachments(env.DB, userId, [draftId])).get(draftId) ?? []).map((entry) => entry.id),
+  ])], true)
+  let attachments: Awaited<ReturnType<typeof loadAttachments>> | undefined
   const requestHash = await sha256Hex(JSON.stringify({ mode: 'draft', account: account.id, draftId, input }))
   const claim = await mailbox.claimOperation(input.operationId.trim(), requestHash, draftId)
   if (claim.status === 'conflict') throw ApiError.conflict('operationId was already used with different arguments')
   if (claim.status === 'duplicate') {
-    return { result: await alreadySent(env, account.id, draftId), replayed: true }
+    const current = await mailbox.getEmail(draftId)
+    if (current?.folder_id === 'draft' && current.delivery_status === null) {
+      draft = current
+      attachments ??= await loadAttachments()
+    } else {
+      const result = await alreadySent(env, account.id, draftId)
+      if (!result) throw ApiError.notFound('Draft not found')
+      return { result, replayed: true }
+    }
   }
-  const attachments = await loadOutgoingAttachments(env, userId, draftId, [...new Set([
-    ...(input.attachmentIds ?? []),
-    ...((await loadEmailAttachments(env.DB, userId, [draftId])).get(draftId) ?? []).map((entry) => entry.id),
-  ])], true)
+  if (draft.folder_id !== 'draft') throw ApiError.notFound('Draft not found')
+  const rate = await mailbox.checkSendRateLimit()
+  if (rate) throw new ApiError(429, 'email_rate_limited', rate)
+  attachments ??= await loadAttachments()
   let references: string[] = []
   let threadId = draft.thread_id || draftId
   let inReplyTo = draft.in_reply_to
@@ -112,7 +132,6 @@ export async function sendDraftEmail(
     subject: input.subject,
   })
   if (!moved) throw ApiError.notFound('Draft not found')
-  await lockEmailAttachments(env.DB, userId, draftId)
   try {
     const sent = await sendViaProvider(env, userId, {
       to: to.length === 1 ? to[0]! : to,
@@ -125,6 +144,11 @@ export async function sendDraftEmail(
       ...(attachments.length ? { attachments } : {}),
       ...(hasHeaders ? { headers } : {}),
     })
+    try {
+      await lockEmailAttachments(env.DB, userId, draftId)
+    } catch (error) {
+      console.warn('[inkstone] sent attachments could not be locked:', (error as Error).message)
+    }
     await mailbox.updateDelivery(draftId, 'sent', null, sent.messageId)
     void rememberRecipientAddresses(env.DB, userId, [...to, ...cc, ...bcc]).catch((error) => {
       console.warn('[inkstone] sent recipients could not be saved as contacts:', (error as Error).message)
