@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { ArrowLeft, Columns2, PanelLeftClose, PanelLeftOpen, Plus, Settings, Sparkles, Undo2 } from 'lucide-react'
+import { ArrowLeft, Columns2, History, PanelLeftClose, PanelLeftOpen, Plus, Settings, Sparkles, Undo2 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
   isOfficeFolderName,
@@ -1278,6 +1278,22 @@ export function OfficeApp() {
                     onClick={() => { void reopenLastClosed() }}
                   >
                     <Undo2 size={15} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip label={t('office.versions.title')} side="bottom">
+                  <IconButton
+                    label={t('office.versions.title')}
+                    disabled={!activeTab}
+                    onClick={() => {
+                      const id = activeTab?.id
+                      if (!id) return
+                      const known = files.find((entry) => entry.id === id)
+                      if (known) { setVersionsFile(known); return }
+                      // A file opened from a folder or a link is not in the current list: read it once.
+                      void officeApi.getFile(id).then(({ file }) => setVersionsFile(file), () => undefined)
+                    }}
+                  >
+                    <History size={15} />
                   </IconButton>
                 </Tooltip>
                 <Tooltip label={t('office.settings.title')} side="bottom">

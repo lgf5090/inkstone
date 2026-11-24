@@ -89,7 +89,9 @@ export function OfficeVersions({ open, file, onClose, onRestored }: OfficeVersio
         {versions.length > 0 && (
           <ul className="flex flex-col gap-1">
             {versions.map((version) => {
-              const current = file?.rev === version.rev
+              // The newest version is the current one: after a restore the file prop still carries the
+              // revision the editor opened at, which is no longer the head of the list.
+              const current = versions[0]?.rev === version.rev
               return (
                 <li key={version.rev} className="flex min-w-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-1.5">
                   <span className="shrink-0 rounded-full bg-[var(--bg-inset)] px-2 py-0.5 text-[length:var(--text-10)] tabular text-[var(--text-tertiary)]">

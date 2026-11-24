@@ -9496,6 +9496,7 @@ const allowed = new Map([
     "/** The tab a split would open: the next one, or the previous when the active tab is last. */",
     "// Registration reads this synchronously on the next mount, so it is mirrored as soon as prefs load.",
     "// Registration happens once per editor mount; a reload is the honest way to apply a new set.",
+    "// A file opened from a folder or a link is not in the current list: read it once.",
   ]],
   ["src/client/features/office/OfficeEditorHost.tsx", [
     "/** Bumped by the shell after a version restore, so the open editor reloads its snapshot. */",
@@ -9528,6 +9529,10 @@ const allowed = new Map([
     "// The setter is stable; folding the path into the dependency list would re-run on every toggle.",
     "// eslint-disable-next-line react-hooks/exhaustive-deps",
     "// A keyboard ContextMenu/F10 press carries no pointer position; anchor to the row instead.",
+  ]],
+  ["src/client/features/office/OfficeVersions.tsx", [
+    "// The newest version is the current one: after a restore the file prop still carries the",
+    "// revision the editor opened at, which is no longer the head of the list.",
   ]],
   ["src/client/features/office/ai/office-surface.ts", [
     "/** A pointer to the screen, never the document body. */",
@@ -9639,10 +9644,7 @@ const allowed = new Map([
     "// lets a pending save read the model first, and keeps the second instance's container untouched.",
     "// The container is detached either way; an instance that refuses to dispose must not stop the",
     "// editor that replaced it.",
-    "/**\r\n * One Univer instance's lifetime, shared by the three P1 editors.\r\n *\r\n * The product modules own what a product is: its packages, its plugin order, its locale CSS and the one\r\n * call that opens a snapshot. This module owns what every product needs the same way — the license\r\n * first, theme and language, the disposed-in-a-microtask teardown that survives StrictMode, the handle\r\n * the shell and the assistant share, and the save loop wired to the events Univer actually fires.\r\n */",
-    "/**\r\n * `ILocales` is the shape the constructor takes but is not re-exported by `@univerjs/core`, so it is read\r\n * from the one declaration that owns it rather than restated here (a restatement would stop compiling\r\n * the day the package widens it).\r\n */",
     "/** Pro products register the license plugin before their own plugins. */",
-    "/**\r\n * What the shell and the assistant may call. Everything on `OfficeEditorHandle` is here unchanged; the\r\n * rest is the editor's own surface (theme/language/conflict), which the frozen contract does not cover.\r\n */",
     "// The local authz mock derives the role from the user id prefix.",
     "// Subscribed before the product creates its unit: a product whose first frame renders inside `create`",
     "// reports Rendered before a handle exists, and for that product it is the only report there is.",
@@ -9652,6 +9654,9 @@ const allowed = new Map([
     "// The constructor's `darkMode` only seeds the model; the theme service is what the UI reads, so the",
     "// reader's choice is applied once the instance exists (a flip remounts under the new value).",
     "/** `lite` registers the open-source packages only, which is also what removes the Pro watermark. */",
+    "/**\n * One Univer instance's lifetime, shared by the three P1 editors.\n *\n * The product modules own what a product is: its packages, its plugin order, its locale CSS and the one\n * call that opens a snapshot. This module owns what every product needs the same way — the license\n * first, theme and language, the disposed-in-a-microtask teardown that survives StrictMode, the handle\n * the shell and the assistant share, and the save loop wired to the events Univer actually fires.\n */",
+    "/**\n * `ILocales` is the shape the constructor takes but is not re-exported by `@univerjs/core`, so it is read\n * from the one declaration that owns it rather than restated here (a restatement would stop compiling\n * the day the package widens it).\n */",
+    "/**\n * What the shell and the assistant may call. Everything on `OfficeEditorHandle` is here unchanged; the\n * rest is the editor's own surface (theme/language/conflict), which the frozen contract does not cover.\n */",
   ]],
   ["src/client/features/office/editor/sheets.tsx", [
     "// The file id is the unit id, as every other product already does: the history panel asks the server",
