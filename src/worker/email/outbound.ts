@@ -202,6 +202,7 @@ async function sendViaResend(apiKey: string, from: string, params: SendBindingPa
   }
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
+    signal: AbortSignal.timeout(30_000),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
@@ -226,7 +227,7 @@ export async function sendViaProvider(env: Env, userId: string, params: SendBind
       ? await decryptEmailSecret(env, userId, deployment.resendKeyCiphertext)
       : null
     if (!apiKey) throw new ApiError(503, 'email_send_unavailable', 'Resend is selected but its API key is not configured')
-    return sendViaResend(apiKey, deployment.resendFrom.trim() || resendFrom(params.from), params)
+    return sendViaResend(apiKey, resendFrom(params.from), params)
   }
   return sendViaBinding(env, params)
 }

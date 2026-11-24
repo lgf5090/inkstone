@@ -4535,6 +4535,18 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    version: 418,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS email_send_budget (
+        user_id TEXT NOT NULL,
+        bucket TEXT NOT NULL,
+        window_start INTEGER NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, bucket)
+      )`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

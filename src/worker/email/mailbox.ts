@@ -22,6 +22,7 @@ import { deleteEmailAttachments } from './attachments'
 import { rememberRecipientAddresses, findEmailContactByEmail } from './contacts'
 import { emailMailbox } from './mailbox-stub'
 import { buildOutgoingHeaders, buildThreadingHeaders, normalizeMessageId, outgoingMessageId, replyToHeader, sendViaProvider } from './outbound'
+import { reserveEmailSendBudget } from './send-budget'
 
 export const MAX_MAILBOX_INBOUND_BYTES = EMAIL_INBOUND_MAX_BYTES
 
@@ -364,7 +365,6 @@ async function sendVacationReply(
   mailbox: ReturnType<typeof emailMailbox>,
   now: number,
 ): Promise<void> {
-  if (!env.EMAIL) return
   const vacation = normalizeEmailVacation(readAccountSettings(account.settings))
   if (!vacationReplyAllowed(account, sender, parsed, vacation, now)) return
   const claimKey = vacationClaimKey(account, sender, vacation)
@@ -379,6 +379,12 @@ async function sendVacationReply(
     : account.address
   const headers = { ...vacationHeaders(parsed, outgoingId), ...replyToHeader(readAccountSettings(account.settings)) }
   try {
+    const rate = await reserveEmailSendBudget(env, account.user_id, now)
+    if (rate) {
+      await mailbox.releaseInbound(claimKey)
+      console.warn('[inkstone] vacation auto-reply skipped by send budget:', rate)
+      return
+    }
     const sent = await sendViaProvider(env, account.user_id, {
       to: sender,
       from,

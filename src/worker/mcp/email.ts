@@ -8,6 +8,7 @@ import { storedStringArray } from '../lib/json'
 import { listEmailAccounts, readAccountSettings, type EmailAccountRow } from '../email/account-store'
 import { deleteEmailAttachmentsForMessages, loadEmailAttachments, lockEmailAttachments } from '../email/attachments'
 import { emailMailbox } from '../email/mailbox-stub'
+import { reserveEmailSendBudget } from '../email/send-budget'
 import {
   buildOutgoingHeaders,
   buildThreadingHeaders,
@@ -332,7 +333,7 @@ export async function sendMcpEmail(
   }
   const account = await resolveEmailAccount(context.env, context.userId, mailboxId(input.accountId))
   const mailbox = emailMailbox(context.env, account.id)
-  const rate = await mailbox.checkSendRateLimit()
+  const rate = await reserveEmailSendBudget(context.env, context.userId)
   if (rate) throw new ApiError(429, 'email_rate_limited', rate)
   const html = textToEmailHtml(input.body.trim())
   assertBodyFits(html)
@@ -382,7 +383,7 @@ export async function sendMcpEmailReply(
   const mailbox = emailMailbox(context.env, account.id)
   const original = await mailbox.getEmail(emailId(input.emailId))
   if (!original) throw new ApiError(404, 'email_message_not_found', 'Email not found')
-  const rate = await mailbox.checkSendRateLimit()
+  const rate = await reserveEmailSendBudget(context.env, context.userId)
   if (rate) throw new ApiError(429, 'email_rate_limited', rate)
   const to = normalizeRecipients(recipientAddress(original.sender), 'to')
   if (!to.length) throw ApiError.badRequest('The original message has no sender to reply to')
@@ -444,7 +445,7 @@ async function sendStoredDraft(
   const mailbox = emailMailbox(context.env, account.id)
   const draft = await mailbox.getEmail(draftId)
   if (!draft || draft.folder_id !== 'draft') throw new ApiError(404, 'email_message_not_found', 'Draft not found')
-  const rate = await mailbox.checkSendRateLimit()
+  const rate = await reserveEmailSendBudget(context.env, context.userId)
   if (rate) throw new ApiError(429, 'email_rate_limited', rate)
   const to = normalizeRecipients(draft.recipient, 'to')
   if (!to.length) throw ApiError.badRequest('The draft has no recipient')

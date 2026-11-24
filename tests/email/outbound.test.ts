@@ -244,11 +244,12 @@ describe('outbound provider selection', () => {
     expect(result).toEqual({ messageId: 'resend-1' })
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe('https://api.resend.com/emails')
+    expect(calls[0]!.init.signal).toBeInstanceOf(AbortSignal)
     expect((calls[0]!.init.headers as Record<string, string>).Authorization).toBe('Bearer re_live_abcdef')
     expect((calls[0]!.init.headers as Record<string, string>)['Idempotency-Key']).toBe('retry-one')
     const body = JSON.parse(String(calls[0]!.init.body)) as Record<string, unknown>
     expect(body).toMatchObject({
-      from: 'Inkstone <mail@example.com>',
+      from: 'Owner <owner@example.com>',
       to: ['a@example.com'],
       subject: 'Hi',
       reply_to: 'support@example.com',

@@ -20,6 +20,7 @@ import {
 } from '../email/outbound'
 import { alreadySent, headerList, sendDraftEmail, sendStoredEmail, sender } from '../email/send-service'
 import { rememberRecipientAddresses } from '../email/contacts'
+import { reserveEmailSendBudget } from '../email/send-budget'
 
 type Ctx = Context<AppBindings>
 
@@ -93,7 +94,7 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
     const result = await alreadySent(c.env, account.id, messageId)
     if (result) return c.json(result, 200)
   }
-  const rate = await mailbox.checkSendRateLimit()
+  const rate = await reserveEmailSendBudget(c.env, c.get('userId'))
   if (rate) throw new ApiError(429, 'email_rate_limited', rate)
   const outgoingId = outgoingMessageId(messageId, account.address)
   const headers = {

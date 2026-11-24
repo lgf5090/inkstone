@@ -18,6 +18,7 @@ import { emailMailbox } from './mailbox-stub'
 import type { EmailRow } from './mailbox-store'
 import { loadEmailAttachments, lockEmailAttachments } from './attachments'
 import { rememberRecipientAddresses } from './contacts'
+import { reserveEmailSendBudget } from './send-budget'
 
 export function sender(account: EmailAccountRow): string | { email: string; name: string } {
   return account.display_name && account.display_name !== account.address
@@ -103,7 +104,7 @@ export async function sendDraftEmail(
     }
   }
   if (draft.folder_id !== 'draft') throw ApiError.notFound('Draft not found')
-  const rate = await mailbox.checkSendRateLimit()
+  const rate = await reserveEmailSendBudget(env, userId)
   if (rate) throw new ApiError(429, 'email_rate_limited', rate)
   attachments ??= await loadAttachments()
   let references: string[] = []
@@ -196,7 +197,7 @@ export async function sendStoredEmail(
     throw new ApiError(409, 'email_not_retryable', 'Only a failed send can be retried')
   }
   const mailbox = emailMailbox(env, account.id)
-  const rate = await mailbox.checkSendRateLimit()
+  const rate = await reserveEmailSendBudget(env, userId)
   if (rate) throw new ApiError(429, 'email_rate_limited', rate)
   const to = normalizeRecipients(row.recipient, 'to')
   const cc = normalizeRecipients(row.cc ?? undefined, 'cc')
