@@ -269,6 +269,7 @@ function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: strin
 	return `const BUILD_ID = ${JSON.stringify(buildId)}
 	const SHELL_CACHE = ${JSON.stringify(`inkstone-shell-${buildId}`)}
 	const ASSET_CACHE = ${JSON.stringify(`inkstone-assets-${buildId}`)}
+	const EMAIL_CACHE = 'inkstone-email-private'
 	const CORE_URLS = ${JSON.stringify(coreUrls)}
 	const ALL_OFFLINE_URLS = ${JSON.stringify(allUrls)}
 	const OPTIONAL_URLS = ALL_OFFLINE_URLS.filter((url) => !CORE_URLS.includes(url))
@@ -299,7 +300,7 @@ function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: strin
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const previousShells = (await caches.keys()).filter((key) =>
-      key.startsWith('inkstone-') && key !== SHELL_CACHE && key !== ASSET_CACHE)
+      key.startsWith('inkstone-') && key !== SHELL_CACHE && key !== ASSET_CACHE && key !== EMAIL_CACHE)
     // The shell is the whole promise of the offline mode: without these files the cached page is an
     // empty document. It is cached before anything else, and a file the build does not actually have
     // rejects the install, which is what makes the installed state the page's own listener waits for
@@ -324,6 +325,9 @@ self.addEventListener('message', (event) => {
   }
   if (event.data?.type === 'WARM_OFFLINE_CACHE') {
     event.waitUntil(warmOfflineCache())
+  }
+  if (event.data?.type === 'CLEAR_EMAIL_CACHE') {
+    event.waitUntil(caches.delete(EMAIL_CACHE))
   }
 })
 
@@ -436,6 +440,28 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return
 
   const url = new URL(request.url)
+  if (url.origin === self.location.origin && url.pathname.startsWith('/api/email/') && !url.pathname.startsWith('/api/email/files/') && !url.pathname.endsWith('/export')) {
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(request)
+        const cacheControl = response.headers.get('cache-control') || ''
+        if (response.status === 200 && !cacheControl.includes('no-store') && (response.headers.get('content-type') || '').includes('application/json')) {
+          try {
+            const cache = await caches.open(EMAIL_CACHE)
+            await cache.put(request, response.clone())
+            const keys = await cache.keys()
+            while (keys.length > 200) await cache.delete(keys.shift())
+          } catch (error) {
+            console.warn('[inkstone] offline email cache write failed:', error)
+          }
+        }
+        return response
+      } catch {
+        return (await caches.match(request)) || Response.error()
+      }
+    })())
+    return
+  }
 	  if (
 	    url.origin !== self.location.origin ||
 	    NETWORK_ONLY_EXACT_PATHS.includes(url.pathname) ||

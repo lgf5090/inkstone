@@ -118,6 +118,7 @@ export function NotificationCenter({ open, onClose }: { open: boolean, onClose: 
                       void import('../subscriptions/open-subscription').then((module) => module.openSubscriptionById(id))
                     }}
                     onOpenTask={openTask}
+                    onClose={onClose}
                   />
                 ))}
               </ul>
@@ -135,6 +136,7 @@ function NotificationRow({
   onDelete,
   onOpenSubscription,
   onOpenTask,
+  onClose,
 }: {
   /** A delivered notice; its `link` is what decides whether a press opens a task. */
   notification: AssistantNotification
@@ -142,6 +144,7 @@ function NotificationRow({
   onDelete: () => void
   onOpenSubscription: (id: string) => void
   onOpenTask: (taskId: string) => void
+  onClose: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const snooze = useTodos((state) => state.snoozeTask)
@@ -154,6 +157,8 @@ function NotificationRow({
   const taskId = taskIdFromNotificationLink(notification.link)
   const calendarDate = /^calendar:(\d{4}-\d{2}-\d{2})$/.exec(notification.link ?? '')?.[1]
   const projectCard = projectCardFromNotificationLink(notification.link)
+  const emailLink = /^email:([^:]+):([^:]+)$/.exec(notification.link ?? '')
+  const emailFollowUps = /^email-followups:([^:]+)$/.exec(notification.link ?? '')
   const html = useMemo(() => ({ __html: renderMarkdown(notification.body).html }), [notification.body])
   // Only a notice that points at a task can be snoozed: the others have nothing to remind about. The
   // four durations append a reminder and leave the task's own list alone, exactly like the card menu.
@@ -186,9 +191,19 @@ function NotificationRow({
                 navigateToPath(`/project/boards/${encodeURIComponent(projectCard.boardId)}?card=${encodeURIComponent(projectCard.cardId)}`)
                 return
               }
+              if (emailFollowUps) {
+                onClose()
+                navigateToPath(`/email/accounts/${encodeURIComponent(emailFollowUps[1]!)}/search?q=${encodeURIComponent('is:followup')}`)
+                return
+              }
+              if (emailLink) {
+                onClose()
+                navigateToPath(`/email/accounts/${encodeURIComponent(emailLink[1]!)}/folders/inbox?message=${encodeURIComponent(emailLink[2]!)}`)
+                return
+              }
               setExpanded((value) => !value)
             }}
-            aria-expanded={taskId || calendarDate || projectCard ? undefined : expanded}
+            aria-expanded={taskId || calendarDate || projectCard || emailLink || emailFollowUps ? undefined : expanded}
             className="min-w-0 flex-1 text-left"
           >
             <p className={cn(
@@ -206,6 +221,12 @@ function NotificationRow({
             )}
             {projectCard && (
               <p className="mt-0.5 text-[length:var(--text-10-5)] font-medium text-[var(--accent)]">{t('project.card.open')}</p>
+            )}
+            {emailFollowUps && (
+              <p className="mt-0.5 text-[length:var(--text-10-5)] font-medium text-[var(--accent)]">{t('assistant.notifications.open_email_followups')}</p>
+            )}
+            {emailLink && (
+              <p className="mt-0.5 text-[length:var(--text-10-5)] font-medium text-[var(--accent)]">{t('assistant.notifications.open_email')}</p>
             )}
           </button>
           {/* A delivery about a plan can be opened; one from a routine cannot, and the control is not

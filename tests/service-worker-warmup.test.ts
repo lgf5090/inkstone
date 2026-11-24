@@ -176,6 +176,7 @@ function bootServiceWorker(options: {
   brokenCaches?: boolean
   documents?: string[]
   poisoned?: Array<{ cache: string, path: string }>
+  responses?: Record<string, FakeResponse>
 } = {}) {
   const listeners = new Map<string, Array<(event: never) => void>>()
   const statuses: Array<Record<string, unknown>> = []
@@ -200,6 +201,8 @@ function bootServiceWorker(options: {
     if (failing.has(path)) throw new TypeError('Failed to fetch')
     if (errors.has(path)) return new FakeResponse('', { status: 503 })
     if (documents.has(path)) return documentResponse()
+    const response = options.responses?.[toHref(input)] ?? options.responses?.[path]
+    if (response) return response.clone()
     // The document is the one path that is honestly HTML: it must still be cached, or this guard becomes
     // the reason offline boot fails.
     if (path.endsWith('.html')) return new FakeResponse(`body:${path}`, { headers: { 'content-type': 'text/html; charset=utf-8' } })
@@ -250,6 +253,7 @@ function bootServiceWorker(options: {
   }
   const assetCache = () => namedCache('inkstone-assets')
   const shellCache = () => namedCache('inkstone-shell')
+  const emailCache = () => caches.maps.get('inkstone-email-private')?.entries ?? new Map<string, FakeResponse>()
   const setFailing = (paths: string[]) => {
     failing.clear()
     for (const path of paths) failing.add(path)
@@ -259,7 +263,7 @@ function bootServiceWorker(options: {
     for (const path of paths) documents.add(path)
   }
 
-  return { install, message, requestPath, assetCache, shellCache, fetched, statuses, setFailing, setDocuments }
+  return { install, message, requestPath, assetCache, shellCache, emailCache, fetched, statuses, setFailing, setDocuments }
 }
 
 const manifestPath = async (worker: ReturnType<typeof bootServiceWorker>) => {
@@ -365,6 +369,40 @@ it('caches the shell before anything else so a first visit can boot offline', as
 // the previous worker in control forever — its cached shell and its cached boot.js included, which is the
 // start-up guard a deploy exists to replace. Measured on the live deployment: one install killed this way
 // left every build after it stuck in `installing`, never activating.
+it('serves cached email JSON offline and clears it on logout', async () => {
+  const path = '/api/email/accounts/a1/emails?folder=inbox'
+  const worker = bootServiceWorker({
+    responses: {
+      [ORIGIN + path]: new FakeResponse(JSON.stringify({ emails: [{ id: 'm1' }] }), {
+        headers: { 'content-type': 'application/json' },
+      }),
+    },
+  })
+  await worker.requestPath(path)
+  expect((await worker.emailCache()).has(ORIGIN + path)).toBe(true)
+
+  worker.setFailing(['/api/email/accounts/a1/emails'])
+  const offline = await worker.requestPath(path) as FakeResponse
+  expect(await offline.json()).toEqual({ emails: [{ id: 'm1' }] })
+
+  await worker.message({ type: 'CLEAR_EMAIL_CACHE' })
+  expect((await worker.emailCache()).size).toBe(0)
+  expect((await worker.requestPath(path) as FakeResponse).status).toBe(0)
+})
+
+it('does not cache email JSON that explicitly forbids storage', async () => {
+  const path = '/api/email/accounts/a1/settings'
+  const worker = bootServiceWorker({
+    responses: {
+      [ORIGIN + path]: new FakeResponse(JSON.stringify({ settings: {} }), {
+        headers: { 'content-type': 'application/json', 'cache-control': 'private, no-store' },
+      }),
+    },
+  })
+  await worker.requestPath(path)
+  expect((await worker.emailCache()).size).toBe(0)
+})
+
 it('activates with a short shell when the edge drops a core file, and fills it in later', async () => {
   const worker = bootServiceWorker({ failing: ['/assets/app.js'] })
   await expect(worker.install()).resolves.toHaveLength(1)

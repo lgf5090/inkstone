@@ -9033,6 +9033,8 @@ const CORE_MESSAGES_TAIL = {
     "assistant.notifications.mark_all": "Mark all read",
     "assistant.notifications.delete": "Delete notification",
     "assistant.notifications.open_task": "Open this task",
+    "assistant.notifications.open_email": "Open this email",
+    "assistant.notifications.open_email_followups": "Open email follow-ups",
     "assistant.notifications.empty": "Nothing yet",
     "assistant.notifications.empty_hint": "Reminders and routines deliver their results here.",
     "assistant.toast.failed": "That did not work. Try again.",

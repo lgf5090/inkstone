@@ -95,6 +95,7 @@ export class EmailMailbox extends DurableObject<Env> {
   updateEmail(id: string, patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean; focused?: boolean }) {
     return this.store.updateEmail(id, patch)
   }
+  isThreadMuted(threadId: string) { return this.store.isThreadMuted(threadId) }
   muteThread(threadId: string, muted: boolean) { return this.store.muteThread(threadId, muted) }
   setFollowUp(id: string, at: number | null) { return this.store.setFollowUp(id, at) }
   wakeFollowUps(now?: number, limit?: number) { return this.store.wakeFollowUps(now, limit) }

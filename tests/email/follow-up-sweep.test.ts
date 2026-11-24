@@ -98,6 +98,13 @@ describe('email follow-up sweep', () => {
     expect(harness.store('a1').getEmail('due')).toMatchObject({ follow_up_at: null, important: 1, read: 0 })
     expect(harness.store('a1').getEmail('future')?.follow_up_at).toBe(now + 60 * MINUTE_MS)
     expect(harness.store('a2').getEmail('also-due')?.follow_up_at).toBeNull()
+    const notifications = database.sqlite.prepare(
+      `SELECT title, link FROM chat_notifications WHERE user_id = ?1 ORDER BY title`,
+    ).all(OWNER) as Array<{ title: string, link: string }>
+    expect(notifications).toEqual([
+      { title: 'Email follow-ups due: 1', link: 'email-followups:a1' },
+      { title: 'Email follow-ups due: 1', link: 'email-followups:a2' },
+    ])
   })
 
   it('wakes a full 200-message batch in SQLite-sized chunks', async () => {

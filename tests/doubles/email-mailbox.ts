@@ -66,6 +66,7 @@ export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNam
     hasThread: (threadId: string) => store.hasThread(threadId),
     hasSenderHistory: (address: string) => store.hasSenderHistory(address),
     updateEmail: (id: string, patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean; focused?: boolean }) => store.updateEmail(id, patch),
+    isThreadMuted: (threadId: string) => store.isThreadMuted(threadId),
     muteThread: (threadId: string, muted: boolean) => store.muteThread(threadId, muted),
     setFollowUp: (id: string, at: number | null) => store.setFollowUp(id, at),
     wakeFollowUps: (now?: number, limit?: number) => store.wakeFollowUps(now, limit),

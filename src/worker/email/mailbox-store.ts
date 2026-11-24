@@ -1096,6 +1096,13 @@ export class MailboxStore {
     return this.getEmail(id)
   }
 
+  isThreadMuted(threadId: string): boolean {
+    return Boolean(this.one<{ id: string }>(
+      `SELECT id FROM email_messages WHERE thread_id = ?1 AND muted = 1 LIMIT 1`,
+      threadId,
+    ))
+  }
+
   muteThread(threadId: string, muted: boolean): number {
     const row = this.one<{ total: number }>(
       `SELECT COUNT(*) AS total FROM email_messages WHERE thread_id = ?1`,

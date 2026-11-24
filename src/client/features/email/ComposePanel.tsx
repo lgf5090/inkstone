@@ -24,6 +24,7 @@ import { EmailComposer } from './EmailComposer'
 import { RecipientField } from './RecipientField'
 import { rewriteEmailCidSources } from './format'
 import type { EmailComposeMode } from './email-address'
+import { readEmailOfflineDraft, removeEmailOfflineDraft, saveEmailOfflineDraft } from './offline-outbox'
 
 interface ComposeAttachment {
   id: string
@@ -52,7 +53,7 @@ interface PendingSend {
   settled: boolean
 }
 
-type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+type SaveState = 'idle' | 'saving' | 'saved' | 'offline' | 'error'
 type SchedulePreset = 'hour' | 'tomorrow' | 'week'
 
 const AUTO_SAVE_DELAY_MS = 1600
@@ -62,6 +63,10 @@ const HOUR_MS = 60 * 60 * 1000
 const SCHEDULE_HOUR = 8
 const INLINE_IMAGE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp'
 const INLINE_IMAGE_TYPES = new Set(INLINE_IMAGE_ACCEPT.split(','))
+
+function isOfflineFailure(reason: unknown): boolean {
+  return reason instanceof ApiError && reason.isOffline || reason instanceof TypeError
+}
 
 function inlineImageAlt(filename: string): string {
   return filename.replace(/[\r\n\\[\]]/g, ' ').trim() || t('email.compose.insert_image')
@@ -189,18 +194,30 @@ export function ComposePanel({
   onClose: () => void
   onSent: () => void
 }) {
-  const initial = useMemo(() => initialFields(account, mode, original), [account, mode, original])
+  const composeKey = draftId
+    ? `draft:${account.id}:${draftId}`
+    : `new:${account.id}:${mode}:${original?.id ?? 'none'}`
+  const offlineDraft = useMemo(() => readEmailOfflineDraft(composeKey), [composeKey])
+  const baseInitial = useMemo(() => initialFields(account, mode, original), [account, mode, original])
+  const initial = useMemo(() => {
+    if (!offlineDraft) return baseInitial
+    return {
+      ...baseInitial,
+      ...offlineDraft.fields,
+      showCc: baseInitial.showCc || Boolean(offlineDraft.fields.cc || offlineDraft.fields.bcc),
+    }
+  }, [baseInitial, offlineDraft])
   const [to, setTo] = useState(initial.to)
   const [cc, setCc] = useState(initial.cc)
   const [bcc, setBcc] = useState('')
   const [subject, setSubject] = useState(initial.subject)
   const [body, setBody] = useState(initial.body)
   const [baseline, setBaseline] = useState(() => ({
-    to: initial.to,
-    cc: initial.cc,
+    to: baseInitial.to,
+    cc: baseInitial.cc,
     bcc: '',
-    subject: initial.subject,
-    body: initial.body,
+    subject: baseInitial.subject,
+    body: baseInitial.body,
   }))
   const [showCc, setShowCc] = useState(initial.showCc)
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit')
@@ -217,10 +234,11 @@ export function ComposePanel({
   const [customScheduleDate, setCustomScheduleDate] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState(draftId)
+  const offlineKeyRef = useRef(composeKey)
   const [threading, setThreading] = useState<{ inReplyTo: string | null, threadId: string | null }>(() => (
-    draftId || !original || mode === 'forward'
+    offlineDraft?.threading ?? (draftId || !original || mode === 'forward'
       ? { inReplyTo: null, threadId: null }
-      : { inReplyTo: original.id, threadId: original.threadId }
+      : { inReplyTo: original.id, threadId: original.threadId })
   ))
   const [attachments, setAttachments] = useState<ComposeAttachment[]>([])
   const [preview, setPreview] = useState<ComposeAttachment | null>(null)
@@ -364,12 +382,33 @@ export function ComposePanel({
         ...(draft && draftUpdatedAt.current !== null ? { expectedUpdatedAt: draftUpdatedAt.current } : {}),
       })
       setDraft(saved.draftId)
+      removeEmailOfflineDraft(offlineKeyRef.current)
+      offlineKeyRef.current = `draft:${account.id}:${saved.draftId}`
+      removeEmailOfflineDraft(offlineKeyRef.current)
       if (typeof saved.updatedAt === 'number') draftUpdatedAt.current = saved.updatedAt
       setBaseline(snapshot)
       setSaveState('saved')
       if (!silent) toast(t('email.compose.draft_saved'))
       return saved.draftId
     } catch (reason) {
+      if (isOfflineFailure(reason)) {
+        try {
+          saveEmailOfflineDraft(offlineKeyRef.current, snapshot, threading)
+          setSaveState('offline')
+          setSaveError(null)
+          if (!silent) toast(t('email.compose.offline_saved'))
+        } catch (offlineError) {
+          const key = offlineError instanceof Error && offlineError.message === 'email_offline_draft_too_large'
+            ? 'email.compose.offline_too_large'
+            : 'email.compose.offline_save_failed'
+          const message = t(key)
+          setSaveState('error')
+          setSaveError(message)
+          setError(message)
+          toast(message, 'danger')
+        }
+        return null
+      }
       if (reason instanceof ApiError && reason.isConflict) {
         const server = (reason.details as { server?: DraftConflict } | undefined)?.server
         if (server) {
@@ -432,6 +471,17 @@ export function ComposePanel({
   useEffect(() => {
     autoSave.current = saveDraft
   })
+
+  useEffect(() => {
+    const replay = () => {
+      if (!navigator.onLine) return
+      const fields = latestFields.current
+      if (![fields.to, fields.cc, fields.bcc, fields.subject, fields.body].some((value) => value.trim())) return
+      void autoSave.current(true)
+    }
+    window.addEventListener('online', replay)
+    return () => window.removeEventListener('online', replay)
+  }, [])
 
   useEffect(() => {
     clearAutoSaveTimer()
@@ -642,6 +692,7 @@ export function ComposePanel({
         return
       }
     }
+    removeEmailOfflineDraft(offlineKeyRef.current)
     onClose()
   }
 
@@ -880,7 +931,9 @@ export function ComposePanel({
     ? t('email.compose.saved')
     : saveState === 'saving'
       ? t('email.compose.saving')
-      : saveState === 'error'
+      : saveState === 'offline'
+        ? t('email.compose.offline_saved')
+        : saveState === 'error'
         ? t('email.compose.save_failed')
         : ''
 

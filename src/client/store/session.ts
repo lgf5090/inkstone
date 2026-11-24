@@ -269,6 +269,15 @@ export const useSession = create<SessionState>((set, get) => ({
       // not started into a no-op. Reporting its failure would describe a cache about to be destroyed.
       await pendingSessionCache.catch(() => {})
       await localDb.clear()
+      navigator.serviceWorker?.controller?.postMessage({ type: 'CLEAR_EMAIL_CACHE' })
+      const registration = await navigator.serviceWorker?.ready
+      registration?.active?.postMessage({ type: 'CLEAR_EMAIL_CACHE' })
+      try {
+        const { clearEmailOfflineDrafts } = await import('../features/email/offline-outbox')
+        clearEmailOfflineDrafts()
+      } catch (error) {
+        console.warn('[inkstone] Email offline draft cleanup failed:', error instanceof Error ? error.message : error)
+      }
       try {
         const { clearCalendarSessionCaches } = await import('../features/calendar/session-cache')
         clearCalendarSessionCaches()

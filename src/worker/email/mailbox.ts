@@ -23,6 +23,7 @@ import { rememberRecipientAddresses, findEmailContactByEmail } from './contacts'
 import { emailMailbox } from './mailbox-stub'
 import { buildOutgoingHeaders, buildThreadingHeaders, normalizeMessageId, outgoingMessageId, replyToHeader, sendViaProvider } from './outbound'
 import { reserveEmailSendBudget } from './send-budget'
+import { createEmailNotification } from './notifications'
 
 export const MAX_MAILBOX_INBOUND_BYTES = EMAIL_INBOUND_MAX_BYTES
 
@@ -105,7 +106,7 @@ export async function handleMailboxInbound(
   message: ForwardableEmailMessage,
   account: EmailAccountRow,
   env: Env,
-  _ctx: ExecutionContext,
+  ctx: ExecutionContext,
 ): Promise<MailboxInboundResult> {
   if (message.rawSize > MAX_MAILBOX_INBOUND_BYTES) {
     console.warn(`[inkstone] inbound mail rejected: ${message.rawSize} bytes over the ${MAX_MAILBOX_INBOUND_BYTES}-byte mailbox ceiling`)
@@ -159,6 +160,7 @@ export async function handleMailboxInbound(
     const knownThreadId = headerThreadId ? await mailbox.findThreadIdByMessageId(headerThreadId) : null
     const subjectThreadId = headerThreadId ? null : await mailbox.findThreadBySubject(normalizeSubject(subject), sender)
     const threadId = knownThreadId ?? headerThreadId ?? subjectThreadId ?? messageId ?? emailId
+    const muted = await mailbox.isThreadMuted(threadId)
 
     const storedSender = formatAddressList(parsed.from ? [parsed.from] : [])
       || formatAddressList(parsed.sender ? [parsed.sender] : [])
@@ -198,6 +200,7 @@ export async function handleMailboxInbound(
       read: plan.read,
       starred: plan.starred,
       focused,
+      muted,
       inReplyTo,
       emailReferences: JSON.stringify(references),
       threadId,
@@ -221,7 +224,16 @@ export async function handleMailboxInbound(
       await enqueueAutoDraft(env, account, emailId, threadId, parsed.headers)
     }
     await mailbox.completeInbound(messageKey)
-    if (!plan.blocked && !plan.trash && plan.folderId !== 'spam') {
+    if (!muted && !plan.blocked && !plan.trash && plan.folderId !== 'spam') {
+      try {
+        await createEmailNotification(env, account.user_id, {
+          title: subject || '(no subject)',
+          body: storedSender,
+          link: `email:${account.id}:${emailId}`,
+        }, ctx)
+      } catch (error) {
+        console.warn('[inkstone] inbound email notification could not be created:', (error as Error).message)
+      }
       try {
         await sendVacationReply(env, account, sender, parsed, mailbox, receivedAt)
       } catch (error) {

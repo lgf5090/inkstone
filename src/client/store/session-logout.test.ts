@@ -3,6 +3,7 @@ import { initI18n, t } from '../lib/i18n'
 import { api } from '../lib/api'
 import { localDb } from '../lib/db'
 import { useSession } from './session'
+import { saveEmailOfflineDraft } from '../features/email/offline-outbox'
 
 const confirmMock = vi.hoisted(() => vi.fn(async (_options: { title: string; description?: string; tone?: string }) => false))
 const notes = vi.hoisted(() => ({ pendingCount: 2, flushFails: true }))
@@ -66,6 +67,19 @@ describe('signing out with unsynced edits', () => {
     await useSession.getState().logout()
     expect(confirmMock).not.toHaveBeenCalled()
     expect(api.logout).toHaveBeenCalledTimes(1)
+  })
+
+  it('removes email offline drafts that belong to the account that left', async () => {
+    notes.pendingCount = 0
+    notes.flushFails = false
+    saveEmailOfflineDraft('draft:a1:d1', { to: 'ada@example.com', cc: '', bcc: '', subject: 'Private', body: 'Secret' }, {
+      inReplyTo: null,
+      threadId: null,
+    })
+    localStorage.setItem('inkstone.ui', '{}')
+    await useSession.getState().logout()
+    expect(localStorage.getItem('inkstone:email:offline-draft:v1:draft:a1:d1')).toBeNull()
+    expect(localStorage.getItem('inkstone.ui')).toBe('{}')
   })
 
   it('removes the calendar snapshots that belong to the account that left', async () => {

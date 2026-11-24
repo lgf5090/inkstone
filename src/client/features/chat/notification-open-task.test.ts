@@ -23,7 +23,12 @@ import { NotificationCenter } from './NotificationCenter'
 
 const TASK_ID = '0123456789abcdefghjkmnpqrs'
 
-const harness = vi.hoisted(() => ({ opened: [] as string[] }))
+const harness = vi.hoisted(() => ({ opened: [] as string[], paths: [] as string[] }))
+
+vi.mock('../../lib/app-history', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../lib/app-history')>(),
+  navigateToPath: (path: string) => { harness.paths.push(path) },
+}))
 
 vi.mock('../todos/open-task', () => ({
   openTaskInTodo: async (taskId: string) => { harness.opened.push(taskId) },
@@ -73,6 +78,7 @@ beforeEach(async () => {
   installTestGlobals()
   await initI18n()
   harness.opened.length = 0
+  harness.paths.length = 0
   original = useAssistant.getState()
   onClose = vi.fn()
   host = document.createElement('div')
@@ -99,6 +105,32 @@ describe('pressing a notification', () => {
     expect(onClose, 'the drawer stayed up over the screen it just asked for').toHaveBeenCalled()
     expect(button!.hasAttribute('aria-expanded'), 'a row that navigates must not pretend to expand').toBe(false)
     expect(document.body.textContent).toContain(t('assistant.notifications.open_task'))
+  })
+
+  it('opens the mailbox message named by an email notification', () => {
+    const accountId = '0123456789abcdefghjkmnpqrs'
+    const messageId = 'abcdefghjkmnpqrst0123456789'
+    mount([notice({ link: `email:${accountId}:${messageId}` })])
+
+    const button = rowButton()
+    act(() => { button!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+
+    expect(harness.paths).toEqual([`/email/accounts/${accountId}/folders/inbox?message=${messageId}`])
+    expect(onClose).toHaveBeenCalled()
+    expect(button!.hasAttribute('aria-expanded')).toBe(false)
+    expect(document.body.textContent).toContain(t('assistant.notifications.open_email'))
+  })
+
+  it('opens the follow-up search named by an email reminder', () => {
+    const accountId = '0123456789abcdefghjkmnpqrs'
+    mount([notice({ link: `email-followups:${accountId}` })])
+
+    const button = rowButton()
+    act(() => { button!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+
+    expect(harness.paths).toEqual([`/email/accounts/${accountId}/search?q=is%3Afollowup`])
+    expect(onClose).toHaveBeenCalled()
+    expect(document.body.textContent).toContain(t('assistant.notifications.open_email_followups'))
   })
 
   it('reads the rest of a notice that names no task, in place', () => {

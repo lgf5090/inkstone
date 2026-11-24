@@ -200,6 +200,7 @@ function messagePane(overrides: Partial<Parameters<typeof MessagePane>[0]> = {})
 }
 
 beforeEach(() => {
+  localStorage.clear()
   const scheduledJob: EmailScheduledSend = {
     id: 'job-1',
     accountId: account.id,
@@ -216,6 +217,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  localStorage.clear()
   useEmailStore.getState().stopPolling()
   useEmailStore.setState(originalEmailStore, true)
   document.body.innerHTML = ''
@@ -226,6 +228,29 @@ afterEach(() => {
 })
 
 describe('the compose panel', () => {
+  it('keeps an offline draft on this device and saves it when the connection returns', async () => {
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockRejectedValue(new ApiError(0, 'offline', 'offline'))
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    const first = panel('new')
+    change(inputFor(t('email.compose.subject')), 'Offline subject')
+    await act(async () => { button(t('email.compose.save_draft')).click() })
+    await flush()
+    const key = 'inkstone:email:offline-draft:v1:new:a1:new:none'
+    expect(JSON.parse(localStorage.getItem(key) ?? '{}').fields.subject).toBe('Offline subject')
+    expect(document.body.textContent).toContain(t('email.compose.offline_saved'))
+    first.unmount()
+
+    saveDraft.mockResolvedValue({ draftId: 'd-offline', updatedAt: Date.now() })
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+    const restored = panel('new')
+    expect(inputFor(t('email.compose.subject')).value).toBe('Offline subject')
+    await act(async () => { window.dispatchEvent(new Event('online')) })
+    await flush()
+    expect(saveDraft).toHaveBeenCalledTimes(2)
+    expect(localStorage.getItem(key)).toBeNull()
+    restored.unmount()
+  })
+
   it('states the recipient error instead of sending without one', () => {
     const saveDraft = vi.spyOn(api.email, 'saveDraft')
     const view = panel('new')

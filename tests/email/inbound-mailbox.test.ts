@@ -128,6 +128,14 @@ describe('the inbound mailbox handler', () => {
     expect(row!.message_id).toBe('html@example.com')
     expect(row!.read).toBe(0)
     expect(row!.size).toBe(new TextEncoder().encode(raw).byteLength)
+    const notification = database.sqlite.prepare(
+      `SELECT title, body, link FROM chat_notifications WHERE user_id = ?1`,
+    ).get(USER) as { title: string, body: string, link: string }
+    expect(notification).toEqual({
+      title: 'Café run',
+      body: 'Alice <alice@example.com>',
+      link: `email:${ACCOUNT}:${row!.id}`,
+    })
     const headers = JSON.parse(row!.raw_headers!) as { key: string; value: string }[]
     expect(headers.some((header) => header.key === 'subject' && header.value.includes('Q2Fmw6kgcnVu'))).toBe(true)
     expect(headers).toContainEqual({ key: 'message-id', value: '<html@example.com>' })
@@ -338,6 +346,59 @@ describe('the inbound mailbox handler', () => {
 
     const second = rows.find((row) => row.message_id === 'other@example.com')!
     expect(second.thread_id).toBe('parent@example.com')
+  })
+
+  it('inherits mute state for replies and suppresses their notifications', async () => {
+    harness.store(ACCOUNT).createEmail('inbox', {
+      id: 'muted-parent',
+      subject: 'Quiet thread',
+      sender: 'Alice <alice@example.com>',
+      recipient: ADDRESS,
+      date: Date.now() - 60_000,
+      body: 'Earlier',
+      threadId: 'quiet-thread',
+      messageId: '<quiet-parent@example.com>',
+    })
+    expect(harness.store(ACCOUNT).muteThread('quiet-thread', true)).toBe(1)
+
+    await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({
+        to: ADDRESS,
+        from: 'alice@example.com',
+        subject: 'Re: Quiet thread',
+        messageId: '<quiet-child@example.com>',
+        inReplyTo: '<quiet-parent@example.com>',
+        text: 'Still quiet',
+      }),
+    })
+    const muted = inbox().find((row) => row.message_id === 'quiet-child@example.com')!
+    expect(muted).toMatchObject({ thread_id: 'quiet-thread', muted: 1 })
+    const mutedNotifications = database.sqlite.prepare(
+      `SELECT COUNT(*) AS total FROM chat_notifications WHERE user_id = ?1 AND link = ?2`,
+    ).get(USER, `email:${ACCOUNT}:${muted.id}`) as { total: number }
+    expect(Number(mutedNotifications.total)).toBe(0)
+
+    expect(harness.store(ACCOUNT).muteThread('quiet-thread', false)).toBe(2)
+    await deliver({
+      to: ADDRESS,
+      from: 'alice@example.com',
+      raw: buildMime({
+        to: ADDRESS,
+        from: 'alice@example.com',
+        subject: 'Re: Quiet thread',
+        messageId: '<loud-child@example.com>',
+        inReplyTo: '<quiet-parent@example.com>',
+        text: ' audible again',
+      }),
+    })
+    const unmuted = inbox().find((row) => row.message_id === 'loud-child@example.com')!
+    expect(unmuted.muted).toBe(0)
+    const notification = database.sqlite.prepare(
+      `SELECT link FROM chat_notifications WHERE user_id = ?1 AND link = ?2`,
+    ).get(USER, `email:${ACCOUNT}:${unmuted.id}`) as { link: string } | undefined
+    expect(notification?.link).toBe(`email:${ACCOUNT}:${unmuted.id}`)
   })
 
   it('falls back to the subject and participants, then to its own Message-ID', async () => {
