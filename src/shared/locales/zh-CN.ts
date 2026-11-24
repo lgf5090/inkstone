@@ -1311,6 +1311,7 @@ const ZH_CORE_MESSAGES = {
     "email.errors.attachment_too_large": "附件过大。",
     "email.errors.auto_draft_unavailable": "自动草稿不可用。",
     "email.errors.backup_no_target": "未配置备份目标。",
+    "email.errors.delete_failed": "邮箱数据暂时无法删除，请重试。",
     "email.errors.domain_not_allowed": "该域名未配置邮件服务。",
     "email.errors.draft_invalid": "草稿无效。",
     "email.errors.export_too_large": "导出内容过大。",

@@ -540,6 +540,32 @@ describe('email folders', () => {
   })
 })
 
+describe('email account deletion', () => {
+  it('keeps the account and a retry marker when Durable Object cleanup fails', async () => {
+    const base = fakeEmailMailboxNamespace(store)
+    env = testBindings(db, {
+      FILES: bucket,
+      EMAIL_MAILBOX: {
+        ...base,
+        get: () => ({
+          deleteAll: async () => { throw new Error('DO unavailable') },
+        }) as unknown as DurableObjectStub,
+      } as unknown as DurableObjectNamespace,
+    })
+
+    const failed = await call('DELETE', `/accounts/${accountId}`)
+    expect(failed.status).toBe(503)
+    expect((await errorOf(failed)).code).toBe('email_delete_failed')
+    expect(count('SELECT COUNT(*) AS n FROM email_accounts WHERE id = ?', accountId)).toBe(1)
+    expect(count('SELECT COUNT(*) AS n FROM email_account_deletions WHERE account_id = ?', accountId)).toBe(1)
+
+    env = testBindings(db, { FILES: bucket, EMAIL_MAILBOX: mailboxNamespace(store) })
+    expect((await call('DELETE', `/accounts/${accountId}`)).status).toBe(204)
+    expect(count('SELECT COUNT(*) AS n FROM email_accounts WHERE id = ?', accountId)).toBe(0)
+    expect(count('SELECT COUNT(*) AS n FROM email_account_deletions WHERE account_id = ?', accountId)).toBe(0)
+  })
+})
+
 describe('email listing and detail', () => {
   it('lists summaries with pagination and no attachments payload', async () => {
     seedMessage(newId(), { subject: 'Older', date: 1_000 })

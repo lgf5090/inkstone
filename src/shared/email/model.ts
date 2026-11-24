@@ -426,6 +426,7 @@ export interface EmailSearchQuery {
 export type EmailErrorCode =
   | 'email_account_not_found'
   | 'email_account_exists'
+  | 'email_delete_failed'
   | 'email_address_invalid'
   | 'email_address_reserved'
   | 'email_domain_not_allowed'

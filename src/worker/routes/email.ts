@@ -73,10 +73,12 @@ import {
   deleteEmailAccount,
   deleteEmailAttachmentsForAccount,
   findEmailAccountByAddress,
+  finishEmailAccountDeletion,
   getEmailAccount,
   latestAutoDraftJob,
   listEmailAccounts,
   listEmailAttachmentKeys,
+  queueEmailAccountDeletion,
   toEmailAccount,
   updateEmailAccount,
 } from '../email/account-store'
@@ -925,18 +927,22 @@ emailRoutes.patch('/accounts/:id', async (c) => {
 
 emailRoutes.delete('/accounts/:id', async (c) => {
   const row = await requireAccount(c, c.req.param('id') ?? '')
-  const keys = await listEmailAttachmentKeys(c.env.DB, c.get('userId'), row.id)
-  const pending = await deleteEmailAttachmentObjects(c.env, c.get('userId'), keys)
-  if (pending) console.warn('[inkstone] Email attachment cleanup is pending for a deleted mailbox')
-  await deleteEmailAttachmentsForAccount(c.env.DB, c.get('userId'), row.id)
-  await deleteScheduledSendsForAccount(c.env.DB, c.get('userId'), row.id)
+  const userId = c.get('userId')
+  await queueEmailAccountDeletion(c.env.DB, userId, row.id)
   try {
     await emailMailbox(c.env, row.id).deleteAll()
   } catch (error) {
-    console.warn('[inkstone] mailbox object cleanup failed:', (error as Error).message)
+    console.error('[inkstone] mailbox object cleanup failed:', error)
+    throw new ApiError(503, 'email_delete_failed', 'Mailbox data could not be deleted; retry the deletion')
   }
-  const removed = await deleteEmailAccount(c.env.DB, c.get('userId'), row.id)
+  const keys = await listEmailAttachmentKeys(c.env.DB, userId, row.id)
+  const pending = await deleteEmailAttachmentObjects(c.env, userId, keys)
+  if (pending) console.warn('[inkstone] Email attachment cleanup is pending for a deleted mailbox')
+  await deleteEmailAttachmentsForAccount(c.env.DB, userId, row.id)
+  await deleteScheduledSendsForAccount(c.env.DB, userId, row.id)
+  const removed = await deleteEmailAccount(c.env.DB, userId, row.id)
   if (!removed) throw mailboxNotFound()
+  await finishEmailAccountDeletion(c.env.DB, userId, row.id)
   return c.body(null, 204)
 })
 

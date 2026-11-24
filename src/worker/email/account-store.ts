@@ -47,10 +47,30 @@ export function toEmailAccount(row: EmailAccountRow): EmailAccount {
 }
 
 export async function listEmailAccounts(db: D1Database, userId: string): Promise<EmailAccountRow[]> {
+  await db.prepare(
+    `DELETE FROM email_account_deletions
+      WHERE user_id = ?1
+        AND NOT EXISTS (
+          SELECT 1 FROM email_accounts a
+           WHERE a.user_id = ?1 AND a.id = email_account_deletions.account_id
+        )`,
+  ).bind(userId).run()
   const { results } = await db.prepare(
     `SELECT * FROM email_accounts WHERE user_id = ?1 ORDER BY created_at ASC, id ASC`,
   ).bind(userId).all<EmailAccountRow>()
   return results
+}
+
+export async function queueEmailAccountDeletion(db: D1Database, userId: string, accountId: string): Promise<void> {
+  await db.prepare(
+    `INSERT OR IGNORE INTO email_account_deletions (user_id, account_id, created_at) VALUES (?1, ?2, ?3)`,
+  ).bind(userId, accountId, Date.now()).run()
+}
+
+export async function finishEmailAccountDeletion(db: D1Database, userId: string, accountId: string): Promise<void> {
+  await db.prepare(
+    `DELETE FROM email_account_deletions WHERE user_id = ?1 AND account_id = ?2`,
+  ).bind(userId, accountId).run()
 }
 
 export async function getEmailAccount(

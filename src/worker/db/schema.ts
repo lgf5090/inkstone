@@ -4524,6 +4524,17 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_chat_request_logs_latency ON chat_request_logs(user_id, latency_ms, at DESC)`,
     ],
   },
+  {
+    version: 417,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS email_account_deletions (
+        user_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, account_id)
+      )`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

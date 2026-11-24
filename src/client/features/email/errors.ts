@@ -6,6 +6,7 @@ import { t } from '../../lib/i18n'
 const EMAIL_ERROR_KEYS: Record<EmailErrorCode, MessageKey> = {
   email_account_not_found: 'email.errors.account_not_found',
   email_account_exists: 'email.errors.account_exists',
+  email_delete_failed: 'email.errors.delete_failed',
   email_address_invalid: 'email.errors.address_invalid',
   email_address_reserved: 'email.errors.address_reserved',
   email_domain_not_allowed: 'email.errors.domain_not_allowed',

@@ -17,6 +17,13 @@ export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_email_accounts_user
      ON email_accounts(user_id, created_at)`,
 
+  `CREATE TABLE IF NOT EXISTS email_account_deletions (
+    user_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, account_id)
+  )`,
+
   `CREATE TABLE IF NOT EXISTS email_deployment_settings (
     id TEXT PRIMARY KEY,
     domains TEXT NOT NULL DEFAULT '[]',
@@ -149,6 +156,7 @@ export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
 
 export const EMAIL_REQUIRED_TABLES: readonly string[] = [
   'email_accounts',
+  'email_account_deletions',
   'email_deployment_settings',
   'email_auto_draft_jobs',
   'email_scheduled_sends',
@@ -178,6 +186,7 @@ export const EMAIL_REQUIRED_INDEXES: readonly string[] = [
 
 export const EMAIL_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   email_accounts: ['id', 'user_id', 'address', 'address_normalized', 'display_name', 'settings', 'created_at', 'updated_at'],
+  email_account_deletions: ['user_id', 'account_id', 'created_at'],
   email_deployment_settings: ['id', 'domains', 'provider', 'resend_from', 'resend_key_ciphertext', 'resend_key_hint', 'updated_at'],
   email_auto_draft_jobs: ['user_id', 'account_id', 'message_id', 'thread_id', 'status', 'reason', 'attempts', 'claimed_at', 'created_at', 'updated_at'],
   email_scheduled_sends: ['id', 'user_id', 'account_id', 'draft_id', 'operation_id', 'send_at', 'status', 'attempts', 'claimed_at', 'last_error', 'created_at', 'updated_at'],

@@ -1318,6 +1318,7 @@ const CORE_MESSAGES = {
     "email.errors.attachment_too_large": "That attachment is too large.",
     "email.errors.auto_draft_unavailable": "Automatic drafts are not available.",
     "email.errors.backup_no_target": "No backup target is configured.",
+    "email.errors.delete_failed": "The mailbox data could not be deleted. Please retry.",
     "email.errors.domain_not_allowed": "That domain is not configured for mail.",
     "email.errors.draft_invalid": "The draft is not valid.",
     "email.errors.export_too_large": "The export is too large.",
