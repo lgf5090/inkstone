@@ -156,6 +156,7 @@ export const LIMITS = {
   importArchiveEntriesMax: 2500,
   importArchiveExpandedMaxBytes: 80 * 1024 * 1024,
   versionsPerNote: 50,
+  versionSnapshotIntervalMs: 5 * 60 * 1000,
   notesMaxPerUser: 20_000,
   /**
    * A shared template is a snippet, not a document. Kept under the route's JSON

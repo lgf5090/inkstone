@@ -599,6 +599,22 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
   if (!applied) {
     throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(s, id) })
   }
+  if (title !== current.title) {
+    const oldTitleTaken = await s.hasOtherNoteWithTitle(current.title, id)
+    if (!oldTitleTaken) {
+      const rewrite = await rewriteInboundWikiLinks(
+        c.env.DB, userId, id, current.title, title, c.get('database').ftsEnabled,
+      )
+      if (rewrite.skipped) {
+        console.warn(`Could not update ${rewrite.skipped} wiki-link source notes after restoring note ${id}`)
+      }
+      if (rewrite.deferred) {
+        console.info(`Deferred ${rewrite.deferred} wiki-link source note rewrites for restored note ${id}`)
+      }
+    } else {
+      await s.retargetAmbiguousLinks({ noteId: id, previousTitle: current.title, title, nextRev: row!.rev, now })
+    }
+  }
   await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
   scheduleAiDrainForNote(c, userId)

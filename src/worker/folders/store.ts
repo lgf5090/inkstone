@@ -515,6 +515,14 @@ export class FoldersStore {
             ORDER BY candidate.created_at ASC, candidate.id ASC LIMIT 1
          ) WHERE user_id = ?2 AND target_note_id IN (${noteIds})`,
       ).bind(id, this.userId, updatedAt),
+      this.db.prepare(
+        `${tree} UPDATE blog_posts SET status = 'withdrawn', updated_at = ?4
+          WHERE user_id = ?2 AND note_id IN (${noteIds})`,
+      ).bind(id, this.userId, updatedAt, now),
+      this.db.prepare(
+        `${tree} UPDATE blog_pages SET published_at = NULL
+          WHERE user_id = ?2 AND note_id IN (${noteIds})`,
+      ).bind(id, this.userId, updatedAt),
     ]
     if (ftsEnabled) {
       statements.push(

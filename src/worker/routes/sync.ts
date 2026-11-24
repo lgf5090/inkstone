@@ -24,7 +24,7 @@ syncRoutes.get('/', requireAuth, async (c) => {
   const hi = bounds?.hi ?? 0
 
 
-  const needFull = since <= 0 || (lo > 0 && since < lo - 1)
+  const needFull = since <= 0 || since > hi || (lo > 0 && since < lo - 1)
   // The task stream has its own clock (`updated_at`), so it is asked about separately and only on
   // the delta branch: a full snapshot already carries the whole live task set.
   const todosSince = clampInt(c.req.query('todosSince'), 0, Number.MAX_SAFE_INTEGER, 0)

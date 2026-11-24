@@ -75,6 +75,18 @@ beforeEach(() => {
   app.route('/api/sync', syncRoutes)
 })
 
+describe('sync cursor recovery', () => {
+  it('asks for a full snapshot when the client is ahead of the server', async () => {
+    note('n1')
+    change('note', 'n1', 'upsert')
+    const response = await delta(lastSeq() + 100)
+
+    expect(response.full).toBe(true)
+    expect(response.cursor).toBe(lastSeq())
+    expect(response.notes.map((item) => item.id)).toContain('n1')
+  })
+})
+
 describe('a note change recomputes the sidebar tag counts', () => {
   it('drops the count when a note stops carrying the tag', async () => {
     tag('t-red', 'red')

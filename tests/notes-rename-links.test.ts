@@ -74,6 +74,25 @@ beforeEach(() => {
   app.route('/api/notes', notesRoutes)
 })
 
+describe('restoring a version title', () => {
+  it('rewrites inbound wiki links when the restored title changes', async () => {
+    note(A, OLD_TITLE, '# A', 1)
+    note(SRC, 'Source', `[[${OLD_TITLE}]]`, 2)
+    link(A)
+    sqlite.prepare(
+      `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
+       VALUES ('v1', ?, ?, ?, ?, 10, 2)`,
+    ).run(A, USER, NEW_TITLE, `# ${NEW_TITLE}`)
+
+    const response = await app.fetch(new Request(`http://localhost/api/notes/${A}/versions/v1/restore`, { method: 'POST' }), env as never, ctx)
+
+    expect(response.status).toBe(200)
+    expect(noteRow(A).title).toBe(NEW_TITLE)
+    expect(noteRow(SRC).content).toBe(`[[${NEW_TITLE}]]`)
+    expect(linkTarget()).toBe(A)
+  })
+})
+
 describe('a title saved together with its content', () => {
   it('retargets the old-title link to the remaining duplicate instead of rewriting the source', async () => {
     note(A, OLD_TITLE, '# A', 1)

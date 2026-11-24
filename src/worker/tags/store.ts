@@ -650,7 +650,9 @@ export async function rewriteTagInNotes(
               const snapshot = db.prepare(
                 `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
                  SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
-                  WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
+                  WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}
+                    AND (NOT EXISTS (SELECT 1 FROM note_versions WHERE note_id = ?2)
+                      OR ?14 - COALESCE((SELECT MAX(created_at) FROM note_versions WHERE note_id = ?2), 0) > ?15)`,
               ).bind(
                 snapshotId,
                 currentNote.id,
@@ -660,6 +662,8 @@ export async function rewriteTagInNotes(
                 utf8ByteLength(currentNote.content),
                 now,
                 ...mutationValues,
+                now,
+                LIMITS.versionSnapshotIntervalMs,
               )
               const trim = db.prepare(
                 `DELETE FROM note_versions WHERE note_id = ?1

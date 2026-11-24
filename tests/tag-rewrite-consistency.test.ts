@@ -57,6 +57,15 @@ describe('tag rewrite consistency', () => {
     expect(sqlite.prepare("SELECT COUNT(*) AS n FROM notes WHERE instr(content, '#new') > 0").get()).toMatchObject({ n: 0 })
   })
 
+  it('coalesces rapid system rewrites into one version snapshot', async () => {
+    seed(1)
+    await rewriteTagInNotes(env, false, USER, TAG, 'old', 'new')
+    await rewriteTagInNotes(env, false, USER, TAG, 'new', 'old', true)
+
+    expect(sqlite.prepare("SELECT content FROM notes WHERE id = 'n-0'").get()).toMatchObject({ content: 'body #old tail' })
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM note_versions WHERE note_id = 'n-0'").get()).toMatchObject({ n: 1 })
+  })
+
   it('rolls back with a newer revision and removes the rewrite snapshot', async () => {
     seed(1)
     const rewrite = await rewriteTagInNotes(env, false, USER, TAG, 'old', 'new')

@@ -260,6 +260,28 @@ describe('taking folders out of the tree', () => {
     expect(await ids()).toEqual([])
   })
 
+  it('withdraws blog projections for notes in a deleted subtree', async () => {
+    const noteId = fid('note')
+    sqlite.prepare(
+      `INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at)
+       VALUES (?, ?, ?, 'Published', 'body', 1, 1)`,
+    ).run(noteId, ALICE, FERN)
+    sqlite.prepare(
+      `INSERT INTO blog_posts (id, user_id, note_id, slug, status, published_at, created_at, updated_at)
+       VALUES ('post', ?, ?, 'published', 'published', 1, 1, 1)`,
+    ).run(ALICE, noteId)
+    sqlite.prepare(
+      `INSERT INTO blog_pages (id, user_id, note_id, slug, title, published_at, updated_at)
+       VALUES ('page', ?, ?, 'page', 'Page', 1, 1)`,
+    ).run(ALICE, noteId)
+
+    expect((await call('DELETE', `${TREE}/${PEAK}?strategy=delete`)).status).toBe(200)
+
+    expect(sqlite.prepare(`SELECT status FROM blog_posts WHERE id = 'post'`).get()).toMatchObject({ status: 'withdrawn' })
+    expect(sqlite.prepare(`SELECT published_at FROM blog_pages WHERE id = 'page'`).get()).toMatchObject({ published_at: null })
+    expect(sqlite.prepare(`SELECT deleted_at FROM notes WHERE id = ?`).get(noteId)).toMatchObject({ deleted_at: expect.any(Number) })
+  })
+
   it('defaults to moving up when the caller names no strategy', async () => {
     expect((await call('DELETE', `${TREE}/${NECK}`)).status).toBe(200)
     expect(await ids()).toEqual([FERN, PEAK].sort())

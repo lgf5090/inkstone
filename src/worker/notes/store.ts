@@ -199,7 +199,7 @@ export interface NoteRestoreInput {
 }
 
 /** How long a note's previous text is kept only when the edit was big or asked for it. */
-const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
+const SNAPSHOT_INTERVAL_MS = LIMITS.versionSnapshotIntervalMs
 
 /** The columns an edit writes, named as the table names them; `updated_at` and `rev` are not the caller's. */
 export interface NotePatchColumns {
@@ -488,7 +488,10 @@ export class NotesStore {
     const insert = this.db.prepare(
       `INSERT OR IGNORE INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
          is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, ?9, 0, ?10, ?11, ?12, ?12)`,
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, ?9, 0, ?10, ?11, ?12, ?12
+        WHERE ?3 IS NULL OR EXISTS (
+          SELECT 1 FROM folders WHERE id = ?3 AND user_id = ?2 AND deleted_at IS NULL
+        )`,
     )
       .bind(
         input.id, this.userId, input.folderId, input.title, input.content, input.excerpt,
@@ -737,9 +740,15 @@ export class NotesStore {
         AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
     const mutationValues = [id, this.userId, nextRev, input.contentHash, input.title, now] as const
 
+    const folderIndex = sets.findIndex((set) => set.startsWith('folder_id = ')) + 1
+    const folderGuard = folderIndex > 0
+      ? ` AND (?${folderIndex} IS NULL OR EXISTS (
+          SELECT 1 FROM folders WHERE id = ?${folderIndex} AND user_id = ?${binds.length - 1} AND deleted_at IS NULL
+        ))`
+      : ''
     const update = this.db.prepare(
       `UPDATE notes SET ${sets.join(', ')}
-        WHERE id = ?${binds.length - 2} AND user_id = ?${binds.length - 1} AND rev = ?${binds.length}`,
+        WHERE id = ?${binds.length - 2} AND user_id = ?${binds.length - 1} AND rev = ?${binds.length}${folderGuard}`,
     ).bind(...binds)
 
     const statements: D1PreparedStatement[] = [update]
@@ -1640,9 +1649,12 @@ export async function rewriteInboundWikiLinks(
                 currentNote.id, userId, currentNote.rev, currentNote.content_hash),
               db.prepare(
                 `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
-                 SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${shiftSqlPlaceholders(guard, 7)}`,
+                 SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+                  WHERE ${shiftSqlPlaceholders(guard, 7)}
+                    AND (?14 = 1 OR NOT EXISTS (SELECT 1 FROM note_versions WHERE note_id = ?2)
+                      OR ?15 - COALESCE((SELECT MAX(created_at) FROM note_versions WHERE note_id = ?2), 0) > ?16)`,
               ).bind(newId(), currentNote.id, userId, currentNote.title, currentNote.content,
-                utf8ByteLength(currentNote.content), now, ...guardValues),
+                utf8ByteLength(currentNote.content), now, ...guardValues, 1, now, LIMITS.versionSnapshotIntervalMs),
               db.prepare(
                 `DELETE FROM note_versions WHERE note_id = ?1
                    AND ${shiftSqlPlaceholders(guard, 1)}
