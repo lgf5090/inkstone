@@ -915,6 +915,31 @@ describe('Outline tree keyboard and ARIA', () => {
         unmount();
     });
 
+    it('keeps one row as the Tab stop, moves it with arrows, and leaves chevrons reachable', () => {
+        const { container, unmount } = renderOutline(BRANCH_HEADINGS);
+        const rows = rowButtons(container);
+        expect(rows.map((row) => row.tabIndex)).toEqual([0, -1, -1]);
+        expect([...container.querySelectorAll<HTMLElement>('li[role="treeitem"]')].every((item) => !item.hasAttribute('tabindex'))).toBe(true);
+        expect(chevronFor(container, 'alpha').tabIndex).toBe(0);
+        const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+        act(() => { rows[0]!.dispatchEvent(tab) });
+        expect(tab.defaultPrevented).toBe(false);
+        act(() => rows[0]!.focus());
+        press(rows[0]!, { key: 'ArrowDown' });
+        expect(document.activeElement).toBe(rows[1]);
+        expect(rows.map((row) => row.tabIndex)).toEqual([-1, 0, -1]);
+        unmount();
+    });
+
+    it('restores the parent Tab stop when the focused child is folded away', async () => {
+        const { container, unmount } = renderOutline(BRANCH_HEADINGS);
+        const rows = rowButtons(container);
+        act(() => rows[1]!.focus());
+        await click(chevronFor(container, 'alpha'));
+        expect(rowButtons(container).map((row) => row.tabIndex)).toEqual([0]);
+        unmount();
+    });
+
     it('walks the visible rows with the arrows and jumps to the ends', () => {
         const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
         const rows = rowButtons(container);

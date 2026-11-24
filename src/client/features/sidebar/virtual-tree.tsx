@@ -27,7 +27,7 @@ import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { ExplorerNote } from './ExplorerNote';
 import { FolderMotionIcon } from '../../components/FolderMotionIcon';
-import { treeIndent, treeItemProps, useTreeChildrenMount, useTreeKeyboard } from '../../lib/tree';
+import { treeIndent, treeItemProps, useTreeChildrenMount, useTreeKeyboard, useTreeRovingTabIndex } from '../../lib/tree';
 
 export function isDropBlockedTarget(target: EventTarget | null): boolean {
     return target instanceof Element && target.closest('[data-drop-blocked]') !== null;
@@ -93,7 +93,8 @@ function VirtualTree({ ns, rootIcon, periodTree }: {
     );
     const rootCount = useMemo(() => children.reduce((sum, child) => sum + child.count, 0), [children]);
     const root: CalendarNode = { id: ns.rootId, name: '', depth: -1, count: rootCount, children };
-    return (<div role="tree" data-drop-blocked aria-label={virtualTreeRootLabel(ns)} className="mt-0.5 space-y-px" onDragOver={VIRTUAL_DRAG_BLOCK} onDrop={VIRTUAL_DRAG_BLOCK}>
+    const treeRef = useTreeRovingTabIndex();
+    return (<div ref={treeRef} role="tree" data-drop-blocked aria-label={virtualTreeRootLabel(ns)} className="mt-0.5 space-y-px" onDragOver={VIRTUAL_DRAG_BLOCK} onDrop={VIRTUAL_DRAG_BLOCK}>
       <VirtualRow ns={ns} rootIcon={rootIcon} node={root} allIds={periodTree ? descendantIds(children) : []} showEmptyToggle={periodTree}/>
     </div>);
 }
@@ -187,7 +188,7 @@ function VirtualRow({ ns, rootIcon, node, allIds, showEmptyToggle }: {
           {isRoot ? rootIcon : <FolderMotionIcon open={expanded && hasChildren} drawing={false}/>}
         </span>
         <Tooltip label={hint ? `${tooltip} · ${hint}` : tooltip} side="right">
-          <button data-tree-row type="button" aria-current={active ? 'page' : undefined} onClick={open} onKeyDown={onKeyDown} className="min-w-0 flex-1 truncate py-1 pl-1 text-left text-[length:var(--text-12-5)] font-medium">
+          <button data-tree-row tabIndex={-1} type="button" aria-current={active ? 'page' : undefined} onClick={open} onKeyDown={onKeyDown} className="min-w-0 flex-1 truncate py-1 pl-1 text-left text-[length:var(--text-12-5)] font-medium">
             {isRoot ? rootLabel : node.name}
           </button>
         </Tooltip>
@@ -233,6 +234,7 @@ export function InboxTree() {
     const onKeyDown = useTreeKeyboard();
     const menu = useContextMenu();
     const anchor = useRef<HTMLDivElement>(null);
+    const treeRef = useTreeRovingTabIndex();
     const [menuOpen, setMenuOpen] = useState(false);
     const open = () => useUi.getState().openView('unfiled');
     if (!inboxVisible)
@@ -247,7 +249,7 @@ export function InboxTree() {
         },
         { id: 'open', label: t("sidebar.open_in_list"), separatorBefore: true, onSelect: open },
     ];
-    return (<div role="tree" aria-label={t("sidebar.inbox_folder")} className="mt-0.5 space-y-px" onDragOver={INBOX_NOTE_DRAG_OVER} onDrop={INBOX_NOTE_DROP}>
+    return (<div ref={treeRef} role="tree" aria-label={t("sidebar.inbox_folder")} className="mt-0.5 space-y-px" onDragOver={INBOX_NOTE_DRAG_OVER} onDrop={INBOX_NOTE_DROP}>
       <div {...treeItemProps({ level: 1, expanded: unfiled.length > 0 ? expanded : undefined, selected: active })}>
       <div ref={anchor} onContextMenu={(event) => {
             setMenuOpen(false);
@@ -267,7 +269,7 @@ export function InboxTree() {
           <Inbox size={14}/>
         </span>
         <Tooltip label={t("sidebar.inbox_hint")} side="right">
-          <button data-tree-row type="button" aria-current={active ? 'page' : undefined} onClick={open} onKeyDown={onKeyDown} className="min-w-0 flex-1 truncate py-1 pl-1 text-left text-[length:var(--text-12-5)] font-medium">
+          <button data-tree-row tabIndex={-1} type="button" aria-current={active ? 'page' : undefined} onClick={open} onKeyDown={onKeyDown} className="min-w-0 flex-1 truncate py-1 pl-1 text-left text-[length:var(--text-12-5)] font-medium">
             {t("sidebar.inbox_folder")}
           </button>
         </Tooltip>

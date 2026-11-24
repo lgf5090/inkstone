@@ -16,6 +16,7 @@ export {
 } from './keyboard'
 export { useTreeKeyboard } from './use-tree-keyboard'
 export type { TreeKeyboardOptions } from './use-tree-keyboard'
+export { syncTreeTabIndex, useTreeRovingTabIndex } from './roving-tabindex'
 export { useExpandedSet } from './use-expanded-set'
 export type { ExpandedSet } from './use-expanded-set'
 export { treeItemProps } from './tree-item'

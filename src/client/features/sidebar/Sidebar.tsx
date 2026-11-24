@@ -30,7 +30,7 @@ import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenu
 import { FolderMoveMenu } from '../folders/FolderMoveMenu';
 import { openTemplaterPickerForFolder } from '../templater/picker-request';
 import { useLintFolderMenuItems } from '../linter/useLintMenuItems';
-import { treeIndent, treeItemProps, useTreeChildrenMount, useTreeKeyboard } from '../../lib/tree';
+import { treeIndent, treeItemProps, useTreeChildrenMount, useTreeKeyboard, useTreeRovingTabIndex } from '../../lib/tree';
 import { SidebarTags } from '../tags/SidebarTags';
 import { SidebarRecent } from './SidebarRecent';
 import { SidebarVersions } from './SidebarVersions';
@@ -383,6 +383,8 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
     const locale = useLocale();
     const canOpenToSide = useBreakpoint() === 'desktop';
     const tree = useFolderTree();
+    const treeRef = useTreeRovingTabIndex();
+    const unfiledTreeRef = useTreeRovingTabIndex();
     const folders = useNotes((s) => s.folders ?? []);
     const notes = useNotes((s) => s.notes);
     const notesByFolder = useMemo(() => groupExplorerNotes(notes, folders, locale), [notes, folders, locale]);
@@ -661,11 +663,11 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
       {tree.length === 0 && !filtering ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
         <FolderPlus size={13}/>{t("sidebar.create_first_folder")}</button>) : null}
       {filtering && searchedFolders.nodes.length === 0 && unfiledMatches.length === 0 ? (<p data-folder-no-match className="px-2 py-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t("folders.no_match")}</p>) : null}
-        <div role="tree" aria-label={t("navigation.folder")} className="mt-0.5 space-y-px">
+        <div ref={treeRef} role="tree" aria-label={t("navigation.folder")} className="mt-0.5 space-y-px">
           {searchedFolders.nodes.map((node, index) => (<FolderRow key={node.id} node={node} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={searchedFolders.nodes} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} onChooseParent={setMovingId} rootTree={tree} onSortSiblings={sortSiblings} onExportZip={exportZip} onDropNotes={dropNotes} onToggleInbox={toggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)} search={folderSearch}/>))}
         </div>
       {unfiledMatches.length > 0 && (<><p data-unfiled-label className="px-2 pt-2 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t("navigation.unfiled")}</p>
-        <div role="tree" aria-label={t("navigation.unfiled")} className="mt-0.5 space-y-px" data-unfiled-matches>
+        <div ref={unfiledTreeRef} role="tree" aria-label={t("navigation.unfiled")} className="mt-0.5 space-y-px" data-unfiled-matches>
           {unfiledMatches.map((note, index) => <ExplorerNote key={note.id} note={note} depth={0} canOpenToSide={canOpenToSide} setSize={unfiledMatches.length} posInSet={index + 1} highlight={folderQuery}/>)}
         </div></>)}
       </section>
@@ -994,7 +996,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
                 }
                 e.stopPropagation();
             }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[length:var(--text-12-5)] outline-none"/>) : (<Tooltip label={folderPathLabel(folders, node.id)} side="right">
-            <button data-navigation-item={mobile || undefined} data-tree-row type="button" aria-label={node.name} aria-current={active ? 'page' : undefined} onClick={() => {
+            <button data-navigation-item={mobile || undefined} data-tree-row tabIndex={-1} type="button" aria-label={node.name} aria-current={active ? 'page' : undefined} onClick={() => {
                 if (mobile) openFolderView(folders, node.id);
                 else {
                     useUi.getState().openExplorer(node.id);

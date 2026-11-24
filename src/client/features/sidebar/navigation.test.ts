@@ -837,6 +837,36 @@ describe('folder tree keyboard', () => {
         expect(container.querySelector(`input[aria-label="${t('sidebar.rename')}"]`)).toBeTruthy();
     });
 
+    it('keeps one folder or note row as the Tab stop and leaves auxiliary controls reachable', async () => {
+        const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id, position: 1 };
+        useNotes.setState({ folders: [folder, child], notes: { [note.id]: note } });
+        useUi.setState({ expandedFolders: [folder.id] });
+        await act(() => root.render(createElement(Sidebar)));
+        const rows = () => [...folderTree().querySelectorAll<HTMLButtonElement>('[data-tree-row]')];
+        const stops = () => rows().filter((row) => row.tabIndex >= 0);
+        expect(rows()).toHaveLength(3);
+        expect(stops()).toEqual([rows()[0]]);
+        expect([...folderTree().querySelectorAll<HTMLElement>('[role="treeitem"]')].every((item) => !item.hasAttribute('tabindex'))).toBe(true);
+        expect(folderTree().querySelector<HTMLButtonElement>('[data-tree-toggle]')!.tabIndex).toBe(0);
+        expect(folderTree().querySelector<HTMLButtonElement>(`button[aria-label="${t('common.more_actions')}"]`)!.tabIndex).toBe(0);
+        const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+        await act(() => rows()[0]!.dispatchEvent(tab));
+        expect(tab.defaultPrevented).toBe(false);
+        await act(() => rows()[0]!.focus());
+        await press(rows()[0]!, 'ArrowDown');
+        expect(document.activeElement).toBe(rows()[1]);
+        expect(stops()).toEqual([rows()[1]]);
+        await press(rows()[1]!, 'ArrowDown');
+        expect(document.activeElement).toBe(rows()[2]);
+        expect(stops()).toEqual([rows()[2]]);
+        await press(rows()[2]!, 'ArrowLeft');
+        expect(document.activeElement).toBe(rows()[0]);
+        await press(rows()[0]!, 'ArrowLeft');
+        await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+        expect(stops()).toEqual([rows()[0]]);
+        expect(rows().slice(1).every((row) => row.tabIndex === -1)).toBe(true);
+    });
+
     it('expands a collapsed branch with ArrowRight and returns to the parent with ArrowLeft', async () => {
         const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id, position: 1 };
         useNotes.setState({ folders: [folder, child], notes: {} });
@@ -925,6 +955,34 @@ describe('built-in logical folders', () => {
         await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
         expect(inbox.querySelector<HTMLElement>('[data-tree-note-open]')?.textContent?.trim()).toBe('Loose end');
         expect(container.querySelector('[data-folder-drop-target] [data-tree-note-open]')).toBeNull();
+    });
+});
+
+describe('virtual tree roving tabindex', () => {
+    it('gives calendar and inbox rows one shared Tab stop that follows arrow focus', async () => {
+        saveCalendarPrefs({ calendarVisible: true, todoVisible: false, inboxVisible: true, showEmptyPeriods: false });
+        const dated = { ...note, id: 'dated', title: 'Dated', folderId: null, createdAt: new Date(2026, 9, 6).getTime() };
+        const loose = { ...note, id: 'loose', title: 'Loose', folderId: null };
+        useNotes.setState({ notes: { [dated.id]: dated, [loose.id]: loose } });
+        useUi.setState({ expandedFolders: ['cal', 'cal:2026', 'inbox'] });
+        await act(() => root.render(createElement(Sidebar)));
+        const calendar = document.querySelector<HTMLElement>(`[role="tree"][aria-label="${t('sidebar.calendar_folder')}"]`)!;
+        const inbox = document.querySelector<HTMLElement>(`[role="tree"][aria-label="${t('sidebar.inbox_folder')}"]`)!;
+        for (const scope of [calendar, inbox]) {
+            const rows = [...scope.querySelectorAll<HTMLButtonElement>('[data-tree-row]')];
+            expect(rows.filter((row) => row.tabIndex >= 0)).toEqual([rows[0]]);
+            expect(scope.querySelector<HTMLButtonElement>('[data-tree-toggle]')!.tabIndex).toBe(0);
+            expect(scope.querySelector<HTMLButtonElement>(`button[aria-label="${t('common.more_actions')}"]`)!.tabIndex).toBe(0);
+        }
+        const calendarRows = [...calendar.querySelectorAll<HTMLButtonElement>('[data-tree-row]')];
+        await act(() => calendarRows[1]!.focus());
+        await act(() => calendarRows[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })));
+        expect(document.activeElement).toBe(calendarRows[2]);
+        expect(calendarRows.filter((row) => row.tabIndex >= 0)).toEqual([calendarRows[2]]);
+        const inboxRows = [...inbox.querySelectorAll<HTMLButtonElement>('[data-tree-row]')];
+        await act(() => inboxRows[1]!.focus());
+        expect(inboxRows.filter((row) => row.tabIndex >= 0)).toEqual([inboxRows[1]]);
+        expect(inboxRows.map((row) => row.tabIndex)).toEqual([-1, 0, -1]);
     });
 });
 

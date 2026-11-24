@@ -205,6 +205,17 @@ describe('recent files tab', () => {
         expect(row.querySelector('[data-recent-clear]')).toBeTruthy();
     });
 
+    it('keeps one recent-note Tab stop and moves it with arrow focus', async () => {
+        useNotes.setState({ notes: { a: summary('a', 'Alpha'), b: summary('b', 'Bravo') } });
+        useUi.setState({ recentNoteIds: ['a', 'b'] });
+        await open();
+        const rows = [...container.querySelectorAll<HTMLButtonElement>('[data-recent-list] [data-tree-row]')];
+        expect(rows.map((row) => row.tabIndex)).toEqual([0, -1]);
+        await press(rows[0]!, 'ArrowDown');
+        expect(document.activeElement).toBe(rows[1]);
+        expect(rows.map((row) => row.tabIndex)).toEqual([-1, 0]);
+    });
+
     it('opens the note a row is clicked on', async () => {
         const openNote = vi.fn(async () => {});
         useNotes.setState({ notes: { a: summary('a', 'Alpha') }, openNote });

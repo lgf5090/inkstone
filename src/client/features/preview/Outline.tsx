@@ -27,7 +27,7 @@ import { cn } from '../../lib/cn';
 import { isImeComposing, isEnterKey } from '../../lib/ime';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { useFilterInput } from '../../components/FilterInput';
-import { treeItemProps, useExpandedSet, useTreeKeyboard } from '../../lib/tree';
+import { treeItemProps, useExpandedSet, useTreeKeyboard, useTreeRovingTabIndex } from '../../lib/tree';
 import { usePinyinVersion } from '../../lib/pinyin'
 import { outlineFoldFor, saveOutlineFold } from './outline-fold-prefs';
 import {
@@ -305,6 +305,7 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     const [searchOpen, setSearchOpen] = useState(false);
     const [level, setLevel] = useState(defaultLevel);
     const listRef = useRef<HTMLUListElement>(null);
+    const rovingListRef = useTreeRovingTabIndex(listRef);
     const searchRef = useRef<HTMLInputElement>(null);
     const command = useUi((state) => state.outlineCommand);
     // Seeded with the command already in the store so remounting never replays a stale request.
@@ -609,7 +610,7 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
 
       {/* `role="tree"` is what the shared keyboard reads its rows from (`lib/tree/keyboard.ts`), and the
           nav landmark above already names the control for a screen reader. */}
-      <ul ref={listRef} role="tree" className="min-h-0 flex-1 space-y-px overflow-y-auto">
+      <ul ref={rovingListRef} role="tree" className="min-h-0 flex-1 space-y-px overflow-y-auto">
         {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} sourceLine={lines[node.heading.line]} hoverPeek={hoverPeek} textDirection={textDirection} onHoverRow={(index, rect) => setHoverRow({ index, rect })} onLeaveRow={() => setHoverRow(null)} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
         {drawn.length === 0 && <li className="px-2 py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('outline.no_matches')}</li>}
       </ul>
@@ -725,7 +726,7 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
                     committedRef.current = true;
                     onCancelRename();
                 }
-            }} onDoubleClick={(event) => event.stopPropagation()} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-11-5)] text-[var(--text-primary)] outline-none"/>) : (<Tooltip label={label} side={tooltipSide}>            <button type="button" data-tree-row onKeyDown={treeKey} aria-label={label} data-slug={heading.slug} aria-current={isLocated ? 'location' : undefined} onClick={() => onSelect(heading)} onDoubleClick={canRename ? onStartRename : undefined} onMouseEnter={hoverPeek ? (event) => { const rect = event.currentTarget.getBoundingClientRect(); onHoverRow(node.index, { left: rect.left, top: rect.top, width: rect.width, height: rect.height }); } : undefined} onMouseLeave={hoverPeek ? onLeaveRow : undefined} className={cn('group relative flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] pr-1.5 text-left leading-snug', 'transition-colors duration-[var(--dur-fast)]', typography.fontSize, typography.fontWeight, typography.textColor, typography.paddingY, isLocated
+            }} onDoubleClick={(event) => event.stopPropagation()} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-11-5)] text-[var(--text-primary)] outline-none"/>) : (<Tooltip label={label} side={tooltipSide}>            <button type="button" data-tree-row tabIndex={-1} onKeyDown={treeKey} aria-label={label} data-slug={heading.slug} aria-current={isLocated ? 'location' : undefined} onClick={() => onSelect(heading)} onDoubleClick={canRename ? onStartRename : undefined} onMouseEnter={hoverPeek ? (event) => { const rect = event.currentTarget.getBoundingClientRect(); onHoverRow(node.index, { left: rect.left, top: rect.top, width: rect.width, height: rect.height }); } : undefined} onMouseLeave={hoverPeek ? onLeaveRow : undefined} className={cn('group relative flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] pr-1.5 text-left leading-snug', 'transition-colors duration-[var(--dur-fast)]', typography.fontSize, typography.fontWeight, typography.textColor, typography.paddingY, isLocated
                     ? 'bg-[var(--accent-soft)]'
                     : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
               {isLocated && <span aria-hidden="true" className={cn('absolute top-1/2 left-0.5 h-3.5', ACTIVE_BAR_W, '-translate-y-1/2 rounded-full bg-[var(--accent)]')}/>}

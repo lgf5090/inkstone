@@ -5,6 +5,7 @@ import { useBreakpoint, useNow } from '../../lib/hooks';
 import { t } from '../../lib/i18n';
 import { fullTime, shortSince } from '../../lib/time';
 import { IconButton } from '../../components/primitives';
+import { useTreeRovingTabIndex } from '../../lib/tree';
 import { ExplorerNote } from './ExplorerNote';
 
 /**
@@ -21,6 +22,7 @@ export function SidebarRecent() {
     const clearRecentNotes = useUi((s) => s.clearRecentNotes);
     const canOpenToSide = useBreakpoint() === 'desktop';
     const now = useNow(60_000);
+    const treeRef = useTreeRovingTabIndex();
     const visible = recentIds
         .map((id) => notes[id])
         .filter((note) => !!note && !note.deletedAt && !note.isArchived);
@@ -32,7 +34,7 @@ export function SidebarRecent() {
           </IconButton>
         )}
       </div>
-      {visible.length === 0 ? (<p className="px-2 py-3 text-[length:var(--text-12)] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.recent_empty')}</p>) : (<div role="tree" aria-label={t('sidebar.tab_recent')} data-recent-list className="space-y-px">
+      {visible.length === 0 ? (<p className="px-2 py-3 text-[length:var(--text-12)] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.recent_empty')}</p>) : (<div ref={treeRef} role="tree" aria-label={t('sidebar.tab_recent')} data-recent-list className="space-y-px">
           {visible.map((note, index) => (<ExplorerNote
             key={note.id}
             note={note}

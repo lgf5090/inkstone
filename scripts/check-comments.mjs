@@ -31157,6 +31157,10 @@ const allowed = new Map([
   ["src/client/lib/tree/move-menu.ts", [
     "/**\n * The folder shape a move picker reads: a name, its children, and how many things sit directly in it.\n *\n * It is the contract between a tree some feature owns and a picker another feature draws, so it lives\n * in neither feature — the notes folders and the stencil library both hand the same picker a tree of\n * exactly this shape, and a second copy of that picker (flywheel positioning, arrow-key walking and\n * all) would be the worse outcome. Stated structurally rather than as the notes store's `FolderNode`,\n * which satisfies it as it is.\n */",
   ]],
+  ["src/client/lib/tree/roving-tabindex.ts", [
+    "/**\n * Keep exactly one visible row in each tree in the sequential tab order. The last focused row stays\n * the stop; if folding or removal hides it, the first visible row takes over. Auxiliary controls are\n * deliberately outside this set, so toggles and row actions keep their native Tab behavior.\n */",
+    "/**\n * Attach the roving tab stop to a tree container, including rows mounted after the first render. The\n * returned callback also handles a tree that appears conditionally; an optional ref keeps a host's\n * existing scrolling and query handle pointing at the same element.\n */",
+  ]],
   ["src/client/lib/tree/tree-item.ts", [
     "/** 1-based depth, the way `aria-level` counts. */",
     "/** Omitted on a leaf; a branch states whether it is open. */",
