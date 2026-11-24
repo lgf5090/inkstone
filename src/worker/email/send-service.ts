@@ -144,8 +144,9 @@ export async function sendDraftEmail(
     subject: input.subject,
   })
   if (!moved) throw ApiError.notFound('Draft not found')
+  let sent: Awaited<ReturnType<typeof sendViaProvider>>
   try {
-    const sent = await sendViaProvider(env, userId, {
+    sent = await sendViaProvider(env, userId, {
       to: to.length === 1 ? to[0]! : to,
       cc: cc.length ? (cc.length === 1 ? cc[0]! : cc) : undefined,
       bcc: bcc.length ? (bcc.length === 1 ? bcc[0]! : bcc) : undefined,
@@ -155,23 +156,34 @@ export async function sendDraftEmail(
       text: body.text,
       ...(attachments.length ? { attachments } : {}),
       ...(hasHeaders ? { headers } : {}),
+      idempotencyKey: input.operationId,
     })
-    try {
-      await lockEmailAttachments(env.DB, userId, draftId)
-    } catch (error) {
-      console.warn('[inkstone] sent attachments could not be locked:', (error as Error).message)
-    }
-    await mailbox.updateDelivery(draftId, 'sent', null, sent.messageId)
-    void rememberRecipientAddresses(env.DB, userId, [...to, ...cc, ...bcc]).catch((error) => {
-      console.warn('[inkstone] sent recipients could not be saved as contacts:', (error as Error).message)
-    })
-    if (inReplyTo) await mailbox.markThreadRead(threadId)
-    return { result: { id: draftId, status: 'sent', messageId: sent.messageId }, replayed: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'The email could not be sent'
     await mailbox.updateDelivery(draftId, 'failed', message)
     return { result: { id: draftId, status: 'failed', error: message }, replayed: false }
   }
+  try {
+    await lockEmailAttachments(env.DB, userId, draftId)
+  } catch (error) {
+    console.warn('[inkstone] sent attachments could not be locked:', (error as Error).message)
+  }
+  try {
+    await mailbox.updateDelivery(draftId, 'sent', null, sent.messageId)
+  } catch (error) {
+    console.warn('[inkstone] sent delivery status could not be stored:', (error as Error).message)
+  }
+  void rememberRecipientAddresses(env.DB, userId, [...to, ...cc, ...bcc]).catch((error) => {
+    console.warn('[inkstone] sent recipients could not be saved as contacts:', (error as Error).message)
+  })
+  if (inReplyTo) {
+    try {
+      await mailbox.markThreadRead(threadId)
+    } catch (error) {
+      console.warn('[inkstone] sent thread could not be marked read:', (error as Error).message)
+    }
+  }
+  return { result: { id: draftId, status: 'sent', messageId: sent.messageId }, replayed: false }
 }
 
 export async function sendStoredEmail(
@@ -208,8 +220,12 @@ export async function sendStoredEmail(
     const attached = (await loadEmailAttachments(env.DB, userId, [row.id])).get(row.id) ?? []
     attachments = await loadOutgoingAttachments(env, userId, row.id, attached.map((entry) => entry.id), false)
   }
+  if (!(await mailbox.claimDeliveryRetry(row.id))) {
+    throw new ApiError(409, 'email_not_retryable', 'Only a failed send can be retried')
+  }
+  let sent: Awaited<ReturnType<typeof sendViaProvider>>
   try {
-    const sent = await sendViaProvider(env, userId, {
+    sent = await sendViaProvider(env, userId, {
       to: to.length === 1 ? to[0]! : to,
       cc: cc.length ? (cc.length === 1 ? cc[0]! : cc) : undefined,
       bcc: bcc.length ? (bcc.length === 1 ? bcc[0]! : bcc) : undefined,
@@ -219,15 +235,20 @@ export async function sendStoredEmail(
       text: validateBody({ to: row.recipient, subject: row.subject, body: row.body_source ?? '', bodyHtml: row.body, operationId: 'retry' }).text,
       ...(attachments.length ? { attachments } : {}),
       ...(hasHeaders ? { headers } : {}),
+      idempotencyKey: `email-retry:${row.id}`,
     })
-    await mailbox.updateDelivery(row.id, 'sent', null, sent.messageId)
-    void rememberRecipientAddresses(env.DB, userId, [...to, ...cc, ...bcc]).catch((error) => {
-      console.warn('[inkstone] sent recipients could not be saved as contacts:', (error as Error).message)
-    })
-    return { id: row.id, status: 'sent', messageId: sent.messageId }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'The email could not be sent'
     await mailbox.updateDelivery(row.id, 'failed', message)
     return { id: row.id, status: 'failed', error: message }
   }
+  try {
+    await mailbox.updateDelivery(row.id, 'sent', null, sent.messageId)
+  } catch (error) {
+    console.warn('[inkstone] retried delivery status could not be stored:', (error as Error).message)
+  }
+  void rememberRecipientAddresses(env.DB, userId, [...to, ...cc, ...bcc]).catch((error) => {
+    console.warn('[inkstone] sent recipients could not be saved as contacts:', (error as Error).message)
+  })
+  return { id: row.id, status: 'sent', messageId: sent.messageId }
 }

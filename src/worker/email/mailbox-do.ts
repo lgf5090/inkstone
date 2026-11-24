@@ -114,6 +114,7 @@ export class EmailMailbox extends DurableObject<Env> {
   updateDelivery(id: string, status: string, error: string | null, providerMessageId: string | null = null) {
     return this.store.updateDelivery(id, status, error, providerMessageId)
   }
+  claimDeliveryRetry(id: string) { return this.store.claimDeliveryRetry(id) }
   claimInbound(messageKey: string, now?: number) { return this.store.claimInbound(messageKey, now) }
   completeInbound(messageKey: string) { return this.store.completeInbound(messageKey) }
   releaseInbound(messageKey: string) { return this.store.releaseInbound(messageKey) }

@@ -1661,6 +1661,30 @@ describe('email send idempotency', () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 
+  it('allows only one concurrent retry to call the provider', async () => {
+    const send = useEmailProvider('retry-provider-1')
+    const id = newId()
+    store.createEmail('sent', {
+      id,
+      subject: 'Retry once',
+      sender: accountId,
+      recipient: 'bob@example.com',
+      date: Date.now(),
+      body: '<p>Hello</p>',
+      deliveryStatus: 'failed',
+      deliveryError: 'Provider refused',
+    })
+
+    const responses = await Promise.all([
+      call('POST', `/accounts/${accountId}/emails/${id}/retry`),
+      call('POST', `/accounts/${accountId}/emails/${id}/retry`),
+    ])
+
+    expect(responses.map((response) => response.status).sort()).toEqual([202, 409])
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(store.getEmail(id)?.delivery_status).toBe('sent')
+  })
+
   it('reports pending, failed and unconfirmed delivery states instead of sent on replay', async () => {
     const send = useEmailProvider('delivery-provider-1')
     const input = sendInput('delivery-state-replay')

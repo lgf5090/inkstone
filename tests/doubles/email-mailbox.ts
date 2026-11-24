@@ -93,6 +93,7 @@ export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNam
     setHasAttachment: (id: string, value: boolean) => store.setHasAttachment(id, value),
     updateDelivery: (id: string, status: string, error: string | null, providerMessageId: string | null = null) =>
       store.updateDelivery(id, status, error, providerMessageId),
+    claimDeliveryRetry: (id: string) => store.claimDeliveryRetry(id),
     claimInbound: (messageKey: string, now?: number) => store.claimInbound(messageKey, now),
     completeInbound: (messageKey: string) => store.completeInbound(messageKey),
     releaseInbound: (messageKey: string) => store.releaseInbound(messageKey),

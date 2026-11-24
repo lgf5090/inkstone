@@ -1961,6 +1961,20 @@ export class MailboxStore {
     )
   }
 
+  claimDeliveryRetry(id: string): boolean {
+    const row = this.one<{ delivery_status: string | null }>(
+      `SELECT delivery_status FROM email_messages WHERE id = ?1 AND deleted_at IS NULL`,
+      id,
+    )
+    if (row?.delivery_status !== 'failed') return false
+    this.sql.exec(
+      `UPDATE email_messages SET delivery_status = 'pending', delivery_error = NULL, updated_at = ?1 WHERE id = ?2`,
+      Date.now(),
+      id,
+    )
+    return true
+  }
+
   claimInbound(messageKey: string, now = Date.now()): boolean {
     const existing = this.one<{ status: string; created_at: number }>(
       `SELECT status, created_at FROM email_inbound_claims WHERE message_key = ?1`,

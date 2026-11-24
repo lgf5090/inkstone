@@ -31,6 +31,7 @@ export interface SendBindingParams {
     contentId?: string
   }[]
   headers?: Record<string, string>
+  idempotencyKey?: string
 }
 
 export function normalizeRecipients(value: string | undefined, field: string): string[] {
@@ -204,6 +205,7 @@ async function sendViaResend(apiKey: string, from: string, params: SendBindingPa
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      ...(params.idempotencyKey ? { 'Idempotency-Key': params.idempotencyKey } : {}),
     },
     body: JSON.stringify(body),
   })

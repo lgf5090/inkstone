@@ -131,6 +131,7 @@ async function sendDirect(c: Ctx, account: EmailAccountRow, input: EmailSendInpu
       html: body.html,
       text: body.text,
       headers,
+      idempotencyKey: input.operationId,
     })
     await mailbox.updateDelivery(messageId, 'sent', null, sent.messageId)
     void rememberRecipientAddresses(c.env.DB, c.get('userId'), [...to, ...cc, ...bcc]).catch((error) => {
