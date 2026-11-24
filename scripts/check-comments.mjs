@@ -31428,8 +31428,6 @@ const allowed = new Map([
     "// bookkeeping cleanup must not turn that recovery into a visible failure.",
     "/** Send a client-sealed title/body to the server; the note becomes unreadable until unlocked. */",
     "/** Send a decrypted title/body back, turning the note into an ordinary plaintext note. */",
-    "// A lock applied on another device arrives as a summary flag, and this device may still hold",
-    "// the old plaintext body. Evict it here, before the editor can read it again.",
     "// A dirty body would be re-sent after the lock and overwrite the envelope, so the caller",
     "// flushes before sealing; the guard here is the last line that keeps the two apart.",
     "// `adoptNote` is what evicts the plaintext cache when it sees `isEncrypted`; calling it with",
@@ -31461,6 +31459,8 @@ const allowed = new Map([
     "// idempotent create answers with the old body and drops the newer text.",
     "// Project writes are handed to the module that owns their HTTP shape; the note store only",
     "// owns the queue's lease, the completion bookkeeping and the decision to stop when offline.",
+    "// Only a note that changed from plaintext to sealed can leave a plaintext body here. Re-running",
+    "// this for every encrypted summary would evict valid ciphertext caches on each sync page.",
   ]],
   ["src/client/store/pinned-windows.ts", [
     "/**\n * How long a pinned window is left flashing after a link jumps to it.\n *\n * This is not a taste value: it is the duration of `pinned-window-flash` in `prose.css`, and the flag\n * that carries the class has to outlive the animation that reads it — a shorter value clips the flash\n * off mid-fade, a longer one leaves a card that no longer looks targeted still claiming to be.\n */",

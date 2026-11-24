@@ -86,6 +86,7 @@ export class OmnisearchIndexer {
   private started = false
   private storeUnsubscribe: (() => void) | null = null
   private sessionUnsubscribe: (() => void) | null = null
+  private sealedListenerInstalled = false
   private fileSources: FileSource[] = []
 
   getStatus = (): IndexerStatus => this.status
@@ -192,6 +193,13 @@ export class OmnisearchIndexer {
   }
 
   private watchStores(): void {
+    if (!this.sealedListenerInstalled) {
+      this.sealedListenerInstalled = true
+      window.addEventListener('inkstone:note-sealed', (event) => {
+        const id = (event as CustomEvent<string>).detail
+        if (id) this.forgetNote(id)
+      })
+    }
     if (!this.storeUnsubscribe) {
       let previousNotes = useNotes.getState().notes
       let previousContents = useNotes.getState().contents
@@ -227,7 +235,7 @@ export class OmnisearchIndexer {
     const limit = useSession.getState().settings.search.maxIndexedNotes
     const live: { id: string; updatedAt: number }[] = []
     for (const note of Object.values(notes)) {
-      if (note.deletedAt) continue
+      if (note.deletedAt || note.isEncrypted) continue
       live.push({ id: note.id, updatedAt: note.updatedAt })
     }
     live.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
@@ -366,7 +374,7 @@ export class OmnisearchIndexer {
     const budget = bodyBudgetBytes(search)
     for (const noteId of noteIds) {
       const note = useNotes.getState().notes[noteId]
-      if (!note) continue
+      if (!note || note.isEncrypted) continue
       const body = contents[noteId] ?? fetched.get(noteId)?.content
       if (body === undefined) continue
       const source: NoteSource = {
@@ -404,6 +412,18 @@ export class OmnisearchIndexer {
     if (toDrop.length) await localDb.dropOmnisearchBodies(toDrop)
     if (entries.length) await engine.addDocuments(entries, availability)
     for (const embedding of embeddings) engine.setEmbeddings(embedding.docId, embedding.targets)
+  }
+
+  private forgetNote(noteId: string): void {
+    const engine = this.engine
+    const docId = docIdForNote(noteId)
+    if (!engine?.has(docId)) return
+    const stored = engine.storedFieldsOf(docId)
+    engine.removeDocuments([docId])
+    this.bodyBytes = Math.max(0, this.bodyBytes - Math.min(stored?.size ?? 0, useSession.getState().settings.search.maxContentChars))
+    void localDb.dropOmnisearchBodies([noteId])
+    this.patch({ indexed: engine.documentCount, bodyBytes: this.bodyBytes })
+    this.scheduleCacheWrite()
   }
 
   private scheduleCacheWrite(): void {

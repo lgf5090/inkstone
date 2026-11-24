@@ -7,11 +7,13 @@ const mocks = vi.hoisted(() => ({
   patch: vi.fn(),
   create: vi.fn(),
   linkMention: vi.fn(),
+  setContent: vi.fn(),
+  markOutboxFailure: vi.fn(),
 }))
 vi.mock('../lib/db', () => ({
   localDb: {
-    scheduleShellSave: vi.fn(), setContent: vi.fn(async () => {}), setContentBatch: vi.fn(async () => {}),
-    dropContent: vi.fn(async () => {}),
+    scheduleShellSave: vi.fn(), setContent: mocks.setContent, setContentBatch: vi.fn(async () => {}),
+    dropContent: vi.fn(async () => {}), dropOmnisearchBodies: vi.fn(async () => {}), clearOmnisearchCache: vi.fn(async () => {}),
     getOutbox: async () => mocks.queue,
     enqueueOutbox: async (item: any) => { mocks.queue = [...mocks.queue.filter((q) => q.id !== item.id), item] },
     enqueueOutboxBatch: async (items: any[]) => {
@@ -31,7 +33,7 @@ vi.mock('../lib/db', () => ({
         return { ...item, dependsOnWriteId: undefined, payload: { ...payload, rev } }
       })
     },
-    advanceOutboxDependents: vi.fn(async () => {}), markOutboxFailure: vi.fn(async () => {}),
+    advanceOutboxDependents: vi.fn(async () => {}), markOutboxFailure: mocks.markOutboxFailure,
     withOutboxReplayLock: async (_owner: string, task: () => Promise<void>) => { await task(); return true },
   }, publishBroadcast: vi.fn(),
 }))
@@ -74,6 +76,8 @@ beforeEach(() => {
   vi.useFakeTimers()
   mocks.queue = []
   mocks.get.mockReset(); mocks.patch.mockReset(); mocks.create.mockReset(); mocks.linkMention.mockReset()
+  mocks.setContent.mockReset().mockResolvedValue(undefined)
+  mocks.markOutboxFailure.mockReset().mockResolvedValue(undefined)
   useNotes.setState({ notes: { [note.id]: note }, contents: { [note.id]: note.content },
     folders: [], tags: [], cursor: 1, pendingCount: 0, online: true })
 })
@@ -152,6 +156,40 @@ it('keeps a note created while offline and uploads it once the network returns',
   expect(useNotes.getState().notes[id!].rev).toBe(1)
   expect(useNotes.getState().contents[id!]).toBe('body plus')
   await vi.waitFor(() => expect(mocks.queue).toHaveLength(0))
+})
+
+it('keeps local edits when another device locks the note', async () => {
+  useNotes.getState().editContent(note.id, 'local plaintext')
+  useNotes.getState().applySync(sync({ ...note, rev: 2, isEncrypted: true, title: 'memoenc:v1:salt:iv:data', content: 'cipher' }))
+  await flushLocalDbWrites()
+
+  expect(useNotes.getState().contents[note.id]).toBeUndefined()
+  expect(mocks.queue.some((item) => item.entityId === note.id && item.payload.content === 'local plaintext')).toBe(true)
+  expect(mocks.create).not.toHaveBeenCalled()
+})
+
+it('never creates a plaintext recovery copy when the server note is locked', async () => {
+  mocks.queue.push({
+    id: `patch:${note.id}`, clientId: 'client', writeId: 'write-locked', entity: 'note', entityId: note.id,
+    payload: { content: 'local plaintext', contentDirty: true, rev: 1 }, attempts: 0, createdAt: 1,
+  })
+  mocks.patch.mockRejectedValueOnce(new ApiError(409, 'conflict', 'locked', {
+    server: { ...note, rev: 2, isEncrypted: true, title: 'memoenc:v1:salt:iv:data', content: 'cipher' },
+  }))
+
+  await useNotes.getState().replayPending()
+
+  expect(mocks.create).not.toHaveBeenCalled()
+  expect(mocks.queue).toHaveLength(1)
+  expect(mocks.markOutboxFailure).toHaveBeenCalled()
+})
+
+it('caches a sealed body with its real revision', async () => {
+  mocks.patch.mockResolvedValueOnce({ ...note, rev: 2, isEncrypted: true, title: 'memoenc:v1:salt:iv:data', content: 'cipher' })
+  await useNotes.getState().sealNoteRecord(note.id, { title: 'memoenc:v1:salt:iv:data', content: 'cipher' }, 1)
+  await Promise.resolve()
+
+  expect(mocks.setContent).toHaveBeenCalledWith(note.id, expect.objectContaining({ content: 'cipher', rev: 2 }))
 })
 
 it('keeps a refused 413 body in the outbox instead of calling it saved', async () => {

@@ -1605,6 +1605,8 @@ const ZH_CORE_MESSAGES = {
     "notes.copy_title": "复制标题",
     "notes.could_not_create_note": "新建笔记失败",
     "notes.offline_draft_saved": "已保存为本地草稿，联网后会自动上传。",
+    "notes.locked_elsewhere_pending_title": "此笔记已在其他设备上加密",
+    "notes.locked_elsewhere_pending_description": "本地修改仍保留在离线队列中，且不会以明文上传。",
     "notes.could_not_update_the_offline_queue_state": "离线队列状态保存失败",
     "notes.create_a_copy": "创建副本",
     "notes.created": "按创建时间",

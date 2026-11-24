@@ -96,10 +96,12 @@ describe('indexer', () => {
         latte: summary('latte', { title: 'Latte art', updatedAt: 5 }),
         espresso: summary('espresso', { title: 'Espresso machine', updatedAt: 6 }),
         gone: summary('gone', { deletedAt: 9 }),
+        sealed: summary('sealed', { isEncrypted: true, title: 'memoenc:v1:salt:iv:data', updatedAt: 10 }),
       },
       {
         latte: '## Patterns\n\nlatte foam and a rosetta, see [[Espresso machine]]',
         espresso: 'the gaggia needs descaling and a latte',
+        sealed: 'old plaintext that must not be indexed',
       },
     )
     await omnisearchIndexer.start()
@@ -107,6 +109,7 @@ describe('indexer', () => {
     expect(status.indexed).toBe(2)
     expect(status.ready).toBe(true)
     expect(status.available).toBe(2)
+    expect((await omnisearchIndexer.query('plaintext')).results).toEqual([])
     const { results } = await omnisearchIndexer.query('latte')
     expect(results.map((result) => result.doc.title).sort()).toEqual(['Espresso machine', 'Latte art'])
     expect(results[0]!.excerpt.lines.length).toBeGreaterThan(0)

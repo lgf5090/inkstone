@@ -67,7 +67,7 @@ export function NotePicker({ open, title, initialQuery, excludeNoteId, filter, o
             return NO_ROWS;
         const matched: NoteRow[] = [];
         for (const note of Object.values(notes)) {
-            if (note.deletedAt || note.isArchived || note.id === excludeNoteId)
+            if (note.deletedAt || note.isArchived || note.isEncrypted || note.id === excludeNoteId)
                 continue;
             if (filter && !filter(note))
                 continue;

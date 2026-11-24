@@ -82,6 +82,7 @@ beforeEach(async () => {
             'n-gone': { ...note('n-gone', 'Deleted'), deletedAt: Date.now() },
             'n-shelf': { ...note('n-shelf', 'Archived too'), isArchived: true },
             'n-self': note('n-self', 'The map itself'),
+            'n-sealed': { ...note('n-sealed', 'memoenc:v1:salt:iv:data'), isEncrypted: true },
         },
     });
 });
@@ -101,6 +102,7 @@ describe('NotePicker', () => {
             { title: 'Alpha', path: 'Reading / 2026' },
             { title: 'Beta book', path: '' },
         ]);
+        expect(drawnRows().some((row) => row.title.startsWith('memoenc:'))).toBe(false);
     });
 
     it('filters as the reader types, and says so when nothing matches', () => {

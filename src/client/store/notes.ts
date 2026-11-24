@@ -221,6 +221,7 @@ interface DirtyNoteWrite {
     persisted: Promise<boolean>;
 }
 const dirty = new Map<string, DirtyNoteWrite>();
+const notifiedLockedConflicts = new Set<string>();
 
 const inheritedOutboxWrites = new Map<string, string>();
 type RecoveryResult = Pick<
@@ -502,23 +503,23 @@ export const useNotes = create<NotesState>((set, get) => ({
             set({ notes, folders, tags, cursor: payload.cursor });
         }
         reconcileFolderUi(get().folders);
-        // A lock applied on another device arrives as a summary flag, and this device may still hold
-        // the old plaintext body. Evict it here, before the editor can read it again.
-        const sealedIds = payload.notes.filter((remote) => remote.isEncrypted).map((remote) => remote.id);
-        if (sealedIds.length) {
+        // Only a note that changed from plaintext to sealed can leave a plaintext body here. Re-running
+        // this for every encrypted summary would evict valid ciphertext caches on each sync page.
+        const newlySealedIds = payload.notes
+            .filter((remote) => remote.isEncrypted && before.notes[remote.id] && !before.notes[remote.id]!.isEncrypted)
+            .map((remote) => remote.id);
+        if (newlySealedIds.length) {
             set((state) => {
                 let contents = state.contents;
-                for (const id of sealedIds) {
+                for (const id of newlySealedIds) {
                     if (!Object.prototype.hasOwnProperty.call(contents, id)) continue;
                     if (contents === state.contents) contents = { ...state.contents };
                     delete contents[id];
                 }
                 return contents === state.contents ? state : { contents };
             });
-            for (const id of sealedIds) {
-                dirty.delete(id);
-                void replaceSealedCache(id, null);
-            }
+            for (const id of newlySealedIds)
+                void replaceSealedCache(id, null, null, dirty.has(id));
         }
         // A full snapshot carries fresh summaries for every note, and openNote() revalidates a
         // body the moment it is displayed, so the fan-out only spent requests on closed panes.
@@ -2403,7 +2404,7 @@ function adoptNote(note: Note | NoteSummary, set: SetNotesState, get: () => Note
         // and re-sending one would overwrite the envelope. The ciphertext itself stays cached so the
         // next unlock prompt has something to open.
         dirty.delete(note.id);
-        void replaceSealedCache(note.id, hasContent ? (note as Note).content : null);
+        void replaceSealedCache(note.id, hasContent ? (note as Note).content : null, note.rev);
     } else if (acceptContent) {
         void localDb.setContent(note.id, {
             content: (note as Note).content,
@@ -2426,20 +2427,33 @@ function stripContent(note: Note | NoteSummary): NoteSummary {
  * what the unlock prompt has to open. Dropping the queued writes is deliberate — re-sending one
  * after the lock would overwrite the envelope with the plaintext the lock exists to hide.
  */
-async function replaceSealedCache(id: string, ciphertext: string | null): Promise<void> {
-    dirty.delete(id);
-    pendingOutboxWrites.delete(id);
-    pendingContentWrites.delete(id);
+async function replaceSealedCache(id: string, ciphertext: string | null, revision: number | null, preservePending = false): Promise<void> {
     try {
         const queued = await localDb.getOutbox();
-        for (const item of queued) {
-            if (item.entityId === id)
-                await localDb.completeOutboxItem(item.id, item.writeId);
-        }
-        if (ciphertext === null)
+        const hasQueuedWrite = queued.some((item) => item.entityId === id);
+        if (preservePending || hasQueuedWrite) {
             await localDb.dropContent(id);
-        else
-            await localDb.setContent(id, { content: ciphertext, rev: 0, updatedAt: Date.now() });
+            useNotes.setState({ saveStatus: 'dirty' });
+            if (!notifiedLockedConflicts.has(id)) {
+                notifiedLockedConflicts.add(id);
+                useUi.getState().toast({
+                    title: t('notes.locked_elsewhere_pending_title'),
+                    description: t('notes.locked_elsewhere_pending_description'),
+                    tone: 'warning',
+                });
+            }
+        } else {
+            dirty.delete(id);
+            pendingOutboxWrites.delete(id);
+            pendingContentWrites.delete(id);
+            if (ciphertext === null || revision === null)
+                await localDb.dropContent(id);
+            else
+                await localDb.setContent(id, { content: ciphertext, rev: revision, updatedAt: Date.now() });
+        }
+        await localDb.dropOmnisearchBodies([id]);
+        await localDb.clearOmnisearchCache();
+        window.dispatchEvent(new CustomEvent('inkstone:note-sealed', { detail: id }));
     }
     catch (error) {
         console.warn('[inkstone] could not replace the cached body of a locked note', error);
@@ -2996,6 +3010,18 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                     }
                     if (!server) {
                         await localDb.markOutboxFailure(item.id, item.writeId, 'conflict response did not include the server note').catch(() => { });
+                        continue;
+                    }
+                    if (server.isEncrypted) {
+                        await localDb.markOutboxFailure(item.id, item.writeId, t('notes.locked_elsewhere_pending_description')).catch(() => { });
+                        if (!notifiedLockedConflicts.has(item.entityId)) {
+                            notifiedLockedConflicts.add(item.entityId);
+                            useUi.getState().toast({
+                                title: t('notes.locked_elsewhere_pending_title'),
+                                description: t('notes.locked_elsewhere_pending_description'),
+                                tone: 'warning',
+                            });
+                        }
                         continue;
                     }
                 }

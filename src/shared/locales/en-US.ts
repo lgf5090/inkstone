@@ -1612,6 +1612,8 @@ const CORE_MESSAGES = {
     "notes.copy_title": "Copy title",
     "notes.could_not_create_note": "Could not create note",
     "notes.offline_draft_saved": "Saved locally as a draft. It will upload when the connection returns.",
+    "notes.locked_elsewhere_pending_title": "This note was locked on another device",
+    "notes.locked_elsewhere_pending_description": "Your local edits are kept in the offline queue and were not uploaded as plaintext.",
     "notes.could_not_update_the_offline_queue_state": "Could not update the offline queue state",
     "notes.create_a_copy": "Create a copy",
     "notes.created": "Created",
