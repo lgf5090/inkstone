@@ -128,6 +128,7 @@ import { calendarIcsRoutes } from './routes/calendar-ics'
 import { calendarSubscriptionRoutes } from './routes/calendar-subscriptions'
 import { calendarSyncRoutes } from './routes/calendar-sync'
 import { calendarShareRoutes } from './routes/calendar-shares'
+import { shareTargetRoutes } from './routes/share-target'
 import { calendarAttachmentRoutes } from './routes/calendar-attachments'
 import { calendarPublicRoutes, calendarSharePageRoutes } from './routes/calendar-public'
 import { musicSharePageRoutes, musicSharePublicRoutes } from './routes/music-share'
@@ -207,9 +208,14 @@ export function createApp() {
     c.set('database', await initializeDatabase(c.env))
     await next()
   })
+  app.use('/share-target', async (c, next) => {
+    c.set('database', await initializeDatabase(c.env))
+    await next()
+  })
 
   app.use('/api/*', loadSession)
   app.use('/authorize', loadSession)
+  app.use('/share-target', loadSession)
 
   app.get('/api/health', async (c) => {
     const database = c.get('database')
@@ -378,6 +384,7 @@ export function createApp() {
   })
 
 
+  app.route('/share-target', shareTargetRoutes)
   app.route('/s', sharePageRoutes)
   app.route('/p', projectSharePageRoutes)
   app.route('/m', musicSharePageRoutes)

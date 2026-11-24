@@ -21,6 +21,7 @@ describe('the addresses the client routes on its own', () => {
       for (const tab of APP_TABS) expect(paths).toContain(tab.path)
       expect(paths).toContain('/')
       expect(paths).toContain('/n/*')
+      expect(paths).toContain('/share-target')
       expect(paths).toContain('/tools/*')
     })
 

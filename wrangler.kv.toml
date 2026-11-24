@@ -36,6 +36,7 @@ run_worker_first = [
   "/.well-known/*",
   "/n/*",
   "/notes",
+  "/share-target",
   "/inknote",
   "/inknote/*",
   "/memos",
