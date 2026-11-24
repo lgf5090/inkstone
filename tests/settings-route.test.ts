@@ -127,6 +127,16 @@ describe('writing settings', () => {
     expect(JSON.parse(column(ALICE))).toEqual(body)
   })
 
+  it('persists the note revision retention count', async () => {
+    const written = await send('PUT', '', { notes: { versionRetentionCount: 25 } })
+    expect(written.status).toBe(200)
+    const body = await written.json() as { notes: { versionRetentionCount: number } }
+    expect(body.notes.versionRetentionCount).toBe(25)
+    expect(JSON.parse(column(ALICE)).notes.versionRetentionCount).toBe(25)
+    const readBack = await (await send('GET', '')).json() as typeof body
+    expect(readBack.notes.versionRetentionCount).toBe(25)
+  })
+
   it('re-reads and merges from the newer row when the session copy is stale', async () => {
     // The session still carries `{}` while the column has moved on to proseSize 20, so the first
     // compare-and-set matches nothing and the answer has to come from the row, not the session.

@@ -427,6 +427,7 @@ export interface NotesSettings {
   syncFrontMatterTitle: boolean
   /** Minutes an unlocked note stays readable before it locks again. */
   lockTimeoutMinutes: number
+  versionRetentionCount: number
 }
 
 export interface NoteTemplateCategory {

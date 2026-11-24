@@ -463,6 +463,53 @@ describe('the transfer store', () => {
     expect(one<{ id: string }>('SELECT id FROM note_versions WHERE id = ?', 'version-000')).toBeUndefined()
   })
 
+  it('uses the account revision retention count when a re-import writes one', async () => {
+    sqlite.prepare(
+      `INSERT INTO users (id, username, password_hash, login, name, avatar_url, role, settings, created_at, last_seen_at)
+       VALUES (?, 'alice', 'hash', 'alice', '', '', 'member', ?, 1, 1)`,
+    ).run(ALICE, JSON.stringify({ notes: { versionRetentionCount: 3 } }))
+    insertNote(NOTE_ID, ALICE, 'Old text', 3, 1000)
+    for (let i = 0; i < 5; i++) {
+      sqlite.prepare(
+        'INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(`version-${String(i).padStart(3, '0')}`, NOTE_ID, ALICE, `Rev ${i}`, 'older', 6, i + 1)
+    }
+    expect(one<{ value: number }>(
+      "SELECT json_extract(settings, '$.notes.versionRetentionCount') AS value FROM users WHERE id = ?", ALICE,
+    )?.value).toBe(3)
+
+    const applied = await new TransferStore(db, ALICE, false).updateImportedNote({
+      noteId: NOTE_ID,
+      previousRev: 3,
+      nextRev: 4,
+      previousTitle: 'Old text',
+      previousContent: 'Old text',
+      title: 'New text',
+      content: 'New text',
+      excerpt: 'New text',
+      words: 2,
+      chars: 8,
+      contentHash: 'hash-4',
+      folderId: null,
+      isPinned: 0,
+      isStarred: 0,
+      isArchived: 0,
+      position: 1000,
+      createdAt: 1000,
+      updatedAt: 5000,
+      deletedAt: null,
+      keepsRevision: true,
+    })
+
+    expect(applied).toBe(true)
+    expect(one<{ n: number }>('SELECT COUNT(*) AS n FROM note_versions WHERE note_id = ?', NOTE_ID)!.n).toBe(3)
+    expect(one<{ id: string }>('SELECT id FROM note_versions WHERE id = ?', 'version-000')).toBeUndefined()
+    expect(one<{ id: string }>('SELECT id FROM note_versions WHERE id = ?', 'version-001')).toBeUndefined()
+    expect(one<{ title: string }>(
+      'SELECT title FROM note_versions WHERE note_id = ? ORDER BY created_at DESC LIMIT 1', NOTE_ID,
+    )?.title).toBe('Old text')
+  })
+
   it('restores an export\'s tag names and colours into the asking account only', async () => {
     insertTag('tag-bob-solo', BOB, 'Solo', null)
 

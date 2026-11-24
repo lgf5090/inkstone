@@ -61,6 +61,7 @@ import { aiDeleteNeededSql, noteIndexQueueStatement } from '../mcp/ai-search'
 import { buildFtsQuery } from '../search/store'
 import { sha256Hex } from '../lib/encoding'
 import { newId } from '../lib/id'
+import { versionRetentionOffsetSql } from './version-policy'
 
 /**
  * The last row of a page, in the order the listing sorted it.
@@ -599,7 +600,7 @@ export class NotesStore {
     const { results } = await this.db
       .prepare(
         `SELECT id, note_id, title, length(CAST(content AS BLOB)) AS size, created_at FROM note_versions
-           WHERE note_id = ?1 AND user_id = ?2 ORDER BY created_at DESC LIMIT 100`,
+           WHERE note_id = ?1 AND user_id = ?2 ORDER BY created_at DESC LIMIT ${LIMITS.versionsPerNoteMax}`,
       )
       .bind(noteId, this.userId)
       .all<NoteVersionMetaRow>()
@@ -667,8 +668,8 @@ export class NotesStore {
     const trimVersions = this.db.prepare(
       `DELETE FROM note_versions WHERE note_id = ?1
          AND ${shiftSqlPlaceholders(mutationGuard, 1)}
-         AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-    ).bind(id, ...mutationValues, LIMITS.versionsPerNote)
+         AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ${versionRetentionOffsetSql('?3')})`,
+    ).bind(id, ...mutationValues)
     const derived = buildNoteDerivedStatements({
       db: this.db,
       userId: this.userId,
@@ -772,11 +773,11 @@ export class NotesStore {
         ),
         this.db.prepare(
           `DELETE FROM note_versions WHERE note_id = ?1
-             AND EXISTS (SELECT 1 FROM note_versions WHERE id = ?9)
+             AND EXISTS (SELECT 1 FROM note_versions WHERE id = ?8)
              AND ${shiftSqlPlaceholders(mutationGuard, 1)}
              AND id IN (
-               SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-        ).bind(id, ...mutationValues, LIMITS.versionsPerNote, snapshotId),
+               SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ${versionRetentionOffsetSql('?3')})`,
+        ).bind(id, ...mutationValues, snapshotId),
       )
     }
 
@@ -1340,8 +1341,8 @@ export async function linkMentionInNote(
       db.prepare(
         `DELETE FROM note_versions WHERE note_id = ?1
            AND ${shiftSqlPlaceholders(guard, 1)}
-           AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-      ).bind(current.id, ...guardValues, LIMITS.versionsPerNote),
+           AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ${versionRetentionOffsetSql('?3')})`,
+      ).bind(current.id, ...guardValues),
     ]
     statements.push(...buildNoteDerivedStatements({
       db,
@@ -1658,8 +1659,8 @@ export async function rewriteInboundWikiLinks(
               db.prepare(
                 `DELETE FROM note_versions WHERE note_id = ?1
                    AND ${shiftSqlPlaceholders(guard, 1)}
-                   AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-              ).bind(currentNote.id, ...guardValues, LIMITS.versionsPerNote),
+                   AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ${versionRetentionOffsetSql('?3')})`,
+              ).bind(currentNote.id, ...guardValues),
             ]
             statements.push(...buildNoteDerivedStatements({
               db,

@@ -33,6 +33,7 @@ import {
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
+import { versionRetentionOffsetSql } from '../notes/version-policy'
 
 /** A manual tag the route has validated and named; `id` and `now` were chosen by the route. */
 export interface TagCreateInput {
@@ -669,8 +670,8 @@ export async function rewriteTagInNotes(
                 `DELETE FROM note_versions WHERE note_id = ?1
                    AND ${shiftSqlPlaceholders(mutationGuard, 1)}
                    AND id IN (
-                     SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-              ).bind(currentNote.id, ...mutationValues, LIMITS.versionsPerNote)
+                     SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ${versionRetentionOffsetSql('?3')})`,
+              ).bind(currentNote.id, ...mutationValues)
               const statements: D1PreparedStatement[] = [update, snapshot, trim]
               if (currentNote.deleted_at === null) {
                 statements.push(...buildNoteDerivedStatements({

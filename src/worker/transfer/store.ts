@@ -17,7 +17,6 @@
  * ride `waitUntil`.
  */
 
-import { LIMITS } from '@shared/constants'
 import { utf8ByteLength } from '@shared/text-utils'
 import { attachmentIdFromCleanupTarget, type AttachmentObjectStorage } from '../attachments/keys'
 import {
@@ -27,6 +26,7 @@ import {
 } from '../db/writes'
 import { noteIndexQueueStatement } from '../mcp/ai-search'
 import { newId } from '../lib/id'
+import { versionRetentionOffsetSql } from '../notes/version-policy'
 
 /** The attachment columns a restore compares against before it decides to re-store bytes. */
 export interface ExistingAttachmentRow {
@@ -481,8 +481,8 @@ export class TransferStore {
           `DELETE FROM note_versions WHERE note_id = ?1
              AND ${shiftSqlPlaceholders(mutationGuard, 1)}
              AND id IN (
-               SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-        ).bind(input.noteId, ...mutationValues, LIMITS.versionsPerNote),
+               SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ${versionRetentionOffsetSql('?3')})`,
+        ).bind(input.noteId, ...mutationValues),
       )
     }
     const derived = buildNoteDerivedStatements({

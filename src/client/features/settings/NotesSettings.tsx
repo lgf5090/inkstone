@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { DEFAULT_NEW_NOTE_TEMPLATE, NEW_NOTE_TEMPLATE_MAX_LENGTH } from '@shared/constants'
+import { DEFAULT_NEW_NOTE_TEMPLATE, LIMITS, NEW_NOTE_TEMPLATE_MAX_LENGTH } from '@shared/constants'
 import { NEW_NOTE_PLACEHOLDERS } from '@shared/note-template-render'
 import { renderNewNoteTemplate } from '@shared/note-template-render'
 import { Input, Select, SettingRow, Switch, Textarea } from '../../components/form'
@@ -26,7 +26,10 @@ export function NotesSettings() {
   const setSyncTitleToFrontMatter = useCallback((syncTitleToFrontMatter: boolean) => void update({ notes: { syncTitleToFrontMatter } }), [update]);
   const setSyncFrontMatterTitle = useCallback((syncFrontMatterTitle: boolean) => void update({ notes: { syncFrontMatterTitle } }), [update]);
   const setLockTimeout = useCallback((lockTimeoutMinutes: number) => void update({ notes: { lockTimeoutMinutes } }), [update]);
+  const setVersionRetention = useCallback((versionRetentionCount: number) => void update({ notes: { versionRetentionCount } }), [update]);
   const isDefault = notes.newNoteTemplate === DEFAULT_NEW_NOTE_TEMPLATE;
+  const retentionOptions = [...new Set([notes.versionRetentionCount, 10, 25, LIMITS.versionsPerNote, 100, LIMITS.versionsPerNoteMax])]
+    .sort((left, right) => left - right);
   const templateRef = useRef<HTMLTextAreaElement>(null);
   const insertPlaceholder = useCallback((placeholder: string) => {
     const field = templateRef.current;
@@ -95,6 +98,23 @@ export function NotesSettings() {
       </SettingRow>
       <SettingRow title={t("settings.sync_frontmatter_title")} description={t("settings.sync_frontmatter_title_desc")}>
         <Switch checked={notes.syncFrontMatterTitle} onChange={setSyncFrontMatterTitle} label={t("settings.sync_frontmatter_title")}/>
+      </SettingRow>
+    </section>
+
+    <section>
+      <h3 data-setting-title={t("settings.version_history")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        {t("settings.version_history")}
+      </h3>
+      <SettingRow title={t("settings.version_retention")} description={t("settings.version_retention_desc")}>
+        <Select
+          aria-label={t("settings.version_retention")}
+          value={notes.versionRetentionCount}
+          onChange={(event) => setVersionRetention(Number(event.target.value))}
+          className="w-[156px]">
+          {retentionOptions.map((count) => (
+            <option key={count} value={count}>{t("settings.version_retention_value0", { value0: count })}</option>
+          ))}
+        </Select>
       </SettingRow>
     </section>
 

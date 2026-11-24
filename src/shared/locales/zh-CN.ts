@@ -4779,6 +4779,9 @@ console.log(\`Hello, \${name}!\`)
 
     "common.refresh": "刷新",
     "settings.new_note_template": "新建笔记模板",
+    "settings.version_retention": "每篇笔记保留的版本数",
+    "settings.version_retention_desc": "每篇笔记最多保留这么多版本；保存下一个版本时清理更旧的记录。",
+    "settings.version_retention_value0": "{value0} 个版本",
     "settings.new_note_template_description": "插入到每篇新建笔记的开头。留空则从空白笔记开始。",
     "settings.new_note_template_hint": "可用占位符：{{title}} 笔记标题、{{createdAt}} 创建时间、{{date}} 日期、{{time}} 时间、{{today}} 今天、{{tomorrow}} 明天、{{yesterday}} 昨天、{{folder}} 当前文件夹名、{{tags}} 标签视图下的当前标签（多个标签用逗号分隔）、{{cursor}} 新建后光标位置（不会写入笔记）、{{ai: 说明}} 新建后由助手写出的段落。",
     "settings.new_note_template_preview": "实时预览",

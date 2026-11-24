@@ -156,6 +156,7 @@ export const LIMITS = {
   importArchiveEntriesMax: 2500,
   importArchiveExpandedMaxBytes: 80 * 1024 * 1024,
   versionsPerNote: 50,
+  versionsPerNoteMax: 200,
   versionSnapshotIntervalMs: 5 * 60 * 1000,
   notesMaxPerUser: 20_000,
   /**
@@ -515,6 +516,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     syncTitleToFrontMatter: true,
     syncFrontMatterTitle: true,
     lockTimeoutMinutes: 5,
+    versionRetentionCount: LIMITS.versionsPerNote,
   },
   search: {
     enabled: true,
@@ -1090,6 +1092,12 @@ export function mergeSettings(partial: unknown): UserSettings {
   // leave an unlocked note readable for a whole working day; the panel offers minutes, the reader
   // stores minutes, and the clamp is the one rule both obey.
   base.notes.lockTimeoutMinutes = integerInRange(notes.lockTimeoutMinutes, 1, 240, base.notes.lockTimeoutMinutes)
+  base.notes.versionRetentionCount = integerInRange(
+    notes.versionRetentionCount,
+    1,
+    LIMITS.versionsPerNoteMax,
+    base.notes.versionRetentionCount,
+  )
   base.todo.defaultRemind = todoRemindOffset(todo.defaultRemind)
   base.todo.dailyGoal = todoGoal(todo.dailyGoal)
   base.todo.weeklyGoal = todoGoal(todo.weeklyGoal)

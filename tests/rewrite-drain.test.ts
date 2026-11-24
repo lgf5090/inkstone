@@ -16,6 +16,7 @@ function seed(candidateCount: number) {
   const sqlite = new DatabaseSync(':memory:')
   sqlite.exec(`
     CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE users (id TEXT PRIMARY KEY, settings TEXT NOT NULL);
     CREATE TABLE notes (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, folder_id TEXT, title TEXT NOT NULL,
       title_key TEXT NOT NULL, content TEXT NOT NULL, excerpt TEXT NOT NULL DEFAULT '', rev INTEGER NOT NULL DEFAULT 1,
       word_count INTEGER NOT NULL DEFAULT 0, char_count INTEGER NOT NULL DEFAULT 0, is_pinned INTEGER NOT NULL DEFAULT 0,
@@ -44,6 +45,7 @@ function seed(candidateCount: number) {
     CREATE UNIQUE INDEX idx_tags_unique ON tags(user_id, name);
     CREATE INDEX idx_rewrite_queue_due ON rewrite_queue(user_id, created_at);
   `)
+  sqlite.prepare('INSERT INTO users (id, settings) VALUES (?, ?)').run(USER, '{}')
   sqlite.prepare('INSERT INTO notes (id, user_id, title, title_key, content, content_hash, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)')
     .run(TARGET, USER, 'Old Title', normalizeLinkKey('Old Title'), 'I am the hub note', 'hash-target', 1, 1)
   for (let index = 0; index < candidateCount; index++) {

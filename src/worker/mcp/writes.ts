@@ -12,6 +12,7 @@ import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { broadcastUserCursor } from '../lib/notify'
 import { assertContentSize } from '../lib/request'
+import { versionRetentionOffsetSql } from '../notes/version-policy'
 import { noteIndexQueueStatement, scheduleAiDrainForNote } from './ai-search'
 import { runIdempotent } from './operations'
 import { buildOutline } from './retrieval'
@@ -371,8 +372,8 @@ async function patchNote(
         `DELETE FROM note_versions WHERE note_id = ?1
            AND ${shiftSqlPlaceholders(mutationGuard, 1)}
            AND id IN (
-             SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-      ).bind(row.id, ...mutationValues, LIMITS.versionsPerNote),
+             SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ${versionRetentionOffsetSql('?3')})`,
+      ).bind(row.id, ...mutationValues),
     )
   }
 
