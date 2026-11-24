@@ -238,6 +238,7 @@ export interface NotePatchInput {
    * embedded; ordinary edits leave this unset and keep the queue statement.
    */
   indexable?: boolean
+  sealing?: boolean
   /** `null` when the previous text is not kept; the route owns that rule. */
   snapshot: { preserve: boolean; bigChange: boolean } | null
 }
@@ -813,6 +814,31 @@ export class NotesStore {
           WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key IN (?3, ?4)
           LIMIT 1`,
       ).bind(this.userId, id, normalizeLinkKey(current.title), normalizeLinkKey(input.title)))
+    }
+
+    if (input.sealing) {
+      const previousKey = normalizeLinkKey(current.title)
+      const guarded = (sql: string, values: unknown[]) => this.db.prepare(
+        `${sql} AND ${shiftSqlPlaceholders(mutationGuard, values.length)}`,
+      ).bind(...values, ...mutationValues)
+      statements.push(
+        guarded(`DELETE FROM note_versions WHERE note_id = ?1 AND user_id = ?2`, [id, this.userId]),
+        guarded(`DELETE FROM ai_note_embeddings WHERE user_id = ?1 AND note_id = ?2`, [this.userId, id]),
+        guarded(`DELETE FROM ai_index_queue WHERE user_id = ?1 AND note_id = ?2`, [this.userId, id]),
+        guarded(`DELETE FROM fts_index_queue WHERE user_id = ?1 AND note_id = ?2`, [this.userId, id]),
+        guarded(`DELETE FROM links WHERE user_id = ?1 AND (source_note_id = ?2 OR target_note_id = ?2 OR target_key = ?3)`,
+          [this.userId, id, previousKey]),
+        guarded(`DELETE FROM rewrite_queue WHERE user_id = ?1 AND source_id = ?2`, [this.userId, id]),
+        guarded(`DELETE FROM share_asset_sessions WHERE slug IN (
+          SELECT slug FROM shares WHERE note_id = ?1 AND user_id = ?2
+        )`, [id, this.userId]),
+        guarded(`UPDATE shares SET is_enabled = 0 WHERE user_id = ?1 AND note_id = ?2`, [this.userId, id]),
+        guarded(`UPDATE blog_pages SET published_at = NULL WHERE user_id = ?1 AND note_id = ?2`, [this.userId, id]),
+        guarded(`UPDATE blog_posts SET status = 'withdrawn' WHERE user_id = ?1 AND note_id = ?2`, [this.userId, id]),
+      )
+      if (this.ftsEnabled) {
+        statements.push(guarded(`DELETE FROM notes_fts WHERE note_id = ?1 AND user_id = ?2`, [id, this.userId]))
+      }
     }
 
     statements.push(
@@ -1658,31 +1684,4 @@ export async function rewriteInboundWikiLinks(
     }
   }
   return { rewritten, skipped, deferred: 0, remaining }
-}
-
-export async function purgeNotePlaintextProjections(
-  db: D1Database,
-  userId: string,
-  noteId: string,
-  previousTitle: string,
-  ftsEnabled: boolean,
-): Promise<void> {
-  const previousKey = normalizeLinkKey(previousTitle)
-  const statements = [
-    db.prepare(`DELETE FROM note_versions WHERE note_id = ?1 AND user_id = ?2`).bind(noteId, userId),
-    db.prepare(`DELETE FROM ai_note_embeddings WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-    db.prepare(`DELETE FROM ai_index_queue WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-    db.prepare(`DELETE FROM fts_index_queue WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-    db.prepare(`DELETE FROM links WHERE user_id = ?1 AND (target_note_id = ?2 OR target_key = ?3)`)
-      .bind(userId, noteId, previousKey),
-    db.prepare(`DELETE FROM rewrite_queue WHERE user_id = ?1 AND (source_id = ?2 OR old_value = ?3)`)
-      .bind(userId, noteId, previousTitle),
-    db.prepare(`UPDATE shares SET is_enabled = 0 WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-    db.prepare(`UPDATE blog_pages SET published_at = NULL WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-    db.prepare(`UPDATE blog_posts SET status = 'withdrawn' WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
-  ]
-  if (ftsEnabled) {
-    statements.push(db.prepare(`DELETE FROM notes_fts WHERE note_id = ?1`).bind(noteId))
-  }
-  await db.batch(statements)
 }

@@ -113,7 +113,7 @@ export async function shareForAsset(
     `SELECT s.slug, s.password_hash, n.content
        FROM shares s
        JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-      WHERE s.slug = ?1 AND s.user_id = ?2 AND n.deleted_at IS NULL
+      WHERE s.slug = ?1 AND s.user_id = ?2 AND n.deleted_at IS NULL AND n.is_encrypted = 0
         AND s.is_enabled = 1
         AND (s.expires_at IS NULL OR s.expires_at > ?3)`,
   )

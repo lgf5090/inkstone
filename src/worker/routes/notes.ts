@@ -22,7 +22,6 @@ import {
   findLinkedBacklinks,
   findUnlinkedMentions,
   linkMentionInNote,
-  purgeNotePlaintextProjections,
   rewriteInboundWikiLinks,
   type NotePatchColumns,
   type NotesListCursor,
@@ -66,23 +65,6 @@ const TRASH_EMPTY_BATCH = 500
  */
 function store(c: Context<AppBindings>): NotesStore {
   return new NotesStore(c.env.DB, c.get('userId'), c.get('database').ftsEnabled)
-}
-
-/**
- * Everything derived from a note's plaintext that must not outlive the lock.
- *
- * A lock writes ciphertext into the ordinary columns, but the rows built from the old plaintext are
- * still readable: version history holds whole bodies, the FTS and meaning indexes hold searchable
- * text, links hold the old title, and a share or a blog projection would publish it. Deleting them
- * is the difference between "the column says encrypted" and "nothing on the server still answers
- * with the note". Tags stay: they are the reader's filing metadata, and the locked card hides them
- * until the note is opened.
- */
-async function purgePlaintextProjections(c: Context<AppBindings>, userId: string, noteId: string, previousTitle: string): Promise<void> {
-  const ftsEnabled = c.get('database').ftsEnabled
-  // Both resolved and unresolved wiki links name the old title; a row that never found the note
-  // still carries it in `target_title`.
-  await purgeNotePlaintextProjections(c.env.DB, userId, noteId, previousTitle, ftsEnabled)
 }
 
 /**
@@ -391,6 +373,7 @@ notesRoutes.patch('/:id', async (c) => {
     // derivation so search and the assistant can see it again.
     derive: row.deleted_at === null && !sealing && (contentChanged || titleChanged),
     indexable: !sealing,
+    sealing,
     // Sealing must not keep the old plaintext body as a version, and opening has nothing to snapshot.
     snapshot: !sealing && !opening && contentChanged && !body.quiet && row.content
       ? {
@@ -404,7 +387,6 @@ notesRoutes.patch('/:id', async (c) => {
     throw ApiError.conflict('This note was modified elsewhere', { server: current })
   }
   if (sealing) {
-    await purgePlaintextProjections(c, userId, id, row.title)
     await broadcastCursor(c, patch.changeSeq)
     return c.json(toNote(patch.next))
   }

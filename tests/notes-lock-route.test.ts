@@ -37,6 +37,14 @@ function seedNote(): void {
      VALUES ('n2', 'secret-title', 'Secret title', 'n1', ?)`,
   ).run(USER)
   sqlite.prepare(
+    `INSERT INTO links (source_note_id, target_key, target_title, target_note_id, user_id)
+     VALUES ('n1', 'other-title', 'Other title', 'n2', ?)`,
+  ).run(USER)
+  sqlite.prepare(
+    `INSERT INTO links (source_note_id, target_key, target_title, target_note_id, user_id)
+     VALUES ('n3', 'secret-title', 'Secret title', NULL, ?)`,
+  ).run(USER)
+  sqlite.prepare(
     `INSERT INTO ai_note_embeddings (user_id, note_id, model, vector, indexed_at)
      VALUES (?, 'n1', 'test', '[]', 1)`,
   ).run(USER)
@@ -92,10 +100,26 @@ describe('a sealed note writes only ciphertext', () => {
 
     expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM note_versions WHERE note_id = 'n1'`).get()).toMatchObject({ n: 0 })
     expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM links WHERE target_note_id = 'n1'`).get()).toMatchObject({ n: 0 })
+    expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM links WHERE source_note_id = 'n1'`).get()).toMatchObject({ n: 0 })
+    expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM links WHERE source_note_id = 'n3' AND target_note_id IS NULL`).get()).toMatchObject({ n: 1 })
     expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM ai_note_embeddings WHERE note_id = 'n1'`).get()).toMatchObject({ n: 0 })
     expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM fts_index_queue WHERE note_id = 'n1'`).get()).toMatchObject({ n: 0 })
     expect(sqlite.prepare(`SELECT is_enabled AS enabled FROM shares WHERE note_id = 'n1'`).get()).toMatchObject({ enabled: 0 })
     expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM notes_fts WHERE note_id = 'n1'`).get()).toMatchObject({ n: 0 })
+  })
+
+  it('rolls the lock and every plaintext projection back together when the batch fails', async () => {
+    const session = await NoteLockSession.create('pw', { iterations: 1_000 })
+    const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body\nmore words' })
+    sqlite.exec('DROP TABLE blog_pages')
+
+    const response = await patch({ rev: 1, title: sealed.title, content: sealed.content, isEncrypted: true, quiet: true })
+
+    expect(response.status).toBe(500)
+    expect(sqlite.prepare(`SELECT is_encrypted, rev, content FROM notes WHERE id = 'n1'`).get())
+      .toMatchObject({ is_encrypted: 0, rev: 1, content: 'visible body\nmore words' })
+    expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM note_versions WHERE note_id = 'n1'`).get()).toMatchObject({ n: 1 })
+    expect(sqlite.prepare(`SELECT is_enabled FROM shares WHERE note_id = 'n1'`).get()).toMatchObject({ is_enabled: 1 })
   })
 
   it('refuses a plaintext text edit while the note is locked', async () => {

@@ -44422,7 +44422,6 @@ const allowed = new Map([
     "// The readback rides in the same batch as the insert, so a missing row is a broken invariant",
     "// rather than a state a client can reach.",
     "/**\n * Keep the blog projection in step with the note that owns it. A failure here must not fail the\n * note write: the note is the source of truth, and the admin can retry the projection. It is still\n * recorded as an audit row so the failure is visible rather than silently swallowed.\n */",
-    "/**\n * Everything derived from a note's plaintext that must not outlive the lock.\n *\n * A lock writes ciphertext into the ordinary columns, but the rows built from the old plaintext are\n * still readable: version history holds whole bodies, the FTS and meaning indexes hold searchable\n * text, links hold the old title, and a share or a blog projection would publish it. Deleting them\n * is the difference between \"the column says encrypted\" and \"nothing on the server still answers\n * with the note\". Tags stay: they are the reader's filing metadata, and the locked card hides them\n * until the note is opened.\n */",
     "// A lock (or the client opening one) always ships both fields: half a note cannot be encrypted,",
     "// and a body left behind in plaintext is exactly the leak this feature exists to prevent.",
     "// The envelope is base64 JSON around the body, so the plaintext ceiling no longer describes it.",
@@ -44436,8 +44435,6 @@ const allowed = new Map([
     "// plaintext (and index). A locked note has to be opened before it can be copied.",
     "// Both ends matter: the target's title is ciphertext on a locked note (so a wiki link would",
     "// carry an envelope), and the source's body is ciphertext the rewrite would corrupt.",
-    "// Both resolved and unresolved wiki links name the old title; a row that never found the note",
-    "// still carries it in `target_title`.",
   ]],
   ["src/worker/routes/quickadd.ts", [
     "/** Envelope stored in `users.quickadd`: when the account last saved, plus the library. */",
