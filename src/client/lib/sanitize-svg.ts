@@ -13,27 +13,54 @@
  * nodes with HTML held in a `<foreignObject>`, so a profile whose tag list is only SVG would keep the
  * picture and drop the text drawn on it.
  *
- * `style` is the one thing a document pipeline would forbid that a diagram cannot lose — Mermaid and
- * the drawing engine both paint with inline styles and a `<style>` block inside the SVG — and
- * DOMPurify sanitises the declarations themselves rather than trusting them, so it is kept.
+ * A style element is document-scoped and is never safe inside a note. Inline styles are kept only
+ * when every declaration belongs to the diagram geometry and typography allowlist below.
  */
 import DOMPurify from 'dompurify'
 import { PURIFY_CONFIG } from './markdown/renderer'
 
-// Layered on the shared document config so its forbidden tag and attribute lists keep applying to
-// diagram markup — the labels Mermaid draws are HTML, and a `<form>` pasted into one is still a form.
 const SVG_PURIFY_CONFIG = {
   ...PURIFY_CONFIG,
-  // Neither tag is in DOMPurify's lists at all, and both are part of an exported diagram: `use` draws
-  // markers and clones, `foreignObject` is the element an HTML label is held in.
   ADD_TAGS: [...PURIFY_CONFIG.ADD_TAGS, 'foreignObject', 'use'],
   HTML_INTEGRATION_POINTS: { foreignobject: true },
-  FORBID_TAGS: PURIFY_CONFIG.FORBID_TAGS.filter((tag) => tag !== 'style'),
-  FORBID_ATTR: PURIFY_CONFIG.FORBID_ATTR.filter((attr) => attr !== 'style'),
 }
+
+const SAFE_SVG_STYLE_PROPERTIES = new Set([
+  'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-dasharray',
+  'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'paint-order',
+  'opacity', 'display', 'visibility', 'overflow', 'white-space', 'vertical-align',
+  'font-family', 'font-size', 'font-weight', 'font-style', 'text-anchor', 'dominant-baseline',
+  'letter-spacing', 'line-height', 'text-align', 'text-decoration', 'color', 'background-color',
+  'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio',
+  'margin', 'margin-left', 'margin-right', 'margin-top', 'margin-bottom',
+  'padding', 'padding-left', 'padding-right', 'padding-top', 'padding-bottom',
+  'border', 'border-color', 'border-width', 'border-style', 'border-radius',
+  'transform', 'transform-origin', 'vector-effect', 'clip-path', 'mask', 'filter',
+  'stop-color', 'stop-opacity', 'flood-color', 'flood-opacity', 'lighting-color',
+  'marker-start', 'marker-mid', 'marker-end', 'rx', 'ry', 'cx', 'cy', 'r', 'x', 'y',
+])
+const UNSAFE_SVG_STYLE_VALUE = /url\(\s*(?!#)|expression\s*\(|javascript\s*:|behavior\s*:|-moz-binding|@import/i
+
+function safeSvgStyle(value: string): boolean {
+  const declarations = value.split(';').map((part) => part.trim()).filter(Boolean)
+  return declarations.length > 0 && declarations.every((declaration) => {
+    const colon = declaration.indexOf(':')
+    if (colon <= 0) return false
+    const property = declaration.slice(0, colon).trim().toLowerCase()
+    const declarationValue = declaration.slice(colon + 1).trim()
+    return SAFE_SVG_STYLE_PROPERTIES.has(property)
+      && declarationValue.length > 0
+      && !UNSAFE_SVG_STYLE_VALUE.test(declarationValue)
+  })
+}
+
+const svgPurify = typeof window === 'undefined' ? DOMPurify : DOMPurify(window)
+svgPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+  if (data.attrName === 'style' && safeSvgStyle(data.attrValue)) data.forceKeepAttr = true
+})
 
 /** The one pass every diagram sink shares; an empty string is answered without touching DOMPurify. */
 export function sanitizeSvg(svg: string): string {
   if (!svg) return ''
-  return DOMPurify.sanitize(svg, SVG_PURIFY_CONFIG)
+  return svgPurify.sanitize(svg, SVG_PURIFY_CONFIG)
 }

@@ -78,9 +78,9 @@ function renderToolbarHtml(split: ExampleSplitOptions, popoverId: string): strin
   const options = LAYOUTS.map((layout) => layoutButton(layout, layout === split.layout)).join('')
   return [
     `<div class="block-tools">`,
-    `<button type="button" class="block-tool-btn is-layout-trigger" data-example-action="toggle-layout" title="${trigger}" aria-label="${trigger}" aria-haspopup="true" aria-expanded="false" aria-controls="${popoverId}">${layoutIcon(split.layout)}</button>`,
+    `<button type="button" class="block-tool-btn is-layout-trigger" data-example-action="toggle-layout" title="${trigger}" aria-label="${trigger}" aria-haspopup="true" aria-expanded="false" aria-controls="${escapeAttr(popoverId)}">${layoutIcon(split.layout)}</button>`,
     `<button type="button" class="block-tool-btn" data-example-action="toggle-settings" title="${settings}" aria-label="${settings}" aria-expanded="false">${SETTINGS_ICON}</button>`,
-    `<div class="block-popover" id="${popoverId}" hidden>${options}</div>`,
+    `<div class="block-popover" id="${escapeAttr(popoverId)}" hidden>${options}</div>`,
     `</div>`,
   ].join('')
 }

@@ -29,18 +29,26 @@ describe('sanitizeSvg', () => {
     expect(clean).toContain('Deploy')
   })
 
-  it('keeps the shape and style pieces a Mermaid diagram is drawn from', () => {
+  it('drops document-level style but keeps the shape pieces a Mermaid diagram is drawn from', () => {
     const dirty =
       '<svg xmlns="http://www.w3.org/2000/svg"><style>.node{fill:#fff}</style>' +
       '<defs><marker id="arrow"><path d="M0 0L4 2"/></marker></defs>' +
       '<g class="node"><rect/><use xlink:href="#arrow"/>' +
       '<path d="M0 0L9 9" marker-end="url(#arrow)"/></g></svg>'
     const clean = sanitizeSvg(dirty)
-    expect(clean).toContain('<style')
+    expect(clean).not.toContain('<style')
     expect(clean).toContain('<marker')
     expect(clean).toContain('<use')
     expect(clean).toContain('xlink:href="#arrow"')
     expect(clean).toContain('marker-end="url(#arrow)"')
+  })
+
+  it('drops an inline style declaration that can escape the diagram', () => {
+    const dirty = '<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill:#fff;position:fixed;background-image:url(https://example.com/track)"/></svg>'
+    const clean = sanitizeSvg(dirty)
+    expect(clean).not.toContain('position:fixed')
+    expect(clean).not.toContain('background-image')
+    expect(clean).not.toContain('example.com')
   })
 
   it('keeps an Excalidraw filter and its blur primitive', () => {

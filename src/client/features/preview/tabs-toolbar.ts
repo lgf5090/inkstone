@@ -112,12 +112,12 @@ function renderChromeHtml(position: TabsPosition, popoverId: string): string {
   return [
     `<div class="markdown-tabs-header-wrap">`,
     `<div class="block-tools">`,
-    `<button type="button" class="block-tool-btn is-layout-trigger" data-tabs-action="toggle-layout" title="${trigger}" aria-label="${trigger}" aria-haspopup="true" aria-expanded="false" aria-controls="${popoverId}">${layoutIcon(position)}</button>`,
+    `<button type="button" class="block-tool-btn is-layout-trigger" data-tabs-action="toggle-layout" title="${trigger}" aria-label="${trigger}" aria-haspopup="true" aria-expanded="false" aria-controls="${escapeAttr(popoverId)}">${layoutIcon(position)}</button>`,
     toolButton('toggle-settings', t('preview.tabs_settings'), SETTINGS_ICON, ' aria-expanded="false"'),
     toolButton('copy-tab', t('preview.tabs_copy_tab'), COPY_ICON),
     toolButton('add-tab', t('preview.tabs_add_tab'), ADD_ICON),
     `</div>`,
-    `<div class="block-popover" id="${popoverId}" role="group" aria-label="${trigger}" hidden>${layoutOptions}</div>`,
+    `<div class="block-popover" id="${escapeAttr(popoverId)}" role="group" aria-label="${trigger}" hidden>${layoutOptions}</div>`,
     `<div class="block-settings" hidden></div>`,
     `</div>`,
   ].join('')

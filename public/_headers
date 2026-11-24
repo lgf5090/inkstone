@@ -1,0 +1,3 @@
+/assets/*
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'
+  X-Content-Type-Options: nosniff

@@ -1093,6 +1093,24 @@ md.core.ruler.push('collect_headings', (state) => {
     }
     return true;
 });
+const DATA_ATTRIBUTE_PREFIXES = [
+  'data-chart-', 'data-code-', 'data-cols-', 'data-example-', 'data-excalidraw-', 'data-json-',
+  'data-jt-', 'data-jv-', 'data-kanban-', 'data-media-', 'data-mindmap-', 'data-outline-',
+  'data-panel-', 'data-pp-', 'data-property-', 'data-tabs-', 'data-timeline-', 'data-tree-',
+] as const
+const DATA_ATTRIBUTE_NAMES = new Set([
+  'data-accent', 'data-active', 'data-align', 'data-attr', 'data-background', 'data-blog-publish-row',
+  'data-chat-anchor', 'data-col', 'data-cols', 'data-completed', 'data-cover-position', 'data-crossref', 'data-datetime',
+  'data-day', 'data-dragging', 'data-drop-hint', 'data-font', 'data-heading-level', 'data-hover-card',
+  'data-item-id', 'data-jm', 'data-jm-path', 'data-js-run', 'data-js-switch', 'data-kind', 'data-mdlink', 'data-media',
+  'data-mermaid-retry', 'data-note-properties', 'data-owns-escape', 'data-path', 'data-preview-content',
+  'data-preview-scroller', 'data-render-group', 'data-slug', 'data-status', 'data-table-bubble', 'data-theme',
+  'data-view-type',
+])
+function allowedDataAttribute(name: string): boolean {
+  return DATA_ATTRIBUTE_NAMES.has(name) || DATA_ATTRIBUTE_PREFIXES.some((prefix) => name.startsWith(prefix))
+}
+
 export const PURIFY_CONFIG = {
     ADD_ATTR: [
         'data-line',
@@ -1174,7 +1192,7 @@ export const PURIFY_CONFIG = {
         'formaction',
         'action',
     ],
-    ALLOW_DATA_ATTR: true,
+    ALLOW_DATA_ATTR: false,
 };
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
     if (node.nodeName === 'A' && node.getAttribute('target')?.toLowerCase() === '_blank') {
@@ -1195,6 +1213,11 @@ const COLOR_STYLE_TAGS = new Set(['FONT', 'MARK', 'SPAN', 'U', 'SUP', 'SUB']);
  */
 const colorStylePurify = typeof window === 'undefined' ? DOMPurify : DOMPurify(window);
 colorStylePurify.addHook('uponSanitizeAttribute', (node, data) => {
+    if (data.attrName === 'data-line') {
+        if (!/^\d+$/.test(data.attrValue)) data.keepAttr = false;
+        return;
+    }
+    if (data.attrName.startsWith('data-') && allowedDataAttribute(data.attrName)) data.forceKeepAttr = true;
     if (data.attrName === 'style' && COLOR_STYLE_TAGS.has(node.nodeName) && COLOR_ONLY_STYLE.test(data.attrValue))
         data.forceKeepAttr = true;
 });

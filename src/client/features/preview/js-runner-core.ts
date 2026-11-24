@@ -48,6 +48,7 @@ const SHADOWED_GLOBALS = [
 export const NEUTRALISED_GLOBALS = [
   'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'RTCPeerConnection', 'indexedDB', 'caches',
   'importScripts', 'postMessage', 'close', 'Worker', 'SharedWorker', 'ServiceWorker',
+  'WebTransport', 'BroadcastChannel',
 ] as const
 
 export function hardenWorkerScope(scope: Record<string, unknown>): void {

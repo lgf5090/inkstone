@@ -4,7 +4,7 @@ const DIAGRAM_FIXTURE = [
   '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 50">',
   '<style>#c1 .node rect{fill:red}</style>',
   '<defs><marker id="ar" refX="4" refY="2" markerWidth="6" markerHeight="6"><path d="M0 0L4 4"></path></marker></defs>',
-  '<g class="node"><rect rx="3" width="80" height="20"></rect>',
+  '<g class="node"><rect rx="3" width="80" height="20" style="fill:red"></rect>',
   '<foreignObject width="80" height="20"><div xmlns="http://www.w3.org/1999/xhtml" class="label"><span>hello</span><br/></div></foreignObject></g>',
   '<use href="#ar" xlink:href="#ar"></use>',
   '<script>alert(1)</script>',

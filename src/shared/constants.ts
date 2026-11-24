@@ -550,7 +550,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     enabled: true,
     inlineQueries: true,
     inlineFields: true,
-    jsBlocks: true,
+    jsBlocks: false,
     renderNullAs: '',
     dateFormat: 'yyyy-MM-dd',
     datetimeFormat: 'yyyy-MM-dd HH:mm',

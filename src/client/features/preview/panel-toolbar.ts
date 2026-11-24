@@ -1,4 +1,4 @@
-import { escapeHtml } from '../../lib/markdown/renderer'
+import { escapeAttr, escapeHtml } from '../../lib/markdown/renderer'
 import { MAX_PANEL_COLUMNS, colsRatioLabel, colsRatioPresets, parseColsRatio } from '../../lib/markdown/panel-options'
 import type { AlignValue, ColsGap } from '../../lib/markdown/panel-options'
 import { t } from '../../lib/i18n'
@@ -101,10 +101,10 @@ function renderChrome(block: HTMLElement, panelId: string): string {
     `<div class="block-head">`,
     `<span class="block-head-title">${title}</span>`,
     `<span class="block-tools">`,
-    `<button type="button" class="block-tool-btn" data-panel-action="toggle-settings" title="${settings}" aria-label="${settings}" aria-expanded="false" aria-controls="${panelId}">${SETTINGS_ICON}</button>`,
+    `<button type="button" class="block-tool-btn" data-panel-action="toggle-settings" title="${settings}" aria-label="${settings}" aria-expanded="false" aria-controls="${escapeAttr(panelId)}">${SETTINGS_ICON}</button>`,
     `</span>`,
     `</div>`,
-    `<div class="block-settings" id="${panelId}" hidden></div>`,
+    `<div class="block-settings" id="${escapeAttr(panelId)}" hidden></div>`,
   ].join('')
 }
 

@@ -67,7 +67,7 @@ function renderPanelHtml(block: HTMLElement, panelId: string): string {
     ['dark', t('preview.code_theme_dark')],
   ]
   return [
-    `<div class="block-settings" id="${panelId}" hidden>`,
+    `<div class="block-settings" id="${escapeAttr(panelId)}" hidden>`,
     settingsRow(t('preview.code_title'), `${textField('title', block.dataset.codeTitle ?? '', 'is-title')}${applyButton('apply-title')}`),
     settingsRow(t('preview.code_line_numbers'), `${optionButton('set-line-numbers', 'on', t('preview.code_show'), numbered)}${optionButton('set-line-numbers', 'off', t('preview.code_hide'), !numbered)}${textField('start', block.dataset.codeStart ?? '1', 'is-narrow')}${applyButton('apply-start')}`),
     settingsRow(t('preview.code_highlight'), `${textField('highlight', block.dataset.highlightLines ?? '', 'is-narrow')}${applyButton('apply-highlight')}`),
@@ -234,7 +234,7 @@ export function enhanceCodeBlockToolbarsInRoot(root: HTMLElement, options?: { co
     const panelId = `code-settings-${block.dataset.line ?? '0'}`
     const label = escapeAttr(t('preview.code_settings'))
     const tools = document.createElement('div')
-    tools.innerHTML = `<div class="block-tools">${formatButtonHtml(format.enabled)}<button type="button" class="block-tool-btn" data-code-action="toggle-settings" title="${label}" aria-label="${label}" aria-expanded="false" aria-controls="${panelId}">${SETTINGS_ICON}</button></div>`
+    tools.innerHTML = `<div class="block-tools">${formatButtonHtml(format.enabled)}<button type="button" class="block-tool-btn" data-code-action="toggle-settings" title="${label}" aria-label="${label}" aria-expanded="false" aria-controls="${escapeAttr(panelId)}">${SETTINGS_ICON}</button></div>`
     const toolbar = tools.firstElementChild ?? tools
     head.insertBefore(toolbar, head.querySelector('[data-code-collapse], [data-copy]'))
   })
