@@ -322,6 +322,53 @@ describe('email account settings', () => {
     expect(saved.settings).not.toHaveProperty('extra')
   })
 
+  it('merges partial settings without dropping signatures or vacation', async () => {
+    const first = await call('PATCH', `/accounts/${accountId}`, {
+      settings: {
+        signatures: [{ id: 'work', name: 'Work', text: 'Ada at work' }],
+        defaultSignatureId: 'work',
+        vacation: { enabled: true, start: null, end: null, subject: 'Away', body: 'I am away' },
+      },
+    })
+    expect(first.status).toBe(200)
+
+    const merged = await call('PATCH', `/accounts/${accountId}`, {
+      settings: { autoDraft: false },
+    })
+    expect(merged.status).toBe(200)
+    const saved = await json<EmailAccount>(merged)
+    expect(saved.settings.signatures).toEqual([{ id: 'work', name: 'Work', text: 'Ada at work', enabled: true }])
+    expect(saved.settings.defaultSignatureId).toBe('work')
+    expect(saved.settings.vacation).toMatchObject({ enabled: true, subject: 'Away', body: 'I am away' })
+    expect(saved.settings.autoDraft).toBe(false)
+  })
+
+  it('rejects a stale settings revision without overwriting the newer copy', async () => {
+    const initial = await json<EmailAccount>(await call('GET', `/accounts/${accountId}`))
+    const first = await call('PATCH', `/accounts/${accountId}`, {
+      displayName: 'New owner',
+      expectedUpdatedAt: Date.parse(initial.updatedAt),
+    })
+    expect(first.status).toBe(200)
+
+    const stale = await call('PATCH', `/accounts/${accountId}`, {
+      settings: { autoDraft: false },
+      expectedUpdatedAt: Date.parse(initial.updatedAt),
+    })
+    expect(stale.status).toBe(409)
+    const current = await json<EmailAccount>(await call('GET', `/accounts/${accountId}`))
+    expect(current.displayName).toBe('New owner')
+    expect(current.settings.autoDraft).toBeUndefined()
+  })
+
+  it('rejects a malformed settings revision', async () => {
+    const response = await call('PATCH', `/accounts/${accountId}`, {
+      settings: { autoDraft: false },
+      expectedUpdatedAt: 'yesterday',
+    })
+    expect(response.status).toBe(400)
+  })
+
   it('normalizes a legacy signature into one entry', async () => {
     const response = await call('PATCH', `/accounts/${accountId}`, {
       settings: { signature: { enabled: true, text: 'Ada Lovelace' } },

@@ -150,7 +150,7 @@ interface EmailState {
 
   loadAccounts: () => Promise<void>
   createAccount: (input: { localPart: string; domain: string; displayName?: string }) => Promise<EmailAccount>
-  updateAccount: (accountId: string, input: { displayName?: string; settings: EmailAccountSettings }) => Promise<EmailAccount>
+  updateAccount: (accountId: string, input: { displayName?: string; settings: EmailAccountSettings; expectedUpdatedAt?: number }) => Promise<EmailAccount>
   deleteAccount: (accountId: string) => Promise<void>
 
   loadFolders: (accountId: string, options?: { silent?: boolean }) => Promise<void>

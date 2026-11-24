@@ -1234,6 +1234,7 @@ const ZH_CORE_MESSAGES = {
     "email.settings.not_found": "找不到该邮箱。",
     "email.settings.save": "保存修改",
     "email.settings.saved": "设置已保存",
+    "email.settings.conflict": "这些设置已在另一台设备上修改，已加载最新版本。",
     "email.settings.signature_hint": "默认签名会自动添加到新邮件和回复中。",
     "email.settings.signature_name": "签名名称",
     "email.settings.signature_placeholder": "你的姓名、职位或联系方式",

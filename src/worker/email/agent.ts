@@ -75,7 +75,7 @@ import {
   updateEmailAccount,
   type EmailAccountRow,
 } from './account-store'
-import { acquireLease } from '../lib/lease'
+import { withEmailSettingsLock } from './settings-lock'
 import { deleteEmailAttachmentsForMessages } from './attachments'
 import {
   addEmailGroupMember,
@@ -333,29 +333,6 @@ function readableTime(at: number, timezone?: string, locale?: string): string {
   } catch {
     return new Date(at).toISOString()
   }
-}
-
-const SETTINGS_LEASE_MS = 5_000
-
-async function withSettingsLock<T>(env: Env, accountId: string, task: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    let release: Awaited<ReturnType<typeof acquireLease>> | null = null
-    try {
-      release = await acquireLease(env.DB, `email_settings_lock:${accountId}`, SETTINGS_LEASE_MS, 'The mailbox settings are being changed; try again in a moment')
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409 && attempt < 4) {
-        await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)))
-        continue
-      }
-      throw error
-    }
-    try {
-      return await task()
-    } finally {
-      await release()
-    }
-  }
-  throw ApiError.conflict('The mailbox settings are being changed; try again in a moment')
 }
 
 function parseFilterTokenConditions(values: readonly string[]): EmailFilterCondition[] {
@@ -999,7 +976,7 @@ export async function manageEmailSignatureAgent(
   },
 ): Promise<Record<string, unknown>> {
   const account = await resolveEmailAccount(env, userId, input.accountId)
-  return withSettingsLock(env, account.id, async () => {
+  return withEmailSettingsLock(env, account.id, async () => {
     const fresh = await getEmailAccount(env.DB, userId, account.id)
     if (!fresh) throw new ApiError(404, 'email_account_not_found', 'Mailbox not found')
     const settings = readAccountSettings(fresh.settings)
@@ -1189,7 +1166,7 @@ export async function updateEmailSettingsAgent(
   },
 ): Promise<Record<string, unknown>> {
   const account = await resolveEmailAccount(env, userId, input.accountId)
-  return withSettingsLock(env, account.id, async () => {
+  return withEmailSettingsLock(env, account.id, async () => {
   const fresh = await getEmailAccount(env.DB, userId, account.id)
   if (!fresh) throw new ApiError(404, 'email_account_not_found', 'Mailbox not found')
   const settings = readAccountSettings(fresh.settings)
@@ -1352,7 +1329,7 @@ export async function deleteEmailAgent(
     return { status: 'deleted', searchId: input.id }
   }
   if (kind === 'signature') {
-    return withSettingsLock(env, account.id, async () => {
+    return withEmailSettingsLock(env, account.id, async () => {
       const fresh = await getEmailAccount(env.DB, userId, account.id)
       if (!fresh) throw new ApiError(404, 'email_account_not_found', 'Mailbox not found')
       const settings = readAccountSettings(fresh.settings)

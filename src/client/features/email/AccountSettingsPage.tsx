@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bot,
   CalendarOff,
@@ -38,7 +38,7 @@ import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { cn } from '../../lib/cn'
 import { navigateToPath } from '../../lib/app-history'
-import { api } from '../../lib/api'
+import { api, ApiError } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { emailErrorText } from './errors'
 import { emailFolderPath } from './email-address'
@@ -139,6 +139,7 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
   const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const conflictRef = useRef(false)
   const [section, setSection] = useState<EmailSettingsSection>('account')
   const [query, setQuery] = useState('')
   const pinyinVersion = usePinyinVersion()
@@ -194,7 +195,8 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
     setVacationEnd(vacationInputValue(vacation.end))
     setVacationSubject(vacation.subject)
     setVacationBody(vacation.body)
-    setError(null)
+    if (conflictRef.current) conflictRef.current = false
+    else setError(null)
   }, [account?.id, account?.updatedAt])
 
   const updateSignature = (id: string, patch: Partial<EmailSignature>): void => {
@@ -270,8 +272,8 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
       ...(selectedDefault ? { defaultSignatureId: selectedDefault } : {}),
       autoDraft,
       focusedInbox,
-      ...(agentPrompt.trim() ? { agentSystemPrompt: agentPrompt.trim() } : {}),
-      ...(replyTo.trim() ? { replyTo: replyTo.trim() } : {}),
+      agentSystemPrompt: agentPrompt.trim(),
+      replyTo: replyTo.trim(),
       vacation: {
         enabled: vacationEnabled,
         start: vacationStartValue,
@@ -286,10 +288,17 @@ export function AccountSettingsPage({ accountId, onBack }: { accountId: string; 
       await updateAccount(account.id, {
         ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
         settings,
+        expectedUpdatedAt: Date.parse(account.updatedAt),
       })
       useUi.getState().toast({ title: t('email.settings.saved'), tone: 'success' })
     } catch (reason) {
-      setError(emailErrorText(reason))
+      if (reason instanceof ApiError ? reason.isConflict : Boolean(reason && typeof reason === 'object' && 'status' in reason && reason.status === 409)) {
+        conflictRef.current = true
+        setError(t('email.settings.conflict'))
+        await loadAccounts()
+      } else {
+        setError(emailErrorText(reason))
+      }
     } finally {
       setSaving(false)
     }

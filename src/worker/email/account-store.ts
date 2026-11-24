@@ -129,21 +129,27 @@ export async function updateEmailAccount(
   db: D1Database,
   userId: string,
   id: string,
-  input: { displayName?: string; settings?: EmailAccountSettings; now?: number },
+  input: { displayName?: string; settings?: EmailAccountSettings; expectedUpdatedAt?: number; now?: number },
 ): Promise<EmailAccountRow | null> {
   const current = await getEmailAccount(db, userId, id)
   if (!current) return null
+  if (input.expectedUpdatedAt !== undefined && current.updated_at !== input.expectedUpdatedAt) return null
   const now = input.now ?? Date.now()
-  await db.prepare(
+  const settings = input.settings === undefined
+    ? readAccountSettings(current.settings)
+    : { ...readAccountSettings(current.settings), ...input.settings }
+  const result = await db.prepare(
     `UPDATE email_accounts SET display_name = ?1, settings = ?2, updated_at = ?3
-      WHERE user_id = ?4 AND id = ?5`,
+      WHERE user_id = ?4 AND id = ?5 AND (?6 IS NULL OR updated_at = ?6)`,
   ).bind(
     input.displayName?.trim() || current.display_name,
-    JSON.stringify(input.settings ?? readAccountSettings(current.settings)),
+    JSON.stringify(settings),
     now,
     userId,
     id,
+    input.expectedUpdatedAt ?? null,
   ).run()
+  if (!result.meta.changes) return null
   return getEmailAccount(db, userId, id)
 }
 

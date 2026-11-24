@@ -1526,7 +1526,7 @@ export const api = {
       attempts: number
       updatedAt: string | null
     }>(`/api/email/accounts/${id}/auto-draft`),
-    updateAccount: (id: string, body: { displayName?: string, settings?: unknown }) =>
+    updateAccount: (id: string, body: { displayName?: string, settings?: unknown, expectedUpdatedAt?: number }) =>
       request<EmailAccount>(`/api/email/accounts/${id}`, { method: 'PATCH', body }),
     deleteAccount: (id: string) => request<void>(`/api/email/accounts/${id}`, { method: 'DELETE' }),
     listFolders: (id: string) => request<EmailFolder[]>(`/api/email/accounts/${id}/folders`),

@@ -1241,6 +1241,7 @@ const CORE_MESSAGES = {
     "email.settings.not_found": "That mailbox could not be found.",
     "email.settings.save": "Save changes",
     "email.settings.saved": "Settings saved",
+    "email.settings.conflict": "These settings changed on another device. The latest version has been loaded.",
     "email.settings.signature_hint": "The default signature is appended to new messages and replies.",
     "email.settings.signature_name": "Signature name",
     "email.settings.signature_placeholder": "Your name, title or contact details",

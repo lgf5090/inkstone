@@ -3,7 +3,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EmailAccount, EmailAccountSettings } from '@shared/email/model'
 import { EMAIL_LEGACY_SIGNATURE_ID } from '@shared/email/model'
-import { api } from '../../src/client/lib/api'
+import { api, ApiError } from '../../src/client/lib/api'
 import { renderElement, type RenderedElement } from '../../src/client/lib/test-render'
 import { initI18n, t } from '../../src/client/lib/i18n'
 import { ConfirmHost } from '../../src/client/components/overlay'
@@ -268,7 +268,10 @@ describe('the mailbox settings page', () => {
     expect(update).toHaveBeenCalledTimes(1)
     expect(update).toHaveBeenCalledWith('a1', {
       displayName: 'Grace Hopper',
+      expectedUpdatedAt: Date.parse(account.updatedAt),
       settings: {
+        agentSystemPrompt: '',
+        replyTo: '',
         signatures: [{
           id: EMAIL_LEGACY_SIGNATURE_ID,
           name: t('email.signatures.untitled'),
@@ -282,6 +285,31 @@ describe('the mailbox settings page', () => {
       },
     })
     expect(useEmailStore.getState().accounts[0]!.displayName).toBe('Grace Hopper')
+  })
+
+  it('loads the latest settings after a revision conflict', async () => {
+    const latest = { ...account, displayName: 'Latest owner', updatedAt: '2026-01-02T00:00:00.000Z' }
+    vi.spyOn(api.email, 'getConfig').mockResolvedValue({
+      domains: ['example.com'],
+      addresses: [],
+      attachmentsAvailable: true,
+      sendingAvailable: true,
+      autoDraftAvailable: true,
+      canCreate: true,
+    })
+    const load = vi.spyOn(api.email, 'listAccounts').mockResolvedValue([latest])
+    const update = vi.spyOn(api.email, 'updateAccount').mockRejectedValue(new ApiError(409, 'conflict', 'Settings changed'))
+    view = renderElement(createElement(AccountSettingsPage, { accountId: 'a1' }))
+    await settle()
+
+    change(inputFor(t('email.settings.display_name')), 'My stale edit')
+    act(() => { button(t('email.settings.save')).click() })
+    await settle()
+
+    expect(update).toHaveBeenCalled()
+    expect(load).toHaveBeenCalled()
+    expect(document.body.textContent).toContain(t('email.settings.conflict'))
+    expect(useEmailStore.getState().accounts[0]?.displayName).toBe('Latest owner')
   })
 
   it('saves a signature list and its default without the legacy signature field', async () => {
@@ -299,6 +327,8 @@ describe('the mailbox settings page', () => {
     expect(update).toHaveBeenCalledTimes(1)
     const settings = update.mock.calls[0]?.[1].settings as EmailAccountSettings | undefined
     expect(settings).toEqual({
+      agentSystemPrompt: '',
+      replyTo: '',
       signatures: [
         { id: 'work', name: 'Work', text: 'Ada at work', enabled: true },
         { id: 'personal', name: 'Personal', text: 'Ada at home', enabled: true },
@@ -365,6 +395,8 @@ describe('the mailbox settings page', () => {
     act(() => { button(t('email.settings.save')).click() })
     await settle()
     expect(update.mock.calls[0]?.[1].settings).toEqual({
+      agentSystemPrompt: '',
+      replyTo: '',
       signatures: [{ id: 'personal', name: 'Personal', text: 'Ada at home', enabled: true }],
       defaultSignatureId: 'personal',
       autoDraft: false,

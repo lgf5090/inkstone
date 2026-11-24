@@ -79,6 +79,7 @@ import {
   listEmailAccounts,
   listEmailAttachmentKeys,
   queueEmailAccountDeletion,
+  readAccountSettings,
   toEmailAccount,
   updateEmailAccount,
 } from '../email/account-store'
@@ -96,6 +97,7 @@ import {
 } from '../email/attachments'
 import type { EmailRow, FolderRow, FolderPatch, TagPatch, TagRow } from '../email/mailbox-store'
 import { emailMailbox } from '../email/mailbox-stub'
+import { withEmailSettingsLock } from '../email/settings-lock'
 
 type Ctx = Context<AppBindings>
 type Mailbox = ReturnType<typeof emailMailbox>
@@ -277,7 +279,7 @@ function settingsFrom(value: unknown): EmailAccountSettings {
     }
     const normalized = normalizeEmailSignatures({ signatures, defaultSignatureId })
     settings.signatures = normalized.signatures
-    if (normalized.defaultId) settings.defaultSignatureId = normalized.defaultId
+    settings.defaultSignatureId = normalized.defaultId ?? ''
   } else {
     if (defaultSignatureId !== undefined) throw new ApiError(400, 'email_settings_invalid', 'The default signature does not exist')
     if (legacySignature) {
@@ -289,7 +291,7 @@ function settingsFrom(value: unknown): EmailAccountSettings {
   if (raw.agentSystemPrompt !== undefined) {
     if (typeof raw.agentSystemPrompt !== 'string') throw new ApiError(400, 'email_settings_invalid', 'The agent prompt is not valid')
     const prompt = raw.agentSystemPrompt.trim()
-    if (prompt) settings.agentSystemPrompt = prompt.slice(0, 8000)
+    settings.agentSystemPrompt = prompt.slice(0, 8000)
   }
   if (raw.autoDraft !== undefined) {
     if (typeof raw.autoDraft !== 'boolean') throw new ApiError(400, 'email_settings_invalid', 'The auto-draft setting is not valid')
@@ -307,7 +309,7 @@ function settingsFrom(value: unknown): EmailAccountSettings {
     if (replyTo && !isValidEmailAddress(replyTo)) {
       throw new ApiError(400, 'email_settings_invalid', 'The reply-to address is not valid')
     }
-    if (replyTo) settings.replyTo = replyTo
+    settings.replyTo = replyTo
   }
   if (raw.vacation !== undefined) {
     settings.vacation = vacationFrom(raw.vacation)
@@ -916,12 +918,36 @@ emailRoutes.get('/accounts/:id/auto-draft', async (c) => {
 
 emailRoutes.patch('/accounts/:id', async (c) => {
   const row = await requireAccount(c, c.req.param('id') ?? '')
-  const body = await readJson<{ displayName?: unknown; settings?: unknown }>(c, JSON_BODY_LIMITS.settings)
-  const updated = await updateEmailAccount(c.env.DB, c.get('userId'), row.id, {
-    displayName: typeof body.displayName === 'string' ? body.displayName : undefined,
-    settings: body.settings === undefined ? undefined : settingsFrom(body.settings),
+  const body = await readJson<{ displayName?: unknown; settings?: unknown; expectedUpdatedAt?: unknown }>(c, JSON_BODY_LIMITS.settings)
+  let expectedUpdatedAt: number | undefined
+  if (body.expectedUpdatedAt !== undefined) {
+    if (typeof body.expectedUpdatedAt !== 'number' || !Number.isSafeInteger(body.expectedUpdatedAt)) {
+      throw ApiError.badRequest('The expected mailbox revision must be an integer timestamp')
+    }
+    expectedUpdatedAt = body.expectedUpdatedAt
+  }
+  const updated = await withEmailSettingsLock(c.env, row.id, async () => {
+    const fresh = await getEmailAccount(c.env.DB, c.get('userId'), row.id)
+    if (!fresh) throw mailboxNotFound()
+    if (expectedUpdatedAt !== undefined && fresh.updated_at !== expectedUpdatedAt) {
+      throw ApiError.conflict('The mailbox settings changed on another device', { server: toEmailAccount(fresh) })
+    }
+    const patch = body.settings === undefined ? undefined : settingsFrom(body.settings)
+    const settings = patch === undefined
+      ? undefined
+      : { ...readAccountSettings(fresh.settings), ...patch }
+    const saved = await updateEmailAccount(c.env.DB, c.get('userId'), row.id, {
+      displayName: typeof body.displayName === 'string' ? body.displayName : undefined,
+      settings,
+      expectedUpdatedAt,
+    })
+    if (!saved) {
+      const latest = await getEmailAccount(c.env.DB, c.get('userId'), row.id)
+      if (latest) throw ApiError.conflict('The mailbox settings changed on another device', { server: toEmailAccount(latest) })
+      throw mailboxNotFound()
+    }
+    return saved
   })
-  if (!updated) throw mailboxNotFound()
   return c.json(toEmailAccount(updated))
 })
 
