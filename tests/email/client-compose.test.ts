@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { EmailAccount, EmailMessage, EmailSendResult } from '@shared/email/model'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { EmailAccount, EmailMessage, EmailScheduledSend, EmailSendResult } from '@shared/email/model'
 import { EMAIL_ATTACHMENT_MAX_BYTES } from '@shared/email/model'
 import type { HubAttachmentWithUsage } from '@shared/attachment-hub'
 import { api, ApiError } from '../../src/client/lib/api'
@@ -10,6 +10,7 @@ import { renderElement, type RenderedElement } from '../../src/client/lib/test-r
 import { t } from '../../src/client/lib/i18n'
 import { useUi } from '../../src/client/store/ui'
 import { ComposePanel } from '../../src/client/features/email/ComposePanel'
+import { MessagePane } from '../../src/client/features/email/MessagePane'
 
 const account: EmailAccount = {
   id: 'a1',
@@ -171,6 +172,45 @@ function panel(
   }))
 }
 
+function messagePane(overrides: Partial<Parameters<typeof MessagePane>[0]> = {}) {
+  return createElement(MessagePane, {
+    account,
+    folderId: 'inbox',
+    summary: original,
+    thread: [original],
+    threadStatus: 'ready',
+    threadError: null,
+    selectedStatus: 'ready',
+    selectedError: null,
+    folders: [],
+    compose: 'reply',
+    draftId: null,
+    onCompose: vi.fn(),
+    onEditDraft: vi.fn(),
+    onCancelCompose: vi.fn(),
+    onClosed: vi.fn(),
+    onReload: vi.fn(),
+    onSnooze: vi.fn(async () => true),
+    ...overrides,
+  })
+}
+
+beforeEach(() => {
+  const scheduledJob: EmailScheduledSend = {
+    id: 'job-1',
+    accountId: account.id,
+    draftId: 'd1',
+    sendAt: new Date(Date.now() + 9000).toISOString(),
+    status: 'queued',
+    attempts: 0,
+    lastError: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+  vi.spyOn(api.email, 'scheduleDraftSend').mockResolvedValue(scheduledJob)
+  vi.spyOn(api.email, 'cancelScheduledSend').mockResolvedValue(undefined)
+})
+
 afterEach(() => {
   document.body.innerHTML = ''
   vi.restoreAllMocks()
@@ -224,6 +264,117 @@ describe('the compose panel', () => {
     const view = panel('reply-all')
     expect(recipientChip('grace@example.com').textContent).toContain('Grace Hopper')
     expect(recipientChip('team@example.com')).toBeTruthy()
+    view.unmount()
+  })
+
+  it('remounts the editor whenever the account, mode, original or draft identity changes', async () => {
+    vi.useFakeTimers()
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
+    const view = renderElement(messagePane())
+    change(inputFor(t('email.compose.subject')), 'Unsent reply')
+
+    view.rerender(messagePane({ compose: 'forward' }))
+    expect(inputFor(t('email.compose.subject')).value).toBe('Fwd: Quarterly report')
+    expect(inputFor(t('email.compose.to')).value).toBe('')
+    await act(async () => {
+      button(t('email.compose.save_draft')).click()
+      await Promise.resolve()
+    })
+    expect(saveDraft.mock.calls[0]?.[1].inReplyTo).toBeUndefined()
+    expect(saveDraft.mock.calls[0]?.[1].threadId).toBeUndefined()
+
+    const anotherOriginal: EmailMessage = {
+      ...original,
+      id: 'm2',
+      subject: 'Another report',
+      sender: 'Katherine Johnson <katherine@example.com>',
+      cc: null,
+      threadId: 't2',
+    }
+    view.rerender(messagePane({ compose: 'reply', summary: anotherOriginal }))
+    expect(inputFor(t('email.compose.subject')).value).toBe('Re: Another report')
+    expect(recipientChip('katherine@example.com')).toBeTruthy()
+    await act(async () => {
+      button(t('email.compose.save_draft')).click()
+      await Promise.resolve()
+    })
+    expect(saveDraft.mock.calls[1]?.[1]).toEqual(expect.objectContaining({ inReplyTo: 'm2', threadId: 't2' }))
+
+    const anotherAccount: EmailAccount = { ...account, id: 'a2', settings: { autoDraft: true } }
+    view.rerender(messagePane({ account: anotherAccount, compose: 'new', summary: null }))
+    expect(inputFor(t('email.compose.subject')).value).toBe('')
+    expect(inputFor(t('email.compose.to')).value).toBe('')
+    expect(editorText()).not.toContain('Ada Lovelace')
+    expect(editorText()).not.toContain('Forwarded message')
+
+    vi.spyOn(api.email, 'getEmail').mockResolvedValue({
+      ...original,
+      id: 'd2',
+      folderId: 'draft',
+      subject: 'Loaded draft',
+      recipient: 'katherine@example.com',
+      cc: null,
+      body: 'Saved body',
+      bodySource: 'Saved body',
+      inReplyTo: null,
+      threadId: null,
+    })
+    view.rerender(messagePane({ account: anotherAccount, compose: 'new', summary: null, draftId: 'd2' }))
+    await flush()
+    expect(inputFor(t('email.compose.subject')).value).toBe('Loaded draft')
+    expect(recipientChip('katherine@example.com')).toBeTruthy()
+    expect(editorText()).toContain('Saved body')
+    view.unmount()
+  })
+
+  it('disables draft actions while loading and keeps fields typed before the response', async () => {
+    vi.useFakeTimers()
+    let finishLoad: ((message: EmailMessage) => void) | null = null
+    vi.spyOn(api.email, 'getEmail').mockImplementation(() => new Promise((resolve) => {
+      finishLoad = resolve
+    }))
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1', updatedAt: 200 })
+    const view = panel('new', 'd1')
+
+    expect(button(t('email.compose.save_draft')).disabled).toBe(true)
+    expect(button(t('email.compose.send')).disabled).toBe(true)
+    expect(ariaButton(t('email.compose.schedule_send')).disabled).toBe(true)
+    change(inputFor(t('email.compose.subject')), 'Typed before loading finished')
+    await settle(2000)
+    expect(saveDraft).not.toHaveBeenCalled()
+
+    await act(async () => {
+      finishLoad?.({
+        ...original,
+        id: 'd1',
+        folderId: 'draft',
+        subject: 'Server subject',
+        recipient: 'grace@example.com',
+        cc: null,
+        body: 'Server body',
+        bodySource: 'Server body',
+        inReplyTo: null,
+        threadId: null,
+        updatedAt: 100,
+      })
+    })
+    await flush()
+    expect(inputFor(t('email.compose.subject')).value).toBe('Typed before loading finished')
+    expect(recipientChip('grace@example.com')).toBeTruthy()
+    expect(editorText()).toContain('Server body')
+    expect(button(t('email.compose.save_draft')).disabled).toBe(false)
+    expect(button(t('email.compose.send')).disabled).toBe(false)
+    expect(ariaButton(t('email.compose.schedule_send')).disabled).toBe(false)
+
+    await act(async () => {
+      button(t('email.compose.save_draft')).click()
+      await Promise.resolve()
+    })
+    expect(saveDraft.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      draftId: 'd1',
+      expectedUpdatedAt: 100,
+      subject: 'Typed before loading finished',
+    }))
     view.unmount()
   })
 

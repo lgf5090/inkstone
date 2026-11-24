@@ -208,12 +208,14 @@ export function MessagePane({
   }, [summary?.id, draftKey])
 
   if (compose) {
+    const original = compose === 'new' ? null : summary ?? thread[thread.length - 1] ?? null
     return (
       <ComposePanel
+        key={[account.id, compose, original?.id ?? null, draftId].join(':')}
         account={account}
         mode={compose}
         draftId={draftId}
-        original={compose === 'new' ? null : summary ?? thread[thread.length - 1] ?? null}
+        original={original}
         onClose={onCancelCompose}
         onSent={onClosed}
       />

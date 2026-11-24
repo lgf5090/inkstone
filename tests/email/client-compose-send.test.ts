@@ -221,6 +221,82 @@ describe('the compose panel undo send window', () => {
     sendDraft.mockRestore()
   })
 
+  it('still cancels the queued send when undo runs after the panel unmounts', async () => {
+    vi.useFakeTimers()
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
+    const sendDraft = vi.spyOn(api.email, 'sendDraft').mockResolvedValue({ id: 'd1', status: 'sent' })
+    const view = panel()
+    completeRecipient()
+    await act(async () => {
+      button(t('email.compose.send')).click()
+    })
+    await flush()
+    const undo = useUi.getState().toasts.find((toast) => toast.action)?.action
+    expect(undo?.label).toBe(t('common.undo'))
+
+    view.unmount()
+    act(() => { undo?.run() })
+    await flush()
+    expect(cancelScheduledSend).toHaveBeenCalledWith(account.id, 'job-1')
+    expect(sendDraft).not.toHaveBeenCalled()
+    expect(useUi.getState().toasts.map(({ title }) => title)).toContain(t('email.compose.send_cancelled'))
+  })
+
+  it('keeps undo bound to the job when the panel unmounts before queueing finishes', async () => {
+    vi.useFakeTimers()
+    let finishQueue: ((job: EmailScheduledSend) => void) | null = null
+    scheduleDraftSend.mockImplementation(() => new Promise((resolve) => {
+      finishQueue = resolve
+    }))
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
+    const sendDraft = vi.spyOn(api.email, 'sendDraft').mockResolvedValue({ id: 'd1', status: 'sent' })
+    const view = panel()
+    completeRecipient()
+    await act(async () => {
+      button(t('email.compose.send')).click()
+    })
+    await flush()
+    expect(scheduleDraftSend).toHaveBeenCalledTimes(1)
+    view.unmount()
+
+    await act(async () => { finishQueue?.(scheduledJob) })
+    await flush()
+    const undo = useUi.getState().toasts.find((toast) => toast.action)?.action
+    expect(undo?.label).toBe(t('common.undo'))
+    act(() => { undo?.run() })
+    await flush()
+    expect(cancelScheduledSend).toHaveBeenCalledWith(account.id, 'job-1')
+    expect(sendDraft).not.toHaveBeenCalled()
+  })
+
+  it('reports a queueing failure and keeps the draft instead of starting a tab-only timer', async () => {
+    vi.useFakeTimers()
+    scheduleDraftSend.mockRejectedValue(new Error('Scheduled sending is unavailable'))
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
+    const sendDraft = vi.spyOn(api.email, 'sendDraft').mockResolvedValue({ id: 'd1', status: 'sent' })
+    const onSent = vi.fn()
+    const view = panel(onSent)
+    completeRecipient()
+    change(inputFor(t('email.compose.subject')), 'Keep this draft')
+    await act(async () => {
+      button(t('email.compose.send')).click()
+    })
+    await flush()
+
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Scheduled sending is unavailable')
+    expect(useUi.getState().toasts.some((toast) => toast.tone === 'danger' && toast.title === 'Scheduled sending is unavailable')).toBe(true)
+    expect(useUi.getState().toasts.some((toast) => toast.action)).toBe(false)
+    expect(inputFor(t('email.compose.subject')).value).toBe('Keep this draft')
+    expect(recipientChip('grace@example.com')).toBeTruthy()
+    expect(button(t('email.compose.send')).disabled).toBe(false)
+    await settle(10000)
+    expect(sendDraft).not.toHaveBeenCalled()
+    expect(cancelScheduledSend).not.toHaveBeenCalled()
+    expect(onSent).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
   it('holds autosave during the window and resumes after an undo', async () => {
     vi.useFakeTimers()
     const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
@@ -306,23 +382,30 @@ describe('the compose panel schedule send menu', () => {
     view.unmount()
   })
 
-  it('keeps the panel open with an error when scheduling fails', async () => {
+  it('keeps the saved draft and shows an error when scheduling fails', async () => {
+    vi.useFakeTimers()
     const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
-    const scheduleDraftSend = vi.spyOn(api.email, 'scheduleDraftSend').mockRejectedValue(new Error('Mailbox storage is not configured'))
+    scheduleDraftSend.mockRejectedValue(new Error('Mailbox storage is not configured'))
+    const sendDraft = vi.spyOn(api.email, 'sendDraft').mockResolvedValue({ id: 'd1', status: 'sent' })
     const onSent = vi.fn()
     const view = panel(onSent)
     completeRecipient()
+    change(inputFor(t('email.compose.subject')), 'Keep this scheduled draft')
     act(() => { labelled(t('email.compose.schedule_send')).click() })
     const item = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
       .find((node) => node.textContent?.trim() === t('email.compose.schedule_tomorrow'))
     if (!item) throw new Error('no schedule preset')
     await act(async () => { item.click() })
     await flush()
+    expect(saveDraft).toHaveBeenCalledTimes(1)
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('Mailbox storage is not configured')
     expect(onSent).not.toHaveBeenCalled()
     expect(labelled(t('email.compose.schedule_send')).disabled).toBe(false)
-    saveDraft.mockRestore()
-    scheduleDraftSend.mockRestore()
+    expect(inputFor(t('email.compose.subject')).value).toBe('Keep this scheduled draft')
+    expect(recipientChip('grace@example.com')).toBeTruthy()
+    await settle(2 * 24 * 60 * 60 * 1000)
+    expect(sendDraft).not.toHaveBeenCalled()
+    expect(cancelScheduledSend).not.toHaveBeenCalled()
     view.unmount()
   })
 })
