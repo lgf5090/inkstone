@@ -334,6 +334,7 @@ const CORE_MESSAGES = {
     "command.open_graph": "Open graph",
     "command.open_local_graph": "Open local graph",
     "command.open_trash": "Open trash",
+    "command.random_note": "Open a random note",
     "command.recently_opened": "Recently opened",
     "command.redo": "Redo",
     "command.remove_current_note_from_favorites": "Remove current note from favorites",

@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, Globe, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, Square, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare, CornerDownLeft, FilePlus2, Replace, ArrowRightToLine, KeyRound, Lock, Pipette,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, Globe, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Shuffle, Smile, Square, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare, CornerDownLeft, FilePlus2, Replace, ArrowRightToLine, KeyRound, Lock, Pipette,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -74,7 +74,7 @@ function runOnList(command: Command): () => void {
 }
 
 /** The commands as they apply right now: labels follow the locale, and a few need an open note. */
-export function appCommands(): AppCommand[] {
+export function appCommands(random: () => number = Math.random): AppCommand[] {
   const ui = useUi.getState()
   const notes = useNotes.getState()
   const session = useSession.getState()
@@ -172,6 +172,21 @@ export function appCommands(): AppCommand[] {
         combo: APP_SHORTCUTS.omnisearch,
         group: t("command.commands"),
         run: () => openOmnisearch({ mode: 'vault' }),
+    },
+    {
+        id: 'cmd-random-note',
+        kind: 'command',
+        label: t("command.random_note"),
+        icon: Shuffle,
+        group: t("command.commands"),
+        run: () => {
+            const state = useNotes.getState()
+            const candidates = Object.values(state.notes)
+                .filter((candidate) => !candidate.deletedAt && !candidate.isEncrypted)
+            if (candidates.length === 0) return
+            const selected = candidates[Math.floor(random() * candidates.length)]!
+            void state.openNote(selected.id)
+        },
     },
     {
         id: 'cmd-emoji',

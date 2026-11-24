@@ -327,6 +327,7 @@ const ZH_CORE_MESSAGES = {
     "command.open_graph": "打开关系图谱",
     "command.open_local_graph": "打开局部关系图",
     "command.open_trash": "打开回收站",
+    "command.random_note": "随机打开一篇笔记",
     "command.recently_opened": "最近打开",
     "command.redo": "重做",
     "command.remove_current_note_from_favorites": "取消收藏当前笔记",

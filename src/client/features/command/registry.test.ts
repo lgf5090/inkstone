@@ -67,7 +67,7 @@ describe('the command registry', () => {
     // app, put a note selection in it, or read today's list; the three the QR-code tool adds; and the
     // thirteen of the colour tool — one per view (`cmd-color-studio` … `cmd-color-settings`) plus the
     // copy, the token scale and the picker.
-    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(95)
+    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(96)
     expect(new Set(commands.map((entry) => entry.id)).size).toBe(commands.length)
     for (const entry of commands) {
       expect(entry.kind).toBe('command')
@@ -115,6 +115,50 @@ describe('the command registry', () => {
     const result = runAppCommand('cmd-emoji')
     expect(result).toEqual({ ok: true })
     expect(openEmojiPicker).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens each readable note with equal probability and skips deleted or encrypted notes', () => {
+    const readable = [
+      note,
+      { ...note, id: 'note-2', title: 'Beta', isArchived: true },
+      { ...note, id: 'note-3', title: 'Gamma' },
+    ]
+    const excluded = [
+      { ...note, id: 'deleted-note', deletedAt: 2 },
+      { ...note, id: 'encrypted-note', isEncrypted: true },
+    ]
+    useNotes.setState({ notes: Object.fromEntries([...readable, ...excluded].map((entry) => [entry.id, entry])) })
+    const openNote = vi.spyOn(useNotes.getState(), 'openNote').mockResolvedValue(undefined)
+    try {
+      for (const [index, draw] of [0, 0.4, 0.8].entries()) {
+        const command = appCommands(() => draw).find((entry) => entry.id === 'cmd-random-note')
+        expect(command, 'the random-note command is available to the palette and macros').toBeDefined()
+        expect(command!.label).toBe(t('command.random_note'))
+        command!.run()
+        expect(openNote).toHaveBeenNthCalledWith(index + 1, readable[index]!.id)
+      }
+      expect(openNote).toHaveBeenCalledTimes(readable.length)
+    } finally {
+      openNote.mockRestore()
+    }
+  })
+
+  it('keeps the random-note command available but does nothing when no readable notes exist', () => {
+    useNotes.setState({ notes: {
+      'deleted-note': { ...note, id: 'deleted-note', deletedAt: 2 },
+      'encrypted-note': { ...note, id: 'encrypted-note', isEncrypted: true },
+    } })
+    useUi.setState({ activeNoteId: null })
+    const openNote = vi.spyOn(useNotes.getState(), 'openNote').mockResolvedValue(undefined)
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    try {
+      expect(runAppCommand('cmd-random-note')).toEqual({ ok: true })
+      expect(openNote).not.toHaveBeenCalled()
+      expect(random).not.toHaveBeenCalled()
+    } finally {
+      random.mockRestore()
+      openNote.mockRestore()
+    }
   })
 
   it('refuses an id it does not know instead of doing nothing quietly', () => {
