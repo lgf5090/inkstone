@@ -20,6 +20,19 @@
       "url": "url"
     }
   },
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": {
+        "text/markdown": [".md", ".markdown"],
+        "text/plain": [".txt"],
+        "text/html": [".html", ".htm"],
+        "application/xml": [".enex"],
+        "application/zip": [".zip"],
+        "application/x-tar": [".jex"]
+      }
+    }
+  ],
   "icons": [
     {
       "src": "/pwa-192x192.png",

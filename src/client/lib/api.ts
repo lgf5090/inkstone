@@ -1182,6 +1182,8 @@ export const api = {
   },
 
   notes: {
+    clipUrl: (url: string) =>
+      request<{ title: string; url: string; html: string }>('/api/notes/clip', { method: 'POST', body: { url }, timeoutMs: 20_000 }),
     list: (params: Record<string, string | number | undefined>) =>
       request<ListNotesResponse>(`/api/notes${toQuery(params)}`),
     get: (id: string) => request<Note>(`/api/notes/${id}`),
@@ -1455,6 +1457,31 @@ export const api = {
 
   transfer: {
     save: saveDownload,
+    shard: async (afterId: string, snapshot: string) => {
+      const params = new URLSearchParams({ format: 'shard' })
+      if (afterId) params.set('afterId', afterId)
+      if (snapshot) params.set('snapshot', snapshot)
+      const { response } = await fetchDownload(`/api/export?${params.toString()}`, 'inkstone-backup-shard.zip')
+      const snapshotName = response.headers.get('X-Inkstone-Backup-Snapshot')
+      const notesHeader = response.headers.get('X-Inkstone-Backup-Notes')
+      const attachmentsHeader = response.headers.get('X-Inkstone-Backup-Attachments')
+      const noteCount = Number(notesHeader)
+      const attachmentCount = Number(attachmentsHeader)
+      if (
+        !snapshotName || notesHeader === null || attachmentsHeader === null ||
+        !Number.isSafeInteger(noteCount) || noteCount < 0 ||
+        !Number.isSafeInteger(attachmentCount) || attachmentCount < 0
+      ) {
+        throw new ApiError(0, 'unknown', 'The backup shard response is invalid')
+      }
+      return {
+        blob: await response.blob(),
+        snapshot: snapshotName,
+        nextAfterId: response.headers.get('X-Inkstone-Backup-Next') || null,
+        noteCount,
+        attachmentCount,
+      }
+    },
     import: (
       files: File[],
       conflict: 'skip' | 'newer' | 'duplicate' = 'newer',

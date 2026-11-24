@@ -34,6 +34,10 @@ interface BackupSelection {
   templates: { file: File; path: string } | null
   automation: { file: File; path: string } | null
   music: { file: File; path: string } | null
+  subscriptions: { file: File; path: string } | null
+  todos: { file: File; path: string } | null
+  calendar: { file: File; path: string } | null
+  inknote: { file: File; path: string } | null
   email: { file: File; path: string } | null
   emailAttachments: SelectedEmailAttachment[]
   warning: string | null
@@ -76,6 +80,16 @@ export async function restoreMarkdownBackupFolder(
     const { file, path } = selection.music
     if (file.size !== selection.manifest.music!.bytes) throw new Error(t('settings.backup_file_size_mismatch', { value0: path }))
     if (await sha256File(file) !== selection.manifest.music!.sha256) throw new Error(t('settings.backup_file_checksum_failed', { value0: path }))
+  }
+  for (const [selected, entry] of [
+    [selection.subscriptions, selection.manifest.subscriptions],
+    [selection.todos, selection.manifest.todos],
+    [selection.calendar, selection.manifest.calendar],
+    [selection.inknote, selection.manifest.inknote],
+  ] as const) {
+    if (!selected || !entry) continue
+    if (selected.file.size !== entry.bytes) throw new Error(t('settings.backup_file_size_mismatch', { value0: selected.path }))
+    if (await sha256File(selected.file) !== entry.sha256) throw new Error(t('settings.backup_file_checksum_failed', { value0: selected.path }))
   }
   if (selection.email) {
     const { file, path } = selection.email
@@ -180,6 +194,17 @@ export async function restoreMarkdownBackupFolder(
         [selection.music.file],
         manifestSlice(selection.manifest, [], []),
         [selection.music.path],
+      ),
+    )
+  }
+  for (const selected of [selection.subscriptions, selection.todos, selection.calendar, selection.inknote]) {
+    if (!selected) continue
+    mergeResult(
+      result,
+      await send(
+        [selected.file],
+        manifestSlice(selection.manifest, [], []),
+        [selected.path],
       ),
     )
   }
@@ -296,6 +321,10 @@ async function selectLatestCompleteBackup(files: readonly File[]): Promise<Backu
       templates: resolveLibrary(manifest.templates),
       automation: resolveLibrary(manifest.automation),
       music: resolveLibrary(manifest.music),
+      subscriptions: resolveLibrary(manifest.subscriptions),
+      todos: resolveLibrary(manifest.todos),
+      calendar: resolveLibrary(manifest.calendar),
+      inknote: resolveLibrary(manifest.inknote),
       email,
       emailAttachments,
       warning: skipped.length

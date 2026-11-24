@@ -73,6 +73,14 @@ export interface Snapshot {
   bytes: number
   stamp: string
   createdAt: Date
+  nextAfterId: string | null
+}
+
+export interface SnapshotOptions {
+  afterId?: string
+  snapshot?: string
+  maxBytes?: number
+  includeAuxiliary?: boolean
 }
 
 interface AttachmentSnapshotRow {
@@ -90,11 +98,12 @@ interface AttachmentSnapshotRow {
 
 const encoder = new TextEncoder()
 const NOTE_PAGE_SIZE = 100
+export const BACKUP_SHARD_TARGET_BYTES = 48 * 1024 * 1024
 const ATTACHMENT_LOOKUP_BATCH = 200
 const ATTACHMENT_REFERENCE_RE =
   /(?:https?:\/\/[^/\s<>"']+)?\/api\/files\/([0-9a-hjkmnp-tv-z]{26})(?=$|[\s>)\]"'?#])/g
 
-export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot> {
+export async function buildSnapshot(env: Env, userId: string, options: SnapshotOptions = {}): Promise<Snapshot> {
   const folderResult = await env.DB.prepare(
     `SELECT f.id, f.parent_id, f.name, f.icon, f.color, f.position, f.created_at, f.updated_at
        FROM folders f WHERE f.user_id = ?1 ORDER BY f.position ASC, f.id ASC`,
@@ -108,30 +117,54 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
   const selectedAttachmentsByHash = new Map<string, AttachmentSnapshotRow>()
 
   const now = new Date()
-  const stamp = formatStamp(now)
+  const stamp = options.snapshot ?? formatStamp(now)
   const noteFiles: BackupFile[] = []
   const noteEntries: MarkdownBackupNoteEntry[] = []
   const usedPaths = new Set<string>()
-  let afterId = ''
+  const includeAuxiliary = options.includeAuxiliary ?? true
+  const maxBytes = options.maxBytes ?? Number.POSITIVE_INFINITY
+  let estimatedBytes = 0
+  let hasMore = false
+  let afterId = options.afterId ?? ''
 
-  while (true) {
+  notePages: while (true) {
     const page = await env.DB.prepare(
       `SELECT ${NOTE_CONTENT_COLUMNS} FROM notes n
         WHERE n.user_id = ?1 AND n.id > ?2 ORDER BY n.id ASC LIMIT ?3`,
-    ).bind(userId, afterId, NOTE_PAGE_SIZE).all<NoteRow>()
-    if (!page.results.length) break
+    ).bind(userId, afterId, NOTE_PAGE_SIZE + 1).all<NoteRow>()
+    const pageRows = page.results.slice(0, NOTE_PAGE_SIZE)
+    if (!pageRows.length) break
+    hasMore = page.results.length > NOTE_PAGE_SIZE
 
     const missingAttachmentIds = new Set<string>()
-    for (const row of page.results) {
+    for (const row of pageRows) {
       for (const id of extractAttachmentIds(row.content)) {
         if (!attachmentsById.has(id)) missingAttachmentIds.add(id)
       }
     }
     await loadReferencedAttachments(env.DB, userId, missingAttachmentIds, attachmentsById)
 
-    for (const row of page.results) {
+    for (const row of pageRows) {
       const note = toNote(row)
       const noteAttachmentIds = new Set(extractAttachmentIds(note.content))
+      const addedHashes = new Set<string>()
+      let addedAttachmentBytes = 0
+      for (const id of noteAttachmentIds) {
+        const attachment = attachmentsById.get(id)
+        if (!attachment || selectedAttachmentsByHash.has(attachment.sha256) || addedHashes.has(attachment.sha256)) continue
+        addedHashes.add(attachment.sha256)
+        addedAttachmentBytes += attachment.size
+      }
+      const estimatedNoteBytes = encoder.encode(note.content).byteLength + addedAttachmentBytes + 2048
+      if (noteFiles.length && estimatedBytes + estimatedNoteBytes > maxBytes) {
+        afterId = noteEntries.at(-1)?.id ?? afterId
+        hasMore = true
+        break notePages
+      }
+      if (!noteFiles.length && estimatedBytes + estimatedNoteBytes > maxBytes) {
+        throw ApiError.tooLarge('A single note and its attachments exceed the backup shard limit')
+      }
+      estimatedBytes += estimatedNoteBytes
       for (const id of noteAttachmentIds) {
         const attachment = attachmentsById.get(id)
         if (!attachment) {
@@ -201,8 +234,8 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       })
     }
 
-    afterId = page.results.at(-1)!.id
-    if (page.results.length < NOTE_PAGE_SIZE) break
+    afterId = pageRows.at(-1)!.id
+    if (!hasMore) break
   }
 
   const selectedAttachmentRows = [...selectedAttachmentsByHash.values()]
@@ -231,7 +264,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
     'text/plain; charset=utf-8',
     'readme',
   )
-  const libraryText = await readBackupTemplates(env.DB, userId)
+  const libraryText = includeAuxiliary ? await readBackupTemplates(env.DB, userId) : null
   const templatesFile = libraryText === null
     ? null
     : await staticFile(
@@ -240,7 +273,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'templates',
     )
-  const automationText = await readBackupQuickAdd(env.DB, userId)
+  const automationText = includeAuxiliary ? await readBackupQuickAdd(env.DB, userId) : null
   const automationFile = automationText === null
     ? null
     : await staticFile(
@@ -249,7 +282,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'automation',
     )
-  const subscriptionsText = await readBackupSubscriptions(env.DB, userId)
+  const subscriptionsText = includeAuxiliary ? await readBackupSubscriptions(env.DB, userId) : null
   const subscriptionsFile = subscriptionsText === null
     ? null
     : await staticFile(
@@ -258,7 +291,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'subscriptions',
     )
-  const todosText = await readBackupTodos(env.DB, userId)
+  const todosText = includeAuxiliary ? await readBackupTodos(env.DB, userId) : null
   const todosFile = todosText === null
     ? null
     : await staticFile(
@@ -267,7 +300,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'todos',
     )
-  const musicText = await readBackupMusic(env.DB, userId)
+  const musicText = includeAuxiliary ? await readBackupMusic(env.DB, userId) : null
   const musicFile = musicText === null
     ? null
     : await staticFile(
@@ -276,7 +309,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'music',
     )
-  const inknoteText = await readBackupInknote(env, userId)
+  const inknoteText = includeAuxiliary ? await readBackupInknote(env, userId) : null
   const inknoteFile = inknoteText === null
     ? null
     : await staticFile(
@@ -285,7 +318,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'inknote',
     )
-  const calendarText = await readBackupCalendar(env.DB, userId)
+  const calendarText = includeAuxiliary ? await readBackupCalendar(env.DB, userId) : null
   const calendarFile = calendarText === null
     ? null
     : await staticFile(
@@ -294,11 +327,13 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'calendar',
     )
-  const settingsRow = await env.DB.prepare(
-    `SELECT settings FROM users WHERE id = ?1`,
-  ).bind(userId).first<{ settings: string }>()
+  const settingsRow = includeAuxiliary
+    ? await env.DB.prepare(
+      `SELECT settings FROM users WHERE id = ?1`,
+    ).bind(userId).first<{ settings: string }>()
+    : null
   const emailBackup = mergeSettings(storedObject(settingsRow?.settings ?? '{}')).emailBackup
-  const emailResult = emailBackup.enabled
+  const emailResult = includeAuxiliary && emailBackup.enabled
     ? await readBackupEmail(env, userId, {
       includeAttachments: emailBackup.includeAttachments,
       snapshot: stamp,
@@ -386,6 +421,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
     bytes: allFiles.reduce((sum, file) => sum + file.byteLength, 0),
     stamp,
     createdAt: now,
+    nextAfterId: hasMore ? afterId : null,
   }
 }
 
@@ -464,6 +500,7 @@ export async function buildEmailExportSnapshot(
     bytes: allFiles.reduce((sum, file) => sum + file.byteLength, 0),
     stamp,
     createdAt: now,
+    nextAfterId: null,
   }
 }
 

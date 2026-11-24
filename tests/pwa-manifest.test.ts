@@ -30,6 +30,8 @@ interface Manifest {
   display_override?: string[]
   background_color: string
   theme_color: string
+  share_target?: { action: string, method: string, enctype: string, params: Record<string, string> }
+  file_handlers?: Array<{ action: string, accept: Record<string, string[]> }>
   icons: Icon[]
 }
 
@@ -101,6 +103,19 @@ describe('the manifest', () => {
     expect(manifest.scope).toBe('/')
     expect(manifest.start_url).toBe('/')
     expect(manifest.id).toBe('/')
+  })
+
+  it('declares the system share and file-open entry points', () => {
+    expect(manifest.share_target).toEqual({
+      action: '/share-target',
+      method: 'POST',
+      enctype: 'multipart/form-data',
+      params: { title: 'title', text: 'text', url: 'url' },
+    })
+    const handler = manifest.file_handlers?.find((entry) => entry.action === '/')
+    expect(handler?.accept['text/markdown']).toEqual(['.md', '.markdown'])
+    expect(handler?.accept['application/zip']).toEqual(['.zip'])
+    expect(handler?.accept['application/x-tar']).toEqual(['.jex'])
   })
 
   it('ships the icons it claims, at the sizes it claims', () => {

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Download, FileJson, FileUp, FolderOpen, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import type { MarkdownBackupManifest } from '@shared/backup-format';
+import { AlertCircle, Download, FileJson, FileUp, FolderOpen, Link2, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { formatBytes, formatNumber } from '../../lib/time';
 import { Button } from '../../components/primitives';
 import { SettingsLoading as LoadingBlock } from './SettingsLoading';
-import { SettingRow } from '../../components/form';
+import { Input, SettingRow } from '../../components/form';
 import { confirm } from '../../components/overlay';
 import { useUi } from '../../store/ui';
 import { useNotes } from '../../store/notes';
@@ -12,9 +13,14 @@ import { useNoteTemplates } from '../../store/note-templates';
 import { useSession } from '../../store/session';
 import { t } from "../../lib/i18n";
 import { restoreMarkdownBackupFolder } from '../../lib/backup-import';
+import { BACKUP_SHARD_INDEX_NAME, restoreShardedBackupFiles, saveBackupShardsToDirectory } from '../../lib/backup-shards';
 import { useSettingsResource } from './resource';
 import { statsResource } from './resources';
+import { htmlToMarkdown } from '../rss/markdown';
+import { prepareNoteImport } from './note-importers';
 export function DataSettings() {
+    const clipInputId = useId();
+    const [clipUrlValue, setClipUrlValue] = useState('');
     const [stats] = useSettingsResource(statsResource);
     const [statsError, setStatsError] = useState<string | null>(null);
     const [busy, setBusy] = useState<string | null>(null);
@@ -68,6 +74,67 @@ export function DataSettings() {
                     title: t("common.export_failed"),
                     description: error instanceof Error ? error.message : String(error),
                     tone: 'danger',
+                });
+            }
+        });
+    };
+    const exportSharded = async () => {
+        await run('export-shards', async () => {
+            try {
+                const picker = (window as Window & {
+                    showDirectoryPicker?: (options: { mode: 'readwrite' }) => Promise<FileSystemDirectoryHandle>
+                }).showDirectoryPicker;
+                if (!picker) throw new Error(t('settings.sharded_backup_requires_directory_picker'));
+                const index = await saveBackupShardsToDirectory(
+                    (afterId, snapshot) => api.transfer.shard(afterId, snapshot),
+                    () => picker.call(window, { mode: 'readwrite' }),
+                );
+                toast({ title: t('settings.sharded_backup_success', { value0: index.shards.length }), tone: 'success' });
+            }
+            catch (error) {
+                if ((error as Error)?.name === 'AbortError') return;
+                toast({ title: t('common.export_failed'), description: error instanceof Error ? error.message : String(error), tone: 'danger' });
+            }
+        });
+    };
+    const clipPage = async () => {
+        const requested = clipUrlValue.trim();
+        await run('clip-url', async () => {
+            let noteTitle = '';
+            try {
+                if (!requested) throw new Error(t("settings.url_clip_required"));
+                const clipped = await api.notes.clipUrl(requested);
+                const content = htmlToMarkdown(clipped.html, href => {
+                    try {
+                        const resolved = new URL(href, clipped.url);
+                        return ['http:', 'https:', 'mailto:'].includes(resolved.protocol) ? resolved.href : href;
+                    }
+                    catch {
+                        return href;
+                    }
+                });
+                if (!content.trim()) throw new Error(t("settings.url_clip_empty"));
+                const note = await api.notes.create({ title: clipped.title, content });
+                noteTitle = note.title;
+                setClipUrlValue('');
+            }
+            catch (error) {
+                toast({
+                    title: t("settings.url_clip_failed"),
+                    description: error instanceof Error ? error.message : String(error),
+                    tone: 'danger',
+                });
+                return;
+            }
+            try {
+                await pull({ force: true });
+                toast({ title: t("settings.url_clip_success"), description: noteTitle, tone: 'success' });
+            }
+            catch {
+                toast({
+                    title: t("settings.url_clip_success"),
+                    description: t("settings.operation_completed_but_refresh_failed"),
+                    tone: 'warning',
                 });
             }
         });
@@ -144,10 +211,40 @@ export function DataSettings() {
       </section>
 
       <section>
+        <h3 data-setting-title={t("settings.url_clip")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.url_clip")}</h3>
+        <SettingRow title={t("settings.url_clip")} description={t("settings.url_clip_description")} controlId={clipInputId}>
+          <form className="flex flex-wrap items-center gap-2" onSubmit={event => {
+            event.preventDefault();
+            void clipPage();
+          }}>
+            <Input
+              id={clipInputId}
+              type="url"
+              inputMode="url"
+              autoCapitalize="none"
+              spellCheck={false}
+              required
+              maxLength={2048}
+              value={clipUrlValue}
+              disabled={busy !== null}
+              placeholder={t("settings.url_clip_placeholder")}
+              onChange={event => setClipUrlValue(event.target.value)}
+              className="w-64 md:w-80"
+            />
+            <Button type="submit" size="sm" icon={<Link2 size={13}/>} loading={busy === 'clip-url'} disabled={busy !== null}>{t("settings.url_clip_button")}</Button>
+          </form>
+        </SettingRow>
+      </section>
+
+      <section>
         <h3 className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.export")}</h3>
 
         <SettingRow title={t("settings.export_to_zip")} description={t("settings.includes_every_note_folder_tag_and_attachment_for_a_complete_restore_plu")}>
           <Button size="sm" icon={<Download size={13}/>} loading={busy === 'export-zip'} disabled={busy !== null} onClick={() => void exportData('zip')}>{t("settings.download_zip")}</Button>
+        </SettingRow>
+
+        <SettingRow title={t("settings.download_sharded_backup")} description={t("settings.sharded_backup_description")}>
+          <Button size="sm" variant="secondary" icon={<Download size={13}/>} loading={busy === 'export-shards'} disabled={busy !== null} onClick={() => void exportSharded()}>{t("settings.download_sharded_backup")}</Button>
         </SettingRow>
 
         <SettingRow title={t("settings.export_to_json")} description={t("settings.structured_note_data_without_attachment_binaries_download_zip_for_a_comp")}>
@@ -169,7 +266,10 @@ export function DataSettings() {
                 return;
             await run('restore-backup', async () => {
                 try {
-                    const result = await restoreMarkdownBackupFolder(files, (batch, manifest, paths) => api.transfer.import(batch, 'newer', { manifest, paths }));
+                    const send = (batch: File[], manifest: MarkdownBackupManifest, paths: string[]) => api.transfer.import(batch, 'newer', { manifest, paths });
+                    const result = files.some((file) => file.name === BACKUP_SHARD_INDEX_NAME)
+                        ? await restoreShardedBackupFiles(files, send)
+                        : await restoreMarkdownBackupFolder(files, send);
                     await reportImport(result);
                 }
                 catch (err) {
@@ -182,14 +282,16 @@ export function DataSettings() {
           <Button size="sm" icon={<FileUp size={13}/>} loading={busy === 'import'} disabled={busy !== null} onClick={() => fileRef.current?.click()}>{t("settings.select_file")}</Button>
         </SettingRow>
 
-        <input ref={fileRef} type="file" hidden multiple accept=".md,.markdown,.txt,.json,.zip" onChange={async (event) => {
+        <input ref={fileRef} type="file" hidden multiple accept=".md,.markdown,.txt,.json,.zip,.html,.htm,.enex,.jex" onChange={async (event) => {
             const files = [...(event.target.files ?? [])];
             event.target.value = '';
             if (!files.length)
                 return;
             await run('import', async () => {
                 try {
-                    const result = await api.transfer.import(files);
+                    const prepared = await prepareNoteImport(files);
+                    const result = await api.transfer.import(prepared.files);
+                    result.warnings.unshift(...prepared.warnings.map((warning) => t(warning)));
                     await reportImport(result);
                 }
                 catch (err) {

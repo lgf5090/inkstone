@@ -32,6 +32,7 @@ import { MobileAccount } from './MobileAccount';import { Resizer, SplitResizer }
 import { t } from "../../lib/i18n";
 import { PinnedWindowsLayer } from '../preview/pinned-windows-layer';
 import { scheduleSettingsWarmup } from '../settings/sections';
+import { FileOpenHandler } from './FileOpenHandler';
 const Workspace = lazy(() => import('../workspace/Workspace').then((m) => ({ default: m.Workspace })));
 const importCommandPalette = () => import('../command/CommandPalette').then((m) => ({ default: m.CommandPalette }));
 const CommandPalette = lazy(importCommandPalette);
@@ -299,6 +300,7 @@ function OverlayHost() {
         <UpdateDialog />
       </Suspense>)}
       <PinnedWindowsLayer />
+      <FileOpenHandler />
     </>);
 }
 

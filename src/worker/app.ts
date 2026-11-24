@@ -6,6 +6,7 @@ import { loadSession, requireClientHeader } from './middleware/auth'
 import { authRoutes } from './routes/auth'
 import { totpRoutes } from './routes/totp'
 import { notesRoutes } from './routes/notes'
+import { noteClipRoutes } from './routes/note-clip'
 import { blogAdminRoutes } from './blog/admin-routes'
 import { blogPublicRoutes } from './blog/public-routes'
 import { blogRuntimeRoutes } from './blog/runtime-routes'
@@ -236,6 +237,7 @@ export function createApp() {
 
   app.route('/api/auth/totp', totpRoutes)
   app.route('/api/auth', authRoutes)
+  app.route('/api/notes', noteClipRoutes)
   app.route('/api/notes', notesRoutes)
   app.route('/api/blog/admin', blogAdminRoutes)
   app.route('/api/blog', blogPublicRoutes)

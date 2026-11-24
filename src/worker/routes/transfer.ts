@@ -39,6 +39,7 @@ import { scheduleAiDrain } from '../mcp/ai-search'
 import { consumeNoteQuota, openNoteQuotaBudget, type NoteQuotaBudget } from '../db/quota'
 import {
   assertBundleCanBeRestored,
+  BACKUP_SHARD_TARGET_BYTES,
   buildJsonExport,
   buildSnapshot,
   formatStamp,
@@ -132,7 +133,8 @@ transferRoutes.get('/export', async (c) => {
     await release()
   }
   try {
-    const format = c.req.query('format') === 'json' ? 'json' : 'zip'
+    const requestedFormat = c.req.query('format')
+    const format = requestedFormat === 'json' || requestedFormat === 'shard' ? requestedFormat : 'zip'
 
     if (format === 'json') {
       const bundle = await buildJsonExport(c.env, userId)
@@ -146,7 +148,20 @@ transferRoutes.get('/export', async (c) => {
       })
     }
 
-    const snapshot = await buildSnapshot(c.env, userId)
+    const afterId = format === 'shard' ? c.req.query('afterId') ?? '' : ''
+    const snapshotName = format === 'shard' ? c.req.query('snapshot') ?? '' : ''
+    if (afterId && !isValidId(afterId)) throw ApiError.badRequest('The backup cursor is not valid')
+    if (snapshotName && !/^\d{8}-\d{6}-\d{3}$/.test(snapshotName)) {
+      throw ApiError.badRequest('The backup snapshot name is not valid')
+    }
+    const snapshot = await buildSnapshot(c.env, userId, format === 'shard'
+      ? {
+        afterId,
+        snapshot: snapshotName || undefined,
+        maxBytes: BACKUP_SHARD_TARGET_BYTES,
+        includeAuxiliary: !afterId,
+      }
+      : {})
     const archive = createBackupArchive(snapshot)
     const fixed = new FixedLengthStream(archive.byteLength)
     const completed = archive.stream.pipeTo(fixed.writable, { signal: abort.signal }).catch((error) => {
@@ -157,6 +172,14 @@ transferRoutes.get('/export', async (c) => {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="${archive.filename}"`,
         'Cache-Control': 'private, no-store',
+        ...(format === 'shard'
+          ? {
+            'X-Inkstone-Backup-Snapshot': snapshot.stamp,
+            'X-Inkstone-Backup-Next': snapshot.nextAfterId ?? '',
+            'X-Inkstone-Backup-Notes': String(snapshot.noteCount),
+            'X-Inkstone-Backup-Attachments': String(snapshot.attachmentCount),
+          }
+          : {}),
       },
     })
     c.executionCtx.waitUntil(completed)

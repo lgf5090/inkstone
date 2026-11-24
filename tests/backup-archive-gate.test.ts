@@ -33,6 +33,7 @@ function snapshot(payloadFiles: BackupFile[]): Snapshot {
     bytes: payloadFiles.reduce((sum, entry) => sum + entry.byteLength, 0),
     stamp: '20261005-000000',
     createdAt: new Date(0),
+    nextAfterId: null,
   }
 }
 

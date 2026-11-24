@@ -141,6 +141,33 @@ describe('restoring a backup folder that carries a template library', () => {
     expect(sends).toEqual([])
   })
 
+  it('sends subscription, todo, calendar and inknote libraries in their own batches', async () => {
+    const libraries = [
+      ['subscriptions', 'subscriptions.json'],
+      ['todos', 'todos.json'],
+      ['calendar', 'calendar.json'],
+      ['inknote', 'inknote.json'],
+    ] as const
+    const bytes = new TextEncoder().encode('{}')
+    const digest = sha(bytes)
+    const withLibraries: MarkdownBackupManifest = {
+      ...manifest,
+      ...Object.fromEntries(libraries.map(([kind, path]) => [kind, { path, bytes: bytes.byteLength, sha256: digest }])),
+    }
+    const manifestData = new TextEncoder().encode(JSON.stringify(withLibraries))
+    const complete = new TextEncoder().encode(`${MARKDOWN_BACKUP_FORMAT} v3\nmanifest-sha256 ${sha(manifestData)}\n`)
+    await restore([
+      fileOf('manifest.json', manifestData),
+      fileOf('COMPLETE', complete),
+      fileOf('notes/restored.md', noteBytes),
+      fileOf('templates.json', templateBytes),
+      ...libraries.map(([, path]) => fileOf(path, bytes)),
+    ])
+    for (const [, path] of libraries) {
+      expect(sends.find((sent) => sent.paths.includes(path))?.files[0].name).toBe(path)
+    }
+  })
+
   it('restores a backup without a library file exactly as before', async () => {
     const withoutTemplates: MarkdownBackupManifest = { ...manifest, templates: undefined }
     const plainManifestBytes = new TextEncoder().encode(JSON.stringify(withoutTemplates))
