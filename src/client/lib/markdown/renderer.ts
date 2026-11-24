@@ -1495,7 +1495,7 @@ function prettyPaint(role: 'color' | 'background-color', stored: string | null |
 
 function prettySwitch(row: ResolvedProperty): string {
     const on = Boolean(row.value);
-    return `<span role="switch" aria-checked="${on}" class="${PP_SWITCH} ${on ? PP_SWITCH_ON : PP_SWITCH_OFF}"><span class="${PP_SWITCH_KNOB} ${on ? PP_SWITCH_KNOB_ON : PP_SWITCH_KNOB_OFF}"></span></span>`;
+    return `<span aria-hidden="true" class="${PP_SWITCH} ${on ? PP_SWITCH_ON : PP_SWITCH_OFF}"><span class="${PP_SWITCH_KNOB} ${on ? PP_SWITCH_KNOB_ON : PP_SWITCH_KNOB_OFF}"></span></span>`;
 }
 
 function prettyProgress(row: ResolvedProperty): string {

@@ -48,6 +48,7 @@ interface NotesState {
     cursor: number;
     hydrated: boolean;
     loading: boolean;
+    loadError: string | null;
     saveStatus: SaveStatus;
     lastSavedAt: number;
     pendingCount: number;
@@ -283,6 +284,7 @@ export const useNotes = create<NotesState>((set, get) => ({
     cursor: 0,
     hydrated: false,
     loading: false,
+    loadError: null,
     saveStatus: 'idle',
     lastSavedAt: 0,
     pendingCount: 0,
@@ -293,7 +295,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         if (bootstrapPromise)
             return bootstrapPromise;
         const run = async () => {
-            set({ loading: true });
+            set({ loading: true, loadError: null });
             try {
                 const userId = useSession.getState().user?.id;
                 if (!userId)
@@ -374,7 +376,7 @@ export const useNotes = create<NotesState>((set, get) => ({
             }
         };
         bootstrapPromise = run().catch((err) => {
-
+            set({ loadError: err instanceof Error ? err.message : String(err) });
             bootstrapPromise = null;
             throw err;
         });

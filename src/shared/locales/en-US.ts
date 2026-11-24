@@ -2444,6 +2444,7 @@ const CORE_MESSAGES = {
     "preview.link_too_long": "The address is too long to show in full, so it cannot be opened from here.",
     "preview.could_not_update_this_task": "Could not update this task",
     "preview.created_title": "Created “{title}”",
+    "preview.prepare_failed": "The preview could not be prepared",
     "preview.download_original_image": "Download original image",
     "preview.image_preview": "Image preview",
     "preview.could_not_load_image": "Could not load this image",

@@ -85,8 +85,14 @@ export function EditorSelectionBar({ selection, onDone }: { selection: EditorSel
   }
   return (
     <div
-      role="toolbar"
+      role="group"
       aria-label={t('assistant.selection.toolbar')}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          onDone();
+        }
+      }}
       // A press on the bar must not take focus from the editor: every action re-reads the live
       // selection, and losing it on mousedown is how the bar's own buttons ran on an empty range.
       onMouseDown={(event) => event.preventDefault()}

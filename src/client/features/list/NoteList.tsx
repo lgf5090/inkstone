@@ -15,7 +15,7 @@ import { compileQuery, queryKeepsRows, queryMatches } from '../../lib/query-matc
 import { useBreakpoint } from '../../lib/hooks';
 import { matches, prettyCombo } from '../../lib/hotkeys';
 import { exportNoteAsHtml, exportNoteAsMarkdown, exportNoteAsPdf } from '../../lib/export-note';
-import { IconButton, Logo } from '../../components/primitives';
+import { Button, IconButton, Logo } from '../../components/primitives';
 import { FilterInput } from '../../components/FilterInput';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { Empty, NoteListSkeleton } from '../../components/feedback';
@@ -109,6 +109,8 @@ export function NoteList() {
     const tags = useNotes((s) => s.tags);
     const loading = useNotes((s) => s.loading);
     const hydrated = useNotes((s) => s.hydrated);
+    const loadError = useNotes((s) => s.loadError);
+    const retryLoad = useNotes((s) => s.bootstrap);
     const openNote = useNotes((s) => s.openNote);
     const { emptyTrash, emptyingTrash } = useEmptyTrash();
     const filter = useUi((s) => s.searchQuery);
@@ -414,7 +416,10 @@ export function NoteList() {
       </header>
 
       <div key={`${view}:${folderId ?? ''}:${tagFilters.join('+')}`} ref={listRef} data-note-list role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeNoteId && renderedIds.has(activeNoteId) ? `note-option-${activeNoteId}` : undefined} tabIndex={0} onKeyDown={onKeyDown} className="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
-        {!hydrated && loading ? (<NoteListSkeleton />) : filtered.length === 0 ? (<ListEmpty view={view} filtering={Boolean(filter)} dayFiltering={Boolean(dateFilter)}/>) : (groups.map((group) => (<div key={group.key} role="group" aria-label={group.label ?? title}>
+        {loadError ? (<div role="alert" className="m-2 rounded-[var(--r-md)] border border-[var(--danger)] p-3 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+          <p>{loadError}</p>
+          <Button size="sm" variant="ghost" className="mt-2" onClick={() => void retryLoad()}>{t('common.retry')}</Button>
+        </div>) : !hydrated && loading ? (<NoteListSkeleton />) : filtered.length === 0 ? (<ListEmpty view={view} filtering={Boolean(filter)} dayFiltering={Boolean(dateFilter)}/>) : (groups.map((group) => (<div key={group.key} role="group" aria-label={group.label ?? title}>
               {group.label && (<div className="px-2 pt-3 pb-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
                   {group.label}
                 </div>)}

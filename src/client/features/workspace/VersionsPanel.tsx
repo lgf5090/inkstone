@@ -104,7 +104,8 @@ export function VersionsPanel({ onClose }: {
             if (!ok || restoreEpoch.current !== epoch || noteIdRef.current !== noteId)
                 return;
             const versionTitle = versions?.find((version) => version.id === versionId)?.title;
-            void restoreVersion(noteId, versionId, preview, versionTitle);
+            const restored = await restoreVersion(noteId, versionId, preview, versionTitle);
+            if (!restored) throw new Error(t('common.restore_failed'));
             onClose();
         }
         catch (err) {

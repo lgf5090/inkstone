@@ -2437,6 +2437,7 @@ const ZH_CORE_MESSAGES = {
     "preview.link_too_long": "地址太长，这里无法完整显示，也不能从这里打开。",
     "preview.could_not_update_this_task": "无法更新这一项",
     "preview.created_title": "已创建「{title}」",
+    "preview.prepare_failed": "预览准备失败",
     "preview.download_original_image": "下载原图",
     "preview.image_preview": "图片预览",
     "preview.could_not_load_image": "无法加载这张图片",

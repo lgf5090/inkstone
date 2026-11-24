@@ -57,6 +57,7 @@ import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../ta
 import { EditorContextMenu } from '../workspace/context-menu/EditorContextMenu'
 import { detectPreviewContext } from '../workspace/context-menu/detect-preview'
 import { useLongPress } from '../workspace/context-menu/use-long-press'
+import { Button } from '../../components/primitives'
 import type { ContextMenuHost, PreviewContext } from '../workspace/context-menu/types'
 
 const PREVIEW_LARGE_DOCUMENT_CHARS = 200_000
@@ -164,6 +165,8 @@ export const Preview = memo(function Preview({
   const wikiNavigationRef = useRef(0)
   const wikiScrollCleanupRef = useRef<() => void>(() => {})
   const [mermaidEpoch, setMermaidEpoch] = useState(0)
+  const [prepareError, setPrepareError] = useState<string | null>(null)
+  const [prepareRetry, setPrepareRetry] = useState(0)
   const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null)
   const [previewMenu, setPreviewMenu] = useState<{ x: number; y: number; context: PreviewContext } | null>(null)
   // The markup the host is *holding*, not the markup about to be drawn: a board is a React root and
@@ -287,6 +290,7 @@ export const Preview = memo(function Preview({
   useEffect(() => {
     const revision = ++preparationRef.current
     let cancelled = false
+    setPrepareError(null)
 
     const staging = document.createElement('div')
     staging.innerHTML = rendered.html
@@ -426,7 +430,11 @@ export const Preview = memo(function Preview({
         }
       }
     }
-    void prepare()
+    void prepare().catch((error: unknown) => {
+      if (cancelled || revision !== preparationRef.current) return
+      console.warn('[inkstone] preview preparation failed', error)
+      setPrepareError(error instanceof Error ? error.message : String(error))
+    })
 
     return () => {
       cancelled = true
@@ -451,6 +459,7 @@ export const Preview = memo(function Preview({
     readOnly,
     resolveAttachment,
     rewriteAssetUrl,
+    prepareRetry,
   ])
 
 
@@ -806,6 +815,12 @@ export const Preview = memo(function Preview({
       data-preview-scroller
       onScroll={(event) => onScroll?.(event.currentTarget)}
     >
+      {prepareError && (
+        <div role="alert" className="mb-3 flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--danger)] bg-[var(--bg-surface)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+          <span className="min-w-0 flex-1">{t('preview.prepare_failed')}: {prepareError}</span>
+          <Button size="sm" variant="secondary" onClick={() => setPrepareRetry((value) => value + 1)}>{t('common.retry')}</Button>
+        </div>
+      )}
       <div className="pp-prose-column" onMouseMove={hover.handleMouseMove} onMouseLeave={onMouseLeave}>
         {!readOnly && <NoteProperties noteId={sourceNoteId ?? null}/>}
       </div>
