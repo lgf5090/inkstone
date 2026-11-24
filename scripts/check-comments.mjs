@@ -44431,7 +44431,6 @@ const allowed = new Map([
     "/**\n * Keep the blog projection in step with the note that owns it. A failure here must not fail the\n * note write: the note is the source of truth, and the admin can retry the projection. It is still\n * recorded as an audit row so the failure is visible rather than silently swallowed.\n */",
     "// A lock (or the client opening one) always ships both fields: half a note cannot be encrypted,",
     "// and a body left behind in plaintext is exactly the leak this feature exists to prevent.",
-    "// The envelope is base64 JSON around the body, so the plaintext ceiling no longer describes it.",
     "// Metadata edits (pin, star, archive, folder) stay allowed; text edits do not, because the",
     "// server cannot re-seal what it cannot read. The client has to unlock first.",
     "// A sealed title is ciphertext, not a name to link to or match by title key.",
