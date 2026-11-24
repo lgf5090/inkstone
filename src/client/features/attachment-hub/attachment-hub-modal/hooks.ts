@@ -19,6 +19,8 @@ import { downloadFile } from '../attachment-item-common'
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>
 type ToastFn = (input: ToastInput) => void
 
+const SEARCH_DEBOUNCE_MS = 180
+
 function failed(toast: ToastFn, titleKey: MessageKey): void {
   toast({ title: t(titleKey), tone: 'danger' })
 }
@@ -49,31 +51,56 @@ function useHubFiles(open: boolean, scope: AttachmentHubScope, filters: HubFilte
   const [isPruning, setIsPruning] = useState(false)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const requestVersionRef = useRef(0)
+  const controllerRef = useRef<AbortController | null>(null)
+  const previousSearchRef = useRef(filters.search)
 
-  const loadFiles = useCallback(async () => {
+  const cancelRequest = useCallback(() => {
+    requestVersionRef.current += 1
+    controllerRef.current?.abort()
+    controllerRef.current = null
+  }, [])
+
+  const listParams = useCallback((search: string, cursor?: string) => ({
+    ...categoryFilters(filters.category),
+    folderId: filters.folderId ?? undefined,
+    extension: filters.extension !== 'all' ? filters.extension : undefined,
+    sizeRange: filters.sizeRange !== 'all' ? filters.sizeRange : undefined,
+    tag: filters.tag ?? undefined,
+    search: search.trim() || undefined,
+    sort: filters.sort,
+    limit: HUB_LIST_LIMIT,
+    cursor,
+  }), [filters.category, filters.folderId, filters.tag, filters.extension, filters.sizeRange, filters.sort])
+
+  const requestFiles = useCallback(async (search: string) => {
+    const requestVersion = ++requestVersionRef.current
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
     setIsLoading(true)
+    setIsLoadingMore(false)
+    setNextCursor(null)
     try {
-      const result = await attachmentHubApi.list(scope, {
-        ...categoryFilters(filters.category),
-        folderId: filters.folderId ?? undefined,
-        extension: filters.extension !== 'all' ? filters.extension : undefined,
-        sizeRange: filters.sizeRange !== 'all' ? filters.sizeRange : undefined,
-        tag: filters.tag ?? undefined,
-        search: filters.search.trim() || undefined,
-        sort: filters.sort,
-        limit: HUB_LIST_LIMIT,
-      })
+      const result = await attachmentHubApi.list(scope, listParams(search), controller.signal)
+      if (requestVersion !== requestVersionRef.current) return
       setFiles(result.files)
       setStats(result.stats)
       setNextCursor(result.nextCursor)
     }
     catch {
+      if (requestVersion !== requestVersionRef.current || controller.signal.aborted) return
       failed(toast, 'attachments.load_failed')
     }
     finally {
-      setIsLoading(false)
+      if (requestVersion === requestVersionRef.current) {
+        setIsLoading(false)
+        controllerRef.current = null
+      }
     }
-  }, [scope, filters.category, filters.folderId, filters.tag, filters.extension, filters.search, filters.sizeRange, filters.sort, toast])
+  }, [scope, listParams, toast])
+
+  const loadFiles = useCallback(() => requestFiles(filters.search), [filters.search, requestFiles])
 
   /**
    * The next page, appended rather than swapped in.
@@ -84,19 +111,14 @@ function useHubFiles(open: boolean, scope: AttachmentHubScope, filters: HubFilte
    */
   const loadMore = useCallback(async () => {
     if (!nextCursor || isLoadingMore) return
+    const requestVersion = requestVersionRef.current
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
     setIsLoadingMore(true)
     try {
-      const result = await attachmentHubApi.list(scope, {
-        ...categoryFilters(filters.category),
-        folderId: filters.folderId ?? undefined,
-        extension: filters.extension !== 'all' ? filters.extension : undefined,
-        sizeRange: filters.sizeRange !== 'all' ? filters.sizeRange : undefined,
-        tag: filters.tag ?? undefined,
-        search: filters.search.trim() || undefined,
-        sort: filters.sort,
-        limit: HUB_LIST_LIMIT,
-        cursor: nextCursor,
-      })
+      const result = await attachmentHubApi.list(scope, listParams(filters.search, nextCursor), controller.signal)
+      if (requestVersion !== requestVersionRef.current) return
       setFiles((previous) => {
         const seen = new Set(previous.map((file) => file.id))
         return [...previous, ...result.files.filter((file) => !seen.has(file.id))]
@@ -104,16 +126,36 @@ function useHubFiles(open: boolean, scope: AttachmentHubScope, filters: HubFilte
       setNextCursor(result.nextCursor)
     }
     catch {
+      if (requestVersion !== requestVersionRef.current || controller.signal.aborted) return
       failed(toast, 'attachments.load_failed')
     }
     finally {
-      setIsLoadingMore(false)
+      if (requestVersion === requestVersionRef.current) {
+        setIsLoadingMore(false)
+        controllerRef.current = null
+      }
     }
-  }, [scope, nextCursor, isLoadingMore, filters, toast])
+  }, [scope, nextCursor, isLoadingMore, filters.search, listParams, toast])
 
   useEffect(() => {
-    if (open) void loadFiles()
-  }, [open, loadFiles])
+    const searchChanged = previousSearchRef.current !== filters.search
+    previousSearchRef.current = filters.search
+    if (!open) return
+    setIsLoading(true)
+    setIsLoadingMore(false)
+    setNextCursor(null)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    if (searchChanged) {
+      timer = setTimeout(() => { void requestFiles(filters.search) }, SEARCH_DEBOUNCE_MS)
+    }
+    else {
+      void requestFiles(filters.search)
+    }
+    return () => {
+      if (timer) clearTimeout(timer)
+      cancelRequest()
+    }
+  }, [open, filters.category, filters.folderId, filters.tag, filters.extension, filters.search, filters.sizeRange, filters.sort, requestFiles, cancelRequest])
 
   const uploadFiles = useCallback(async (uploadList: FileList | File[]) => {
     const fileArray = Array.from(uploadList)

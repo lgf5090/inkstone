@@ -8,6 +8,7 @@ import {
   type HubAttachmentWithUsage,
   type AttachmentHubScope,
 } from '@shared/attachment-hub'
+import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
 import { collectAttachmentReferences } from './references'
 import { attachmentScope, scopeColumnFilter, type AttachmentScopeDescriptor } from './scopes'
@@ -59,14 +60,21 @@ const SIZE_RANGE_CONDITIONS: Record<HubAttachmentSizeRange, string> = {
   large: `(size >= ${MEDIUM_BYTES})`,
 }
 
-const SORTS: Record<HubAttachmentSort, string> = {
-  date_desc: 'created_at DESC, id DESC',
-  date_asc: 'created_at ASC, id ASC',
-  name_asc: 'filename COLLATE NOCASE ASC, id ASC',
-  name_desc: 'filename COLLATE NOCASE DESC, id DESC',
-  size_desc: 'size DESC, id DESC',
-  size_asc: 'size ASC, id ASC',
+interface HubSort {
+  column: string
+  direction: 'ASC' | 'DESC'
 }
+
+const SORTS: Record<HubAttachmentSort, HubSort> = {
+  date_desc: { column: 'created_at', direction: 'DESC' },
+  date_asc: { column: 'created_at', direction: 'ASC' },
+  name_asc: { column: 'filename COLLATE NOCASE', direction: 'ASC' },
+  name_desc: { column: 'filename COLLATE NOCASE', direction: 'DESC' },
+  size_desc: { column: 'size', direction: 'DESC' },
+  size_asc: { column: 'size', direction: 'ASC' },
+}
+
+const CURSOR_VERSION = 'h1'
 
 function extensionArm(extensions: readonly string[]): string {
   return extensions.map((ext) => `lower(filename) LIKE '%.${ext}'`).join(' OR ')
@@ -170,6 +178,7 @@ function buildWhere(
   scope: AttachmentHubScope,
   params: HubAttachmentListParams,
   bindings: Bindings,
+  sort: HubAttachmentSort,
 ): string[] {
   const clauses = [`user_id = ?1`, scopeColumnFilter(scope)]
 
@@ -201,13 +210,12 @@ function buildWhere(
 
   if (params.cursor) {
     const cursor = parseCursor(params.cursor)
-    if (cursor) {
-      const at = bindings.param(cursor.createdAt)
-      const idAt = bindings.param(cursor.id)
-      const ascending = params.sort === 'date_asc' || params.sort === 'name_asc' || params.sort === 'size_asc'
-      const before = ascending ? '>' : '<'
-      clauses.push(`(created_at ${before} ${at} OR (created_at = ${at} AND id ${before} ${idAt}))`)
-    }
+    if (cursor.sort !== sort) throw ApiError.badRequest('The cursor does not match the sort')
+    const ordering = SORTS[sort]
+    const at = bindings.param(cursor.value)
+    const idAt = bindings.param(cursor.id)
+    const before = ordering.direction === 'ASC' ? '>' : '<'
+    clauses.push(`(${ordering.column} ${before} ${at} OR (${ordering.column} = ${at} AND id ${before} ${idAt}))`)
   }
 
   return clauses
@@ -216,7 +224,7 @@ function buildWhere(
 export interface HubListResult {
   files: HubAttachmentWithUsage[]
   nextCursor: string | null
-  stats: HubAttachmentStats
+  stats?: HubAttachmentStats
 }
 
 export async function listHubAttachments(
@@ -228,16 +236,18 @@ export async function listHubAttachments(
 ): Promise<HubListResult> {
   const descriptor = attachmentScope(scope)
   const limit = Math.min(Math.max(Math.trunc(params.limit ?? LIST_PAGE_SIZE) || 1, 1), LIST_PAGE_MAX)
-  const sort = SORTS[params.sort ?? 'date_desc'] ?? SORTS.date_desc
+  const requestedSort = params.sort ?? 'date_desc'
+  const sort = Object.hasOwn(SORTS, requestedSort) ? requestedSort : 'date_desc'
+  const ordering = SORTS[sort]
   const bindings = new Bindings(userId)
-  const clauses = buildWhere(scope, params, bindings)
+  const clauses = buildWhere(scope, params, bindings, sort)
   const pageParam = bindings.param(limit + 1)
 
   const { results } = await db
     .prepare(
       `SELECT ${rowColumns(descriptor)} FROM ${descriptor.table}
         WHERE ${clauses.join(' AND ')}
-        ORDER BY ${sort} LIMIT ${pageParam}`,
+        ORDER BY ${ordering.column} ${ordering.direction}, id ${ordering.direction} LIMIT ${pageParam}`,
     )
     .bind(...bindings.bind())
     .all<HubRow>()
@@ -251,21 +261,51 @@ export async function listHubAttachments(
     scope,
   )
   const last = page[page.length - 1]
-  const stats = await loadHubStats(db, userId, scope, descriptor, quotaBytes)
+  const stats = params.cursor ? undefined : await loadHubStats(db, userId, scope, descriptor, quotaBytes)
 
   return {
     files: page
       .filter((row) => !params.unreferenced || !references.has(row.id))
       .map((row) => toHubAttachment(scope, row, references.get(row.id) ?? 0)),
-    nextCursor: hasMore && last ? `${last.created_at}.${last.id}` : null,
-    stats,
+    nextCursor: hasMore && last ? encodeCursor(sort, cursorValue(last, sort), last.id) : null,
+    ...(stats ? { stats } : {}),
   }
 }
 
-function parseCursor(raw: string): { createdAt: number; id: string } | null {
-  const match = /^(\d{1,16})\.([0-9a-hjkmnp-tv-z]{26})$/.exec(raw)
-  if (!match) return null
-  return { createdAt: Number(match[1]), id: match[2]! }
+function cursorValue(row: HubRow, sort: HubAttachmentSort): string | number {
+  if (sort === 'name_asc' || sort === 'name_desc') return row.filename
+  if (sort === 'size_asc' || sort === 'size_desc') return row.size
+  return row.created_at
+}
+
+function encodeCursor(sort: HubAttachmentSort, value: string | number, id: string): string {
+  return `${CURSOR_VERSION}.${sort}.${encodeURIComponent(JSON.stringify([value, id]))}`
+}
+
+function parseCursor(raw: string): { sort: HubAttachmentSort; value: string | number; id: string } {
+  const versionEnd = raw.indexOf('.')
+  const sortEnd = raw.indexOf('.', versionEnd + 1)
+  if (versionEnd < 0 || sortEnd < 0) throw ApiError.badRequest('The cursor is not valid')
+  const version = raw.slice(0, versionEnd)
+  const sort = raw.slice(versionEnd + 1, sortEnd)
+  if (version !== CURSOR_VERSION || !Object.hasOwn(SORTS, sort)) throw ApiError.badRequest('The cursor is not valid')
+
+  try {
+    const decoded: unknown = JSON.parse(decodeURIComponent(raw.slice(sortEnd + 1)))
+    if (!Array.isArray(decoded) || decoded.length !== 2) throw new Error('Invalid cursor payload')
+    const [value, id] = decoded
+    if (typeof id !== 'string' || !/^[0-9a-hjkmnp-tv-z]{26}$/.test(id)) throw new Error('Invalid cursor id')
+    if (sort === 'name_asc' || sort === 'name_desc') {
+      if (typeof value !== 'string') throw new Error('Invalid cursor name')
+    }
+    else if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+      throw new Error('Invalid cursor value')
+    }
+    return { sort: sort as HubAttachmentSort, value, id }
+  }
+  catch {
+    throw ApiError.badRequest('The cursor is not valid')
+  }
 }
 
 const BUCKET_ARMS: Record<'image' | 'document' | 'media' | 'archive' | 'code', string> = {

@@ -218,7 +218,7 @@ function NameCell({ file, onSelectActive, onPreview }: {
       <span className='flex items-center gap-[var(--sp-2-5)]'>
         <span className='flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)]'>
           {isImage
-            ? <img src={file.url} alt='' className='h-full w-full object-cover' />
+            ? <img src={file.thumbnailUrl ?? file.url} alt='' loading='lazy' decoding='async' className='h-full w-full object-cover' />
             : <span className={cn('text-[length:var(--text-9)] font-bold', HUB_BADGE_CLASS)}>{label}</span>}
         </span>
         <button

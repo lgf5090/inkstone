@@ -94,7 +94,7 @@ export interface HubAttachmentStats {
 export interface HubAttachmentListResponse {
   files: HubAttachmentWithUsage[]
   nextCursor: string | null
-  stats: HubAttachmentStats
+  stats?: HubAttachmentStats
 }
 
 export interface HubFolder {
