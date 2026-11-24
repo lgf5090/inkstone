@@ -1335,16 +1335,23 @@ export const useNotes = create<NotesState>((set, get) => ({
         const workspaceBefore = captureWorkspaceState();
         const ids = snapshots.map((snapshot) => snapshot.note.id);
         markNotesOptimisticallyPurged(ids, set, get);
-        for (const id of ids) {
-            if (!(await saveDirtyBeforeDestructiveMutation(id, set, get))) {
-                restoreOptimisticallyPurgedNotes(snapshots, set, get);
-                restoreWorkspaceState(workspaceBefore);
-                useUi.getState().toast({
-                    title: t("notes.permanent_deletion_was_canceled_because_the_note_body_is_not_safely_sync"),
-                    tone: 'warning',
-                });
-                return null;
-            }
+        try {
+            await get().flush({ immediate: true });
+        } catch {
+            restoreOptimisticallyPurgedNotes(snapshots, set, get);
+            restoreWorkspaceState(workspaceBefore);
+            toastError(new Error(t("notes.permanent_deletion_was_canceled_because_the_note_body_is_not_safely_sync")), t("common.action_failed"));
+            return null;
+        }
+        const remaining = await localDb.getOutbox();
+        if (remaining.some((item) => item.entity === 'note' && ids.includes(item.entityId))) {
+            restoreOptimisticallyPurgedNotes(snapshots, set, get);
+            restoreWorkspaceState(workspaceBefore);
+            useUi.getState().toast({
+                title: t("notes.permanent_deletion_was_canceled_because_the_note_body_is_not_safely_sync"),
+                tone: 'warning',
+            });
+            return null;
         }
         try {
             const result = await api.notes.emptyTrash();
@@ -3002,7 +3009,7 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                 else
                     adoptNote(saved, set, get);
                 if (typeof title === 'string')
-                    void get().pull({ force: true });
+                    void get().pull().catch(() => { });
                 await advanceDependentOutboxWrites(
                     item.entityId,
                     item.writeId,
@@ -3893,15 +3900,20 @@ function restoreWorkspaceState(snapshot: ReturnType<typeof captureWorkspaceState
  * saved in the same instant still resolve the same way on every load. A capture that writes into the
  * winner keeps it the winner, so repeated runs do not move between copies.
  */
+let titleIndexCache: { source: Record<string, NoteSummary>; index: Map<string, NoteSummary> } | null = null;
+
 export function findNoteByTitle(title: string): NoteSummary | undefined {
-    const key = normalizeLinkKey(title);
-    let best: NoteSummary | undefined;
-    for (const note of Object.values(useNotes.getState().notes))
-    {
-        if (note.deletedAt || normalizeLinkKey(note.title) !== key)
-            continue;
-        if (!best || note.updatedAt > best.updatedAt || (note.updatedAt === best.updatedAt && note.id < best.id))
-            best = note;
+    const notes = useNotes.getState().notes;
+    if (titleIndexCache?.source !== notes) {
+        const index = new Map<string, NoteSummary>();
+        for (const note of Object.values(notes)) {
+            if (note.deletedAt || note.isEncrypted) continue;
+            const key = normalizeLinkKey(note.title);
+            const best = index.get(key);
+            if (!best || note.updatedAt > best.updatedAt || (note.updatedAt === best.updatedAt && note.id < best.id))
+                index.set(key, note);
+        }
+        titleIndexCache = { source: notes, index };
     }
-    return best;
+    return titleIndexCache.index.get(normalizeLinkKey(title));
 }

@@ -58,6 +58,11 @@ import { EditorContextMenu } from '../workspace/context-menu/EditorContextMenu'
 import { detectPreviewContext } from '../workspace/context-menu/detect-preview'
 import { useLongPress } from '../workspace/context-menu/use-long-press'
 import type { ContextMenuHost, PreviewContext } from '../workspace/context-menu/types'
+
+const PREVIEW_LARGE_DOCUMENT_CHARS = 200_000
+const PREVIEW_VERY_LARGE_DOCUMENT_CHARS = 1_000_000
+const PREVIEW_LARGE_DOCUMENT_DELAY_MS = 400
+const PREVIEW_VERY_LARGE_DOCUMENT_DELAY_MS = 1000
 import { TableBubbleLayer } from './table-bubble/TableBubbleLayer'
 import { useTableBubble } from './table-bubble/use-table-bubble'
 import { joinLines, splitLines } from '../../lib/markdown/fence-edit'
@@ -136,7 +141,12 @@ export const Preview = memo(function Preview({
   const tabScope = useMemo(() => ({ noteId: sourceNoteId ?? null, userId: userId ?? null }), [sourceNoteId, userId])
 
 
-  const debounced = useDebounced(content, DEBOUNCE.render)
+  const renderDelay = content.length > PREVIEW_VERY_LARGE_DOCUMENT_CHARS
+    ? PREVIEW_VERY_LARGE_DOCUMENT_DELAY_MS
+    : content.length > PREVIEW_LARGE_DOCUMENT_CHARS
+      ? PREVIEW_LARGE_DOCUMENT_DELAY_MS
+      : DEBOUNCE.render
+  const debounced = useDebounced(content, renderDelay)
   const emojiVersion = useEmojiUnicodeVersion()
   const rendered = useMemo(() => renderMarkdown(debounced, { hideFrontMatter: true, emojiShortcodes: preview.emojiShortcodes }), [debounced, locale, preview.emojiShortcodes, emojiVersion])
   const embedContextTitle = rendered.hasEmbeds ? currentTitle : ''
