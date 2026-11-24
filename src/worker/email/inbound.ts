@@ -17,6 +17,7 @@
  * and a repeated delivery finds the claim and stops. A message without a Message-ID falls back to a
  * digest of its raw bytes, which is stable across a retry of the same delivery.
  */
+import PostalMime from 'postal-mime'
 import { MAX_TASK_DESCRIPTION_CHARS } from '@shared/todos/model'
 import { AssistantStore } from '../assistant/store'
 import { initializeDatabase } from '../db/schema'
@@ -61,9 +62,6 @@ const DOMAIN_LABEL = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?'
 
 /** A bare hostname made of at least two labels; no scheme, port, path or trailing dot survives. */
 const DOMAIN_RE = new RegExp(`^(?:${DOMAIN_LABEL}\\.)+${DOMAIN_LABEL}$`)
-
-/** RFC 2047 encoded words, the form a non-ASCII subject arrives in. */
-const ENCODED_WORD_RE = /=\?([^?\s]+)\?([bBqQ])\?([^?\s]*)\?=/g
 
 /** A fresh address token. Uniform because 256 is a multiple of the 32-symbol alphabet. */
 export function newMailToken(): string {
@@ -134,17 +132,9 @@ export interface InboundMailContent {
   text: string
 }
 
-/**
- * Read a whole RFC 822 message into the two fields a task keeps.
- *
- * The raw bytes are held as a binary string — one character per byte — rather than decoded as UTF-8
- * first: each part carries its own charset, and decoding the envelope as UTF-8 would corrupt a
- * single-part body in another encoding before its part could be read.
- */
-export function parseInboundMail(raw: Uint8Array): InboundMailContent {
-  const root = parsePart(binaryString(raw))
-  const subject = decodeHeaderWords(root.headers.get('subject') ?? '')
-  return { subject, text: plainTextOf(root) ?? '' }
+export async function parseInboundMail(raw: Uint8Array): Promise<InboundMailContent> {
+  const parsed = await PostalMime.parse(raw)
+  return { subject: parsed.subject ?? '', text: parsed.text ?? '' }
 }
 
 /** What the handler did with one delivery; the tests read it, production logs only the failures. */
@@ -202,7 +192,7 @@ export async function handleInboundMail(message: ForwardableEmailMessage, env: E
 
   let content: InboundMailContent
   try {
-    content = parseInboundMail(raw)
+    content = await parseInboundMail(raw)
   } catch (error) {
     console.error('[inkstone] inbound mail dropped: the message could not be parsed', error)
     return 'dropped'
@@ -279,241 +269,4 @@ async function readRaw(stream: ReadableStream<Uint8Array>): Promise<Uint8Array |
     offset += chunk.byteLength
   }
   return raw
-}
-
-// ------------------------------------------------------------------- MIME reading
-
-interface MimePart {
-  /** Header names lowercased; the first of a repeated name wins. */
-  headers: Map<string, string>
-  /** The part's body as a binary string, still transfer-encoded. */
-  body: string
-}
-
-/** Decode bytes one-to-one into code units, so no encoding is guessed before a part announces one. */
-function binaryString(bytes: Uint8Array): string {
-  const chunk = 0x8000
-  let out = ''
-  for (let index = 0; index < bytes.length; index += chunk) {
-    out += String.fromCharCode(...bytes.subarray(index, index + chunk))
-  }
-  return out
-}
-
-/** The bytes behind a binary string, for the charset decoder. */
-function latin1Bytes(value: string): Uint8Array {
-  const bytes = new Uint8Array(value.length)
-  for (let index = 0; index < value.length; index++) bytes[index] = value.charCodeAt(index) & 0xff
-  return bytes
-}
-
-/** Split a part at its empty line; a raw message is the root part and follows the same rule. */
-function splitHeadAndBody(raw: string): [head: string, body: string] {
-  const crlf = raw.indexOf('\r\n\r\n')
-  if (crlf >= 0) return [raw.slice(0, crlf), raw.slice(crlf + 4)]
-  const lf = raw.indexOf('\n\n')
-  if (lf >= 0) return [raw.slice(0, lf), raw.slice(lf + 2)]
-  return [raw, '']
-}
-
-function parsePart(raw: string): MimePart {
-  if (raw.startsWith('\r\n')) return { headers: new Map(), body: raw.slice(2) }
-  if (raw.startsWith('\n')) return { headers: new Map(), body: raw.slice(1) }
-  const [head, body] = splitHeadAndBody(raw)
-  return { headers: parseHeaders(head), body }
-}
-
-/** Folded header lines are unfolded into one value; an unparsable line is skipped, not fatal. */
-function parseHeaders(block: string): Map<string, string> {
-  const headers = new Map<string, string>()
-  let name = ''
-  let value = ''
-  const flush = (): void => {
-    if (!name) return
-    if (!headers.has(name)) headers.set(name, value)
-    name = ''
-    value = ''
-  }
-  for (const rawLine of block.split('\n')) {
-    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
-    if (line.startsWith(' ') || line.startsWith('\t')) {
-      if (name) value += ` ${line.trim()}`
-      continue
-    }
-    flush()
-    const colon = line.indexOf(':')
-    if (colon <= 0) continue
-    name = line.slice(0, colon).trim().toLowerCase()
-    value = line.slice(colon + 1).trim()
-  }
-  flush()
-  return headers
-}
-
-/** A media type and its parameters, with quoted values unescaped and names lowercased. */
-function parseContentType(value: string | undefined): { type: string; params: Record<string, string> } {
-  const pieces = splitParameters(value ?? '')
-  const type = (pieces.shift() ?? '').trim().toLowerCase()
-  const params: Record<string, string> = {}
-  for (const piece of pieces) {
-    const equals = piece.indexOf('=')
-    if (equals <= 0) continue
-    const key = piece.slice(0, equals).trim().toLowerCase()
-    let entry = piece.slice(equals + 1).trim()
-    if (entry.startsWith('"') && entry.endsWith('"')) entry = entry.slice(1, -1).replace(/\\(.)/g, '$1')
-    if (key) params[key] = entry
-  }
-  return { type, params }
-}
-
-/** Split a header value on `;`, keeping a semicolon inside a quoted parameter. */
-function splitParameters(value: string): string[] {
-  const pieces: string[] = []
-  let current = ''
-  let quoted = false
-  for (let index = 0; index < value.length; index++) {
-    const char = value[index]!
-    if (quoted) {
-      current += char
-      if (char === '\\' && index + 1 < value.length) current += value[++index]!
-      else if (char === '"') quoted = false
-    } else if (char === '"') {
-      quoted = true
-      current += char
-    } else if (char === ';') {
-      pieces.push(current)
-      current = ''
-    } else {
-      current += char
-    }
-  }
-  pieces.push(current)
-  return pieces
-}
-
-/** Every part of a multipart body, in order; the preamble and epilogue are not parts. */
-function splitMultipart(body: string, boundary: string): MimePart[] {
-  const marker = `--${boundary}`
-  const closing = `${marker}--`
-  const parts: string[] = []
-  let current: string[] | null = null
-  for (const rawLine of body.split('\n')) {
-    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
-    const trimmed = line.trimEnd()
-    if (trimmed === marker) {
-      if (current) parts.push(current.join('\n'))
-      current = []
-      continue
-    }
-    if (trimmed === closing) {
-      if (current) parts.push(current.join('\n'))
-      current = null
-      break
-    }
-    if (current) current.push(line)
-  }
-  if (current) parts.push(current.join('\n'))
-  return parts.map(parsePart)
-}
-
-/**
- * The first plain-text body in a part tree.
- *
- * A multipart/alternative is walked in wire order and the first text/plain wins, which is the part
- * a mail client put first for a reason; text/html is skipped rather than stripped. A part marked
- * `Content-Disposition: attachment` is never a body, even when it is text/plain — that is the
- * text file somebody attached, not the message they wrote.
- */
-function plainTextOf(part: MimePart): string | null {
-  const { type, params } = parseContentType(part.headers.get('content-type'))
-  const disposition = (part.headers.get('content-disposition') ?? '').trim().toLowerCase()
-  if (disposition.startsWith('attachment')) return null
-  if (type.startsWith('multipart/')) {
-    const boundary = params.boundary
-    if (!boundary) return null
-    for (const child of splitMultipart(part.body, boundary)) {
-      const text = plainTextOf(child)
-      if (text !== null) return text
-    }
-    return null
-  }
-  if (type === '' || type === 'text/plain') return decodeTextPart(part)
-  return null
-}
-
-/** A text part as text: transfer encoding first, then the charset the part declared. */
-function decodeTextPart(part: MimePart): string {
-  const encoding = (part.headers.get('content-transfer-encoding') ?? '').trim().toLowerCase()
-  const bytes = encoding === 'base64'
-    ? base64Bytes(part.body)
-    : encoding === 'quoted-printable'
-      ? quotedPrintableBytes(part.body)
-      : latin1Bytes(part.body)
-  const charset = parseContentType(part.headers.get('content-type')).params.charset
-  return decodeBytes(bytes, charset)
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .trim()
-}
-
-/** Decode with the declared charset, falling back to UTF-8 for a label the runtime cannot read. */
-function decodeBytes(bytes: Uint8Array, charset: string | undefined): string {
-  const label = (charset ?? '').trim().replace(/^["']|["']$/g, '').toLowerCase() || 'utf-8'
-  try {
-    return new TextDecoder(label).decode(bytes)
-  } catch {
-    return new TextDecoder().decode(bytes)
-  }
-}
-
-/** RFC 2047 encoded words; whitespace between two adjacent words is not content. */
-function decodeHeaderWords(value: string): string {
-  let out = ''
-  let last = 0
-  let previousEnd = -1
-  for (const match of value.matchAll(ENCODED_WORD_RE)) {
-    const start = match.index ?? 0
-    const between = value.slice(last, start)
-    if (previousEnd !== last || !/^\s*$/.test(between)) out += between
-    out += decodeEncodedWord(match[1] ?? '', match[2] ?? '', match[3] ?? '')
-    last = start + match[0].length
-    previousEnd = last
-  }
-  return out + value.slice(last)
-}
-
-function decodeEncodedWord(charset: string, encoding: string, text: string): string {
-  const bytes = encoding.toUpperCase() === 'B'
-    ? base64Bytes(text)
-    : quotedPrintableBytes(text.replace(/_/g, ' '))
-  return decodeBytes(bytes, charset.split('*')[0])
-}
-
-/** Base64 to bytes; malformed input yields nothing rather than the decoder's exception. */
-function base64Bytes(value: string): Uint8Array {
-  try {
-    const binary = atob(value.replace(/\s+/g, ''))
-    const bytes = new Uint8Array(binary.length)
-    for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
-    return bytes
-  } catch {
-    return new Uint8Array()
-  }
-}
-
-/** Quoted-printable to bytes, with soft line breaks removed before the `=XX` escapes are read. */
-function quotedPrintableBytes(value: string): Uint8Array {
-  const text = value.replace(/=\r?\n/g, '')
-  const out: number[] = []
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index]!
-    const hex = text.slice(index + 1, index + 3)
-    if (char === '=' && /^[0-9A-Fa-f]{2}$/.test(hex)) {
-      out.push(Number.parseInt(hex, 16))
-      index += 2
-    } else {
-      out.push(text.charCodeAt(index) & 0xff)
-    }
-  }
-  return Uint8Array.from(out)
 }
