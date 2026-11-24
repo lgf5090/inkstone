@@ -4,6 +4,8 @@ import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { errorResponse } from '../src/worker/lib/errors'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import { backfillNoteProperties } from '../src/worker/db/note-properties'
+import { buildNoteDerivedStatements } from '../src/worker/db/writes'
 import { notesRoutes } from '../src/worker/routes/notes'
 import { searchUserNotes } from '../src/worker/search/service'
 import type { AppBindings } from '../src/worker/env'
@@ -112,6 +114,53 @@ describe('tag expressions in the search grammar', () => {
     link('n-fifty', 't-fifty')
     expect(hitIds(await search('tag:50%'))).toEqual(['n-percent', 'n-percent-child'])
     expect(hitIds(await search('-tag:50%'))).toEqual(['n-both', 'n-fifty', 'n-job', 'n-meeting', 'n-plain', 'n-work'])
+  })
+
+  it('unions OR branches without duplicating a note that matches both', async () => {
+    expect(hitIds(await search('tag:work OR tag:job'))).toEqual(['n-both', 'n-job', 'n-meeting', 'n-work'])
+    expect(hitIds(await search('n-plain OR tag:work'))).toEqual(['n-both', 'n-meeting', 'n-plain', 'n-work'])
+  })
+
+  it('filters created and updated dates with inclusive and exclusive bounds', async () => {
+    const day = Date.UTC(2026, 0, 1)
+    sqlite.prepare('UPDATE notes SET created_at = ?, updated_at = ? WHERE id = ?').run(day, day + 1000, 'n-work')
+    sqlite.prepare('UPDATE notes SET created_at = ?, updated_at = ? WHERE id = ?').run(day + 86_400_000, day + 86_400_000 + 2000, 'n-job')
+    expect(hitIds(await search('created:2026-01-01'))).toEqual(['n-work'])
+    expect(hitIds(await search('created:>=2026-01-02'))).toEqual(['n-job'])
+    expect(hitIds(await search('updated:>2026-01-01'))).toEqual(['n-job'])
+    expect(hitIds(await search('updated:<=2026-01-01'))).toEqual(['n-both', 'n-meeting', 'n-plain', 'n-work'])
+    expect(hitIds(await search('created:!=2026-01-01'))).toEqual(['n-both', 'n-job', 'n-meeting', 'n-plain'])
+  })
+
+  it('backfills front matter properties and filters them without scanning note bodies', async () => {
+    note('n-active', '---\nstatus: active\nrating: 4\naliases: [alpha, beta]\n---\nbody active')
+    note('n-draft', '---\nstatus: draft\nrating: 2\n---\nbody draft')
+    await backfillNoteProperties(env.DB)
+    expect(hitIds(await search('property:status=active'))).toEqual(['n-active'])
+    expect(hitIds(await search('property:status'))).toEqual(['n-active', 'n-draft'])
+    expect(hitIds(await search('property:status!=active'))).toEqual(['n-draft'])
+    expect(hitIds(await search('property:aliases=beta property:rating=4'))).toEqual(['n-active'])
+  })
+
+  it('replaces derived property rows whenever a note body changes', async () => {
+    const draft = '---\nstatus: draft\n---\nbody'
+    note('n-write', draft)
+    const derive = async (content: string) => {
+      const built = buildNoteDerivedStatements({
+        db: env.DB,
+        userId: USER,
+        noteId: 'n-write',
+        title: 'n-write',
+        content,
+        ftsEnabled: false,
+      })
+      await env.DB.batch(built.statements)
+    }
+    await derive(draft)
+    expect(hitIds(await search('property:status=draft'))).toEqual(['n-write'])
+    await derive('---\nstatus: active\n---\nbody')
+    expect(hitIds(await search('property:status=draft'))).toEqual([])
+    expect(hitIds(await search('property:status=active'))).toEqual(['n-write'])
   })
 
   it('agrees with the note-list tag view for the same fixture', async () => {

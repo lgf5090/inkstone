@@ -39,7 +39,7 @@
 
 import { LIMITS } from '@shared/constants'
 import { likePattern, segmentCJK } from '@shared/markdown-utils'
-import type { ParsedQuery } from '@shared/search-query'
+import type { NoteDateFilter, ParsedQuery } from '@shared/search-query'
 import { NOTE_COLUMNS, tagScopePredicate, type NoteRow } from '../db/rows'
 
 /** Edge candidates one graph page may carry; one past this is the truncation signal. */
@@ -504,10 +504,71 @@ export class SearchStore {
   }
 }
 
+function applyDateFilter(
+  filter: NoteDateFilter | null,
+  column: string,
+  binds: unknown[],
+  append: (clause: string) => void,
+): void {
+  if (!filter) return
+  const bind = (value = filter.time) => {
+    binds.push(value)
+    return `?${binds.length}`
+  }
+  if (filter.operator === '=') {
+    const from = bind()
+    if (filter.end === undefined) append(` AND ${column} = ${from}`)
+    else {
+      binds.push(filter.end)
+      append(` AND ${column} >= ${from} AND ${column} < ?${binds.length}`)
+    }
+    return
+  }
+  if (filter.operator === '!=') {
+    const from = bind()
+    if (filter.end === undefined) append(` AND ${column} != ${from}`)
+    else {
+      binds.push(filter.end)
+      append(` AND (${column} < ${from} OR ${column} >= ?${binds.length})`)
+    }
+    return
+  }
+  if (filter.operator === '>' && filter.end !== undefined) {
+    const from = bind(filter.end)
+    append(` AND ${column} >= ${from}`)
+    return
+  }
+  if (filter.operator === '<=' && filter.end !== undefined) {
+    const from = bind(filter.end)
+    append(` AND ${column} < ${from}`)
+    return
+  }
+  const value = bind()
+  append(` AND ${column} ${filter.operator} ${value}`)
+}
+
 function applyFilters(q: ParsedQuery, binds: unknown[], userIdParam: number, append: (clause: string) => void): void {
   if (q.starred === true) append(' AND n.is_starred = 1')
   if (q.archived === true) append(' AND n.is_archived = 1')
   else if (q.archived === false) append(' AND n.is_archived = 0')
+  applyDateFilter(q.created, 'n.created_at', binds, append)
+  applyDateFilter(q.updated, 'n.updated_at', binds, append)
+  for (const property of q.properties) {
+    binds.push(property.key.toLocaleLowerCase())
+    const keyBind = binds.length
+    const keyExists = `EXISTS (SELECT 1 FROM note_properties np
+      WHERE np.user_id = n.user_id AND np.note_id = n.id AND np.key_key = ?${keyBind})`
+    if (property.operator === 'exists') {
+      append(` AND ${keyExists}`)
+      continue
+    }
+    binds.push(property.value ?? '')
+    const valueBind = binds.length
+    const valueExists = `EXISTS (SELECT 1 FROM note_properties np
+      WHERE np.user_id = n.user_id AND np.note_id = n.id AND np.key_key = ?${keyBind}
+        AND np.value_text = ?${valueBind} COLLATE NOCASE)`
+    append(property.operator === '!=' ? ` AND ${keyExists} AND NOT ${valueExists}` : ` AND ${valueExists}`)
+  }
 
   // Both halves stay in step with the note-list route's `tag` / `excludeTag` params and with
   // tagInScope(): a search for a parent also means its subtree, otherwise the sidebar count and

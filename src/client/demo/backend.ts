@@ -10,7 +10,8 @@ import { DEFAULT_INKNOTE_SETTINGS } from '@shared/inknote/constants'
 import { applyLibraryPatch, parseRssPatch } from '@shared/rss/patch'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { applyTagNodes } from '@shared/graph-tag-nodes'
-import { parseQuery } from '@shared/search-query'
+import { matchesNoteDate, parseQueryBranches } from '@shared/search-query'
+import { indexNoteProperties } from '@shared/note-properties'
 import { tagKey } from '@shared/markdown-utils'
 import {
   deriveExcerpt,
@@ -711,31 +712,46 @@ export function createDemoBackend(): DemoBackend {
 
   app.get('/api/search', (c) => {
     const started = performance.now()
-    const query = parseQuery((c.req.query('q') ?? '').trim())
+    const branches = parseQueryBranches((c.req.query('q') ?? '').trim())
     const limit = Math.max(1, Math.min(100, Number(c.req.query('limit')) || 50))
-    const folderIds = query.folder
-      ? folderDescendants(state, [...state.folders.values()].find((folder) => tagKey(folder.name) === tagKey(query.folder!))?.id ?? '__none__')
-      : null
     const matched = [...state.notes.values()]
-      .filter((note) => {
+      .filter((note) => branches.some((query) => {
         const haystack = `${note.title}\n${note.content}`.toLocaleLowerCase()
         if (!query.terms.every((term) => haystack.includes(term.toLocaleLowerCase()))) return false
         if (!notesCarryEveryTag(note.tags, query.tags)) return false
         if (notesCarryAnyTag(note.tags, query.excludedTags)) return false
+        const folderIds = query.folder
+          ? folderDescendants(state, [...state.folders.values()].find((folder) => tagKey(folder.name) === tagKey(query.folder!))?.id ?? '__none__')
+          : null
         if (folderIds && !folderIds.has(note.folderId ?? '')) return false
         if (query.starred === true && !note.isStarred) return false
         if (query.archived === true && !note.isArchived) return false
         if (query.archived === false && note.isArchived) return false
         if (query.trash ? note.deletedAt === null : note.deletedAt !== null) return false
+        if (query.created && !matchesNoteDate(note.createdAt, query.created)) return false
+        if (query.updated && !matchesNoteDate(note.updatedAt, query.updated)) return false
+        if (query.properties.length) {
+          const properties = indexNoteProperties(note.content)
+          for (const filter of query.properties) {
+            const values = properties.filter((row) => row.keyKey === filter.key.toLocaleLowerCase())
+            if (filter.operator === 'exists') {
+              if (!values.length) return false
+            }
+            else if (filter.operator === '=') {
+              if (!values.some((row) => row.text?.toLocaleLowerCase() === filter.value?.toLocaleLowerCase())) return false
+            }
+            else if (!values.length || values.some((row) => row.text?.toLocaleLowerCase() === filter.value?.toLocaleLowerCase())) return false
+          }
+        }
         return true
-      })
+      }))
       .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
       .slice(0, limit)
     const response: SearchResponse = {
       results: matched.map((note) => ({ note: summarize(note), snippet: deriveExcerpt(note.content, 140), score: 1 })),
       mode: 'like',
       took: Math.max(0, performance.now() - started),
-      query,
+      query: branches[0]!,
     }
     return c.json(response)
   })

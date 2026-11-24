@@ -11,7 +11,7 @@
 import { toPlainText, wikiNoteTarget } from '@shared/markdown-utils'
 import { sliceText, truncateText } from '@shared/text-utils'
 import { applyTagNodes } from '@shared/graph-tag-nodes'
-import { parseQuery, type ParsedQuery } from '@shared/search-query'
+import { parseQueryBranches, type ParsedQuery } from '@shared/search-query'
 import type { GraphResponse, SearchDocumentItem, SearchDocumentsResponse, SearchHit } from '@shared/types'
 import { toNoteSummary, type NoteRow } from '../db/rows'
 import { GRAPH_EDGE_CANDIDATE_LIMIT, SearchStore, buildFtsQuery, encodeGraphCursor, type GraphLinkDirection } from './store'
@@ -29,9 +29,33 @@ export async function searchUserNotes(
   limit: number,
   ftsEnabled: boolean,
 ): Promise<UserSearchResult> {
+  const source = truncateText(raw.trim(), 512)
+  const branches = parseQueryBranches(source)
+  if (!source) return { results: [], mode: ftsEnabled ? 'fts' : 'like', query: branches[0]! }
+  if (branches.length === 1) return searchUserNotesBranch(db, userId, branches[0]!, limit, ftsEnabled)
+  const pages = await Promise.all(branches.map((query) =>
+    searchUserNotesBranch(db, userId, query, limit, ftsEnabled)))
+  const merged = new Map<string, SearchHit>()
+  for (const page of pages) {
+    for (const hit of page.results) {
+      const previous = merged.get(hit.note.id)
+      if (!previous || hit.score > previous.score) merged.set(hit.note.id, hit)
+    }
+  }
+  const results = [...merged.values()]
+    .sort((left, right) => right.score - left.score || right.note.updatedAt - left.note.updatedAt || left.note.id.localeCompare(right.note.id))
+    .slice(0, limit)
+  return { results, mode: pages[0]?.mode ?? (ftsEnabled ? 'fts' : 'like'), query: branches[0]! }
+}
+
+async function searchUserNotesBranch(
+  db: D1Database,
+  userId: string,
+  query: ParsedQuery,
+  limit: number,
+  ftsEnabled: boolean,
+): Promise<UserSearchResult> {
   const store = new SearchStore(db, userId)
-  const query = parseQuery(truncateText(raw.trim(), 512))
-  if (!raw.trim()) return { results: [], mode: ftsEnabled ? 'fts' : 'like', query }
 
   // Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose
   // note is not live, so an in:trash query has nothing left in notes_fts to match against;

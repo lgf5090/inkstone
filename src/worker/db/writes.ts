@@ -1,5 +1,6 @@
 /** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */
 import { countText, deriveExcerpt, extractTags, extractWikiLinks, normalizeLinkKey } from '@shared/markdown-utils'
+import { indexNoteProperties, notePropertyRowsJson } from '@shared/note-properties'
 import { newId } from '../lib/id'
 
 
@@ -155,6 +156,7 @@ export function buildNoteDerivedStatements(
   const links = extractWikiLinks(content)
   const tagRows = JSON.stringify(tagNames.map((name) => ({ id: newId(), name })))
   const linkRows = JSON.stringify(links.map((link) => ({ key: link.key, target: link.target })))
+  const propertyRows = notePropertyRowsJson(opts.deleted ? [] : indexNoteProperties(content))
   const statements: D1PreparedStatement[] = []
   const guarded = opts.expectedRev !== undefined ||
     opts.expectedContentHash !== undefined ||
@@ -236,6 +238,27 @@ export function buildNoteDerivedStatements(
          ON CONFLICT DO NOTHING`,
       )
       .bind(noteId, tagRows, userId, ...guardValues),
+  )
+
+  statements.push(
+    db
+      .prepare(
+        `DELETE FROM note_properties WHERE user_id = ?1 AND note_id = ?2
+          AND ${shiftSqlPlaceholders(guard, 2)}`,
+      )
+      .bind(userId, noteId, ...guardValues),
+    db
+      .prepare(
+        `INSERT INTO note_properties
+          (user_id, note_id, key, key_key, ordinal, kind, value_text, value_number, value_boolean, value_date)
+         SELECT ?1, ?2, json_extract(value, '$.key'), json_extract(value, '$.keyKey'),
+                json_extract(value, '$.ordinal'), json_extract(value, '$.kind'),
+                json_extract(value, '$.text'), json_extract(value, '$.number'),
+                json_extract(value, '$.boolean'), json_extract(value, '$.date')
+           FROM json_each(?3)
+          WHERE ${shiftSqlPlaceholders(guard, 3)}`,
+      )
+      .bind(userId, noteId, propertyRows, ...guardValues),
   )
 
   statements.push(

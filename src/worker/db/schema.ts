@@ -250,6 +250,7 @@ import {
   PROJECT_REQUIRED_INDEXES,
   PROJECT_REQUIRED_TABLES,
 } from '../project/schema'
+import { backfillNoteProperties } from './note-properties'
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
   target_id TEXT NOT NULL,
@@ -461,6 +462,23 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (note_id, tag_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag_id)`,
+
+  `CREATE TABLE IF NOT EXISTS note_properties (
+    user_id TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    key_key TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    value_text TEXT,
+    value_number REAL,
+    value_boolean INTEGER,
+    value_date INTEGER,
+    PRIMARY KEY (user_id, note_id, key_key, ordinal)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_note_properties_lookup
+     ON note_properties(user_id, key_key, value_text)`,
+  `CREATE INDEX IF NOT EXISTS idx_note_properties_note ON note_properties(note_id)`,
 
   `CREATE TABLE IF NOT EXISTS links (
     source_note_id TEXT NOT NULL,
@@ -4582,6 +4600,27 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX idx_attachments_note ON attachments(note_id, created_at DESC, id DESC)`,
     ],
   },
+  {
+    version: 422,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS note_properties (
+        user_id TEXT NOT NULL,
+        note_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        key_key TEXT NOT NULL,
+        ordinal INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        value_text TEXT,
+        value_number REAL,
+        value_boolean INTEGER,
+        value_date INTEGER,
+        PRIMARY KEY (user_id, note_id, key_key, ordinal)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_note_properties_lookup
+         ON note_properties(user_id, key_key, value_text)`,
+      `CREATE INDEX IF NOT EXISTS idx_note_properties_note ON note_properties(note_id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -4609,6 +4648,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   notes: ['id', 'user_id', 'folder_id', 'title', 'title_key', 'content', 'excerpt', 'rev', 'word_count', 'char_count', 'is_pinned', 'is_starred', 'is_archived', 'is_encrypted', 'position', 'content_hash', 'created_at', 'updated_at', 'deleted_at'],
   tags: ['id', 'user_id', 'name', 'color', 'is_manual', 'created_at'],
   note_tags: ['note_id', 'tag_id'],
+  note_properties: ['user_id', 'note_id', 'key', 'key_key', 'ordinal', 'kind', 'value_text', 'value_number', 'value_boolean', 'value_date'],
   links: ['source_note_id', 'target_key', 'target_title', 'target_note_id', 'user_id'],
   note_versions: ['id', 'note_id', 'user_id', 'title', 'content', 'size', 'created_at'],
   attachments: ['id', 'user_id', 'scope', 'note_id', 'folder_id', 'filename', 'mime', 'size', 'sha256', 'object_key', 'width', 'height', 'is_starred', 'is_pinned', 'tags', 'storage', 'created_at'],
@@ -4683,6 +4723,7 @@ export const REQUIRED_TABLES = [
   'notes',
   'tags',
   'note_tags',
+  'note_properties',
   'links',
   'note_versions',
   'attachments',
@@ -4772,6 +4813,8 @@ export const REQUIRED_INDEXES = [
   'idx_tags_unique',
   'idx_tags_name_nocase',
   'idx_note_tags_tag',
+  'idx_note_properties_lookup',
+  'idx_note_properties_note',
   'idx_links_target',
   'idx_links_target_note',
   'idx_links_user_target',
@@ -4915,6 +4958,7 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
   // table since before any version number was spent on it.
   await migrateTaskReminders(db)
   await applyMigrations(db)
+  await backfillNoteProperties(db)
   await repairReaderBookTenantKey(db)
   await migrateTaskTable(db)
   await migrateTodoDayColumns(db)
