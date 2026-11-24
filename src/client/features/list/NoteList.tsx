@@ -1,7 +1,7 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { PenLine } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, BookOpen, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, Lock, MoreHorizontal, Network, Newspaper, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Sparkles, Star, StarOff, Trash2, Undo2, X, Zap, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, BookOpen, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, Lock, MoreHorizontal, Network, Newspaper, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Sparkles, Star, StarOff, Tag, Trash2, Undo2, X, Zap, } from 'lucide-react';
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import { isInkNoteTitle } from '../../lib/inkpad/document';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
@@ -17,7 +17,7 @@ import { matches, prettyCombo } from '../../lib/hotkeys';
 import { exportNoteAsHtml, exportNoteAsMarkdown, exportNoteAsPdf } from '../../lib/export-note';
 import { Button, IconButton, Logo } from '../../components/primitives';
 import { FilterInput } from '../../components/FilterInput';
-import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
+import { Menu, Tooltip, confirm, prompt, useContextMenu, type MenuItem } from '../../components/overlay';
 import { Empty, NoteListSkeleton } from '../../components/feedback';
 import { useUi } from '../../store/ui';
 import { startChatAboutNote } from '../chat/start-chat';
@@ -37,6 +37,7 @@ import { OmnisearchEntry } from '../omnisearch/OmnisearchEntry';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
 import { removeTagFromNote } from '../tags/tagMutations';
+import { addTagToNoteContent } from '../tags/bulk-tag';
 import { blogStatusKey, useBlogNoteStatus } from '../blog/status';
 import { pinyinIsLoaded, usePinyinVersion, warmPinyinKeys } from '../../lib/pinyin'
 
@@ -772,8 +773,12 @@ function BulkBar() {
     const deleteNote = useNotes((s) => s.deleteNote);
     const folders = useNotes((s) => s.folders);
     const notes = useNotes((s) => s.notes);
+    const tags = useNotes((s) => s.tags);
+    const editRemoteContent = useNotes((s) => s.editRemoteContent);
     const toast = useUi((s) => s.toast);
     const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+    const [tagMenuOpen, setTagMenuOpen] = useState(false);
+    const tagButtonRef = useRef<HTMLButtonElement>(null);
     const busyRef = useRef(false);
     const [busy, setBusy] = useState(false);
     const ids = selectedIds.filter((id) => notes[id]);
@@ -810,6 +815,44 @@ function BulkBar() {
             setBusy(false);
         }
     };
+    const applyTag = (rawTag: string) => {
+        const tag = rawTag.trim().replace(/^#/, '').trim();
+        if (!tag) return;
+        void runAll(async () => {
+            let written = 0;
+            let skipped = 0;
+            for (let offset = 0; offset < ids.length; offset += BULK_CONCURRENCY) {
+                const outcomes = await Promise.all(ids.slice(offset, offset + BULK_CONCURRENCY).map((id) =>
+                    editRemoteContent(id, (content) => {
+                        const next = addTagToNoteContent(content, tag);
+                        return next === content ? null : next;
+                    })));
+                written += outcomes.filter((outcome) => outcome === 'written').length;
+                skipped += outcomes.filter((outcome) => outcome !== 'written').length;
+            }
+            toast({
+                title: t('notes.bulk_tag_result', { value0: written, value1: skipped }),
+                tone: skipped ? 'warning' : 'success',
+            });
+            clear();
+        });
+    };
+    const tagItems: MenuItem[] = [
+        ...[...tags].sort((left, right) => left.name.localeCompare(right.name)).map((tag) => ({
+            id: `tag:${tag.id}`,
+            label: tag.name,
+            icon: <Tag size={13}/>,
+            onSelect: () => applyTag(tag.name),
+        })),
+        {
+            id: 'new-tag',
+            label: t('notes.bulk_tag_new'),
+            icon: <Plus size={13}/>,
+            separatorBefore: true,
+            onSelect: () => void prompt({ title: t('notes.bulk_tag_new'), placeholder: t('tags.new_placeholder') })
+                .then((name) => { if (name) applyTag(name) }),
+        },
+    ];
     return (<div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center pb-3">
       <div className="anim-rise pointer-events-auto flex items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 pl-3 shadow-[var(--shadow-pop)]">
         <span className="mr-1 text-[length:var(--text-11-5)] whitespace-nowrap text-[var(--text-secondary)]">{t("notes.selected")}<span className="tabular font-medium">{ids.length}</span>{t("notes.notes")}</span>
@@ -821,6 +864,11 @@ function BulkBar() {
         <Tooltip label={t("notes.move_to_folder")}>
           <IconButton label={t("notes.move_to_folder")} size="sm" disabled={busy} onClick={() => setFolderPickerOpen(true)}>
             <FolderInput size={13}/>
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={t("notes.bulk_tag")}>
+          <IconButton ref={tagButtonRef} label={t("notes.bulk_tag")} size="sm" disabled={busy} onClick={() => setTagMenuOpen(true)}>
+            <Tag size={13}/>
           </IconButton>
         </Tooltip>
         <Tooltip label={t("navigation.archive")}>
@@ -850,6 +898,7 @@ function BulkBar() {
         </Tooltip>
       </div>
 
+      <Menu anchor={tagButtonRef} open={tagMenuOpen} onClose={() => setTagMenuOpen(false)} items={tagItems} align="end" width={220}/>
       {folderPickerOpen && <FolderPicker open title={t("notes.move_to_folder")} folders={folders} currentId={commonFolderId} rootLabel={t("notes.remove_from_folder")} onSelect={(folderId) => void runAll(() => performAll((id) => patchNote(id, { folderId }), folderId ? t("notes.moved") : t("notes.moved_out")))} onClose={() => setFolderPickerOpen(false)}/>}
     </div>);
 }
