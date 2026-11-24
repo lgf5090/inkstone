@@ -42245,6 +42245,8 @@ const allowed = new Map([
     "/**\r\n   * Email Routing's inbound door: `u+<token>@<MAIL_DOMAIN>` becomes a task, a mailbox address is\r\n   * delivered to its owner's mailbox, and anything else is dropped.\r\n   *\r\n   * The handler is one call deep — routing, parsing, idempotency and the drops all live in\r\n   * `email/dispatch.ts` and the modules it calls, so the Worker entry stays a list of the platform's\r\n   * events. Nothing here answers the sender: an unknown recipient is dropped, not rejected, which is\r\n   * what keeps the address space from being enumerable through bounces.\r\n   */",
     "/**\r\n   * Icon conversion. The message only names the job; the consumer loads the rows itself so a\r\n   * redelivery after a crash picks up exactly the items that are still queued.\r\n   */",
     "/**\r\n * Which cron fires keep the whole-library drains.\r\n *\r\n * The minute pattern exists for the assistant's reminders. Running the queue drains on it too would\r\n * multiply work the deployment never asked for, so the drains are gated to the times they had before\r\n * the new pattern was added.\r\n */",
+    "// An Office backup is a copy under `office-backup/`: the metadata and snapshots in one JSON, the",
+    "// assets beside it. Once a day is enough for data that only changes when someone edits.",
   ]],
   ["src/worker/inknote/assets.ts", [
     "/**\n * Inknote's binary assets: object keys, upload validation, reference scans and the cleanup queue.\n *\n * Page JSON stays in D1; only bytes live in R2/KV. Every object key is generated here from an id the\n * server made, and every row query binds `user_id`, because a filename or note id supplied by a\n * client must never be able to name another account's object.\n */",
@@ -43374,6 +43376,15 @@ const allowed = new Map([
     "/**\n * How long an unused asset is kept before it is a GC candidate.\n *\n * The sweep only deletes what no current snapshot mentions, so the grace is about a file the reader\n * has not opened in months — not about avoiding a race with an editor that is open right now.\n */",
     "/** Every asset id a stored snapshot points at: images, PDFs and boards attachments share the shape. */",
     "/**\n * Deletes assets no live file refers to.\n *\n * Candidates are assets untouched for the grace period, bounded per run so an hour of the cron does\n * bounded work. References are read from the live snapshots of the owners involved, because the asset\n * table deliberately carries no back-reference — a snapshot is the only thing that knows what it shows.\n */",
+  ]],
+  ["src/worker/office/backup.ts", [
+    "/**\r\n * An Office backup is a plain copy under its own prefix: one `office.json` holding the metadata and the\r\n * current snapshot of every live file, plus the binary assets those snapshots show.\r\n *\r\n * The layout mirrors what the app already stores (`office/txt/*`, `office/asset/*`) rather than\r\n * inventing a container format: a restore reads `office.json` and puts the objects back under their\r\n * original keys, and a human can inspect either half without our code.\r\n */",
+    "/** How many bytes one backup may copy: a backup that cannot be restored inside a request is not one. */",
+    "/** The keys copied alongside `office.json`, in the order they were written. */",
+    "/** Every column the restore needs, taken as stored so a backup never has to reinterpret a row. */",
+    "/**\r\n * Writes one backup and returns where it landed.\r\n *\r\n * Files whose snapshot object is missing are still listed: the manifest says what the account held,\r\n * and a restore reports the gap instead of silently dropping a file.\r\n */",
+    "/** The daily sweep: one backup per account that holds Office files, bounded per fire. */",
+    "// One oversized account must not stop the others; the reason is logged for the operator.",
   ]],
   ["src/worker/office/schema.ts", [
     "/**\n * The office app's tables, declared where the boot can find them.\n *\n * Every table is new, so the statements are re-run idempotently on every boot instead of spending a\n * migration number: a database built by a parallel branch that used the same number still converges.\n * Columns added to a deployed table later belong in `SCHEMA_MIGRATIONS`.\n */",
@@ -51110,6 +51121,9 @@ const allowed = new Map([
   ]],
   ["tests/office-asset-retention.test.ts", [
     "/**\n * The asset sweep: an unreferenced asset goes, a referenced one stays, and a young one is left alone.\n *\n * Reference is read from the snapshot itself — the asset table has no back-reference — so the test\n * writes the same `/api/office/assets/<id>` shape an image node stores.\n */",
+  ]],
+  ["tests/office-backup.test.ts", [
+    "/**\n * One backup is a manifest plus the bytes it points at, written under its own stamp.\n *\n * The assertions read the objects back: a manifest that names a file whose bytes were never copied\n * would restore into a file that cannot open.\n */",
   ]],
   ["tests/office-folders.test.ts", [
     "/**\n * The office tree: folder hierarchy rules, tag families and revision trimming.\n *\n * These are the rules that keep a flat `parent_id` table from becoming a corrupt one — depth,\n * cycles, sibling names, promotion on delete — plus the `/` family rewrite that must not touch an\n * unrelated tag whose name merely starts with the same letters.\n */",

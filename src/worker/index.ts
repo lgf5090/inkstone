@@ -38,6 +38,7 @@ import { runScheduledSends } from './email/scheduled-send'
 import { runShortlinksRetention } from './tools/shortlinks/maintenance'
 import { runCompareRetention } from './tools/compare/retention'
 import { runOfficeAssetRetention } from './office/asset-retention'
+import { sweepOfficeBackups } from './office/backup'
 import { runDueCloudflareTasks } from './cloudflare/tasks'
 import { runDueCloudDriveJobs } from './clouddrive/routes-jobs'
 import { resumeCloudDriveIndexTasks } from './clouddrive/routes-admin'
@@ -160,6 +161,14 @@ export default {
             return { candidates: 0, deleted: 0 }
           })
         : Promise.resolve({ candidates: 0, deleted: 0 })
+      // An Office backup is a copy under `office-backup/`: the metadata and snapshots in one JSON, the
+      // assets beside it. Once a day is enough for data that only changes when someone edits.
+      const officeBackupTick = new Date(event.scheduledTime).getUTCHours() === 3 && new Date(event.scheduledTime).getUTCMinutes() === 0
+        ? sweepOfficeBackups(env, event.scheduledTime).catch((error) => {
+            console.warn('[inkstone] office backup sweep failed:', (error as Error).message)
+            return []
+          })
+        : Promise.resolve([])
       const projectRetentionTick = new Date(event.scheduledTime).getUTCMinutes() === 0
         ? pruneProjectActivity(env, event.scheduledTime).catch((error) => {
             console.warn('[inkstone] project activity retention failed:', (error as Error).message)
@@ -188,7 +197,7 @@ export default {
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectWebhookTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick, officeAssetTick])
+        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectWebhookTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick, officeAssetTick, officeBackupTick])
         return
       }
       const drains: Promise<unknown>[] = [

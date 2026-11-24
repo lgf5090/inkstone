@@ -25,6 +25,7 @@ import type { AppBindings, Env } from '../env'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { officeBytesExceeded } from '@shared/office/quota'
+import { writeOfficeBackup } from '../office/backup'
 import { isValidId } from '../lib/id'
 import { readBytesWithinLimit, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
@@ -234,6 +235,12 @@ function toOfficeAsset(row: OfficeAssetRow): OfficeAsset {
 }
 
 // ------------------------------------------------------------- snapshots
+
+officeContentRoutes.post('/backup', async (c) => {
+  requireOfficeBucket(c.env)
+  const result = await writeOfficeBackup(c.env, c.get('userId'), Date.now())
+  return c.json({ backup: result })
+})
 
 officeContentRoutes.get('/usage', async (c) => {
   const s = store(c)
