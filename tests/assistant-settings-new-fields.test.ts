@@ -42,4 +42,11 @@ describe('new assistant settings fields', () => {
     expect(normalizeAssistantSettings({ titlePrompt: '' }).titlePrompt).toBe('')
     expect(normalizeAssistantSettings({ titlePrompt: 'x'.repeat(9_000) }).titlePrompt).toHaveLength(4_000)
   })
+
+  it('defaults unattended office writes to off and only accepts an explicit true', () => {
+    expect(DEFAULT_ASSISTANT_SETTINGS.officeUnattendedApply).toBe(false)
+    expect(normalizeAssistantSettings({}).officeUnattendedApply).toBe(false)
+    expect(normalizeAssistantSettings({ officeUnattendedApply: 'yes' }).officeUnattendedApply).toBe(false)
+    expect(normalizeAssistantSettings({ officeUnattendedApply: true }).officeUnattendedApply).toBe(true)
+  })
 })

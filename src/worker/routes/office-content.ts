@@ -15,18 +15,18 @@ import {
   OFFICE_LIMITS,
   isOfficeAssetId,
   officeAssetKey,
-  officeSnapshotKey,
   officeSnapshotLimit,
   type OfficeFileType,
 } from '@shared/office/constants'
 import type { OfficeAsset, OfficeSnapshot } from '@shared/office/model'
 import { utf8ByteLength } from '@shared/text-utils'
-import type { AppBindings, Env } from '../env'
+import type { AppBindings } from '../env'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { officeBytesExceeded } from '@shared/office/quota'
 import { writeOfficeBackup } from '../office/backup'
-import { applyPlanToSheetsSnapshot } from '../office/plan-apply'
+import { applyPlanToStoredFile } from '../office/apply-plan-file'
+import { writeSnapshot } from '../office/snapshot-write'
 import { validateOfficeEditPlan } from '@shared/office/ai'
 import { isValidId } from '../lib/id'
 import { JSON_BODY_LIMITS, readBytesWithinLimit, readJson } from '../lib/request'
@@ -35,17 +35,12 @@ import {
   OfficeStore,
   toOfficeVersionSummary,
   type OfficeAssetRow,
-  type OfficeFileRow,
 } from '../office/store'
 import {
   OFFICE_ASSET_CACHE_CONTROL,
-  deleteOfficeObjects,
-  discardOfficeObjects,
   isOfficeAssetNameAllowed,
   officeAssetDisposition,
-  officeSnapshotExists,
   putOfficeAsset,
-  putOfficeSnapshot,
   readOfficeAsset,
   readOfficeSnapshot,
   requireOfficeBucket,
@@ -146,86 +141,6 @@ function parsePdfSnapshotEnvelope(text: string): { baseRev: number; snapshotText
   return { baseRev, snapshotText }
 }
 
-/**
- * Move the file pointer to a freshly written revision.
- *
- * The R2 object is written first so the conditional update never publishes a key that does not
- * exist. A lost race (or a file deleted underneath) removes the orphan and answers 409/404.
- */
-async function writeSnapshot(
-  c: Ctx,
-  s: OfficeStore,
-  file: OfficeFileRow,
-  baseRev: number,
-  text: string,
-  size: number,
-): Promise<{ rev: number; size: number; updatedAt: number }> {
-  const rev = baseRev + 1
-  const key = officeSnapshotKey(c.get('userId'), file.id, rev)
-  // A revision object is immutable. If this one already exists the file's pointer is at or past
-  // it, so this write lost the race before it began: refuse instead of overwriting a kept version.
-  if (await officeSnapshotExists(c.env, key)) {
-    const current = await s.fileRow(file.id)
-    if (current && current.rev >= rev) {
-      throw new ApiError(
-        409,
-        'conflict',
-        'The file was changed elsewhere. Reload and try again',
-        { currentRev: current.rev },
-      )
-    }
-  }
-  const contentHash = await sha256Hex(text)
-  await putOfficeSnapshot(c.env, key, text)
-  const now = Date.now()
-  const result = await s.saveSnapshot({
-    fileId: file.id,
-    baseRev,
-    rev,
-    snapshotKey: key,
-    size,
-    contentHash,
-    now,
-  })
-  if (!result.applied) {
-    const current = await s.fileRow(file.id)
-    // The object this write created is only garbage when nothing points at it; a concurrent
-    // winner that committed the same revision keeps its object.
-    if (!current || current.deleted_at !== null) {
-      await discardOfficeObjects(c.env, [key])
-      throw ApiError.notFound('File not found')
-    }
-    if (current.snapshot_key !== key) await discardOfficeObjects(c.env, [key])
-    throw new ApiError(
-      409,
-      'conflict',
-      'The file was changed elsewhere. Reload and try again',
-      { currentRev: current.rev },
-    )
-  }
-  await trimVersions(c.env, s, file.id)
-  return { rev, size, updatedAt: now }
-}
-
-/**
- * Drop revisions past the per-file cap.
- *
- * Objects are deleted before their rows: a deleted object with a surviving row is a listed version
- * that cannot open, while a surviving object with no row is unreachable garbage. When R2 refuses,
- * the rows are kept and the next save retries the trim.
- */
-async function trimVersions(env: Env, s: OfficeStore, fileId: string): Promise<void> {
-  const keys = await s.versionKeysBeyond(fileId, OFFICE_LIMITS.versionsPerFile)
-  if (!keys.length) return
-  try {
-    await deleteOfficeObjects(env, keys)
-  } catch (error) {
-    console.warn('[inkstone] Office version trim could not delete old objects; rows kept:', error)
-    return
-  }
-  await s.deleteVersionsBeyond(fileId, OFFICE_LIMITS.versionsPerFile)
-}
-
 function toOfficeAsset(row: OfficeAssetRow): OfficeAsset {
   return {
     id: row.id,
@@ -255,22 +170,14 @@ officeContentRoutes.post('/files/:id/apply-plan', async (c) => {
   const file = await s.fileRow(fileIdParam(c))
   if (!file) throw ApiError.notFound('File not found')
   if (file.deleted_at !== null) throw ApiError.notFound('File not found')
-  if (file.type !== 'sheets') throw ApiError.badRequest('A plan can only be applied without an editor to a sheet')
   requireOfficeBucket(c.env)
 
   const body = await readJson<{ plan?: unknown }>(c, JSON_BODY_LIMITS.small)
-  const validation = validateOfficeEditPlan(body.plan, { type: 'sheets', fileId: file.id })
+  const validation = validateOfficeEditPlan(body.plan, { type: file.type, fileId: file.id })
   if (!validation.ok) throw ApiError.badRequest(validation.error)
-  const plan = validation.plan
 
-  const snapshotKey = file.snapshot_key
-  const object = snapshotKey ? await requireOfficeBucket(c.env).get(snapshotKey) : null
-  const current = object ? JSON.parse(await object.text()) as unknown : { sheets: {}, sheetOrder: [] }
-  const next = applyPlanToSheetsSnapshot(current, plan)
-  const text = JSON.stringify(next)
-  await assertOfficeBytesRoom(s, text.length, file.size)
-  const result = await writeSnapshot(c, s, file, file.rev, text, text.length)
-  return c.json({ ...result, applied: plan.ops.length })
+  const written = await applyPlanToStoredFile(c.env, c.get('userId'), s, file, validation.plan)
+  return c.json({ rev: written.rev, size: written.size, applied: validation.plan.ops.length })
 })
 
 officeContentRoutes.get('/usage', async (c) => {
@@ -324,7 +231,7 @@ officeContentRoutes.put('/files/:id/snapshot', async (c) => {
   const payload = await readSnapshotPayload(c, file.type)
   // The file's own bytes are replaced, not added: a save may grow it, never spend them twice.
   await assertOfficeBytesRoom(s, payload.size, file.size)
-  const result = await writeSnapshot(c, s, file, payload.baseRev, payload.text, payload.size)
+  const result = await writeSnapshot(c.env, c.get('userId'), s, file, payload.baseRev, payload.text, payload.size)
   return c.json(result)
 })
 
@@ -352,7 +259,7 @@ officeContentRoutes.post('/files/:id/versions/:rev/restore', async (c) => {
   if (text === null) throw ApiError.notFound('The version snapshot is missing from storage')
   requireOfficeBucket(c.env)
   const size = utf8ByteLength(text)
-  const result = await writeSnapshot(c, s, file, file.rev, text, size)
+  const result = await writeSnapshot(c.env, c.get('userId'), s, file, file.rev, text, size)
   return c.json({ rev: result.rev })
 })
 

@@ -1205,6 +1205,14 @@ export interface AssistantSettings {
    * row and is never handed to a browser.
    */
   webSearchKeyStored?: boolean
+  /**
+   * Whether a scheduled routine may write an office file without asking.
+   *
+   * The interactive path asks every time unless the reader turned that off in Office settings; a routine
+   * has nobody to ask, so it needs its own answer stored where the worker can read it. Off by default:
+   * an unattended write is a permission, not a convenience.
+   */
+  officeUnattendedApply?: boolean
 }
 
 export const ASSISTANT_START_VIEWS = ['chat', 'memory', 'tasks', 'automations', 'settings'] as const
@@ -1298,6 +1306,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   autoRoute: false,
   webSearchEndpoint: '',
   webSearchEngine: DEFAULT_WEB_SEARCH_ENGINE_ID,
+  officeUnattendedApply: false,
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -1419,6 +1428,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
   const startView = enumValue(raw.startView, ASSISTANT_START_VIEWS, DEFAULT_ASSISTANT_SETTINGS.startView)
   return {
     agentName: stringValue(raw.agentName, DEFAULT_ASSISTANT_SETTINGS.agentName, 60),
+    officeUnattendedApply: raw.officeUnattendedApply === true,
     language: enumValue(raw.language, ['en-US', 'zh-CN'] as const, DEFAULT_ASSISTANT_SETTINGS.language),
     timezone: isValidTimeZone(typeof raw.timezone === 'string' ? raw.timezone : '')
       ? (raw.timezone as string)

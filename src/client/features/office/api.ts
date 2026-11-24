@@ -109,6 +109,14 @@ export const officeApi = {
   createFile: (body: { type: OfficeFileType; title: string; folderId?: string | null }) =>
     request<{ file: OfficeFileSummary }>('/api/office/files', { method: 'POST', body }),
 
+  /**
+   * Copies the reader's "apply without asking" decision into the account settings.
+   *
+   * The interactive path reads this browser's storage; a scheduled routine runs in the worker and can
+   * only see the stored account value, so one switch has to reach both.
+   */
+  setUnattendedApply: (value: boolean) =>
+    request<{ settings: unknown }>('/api/assistant/settings', { method: 'PATCH', body: { officeUnattendedApply: value } }),
   usage: (signal?: AbortSignal) =>
     request<{ usage: { files: number; bytes: number }; limits: { files: number; bytes: number } }>('/api/office/usage', { signal }),
   getFile: (id: string, signal?: AbortSignal) =>

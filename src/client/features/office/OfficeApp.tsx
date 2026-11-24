@@ -376,6 +376,14 @@ export function OfficeApp() {
   const saveSettings = useCallback((next: Partial<OfficePrefs>) => {
     const rebuild = (next.build !== undefined && next.build !== prefs.build)
       || (next.license !== undefined && next.license !== prefs.license)
+    // The same decision governs both paths: asking here, and writing unattended in a scheduled routine.
+    // The routine runs in the worker, which cannot read this browser's storage, so the answer is copied
+    // to the account settings as well.
+    if (next.autoApplyPlans !== undefined && next.autoApplyPlans !== prefs.autoApplyPlans) {
+      void officeApi.setUnattendedApply(next.autoApplyPlans).catch((cause: unknown) => {
+        console.warn('[office] unattended-apply setting could not be saved', cause)
+      })
+    }
     savePrefs(next)
     if (rebuild) {
       // Registration happens once per editor mount; a reload is the honest way to apply a new set.

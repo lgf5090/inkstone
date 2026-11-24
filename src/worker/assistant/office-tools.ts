@@ -15,6 +15,8 @@ import {
 import type { OfficeFileSummary } from '@shared/office/model'
 import { OFFICE_AI_OP_SPEC, extractOfficeText, validateOfficeEditPlan } from '@shared/office/ai'
 import { newId } from '../lib/id'
+import { OfficeStore } from '../office/store'
+import { applyPlanToStoredFile } from '../office/apply-plan-file'
 import { tool, ToolError } from './tool-kit'
 import type { ToolContext, ToolDefinition } from './tools'
 
@@ -382,8 +384,24 @@ export const OFFICE_TOOLS: ToolDefinition[] = [
         { type: row.type, fileId: row.id },
       )
       if (!validation.ok) throw new ToolError(validation.error)
+      const summary = { summary: validation.plan.summary, operations: validation.plan.ops.length }
+      if (ctx.mode === 'scheduled') {
+        // A routine has nobody to ask, so the account's standing answer decides. Off means the plan is
+        // described and dropped: an unattended write is a permission this account has to grant first.
+        if (ctx.settings.officeUnattendedApply !== true) {
+          return { result: { ...summary, applied: false, reason: 'unattended writes are off for this account' } }
+        }
+        if (row.type !== 'sheets') {
+          return { result: { ...summary, applied: false, reason: 'only sheets can be written without an editor' } }
+        }
+        const officeStore = new OfficeStore(ctx.env.DB, ctx.store.userId)
+        const fileRow = await officeStore.fileRow(row.id)
+        if (!fileRow) throw new ToolError('No office file matches that id.')
+        const written = await applyPlanToStoredFile(ctx.env, ctx.store.userId, officeStore, fileRow, validation.plan)
+        return { result: { ...summary, applied: true, rev: written.rev } }
+      }
       return {
-        result: { summary: validation.plan.summary, operations: validation.plan.ops.length },
+        result: summary,
         effect: {
           kind: 'office.apply-plan',
           fileId: row.id,

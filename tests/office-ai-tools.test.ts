@@ -124,4 +124,68 @@ describe('office assistant tools', () => {
     const row = sqlite.prepare(`SELECT rev FROM office_file WHERE user_id = ? AND id = ?`).get(USER, id) as { rev: number }
     expect(row.rev).toBe(0)
   })
+
+  it('describes a plan and drops it when a routine may not write', async () => {
+    const create = tool('office_create_file')
+    if (!('run' in create)) throw new Error('expected immediate tool')
+    const created = await create.run({ type: 'sheets', title: 'Routine target' }, context()) as { result: { file: { id: string } } }
+
+    const propose = tool('office_propose_edit')
+    if (!('run' in propose)) throw new Error('expected immediate tool')
+    const ctx = { ...context(), mode: 'scheduled' as const }
+    const outcome = await propose.run({
+      fileId: created.result.file.id,
+      type: 'sheets',
+      summary: 'Fill the morning row',
+      ops: [{ kind: 'sheets.set-values', range: 'A1', values: [[7]] }],
+    }, ctx) as { result: { applied: boolean, reason?: string }, effect?: unknown }
+
+    expect(outcome.result.applied).toBe(false)
+    expect(outcome.result.reason).toContain('unattended')
+    expect(outcome.effect).toBeUndefined()
+  })
+
+  it('writes the file itself when the account allowed unattended writes', async () => {
+    const create = tool('office_create_file')
+    if (!('run' in create)) throw new Error('expected immediate tool')
+    const created = await create.run({ type: 'sheets', title: 'Routine target' }, context()) as { result: { file: { id: string } } }
+    await bucket.put(officeSnapshotKey(USER, created.result.file.id, 1), JSON.stringify({
+      sheets: { s1: { name: 'Sheet1', cellData: {} } },
+      sheetOrder: ['s1'],
+    }))
+    sqlite.prepare(`UPDATE office_file SET rev = 1, snapshot_key = ?3 WHERE user_id = ?1 AND id = ?2`)
+      .run(USER, created.result.file.id, officeSnapshotKey(USER, created.result.file.id, 1))
+
+    const propose = tool('office_propose_edit')
+    if (!('run' in propose)) throw new Error('expected immediate tool')
+    const ctx = { ...context(), mode: 'scheduled' as const, settings: { officeUnattendedApply: true } } as unknown as ToolContext
+    const outcome = await propose.run({
+      fileId: created.result.file.id,
+      type: 'sheets',
+      summary: 'Fill the morning row',
+      ops: [{ kind: 'sheets.set-values', range: 'B2', values: [[7]] }],
+    }, ctx) as { result: { applied: boolean, rev?: number }, effect?: unknown }
+
+    expect(outcome.result.applied).toBe(true)
+    expect(outcome.effect).toBeUndefined()
+    const stored = await bucket.get(officeSnapshotKey(USER, created.result.file.id, outcome.result.rev!))
+    expect(await stored!.text()).toContain('"v":7')
+  })
+
+  it('still hands the plan to the editor in a chat turn', async () => {
+    const create = tool('office_create_file')
+    if (!('run' in create)) throw new Error('expected immediate tool')
+    const created = await create.run({ type: 'sheets', title: 'Chat target' }, context()) as { result: { file: { id: string } } }
+
+    const propose = tool('office_propose_edit')
+    if (!('run' in propose)) throw new Error('expected immediate tool')
+    const outcome = await propose.run({
+      fileId: created.result.file.id,
+      type: 'sheets',
+      summary: 'Fill the cell',
+      ops: [{ kind: 'sheets.set-values', range: 'A1', values: [[1]] }],
+    }, context()) as { effect?: { kind: string } }
+
+    expect(outcome.effect?.kind).toBe('office.apply-plan')
+  })
 })
