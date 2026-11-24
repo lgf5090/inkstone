@@ -4,12 +4,14 @@ import { textToEmailHtml } from '@shared/email/format'
 import { t } from '../../lib/i18n'
 import { useThemeDark } from '../../lib/hooks'
 import { useSession } from '../../store/session'
+import { Button } from '../../components/primitives'
 import { sanitizeEmailHtml } from './email-markdown'
 import { rewriteEmailCidSources } from './format'
 
 const MIN_HEIGHT = 96
 const MAX_HEIGHT = 20_000
 const HTML_TAG = /<[a-z][\s\S]*>/i
+const REMOTE_IMAGE_SRC_RE = /<img\b[^>]*\bsrc\s*=\s*["'](?:https?:)?\/\//i
 
 export interface EmailReadingTheme {
   dark: boolean
@@ -109,13 +111,20 @@ function readingStyle(theme: EmailReadingTheme): string {
   ].join('')
 }
 
-export function buildEmailDocument(body: string, attachments: readonly EmailAttachment[], subject: string, theme: EmailReadingTheme): string {
+export function buildEmailDocument(
+  body: string,
+  attachments: readonly EmailAttachment[],
+  subject: string,
+  theme: EmailReadingTheme,
+  options: { loadRemoteImages?: boolean } = {},
+): string {
   const source = HTML_TAG.test(body) ? body : textToEmailHtml(body)
   const content = sanitizeEmailHtml(rewriteEmailCidSources(source, attachments)) || `<p>${t('email.detail.empty_body')}</p>`
+  const imageSources = options.loadRemoteImages ? '* data: blob:' : "'self' data: blob:"
   return [
     '<!doctype html><html><head><meta charset="utf-8">',
     '<meta name="referrer" content="no-referrer">',
-    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * data: blob:; style-src 'unsafe-inline'; script-src 'none'; font-src data:; media-src * data: blob:">`,
+    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${imageSources}; style-src 'unsafe-inline'; script-src 'none'; font-src data:; media-src * data: blob:">`,
     `<title>${escapeHtml(subject)}</title>`,
     `<style>${readingStyle(theme)}</style>`,
     `</head><body><div class="email-reading">${content}</div></body></html>`,
@@ -137,12 +146,21 @@ export function EmailFrame({ body, attachments, subject }: {
 }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const [height, setHeight] = useState(MIN_HEIGHT)
+  const [loadRemoteImages, setLoadRemoteImages] = useState(false)
   const dark = useThemeDark()
   const appearance = useSession((state) => state.settings.appearance)
-  const document = useMemo(
-    () => buildEmailDocument(body, attachments, subject, readingTheme(dark)),
-    [attachments, body, dark, subject, appearance.proseFont, appearance.proseLineHeight, appearance.proseSize, appearance.proseWidth],
+  const hasRemoteImages = useMemo(
+    () => REMOTE_IMAGE_SRC_RE.test(rewriteEmailCidSources(body, attachments)),
+    [attachments, body],
   )
+  const document = useMemo(
+    () => buildEmailDocument(body, attachments, subject, readingTheme(dark), { loadRemoteImages }),
+    [attachments, body, dark, loadRemoteImages, subject, appearance.proseFont, appearance.proseLineHeight, appearance.proseSize, appearance.proseWidth],
+  )
+
+  useEffect(() => {
+    setLoadRemoteImages(false)
+  }, [body, attachments])
 
   useEffect(() => {
     setHeight(MIN_HEIGHT)
@@ -193,14 +211,24 @@ export function EmailFrame({ body, attachments, subject }: {
   }, [document])
 
   return (
-    <iframe
-      ref={frame}
-      title={t('email.a11y.message_body', { subject })}
-      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-      referrerPolicy="no-referrer"
-      srcDoc={document}
-      className="email-frame email-frame-auto"
-      style={{ height }}
-    />
+    <div className="space-y-2">
+      {hasRemoteImages && !loadRemoteImages && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+          <span>{t('email.detail.remote_images_blocked')}</span>
+          <Button size="sm" variant="secondary" onClick={() => setLoadRemoteImages(true)}>
+            {t('email.detail.load_remote_images')}
+          </Button>
+        </div>
+      )}
+      <iframe
+        ref={frame}
+        title={t('email.a11y.message_body', { subject })}
+        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        referrerPolicy="no-referrer"
+        srcDoc={document}
+        className="email-frame email-frame-auto"
+        style={{ height }}
+      />
+    </div>
   )
 }

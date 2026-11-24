@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { createElement } from 'react'
+import { act, createElement } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { EmailAttachment } from '@shared/email/model'
 import { renderElement, type RenderedElement } from '../../src/client/lib/test-render'
@@ -62,6 +62,20 @@ describe('the email reading frame', () => {
     const doc = documentOf()
     expect(doc).toContain('color-scheme:dark')
     expect(doc).toContain('background:#1b1d1f')
+  })
+
+  it('blocks remote images until the reader explicitly loads them', () => {
+    view = renderElement(createElement(EmailFrame, {
+      body: '<img src="https://images.example.com/pixel.png" alt="pixel">',
+      attachments: [],
+      subject: 'Remote image',
+    }))
+    expect(documentOf()).toContain("img-src 'self' data: blob:")
+    expect(documentOf()).not.toContain('img-src *')
+    const button = view.container.querySelector('button')
+    expect(button).not.toBeNull()
+    act(() => { button!.click() })
+    expect(documentOf()).toContain('img-src * data: blob:')
   })
 
   it('rewrites cid images to the attachment URL', () => {

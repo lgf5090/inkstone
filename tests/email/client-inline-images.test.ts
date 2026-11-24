@@ -70,6 +70,18 @@ describe('cid image rewriting', () => {
     expect(sanitized).toContain('https://images.example.com/photo.png')
   })
 
+  it('keeps only color styles and forces safe external links', () => {
+    const sanitized = sanitizeEmailHtml(
+      '<span style="position:fixed;inset:0">overlay</span>'
+      + '<span style="color:#123456">colored</span>'
+      + '<a href="https://example.com">external</a>',
+    )
+    expect(sanitized).not.toContain('position:fixed')
+    expect(sanitized).toContain('color:#123456')
+    expect(sanitized).toContain('target="_blank"')
+    expect(sanitized).toContain('rel="noopener noreferrer"')
+  })
+
   it('leaves markup untouched when no attachment carries a content id', () => {
     const html = '<img src="cid:photo-1">'
     expect(rewriteEmailCidSources(html, [attachment({ contentId: null })])).toBe(html)

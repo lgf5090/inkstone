@@ -4,6 +4,7 @@ import type { EmailMessage } from '@shared/email/model'
 import { Badge, Button } from '../../components/primitives'
 import { t } from '../../lib/i18n'
 import { AttachmentList } from './AttachmentList'
+import { EmailAuthenticationBadge } from './EmailAuthenticationBadge'
 import { EmailFrame } from './EmailFrame'
 import { emailMarkdownSource } from './markdown-reading'
 import { senderLabel, messageFullDate, messageSnippet } from './format'
@@ -39,6 +40,7 @@ export function ThreadMessage({ message, expanded, onToggle, busy = false, markd
               </span>
               {message.folderId === 'draft' && <Badge tone="accent">{t('email.list.draft')}</Badge>}
               {message.deliveryStatus === 'failed' && <Badge tone="danger">{t('email.list.send_failed')}</Badge>}
+              <EmailAuthenticationBadge headers={message.rawHeaders} />
               <span className="ml-auto shrink-0 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">
                 {messageFullDate(message.date)}
               </span>

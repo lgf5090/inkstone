@@ -8,9 +8,18 @@ const COLOR_STYLE_TAGS = new Set(['FONT', 'MARK', 'SPAN', 'U', 'SUP', 'SUB'])
 const purify = DOMPurify(window)
 
 purify.addHook('uponSanitizeAttribute', (node, data) => {
-  if (data.attrName === 'style' && COLOR_STYLE_TAGS.has(node.nodeName) && COLOR_ONLY_STYLE.test(data.attrValue)) {
+  if (data.attrName !== 'style') return
+  if (COLOR_STYLE_TAGS.has(node.nodeName) && COLOR_ONLY_STYLE.test(data.attrValue)) {
     data.forceKeepAttr = true
+    return
   }
+  data.keepAttr = false
+})
+
+purify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.nodeName !== 'A') return
+  node.setAttribute('target', '_blank')
+  node.setAttribute('rel', 'noopener noreferrer')
 })
 
 const EMAIL_PURIFY_CONFIG = {
