@@ -7,7 +7,7 @@ import type { EmailAccount, EmailFolder, EmailListResponse, EmailMailboxStats, E
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
 import { CredentialVault } from '../../src/worker/durable/credential-vault'
 import { claimAutoDraftJobs, createEmailAccount, finishAutoDraftJob, queueAutoDraftJob } from '../../src/worker/email/account-store'
-import { applyMailboxMigrations } from '../../src/worker/email/mailbox-schema'
+import { applyMailboxMigrations, type SqlExec } from '../../src/worker/email/mailbox-schema'
 import { MailboxStore, type EmailData } from '../../src/worker/email/mailbox-store'
 import type { AppBindings, Env } from '../../src/worker/env'
 import { errorResponse } from '../../src/worker/lib/errors'
@@ -165,12 +165,30 @@ function mailboxNamespace(store: MailboxStore): DurableObjectNamespace {
   } as DurableObjectNamespace
 }
 
+function platformLimitedSql(sqlite: DatabaseSync): SqlExec {
+  const base = makeSqlExec(sqlite)
+  return {
+    exec<T = Record<string, unknown>>(query: string, ...bindings: unknown[]): Iterable<T> {
+      if (bindings.length > 100) throw new Error('SQLite accepts at most 100 bind parameters')
+      if (/\bLIKE\b/i.test(query)) {
+        for (const binding of bindings) {
+          if (typeof binding !== 'string' || !binding.startsWith('%') || !binding.endsWith('%')) continue
+          if (new TextEncoder().encode(binding).byteLength > 50) {
+            throw new Error('SQLite LIKE patterns are limited to 50 UTF-8 bytes')
+          }
+        }
+      }
+      return base.exec<T>(query, ...bindings)
+    },
+  }
+}
+
 beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   db = makeD1(sqlite)
-  const sql = makeSqlExec(sqlite)
+  const sql = platformLimitedSql(sqlite)
   applyMailboxMigrations(sql)
   store = new MailboxStore(sql)
   bucket = testR2Bucket()
@@ -1012,6 +1030,17 @@ describe('email batch actions', () => {
     expect(await json<{ updated: number }>(trashed)).toEqual({ updated: 0 })
   })
 
+  it('updates all 100 selected messages without exceeding SQLite parameter limits', async () => {
+    const ids = Array.from({ length: 100 }, () => newId())
+    for (const id of ids) seedMessage(id)
+
+    const response = await call('POST', `/accounts/${accountId}/emails/batch`, { ids, action: 'read' })
+
+    expect(response.status).toBe(200)
+    expect(await json<{ updated: number }>(response)).toEqual({ updated: 100 })
+    expect(count('SELECT COUNT(*) AS n FROM email_messages WHERE read = 1')).toBe(100)
+  })
+
   it('validates ids, actions, limits and target folders', async () => {
     const messageId = newId()
     seedMessage(messageId)
@@ -1142,6 +1171,35 @@ describe('email threads and search', () => {
     )
     expect(filtered.emails.map((email) => email.id)).toEqual([flagged])
     expect(filtered.totalCount).toBe(1)
+  })
+
+  it('returns empty results for overlong LIKE terms and accepts an exact 50-byte pattern', async () => {
+    const tooLong = 'é'.repeat(25)
+    const tooLongId = newId()
+    seedMessage(tooLongId, {
+      subject: tooLong,
+      sender: tooLong,
+      recipient: tooLong,
+      cc: tooLong,
+      bcc: tooLong,
+    })
+
+    for (const field of ['query', 'from', 'to', 'subject']) {
+      const params = new URLSearchParams({ [field]: tooLong })
+      const response = await call('GET', `/accounts/${accountId}/search?${params}`)
+      expect(response.status).toBe(200)
+      expect(await json<EmailListResponse>(response)).toEqual({ emails: [], totalCount: 0 })
+    }
+
+    const boundary = 'ñ'.repeat(24)
+    const boundaryId = newId()
+    seedMessage(boundaryId, { subject: boundary })
+    const params = new URLSearchParams({ query: boundary })
+    const response = await call('GET', `/accounts/${accountId}/search?${params}`)
+    expect(response.status).toBe(200)
+    const result = await json<EmailListResponse>(response)
+    expect(result.totalCount).toBe(1)
+    expect(result.emails.map((email) => email.id)).toEqual([boundaryId])
   })
 })
 
